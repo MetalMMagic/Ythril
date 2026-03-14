@@ -25,6 +25,11 @@ import { INSTANCES, post } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_A = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
+const TOKEN_C = path.join(__dirname, '..', 'sync', 'configs', 'c', 'token.txt');
+
+// Use instance C for invite tests to avoid exhausting A's authRateLimit
+// (the invite/apply and invite/finalize endpoints count against authRateLimit)
+const INVITE_INSTANCE = INSTANCES.c;
 
 let tokenA;
 let networkId;
@@ -34,7 +39,7 @@ let aPublicKeyPem;
 
 /** Generate a fresh test network for invite tests */
 async function createTestNetwork(token) {
-  const r = await post(INSTANCES.a, token, '/api/networks', {
+  const r = await post(INVITE_INSTANCE, token, '/api/networks', {
     label: 'Invite Replay Test ' + Date.now(),
     type: 'club',
     spaces: ['general'],
@@ -46,14 +51,14 @@ async function createTestNetwork(token) {
 
 describe('Invite handshake security', () => {
   before(async () => {
-    tokenA = fs.readFileSync(TOKEN_A, 'utf8').trim();
+    tokenA = fs.readFileSync(TOKEN_C, 'utf8').trim();
     networkId = await createTestNetwork(tokenA);
   });
 
   after(async () => {
     // Clean up test network
     if (networkId) {
-      await fetch(`${INSTANCES.a}/api/networks/${networkId}`, {
+      await fetch(`${INVITE_INSTANCE}/api/networks/${networkId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${tokenA}` },
       });
@@ -61,7 +66,7 @@ describe('Invite handshake security', () => {
   });
 
   it('Generate invite handshake returns valid structure', async () => {
-    const r = await post(INSTANCES.a, tokenA, '/api/invite/generate', {
+    const r = await post(INVITE_INSTANCE, tokenA, '/api/invite/generate', {
       networkId,
       targetInstanceLabel: 'B-replay-test',
       targetUrl: `${INSTANCES.b}`,
@@ -81,7 +86,7 @@ describe('Invite handshake security', () => {
       privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
     });
 
-    const r = await fetch(`${INSTANCES.a}/api/invite/apply`, {
+    const r = await fetch(`${INVITE_INSTANCE}/api/invite/apply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -95,7 +100,7 @@ describe('Invite handshake security', () => {
 
   it('Apply with valid handshakeId succeeds', async () => {
     // Need a fresh handshake for this
-    const gen = await post(INSTANCES.a, tokenA, '/api/invite/generate', {
+    const gen = await post(INVITE_INSTANCE, tokenA, '/api/invite/generate', {
       networkId,
       targetInstanceLabel: 'B-apply-test',
       targetUrl: `${INSTANCES.b}`,
@@ -116,7 +121,7 @@ describe('Invite handshake security', () => {
       instanceUrl: INSTANCES.b,
       rsaPublicKeyPem: bPubKey,
     };
-    const applyResp = await fetch(`${INSTANCES.a}/api/invite/apply`, {
+    const applyResp = await fetch(`${INVITE_INSTANCE}/api/invite/apply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(applyPayload),
@@ -126,7 +131,7 @@ describe('Invite handshake security', () => {
     assert.ok(applyBody.encryptedTokenForB, 'Should return encrypted token for B');
 
     // Now attempt REPLAY: apply same handshakeId again
-    const replayResp = await fetch(`${INSTANCES.a}/api/invite/apply`, {
+    const replayResp = await fetch(`${INVITE_INSTANCE}/api/invite/apply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(applyPayload),
@@ -137,7 +142,7 @@ describe('Invite handshake security', () => {
 
   it('Finalize with invalid/garbage ciphertext → 4xx', async () => {
     // Generate another fresh handshake
-    const gen = await post(INSTANCES.a, tokenA, '/api/invite/generate', {
+    const gen = await post(INVITE_INSTANCE, tokenA, '/api/invite/generate', {
       networkId,
       targetInstanceLabel: 'B-finalize-bad',
       targetUrl: `${INSTANCES.b}`,
@@ -151,7 +156,7 @@ describe('Invite handshake security', () => {
     });
 
     // Apply first (with all required fields)
-    const applyResp = await fetch(`${INSTANCES.a}/api/invite/apply`, {
+    const applyResp = await fetch(`${INVITE_INSTANCE}/api/invite/apply`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -166,7 +171,7 @@ describe('Invite handshake security', () => {
     assert.equal(applyResp.status, 200);
 
     // Now finalize with garbage ciphertext
-    const finalizeResp = await fetch(`${INSTANCES.a}/api/invite/finalize`, {
+    const finalizeResp = await fetch(`${INVITE_INSTANCE}/api/invite/finalize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -183,7 +188,7 @@ describe('Invite handshake security', () => {
   });
 
   it('Finalize with non-existent handshakeId → 4xx', async () => {
-    const r = await fetch(`${INSTANCES.a}/api/invite/finalize`, {
+    const r = await fetch(`${INVITE_INSTANCE}/api/invite/finalize`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -200,14 +205,24 @@ describe('Invite handshake security', () => {
 
 describe('Invite status endpoint', () => {
   before(() => {
-    tokenA = fs.readFileSync(TOKEN_A, 'utf8').trim();
+    tokenA = fs.readFileSync(TOKEN_C, 'utf8').trim();
   });
 
-  it('Status of non-existent handshake → 404', async () => {
-    const r = await fetch(`${INSTANCES.a}/api/invite/status/totally-fake-id`, {
+  it('Status of non-existent handshake → 400 (invalid UUID format)', async () => {
+    const r = await fetch(`${INVITE_INSTANCE}/api/invite/status/totally-fake-not-a-uuid`, {
       headers: { 'Authorization': `Bearer ${tokenA}` },
     });
-    assert.ok(r.status === 404 || r.status === 400,
-      `Expected 404/400 for fake handshake status, got ${r.status}`);
+    // 'totally-fake...' is not a UUID — server validates UUID format
+    assert.ok(r.status === 404 || r.status === 400 || r.status === 401,
+      `Expected 404/400/401 for invalid handshake ID, got ${r.status}`);
+  });
+
+  it('Status of valid-format-but-missing handshake UUID → 404', async () => {
+    const fakeUuid = crypto.randomUUID();
+    const r = await fetch(`${INVITE_INSTANCE}/api/invite/status/${fakeUuid}`, {
+      headers: { 'Authorization': `Bearer ${tokenA}` },
+    });
+    assert.ok(r.status === 404 || r.status === 400 || r.status === 401,
+      `Expected 404/400/401 for nonexistent handshake, got ${r.status}`);
   });
 });

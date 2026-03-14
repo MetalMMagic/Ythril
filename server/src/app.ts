@@ -72,6 +72,12 @@ export function createApp() {
   // ── Global error handler ─────────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    // Propagate HTTP-level errors from body-parser (e.g. 413 Payload Too Large)
+    if (err && typeof err === 'object' && 'status' in err && typeof (err as { status: unknown }).status === 'number') {
+      const httpErr = err as { status: number; message: string };
+      res.status(httpErr.status).json({ error: httpErr.message ?? 'Request error' });
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     log.error(`Unhandled error: ${message}`);
     res.status(500).json({ error: 'Internal server error' });

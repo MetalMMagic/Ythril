@@ -22,19 +22,25 @@ import { fileURLToPath } from 'url';
 import { INSTANCES } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
+// Use separate instances to avoid exhausting rate limits:
+// - Instance A for brain/files tests (globalRateLimit 300/min)
+// - Instance B for token tests (authRateLimit 10/min — separate from A and C)
+const TOKEN_FILE_A = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
+const TOKEN_FILE_B = path.join(__dirname, '..', 'sync', 'configs', 'b', 'token.txt');
 
-let token;
+let token;  // brain/files tests use A
+let tokenB; // token-create tests use B
 
 describe('JSON body size limits (application/json endpoints)', () => {
   before(() => {
-    token = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
+    token = fs.readFileSync(TOKEN_FILE_A, 'utf8').trim();
+    tokenB = fs.readFileSync(TOKEN_FILE_B, 'utf8').trim();
   });
 
   it('Token name exceeding 200 chars → 400', async () => {
-    const r = await fetch(`${INSTANCES.a}/api/tokens`, {
+    const r = await fetch(`${INSTANCES.b}/api/tokens`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenB}` },
       body: JSON.stringify({ name: 'A'.repeat(201) }),
     });
     assert.equal(r.status, 400, `Expected 400 for oversized name, got ${r.status}`);
@@ -67,9 +73,9 @@ describe('JSON body size limits (application/json endpoints)', () => {
   it('JSON body exceeding 10MB → 413 (Express json limit is 10mb)', async () => {
     // body-parser limit = 10mb; send an 11MB body
     const body = JSON.stringify({ name: 'x', extra: 'Y'.repeat(11 * 1024 * 1024) });
-    const r = await fetch(`${INSTANCES.a}/api/tokens`, {
+    const r = await fetch(`${INSTANCES.b}/api/tokens`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenB}` },
       body,
     });
     assert.ok(r.status === 413 || r.status === 400,
@@ -82,9 +88,9 @@ describe('JSON body size limits (application/json endpoints)', () => {
     for (let i = 0; i < 100; i++) {
       obj = { nested: obj };
     }
-    const r = await fetch(`${INSTANCES.a}/api/tokens`, {
+    const r = await fetch(`${INSTANCES.b}/api/tokens`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenB}` },
       body: JSON.stringify(obj),
     });
     // Should fail validation — not crash
@@ -92,9 +98,9 @@ describe('JSON body size limits (application/json endpoints)', () => {
   });
 
   it('Array bomb: 1001-element spaces array → 400 (max 1000)', async () => {
-    const r = await fetch(`${INSTANCES.a}/api/tokens`, {
+    const r = await fetch(`${INSTANCES.b}/api/tokens`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenB}` },
       body: JSON.stringify({ name: 'array-bomb', spaces: Array(1001).fill('general') }),
     });
     assert.ok(r.status === 400 || r.status === 413,
@@ -104,7 +110,7 @@ describe('JSON body size limits (application/json endpoints)', () => {
 
 describe('File upload size limit (raw bytes)', () => {
   before(() => {
-    token = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
+    token = fs.readFileSync(TOKEN_FILE_A, 'utf8').trim();
   });
 
   it('Upload a valid small file succeeds (sanity check)', async () => {

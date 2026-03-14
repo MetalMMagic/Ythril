@@ -7,7 +7,7 @@
       "name": "test-token",
       "hash": "$2b$12$yFXQK2EqyPXI7AjIgkOeB.PG.qDqZKzCXCEsjgsT0sEndyxVc1bWS",
       "createdAt": "2026-03-14T20:55:01.997Z",
-      "lastUsed": "2026-03-14T20:55:40.791Z",
+      "lastUsed": "2026-03-14T21:22:04.588Z",
       "expiresAt": null
     },
     {
@@ -23,6 +23,108 @@
       "name": "dem-peer-c",
       "hash": "$2b$12$G.IUJZK/duRJ0DiAv16s8.Jv5YtYj9ctodI.K/2kxCQIEJxKiIiae",
       "createdAt": "2026-03-14T20:55:40.950Z",
+      "lastUsed": null,
+      "expiresAt": null
+    },
+    {
+      "id": "b9f704f6-5346-4395-ae38-9e112fb20ab2",
+      "name": "peer:B-apply-test (handshake)",
+      "hash": "$2b$12$UQaMV2DYQYJ/VlVgixBJAuWxA5KIlF92CDFmWnHCmEU5TcUE/W0pK",
+      "createdAt": "2026-03-14T21:19:15.656Z",
+      "lastUsed": null,
+      "expiresAt": null,
+      "spaces": [
+        "general"
+      ]
+    },
+    {
+      "id": "99b2e119-b0d9-4485-935c-cb3d3e74440a",
+      "name": "peer:B-finalize-bad (handshake)",
+      "hash": "$2b$12$3USq9fvZoPU6EpvQzCCpaespIjRZWtSXXm9Yr/J7zOdbBGEvixA2S",
+      "createdAt": "2026-03-14T21:19:17.528Z",
+      "lastUsed": null,
+      "expiresAt": null,
+      "spaces": [
+        "general"
+      ]
+    },
+    {
+      "id": "b09d8147-cde9-4aad-8cec-a04c4ba7767c",
+      "name": "rl-probe",
+      "hash": "$2b$12$zMFrPN3sQ7XumW4uBMO4VOWt36vM5AVDcm9YhZappRbMEiWuaKgUm",
+      "createdAt": "2026-03-14T21:22:04.524Z",
+      "lastUsed": null,
+      "expiresAt": null
+    },
+    {
+      "id": "6d09da82-98db-4c19-b331-aea530f3b682",
+      "name": "rl-burst-1",
+      "hash": "$2b$12$KKUVT5rdGPBb34cfyIqteeomatIl1DoJDG7K1svkp2LicgKKINTdq",
+      "createdAt": "2026-03-14T21:22:04.731Z",
+      "lastUsed": null,
+      "expiresAt": null
+    },
+    {
+      "id": "a753f1fe-d9e9-4921-ba8d-50a420797d66",
+      "name": "rl-burst-0",
+      "hash": "$2b$12$W8ACEZvFZeR37jgA2tC6wurr19SjSszUeReriilLGedBNvRBPIzxa",
+      "createdAt": "2026-03-14T21:22:04.734Z",
+      "lastUsed": null,
+      "expiresAt": null
+    },
+    {
+      "id": "8c2d8638-2f10-467a-b6c6-d4fed0fae2f4",
+      "name": "rl-burst-3",
+      "hash": "$2b$12$Yvy1AprM/V0/XK6jjnp1DOi.Zij//7ph4siu0ZpS8HDkDWA6rU7GO",
+      "createdAt": "2026-03-14T21:22:04.738Z",
+      "lastUsed": null,
+      "expiresAt": null
+    },
+    {
+      "id": "9da5f6e4-4632-4399-9f73-8fe6ad3f7a87",
+      "name": "rl-burst-2",
+      "hash": "$2b$12$Oo7ZLZ1croVXnCcxIxY/zO9BHshG1bvWJmW4pQBcNsLXZsh0CH.l.",
+      "createdAt": "2026-03-14T21:22:04.742Z",
+      "lastUsed": null,
+      "expiresAt": null
+    },
+    {
+      "id": "364e62ad-9f42-495a-bf2a-2644d0c4c218",
+      "name": "rl-burst-4",
+      "hash": "$2b$12$WXcjUehSUcjvdAlC7uOtPOWGC4WS/iKfGki0nCRYyVOona.XfUbRC",
+      "createdAt": "2026-03-14T21:22:04.909Z",
+      "lastUsed": null,
+      "expiresAt": null
+    },
+    {
+      "id": "d9084ba6-afa7-43c2-a46c-ae6ac800fcd7",
+      "name": "rl-burst-6",
+      "hash": "$2b$12$BjdVLz2qYldq5cJXHj9R1O9wHKOJmJ7iMIJkGtDYgLGcjJnT7D8wi",
+      "createdAt": "2026-03-14T21:22:04.913Z",
+      "lastUsed": null,
+      "expiresAt": null
+    },
+    {
+      "id": "47685883-199d-4886-a599-5db36bd82186",
+      "name": "rl-burst-5",
+      "hash": "$2b$12$y8dOvPzsg/hgEEcz4qqoBuhQDBB1Nqq5pZjG.4dlZIZptMjr/JZI2",
+      "createdAt": "2026-03-14T21:22:04.917Z",
+      "lastUsed": null,
+      "expiresAt": null
+    },
+    {
+      "id": "fa5b9cbe-7b58-4c6c-8c38-b6dd0532bd11",
+      "name": "rl-burst-7",
+      "hash": "$2b$12$IdIxHxquxC19lv9npcG4d.dKuluACXGO49mHIaNyAEPJJlS78x5yG",
+      "createdAt": "2026-03-14T21:22:04.922Z",
+      "lastUsed": null,
+      "expiresAt": null
+    },
+    {
+      "id": "d04851a8-2e96-4b97-8ac5-42342c92508c",
+      "name": "rl-burst-9",
+      "hash": "$2b$12$EGfjqwaStuNZ5ZL3zJ9D4uyoANWoLnHw0j/bqudq.jQVOGcF6iRvO",
+      "createdAt": "2026-03-14T21:22:05.071Z",
       "lastUsed": null,
       "expiresAt": null
     }

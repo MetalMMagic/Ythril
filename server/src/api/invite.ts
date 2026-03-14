@@ -201,6 +201,12 @@ inviteRouter.post('/apply', authRateLimit, async (req, res) => {
   if (!found) { res.status(401).json({ error: 'Invalid or expired handshake ID' }); return; }
   const [sessionKey, session] = found;
 
+  // Prevent replay: each handshake session can only be applied once
+  if (session.peerPublicKeyPem) {
+    res.status(409).json({ error: 'Handshake already applied — each invite link is single-use' });
+    return;
+  }
+
   if (session.networkId !== networkId) {
     res.status(400).json({ error: 'Network ID does not match invite' });
     return;

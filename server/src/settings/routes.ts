@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import { authRateLimit } from '../rate-limit/middleware.js';
 import { getSecrets } from '../config/loader.js';
@@ -132,11 +132,11 @@ const baseStyle = `
 function loginPage(error?: string): string {
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ytrai \u2014 Settings</title><style>${baseStyle}
+<title>ythril \u2014 Settings</title><style>${baseStyle}
 .card{background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:2rem;max-width:360px;margin:4rem auto}
 </style></head><body>
 <div class="card">
-  <h1>ytrai settings</h1>
+  <h1>ythril settings</h1>
   ${error ? `<p class="error">${esc(error)}</p>` : ''}
   <form method="POST" action="/settings/login">
     <label>Password</label>
@@ -194,10 +194,10 @@ function settingsPage(tokens: ReturnType<typeof listTokens>, spaces: {id:string;
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ytrai \u2014 Settings</title><style>${baseStyle}</style></head><body>
+<title>ythril \u2014 Settings</title><style>${baseStyle}</style></head><body>
 <div class="wrap">
   <div class="nav">
-    <h1>ytrai settings</h1>
+    <h1>ythril settings</h1>
     <form method="POST" action="/settings/logout">
       <button class="btn" type="submit" style="background:#333">Sign out</button>
     </form>
@@ -227,7 +227,7 @@ function settingsPage(tokens: ReturnType<typeof listTokens>, spaces: {id:string;
 function newTokenPage(name: string, plaintext: string): string {
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ytrai \u2014 New Token</title><style>${baseStyle}
+<title>ythril \u2014 New Token</title><style>${baseStyle}
 .card{background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:2rem;max-width:520px;margin:3rem auto}
 .copy-row{display:flex;gap:0.5rem;margin:1rem 0;align-items:stretch}
 .copy-row .token-box{flex:1;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

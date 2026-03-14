@@ -1,7 +1,7 @@
-services:
-  ytrai:
+﻿services:
+  ythril:
     build: .
-    container_name: ytrai
+    container_name: ythril
     restart: unless-stopped
     ports:
       - "3200:3200"
@@ -9,25 +9,25 @@ services:
       # Config and secrets — keep outside image, mode 0600 enforced at startup
       - ./config:/config
       # Persistent data: files + MongoDB brain
-      - ytrai-data:/data
+      - ythril-data:/data
     environment:
       CONFIG_PATH: /config/config.json
       DATA_ROOT: /data
-      MONGO_URI: mongodb://ytrai-mongo:27017
+      MONGO_URI: mongodb://ythril-mongo:27017
       NODE_ENV: production
     depends_on:
-      ytrai-mongo:
+      ythril-mongo:
         condition: service_healthy
     networks:
-      - ytrai-internal
+      - ythril-internal
 
-  ytrai-mongo:
+  ythril-mongo:
     # mongodb/mongodb-atlas-local includes mongot — required for $vectorSearch
     image: mongodb/mongodb-atlas-local:latest
-    container_name: ytrai-mongo
+    container_name: ythril-mongo
     restart: unless-stopped
     volumes:
-      - ytrai-mongo-data:/data/db
+      - ythril-mongo-data:/data/db
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
       interval: 10s
@@ -35,13 +35,13 @@ services:
       retries: 12
       start_period: 30s
     networks:
-      - ytrai-internal
+      - ythril-internal
 
 volumes:
-  ytrai-data:
-  ytrai-mongo-data:
+  ythril-data:
+  ythril-mongo-data:
 
 networks:
-  ytrai-internal:
+  ythril-internal:
     driver: bridge
     internal: false   # set true to isolate; open for external embedding endpoint access

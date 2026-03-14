@@ -1,4 +1,4 @@
-# ── Stage 1: Build ───────────────────────────────────────────────────────────
+﻿# ── Stage 1: Build ───────────────────────────────────────────────────────────
 FROM node:22-alpine AS builder
 
 # Build tools required for bcrypt native C++ addon
@@ -42,7 +42,7 @@ ENV NODE_ENV=production
 ENV PORT=3200
 ENV CONFIG_PATH=/config/config.json
 ENV DATA_ROOT=/data
-ENV MONGO_URI=mongodb://ytrai-mongo:27017
+ENV MONGO_URI=mongodb://ythril-mongo:27017
 
 EXPOSE 3200
 

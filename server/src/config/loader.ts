@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+﻿import fs from 'node:fs';
 import path from 'node:path';
 import { log } from '../util/log.js';
 import type { Config, SecretsFile } from './types.js';
@@ -101,7 +101,7 @@ export function getEmbeddingConfig() {
 
 export function getMongoUri(): string {
   const cfg = _config;
-  return cfg?.mongo?.uri ?? process.env['MONGO_URI'] ?? 'mongodb://ytrai-mongo:27017';
+  return cfg?.mongo?.uri ?? process.env['MONGO_URI'] ?? 'mongodb://ythril-mongo:27017';
 }
 
 export function getDataRoot(): string {

@@ -1,9 +1,9 @@
-import { MongoClient, type Db, type Collection } from 'mongodb';
+﻿import { MongoClient, type Db, type Collection } from 'mongodb';
 import { getMongoUri } from '../config/loader.js';
 import { log } from '../util/log.js';
 
 let _client: MongoClient | null = null;
-const DB_NAME = 'ytrai';
+const DB_NAME = 'ythril';
 
 export async function connectMongo(): Promise<MongoClient> {
   const uri = getMongoUri();

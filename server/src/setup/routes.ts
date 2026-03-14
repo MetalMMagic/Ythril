@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { randomBytes } from 'crypto';
 import bcrypt from 'bcrypt';
@@ -33,7 +33,7 @@ setupRouter.get('/', authRateLimit, (_req, res) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ytrai — First-Run Setup</title>
+  <title>ythril — First-Run Setup</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #eee; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
@@ -55,7 +55,7 @@ setupRouter.get('/', authRateLimit, (_req, res) => {
 </head>
 <body>
   <div class="card">
-    <h1>ytrai</h1>
+    <h1>ythril</h1>
     <p class="sub">First-run setup — check the server logs for your setup code.</p>
     <form method="POST" action="/setup" id="setupForm">
       <label>Setup code</label>
@@ -221,7 +221,7 @@ function escapeHtml(str: string): string {
 
 function errorPage(message: string): string {
   return `<!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"><title>ytrai — Setup Error</title>
+<html lang="en"><head><meta charset="UTF-8"><title>ythril — Setup Error</title>
 <style>body{font-family:system-ui,sans-serif;background:#0f0f0f;color:#eee;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
 .card{background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:2rem;max-width:420px;width:100%}
 h1{margin:0 0 1rem;font-size:1.2rem;color:#f66}a{color:#6060f0}</style></head>

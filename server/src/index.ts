@@ -1,4 +1,4 @@
-import { createServer } from 'http';
+﻿import { createServer } from 'http';
 import os from 'os';
 import { configExists, loadConfig, loadSecrets } from './config/loader.js';
 import { connectMongo, closeMongo } from './db/mongo.js';
@@ -15,7 +15,7 @@ async function main(): Promise<void> {
   if (isFirstRun) {
     const code = generateSetupCode();
     log.info('──────────────────────────────────────────────');
-    log.info('  ytrai — First-run setup required');
+    log.info('  ythril — First-run setup required');
     log.info(`  Setup code: ${code}`);
     log.info('  Navigate to http://localhost:' + PORT + '/setup');
     log.info('──────────────────────────────────────────────');
@@ -49,7 +49,7 @@ async function main(): Promise<void> {
   const server = createServer(app);
 
   server.listen(PORT, () => {
-    log.info(`ytrai server listening on port ${PORT}`);
+    log.info(`ythril server listening on port ${PORT}`);
     if (isFirstRun) {
       log.info(`Open http://localhost:${PORT}/setup to complete setup`);
     }

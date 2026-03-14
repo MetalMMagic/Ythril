@@ -1,8 +1,8 @@
-/**
+﻿/**
  * Settings UI authentication — password-based session cookie.
  *
  * Flow:
- *   POST /settings/login  { password } → sets HttpOnly cookie `ytrai_settings`
+ *   POST /settings/login  { password } → sets HttpOnly cookie `ythril_settings`
  *   GET  /settings/*      → requireSettingsAuth middleware checks cookie
  *   POST /settings/logout → clears cookie
  *
@@ -15,7 +15,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { getSecrets, getConfig } from '../config/loader.js';
 
-const COOKIE_NAME = 'ytrai_settings';
+const COOKIE_NAME = 'ythril_settings';
 const COOKIE_MAX_AGE = 8 * 60 * 60; // 8 hours in seconds
 
 function makeSessionToken(): string {

@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+﻿import { randomBytes } from 'crypto';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { getConfig, saveConfig } from '../config/loader.js';
@@ -19,9 +19,9 @@ function toBase62(bytes: Buffer): string {
   return out;
 }
 
-/** Generate a new PAT plaintext: `ytrai_<base62(32 random bytes)>` */
+/** Generate a new PAT plaintext: `ythril_<base62(32 random bytes)>` */
 export function generateToken(): string {
-  return `ytrai_${toBase62(randomBytes(32))}`;
+  return `ythril_${toBase62(randomBytes(32))}`;
 }
 
 /** Hash a plaintext token for storage */

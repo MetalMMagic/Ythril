@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import {
@@ -30,7 +30,7 @@ const transports = new Map<string, SSEServerTransport>();
 /** Create a MCP Server instance with all tools bound to the given space */
 function createMcpServer(spaceId: string): Server {
   const server = new Server(
-    { name: 'ytrai', version: '0.1.0' },
+    { name: 'ythril', version: '0.1.0' },
     { capabilities: { tools: {} } },
   );
 
@@ -204,7 +204,7 @@ function createMcpServer(spaceId: string): Server {
       },
       {
         name: 'list_peers',
-        description: 'List all configured peer ytrai instances (for Brain Networks).',
+        description: 'List all configured peer ythril instances (for Brain Networks).',
         inputSchema: { type: 'object', properties: {}, required: [] },
       },
     ],

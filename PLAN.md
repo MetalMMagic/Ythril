@@ -1,4 +1,4 @@
-# Ytrai — Plan
+﻿# Ythril — Plan
 
 **Status:** Draft / Planning  
 **Created:** 2026-03-12
@@ -7,16 +7,16 @@
 
 ## Overview
 
-`ytrai` is a self-contained private data and brain management stack. It runs as a Docker Compose application that any user can host on any machine. It is pluggable into any MCP client (Claude Desktop, VS Code Copilot, any OpenAI-compatible chat — anything that speaks MCP).
+`ythril` is a self-contained private data and brain management stack. It runs as a Docker Compose application that any user can host on any machine. It is pluggable into any MCP client (Claude Desktop, VS Code Copilot, any OpenAI-compatible chat — anything that speaks MCP).
 
 **Design goals:**
 - Zero platform dependencies — no identity provider, no cluster, no platform-specific knowledge required to run
 - Pluggable into any MCP client that speaks HTTP+SSE
 - Complete private data management: brain (memory/entity graph), files, and structured queries
-- **Multi-device:** connect your server ytrai and your laptop ytrai → one brain, one fileshare
+- **Multi-device:** connect your server ythril and your laptop ythril → one brain, one fileshare
 - **Collaborative:** deliberately connect with another person → shared brain and fileshare, same mechanism
 - **Spaces:** logically isolated areas within one brain (e.g. health, finance) — each has its own file root, MongoDB collections, and MCP endpoint; data cannot cross space boundaries
-- **Brain networks:** groups of ytrai brains that share specific spaces — gossip-based member discovery, no central coordinator
+- **Brain networks:** groups of ythril brains that share specific spaces — gossip-based member discovery, no central coordinator
 - Self-managed auth, storage quotas, and settings — no server-side admin needed
 - Open-source — no platform-specific knowledge baked in; anyone can self-host
 
@@ -26,8 +26,8 @@
 
 ```yaml
 services:
-  ytrai:
-    image: ghcr.io/ytrai/ytrai:latest
+  ythril:
+    image: ghcr.io/ythril/ythril:latest
     ports: ["3200:3200"]
     volumes:
       - /your/host/path:/data        # ← user edits this one line
@@ -36,17 +36,17 @@ services:
       CONFIG_PATH: /config/config.json
     restart: unless-stopped
 
-  ytrai-mongo:
+  ythril-mongo:
     image: mongo:7.0
     volumes:
-      - ytrai-mongo-data:/data/db
+      - ythril-mongo-data:/data/db
     restart: unless-stopped
 
 volumes:
-  ytrai-mongo-data:
+  ythril-mongo-data:
 ```
 
-`ytrai` is the only externally visible service. `ytrai-mongo` is an implementation detail of `ytrai` — consumers connect to `ytrai`'s MCP and HTTP endpoints, never to MongoDB directly.
+`ythril` is the only externally visible service. `ythril-mongo` is an implementation detail of `ythril` — consumers connect to `ythril`'s MCP and HTTP endpoints, never to MongoDB directly.
 
 ---
 
@@ -63,16 +63,16 @@ DELETE /api/tokens/:id     revoke token (immediate; existing sessions using it a
 ```
 
 - **First-run**: setup UI sets a **settings password** (bcrypt-hashed, stored in `secrets.json`). After setup, tokens are created exclusively via the settings UI, which is authenticated by that password via a session cookie. No token is generated at setup time — `/setup` is unauthenticated; `/settings` is password-protected; all API and MCP endpoints require a PAT Bearer token.
-- **Name**: user-provided label (e.g. "my portal", "VS Code Copilot", "laptop ytrai sync")
+- **Name**: user-provided label (e.g. "my portal", "VS Code Copilot", "laptop ythril sync")
 - **Expiry**: optional ISO 8601 date. Omit = no expiry.
 - **Storage**: array of `{ id, name, hash, createdAt, lastUsed, expiresAt, spaces? }` in `config.json`. `hash` = bcrypt of 32-byte random token. Plaintext never persisted. `spaces` is an optional allowlist of space IDs; omitted = access to all spaces.
-- **Token format**: `ytrai_<base62(32 random bytes)>` — prefix makes them greppable in secrets managers. **Never logged** — `Authorization` header is redacted to `Bearer [redacted]` in all log output before writing.
+- **Token format**: `ythril_<base62(32 random bytes)>` — prefix makes them greppable in secrets managers. **Never logged** — `Authorization` header is redacted to `Bearer [redacted]` in all log output before writing.
 - **Auth header**: `Authorization: Bearer <token>` on all API and MCP requests.
 - **Rate limiting**: token creation and first-run setup endpoints are rate-limited to 10 requests / minute per IP. `/api/notify` is rate-limited to 60 requests / minute per sender `instanceId`. All other authenticated endpoints apply a soft global rate limit (configurable; default 300 req/min per token).
 
 ### First-run setup
 
-No `config.json` → on startup, a one-time **setup code** is generated and printed to stdout: `[ytrai] Setup code: XXXX-XXXX-XXXX` (16 hex chars, random). `GET /` redirects to `/setup`. The setup form requires the user to enter the setup code before submitting — this prevents an attacker who hits the URL first from owning the instance. The setup endpoint becomes 404 after first run; the setup code is discarded from memory immediately after use.
+No `config.json` → on startup, a one-time **setup code** is generated and printed to stdout: `[ythril] Setup code: XXXX-XXXX-XXXX` (16 hex chars, random). `GET /` redirects to `/setup`. The setup form requires the user to enter the setup code before submitting — this prevents an attacker who hits the URL first from owning the instance. The setup endpoint becomes 404 after first run; the setup code is discarded from memory immediately after use.
 
 Setup form fields:
 - Setup code (required, verified server-side)
@@ -85,7 +85,7 @@ On submit: write `config.json` and `secrets.json` (both mode `0600`). No token i
 
 ## Spaces
 
-A **space** is a named, logically isolated container within a single ytrai brain. Each space owns:
+A **space** is a named, logically isolated container within a single ythril brain. Each space owns:
 - a file root at `/data/{spaceId}/` — with a standard set of subdirectories auto-created on space creation
 - MongoDB collections: `{spaceId}_memories`, `{spaceId}_entities`, `{spaceId}_edges`
 - a dedicated MCP endpoint: `/mcp/{spaceId}`
@@ -94,11 +94,11 @@ No file or brain operation can cross space boundaries. A tool call on `/mcp/heal
 
 ### Default space: `general`
 
-The `general` space is created automatically on first run. All tool calls and file operations in a plain instance without additional spaces operate in `general`. Behaviorally, a single-space ytrai is identical to the original design.
+The `general` space is created automatically on first run. All tool calls and file operations in a plain instance without additional spaces operate in `general`. Behaviorally, a single-space ythril is identical to the original design.
 
 ### Standard folder structure
 
-When a space is created, ytrai creates the following under `/data/{spaceId}/`:
+When a space is created, ythril creates the following under `/data/{spaceId}/`:
 
 ```
 {spaceId}/
@@ -114,9 +114,9 @@ Each space is registered as a completely independent MCP server:
 
 | Space | MCP endpoint |
 |-------|--------------|
-| `general` | `http://ytrai:3200/mcp/general` |
-| `health` | `http://ytrai:3200/mcp/health` |
-| `finance` | `http://ytrai:3200/mcp/finance` |
+| `general` | `http://ythril:3200/mcp/general` |
+| `health` | `http://ythril:3200/mcp/health` |
+| `finance` | `http://ythril:3200/mcp/finance` |
 
 The tool names (`remember`, `recall`, `read_file`, etc.) are identical in every space. The space context is determined by which endpoint the client registered — there is no `space` parameter on individual tools. This means: an AI client given only `/mcp/health` has no awareness of, and no access to, any other space.
 
@@ -168,7 +168,7 @@ DELETE /api/spaces/:id          initiate space deletion vote (see below) — onl
 
 - **A-1: Per-space storage quotas** — ✅ DECIDED: `minGiB` (reserved floor) + `flex` weight (proportional share of remaining capacity after all minimums). Effective min on reconfiguration = `max(configuredMin, currentUsage)`. Global `total` remains the hard container.
 - **A-2: Per-space token scoping** — ✅ DECIDED: tokens may carry an optional `spaces` allowlist. A token with no allowlist has access to all spaces (existing behaviour). A token with `"spaces": ["health"]` is rejected on any request targeting a different space. Stored in the token record in `config.json`.
-- **A-3: Cross-space recall** — ✅ DECIDED: both. `recall_global` is a dedicated MCP tool that searches across all spaces the token has access to (read-only; respects token space allowlist). Queries all space indexes **in parallel** (Promise.all), merges results by score, returns top-K overall. Performance implication: N concurrent `$vectorSearch` queries — acceptable for typical space counts (≤5); documented in the UI for large deployments. The `general` space is the fallback write target. **No message broker (e.g. RabbitMQ):** ytrai has zero external dependencies by design; parallel async HTTP/MongoDB calls are sufficient for the expected concurrency; a broker would contradict the self-contained deployment model.
+- **A-3: Cross-space recall** — ✅ DECIDED: both. `recall_global` is a dedicated MCP tool that searches across all spaces the token has access to (read-only; respects token space allowlist). Queries all space indexes **in parallel** (Promise.all), merges results by score, returns top-K overall. Performance implication: N concurrent `$vectorSearch` queries — acceptable for typical space counts (≤5); documented in the UI for large deployments. The `general` space is the fallback write target. **No message broker (e.g. RabbitMQ):** ythril has zero external dependencies by design; parallel async HTTP/MongoDB calls are sufficient for the expected concurrency; a broker would contradict the self-contained deployment model.
 - **A-3a: Name of the fallback space** — ✅ DECIDED: `general`.
 
 ---
@@ -185,7 +185,7 @@ Each space has its own independent MCP endpoint at `/mcp/{spaceId}`. The tools b
 |------|-------|-------------|
 | `remember` | `fact: string`, `entities?: string[]`, `tags?: string[]` | Embed + store memory using the configured embedding model; upsert entities into graph. Stamps `author` and `seq` on every document. |
 | `recall` | `query: string`, `topK?: number` | Embed query → `$vectorSearch` on memories → `$graphLookup` on entity edges → ranked results |
-| `query` | `collection: string`, `filter: object`, `projection?: object`, `limit?: number`, `maxTimeMS?: number` | Read-only structured query against ytrai-mongo user collections; collection allowlist enforced; filter validated against operator whitelist; `maxTimeMS` defaults to 5000 ms to prevent runaway scans. |
+| `query` | `collection: string`, `filter: object`, `projection?: object`, `limit?: number`, `maxTimeMS?: number` | Read-only structured query against ythril-mongo user collections; collection allowlist enforced; filter validated against operator whitelist; `maxTimeMS` defaults to 5000 ms to prevent runaway scans. |
 
 ### File tools
 
@@ -202,7 +202,7 @@ Each space has its own independent MCP endpoint at `/mcp/{spaceId}`. The tools b
 
 ### Embedding model
 
-The embedding model is configured in `config.json` under `"embedding"`. ytrai calls an **OpenAI-compatible `/v1/embeddings` endpoint** — this can be a local model server (e.g. LM Studio, Ollama) or a remote API.
+The embedding model is configured in `config.json` under `"embedding"`. ythril calls an **OpenAI-compatible `/v1/embeddings` endpoint** — this can be a local model server (e.g. LM Studio, Ollama) or a remote API.
 
 ```jsonc
 {
@@ -215,11 +215,11 @@ The embedding model is configured in `config.json` under `"embedding"`. ytrai ca
 }
 ```
 
-**Defaults:** if no embedding config is present, ytrai uses `http://localhost:11434/v1` (Ollama default) with `nomic-embed-text-v1.5` (768 dimensions, cosine). This model runs fully offline on CPU and requires no API key — consistent with the zero-platform-dependency design goal.
+**Defaults:** if no embedding config is present, ythril uses `http://localhost:11434/v1` (Ollama default) with `nomic-embed-text-v1.5` (768 dimensions, cosine). This model runs fully offline on CPU and requires no API key — consistent with the zero-platform-dependency design goal.
 
-**Index creation:** on space creation, ytrai creates a MongoDB `$vectorSearch` index with the configured `dimensions` and `similarity` values. The index name is `{spaceId}_memories_embedding`.
+**Index creation:** on space creation, ythril creates a MongoDB `$vectorSearch` index with the configured `dimensions` and `similarity` values. The index name is `{spaceId}_memories_embedding`.
 
-**Model change:** changing `model` or `dimensions` in config **requires a full re-embedding** of all memories in all spaces. ytrai detects a mismatch between the stored `embedding.model` recorded on the collection vs the configured model and refuses to accept `recall` calls until the user triggers a re-index from Settings → Storage. Re-indexing is a background job; `recall` returns an error during re-indexing.
+**Model change:** changing `model` or `dimensions` in config **requires a full re-embedding** of all memories in all spaces. ythril detects a mismatch between the stored `embedding.model` recorded on the collection vs the configured model and refuses to accept `recall` calls until the user triggers a re-index from Settings → Storage. Re-indexing is a background job; `recall` returns an error during re-indexing.
 
 ### Edge schema
 
@@ -315,7 +315,7 @@ GET    /api/brain/stats           Count memories, entities, edges; index status
 
 Available at `/settings`. Sections:
 
-**Tech stack:** Angular. Ytrai components are standalone (no NgModule).
+**Tech stack:** Angular. Ythril components are standalone (no NgModule).
 
 ### 1. Tokens
 - Table: name, created, last used, expiry, revoke button
@@ -337,10 +337,10 @@ Available at `/settings`. Sections:
 - Conflict badge in nav (also visible from Files page) showing count of unresolved conflicts → links to `/conflicts`
 
 ### 4. About
-- Instance label, ytrai version, uptime
-- ytrai-mongo version
+- Instance label, ythril version, uptime
+- ythril-mongo version
 - Disk info
-- Log viewer (last N lines of ytrai stdout)
+- Log viewer (last N lines of ythril stdout)
 
 ### 5. Spaces
 - Table: id, label, memory count, file count, disk used, created date, delete button
@@ -357,7 +357,7 @@ Available at `/settings`. Sections:
 
 ## Multi-Instance Sync
 
-All syncing between ytrai instances happens through **networks** (see [Brain Networks](#brain-networks) below). There is no separate "peer" concept — one person with multiple devices, two people collaborating, a tree-shaped organisation — all of these are modelled as networks of the appropriate type.
+All syncing between ythril instances happens through **networks** (see [Brain Networks](#brain-networks) below). There is no separate "peer" concept — one person with multiple devices, two people collaborating, a tree-shaped organisation — all of these are modelled as networks of the appropriate type.
 
 When two instances are connected, data is merged into one shared space. There is no per-origin filtering on `recall`; the user controls scope by controlling network membership.
 
@@ -365,7 +365,7 @@ When two instances are connected, data is merged into one shared space. There is
 
 Every memory document and every entity carries:
 ```json
-{ "author": { "instanceId": "<random-uuid-generated-at-first-run>", "instanceLabel": "my server ytrai" } }
+{ "author": { "instanceId": "<random-uuid-generated-at-first-run>", "instanceLabel": "my server ythril" } }
 ```
 This is **provenance only** — displayed in the Brain UI next to each memory, available in `recall` results for context. It is not used as a filter; `recall` searches the whole graph regardless of origin. `instanceId` is a random UUID generated once at first run and stored in `config.json`; it is entirely independent of the instance label. Label is display-only and can be changed without affecting identity.
 
@@ -373,9 +373,9 @@ This is **provenance only** — displayed in the Brain UI next to each memory, a
 
 Two instances may each have an entity named `"Alice"` with different `_id`s. The system does **not** auto-merge them — this is the same situation as mentioning Alice on two different days in a single instance. Semantic search surfaces both if they are relevant; the LLM resolves whether they refer to the same real-world entity. Explicit merge is a user action (future: Brain UI "merge entities" affordance).
 
-### Sync protocol (HTTP, ytrai-to-ytrai)
+### Sync protocol (HTTP, ythril-to-ythril)
 
-ytrai authenticates **outbound** to a peer using the peer's token. All outbound connections to peer URLs enforce strict TLS certificate validation by default. A per-peer `skipTlsVerify: true` flag may be set in `secrets.json` for private-CA or self-signed setups, but the UI displays a security warning on any peer with this enabled and it must never be the default. (given to ytrai by the peer owner when registering the peer) is stored in a separate `secrets.json` file, which is:
+ythril authenticates **outbound** to a peer using the peer's token. All outbound connections to peer URLs enforce strict TLS certificate validation by default. A per-peer `skipTlsVerify: true` flag may be set in `secrets.json` for private-CA or self-signed setups, but the UI displays a security warning on any peer with this enabled and it must never be the default. (given to ythril by the peer owner when registering the peer) is stored in a separate `secrets.json` file, which is:
 - Never written to `config.json`
 - Created with mode `0600` at first write
 - Excluded from any export, backup, or debug-info endpoints
@@ -385,12 +385,12 @@ The member record in `config.json` stores only `tokenHash` (for inbound validati
 ```jsonc
 {
   "peerTokens": {
-    "<instanceId>": "ytrai_..."  // plaintext token for outbound requests to this peer
+    "<instanceId>": "ythril_..."  // plaintext token for outbound requests to this peer
   }
 }
 ```
 
-ytrai authenticates to its peer using the peer's token, calling the peer's HTTP API:
+ythril authenticates to its peer using the peer's token, calling the peer's HTTP API:
 
 ```
 # File sync
@@ -433,14 +433,14 @@ No data is transferred. Recipient checks for pending votes or topology changes o
 
 - [x] **DECIDED S-1: conflict resolution for files** — On conflict (both instances modified the same file since last sync), the incoming version is renamed `<basename>_<iso-ts>_<instanceName>.<ext>` and kept alongside the local file. No data is silently overwritten. A `/conflicts` UI lists all unresolved conflicts; user chooses: keep local, keep incoming, keep both (with optional rename), or discard incoming. Bulk-resolve with a default strategy also available.
 - [x] **DECIDED S-2: sync scheduling** — Cron expression per peer from v1. Stored in peer config as `{ "schedule": "0 * * * *" }`. Empty/omitted = manual-only. UI exposes a cron input with a human-readable preview (e.g. "every hour") in Settings → Sync peer form.
-- [x] **DECIDED: peer auth for sync direction "Both"** — Each side registers the other independently using its own token. No shared secret. Symmetric sync is simply two independent registrations, each with its own directional config.
+- [x] **DECIDED: peer auth for sync direction "Both"** — Each side registers the other independently using its own token. No shared secret. Symmetric sync is simply two independent registrations, each with its own directional config. Applies to `closed`, `democratic`, and `club` networks only. Braintree members always use `direction: "push"` — data flows parent → child; no reverse registration.
 - [x] **DECIDED S-3: large file handling** — Chunked upload with resume from v1. `POST /api/files/*path` supports `Content-Range` header; server accumulates chunks under a temp path and assembles on receipt of the final chunk. Resume: client re-sends from last acknowledged offset.
 
 ---
 
 ## Hub (multi-brain UI)
 
-When multiple ytrai brains run on the same machine (each on its own port with its own config and MongoDB), a **hub** provides a unified administration UI without a new backend service.
+When multiple ythril brains run on the same machine (each on its own port with its own config and MongoDB), a **hub** provides a unified administration UI without a new backend service.
 
 The hub is a static config file listing known local brains:
 
@@ -464,7 +464,7 @@ If `hub.json` is absent, the UI shows only the current brain (single-brain mode,
 
 ### Data ownership philosophy
 
-Every ytrai instance is sovereign. Its owner is a **true owner** of the data on that instance — this is a physical fact, not a policy. When you accept another instance into a network with you, you accept shared ownership of the data that flows between you. The network structure controls who can join, but it can never control what members do with data on their own machines.
+Every ythril instance is sovereign. Its owner is a **true owner** of the data on that instance — this is a physical fact, not a policy. When you accept another instance into a network with you, you accept shared ownership of the data that flows between you. The network structure controls who can join, but it can never control what members do with data on their own machines.
 
 - **Any member can leave at any time**, unilaterally, without permission. On leaving, a departure message is gossiped to the network; other members stop syncing. The leaver keeps all data they had at the moment of departure.
 - **Off-grid**: a departing member may start their own network from their copy of the data — they become the root of a new tree.
@@ -511,7 +511,7 @@ The voting deadline is configured per network (default: 48 h). There are no push
 ### Invite key
 
 ```
-ytrainetwork_<base62(32 random bytes)>
+ythrilnetwork_<base62(32 random bytes)>
 ```
 
 - One active invite key per network at a time; rotating issues a new key and immediately invalidates the old one
@@ -540,7 +540,14 @@ ytrainetwork_<base62(32 random bytes)>
 }
 ```
 
-For `braintree` networks, each member also carries a `parentInstanceId` to represent the tree structure.
+For `braintree` networks, `direction` is always `"push"` (parent → child). A Braintree member config also carries `parentInstanceId`:
+
+```jsonc
+// Braintree member record (direction is always "push", never "both" or "pull")
+{ "instanceId": "...", "label": "Node A", "url": "https://...", "tokenHash": "...", "direction": "push", "parentInstanceId": "<root-id>", "children": ["<leaf-a1-id>"] }
+```
+
+For all other network types (`closed`, `democratic`, `club`) `direction` is `"both"` — sync is symmetric.
 
 ### Scope
 
@@ -566,11 +573,13 @@ POST /api/sync/networks/:networkId/votes/:roundId
 
 No central coordinator. Membership and votes propagate through the graph within one sync cycle per hop.
 
-**Gossip poisoning protection:** a member record is only accepted as authoritative from the instance it describes. When instance B relays a record claiming to be about instance A, ytrai compares it against the last directly-received record from A. Any field that differs from A's own last-known record (URL, tokenHash, children, direction) is flagged as a conflict and held for manual review rather than silently applied. A member can only update their own record.
+**Gossip poisoning protection:** a member record is only accepted as authoritative from the instance it describes. When instance B relays a record claiming to be about instance A, ythril compares it against the last directly-received record from A. Any field that differs from A's own last-known record (URL, tokenHash, children, direction) is flagged as a conflict and held for manual review rather than silently applied. A member can only update their own record.
 
 ### Braintree topology
 
 In a Braintree network, members form a directed tree rooted at the creator. Each member has a `parentInstanceId`. A new leaf is approved by all ancestors on the path from the inviting node up to the root.
+
+**Data flows parent → child only (push).** A child never pushes data back to its parent. A node only ever receives data that its parent already has — there is no upward propagation. Node A and Node B share only what the Root has already written or received; they have no direct connection to each other. `direction` is always `"push"` for every member in a Braintree network — no member ever has `"both"` or `"pull"`.
 
 ```
   Root (founder)
@@ -609,7 +618,7 @@ Every member record carries a `direction` field:
 `pull` is not supported. The sender always controls data flow. A receiver can never demand data from a sender who doesn't want to send — inverting that would undermine the data ownership model. An aggregator that wants data from multiple sources joins those sources' networks as a regular member (`both`) — it gets the data because the senders push.
 
 - **N-1: Merkle integrity** — ✅ DECIDED: opt-in per network. When enabled (`"merkle": true` in network config), each space maintains a running Merkle root over its memory set; the root is exchanged at sync time and members reject syncs where the remote root diverges from expected. Disabled by default.
-- **N-4: Open network type** — ✅ DECIDED: not implemented, not planned. Rationale: an open network has no join gate, which makes it trivially exploitable — bots can flood the brain with garbage, coordinated actors can manipulate shared memory at scale, and there is no meaningful way to distinguish a legitimate member from an attacker. ytrai's data ownership model is built on explicit bilateral consent at every join; the Open type directly contradicts that foundation. Community forks may implement it, but ytrai will not ship it and will not provide an internal extension point that makes it easy to add.
+- **N-4: Open network type** — ✅ DECIDED: not implemented, not planned. Rationale: an open network has no join gate, which makes it trivially exploitable — bots can flood the brain with garbage, coordinated actors can manipulate shared memory at scale, and there is no meaningful way to distinguish a legitimate member from an attacker. ythril's data ownership model is built on explicit bilateral consent at every join; the Open type directly contradicts that foundation. Community forks may implement it, but ythril will not ship it and will not provide an internal extension point that makes it easy to add.
 - **N-5: Braintree topology verification** — ✅ DECIDED: bidirectional edge ownership. `parentInstanceId` alone (child-declared) is insufficient because push/both routing already requires the parent to maintain an authoritative list of its children. Edges are therefore co-declared: the parent holds `children: [instanceId, ...]` in its member record; the child holds `parentInstanceId`. Gossip propagates both. An edge is valid only when both sides agree. If a child claims a parent that does not list that child, the edge is rejected and flagged as inconsistent; the parent’s record is authoritative. This prevents position forgery without requiring cryptographic keypairs.
 - **N-6: Voting UX without push** — ✅ DECIDED: deadline is configurable by the inviting brain owner; default 48 h; stored on the vote record. Syncs remain scheduled-only — no forced sync is triggered by a pending vote. A separate lightweight notify channel is required (see N-8); without it, a leaf’s vote cannot reach ancestors in a push tree before the deadline.
 - **N-8: Notify channel design** — ✅ DECIDED: `POST /api/notify` requires a valid network-scoped token (the same token used for sync). No data payload — body contains only `{ networkId, instanceId, event: "vote_pending" | "member_departed" }`. Unauthenticated requests are rejected with 401. This prevents external actors from using the notify endpoint to probe network membership or trigger spurious syncs.
@@ -664,8 +673,8 @@ Edit the `volumes:` path to point at your file storage root. Everything else is 
 ```yaml
 # docker-compose.yml
 services:
-  ytrai:
-    image: ghcr.io/ytrai/ytrai:latest
+  ythril:
+    image: ghcr.io/ythril/ythril:latest
     ports: ["3200:3200"]
     volumes:
       - /your/host/path:/data        # ← edit this to your storage root
@@ -674,34 +683,34 @@ services:
       CONFIG_PATH: /config/config.json
     restart: unless-stopped
 
-  ytrai-mongo:
+  ythril-mongo:
     image: mongo:7.0
     volumes:
-      - ytrai-mongo-data:/data/db
+      - ythril-mongo-data:/data/db
     restart: unless-stopped
 
 volumes:
-  ytrai-mongo-data:
+  ythril-mongo-data:
 ```
 
 Once running, complete first-run setup at `http://localhost:3200/setup` (enter the setup code printed to stdout) to generate your first token. Expose the service via a reverse proxy of your choice (nginx, Traefik, Caddy, etc.) with TLS.
 
-**File permissions:** `config.json` and `secrets.json` are created and maintained at mode `0600` (owner read/write only). ytrai will refuse to start if either file is world-readable.
+**File permissions:** `config.json` and `secrets.json` are created and maintained at mode `0600` (owner read/write only). ythril will refuse to start if either file is world-readable.
 
-**TLS:** ytrai does not terminate TLS itself — use a reverse proxy. On startup, ytrai checks whether it is reachable via HTTP (no TLS) on a non-loopback address. If so, it logs a prominent `[WARN] Running without TLS on a non-localhost address. All data including brain content and tokens will be transmitted in plaintext.` warning. To suppress: set `allowInsecurePlaintext: true` in `config.json` (explicit opt-in, not the default).
+**TLS:** ythril does not terminate TLS itself — use a reverse proxy. On startup, ythril checks whether it is reachable via HTTP (no TLS) on a non-loopback address. If so, it logs a prominent `[WARN] Running without TLS on a non-localhost address. All data including brain content and tokens will be transmitted in plaintext.` warning. To suppress: set `allowInsecurePlaintext: true` in `config.json` (explicit opt-in, not the default).
 
 ---
 
 ## MCP Client Integration
 
-ytrai exposes a standard MCP HTTP+SSE endpoint. Register it in any MCP-capable client or portal:
+ythril exposes a standard MCP HTTP+SSE endpoint. Register it in any MCP-capable client or portal:
 
 1. Complete first-run setup → create a token
-2. In your MCP client: add a new server with the ytrai URL and `Authorization: Bearer <token>`
-3. The client discovers ytrai's tools at registration time (`tools/list`) — enable the ones you want
+2. In your MCP client: add a new server with the ythril URL and `Authorization: Bearer <token>`
+3. The client discovers ythril's tools at registration time (`tools/list`) — enable the ones you want
 4. Brain and file tools are now available in chat
 
-ytrai has no special integration requirements — it behaves like any other MCP server.
+ythril has no special integration requirements — it behaves like any other MCP server.
 
 ---
 
@@ -718,8 +727,8 @@ Security controls are cross-cutting and apply across all phases. These are requi
 | SEC-5 | Invite keys at rest | Bcrypt-hashed in `config.json`, identical to PAT handling. Plaintext shown once in UI; never persisted. |
 | SEC-6 | Destructive confirmation | All destructive endpoints accept `{ confirm: true }` in the request **body** only. Query-string confirmation is not accepted. |
 | SEC-7 | Upload size cap | `maxUploadBodyBytes` (default 5 GiB) enforced per chunk request at HTTP layer. No per-file limit — large files are chunked via `Content-Range`. Returns 413 if single chunk exceeds limit. |
-| SEC-8 | File permissions | `config.json` and `secrets.json` created and maintained at mode `0600`. ytrai refuses to start if either file is world-readable. |
-| SEC-9 | TLS warning | ytrai warns loudly on startup if serving on a non-loopback address without TLS. Suppressed only via explicit `allowInsecurePlaintext: true` in config. |
+| SEC-8 | File permissions | `config.json` and `secrets.json` created and maintained at mode `0600`. ythril refuses to start if either file is world-readable. |
+| SEC-9 | TLS warning | ythril warns loudly on startup if serving on a non-loopback address without TLS. Suppressed only via explicit `allowInsecurePlaintext: true` in config. |
 | SEC-10 | Peer TLS validation | Outbound peer connections enforce strict certificate validation by default. Per-peer `skipTlsVerify: true` is available but displayed as a security warning in the UI. |
 | SEC-11 | Gossip poisoning | A member record is only applied as authoritative when received directly from the instance it describes. Relayed records that contradict the last directly-received record are held for manual review. |
 | SEC-12 | Space-scoped endpoints | Every endpoint that returns data (including `/api/conflicts`) filters results to the token's `spaces` allowlist. |
@@ -771,7 +780,7 @@ Security controls are cross-cutting and apply across all phases. These are requi
 ## Project Structure
 
 ```
-ytrai/
+ythril/
 ├── docker-compose.yml
 ├── Dockerfile                    # multi-stage: client build → server build → runtime
 ├── .dockerignore
@@ -901,7 +910,7 @@ ytrai/
 | `zod` | `^4` | 4.3.6 — v4 shipped; use it. |
 | `multer` | `^2` | 2.1.1 — current stable. Still uses DefinitelyTyped (`@types/multer`). |
 
-**No ORM.** MongoDB native driver only — schema is owned by ytrai; no abstraction layer needed.  
+**No ORM.** MongoDB native driver only — schema is owned by ythril; no abstraction layer needed.  
 **No embedding client SDK.** Embedding calls use native `fetch` (Node 22) against the OpenAI-compatible endpoint — zero additional dependency.  
 **No message broker.** Parallel `Promise.all` across `$vectorSearch` is sufficient for `recall_global` at this scale.
 
@@ -973,7 +982,7 @@ npm-debug.log*
 ## Implementation Phases
 
 ### Phase 1 — Core (runnable, MCP-compliant)
-- [ ] Compose stack scaffold (`ytrai` + `ytrai-mongo`)
+- [ ] Compose stack scaffold (`ythril` + `ythril-mongo`)
 - [ ] First-run setup: generate setup code to stdout; setup form collects code + instance label + settings password; `config.json` + `secrets.json` written at `0600`; startup check rejects world-readable files; redirect to `/settings` after setup
 - [ ] Random `instanceId` UUID generated at first run, stored in config
 - [ ] Embedding config: OpenAI-compatible `/v1/embeddings` endpoint; default Ollama `nomic-embed-text-v1.5` 768d cosine

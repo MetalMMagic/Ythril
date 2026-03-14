@@ -1,4 +1,4 @@
-﻿# ythril Network Types
+﻿# Ythril Network Types
 
 This document describes how multiple ythril brains interact with each other through networks. A **brain** is one ythril instance. A brain contains one or more **spaces**. Networks connect brains together to sync specific spaces.
 
@@ -38,9 +38,7 @@ A brain's spaces are isolated from each other. A network is scoped to specific s
 | **Democratic** | ≥ 50% + zero vetoes | ≥ 50% + zero vetoes | Explicit — any member may veto |
 | **Club** | The member who issued the key | The member who proposed removal | None |
 | **Braintree** | All ancestors from inviter to root | All ancestors from target to root | Implicit per ancestor |
-| **Open** | Automatic | — | None |
-
-> **Open** networks are excluded from v1 — included here for completeness only.
+| ~~**Open**~~ | Automatic | — | None — **excluded from v1; not implemented** |
 
 ---
 
@@ -235,13 +233,44 @@ graph TD
     end
 
     subgraph "Aggregator / leech"
-        N1net["Network 1"] -.-> Agg["Brain: Agg"]
-        N2net["Network 2"] -.-> Agg
-        N3net["Network 3"] -.-> Agg
+        Agg["Brain: Agg"] -.->|member of| N1net["Network 1"]
+        Agg -.->|member of| N2net["Network 2"]
+        Agg -.->|member of| N3net["Network 3"]
     end
 ```
 
 The **aggregator** pattern: a single brain joins multiple separate networks as a leaf. It receives data from all of them; `recall` on the aggregator searches across everything locally. No directional config needed — multi-network membership is sufficient.
+
+### Multi-network participation examples
+
+One brain can join several networks at once, each scoped to different spaces.
+
+1. Personal + Team split
+- `research` in a Closed network with your own devices
+- `team-alpha` in a Democratic network with coworkers
+- Result: personal research stays private to your devices while team knowledge stays team-governed
+
+2. Team + Publisher overlay
+- `team-alpha` in a Democratic network
+- `broadcast` in a Braintree network where your brain is a leaf
+- Result: team collaboration continues while your brain also receives one-way parent updates
+
+3. Three-network aggregator
+- `research` from network A
+- `project-x` from network B
+- `archive` from network C
+- Result: one local brain can run global recall across all locally synced spaces without introducing a central broker
+
+```mermaid
+flowchart TD
+    Y[Brain: you]
+    N1[Closed network\nspace: research]
+    N2[Democratic network\nspace: team-alpha]
+    N3[Braintree network\nspace: broadcast]
+    Y ---|member| N1
+    Y ---|member| N2
+    Y -.->|leaf receives push| N3
+```
 
 ---
 

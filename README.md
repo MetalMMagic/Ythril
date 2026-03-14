@@ -1,6 +1,6 @@
 ﻿# Ythril
 
-Local-first memory, file, and context infrastructure for MCP-enabled assistants.
+Memory, file, and context infrastructure for MCP-enabled assistants.
 
 ## What Is This
 
@@ -11,7 +11,7 @@ Each brain combines three things in one place:
 - file management inside isolated spaces
 - MCP tool access for assistants and clients
 
-It works in single-brain mode for personal use, or in networked mode for shared spaces across trusted members. Networking is explicit and policy-driven: each brain decides what spaces to share, with whom, and in which direction, while local ownership remains primary.
+It works in single-brain mode for personal use, or in networked mode for shared spaces across trusted members. Networking is explicit and policy-driven: each brain decides what spaces to share, with whom, and in which direction. Local data ownership is a physical fact — no network governance can delete data from another member's machine.
 
 Think of it as the operational layer between your data, your models, and your day-to-day workflows.
 
@@ -26,15 +26,15 @@ flowchart LR
 
 ## Philosophy
 
-- Local-first by default.
-- Explicit spaces and access control.
-- Clear auditability and deterministic behavior.
-- Networked brains without forcing one central cloud.
+- You own and control your data on your own brain.
+- You decide what to share, by space, per network.
+- Knowledge can be distributed across trusted brains without central lock-in.
+- Governance controls membership. What members do with data on their own machines is not — and cannot be — governed.
 
 ```mermaid
 flowchart TD
-	P1[Local First] --> P2[Ownership]
-	P2 --> P3[Trust]
+	P1[Ownership and Control] --> P2[Selective Sharing]
+	P2 --> P3[Distributed Knowledge]
 	P3 --> P4[Useful AI Workflows]
 ```
 
@@ -70,8 +70,8 @@ sequenceDiagram
 ### Quick Start with Docker
 
 Requirements:
-- Docker Desktop
-- A setup code you control
+- Any Docker host (Docker Desktop is one option)
+- A generated setup code shown at first startup
 
 Run:
 
@@ -79,21 +79,7 @@ Run:
 docker compose up --build
 ```
 
-Then open setup in your browser and complete the initial brain configuration.
-
-### Local Dev
-
-Requirements:
-- Node.js 22+
-- npm
-- MongoDB 7+
-
-Run:
-
-```bash
-npm install
-npm run dev
-```
+Then open setup in your browser, enter the generated setup code, and complete the initial brain configuration.
 
 ## Networks
 
@@ -104,13 +90,24 @@ Ythril supports multiple topologies, from standalone to multi-brain federation p
 - Closed/Democratic/Club networks (symmetric sync)
 - Scoped space sharing per network
 
+Powerful pattern: one brain can participate in multiple networks at the same time, each with different space scopes and governance.
+
+Example:
+- Network A (Closed): sync `research` with your laptop and NAS
+- Network B (Democratic): sync `team-alpha` with your team
+- Network C (Braintree): receive `broadcast` updates from a parent publisher
+
 For full diagrams and behavior notes, see [docs/network-types.md](docs/network-types.md).
 
 ```mermaid
-flowchart LR
-	A[Brain A] --> R[Relay Node]
-	B[Brain B] --> R
-	C[Brain C] --> R
+flowchart TD
+	Y[Your Brain]
+	N1[Closed: Personal Devices\nspaces: research]
+	N2[Democratic: Team Alpha\nspaces: team-alpha]
+	N3[Braintree: Publisher Tree\nspaces: broadcast]
+	Y --- N1
+	Y --- N2
+	Y --- N3
 ```
 
 ## Contribution

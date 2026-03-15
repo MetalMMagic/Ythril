@@ -88,33 +88,6 @@ flowchart TD
 	P3 --> P4[Useful AI Workflows]
 ```
 
-## Examples
-
-### Example 1: Personal Research Brain
-
-1. Create a brain and a space called `research`.
-2. Add notes, docs, and references.
-3. Ask your MCP client to answer with citations from that space.
-
-### Example 2: Team Knowledge Brain
-
-1. Create spaces per team or project.
-2. Issue tokens scoped to specific spaces.
-3. Let assistants query only what each token is allowed to read.
-
-```mermaid
-sequenceDiagram
-	participant User
-	participant Client
-	participant Y as Ythril
-	participant Space
-	User->>Client: Ask question
-	Client->>Y: MCP tool call with token
-	Y->>Space: Query allowed space
-	Y-->>Client: Grounded result
-	Client-->>User: Answer with context
-```
-
 ## Installation
 
 ### Quick Start with Docker
@@ -132,32 +105,28 @@ Then open setup in your browser, enter the generated setup code, and complete th
 
 ## Brain Networks
 
-Ythril supports multiple topologies, from standalone to multi-brain federation patterns.
-
-- Standalone brain
-- Braintree tree (parent → child push only; subnodes can be temporarily or permanently re-parented if an intermediate node goes offline)
-- Closed/Democratic/Club networks (symmetric sync)
-- Scoped space sharing per network
-
-Powerful pattern: one brain can participate in multiple networks at the same time, each with different space scopes and governance.
-
-Example:
-- Network A (Closed): sync `research` with your laptop and NAS
-- Network B (Democratic): sync `team-alpha` with your team
-- Network C (Braintree): receive `broadcast` updates from a parent publisher
-
-For full diagrams and behavior notes, see [docs/network-types.md](docs/network-types.md).
+One brain can participate in multiple networks simultaneously, each scoped to different spaces and governed independently.
 
 ```mermaid
-flowchart TD
+flowchart LR
 	Y[Your Brain]
-	N1[Closed: Personal Devices\nspaces: research]
-	N2[Democratic: Team Alpha\nspaces: team-alpha]
-	N3[Braintree: Publisher Tree\nspaces: broadcast]
-	Y --- N1
-	Y --- N2
-	Y --- N3
+
+	Y <-->|Closed| C1[Personal Devices]
+	Y <-->|Democratic| C2[Team Alpha]
+	Y <-->|Club| C3[Research Group]
+	Y -->|Braintree| C4[Subscriber Tree]
+
+	classDef net fill:#1a1a2e,stroke:#6666aa,color:#d0d0f0
+	class C1,C2,C3,C4 net
 ```
+
+- **Standalone** — single brain, no sync, full local control.
+- **Closed** — symmetric sync between a fixed set of members; unanimous vote required to add or remove anyone.
+- **Democratic** — majority vote governs membership; designed for larger, more open teams.
+- **Club** — the inviting member approves joins unilaterally; lightweight for small trusted groups.
+- **Braintree** — push-only tree from a root publisher down to subscribers; intermediate nodes can be re-parented automatically if they go offline.
+
+For full topology diagrams and governance rules, see [docs/network-types.md](docs/network-types.md).
 
 ## Security
 
@@ -187,43 +156,7 @@ Ythril is designed for production use. Security controls are applied at every la
 
 ### Storage quotas
 
-Ythril enforces storage quotas at write time across the file store and brain (memory) store. Quotas are optional: no `storage` key in `config.json` means unlimited storage.
-
-Enable by adding a `storage` block to `config.json`:
-
-```jsonc
-{
-  "storage": {
-    "total": { "softLimitGiB": 150, "hardLimitGiB": 200 },
-    "files": { "softLimitGiB": 50,  "hardLimitGiB": 100 },
-    "brain": { "softLimitGiB": 5,   "hardLimitGiB": 10  }
-  }
-}
-```
-
-`total` is required to activate quota enforcement. `files` and `brain` are optional sub-limits.
-
-Behavior:
-- **Hard limit breached** — write is rejected with HTTP 507 and `{ "storageExceeded": true }` in the response body. MCP tool calls return `isError: true`.
-- **Soft limit breached** — write succeeds with HTTP 201 and `{ "storageWarning": true }` in the response body. MCP tool calls succeed and append a `⚠️ Storage warning:` notice to the result text.
-
-Usage is measured on every write: recursive byte-sum of `/data/files/` plus MongoDB `dbStats` for brain storage. There is no background cache — values are always current.
-
-`GET /api/spaces` includes a `storage` field with the current usage and configured limits when quota is enabled:
-
-```jsonc
-{
-  "spaces": [...],
-  "storage": {
-    "usageGiB": { "files": 12.4, "brain": 0.8, "total": 13.2 },
-    "limits": {
-      "total": { "softLimitGiB": 150, "hardLimitGiB": 200 },
-      "files": { "softLimitGiB": 50,  "hardLimitGiB": 100 },
-      "brain": { "softLimitGiB": 5,   "hardLimitGiB": 10  }
-    }
-  }
-}
-```
+Optional soft and hard limits can be set per area (`files`, `brain`, `total`) in `config.json`. A soft breach lets the write through with a `storageWarning` flag; a hard breach rejects it with HTTP 507. Usage is measured at write time — no background cache. `GET /api/spaces` reports current usage when quotas are configured.
 
 ### Config hot-reload
 

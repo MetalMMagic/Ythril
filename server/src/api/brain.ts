@@ -11,6 +11,7 @@ import { col } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { needsReindex, clearReindexFlag } from '../spaces/spaces.js';
 import { log } from '../util/log.js';
+import { checkQuota, QuotaError } from '../quota/quota.js';
 import type { MemoryDoc } from '../config/types.js';
 
 export const brainRouter = Router();
@@ -39,6 +40,17 @@ brainRouter.post('/:spaceId/memories', globalRateLimit, requireSpaceAuth, async 
     res.status(400).json({ error: '`fact` must not exceed 50 000 characters' });
     return;
   }
+  // Quota check — reject with 507 if brain hard limit exceeded
+  let quotaResult;
+  try {
+    quotaResult = await checkQuota('brain');
+  } catch (err) {
+    if (err instanceof QuotaError) {
+      res.status(507).json({ error: err.message, storageExceeded: true });
+      return;
+    }
+    throw err;
+  }
   // Attempt embedding; fall back to empty vector if server not configured/reachable
   let embedding: number[] = [];
   let embeddingModel = 'none';
@@ -65,7 +77,9 @@ brainRouter.post('/:spaceId/memories', globalRateLimit, requireSpaceAuth, async 
     embeddingModel,
   };
   await col<MemoryDoc>(`${spaceId}_memories`).insertOne(doc as never);
-  res.status(201).json(doc);
+  const body: Record<string, unknown> = { ...doc };
+  if (quotaResult?.softBreached) body['storageWarning'] = true;
+  res.status(201).json(body);
 });
 
 // GET /api/brain/:spaceId/memories — list memories

@@ -1008,7 +1008,7 @@ npm-debug.log*
 
 ### Phase 3 — Brain UI + Storage Quotas
 - [ ] Brain UI at `/brain`: memory list, entity viewer, bulk delete
-- [ ] Storage quota config + enforcement (soft + hard)
+- [x] Storage quota config + enforcement (soft + hard)
 - [ ] Settings UI: storage section with used/limit display
 
 ### Phase 4 — Sync

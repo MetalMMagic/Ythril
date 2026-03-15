@@ -71,7 +71,6 @@ sequenceDiagram
 
 Requirements:
 - Any Docker host (Docker Desktop is one option)
-- A generated setup code shown at first startup
 
 Run:
 
@@ -81,7 +80,7 @@ docker compose up --build
 
 Then open setup in your browser, enter the generated setup code, and complete the initial brain configuration.
 
-## Networks
+## Brain Networks
 
 Ythril supports multiple topologies, from standalone to multi-brain federation patterns.
 
@@ -136,6 +135,50 @@ Ythril is designed for production use. Security controls are applied at every la
 - Handshake sessions expire after 1 hour; private keys are held in memory only and discarded immediately after `finalize`.
 - `handshakeId` lookups use bcrypt comparison for constant-time equivalence.
 
+### Storage quotas
+
+Ythril enforces storage quotas at write time across the file store and brain (memory) store. Quotas are optional: no `storage` key in `config.json` means unlimited storage.
+
+Enable by adding a `storage` block to `config.json`:
+
+```jsonc
+{
+  "storage": {
+    "total": { "softLimitGiB": 150, "hardLimitGiB": 200 },
+    "files": { "softLimitGiB": 50,  "hardLimitGiB": 100 },
+    "brain": { "softLimitGiB": 5,   "hardLimitGiB": 10  }
+  }
+}
+```
+
+`total` is required to activate quota enforcement. `files` and `brain` are optional sub-limits.
+
+Behavior:
+- **Hard limit breached** — write is rejected with HTTP 507 and `{ "storageExceeded": true }` in the response body. MCP tool calls return `isError: true`.
+- **Soft limit breached** — write succeeds with HTTP 201 and `{ "storageWarning": true }` in the response body. MCP tool calls succeed and append a `⚠️ Storage warning:` notice to the result text.
+
+Usage is measured on every write: recursive byte-sum of `/data/files/` plus MongoDB `dbStats` for brain storage. There is no background cache — values are always current.
+
+`GET /api/spaces` includes a `storage` field with the current usage and configured limits when quota is enabled:
+
+```jsonc
+{
+  "spaces": [...],
+  "storage": {
+    "usageGiB": { "files": 12.4, "brain": 0.8, "total": 13.2 },
+    "limits": {
+      "total": { "softLimitGiB": 150, "hardLimitGiB": 200 },
+      "files": { "softLimitGiB": 50,  "hardLimitGiB": 100 },
+      "brain": { "softLimitGiB": 5,   "hardLimitGiB": 10  }
+    }
+  }
+}
+```
+
+### Config hot-reload
+
+`POST /api/admin/reload-config` re-reads `config.json` from disk and applies the new configuration without a container restart. Requires a Bearer PAT. This endpoint also corrects file permissions to `0600` if they were modified externally (e.g., via a Windows Docker bind mount).
+
 ### Security tests
 
 A dedicated red-team test suite runs against live Docker containers and verifies all security controls. See [`tests/red-team-tests/README.md`](tests/red-team-tests/README.md).
@@ -163,7 +206,8 @@ Cover the full API surface: setup gating, file operations, token lifecycle, spac
 ```sh
 node --test --test-reporter=spec \
   tests/setup.test.js tests/files.test.js tests/auth.test.js \
-  tests/spaces.test.js tests/brain.test.js tests/networks.test.js
+  tests/spaces.test.js tests/brain.test.js tests/networks.test.js \
+  tests/quota.test.js
 ```
 
 ### Red-team tests

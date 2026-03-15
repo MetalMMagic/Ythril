@@ -42,6 +42,24 @@ export function loadConfig(): Config {
   return _config;
 }
 
+/**
+ * Read config.json from disk and re-save it through saveConfig().
+ *
+ * This is the correct "reload" primitive when the file may have been written
+ * by an external process (e.g. the Windows Docker host) that cannot set POSIX
+ * permissions.  saveConfig() fixes permissions via chmodSync(0o600) after the
+ * atomic rename, so the file ends up with the correct mode.
+ *
+ * Unlike loadConfig(), this function does NOT call checkPermissions() first —
+ * it tolerates a temporarily mis-permissioned file and corrects it.
+ */
+export function reloadConfig(): Config {
+  const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+  const parsed = JSON.parse(raw) as Config;
+  saveConfig(parsed); // updates _config and fixes permissions
+  return parsed;
+}
+
 export function getConfig(): Config {
   if (!_config) throw new Error('Config not loaded — call loadConfig() first');
   return _config;

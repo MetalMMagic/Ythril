@@ -13,7 +13,8 @@ import { setupRouter } from './setup/routes.js';
 import { settingsRouter } from './settings/routes.js';
 import { mcpRouter } from './mcp/router.js';
 import { globalRateLimit } from './rate-limit/middleware.js';
-import { configExists } from './config/loader.js';
+import { configExists, reloadConfig } from './config/loader.js';
+import { requireAuth } from './auth/middleware.js';
 import { log } from './util/log.js';
 
 export function createApp() {
@@ -63,6 +64,20 @@ export function createApp() {
 
   // ── MCP endpoints ────────────────────────────────────────────────────────
   app.use('/mcp', mcpRouter);
+
+  // ── Admin: config reload ───────────────────────────────────────────────────────────────
+  // Reload config.json from disk without a container restart.  Useful when the
+  // operator edits config.json directly or when integration tests inject new
+  // settings.  Requires a valid Bearer PAT (same auth as all other API routes).
+  app.post('/api/admin/reload-config', globalRateLimit, requireAuth, (_req, res) => {
+    try {
+      reloadConfig();
+      res.json({ ok: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
 
   // ── 404 handler ──────────────────────────────────────────────────────────
   app.use((_req, res) => {

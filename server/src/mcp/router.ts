@@ -9,6 +9,7 @@ import { requireSpaceAuth } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
+import { checkQuota, QuotaError } from '../quota/quota.js';
 
 // Brain tools
 import { remember, recall, recallGlobal, queryBrain } from '../brain/memory.js';
@@ -224,6 +225,9 @@ function createMcpServer(spaceId: string): Server {
           const tags = Array.isArray(a['tags']) ? (a['tags'] as string[]) : [];
           const entityNames = Array.isArray(a['entities']) ? (a['entities'] as string[]) : [];
 
+          // Quota check — throws QuotaError (caught below) on hard limit
+          const remQuota = await checkQuota('brain');
+
           // Upsert entities and collect their IDs
           const entityIds: string[] = [];
           for (const eName of entityNames) {
@@ -232,13 +236,10 @@ function createMcpServer(spaceId: string): Server {
           }
 
           const mem = await remember(spaceId, fact, entityIds, tags);
+          const remText = `Stored memory (seq ${mem.seq}, ID ${mem._id}).`
+            + (remQuota.softBreached ? `\n⚠️ Storage warning: ${remQuota.warning}` : '');
           return {
-            content: [
-              {
-                type: 'text' as const,
-                text: `Stored memory (seq ${mem.seq}, ID ${mem._id}).`,
-              },
-            ],
+            content: [{ type: 'text' as const, text: remText }],
           };
         }
 
@@ -362,9 +363,13 @@ function createMcpServer(spaceId: string): Server {
           const filePath = String(a['path'] ?? '');
           const content = String(a['content'] ?? '');
           if (!filePath.trim()) throw new Error('path must not be empty');
+          // Quota check — throws QuotaError (caught below) on hard limit
+          const wfQuota = await checkQuota('files');
           const { sha256 } = await writeFile(spaceId, filePath, content);
+          const wfText = `Written (sha256: ${sha256}).`
+            + (wfQuota.softBreached ? `\n⚠️ Storage warning: ${wfQuota.warning}` : '');
           return {
-            content: [{ type: 'text' as const, text: `Written (sha256: ${sha256}).` }],
+            content: [{ type: 'text' as const, text: wfText }],
           };
         }
 

@@ -78,13 +78,17 @@ export async function findMatchingToken(
   return null;
 }
 
-/** Update lastUsed timestamp for a token (best-effort, non-blocking) */
+/** Update lastUsed timestamp for a token (best-effort, non-blocking).
+ *  We update _config in memory only; the value persists to disk with the next
+ *  saveConfig() call triggered by any config-mutating operation (network sync,
+ *  space changes, etc.).  Not writing here avoids racing with concurrent reads
+ *  of the config file (e.g. POST /api/admin/reload-config). */
 export function touchToken(tokenId: string): void {
   const config = getConfig();
   const idx = config.tokens.findIndex(t => t.id === tokenId);
   if (idx < 0) return;
   config.tokens[idx]!.lastUsed = new Date().toISOString();
-  try { saveConfig(config); } catch { /* non-fatal */ }
+  // Intentionally NOT calling saveConfig() here — see comment above.
 }
 
 /** Create a new PAT and return the record + plaintext */

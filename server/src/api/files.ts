@@ -32,8 +32,8 @@ import {
   deleteFile,
   createDir,
   moveFile,
-  checkFilesQuota,
 } from '../files/files.js';
+import { checkQuota, QuotaError } from '../quota/quota.js';
 import { resolveSafePath, spaceRoot } from '../files/sandbox.js';
 
 export const filesRouter = Router();
@@ -203,14 +203,16 @@ filesRouter.post(
         return;
       }
 
-      // Storage quota check
-      const quota = await checkFilesQuota(incomingBytes);
-      if (!quota.allowed) {
-        res.status(507).json({
-          error: 'Insufficient storage. Files hard quota exceeded.',
-          storageExceeded: true,
-        });
-        return;
+      // Storage quota check — rejects with 507 if hard limit exceeded
+      let quotaResult;
+      try {
+        quotaResult = await checkQuota('files');
+      } catch (err) {
+        if (err instanceof QuotaError) {
+          res.status(507).json({ error: err.message, storageExceeded: true });
+          return;
+        }
+        throw err;
       }
 
       if (Buffer.isBuffer(req.body)) {
@@ -222,7 +224,7 @@ filesRouter.post(
       }
 
       const response: { path: string; sha256: string; storageWarning?: boolean } = { path: filePath, sha256 };
-      if (quota.softWarning) response.storageWarning = true;
+      if (quotaResult.softBreached) response.storageWarning = true;
       res.status(201).json(response);
     } catch (err) {
       if (err instanceof RangeError) {

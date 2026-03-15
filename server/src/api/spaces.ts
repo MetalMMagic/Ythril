@@ -3,6 +3,7 @@ import { requireAuth } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets } from '../config/loader.js';
 import { createSpace, removeSpace, slugify } from '../spaces/spaces.js';
+import { measureUsage } from '../quota/quota.js';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { log } from '../util/log.js';
@@ -21,11 +22,22 @@ const DeleteSpaceBody = z.object({
 });
 
 // GET /api/spaces
-spacesRouter.get('/', globalRateLimit, requireAuth, (_req, res) => {
-  const spaces = getConfig().spaces.map(({ id, label, builtIn, folders, minGiB, flex }) => ({
+spacesRouter.get('/', globalRateLimit, requireAuth, async (_req, res) => {
+  const cfg = getConfig();
+  const spaces = cfg.spaces.map(({ id, label, builtIn, folders, minGiB, flex }) => ({
     id, label, builtIn, folders, minGiB, flex,
   }));
-  res.json({ spaces });
+  // Include storage usage summary when quota is configured
+  let storage: { usageGiB?: { files: number; brain: number; total: number }; limits?: typeof cfg.storage } | undefined;
+  if (cfg.storage) {
+    try {
+      const usage = await measureUsage();
+      storage = { usageGiB: usage, limits: cfg.storage };
+    } catch {
+      // Non-fatal: storage summary omitted on measurement error
+    }
+  }
+  res.json({ spaces, ...(storage ? { storage } : {}) });
 });
 
 // POST /api/spaces

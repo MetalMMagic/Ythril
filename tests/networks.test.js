@@ -235,7 +235,7 @@ describe('RSA invite handshake', () => {
   });
 
   it('Full RSA handshake exchanges tokens without plaintext exposure', async () => {
-    const { createPrivateKey, createPublicKey, generateKeyPairSync, privateDecrypt, constants } = await import('node:crypto');
+    const { createPrivateKey, createPublicKey, generateKeyPairSync, privateDecrypt, randomBytes, constants } = await import('node:crypto');
 
     // Step 1: A generates handshake
     const genR = await post(INSTANCES.a, tokenA, '/api/invite/generate', { networkId });
@@ -272,11 +272,10 @@ describe('RSA invite handshake', () => {
     const tokenForB = tokenForBBuf.toString('utf8');
     assert.ok(tokenForB.startsWith('ythril_'), 'Decrypted token should be valid PAT');
 
-    // B creates a token for A and encrypts it with A's public key
-    const tokenForA = (await post(INSTANCES.b,
-      fs.readFileSync(path.join(CONFIGS, 'b', 'token.txt'), 'utf8').trim(),
-      '/api/tokens',
-      { name: 'peer-rsa-handshake-a' })).body.plaintext;
+    // B generates a synthetic peer token for A — avoids requiring instance B to be running.
+    // The finalize endpoint only validates that the decrypted value starts with 'ythril_'
+    // and stores it in secrets.peerTokens; it does not verify the token against any instance.
+    const tokenForA = `ythril_${randomBytes(32).toString('base64url')}`;
 
     const { publicEncrypt } = await import('node:crypto');
     const encryptedTokenForA = publicEncrypt(

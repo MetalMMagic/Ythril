@@ -18,10 +18,28 @@ Think of it as the operational layer between your data, your models, and your da
 ```mermaid
 flowchart LR
 	U[You] --> C[Client or Agent]
-	C --> Y[Ythril Brain]
-	Y --> S[Spaces]
-	Y --> M[MCP Tools]
-	M --> L[LLM]
+	C --> L[LLM]
+	L --> MCP
+
+	subgraph Brain
+		MCP
+
+		subgraph S1[Space]
+			MCP --> Mem1[Memories]
+			MCP --> Files1[Files]
+			Mem1 --> D1[(data)]
+			Files1 --> D2[(data)]
+		end
+
+		subgraph S2[Space]
+			MCP --> Mem2[Memories]
+			MCP --> Files2[Files]
+			Mem2 --> D3[(data)]
+			Files2 --> D4[(data)]
+		end
+	end
+
+	Brain <-.->|optional| OB[Other Brains]
 ```
 
 ## Philosophy
@@ -207,7 +225,7 @@ Cover the full API surface: setup gating, file operations, token lifecycle, spac
 node --test --test-reporter=spec \
   tests/setup.test.js tests/files.test.js tests/auth.test.js \
   tests/spaces.test.js tests/brain.test.js tests/networks.test.js \
-  tests/quota.test.js
+  tests/notify.test.js tests/votes.test.js tests/quota.test.js
 ```
 
 ### Red-team tests

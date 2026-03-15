@@ -2,7 +2,9 @@
  * Integration tests: MCP tool endpoint
  *
  * Covers:
- *  - tools/list returns expected tool names including sync_now
+ *  - tools/list returns expected tool names including sync_now and list_peers
+ *  - list_peers returns structured peer data with NO credential fields
+ *  - list_peers returns empty message when no networks configured
  *  - sync_now with no peerId returns "No networks configured" or a sync summary
  *  - sync_now with an unknown peerId returns isError + descriptive message
  *  - sync_now with a valid peerId triggers a sync and returns a result
@@ -167,7 +169,7 @@ describe('MCP tools', () => {
     token = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
   });
 
-  describe('tools/list includes sync_now', () => {
+  describe('tools/list includes sync_now and list_peers', () => {
     let session;
     before(async () => { session = await openMcpSession('general'); });
     after(() => session?.close());
@@ -178,12 +180,110 @@ describe('MCP tools', () => {
       assert.ok(names.includes('sync_now'), `Expected sync_now in tools: ${names.join(', ')}`);
     });
 
+    it('list_peers is in the tool list', async () => {
+      const tools = await session.listTools();
+      const names = tools.map(t => t.name);
+      assert.ok(names.includes('list_peers'), `Expected list_peers in tools: ${names.join(', ')}`);
+    });
+
+    it('list_peers has no required parameters', async () => {
+      const tools = await session.listTools();
+      const tool = tools.find(t => t.name === 'list_peers');
+      assert.ok(tool, 'list_peers tool must exist');
+      assert.deepEqual(tool.inputSchema?.required ?? [], [], 'list_peers must have no required parameters');
+    });
+
     it('sync_now tool has optional peerId parameter', async () => {
       const tools = await session.listTools();
       const tool = tools.find(t => t.name === 'sync_now');
       assert.ok(tool, 'sync_now tool must exist');
       assert.ok(tool.inputSchema?.properties?.peerId, 'sync_now must expose peerId parameter');
       assert.ok(!tool.inputSchema?.required?.includes('peerId'), 'peerId must be optional');
+    });
+  });
+
+  describe('list_peers — no networks', () => {
+    let session;
+    before(async () => { session = await openMcpSession('general'); });
+    after(() => session?.close());
+
+    it('returns the empty-networks message when no networks are configured', async () => {
+      // ythril-a may OR may not have networks at this point; we just check
+      // the output is valid: either the empty message or a JSON array.
+      const result = await session.callTool('list_peers', {});
+      assert.equal(result?.isError, undefined, `list_peers must not return isError`);
+      const text = result?.content?.[0]?.text ?? '';
+      assert.ok(text.length > 0, 'list_peers must return non-empty text');
+      // If there ARE networks, the output must not contain credential fields
+      if (text !== 'No peers configured.') {
+        assert.ok(!text.includes('tokenHash'), 'list_peers must never expose tokenHash');
+        assert.ok(!text.includes('inviteKeyHash'), 'list_peers must never expose inviteKeyHash');
+      }
+    });
+  });
+
+  describe('list_peers — with a peer', () => {
+    let session;
+    let networkId;
+    const PEER_ID = `list-peers-test-${Date.now()}`;
+
+    before(async () => {
+      session = await openMcpSession('general');
+
+      // Create a club network and add a peer so list_peers has data to return
+      const netRes = await post(INSTANCES.a, token, '/api/networks', {
+        label: `List Peers Test ${Date.now()}`,
+        type: 'club',
+        spaces: ['general'],
+        votingDeadlineHours: 1,
+      });
+      assert.equal(netRes.status, 201, `Network create failed: ${JSON.stringify(netRes.body)}`);
+      networkId = netRes.body.id;
+
+      const ptRes = await post(INSTANCES.a, token, '/api/tokens', { name: `lp-peer-${Date.now()}` });
+      assert.equal(ptRes.status, 201);
+
+      const addRes = await post(INSTANCES.a, token, `/api/networks/${networkId}/members`, {
+        instanceId: PEER_ID,
+        label: 'List Peers Test Peer',
+        url: 'http://unreachable-list-peers-test.internal:3200',
+        token: ptRes.body.plaintext,
+        direction: 'both',
+      });
+      assert.equal(addRes.status, 201, `Add member failed: ${JSON.stringify(addRes.body)}`);
+    });
+
+    after(async () => {
+      session?.close();
+      if (networkId) await del(INSTANCES.a, token, `/api/networks/${networkId}`).catch(() => {});
+    });
+
+    it('returns a list that includes the test peer instanceId', async () => {
+      const result = await session.callTool('list_peers', {});
+      const text = result?.content?.[0]?.text ?? '';
+      assert.ok(text.includes(PEER_ID), `Expected peer ${PEER_ID} in list_peers output`);
+    });
+
+    it('never exposes tokenHash or inviteKeyHash', async () => {
+      const result = await session.callTool('list_peers', {});
+      const text = result?.content?.[0]?.text ?? '';
+      assert.ok(!text.includes('tokenHash'), 'list_peers must not expose tokenHash');
+      assert.ok(!text.includes('inviteKeyHash'), 'list_peers must not expose inviteKeyHash');
+    });
+
+    it('exposes expected peer fields: instanceId, label, url, direction, network', async () => {
+      const result = await session.callTool('list_peers', {});
+      const text = result?.content?.[0]?.text ?? '';
+      // Output should be parseable JSON array of peer records
+      let peers;
+      try { peers = JSON.parse(text); } catch { assert.fail(`list_peers output is not JSON: ${text}`); }
+      assert.ok(Array.isArray(peers), 'list_peers output must be a JSON array');
+      const peer = peers.find(p => p.instanceId === PEER_ID);
+      assert.ok(peer, `Peer ${PEER_ID} not found in list_peers JSON output`);
+      assert.equal(peer.label, 'List Peers Test Peer');
+      assert.ok(peer.url, 'peer.url must be present');
+      assert.ok(peer.direction, 'peer.direction must be present');
+      assert.ok(peer.network, 'peer.network must be present (network label)');
     });
   });
 

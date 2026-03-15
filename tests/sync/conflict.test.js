@@ -8,18 +8,19 @@
  * Run: node --test tests/sync/conflict.test.js
  */
 
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, triggerSync, waitFor } from './helpers.js';
+import { INSTANCES, post, get, del, triggerSync, waitFor } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
 
 let tokenA, tokenB;
 let networkId;
+const injectedMemIds = [];
 
 describe('Conflict detection (concurrent writes)', () => {
   before(async () => {
@@ -75,14 +76,16 @@ describe('Conflict detection (concurrent writes)', () => {
       `Expected 200/201, got ${syncPush.status}`,
     );
 
+    injectedMemIds.push(memId);
     if (syncPush.body.status === 'forked') {
       console.log(`  Fork created: forkId=${syncPush.body.forkId} ✓`);
-      // Verify the fork exists alongside the original
-      const memories = await get(INSTANCES.a, tokenA, '/api/brain/general/memories');
-      const fork = memories.body.memories?.find(m => m._id === syncPush.body.forkId);
-      assert(fork, `Fork memory should exist`);
+      if (syncPush.body.forkId) injectedMemIds.push(syncPush.body.forkId);
+      // Verify the fork exists by direct ID lookup (avoids pagination limits)
+      const forkResp = await get(INSTANCES.a, tokenA, `/api/brain/general/memories/${syncPush.body.forkId}`);
+      assert.equal(forkResp.status, 200, `Fork memory not found: ${JSON.stringify(forkResp.body)}`);
+      const fork = forkResp.body;
       assert.equal(fork.forkOf, memId);
-      console.log(`  Fork verified in memories list ✓`);
+      console.log(`  Fork verified ✓`);
     } else {
       // If same fact content, 'skipped' is also acceptable
       console.log(`  Result: ${syncPush.body.status} (acceptable when fact is identical)`);
@@ -114,6 +117,7 @@ describe('Conflict detection (concurrent writes)', () => {
       embeddingModel: 'text-embedding-nomic-embed-text-v1.5',
     };
 
+    injectedMemIds.push(memId);
     const resp = await post(INSTANCES.a, tokenA, '/api/sync/memories?spaceId=general', newerDoc);
     assert.equal(resp.status, 200);
     assert.equal(resp.body.status, 'updated', `Expected 'updated', got '${resp.body.status}'`);
@@ -167,5 +171,14 @@ describe('Conflict detection (concurrent writes)', () => {
     const check = await get(INSTANCES.a, tokenA, `/api/brain/general/memories/${memId}`);
     assert.equal(check.status, 404);
     console.log(`  Memory correctly absent after resurrection attempt ✓`);
+  });
+
+  after(async () => {
+    for (const id of injectedMemIds) {
+      await del(INSTANCES.a, tokenA, `/api/brain/general/memories/${id}`).catch(() => {});
+    }
+    if (networkId) {
+      await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
+    }
   });
 });

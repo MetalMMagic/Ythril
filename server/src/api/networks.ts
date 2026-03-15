@@ -557,7 +557,7 @@ networksRouter.get('/:id/votes', globalRateLimit, requireAuth, (req, res) => {
   const cfg = getConfig();
   const net = cfg.networks.find(n => n.id === req.params['id']);
   if (!net) { res.status(404).json({ error: 'Network not found' }); return; }
-  res.json({ rounds: net.pendingRounds });
+  res.json({ rounds: net.pendingRounds.filter(r => !r.concluded) });
 });
 
 // ── POST /api/networks/:id/votes/:roundId — cast a vote ────────────────────

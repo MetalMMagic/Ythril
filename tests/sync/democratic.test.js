@@ -4,12 +4,12 @@
  * Run: node --test tests/sync/democratic.test.js
  */
 
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, waitFor } from './helpers.js';
+import { INSTANCES, post, get, del, waitFor } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
@@ -133,6 +133,14 @@ describe('Democratic network (3-member voting)', () => {
     if (round?.concluded) {
       const net2 = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
       console.log(`  Round concluded=${round.concluded}, members=${net2.body.members?.length}`);
+    }
+  });
+
+  after(async () => {
+    if (networkId) {
+      await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
+      await del(INSTANCES.b, tokenB, `/api/networks/${networkId}`).catch(() => {});
+      await del(INSTANCES.c, tokenC, `/api/networks/${networkId}`).catch(() => {});
     }
   });
 });

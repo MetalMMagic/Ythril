@@ -98,6 +98,23 @@ describe('Notify channel', () => {
     assert.equal(r.status, 204, JSON.stringify(r.body));
   });
 
+  it('Event data payload is stored and returned in event log', async () => {
+    const roundId = `test-round-${Date.now()}`;
+    await post(INSTANCES.a, token, '/api/notify', {
+      networkId,
+      instanceId: MEMBER_ID,
+      event: 'vote_pending',
+      data: { roundId },
+    });
+    const r = await get(INSTANCES.a, token, `/api/notify?networkId=${networkId}&limit=200`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const match = r.body.events.find(e => e.event === 'vote_pending' && e.data?.roundId === roundId);
+    assert.ok(match, 'vote_pending event with matching data.roundId must be in the log');
+    assert.ok(match.receivedAt, 'Event must have a receivedAt timestamp');
+    assert.ok(match.id, 'Event must have an id');
+    assert.equal(match.instanceId, MEMBER_ID, 'Event must record the sending instanceId');
+  });
+
   it('member_departed event returns 204', async () => {
     const r = await post(INSTANCES.a, token, '/api/notify', {
       networkId,
@@ -196,23 +213,6 @@ describe('Notify channel', () => {
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.ok(Array.isArray(r.body.events), 'events must be an array');
     assert.ok(r.body.events.length <= 1, `limit=1 must return at most 1 event, got ${r.body.events.length}`);
-  });
-
-  it('Event data payload is stored and returned in event log', async () => {
-    const roundId = `test-round-${Date.now()}`;
-    await post(INSTANCES.a, token, '/api/notify', {
-      networkId,
-      instanceId: MEMBER_ID,
-      event: 'vote_pending',
-      data: { roundId },
-    });
-    const r = await get(INSTANCES.a, token, `/api/notify?networkId=${networkId}&limit=200`);
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    const match = r.body.events.find(e => e.event === 'vote_pending' && e.data?.roundId === roundId);
-    assert.ok(match, 'vote_pending event with matching data.roundId must be in the log');
-    assert.ok(match.receivedAt, 'Event must have a receivedAt timestamp');
-    assert.ok(match.id, 'Event must have an id');
-    assert.equal(match.instanceId, MEMBER_ID, 'Event must record the sending instanceId');
   });
 
   it('GET /api/notify unauthenticated returns 401', async () => {

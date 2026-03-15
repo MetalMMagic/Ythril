@@ -9,6 +9,7 @@ import { networksRouter } from './api/networks.js';
 import { notifyRouter } from './api/notify.js';
 import { inviteRouter } from './api/invite.js';
 import { brainUiRouter } from './brain-ui/routes.js';
+import { filesUiRouter } from './files-ui/routes.js';
 import { setupRouter } from './setup/routes.js';
 import { settingsRouter } from './settings/routes.js';
 import { mcpRouter } from './mcp/router.js';
@@ -45,6 +46,9 @@ export function createApp() {
 
   // ── Brain UI ─────────────────────────────────────────────────────────────
   app.use('/brain', brainUiRouter);
+
+  // ── File Manager UI ───────────────────────────────────────────────────────
+  app.use('/files', filesUiRouter);
 
   // ── Redirect bare root ───────────────────────────────────────────────────
   app.get('/', (_req, res) => {

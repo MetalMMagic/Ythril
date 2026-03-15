@@ -156,6 +156,15 @@ flowchart TD
 
 For full governance rules and sync behaviour, see [docs/network-types.md](docs/network-types.md).
 
+### Network MCP tools
+
+Two MCP tools are available per space endpoint (`/mcp/:spaceId`) for interacting with configured networks:
+
+| Tool | Parameters | Description |
+|------|-----------|-------------|
+| `list_peers` | — | Returns all registered sync peers as a flat array. Each entry includes `instanceId`, `label`, `url`, `direction`, `network`, `networkId`, `networkType`, `lastSyncAt`, `consecutiveFailures`, and `skipTlsVerify`. Credential fields (`tokenHash`, `inviteKeyHash`) are never included. |
+| `sync_now` | `peerId?: string` | Triggers a manual sync cycle. If `peerId` is omitted, all networks are synced. `peerId` is validated as an exact match against a registered member ID — it is never used as a URL or forwarded to any external call. Returns a sync summary with counts of synced documents and any errors. |
+
 ## Security
 
 Ythril is designed for production use. Security controls are applied at every layer.

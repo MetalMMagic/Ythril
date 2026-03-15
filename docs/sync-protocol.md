@@ -72,7 +72,9 @@ Tombstones are fetched before documents so that a deletion that arrived at the p
 
 ### `lastSeqReceived` update
 
-After all three document types are pulled, `lastSeqReceived[spaceId]` is advanced to the highest seq seen in the response and written to config. On the next cycle the watermark is passed as `sinceSeq` so the peer returns only documents newer than that point.
+After all three document types are pulled, `lastSeqReceived[spaceId]` is advanced to the highest `seq` seen **among documents authored by the peer** (`doc.author.instanceId === member.instanceId`) and written to config. On the next cycle the watermark is passed as `sinceSeq` so the peer returns only documents newer than that point.
+
+Docs that originate from a third instance but were relayed through the peer (e.g. during braintree fanout) deliberately do not advance the watermark. Those relayed docs may carry a `seq` assigned by their true author's counter, which can be much higher than the peer's own counter. Allowing them to advance `lastSeqReceived` would cause the engine to skip the peer's locally-written documents on the next pull.
 
 ---
 
@@ -103,7 +105,11 @@ Response: `{ status: 'ok', memories: {inserted,updated,forked,skipped,tombstoned
 
 ### `lastSeqPushed` update
 
-After a successful batch push, `lastSeqPushed[spaceId]` is advanced to the highest `seq` in the batch. This is done per-batch so an interrupted push (network drop mid-way) advances the watermark only as far as the last acknowledged batch.
+After a successful batch push, `lastSeqPushed[spaceId]` is advanced to the highest `seq` **among documents authored by this instance** (`doc.author.instanceId === cfg.instanceId`). This is evaluated per-batch so an interrupted push (network drop mid-way) advances the watermark only as far as the last acknowledged batch.
+
+Relayed docs (received from a third peer and stored locally) are pushed to other members but do **not** advance `lastSeqPushed`. Their seq values belong to the originating instance's counter and could be arbitrarily higher than the local counter, which would incorrectly suppress future pushes of this instance's own work.
+
+**Non-braintree push filter**: for `closed`, `democratic`, and `club` networks, only documents authored by this instance are queried for push (`{ seq: { $gt: lastSeqPushed }, 'author.instanceId': cfg.instanceId }`). This prevents echoing a peer's own documents back to them. For `braintree` networks no author filter is applied — relay of third-party docs through the tree is the intended topology.
 
 ---
 

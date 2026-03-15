@@ -429,15 +429,29 @@ function createMcpServer(spaceId: string): Server {
         // ── Sync / Peers ───────────────────────────────────────────────────
         case 'list_peers': {
           const cfg = getConfig();
-          const peers = cfg.networks ?? [];
+          // Build a flat list of peers across all networks, scrubbing all
+          // credential fields (tokenHash, inviteKeyHash must never be exposed).
+          const peers = cfg.networks.flatMap(net =>
+            net.members.map(m => ({
+              instanceId: m.instanceId,
+              label: m.label,
+              url: m.url,
+              direction: m.direction,
+              network: net.label,
+              networkId: net.id,
+              networkType: net.type,
+              lastSyncAt: m.lastSyncAt ?? null,
+              consecutiveFailures: m.consecutiveFailures ?? 0,
+              skipTlsVerify: m.skipTlsVerify ?? false,
+            })),
+          );
           return {
             content: [
               {
                 type: 'text' as const,
-                text:
-                  peers.length === 0
-                    ? 'No peer instances configured. (Brain Networks are a Phase 4 feature.)'
-                    : JSON.stringify(peers, null, 2),
+                text: peers.length === 0
+                  ? 'No peers configured.'
+                  : JSON.stringify(peers, null, 2),
               },
             ],
           };

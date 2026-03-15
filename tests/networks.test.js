@@ -12,7 +12,7 @@
  * Run: node --test tests/networks.test.js
  */
 
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
@@ -25,6 +25,8 @@ const CONFIGS = path.join(__dirname, 'sync', 'configs');
 let tokenA, tokenB;
 
 describe('Network CRUD', () => {
+  let closedNetId, democraticNetId, clubNetId, braintreeNetId;
+
   before(() => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     tokenB = fs.readFileSync(path.join(CONFIGS, 'b', 'token.txt'), 'utf8').trim();
@@ -40,6 +42,7 @@ describe('Network CRUD', () => {
     assert.equal(r.status, 201, JSON.stringify(r.body));
     assert.ok(r.body.id, 'Should return network id');
     assert.equal(r.body.type, 'closed');
+    closedNetId = r.body.id;
   });
 
   it('Create a democratic network', async () => {
@@ -51,6 +54,7 @@ describe('Network CRUD', () => {
     });
     assert.equal(r.status, 201);
     assert.equal(r.body.type, 'democratic');
+    democraticNetId = r.body.id;
   });
 
   it('Create a club network', async () => {
@@ -62,6 +66,7 @@ describe('Network CRUD', () => {
     });
     assert.equal(r.status, 201);
     assert.equal(r.body.type, 'club');
+    clubNetId = r.body.id;
   });
 
   it('Create a braintree network', async () => {
@@ -73,6 +78,7 @@ describe('Network CRUD', () => {
     });
     assert.equal(r.status, 201);
     assert.equal(r.body.type, 'braintree');
+    braintreeNetId = r.body.id;
   });
 
   it('Networks are listed after creation', async () => {
@@ -99,6 +105,12 @@ describe('Network CRUD', () => {
       votingDeadlineHours: 1,
     });
     assert.equal(r.status, 400, `Expected 400, got ${r.status}`);
+  });
+
+  after(async () => {
+    for (const id of [closedNetId, democraticNetId, clubNetId, braintreeNetId]) {
+      if (id) await del(INSTANCES.a, tokenA, `/api/networks/${id}`).catch(() => {});
+    }
   });
 });
 
@@ -146,6 +158,10 @@ describe('Network voting — closed (unanimous)', () => {
     assert.ok(r.status === 409 || r.status === 202,
       `Duplicate member should return 409 or 202, got ${r.status}`);
   });
+
+  after(async () => {
+    if (networkId) await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
+  });
 });
 
 describe('Network invite key', () => {
@@ -186,6 +202,10 @@ describe('Network invite key', () => {
     assert.equal(r.status, 200);
     assert.ok(!r.body.inviteKey, 'Plaintext inviteKey must never be in GET response');
     assert.ok(!r.body.inviteKeyHash, 'inviteKeyHash must not be exposed');
+  });
+
+  after(async () => {
+    if (networkId) await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
   });
 });
 
@@ -299,5 +319,9 @@ describe('RSA invite handshake', () => {
     // tokenForB was created by A for B to call A — verify it works against A
     const pingA = await get(INSTANCES.a, tokenForB, '/api/tokens');
     assert.equal(pingA.status, 200, 'tokenForB (A-issued PAT) must authenticate to instance A');
+  });
+
+  after(async () => {
+    if (networkId) await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
   });
 });

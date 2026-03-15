@@ -615,7 +615,13 @@ async function pullFromPeer(
       if ('deletedAt' in item && item.deletedAt) continue; // already handled via tombstones above
       const doc = item as MemoryDoc;
       await upsertMemory(spaceId, doc);
-      if (doc.seq > highestSeq) highestSeq = doc.seq;
+      // Only advance the pull watermark for docs authored by the peer.
+      // Docs we pushed to the peer and are echoing back must not inflate our
+      // received-from-peer watermark — doing so would cause us to miss their
+      // lower-seq locally-written docs on subsequent pulls.
+      if (doc.seq > highestSeq && doc.author?.instanceId === member.instanceId) {
+        highestSeq = doc.seq;
+      }
     }
     cursor = nextCursor;
     page++;
@@ -691,12 +697,16 @@ async function pushToPeer(
   // Fetch only docs changed since the last push — then send in batches via batch-upsert.
   // This makes push O(changed) instead of O(total), and O(ceil(changed/200)) HTTP requests
   // instead of O(changed) — critical for WAN-distributed brains.
+  // Braintree nodes relay docs from all peers; other topologies only push their own authored docs
+  // to prevent foreign docs (e.g. received from a third instance) from polluting peers' watermarks.
+  const isBraintree = freshNet?.type === 'braintree';
+  const ownedFilter = isBraintree ? {} : { 'author.instanceId': cfg.instanceId };
   const memories = await col<MemoryDoc>(`${spaceId}_memories`)
-    .find({ seq: { $gt: lastSeqPushed } } as never).sort({ seq: 1 }).toArray() as MemoryDoc[];
+    .find({ seq: { $gt: lastSeqPushed }, ...ownedFilter } as never).sort({ seq: 1 }).toArray() as MemoryDoc[];
   const entities = await col<EntityDoc>(`${spaceId}_entities`)
-    .find({ seq: { $gt: lastSeqPushed } } as never).sort({ seq: 1 }).toArray() as EntityDoc[];
+    .find({ seq: { $gt: lastSeqPushed }, ...ownedFilter } as never).sort({ seq: 1 }).toArray() as EntityDoc[];
   const edges = await col<EdgeDoc>(`${spaceId}_edges`)
-    .find({ seq: { $gt: lastSeqPushed } } as never).sort({ seq: 1 }).toArray() as EdgeDoc[];
+    .find({ seq: { $gt: lastSeqPushed }, ...ownedFilter } as never).sort({ seq: 1 }).toArray() as EdgeDoc[];
 
   let maxSeqPushed = lastSeqPushed;
 
@@ -712,7 +722,12 @@ async function pushToPeer(
       body: JSON.stringify({ memories: batch }),
     });
     if (!resp.ok) { log.warn(`Batch push memories to ${member.label}: ${resp.status}`); pushFailed = true; break; }
-    maxSeqPushed = Math.max(maxSeqPushed, batch[batch.length - 1]!.seq);
+    // Only advance the push watermark for docs authored by this instance.
+    // Relayed docs (received from peers) must not inflate the watermark —
+    // doing so would prevent future pushes of this instance's own content.
+    for (const m of batch) {
+      if (m.author?.instanceId === cfg.instanceId && m.seq > maxSeqPushed) maxSeqPushed = m.seq;
+    }
   }
 
   for (let i = 0; i < entities.length && !pushFailed; i += PUSH_BATCH_SIZE) {
@@ -722,7 +737,9 @@ async function pushToPeer(
       body: JSON.stringify({ entities: batch }),
     });
     if (!resp.ok) { log.warn(`Batch push entities to ${member.label}: ${resp.status}`); pushFailed = true; break; }
-    maxSeqPushed = Math.max(maxSeqPushed, batch[batch.length - 1]!.seq);
+    for (const e of batch) {
+      if (e.author?.instanceId === cfg.instanceId && e.seq > maxSeqPushed) maxSeqPushed = e.seq;
+    }
   }
 
   for (let i = 0; i < edges.length && !pushFailed; i += PUSH_BATCH_SIZE) {
@@ -732,7 +749,9 @@ async function pushToPeer(
       body: JSON.stringify({ edges: batch }),
     });
     if (!resp.ok) { log.warn(`Batch push edges to ${member.label}: ${resp.status}`); pushFailed = true; break; }
-    maxSeqPushed = Math.max(maxSeqPushed, batch[batch.length - 1]!.seq);
+    for (const ed of batch) {
+      if (ed.author?.instanceId === cfg.instanceId && ed.seq > maxSeqPushed) maxSeqPushed = ed.seq;
+    }
   }
 
   // Persist the push high-water mark so next sync only sends new/changed docs

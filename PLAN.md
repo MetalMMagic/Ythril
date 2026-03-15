@@ -1000,7 +1000,7 @@ npm-debug.log*
 - [x] Health endpoint: `GET /health`
 
 ### Phase 2 — Settings UI + File Manager
-- [ ] File manager at `/files`: browse, upload, download, delete, rename
+- [x] File manager at `/files`: browse, upload, download, delete, rename
 - [x] `maxUploadBodyBytes` enforced at HTTP layer (HTTP 413 before processing)
 - [x] Destructive endpoints accept confirm in body only (not query string)
 - [x] Space allowlist enforced on `/api/conflicts` and all data-returning endpoints
@@ -1026,8 +1026,8 @@ npm-debug.log*
 - [x] Brain conflict resolution: seq-wins; co-author fork on equal-seq; tombstone vs live-doc precedence
 - [x] Brain sync (memories, entities, edges)
 - [x] Gossip: member list exchange piggybacked on sync cycles
-- [ ] Settings UI: networks section (sync schedule, trigger, history log)
-- [ ] `list_peers` + `sync_now` MCP tools (operate on networks)
+- [x] Settings UI: networks section (sync schedule, trigger, history log)
+- [x] `list_peers` + `sync_now` MCP tools (operate on networks)
 
 ### Phase 5 — Spaces
 - [x] Space CRUD API (`/api/spaces`)
@@ -1047,7 +1047,7 @@ npm-debug.log*
 - [x] Off-grid / fork: departing or ejected member can create a new network from their data
 - [x] Per-membership sync direction (`both` / `push`); enforce at sync time
 - [x] `POST /api/notify` endpoint; network-scoped token auth; `vote_pending` + `member_departed` events
-- [ ] Settings UI: pending votes banner, create / join / leave flows
+- [x] Settings UI: pending votes banner, create / join / leave flows
 - [x] Merkle root per space (opt-in via network `merkle` flag)
 
 ---
@@ -1079,7 +1079,7 @@ Items are ordered by dependency — each group unlocks the next.
 - [x] Add `sync_now` tool to `mcp/router.ts`: accepts `peerId` (instanceId), validates against member list, triggers one sync cycle, returns outcome
 
 ### 8. File manager UI (independent)
-- [ ] Server-rendered HTML UI at `/files` over the existing `/api/files` HTTP API: directory listing, upload form, download link, delete, rename
+- [x] Server-rendered HTML UI at `/files` over the existing `/api/files` HTTP API: directory listing, upload form, download link, delete, rename
 
 ### 9. Settings UI: networks (depends on gossip completion + sync_now)
 - [x] Networks section on `/settings`: list networks, per-network sync schedule config, manual "Sync now" trigger, last-sync timestamp, consecutive failure count

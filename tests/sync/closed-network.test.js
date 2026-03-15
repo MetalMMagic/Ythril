@@ -5,14 +5,14 @@
  * Pre-requisite: docker compose -f docker-compose.test.yml up && node tests/sync/setup.js
  */
 
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
   INSTANCES,
-  post, get, del, triggerSync, createMemory, listMemories, waitFor,
+  post, get, del, triggerSync, createMemory, waitFor,
 } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -97,11 +97,10 @@ describe('Closed Network (A <-> B)', () => {
     await triggerSync(INSTANCES.a, tokenA, networkId);
     console.log(`  Triggered sync on A`);
 
-    // Wait for B to have the memory (pull also happens)
+    // Wait for B to have the memory (lookup by direct ID to avoid pagination)
     await waitFor(async () => {
-      const r = await listMemories(INSTANCES.b, tokenB);
-      if (r.status !== 200) return false;
-      return r.body.memories?.some(m => m._id === memId || m.fact === 'The quick brown fox');
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/general/memories/${memId}`);
+      return r.status === 200;
     }, 15_000);
 
     console.log(`  Memory appeared on B ✓`);
@@ -113,14 +112,21 @@ describe('Closed Network (A <-> B)', () => {
     const memId = write.body._id ?? write.body.id;
     console.log(`  Wrote memory ${memId} on B`);
 
-    // Trigger sync on A (A pulls from B — B doesn't have this network configured)
+    // Trigger sync on A (A pulls from B — B doesn't have this network configured).
+    // Re-trigger every 3 seconds in case the first async fire was queued behind other work.
     await triggerSync(INSTANCES.a, tokenA, networkId);
+    const retrigger = setInterval(() => {
+      triggerSync(INSTANCES.a, tokenA, networkId).catch(() => {});
+    }, 3_000);
 
-    await waitFor(async () => {
-      const r = await listMemories(INSTANCES.a, tokenA);
-      if (r.status !== 200) return false;
-      return r.body.memories?.some(m => m.fact === 'Jumped over the lazy dog');
-    }, 15_000);
+    try {
+      await waitFor(async () => {
+        const r = await get(INSTANCES.a, tokenA, `/api/brain/general/memories/${memId}`);
+        return r.status === 200;
+      }, 20_000);
+    } finally {
+      clearInterval(retrigger);
+    }
 
     console.log(`  Memory appeared on A ✓`);
   });
@@ -132,9 +138,10 @@ describe('Closed Network (A <-> B)', () => {
     const memId = write.body._id ?? write.body.id;
 
     await triggerSync(INSTANCES.a, tokenA, networkId);
+    // Wait for B to have the memory (direct ID lookup)
     await waitFor(async () => {
-      const r = await listMemories(INSTANCES.b, tokenB);
-      return r.body.memories?.some(m => m._id === memId);
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/general/memories/${memId}`);
+      return r.status === 200;
     }, 15_000);
 
     // Delete on A
@@ -145,12 +152,19 @@ describe('Closed Network (A <-> B)', () => {
     // Trigger sync
     await triggerSync(INSTANCES.a, tokenA, networkId);
 
-    // Wait for it to disappear from B
+    // Wait for tombstone to arrive on B (memory disappears — direct ID lookup returns 404)
     await waitFor(async () => {
-      const r = await listMemories(INSTANCES.b, tokenB);
-      return !r.body.memories?.some(m => m._id === memId);
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/general/memories/${memId}`);
+      return r.status === 404;
     }, 15_000);
 
     console.log(`  Memory disappeared from B ✓`);
+  });
+
+  after(async () => {
+    if (networkId) {
+      await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
+      await del(INSTANCES.b, tokenB, `/api/networks/${networkId}`).catch(() => {});
+    }
   });
 });

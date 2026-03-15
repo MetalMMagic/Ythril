@@ -524,6 +524,7 @@ function settingsPage(
       <button class="btn" type="submit" style="background:#333">Sign out</button>
     </form>
     <a class="btn" href="/brain" style="background:#1a1a3a;border:1px solid #444">Brain &rarr;</a>
+    <a class="btn" href="/files" style="background:#1a2a1a;border:1px solid #444">Files &rarr;</a>
   </div>
   ${openVoteCount > 0 ? `
   <div style="background:#3a1a00;border:1px solid #804000;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem">

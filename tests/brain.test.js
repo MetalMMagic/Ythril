@@ -51,10 +51,8 @@ describe('Brain — memories', () => {
     });
     const memId = write.body._id ?? write.body.id;
 
-    const r = await get(INSTANCES.a, token(), '/api/brain/general/memories');
-    assert.equal(r.status, 200);
-    const found = r.body.memories?.some(m => m._id === memId);
-    assert.ok(found, 'Written memory should appear in list');
+    const r = await get(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
+    assert.equal(r.status, 200, `Written memory should be retrievable by ID: ${JSON.stringify(r.body)}`);
   });
 
   it('Delete a memory returns 204 and it is gone', async () => {

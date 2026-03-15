@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  INSTANCES, post, get, triggerSync, createMemory, listMemories, waitFor,
+  INSTANCES, post, get, del, triggerSync, createMemory, listMemories, waitFor,
 } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,6 +75,14 @@ describe('Braintree topology (A -> B -> C)', () => {
     assert(addC.status === 201 || addC.status === 202, `Add C: ${JSON.stringify(addC.body)}`);
 
     console.log(`Created braintree network: ${networkId}`);
+  });
+
+  after(async () => {
+    if (networkId) {
+      await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
+      await del(INSTANCES.b, tokenB, `/api/networks/${networkId}`).catch(() => {});
+      await del(INSTANCES.c, tokenC, `/api/networks/${networkId}`).catch(() => {});
+    }
   });
 
   it('Root A: write propagates down to B and then to C', async () => {

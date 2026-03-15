@@ -359,7 +359,7 @@
       "name": "test-token",
       "hash": "$2b$12$PB/jebY0flHdhaLtJONGzOpTOGTG4odsPxEXhmYIMqukmR3RqSzxC",
       "createdAt": "2026-03-15T09:01:02.643Z",
-      "lastUsed": "2026-03-15T09:18:07.351Z",
+      "lastUsed": "2026-03-15T09:58:14.818Z",
       "expiresAt": null
     },
     {
@@ -384,6 +384,70 @@
       "hash": "$2b$12$npnv/CkhAexNuiJuoXv58.QIiH3fg4Yhhu/yAr.qgH3A.m8xm1KP.",
       "createdAt": "2026-03-15T09:17:56.506Z",
       "lastUsed": "2026-03-15T09:18:06.813Z",
+      "expiresAt": null
+    },
+    {
+      "id": "34b78ac9-472e-4dc5-b26a-73177eaddddf",
+      "name": "vote-test-peer-a-1773567632036",
+      "hash": "$2b$12$SOobjhgQof3VFWY9hZVfiOF0gIC.JqnM1FqRqnvh8QIksZ1YBcB2i",
+      "createdAt": "2026-03-15T09:40:38.667Z",
+      "lastUsed": "2026-03-15T09:41:06.957Z",
+      "expiresAt": null
+    },
+    {
+      "id": "ae980242-ddf4-489a-8acd-8005bbd1768a",
+      "name": "vote-test-peer-a-1773568196689",
+      "hash": "$2b$12$XcmYy90q9KJaxpw1Tcs9G..pK2Y4BLwwR7hZmYdD66E93RaTN8RlG",
+      "createdAt": "2026-03-15T09:50:03.327Z",
+      "lastUsed": "2026-03-15T09:50:32.443Z",
+      "expiresAt": null
+    },
+    {
+      "id": "a089a11c-95c5-46ad-9d0e-a514a970b5cf",
+      "name": "vote-test-peer-a-1773568574149",
+      "hash": "$2b$12$M537kViBFbgwaRmHily94.8Yf8ey2VhA54te3yebntau8gfadn3pS",
+      "createdAt": "2026-03-15T09:56:20.810Z",
+      "lastUsed": "2026-03-15T09:56:35.040Z",
+      "expiresAt": null
+    },
+    {
+      "id": "b0da4f45-1ab7-4431-9dd7-7053e717ce71",
+      "name": "bt-peer-a",
+      "hash": "$2b$12$tFd6KBi.wRVAULK8M5wKYemACpcMcpIuItq9zur137gPFOWRRzw9.",
+      "createdAt": "2026-03-15T09:56:46.107Z",
+      "lastUsed": "2026-03-15T09:57:23.895Z",
+      "expiresAt": null
+    },
+    {
+      "id": "f2b39b67-beb2-492c-b7a9-4f5ff67cedc1",
+      "name": "peer-token-a",
+      "hash": "$2b$12$oQT5a/C3GZAXQBxd98uFDeaxIkMqF01WMg.Yt7TqZIrJq83XDzg2q",
+      "createdAt": "2026-03-15T09:57:27.139Z",
+      "lastUsed": "2026-03-15T09:57:36.525Z",
+      "expiresAt": null
+    },
+    {
+      "id": "565aee7c-3017-492e-b953-e255b44a8337",
+      "name": "dem-peer-a",
+      "hash": "$2b$12$Civ/Nn9n40lZIfA8n.odmet6hKk3aT42K.10ItL4pibF.hKrKE0qO",
+      "createdAt": "2026-03-15T09:57:37.603Z",
+      "lastUsed": null,
+      "expiresAt": null
+    },
+    {
+      "id": "8258f82f-d0e8-4d39-ad3e-8cbff71b3690",
+      "name": "gossip-test-peer-a-1773568658596",
+      "hash": "$2b$12$jx8ePKqC0ZDdNDneryYjFOrxxKej8UOE52kwUlNd4yBNfhLIkRA82",
+      "createdAt": "2026-03-15T09:57:38.745Z",
+      "lastUsed": "2026-03-15T09:57:50.966Z",
+      "expiresAt": null
+    },
+    {
+      "id": "ffcb2d8d-335b-46c2-a602-728bcc0c158f",
+      "name": "vote-test-peer-a-1773568678282",
+      "hash": "$2b$12$mpYOMW4yEoa9zDaNJWxYfuf12KjuZWyqN3AFWmLB79OcP1D96Yafq",
+      "createdAt": "2026-03-15T09:57:58.450Z",
+      "lastUsed": "2026-03-15T09:58:14.483Z",
       "expiresAt": null
     }
   ],
@@ -594,6 +658,32 @@
       ],
       "pendingRounds": [],
       "createdAt": "2026-03-14T23:49:27.282Z"
+    },
+    {
+      "id": "db583546-657d-448f-a1ed-0a8784b60350",
+      "label": "Test Braintree",
+      "type": "braintree",
+      "spaces": [
+        "general"
+      ],
+      "votingDeadlineHours": 24,
+      "members": [
+        {
+          "instanceId": "instance-c",
+          "label": "Instance C",
+          "url": "http://ythril-c:3200",
+          "tokenHash": "$2b$12$id4taUzef2jVZ29DgHP8qOThdlogsttSSqgz3QpB6iMTBZM30UzNi",
+          "direction": "push",
+          "parentInstanceId": "44192c15-8ca1-4afa-9c63-445094b73c5d",
+          "lastSeqPushed": {
+            "general": 1
+          },
+          "lastSyncAt": "2026-03-15T09:57:20.854Z",
+          "consecutiveFailures": 0
+        }
+      ],
+      "pendingRounds": [],
+      "createdAt": "2026-03-15T09:56:59.556Z"
     }
   ],
   "setup": {

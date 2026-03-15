@@ -616,7 +616,17 @@ syncRouter.get('/networks/:networkId/votes', syncRateLimit, requireAuth, async (
     const net = cfg.networks.find(n => n.id === req.params['networkId']);
     if (!net) { res.status(404).json({ error: 'Network not found' }); return; }
 
-    const open = net.pendingRounds.filter(r => !r.concluded);
+    const open = net.pendingRounds
+      .filter(r => !r.concluded)
+      .map(r => {
+        // Strip sensitive key material before sending to a peer instance
+        const { inviteKeyHash: _ikh, ...safeRound } = r;
+        if (safeRound.pendingMember) {
+          const { tokenHash: _th, ...safeMember } = safeRound.pendingMember;
+          safeRound.pendingMember = safeMember as typeof safeRound.pendingMember;
+        }
+        return safeRound;
+      });
     res.json({ rounds: open });
   } catch (err) {
     res.status(500).json({ error: 'Internal error' });
@@ -677,15 +687,28 @@ function concludeRoundIfReady(
   round: import('../config/types.js').VoteRound,
 ): void {
   const voters = net.members.filter(m => !round.subjectInstanceId || m.instanceId !== round.subjectInstanceId);
-  const yesCount = round.votes.filter(v => v.vote === 'yes').length;
   const vetoCount = round.votes.filter(v => v.vote === 'veto').length;
   const pastDeadline = new Date(round.deadline) < new Date();
+
+  if (vetoCount > 0 || pastDeadline) {
+    round.concluded = true;
+    return;
+  }
+
+  // For unanimous-requirement types (closed, braintree): every remote voter must have voted yes
+  // individually. A self/proposer yes vote counts as evidence of intent but does NOT short-circuit
+  // the requirement for all listed members to vote.
+  const allRemoteVotedYes =
+    voters.length === 0 ||
+    voters.every(v => round.votes.some(c => c.instanceId === v.instanceId && c.vote === 'yes'));
+
+  const yesCount = round.votes.filter(v => v.vote === 'yes').length;
 
   let passed = false;
   switch (net.type) {
     case 'closed':
-      // Unanimous yes from all existing members; if no members yet, proposer's yes suffices
-      passed = vetoCount === 0 && (voters.length === 0 || yesCount >= voters.length);
+    case 'braintree':
+      passed = allRemoteVotedYes;
       break;
     case 'democratic':
       passed = (voters.length === 0 && yesCount > 0) || (yesCount > voters.length / 2 && vetoCount === 0);
@@ -694,15 +717,6 @@ function concludeRoundIfReady(
       // For Club: only the inviter/proposer (first yes voter) decides
       passed = yesCount >= 1 && vetoCount === 0;
       break;
-    case 'braintree':
-      // Ancestors on the path must all vote yes — simplified: all voters
-      passed = vetoCount === 0 && (voters.length === 0 || yesCount >= voters.length);
-      break;
-  }
-
-  if (vetoCount > 0 || pastDeadline) {
-    round.concluded = true;
-    return;
   }
   if (passed) {
     round.concluded = true;

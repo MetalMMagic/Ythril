@@ -20,6 +20,7 @@ import { col } from '../db/mongo.js';
 import { applyRemoteTombstone, listTombstones } from '../brain/tombstones.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { log } from '../util/log.js';
+import { concludeRoundIfReady } from '../api/sync.js';
 import type {
   NetworkConfig,
   NetworkMember,
@@ -27,6 +28,8 @@ import type {
   EntityDoc,
   EdgeDoc,
   TombstoneDoc,
+  VoteRound,
+  VoteCast,
 } from '../config/types.js';
 import path from 'node:path';
 import fs from 'node:fs/promises';
@@ -269,11 +272,13 @@ async function runSyncForMember(net: NetworkConfig, member: NetworkMember): Prom
     await syncFiles(member, spaceId, net.id, headers, fetchOpts);
   }
 
-  // ── Gossip: member list exchange ──────────────────────────────────────────
+  // ── Gossip: member list exchange + vote propagation ──────────────────────
   // 1. Push our own self-record to this peer so it stays current on our URL/label.
-  // 2. Pull the peer's view of the member list; update our local records for any
-  //    members whose URL/label/children changed.
+  // 2. Pull the peer's view of the member list; update our local records.
+  // 3. Push our open vote casts to the peer.
+  // 4. Pull the peer's open rounds and votes; merge any new rounds or casts.
   await gossipWithPeer(net, member, headers, fetchOpts);
+  await propagateVotesWithPeer(net, member, headers, fetchOpts);
 
   // Update lastSyncAt
   const freshCfg = getConfig();
@@ -283,9 +288,7 @@ async function runSyncForMember(net: NetworkConfig, member: NetworkMember): Prom
 }
 
 // ── Gossip: member list exchange ────────────────────────────────────────────
-
 /**
- * Exchange member records with a single peer:
  *  1. POST our self-record to the peer (so the peer knows our current URL/label).
  *  2. GET the peer's member list view; merge any updated records into our own config.
  *
@@ -391,6 +394,113 @@ async function gossipWithPeer(
     if (changed) saveConfig(fresh);
   } catch (err) {
     log.warn(`Gossip pull from ${member.label}: ${err}`);
+  }
+}
+
+// ── Vote propagation via gossip ───────────────────────────────────────────────
+
+/**
+ * Propagate vote rounds and casts with a single peer:
+ *  1. PUSH our locally known vote casts to the peer (for rounds that already exist on both sides).
+ *  2. PULL the peer's open rounds; create any we don't have locally, merge new vote casts.
+ *
+ * Failures are non-fatal — gossip is best-effort.
+ */
+async function propagateVotesWithPeer(
+  net: NetworkConfig,
+  member: NetworkMember,
+  headers: Record<string, string>,
+  opts: RequestInit,
+): Promise<void> {
+  const base = `${member.url}/api/sync/networks/${encodeURIComponent(net.id)}`;
+
+  // 1. Push our open votes to the peer (non-fatal 404 if peer doesn't have the round yet)
+  try {
+    const cfg = getConfig();
+    const localNet = cfg.networks.find(n => n.id === net.id);
+    const openRounds = localNet?.pendingRounds.filter(r => !r.concluded) ?? [];
+    for (const round of openRounds) {
+      for (const cast of round.votes) {
+        await fetch(`${base}/votes/${encodeURIComponent(round.roundId)}`, {
+          ...opts,
+          method: 'POST',
+          body: JSON.stringify({ vote: cast.vote, instanceId: cast.instanceId }),
+        }).catch(err => log.warn(`Vote push (${round.roundId}) to ${member.label}: ${err}`));
+      }
+    }
+  } catch (err) {
+    log.warn(`Vote push to ${member.label}: ${err}`);
+  }
+
+  // 2. Pull peer's open rounds; create new ones locally and merge vote casts
+  try {
+    const resp = await fetch(`${base}/votes`, opts);
+    if (!resp.ok) {
+      log.warn(`Vote pull from ${member.label}: HTTP ${resp.status}`);
+      return;
+    }
+    const { rounds: peerRounds } = await resp.json() as { rounds: (Omit<VoteRound, 'concluded'>)[] };
+    if (!Array.isArray(peerRounds)) return;
+
+    const fresh = getConfig();
+    const freshNet = fresh.networks.find(n => n.id === net.id);
+    if (!freshNet) return;
+
+    let changed = false;
+    for (const peerRound of peerRounds) {
+      if (!peerRound.roundId) continue;
+
+      let local = freshNet.pendingRounds.find(r => r.roundId === peerRound.roundId);
+      if (!local) {
+        // Round is new to us — adopt it (GET only returns open/non-concluded rounds)
+        const newRound: VoteRound = {
+          ...(peerRound as VoteRound),
+          votes: [],        // votes are merged below
+          concluded: false,
+        };
+        freshNet.pendingRounds.push(newRound);
+        local = newRound;
+        changed = true;
+        log.info(`Vote gossip: adopted round ${peerRound.roundId} (${peerRound.type}) from ${member.label}`);
+      }
+      if (local.concluded) continue;
+
+      // Merge vote casts
+      for (const peerCast of (peerRound.votes ?? []) as VoteCast[]) {
+        if (!peerCast.instanceId || !['yes', 'veto'].includes(peerCast.vote)) continue;
+        const idx = local.votes.findIndex(v => v.instanceId === peerCast.instanceId);
+        if (idx >= 0) {
+          if (local.votes[idx]!.vote !== peerCast.vote) {
+            local.votes[idx] = peerCast;
+            changed = true;
+          }
+        } else {
+          local.votes.push(peerCast);
+          changed = true;
+        }
+      }
+    }
+
+    if (changed) {
+      // Re-evaluate all open rounds — new votes may push them over the threshold
+      for (const round of freshNet.pendingRounds) {
+        if (!round.concluded) concludeRoundIfReady(freshNet, round);
+      }
+      // Apply space_deletion side-effects for rounds that just concluded
+      for (const round of freshNet.pendingRounds) {
+        if (round.concluded && round.type === 'space_deletion') {
+          const vetoCount = round.votes.filter(v => v.vote === 'veto').length;
+          if (vetoCount === 0 && round.spaceId) {
+            import('../spaces/spaces.js').then(({ removeSpace }) => {
+              removeSpace(round.spaceId!).catch(e => log.error(`space_deletion vote gossip: ${e}`));
+            }).catch(e => log.error(`space_deletion import: ${e}`));
+          }
+        }
+      }
+      saveConfig(fresh);
+    }
+  } catch (err) {
+    log.warn(`Vote pull from ${member.label}: ${err}`);
   }
 }
 

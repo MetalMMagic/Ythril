@@ -25,6 +25,7 @@
    node --test tests/sync/democratic.test.js
    node --test tests/sync/conflict.test.js
    node --test tests/sync/gossip.test.js
+   node --test tests/sync/vote-propagation.test.js
    ```
    Or run all:
    ```
@@ -64,6 +65,15 @@
 - Verify that B's current `instanceLabel` appears in A's member view after a sync trigger (self-record in response)
 - Verify gossip poisoning: a member cannot overwrite another member's record
 
+### Vote propagation (a ↔ b)
+- `GET /api/sync/networks/:id/votes` returns open rounds (auth required)
+- Sensitive fields (`inviteKeyHash`, `pendingMember.tokenHash`) are stripped from GET responses
+- `POST /api/sync/networks/:id/votes/:roundId` returns 400 missing fields, 404 unknown round, 401 unauthenticated; 200 on valid relay
+- After B triggers sync with A, B adopts any open round A has that B does not yet have
+- After B triggers sync with A, B merges A's vote casts into the adopted round
+- After A triggers sync with B, A merges B's vote casts into the shared round
+- A round concludes locally once all remote voters have cast yes (unanimous types) or threshold is met
+
 ### Conflict
 - Write the same memory ID on A and B simultaneously (requires manual seq injection)
 - Sync A→B; verify fork exists on B
@@ -77,6 +87,7 @@ tests/sync/
   setup.js            — first-run setup helper (creates configs/)
   helpers.js          — shared fetch helpers
   gossip.test.js
+  vote-propagation.test.js
   closed-network.test.js
   braintree.test.js
   democratic.test.js
@@ -89,4 +100,5 @@ tests/sync/
   braintree.test.js
   democratic.test.js
   conflict.test.js
+  vote-propagation.test.js
 ```

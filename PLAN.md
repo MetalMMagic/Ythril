@@ -1039,8 +1039,7 @@ npm-debug.log*
 
 ### Phase 6 — Network Governance
 - [x] Voting round engine: open round on join request, collect votes via gossip, evaluate pass/fail conditions per network type
-- [ ] Vote propagation in gossip protocol
-- [x] Invite key lifecycle: issue → open round → consumed on result
+- [x] Vote propagation in gossip protocol: issue → open round → consumed on result
 - [x] Network types: Closed, Democratic, Club, Braintree
 - [ ] Braintree: ancestor path resolution + per-ancestor vote collection
 - [ ] Leave flow: unilateral departure + departure gossip broadcast
@@ -1061,7 +1060,7 @@ Items are ordered by dependency — each group unlocks the next.
 - [x] Engine calls `POST /api/sync/networks/:networkId/members` on each peer during sync cycles to push own member record (gossip member list exchange piggybacked on sync)
 
 ### 2. Vote propagation (unlocks Braintree ancestor votes + votes UI)
-- [ ] Engine calls `GET /api/sync/networks/:networkId/votes` on each peer during sync; relays new votes via `POST /api/sync/networks/:networkId/votes/:roundId`
+- [x] Engine calls `GET /api/sync/networks/:networkId/votes` on each peer during sync; relays new votes via `POST /api/sync/networks/:networkId/votes/:roundId`
 
 ### 3. Leave + removal flows (unlocks off-grid/fork)
 - [ ] Leave flow: broadcast `member_departed` notify event to all peers before removing the network locally (DELETE `/api/networks/:id` currently does no broadcast)

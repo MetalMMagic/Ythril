@@ -236,3 +236,31 @@ All endpoints are under `/api/sync` and require a `Bearer` token that resolves t
 | `POST` | `/api/sync/networks/:networkId/members` | `{ instanceId, label, url?, children? }` | `{ status: 'ok'\|'unknown_member', self?: { instanceId, label, url? } }` |
 
 The `self` field in the `POST` response carries the receiver's own identity so the caller can update its record for the peer in a single round-trip.
+
+### Vote propagation endpoints
+
+| Method | Path | Body | Returns |
+|--------|------|------|---------|
+| `GET` | `/api/sync/networks/:networkId/votes` | — | `{ rounds[VoteRound] }` |
+| `POST` | `/api/sync/networks/:networkId/votes/:roundId` | `{ vote: 'yes'\|'veto', instanceId }` | `200 { status:'ok' }` \| `404` |
+
+Sensitive fields (`inviteKeyHash`, `pendingMember.tokenHash`) are stripped from `GET` responses before sending to peers.
+
+---
+
+## Vote propagation phase
+
+After the gossip (member identity) exchange, the engine runs a vote propagation pass with each peer:
+
+1. **Push casts** — for each open local vote round, each known vote cast is relayed to the peer via `POST /api/sync/networks/:networkId/votes/:roundId { vote, instanceId }`. If the peer does not yet have the round (404), the push is silently skipped — the round will arrive on the peer's next pull cycle.
+
+2. **Pull rounds** — `GET /api/sync/networks/:networkId/votes` fetches the peer's open rounds. For each round:
+   - **New round**: if the round does not exist locally, it is adopted into `pendingRounds` (with an empty `votes` array); votes are then merged in the same pass.
+   - **Vote merge**: for each cast from the peer's round, if the cast is not already present locally it is added. If the same voter's cast differs (e.g., updated from `yes` to `veto`), the local cast is replaced.
+
+3. **Round conclusion** — after all merges, `concludeRoundIfReady` is evaluated for every open local round. Unanimous-type networks (closed, braintree) require every listed remote member to have individually cast `yes`; a single outstanding member prevents conclusion. Democratic networks use a simple majority count. Club networks conclude on the first `yes`.
+
+4. **Side effects** — if a `space_deletion` round concludes with zero vetoes, the space is removed from the local instance asynchronously.
+
+This means a vote cast on any peer propagates to all other peers within one gossip cycle per hop, and a round concludes independently on each instance as soon as it has received enough votes to satisfy its network's pass condition.
+

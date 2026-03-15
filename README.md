@@ -19,26 +19,27 @@ Think of it as the operational layer between your data, your models, and your da
 flowchart LR
 	U[You] --> C[Client or Agent]
 	C --> L[LLM]
-	L --> BMCP[MCP]
+	C -->|HTTP API| HAPI[File Manager\n& Settings]
 
 	subgraph Brain
-		BMCP
-
 		subgraph S1[Space]
-			S1MCP[MCP]
+			S1MCP[MCP\n/mcp/space1]
 			S1MCP --> S1Mem[Memories] --> S1MD[(data)]
 			S1MCP --> S1Files[Files] --> S1FD[(data)]
 		end
 
 		subgraph S2[Space]
-			S2MCP[MCP]
+			S2MCP[MCP\n/mcp/space2]
 			S2MCP --> S2Mem[Memories] --> S2MD[(data)]
 			S2MCP --> S2Files[Files] --> S2FD[(data)]
 		end
 
-		BMCP --> S1MCP
-		BMCP --> S2MCP
+		HAPI --> S1Files
+		HAPI --> S2Files
 	end
+
+	L -->|/mcp/space1| S1MCP
+	L -->|/mcp/space2| S2MCP
 
 	subgraph OB[Other Brain]
 		subgraph OS[Space]

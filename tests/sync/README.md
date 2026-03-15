@@ -25,7 +25,9 @@
    node --test tests/sync/democratic.test.js
    node --test tests/sync/conflict.test.js
    node --test tests/sync/gossip.test.js
+   node --test tests/sync/governance.test.js
    node --test tests/sync/vote-propagation.test.js
+   node --test tests/sync/leave-removal.test.js
    ```
    Or run all:
    ```
@@ -78,6 +80,15 @@
 - Write the same memory ID on A and B simultaneously (requires manual seq injection)
 - Sync A→B; verify fork exists on B
 - Resolve fork on B; verify resolution
+
+### Leave and removal flows (a ↔ b)
+- `DELETE /api/networks/:id` requires auth (401 without token)
+- `DELETE /api/networks/:id` removes the network locally (204 + 404 on re-GET) and broadcasts `member_departed` to peers
+- After A leaves a network with B, B receives and processes the `member_departed` event — A is removed from B's member list
+- `member_departed` is idempotent: sending it for an unknown/already-removed instanceId returns 204
+- After a remove vote passes, the ejected instance (B) adds the networkId to `ejectedFromNetworks` and removes the network locally
+- Subsequent sync (`POST /api/sync/...`) and vote requests for the ejected networkId return `401 {"error":"ejected"}`
+- `member_removed` is idempotent (204 or 404, never 5xx)
 
 ## Directory layout
 

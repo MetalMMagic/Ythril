@@ -17,6 +17,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, del, reqJson } from './sync/helpers.js';
 
@@ -135,5 +136,64 @@ describe('Token lifecycle', () => {
   it('Revoking non-existent token returns 404', async () => {
     const r = await del(INSTANCES.a, tokenA, '/api/tokens/nonexistent-id');
     assert.equal(r.status, 404);
+  });
+});
+
+// ── Startup migration ──────────────────────────────────────────────────────
+// Validates that tokens lacking the `prefix` field (created before the field
+// was introduced) are automatically evicted when the server restarts, and that
+// the eviction does not affect tokens that do have a prefix.
+//
+// NOTE: this test restarts the ythril-a container, so it must run last.
+// ──────────────────────────────────────────────────────────────────────────
+describe('Startup migration: prefix-less tokens are evicted', () => {
+  async function waitForHealth(url, timeoutMs = 30_000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        const r = await fetch(`${url}/health`);
+        if (r.ok) return;
+      } catch { /* not ready */ }
+      await new Promise(r => setTimeout(r, 500));
+    }
+    throw new Error(`${url} did not become healthy within ${timeoutMs}ms`);
+  }
+
+  it('prefix-less token is rejected after restart; admin token survives', async () => {
+    // 1. Create a fresh token — it will have a prefix field set by createToken()
+    const create = await post(INSTANCES.a, tokenA, '/api/tokens', { name: 'legacy-sim-token' });
+    assert.equal(create.status, 201);
+    const legacyId = create.body.token.id;
+    const legacyPlaintext = create.body.plaintext;
+
+    // Sanity: it authenticates before we tamper with anything
+    const before = await get(INSTANCES.a, legacyPlaintext, '/api/tokens');
+    assert.equal(before.status, 200, 'Token must authenticate before simulation');
+
+    // 2. Strip the prefix field from the on-disk config to simulate a legacy record
+    execSync(
+      `docker exec ythril-a node -e ` +
+      `"const fs=require('fs'),p='/config/config.json',c=JSON.parse(fs.readFileSync(p,'utf8'));` +
+      `const t=c.tokens.find(t=>t.id==='${legacyId}');` +
+      `if(t)delete t.prefix;` +
+      `fs.writeFileSync(p,JSON.stringify(c,null,2),{mode:0o600});"`,
+    );
+
+    // 3. Restart to trigger the startup migration
+    execSync('docker restart ythril-a');
+    await waitForHealth(INSTANCES.a);
+
+    // 4. The legacy token must be rejected — migration pruned it
+    const afterLegacy = await get(INSTANCES.a, legacyPlaintext, '/api/tokens');
+    assert.equal(afterLegacy.status, 401, 'Prefix-less token must be rejected after migration');
+
+    // 5. The admin token (which has a prefix) must still work
+    const afterAdmin = await get(INSTANCES.a, tokenA, '/api/tokens');
+    assert.equal(afterAdmin.status, 200, 'Admin token must still authenticate after migration');
+
+    // 6. The pruned token must not appear in the listing
+    const list = await get(INSTANCES.a, tokenA, '/api/tokens');
+    const listedIds = list.body.tokens.map(t => t.id);
+    assert.ok(!listedIds.includes(legacyId), 'Evicted token must not appear in token list');
   });
 });

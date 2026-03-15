@@ -42,6 +42,9 @@ node --test tests/red-team-tests/mongodb-injection.test.js
 node --test tests/red-team-tests/oversized-payload.test.js
 node --test tests/red-team-tests/invite-replay.test.js
 node --test tests/red-team-tests/token-brute-force.test.js
+node --test tests/red-team-tests/ssrf-network-member.test.js
+node --test tests/red-team-tests/sync-scope-bypass.test.js
+node --test tests/red-team-tests/mass-assignment.test.js
 ```
 
 > **Note:** `token-brute-force.test.js` exhausts the `authRateLimit` window on instance B. Run it in isolation or after other tests complete.
@@ -57,6 +60,9 @@ node --test tests/red-team-tests/token-brute-force.test.js
 | `oversized-payload.test.js` | DoS / resource exhaustion | JSON body size limits, Zod field length validation, array bombs, deep nesting |
 | `invite-replay.test.js` | Session security | Replay of consumed handshake, garbage ciphertext in finalize, non-existent IDs |
 | `token-brute-force.test.js` | Brute force | Rate limiter stops token enumeration; unauthenticated endpoint rate limiting |
+| `ssrf-network-member.test.js` | SSRF | Peer URL registration rejects private IPs (RFC-1918, loopback, link-local), cloud metadata endpoints (AWS/Azure/GCP IMDS), non-http(s) schemes, and embedded credentials |
+| `sync-scope-bypass.test.js` | Access control | Space-scoped tokens are blocked from all sync endpoints (GET, POST, batch-upsert, tombstones, manifest) for spaces outside their allowlist |
+| `mass-assignment.test.js` | Mass assignment / input validation | Server-generated fields (token id, hash) cannot be injected by the client; `builtIn` flag is not injectable on spaces; Zod strips unknown fields; duplicate JSON keys and oversized inputs are handled safely |
 
 ## Expected outcomes
 

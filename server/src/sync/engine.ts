@@ -20,7 +20,7 @@ import { col } from '../db/mongo.js';
 import { applyRemoteTombstone, listTombstones } from '../brain/tombstones.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { log } from '../util/log.js';
-import { concludeRoundIfReady } from '../api/sync.js';
+import { concludeRoundIfReady, sendMemberRemovedNotify } from '../api/sync.js';
 import type {
   NetworkConfig,
   NetworkMember,
@@ -225,6 +225,42 @@ export async function runSyncForNetwork(networkId: string): Promise<{ synced: nu
   return { synced, errors };
 }
 
+/**
+ * Trigger a sync cycle for a single peer across every network it appears in.
+ * `peerId` must be an exact instanceId match from the registered member list —
+ * it is never used as a URL (SSRF guard, SEC-16).
+ * Returns a summary of how many network/member pairs were synced and how many
+ * errored.
+ */
+export async function runSyncForPeer(
+  peerId: string,
+): Promise<{ networksSynced: number; errors: number; notFound: boolean }> {
+  const cfg = getConfig();
+  const matches: Array<{ net: typeof cfg.networks[number]; member: typeof cfg.networks[number]['members'][number] }> = [];
+
+  for (const net of cfg.networks) {
+    const member = net.members.find(m => m.instanceId === peerId);
+    if (member) matches.push({ net, member });
+  }
+
+  if (matches.length === 0) return { networksSynced: 0, errors: 0, notFound: true };
+
+  let networksSynced = 0;
+  let errors = 0;
+  for (const { net, member } of matches) {
+    try {
+      await runSyncForMember(net, member);
+      networksSynced++;
+      _persistFailureCount(net.id, member.instanceId, 0);
+    } catch (err) {
+      log.error(`sync_now failed for peer ${member.label} (${member.instanceId}) in network '${net.label}': ${err}`);
+      errors++;
+      _incrementFailureCount(net.id, member.instanceId);
+    }
+  }
+  return { networksSynced, errors, notFound: false };
+}
+
 /** Sync a single member across all network spaces. */
 async function runSyncForMember(net: NetworkConfig, member: NetworkMember): Promise<void> {
   const secrets = getSecrets();
@@ -270,6 +306,11 @@ async function runSyncForMember(net: NetworkConfig, member: NetworkMember): Prom
 
     // Sync file manifest
     await syncFiles(member, spaceId, net.id, headers, fetchOpts);
+
+    // Merkle integrity check (opt-in: network.merkle === true)
+    if (net.merkle) {
+      await checkMerkleWithPeer(net, member, spaceId, fetchOpts);
+    }
   }
 
   // ── Gossip: member list exchange + vote propagation ──────────────────────
@@ -418,8 +459,11 @@ async function propagateVotesWithPeer(
   try {
     const cfg = getConfig();
     const localNet = cfg.networks.find(n => n.id === net.id);
-    const openRounds = localNet?.pendingRounds.filter(r => !r.concluded) ?? [];
-    for (const round of openRounds) {
+    // Include all rounds — not just open ones — so that a vote that immediately concludes a
+    // round on this instance (e.g. a final yes or a veto) still propagates to peers that
+    // haven't yet received the concluding cast.
+    const roundsToPush = localNet?.pendingRounds ?? [];
+    for (const round of roundsToPush) {
       for (const cast of round.votes) {
         await fetch(`${base}/votes/${encodeURIComponent(round.roundId)}`, {
           ...opts,
@@ -484,7 +528,26 @@ async function propagateVotesWithPeer(
     if (changed) {
       // Re-evaluate all open rounds — new votes may push them over the threshold
       for (const round of freshNet.pendingRounds) {
-        if (!round.concluded) concludeRoundIfReady(freshNet, round);
+        if (!round.concluded) {
+          const justPassed = concludeRoundIfReady(freshNet, round);
+          if (justPassed && round.type === 'remove') {
+            sendMemberRemovedNotify(round.subjectUrl, round.subjectInstanceId, net.id);
+          }
+          // For braintree join rounds, add the pending member only if this instance
+          // is the direct parent (i.e. the node that opened the round).
+          // Ancestor-voters must NOT add the joining node to their own member list.
+          if (justPassed && round.type === 'join' && round.pendingMember &&
+              freshNet.type === 'braintree') {
+            const alreadyAdded = freshNet.members.some(m => m.instanceId === round.subjectInstanceId);
+            const isDirectParent = !round.pendingMember.parentInstanceId ||
+              round.pendingMember.parentInstanceId === fresh.instanceId;
+            const vetoed = round.votes.some(v => v.vote === 'veto');
+            if (!alreadyAdded && isDirectParent && !vetoed) {
+              freshNet.members.push(round.pendingMember);
+              log.info(`Braintree join ${round.roundId} concluded via gossip — added ${round.subjectLabel} to network ${net.id}`);
+            }
+          }
+        }
       }
       // Apply space_deletion side-effects for rounds that just concluded
       for (const round of freshNet.pendingRounds) {
@@ -754,3 +817,58 @@ async function upsertEdge(spaceId: string, incoming: EdgeDoc): Promise<void> {
 
 // Silence unused import warning — resolveSafePath may be used by future file push refinement
 void resolveSafePath;
+
+// ── Merkle integrity check ──────────────────────────────────────────────────
+
+/**
+ * After a full space sync with a peer, fetch the peer's Merkle root and compare
+ * it to our own locally-computed root.  Any divergence is logged as a prominent
+ * MERKLE_DIVERGENCE warning — it does NOT block the sync or modify data.
+ *
+ * This is a best-effort, non-fatal check.  Failures (e.g. peer doesn't support
+ * the endpoint yet, network timeout) are logged at warn level and swallowed.
+ */
+async function checkMerkleWithPeer(
+  net: NetworkConfig,
+  member: NetworkMember,
+  spaceId: string,
+  opts: RequestInit,
+): Promise<void> {
+  try {
+    const { computeMerkleRoot } = await import('../brain/merkle.js');
+    const [localResult, peerResp] = await Promise.all([
+      computeMerkleRoot(spaceId),
+      fetch(
+        `${member.url}/api/sync/merkle?spaceId=${encodeURIComponent(spaceId)}&networkId=${encodeURIComponent(net.id)}`,
+        opts,
+      ),
+    ]);
+
+    if (!peerResp.ok) {
+      log.warn(`Merkle check for space '${spaceId}' with peer '${member.label}': peer returned HTTP ${peerResp.status} — skipping`);
+      return;
+    }
+
+    const peerResult = await peerResp.json() as { root?: string; leafCount?: number };
+    const peerRoot = peerResult.root;
+
+    if (!peerRoot) {
+      log.warn(`Merkle check for space '${spaceId}' with peer '${member.label}': peer response missing 'root' field`);
+      return;
+    }
+
+    if (localResult.root !== peerRoot) {
+      log.warn(
+        `MERKLE_DIVERGENCE: space '${spaceId}', peer '${member.label}' (${member.instanceId}), ` +
+        `network '${net.label}'. ` +
+        `local root=${localResult.root} (${localResult.leafCount} leaves), ` +
+        `peer root=${peerRoot} (${peerResult.leafCount ?? '?'} leaves). ` +
+        `The space contents differ after sync — possible data loss, concurrent write, or sync bug.`,
+      );
+    } else {
+      log.info(`Merkle OK: space '${spaceId}', peer '${member.label}' root=${localResult.root.slice(0, 12)}…`);
+    }
+  } catch (err) {
+    log.warn(`Merkle check for space '${spaceId}' with peer '${member.label}': ${err}`);
+  }
+}

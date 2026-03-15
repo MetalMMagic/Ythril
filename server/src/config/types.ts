@@ -2,6 +2,7 @@ export interface TokenRecord {
   id: string;
   name: string;
   hash: string;         // bcrypt hash
+  prefix: string;       // first 8 chars of the plaintext token — fast lookup hint
   createdAt: string;    // ISO8601
   lastUsed: string | null;
   expiresAt: string | null;
@@ -71,8 +72,10 @@ export interface VoteRound {
   votes: VoteCast[];
   inviteKeyHash?: string;    // bcrypt of invite key (join rounds only)
   concluded?: boolean;
+  passed?: boolean;          // true if concluded and the motion carried; false if vetoed/expired
   pendingMember?: NetworkMember;  // stored on join rounds; added to members when vote passes
   spaceId?: string;              // populated for space_deletion rounds
+  requiredVoters?: string[];     // braintree only: instanceIds that must ALL vote yes
 }
 
 export interface NetworkConfig {
@@ -87,6 +90,9 @@ export interface NetworkConfig {
   syncSchedule?: string;     // cron expression; omit = manual only
   inviteKeyHash?: string;    // bcrypt of current active invite key
   createdAt: string;
+  /** Braintree only: this instance's parent instanceId in the network tree.
+   *  When unset this instance is treated as the root. */
+  myParentInstanceId?: string;
   /** Set on THIS instance when it has been temporarily re-parented in a braintree.
    *  Cleared when the reparent is made permanent (`adopt`) or reverted. */
   temporaryReparent?: {
@@ -102,6 +108,7 @@ export interface Config {
   tokens: TokenRecord[];
   spaces: SpaceConfig[];
   networks: NetworkConfig[];
+  ejectedFromNetworks?: string[];  // network IDs this instance has been removed from via vote
   embedding?: EmbeddingConfig;
   storage?: StorageConfig;
   maxUploadBodyBytes?: number;

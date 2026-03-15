@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { requireAuth } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets, saveSecrets } from '../config/loader.js';
-import { concludeRoundIfReady } from './sync.js';
+import { concludeRoundIfReady, sendMemberRemovedNotify } from './sync.js';
 import { log } from '../util/log.js';
 import type { NetworkConfig, NetworkMember, VoteRound } from '../config/types.js';
 
@@ -21,7 +21,59 @@ export const networksRouter = Router();
 
 const BCRYPT_ROUNDS = 12;
 
+// ── SSRF-safe peer URL validation ────────────────────────────────────────────
+//
+// z.string().url() only checks URL syntax; it accepts private IP ranges and
+// cloud metadata endpoints that would expose internal services via sync requests.
+// All peer URLs must resolve to public, non-privileged hosts.
+
+// Matches private/loopback/link-local IPv4 ranges that must never be sync peer URLs:
+//   10/8 (RFC-1918), 172.16-31/12 (RFC-1918), 192.168/16 (RFC-1918),
+//   169.254/16 (link-local / AWS+Azure IMDS), 127/8 (loopback), 0.0.0.0
+const PRIVATE_IP_RE =
+  /^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0)$/;
+
+function isSsrfSafeUrl(raw: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    return false; // malformed URL
+  }
+
+  // Only http and https are valid transport schemes for a sync peer
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+
+  // Reject embedded credentials — they belong in the token, not the URL
+  if (parsed.username || parsed.password) return false;
+
+  const host = parsed.hostname.toLowerCase();
+
+  // Block localhost by name
+  if (host === 'localhost') return false;
+
+  // Block loopback IPv6
+  if (host === '[::1]' || host === '::1') return false;
+
+  // Block GCP metadata server (FQDN, not just IP)
+  if (host === 'metadata.google.internal') return false;
+
+  // Block private/link-local/loopback IPv4 ranges
+  if (PRIVATE_IP_RE.test(host)) return false;
+
+  return true;
+}
+
 // ── Schemas ─────────────────────────────────────────────────────────────────
+
+const SSRF_SAFE_URL = z
+  .string()
+  .url()
+  .refine(isSsrfSafeUrl, {
+    message:
+      'Peer URL must use http(s) and must not target private IPs, loopback, ' +
+      'cloud metadata endpoints, or include embedded credentials',
+  });
 
 const CreateNetworkBody = z.object({
   id: z.string().uuid().optional(),  // optional pre-specified ID for cross-instance registration
@@ -31,12 +83,13 @@ const CreateNetworkBody = z.object({
   votingDeadlineHours: z.number().int().min(1).max(72).default(24),
   syncSchedule: z.string().optional(),
   merkle: z.boolean().optional(),
+  myParentInstanceId: z.string().optional(),  // braintree: this instance's parent in the tree (omit → root)
 });
 
 const AddMemberBody = z.object({
   instanceId: z.string().min(1),
   label: z.string().min(1).max(200),
-  url: z.string().url(),
+  url: SSRF_SAFE_URL,
   token: z.string().min(1),   // plaintext peer token — stored as bcrypt hash
   direction: z.enum(['both', 'push']).default('both'),
   parentInstanceId: z.string().optional(),
@@ -51,7 +104,7 @@ const ReparentSelfBody = z.object({
   /** instanceId of the new parent (e.g. grandparent) */
   newParentInstanceId: z.string().uuid(),
   newParentLabel: z.string().min(1).max(200),
-  newParentUrl: z.string().url(),
+  newParentUrl: SSRF_SAFE_URL,
   /** Plaintext token (decrypted from the invite apply response) to call the new parent */
   tokenForNewParent: z.string().min(1),
   /** instanceId of the original parent that is offline */
@@ -93,7 +146,7 @@ networksRouter.post('/', globalRateLimit, requireAuth, async (req, res) => {
     const parsed = CreateNetworkBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
-    const { id: presetId, label, type, spaces, votingDeadlineHours, syncSchedule, merkle } = parsed.data;
+    const { id: presetId, label, type, spaces, votingDeadlineHours, syncSchedule, merkle, myParentInstanceId } = parsed.data;
     const cfg = getConfig();
 
     // Validate spaces exist
@@ -117,6 +170,7 @@ networksRouter.post('/', globalRateLimit, requireAuth, async (req, res) => {
       votingDeadlineHours,
       syncSchedule,
       merkle,
+      myParentInstanceId: type === 'braintree' ? myParentInstanceId : undefined,
       members: [],
       pendingRounds: [],
       createdAt: new Date().toISOString(),
@@ -141,11 +195,64 @@ networksRouter.delete('/:id', globalRateLimit, requireAuth, (req, res) => {
   const idx = cfg.networks.findIndex(n => n.id === req.params['id']);
   if (idx < 0) { res.status(404).json({ error: 'Network not found' }); return; }
 
-  const [removed] = cfg.networks.splice(idx, 1);
+  const net = cfg.networks[idx]!;
+
+  // Broadcast member_departed to all peers before removing the network locally.
+  // Fire-and-forget: non-fatal if a peer is unreachable.
+  const secrets = getSecrets();
+  for (const member of net.members) {
+    const peerToken = secrets.peerTokens[member.instanceId];
+    if (!peerToken) continue;
+    fetch(`${member.url}/api/notify`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${peerToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ networkId: net.id, instanceId: cfg.instanceId, event: 'member_departed' }),
+      signal: AbortSignal.timeout(5_000),
+    }).catch(err => log.warn(`member_departed to ${member.label}: ${err}`));
+  }
+
+  cfg.networks.splice(idx, 1);
   saveConfig(cfg);
-  log.info(`Deleted network id=${removed?.id}`);
+  log.info(`Deleted network id=${net.id}`);
   res.status(204).end();
 });
+
+// ── Braintree governance helpers ────────────────────────────────────────────
+
+/**
+ * Compute the list of instance IDs that must vote yes for a Braintree governance action.
+ *
+ * Walks from `startId` upward through `parentInstanceId` on network members.
+ * When the walk reaches `selfId` it continues via `net.myParentInstanceId` (the recorded
+ * parent of this instance).  Returns the path from `startId` up to (and including) the root.
+ *
+ * For a JOIN round: call with startId = selfId (the inviting node is this server).
+ * For a REMOVE round: call with startId = subject.parentInstanceId (the subject's direct parent).
+ */
+function buildBraintreeAncestors(
+  net: NetworkConfig,
+  selfId: string,
+  startId: string,
+): string[] {
+  const path: string[] = [];
+  const visited = new Set<string>();
+  let cur: string | undefined = startId;
+  while (cur && !visited.has(cur)) {
+    path.push(cur);
+    visited.add(cur);
+    if (cur === selfId) {
+      cur = net.myParentInstanceId;   // continue upward via this instance's declared parent
+    } else {
+      const m = net.members.find(m => m.instanceId === cur);
+      if (!m) break;                  // chain incomplete; stop here
+      cur = m.parentInstanceId;
+    }
+  }
+  return path;
+}
 
 // ── POST /api/networks/:id/members — add a peer member ────────────────────
 
@@ -201,16 +308,55 @@ networksRouter.post('/:id/members', globalRateLimit, requireAuth, async (req, re
       return;
     }
 
-    // Club / Braintree — direct add
-    net.members.push(member);
-    // Save the peer token for outbound sync
+    if (net.type === 'club') {
+      // Club: direct add, no vote required
+      net.members.push(member);
+      const secrets = getSecrets();
+      secrets.peerTokens[instanceId] = token;
+      saveSecrets(secrets);
+      saveConfig(cfg);
+      log.info(`Added member ${label} (${instanceId}) to network ${net.id}`);
+      const { tokenHash: _th, skipTlsVerify: _sv, ...safeMember } = member;
+      res.status(201).json(safeMember);
+      return;
+    }
+
+    // Braintree: open a vote round with requiredVoters = ancestry path from self to root.
+    // The proposer (this instance) auto-votes yes.  If the path is only [self] (root case),
+    // concludeRoundIfReady passes immediately and we add the member right away → 201.
+    // Otherwise we return 202 and wait for all ancestors to vote via gossip propagation.
+    const requiredVoters = buildBraintreeAncestors(net, cfg.instanceId, cfg.instanceId);
+    const round: VoteRound = {
+      roundId: uuidv4(),
+      type: 'join',
+      subjectInstanceId: instanceId,
+      subjectLabel: label,
+      subjectUrl: url,
+      deadline: new Date(Date.now() + net.votingDeadlineHours * 3_600_000).toISOString(),
+      openedAt: new Date().toISOString(),
+      votes: [],
+      pendingMember: member,
+      requiredVoters,
+    };
+    net.pendingRounds.push(round);
+    // Auto-cast this instance's yes vote (proposer implicitly approves their own proposal)
+    round.votes.push({ instanceId: cfg.instanceId, vote: 'yes', castAt: new Date().toISOString() });
     const secrets = getSecrets();
     secrets.peerTokens[instanceId] = token;
     saveSecrets(secrets);
+    const immediatePassed = concludeRoundIfReady(net, round);
+    if (immediatePassed) {
+      // Root case: only self needed to vote → add member directly
+      net.members.push(member);
+      saveConfig(cfg);
+      log.info(`Braintree join immediate (root): added ${label} (${instanceId}) to network ${net.id}`);
+      const { tokenHash: _th, skipTlsVerify: _sv, ...safeMember } = member;
+      res.status(201).json(safeMember);
+      return;
+    }
     saveConfig(cfg);
-    log.info(`Added member ${label} (${instanceId}) to network ${net.id}`);
-    const { tokenHash: _th, skipTlsVerify: _sv, ...safeMember } = member;
-    res.status(201).json(safeMember);
+    log.info(`Opened braintree join round ${round.roundId} for ${label} (${instanceId}) in network ${net.id}`);
+    res.status(202).json({ status: 'vote_pending', roundId: round.roundId });
   } catch (err) {
     log.error(`POST /api/networks/:id/members: ${err}`);
     res.status(500).json({ error: 'Internal error' });
@@ -247,10 +393,50 @@ networksRouter.delete('/:id/members/:instanceId', globalRateLimit, requireAuth, 
     return;
   }
 
-  net.members.splice(memberIdx, 1);
+  if (net.type === 'club') {
+    net.members.splice(memberIdx, 1);
+    saveConfig(cfg);
+    res.status(204).end();
+    return;
+  }
+
+  // Braintree: open a remove vote round with requiredVoters = ancestor path of the subject.
+  // The subject's parent (and all ancestors up to root) must approve the removal.
+  const subject = net.members[memberIdx]!;
+  // Walk from subject's parent upward; if the subject is a direct child of self,
+  // buildBraintreeAncestors(startId=self) correctly includes self and self's own ancestors.
+  const subjectParentId = subject.parentInstanceId ?? cfg.instanceId;
+  const requiredVoters = buildBraintreeAncestors(net, cfg.instanceId, subjectParentId);
+  const removeRound: VoteRound = {
+    roundId: uuidv4(),
+    type: 'remove',
+    subjectInstanceId: subject.instanceId,
+    subjectLabel: subject.label,
+    subjectUrl: subject.url,
+    deadline: new Date(Date.now() + net.votingDeadlineHours * 3_600_000).toISOString(),
+    openedAt: new Date().toISOString(),
+    votes: [],
+    requiredVoters,
+  };
+  net.pendingRounds.push(removeRound);
+  // Auto-cast this instance's yes vote if we are a required voter
+  if (requiredVoters.includes(cfg.instanceId)) {
+    removeRound.votes.push({ instanceId: cfg.instanceId, vote: 'yes', castAt: new Date().toISOString() });
+  }
+  const immediatePassed = concludeRoundIfReady(net, removeRound);
+  if (immediatePassed) {
+    // Ancestor path is only [self] → remove immediately (member already spliced by concludeRoundIfReady)
+    saveConfig(cfg);
+    sendMemberRemovedNotify(removeRound.subjectUrl, removeRound.subjectInstanceId, net.id);
+    log.info(`Braintree remove immediate: removed ${subject.label} (${subject.instanceId}) from network ${net.id}`);
+    res.status(204).end();
+    return;
+  }
   saveConfig(cfg);
-  res.status(204).end();
+  log.info(`Opened braintree remove round ${removeRound.roundId} for ${subject.label} (${subject.instanceId}) in network ${net.id}`);
+  res.status(202).json({ status: 'vote_pending', roundId: removeRound.roundId });
 });
+
 // ── POST /api/networks/:id/reparent-self ────────────────────────────────────
 // Called by a node on ITSELF after completing the invite apply step.
 // Records the new parent in the local config so this node knows it is
@@ -396,11 +582,15 @@ networksRouter.post('/:id/votes/:roundId', globalRateLimit, requireAuth, (req, r
 
     concludeRoundIfReady(net, round);
 
-    // If join round concluded and passed, add the pending member
+    // If join round concluded and passed, add the pending member —
+    // but only if this instance is the direct parent in the tree (for braintree networks
+    // this check prevents ancestor-voters from adding the member to their own list).
     if (round.concluded && round.type === 'join' && round.pendingMember &&
         !net.members.some(m => m.instanceId === round.subjectInstanceId)) {
       const vetoCount = round.votes.filter(v => v.vote === 'veto').length;
-      if (vetoCount === 0) {
+      const isDirectParent = !round.pendingMember.parentInstanceId ||
+        round.pendingMember.parentInstanceId === cfg.instanceId;
+      if (vetoCount === 0 && (net.type !== 'braintree' || isDirectParent)) {
         net.members.push(round.pendingMember);
         log.info(`Join vote ${round.roundId} passed — added member ${round.subjectLabel} to network ${net.id}`);
       }
@@ -414,6 +604,11 @@ networksRouter.post('/:id/votes/:roundId', globalRateLimit, requireAuth, (req, r
           removeSpace(round.spaceId!).catch(err => log.error(`space_deletion vote side-effect: ${err}`));
         }).catch(err => log.error(`space_deletion import: ${err}`));
       }
+    }
+
+    // If remove round concluded and passed, notify the ejected member
+    if (round.concluded && round.passed && round.type === 'remove') {
+      sendMemberRemovedNotify(round.subjectUrl, round.subjectInstanceId, net.id);
     }
 
     saveConfig(cfg);
@@ -452,7 +647,7 @@ const JoinNetworkBody = z.object({
   inviteKey: z.string().min(1),
   instanceId: z.string().min(1),
   label: z.string().min(1).max(200),
-  url: z.string().url(),
+  url: SSRF_SAFE_URL,
   token: z.string().min(1),  // plaintext token for inbound auth
   direction: z.enum(['both', 'push']).default('both'),
   parentInstanceId: z.string().optional(),
@@ -522,6 +717,78 @@ networksRouter.post('/:id/join', globalRateLimit, requireAuth, async (req, res) 
     res.status(200).json({ status: 'joined', members: safeMemberList, networkId: net.id });
   } catch (err) {
     log.error(`POST /api/networks/:id/join: ${err}`);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ── POST /api/networks/:id/fork ──────────────────────────────────────────────
+// Creates a new standalone/closed network seeded from the caller's copy of the
+// source network's spaces. Works for:
+//   • Active member  — source network still present; spaces are inherited
+//   • Ejected member — source network is gone (deleted on ejection); caller must
+//     supply spaces explicitly in the request body
+//
+// The source network is never modified. ejectedFromNetworks is never cleared.
+
+const ForkNetworkBody = z.object({
+  label: z.string().min(1).max(200),
+  type: z.enum(['closed', 'club']).default('closed'),
+  votingDeadlineHours: z.number().int().min(1).max(72).optional(),
+  spaces: z.array(z.string().min(1)).optional(),
+});
+
+networksRouter.post('/:id/fork', globalRateLimit, requireAuth, (req, res) => {
+  try {
+    const parsed = ForkNetworkBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    const cfg = getConfig();
+    const sourceId = String(req.params['id'] ?? '');
+    const sourceNet = cfg.networks.find(n => n.id === sourceId);
+    const isEjected = cfg.ejectedFromNetworks?.includes(sourceId) ?? false;
+
+    if (!sourceNet && !isEjected) {
+      res.status(404).json({ error: 'Network not found' });
+      return;
+    }
+
+    // Spaces: body override takes precedence; otherwise inherited from source.
+    const spaces = parsed.data.spaces ?? sourceNet?.spaces;
+
+    if (!spaces || spaces.length === 0) {
+      res.status(400).json({
+        error: 'spaces is required when the source network is no longer locally available',
+      });
+      return;
+    }
+
+    // All requested spaces must be locally known.
+    const unknownSpaces = spaces.filter(s => !cfg.spaces.some(cs => cs.id === s));
+    if (unknownSpaces.length > 0) {
+      res.status(400).json({ error: `Unknown spaces: ${unknownSpaces.join(', ')}` });
+      return;
+    }
+
+    const forkedNet: NetworkConfig = {
+      id: uuidv4(),
+      label: parsed.data.label,
+      type: parsed.data.type,
+      spaces,
+      votingDeadlineHours: parsed.data.votingDeadlineHours ?? sourceNet?.votingDeadlineHours ?? 24,
+      members: [],
+      pendingRounds: [],
+      createdAt: new Date().toISOString(),
+    };
+
+    cfg.networks.push(forkedNet);
+    saveConfig(cfg);
+    log.info(`Forked network ${sourceId} → new network ${forkedNet.id} ('${forkedNet.label}')`);
+    res.status(201).json(forkedNet);
+  } catch (err) {
+    log.error(`POST /api/networks/:id/fork: ${err}`);
     res.status(500).json({ error: 'Internal error' });
   }
 });

@@ -264,3 +264,36 @@ After the gossip (member identity) exchange, the engine runs a vote propagation 
 
 This means a vote cast on any peer propagates to all other peers within one gossip cycle per hop, and a round concludes independently on each instance as soon as it has received enough votes to satisfy its network's pass condition.
 
+---
+
+## Leave and removal flows
+
+### Voluntary leave (`DELETE /api/networks/:id`)
+
+When an instance removes itself from a network, it broadcasts a `member_departed` event to all current members before deleting the network locally:
+
+1. For each member in the network, it sends `POST /api/notify { networkId, instanceId, event: "member_departed" }` using the stored peer token, with a 5-second fire-and-forget timeout.
+2. The local network entry is then spliced from `cfg.networks` and config is saved.
+
+On the **receiving** end of a `member_departed` event:
+- The sender is removed from `net.members` for all network types.
+- The event is **idempotent** — if the sender is no longer in the member list (already processed), the call returns `204` rather than `403`. This handles duplicate delivery and race conditions gracefully.
+- N-7 braintree auto-adopt logic runs as before (orphaned children are re-parented to the closest surviving ancestor).
+
+### Forced removal (remove vote)
+
+A `remove` vote round passes when the network's conclusion rule is satisfied. Once concluded, the observing instance sends a `member_removed` notify event to the ejected instance:
+
+- `sendMemberRemovedNotify(subjectUrl, subjectInstanceId, networkId)` is called from three places: the vote relay handler in `sync.ts`, the vote handler in `networks.ts`, and the gossip engine in `engine.ts` (all after `concludeRoundIfReady` returns true for a `remove` round).
+- The ejected instance receives `POST /api/notify { networkId, instanceId, event: "member_removed" }`.
+
+On the **receiving** end of a `member_removed` event:
+1. `networkId` is added to `cfg.ejectedFromNetworks` (deduplicated).
+2. The network entry is removed from `cfg.networks`.
+3. Config is saved.
+
+Subsequently, any sync request to `/api/sync/networks/:networkId` for an ejected network ID returns `401 { "error": "ejected" }` via an early-exit middleware, preventing stale sync attempts.
+
+> **Note on peer token lifecycle**: peer tokens (stored in `secrets.peerTokens`) are *infrastructure-level* credentials representing a trusted peering relationship and are not automatically revoked when a member leaves or is removed from a network. Token revocation is a separate, explicit administrative action.
+
+

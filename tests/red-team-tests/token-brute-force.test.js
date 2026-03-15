@@ -59,15 +59,15 @@ describe('Brute-force token enumeration on POST /api/tokens', () => {
         break;
       }
     }
-    // If we got a 429, it should include guidance headers
+    // If we got a 429, at least one guidance header must be present and non-empty
     if (retryAfter !== null || rateLimitReset !== null) {
-      // At least one of these should be present
+      const value = (retryAfter ?? rateLimitReset ?? '').trim();
       assert.ok(
-        retryAfter !== null || rateLimitReset !== null,
-        'Rate-limited response should include Retry-After or RateLimit-Reset header'
+        value.length > 0,
+        `Rate-limited response has a header but its value is empty (retryAfter=${retryAfter}, rateLimitReset=${rateLimitReset})`,
       );
     }
-    // Otherwise the window may already be exhausted — that's fine, test passed
+    // If no rate-limit headers were seen the window was already exhausted — still passing
   });
 });
 

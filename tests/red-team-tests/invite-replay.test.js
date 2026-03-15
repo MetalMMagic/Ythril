@@ -24,7 +24,6 @@ import { fileURLToPath } from 'url';
 import { INSTANCES, post } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TOKEN_A = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
 const TOKEN_C = path.join(__dirname, '..', 'sync', 'configs', 'c', 'token.txt');
 
 // Use instance C for invite tests to avoid exhausting A's authRateLimit
@@ -33,9 +32,6 @@ const INVITE_INSTANCE = INSTANCES.c;
 
 let tokenA;
 let networkId;
-let handshakeId;
-let inviteUrl;
-let aPublicKeyPem;
 
 /** Generate a fresh test network for invite tests */
 async function createTestNetwork(token) {
@@ -74,13 +70,10 @@ describe('Invite handshake security', () => {
     assert.equal(r.status, 201, `Expected 201, got ${r.status}: ${JSON.stringify(r.body)}`);
     assert.ok(r.body.handshakeId, 'Should have handshakeId');
     assert.ok(r.body.rsaPublicKeyPem?.startsWith('-----BEGIN'), 'Should have RSA public key');
-    handshakeId = r.body.handshakeId;
-    inviteUrl = r.body.inviteUrl;
-    aPublicKeyPem = r.body.rsaPublicKeyPem;
   });
 
   it('Apply with non-existent handshakeId → 4xx', async () => {
-    const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+    const { publicKey } = crypto.generateKeyPairSync('rsa', {
       modulusLength: 2048,
       publicKeyEncoding: { type: 'spki', format: 'pem' },
       privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
@@ -107,7 +100,7 @@ describe('Invite handshake security', () => {
     });
     assert.equal(gen.status, 201);
 
-    const { privateKey: bPrivKey, publicKey: bPubKey } = crypto.generateKeyPairSync('rsa', {
+    const { publicKey: bPubKey } = crypto.generateKeyPairSync('rsa', {
       modulusLength: 2048,
       publicKeyEncoding: { type: 'spki', format: 'pem' },
       privateKeyEncoding: { type: 'pkcs8', format: 'pem' },

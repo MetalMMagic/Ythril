@@ -22,7 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS_DIR = path.join(__dirname, 'configs');
 
 const INSTANCES = [
-  { name: 'a', container: 'ythril', url: 'http://localhost:3200', port: 3200 },
+  { name: 'a', container: 'ythril-a', url: 'http://localhost:3200', port: 3200 },
   { name: 'b', container: 'ythril-b', url: 'http://localhost:3201', port: 3201 },
   { name: 'c', container: 'ythril-c', url: 'http://localhost:3202', port: 3202 },
 ];

@@ -208,6 +208,24 @@ function createMcpServer(spaceId: string): Server {
         description: 'List all configured peer ythril instances (for Brain Networks).',
         inputSchema: { type: 'object', properties: {}, required: [] },
       },
+      {
+        name: 'sync_now',
+        description:
+          'Trigger an immediate sync cycle. ' +
+          'If peerId is supplied, syncs only that one peer (across all networks it belongs to). ' +
+          'If omitted, runs a full cycle for every network. ' +
+          'peerId must be an exact instanceId from the member list — it is never used as a URL.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            peerId: {
+              type: 'string',
+              description: 'instanceId of the peer to sync. Omit to sync all networks.',
+            },
+          },
+          required: [],
+        },
+      },
     ],
   }));
 
@@ -425,6 +443,52 @@ function createMcpServer(spaceId: string): Server {
           };
         }
 
+        case 'sync_now': {
+          const peerId = a['peerId'] != null ? String(a['peerId']).trim() : null;
+          const { runSyncForPeer, runSyncForNetwork } = await import('../sync/engine.js');
+          const cfg = getConfig();
+
+          if (peerId) {
+            // SEC-16: validate peerId is a known instanceId, never use as URL
+            const knownIds = new Set(cfg.networks.flatMap(n => n.members.map(m => m.instanceId)));
+            if (!knownIds.has(peerId)) {
+              return {
+                content: [{ type: 'text' as const, text: `Error: peerId '${peerId}' is not a registered member in any network.` }],
+                isError: true,
+              };
+            }
+            const result = await runSyncForPeer(peerId);
+            return {
+              content: [{
+                type: 'text' as const,
+                text: result.notFound
+                  ? `Peer '${peerId}' not found in any network.`
+                  : `Sync complete: ${result.networksSynced} network(s) synced, ${result.errors} error(s).`,
+              }],
+              isError: result.errors > 0,
+            };
+          } else {
+            // Sync all networks
+            let totalSynced = 0; let totalErrors = 0;
+            const lines: string[] = [];
+            for (const net of cfg.networks) {
+              const r = await runSyncForNetwork(net.id);
+              totalSynced += r.synced;
+              totalErrors += r.errors;
+              lines.push(`${net.label}: ${r.synced} ok, ${r.errors} error(s)`);
+            }
+            return {
+              content: [{
+                type: 'text' as const,
+                text: lines.length === 0
+                  ? 'No networks configured.'
+                  : lines.join('\n') + `\n\nTotal: ${totalSynced} synced, ${totalErrors} error(s).`,
+              }],
+              isError: totalErrors > 0,
+            };
+          }
+        }
+
         default:
           return {
             content: [{ type: 'text' as const, text: `Unknown tool: ${name}` }],
@@ -479,5 +543,5 @@ mcpRouter.post('/:spaceId/messages', globalRateLimit, requireSpaceAuth, async (r
     res.status(404).json({ error: 'Unknown MCP session. Open an SSE connection first.' });
     return;
   }
-  await transport.handlePostMessage(req, res);
+  await transport.handlePostMessage(req, res, req.body);
 });

@@ -1041,14 +1041,14 @@ npm-debug.log*
 - [x] Voting round engine: open round on join request, collect votes via gossip, evaluate pass/fail conditions per network type
 - [x] Vote propagation in gossip protocol: issue → open round → consumed on result
 - [x] Network types: Closed, Democratic, Club, Braintree
-- [ ] Braintree: ancestor path resolution + per-ancestor vote collection
-- [ ] Leave flow: unilateral departure + departure gossip broadcast
-- [ ] Removal flow: removal round via vote; notify ejected instance on next sync attempt; ejected member keeps data
-- [ ] Off-grid / fork: departing or ejected member can create a new network from their data
+- [x] Braintree: ancestor path resolution + per-ancestor vote collection
+- [x] Leave flow: unilateral departure + departure gossip broadcast
+- [x] Removal flow: removal round via vote; notify ejected instance on next sync attempt; ejected member keeps data
+- [x] Off-grid / fork: departing or ejected member can create a new network from their data
 - [x] Per-membership sync direction (`both` / `push`); enforce at sync time
 - [x] `POST /api/notify` endpoint; network-scoped token auth; `vote_pending` + `member_departed` events
 - [ ] Settings UI: pending votes banner, create / join / leave flows
-- [ ] Merkle root per space (opt-in via network `merkle` flag)
+- [x] Merkle root per space (opt-in via network `merkle` flag)
 
 ---
 
@@ -1063,20 +1063,20 @@ Items are ordered by dependency — each group unlocks the next.
 - [x] Engine calls `GET /api/sync/networks/:networkId/votes` on each peer during sync; relays new votes via `POST /api/sync/networks/:networkId/votes/:roundId`
 
 ### 3. Leave + removal flows (unlocks off-grid/fork)
-- [ ] Leave flow: broadcast `member_departed` notify event to all peers before removing the network locally (DELETE `/api/networks/:id` currently does no broadcast)
-- [ ] Removal flow: after remove vote concludes and passes, send `member_removed` notify event to ejected instance; return `401 {"error":"ejected"}` on any subsequent sync attempt from that instanceId
+- [x] Leave flow: broadcast `member_departed` notify event to all peers before removing the network locally (DELETE `/api/networks/:id` currently does no broadcast)
+- [x] Removal flow: after remove vote concludes and passes, send `member_removed` notify event to ejected instance; return `401 {"error":"ejected"}` on any subsequent sync attempt from that instanceId
 
 ### 4. Braintree governance (depends on vote propagation)
-- [ ] Resolve ancestor path up root via `parentInstanceId` chain on join requests; collect per-ancestor votes before opening the local round
+- [x] Resolve ancestor path up root via `parentInstanceId` chain on join requests; collect per-ancestor votes before opening the local round
 
 ### 5. Off-grid / fork (depends on leave + removal)
-- [ ] `POST /api/networks/:id/fork` — creates a new standalone or closed network seeded from current space data, available to a departing or ejected member
+- [x] `POST /api/networks/:id/fork` — creates a new standalone or closed network seeded from current space data, available to a departing or ejected member
 
 ### 6. Merkle root (independent)
-- [ ] Compute SHA-256 tree over space seq watermarks + file manifest hashes; expose via `GET /api/sync/merkle?spaceId=&networkId=`; engine compares roots during sync and flags divergence when network `merkle` flag is set
+- [x] Compute SHA-256 tree over space seq watermarks + file manifest hashes; expose via `GET /api/sync/merkle?spaceId=&networkId=`; engine compares roots during sync and flags divergence when network `merkle` flag is set
 
 ### 7. `sync_now` MCP tool (independent)
-- [ ] Add `sync_now` tool to `mcp/router.ts`: accepts `peerId` (instanceId), validates against member list, triggers one sync cycle, returns outcome
+- [x] Add `sync_now` tool to `mcp/router.ts`: accepts `peerId` (instanceId), validates against member list, triggers one sync cycle, returns outcome
 
 ### 8. File manager UI (independent)
 - [ ] Server-rendered HTML UI at `/files` over the existing `/api/files` HTTP API: directory listing, upload form, download link, delete, rename

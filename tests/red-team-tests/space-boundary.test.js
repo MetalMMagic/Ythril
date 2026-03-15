@@ -17,13 +17,25 @@ import { INSTANCES, post, get } from '../sync/helpers.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
 
-let tokenA;           // full-access token
-let generalOnlyToken; // scoped to "general" only
+let tokenA;              // full-access token
+let generalOnlyToken;    // scoped to "general" only
 let generalOnlyId;
+const OUT_OF_SCOPE_SPACE = 'sb-out-of-scope'; // created in before(), deleted in after()
 
 describe('Space-scoped token enforcement', () => {
   before(async () => {
     tokenA = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
+
+    // Create an isolated target space so out-of-scope tests are deterministic:
+    // a 404 from a non-existent space would mask scope-enforcement failures.
+    const spaceRes = await post(INSTANCES.a, tokenA, '/api/spaces', {
+      id: OUT_OF_SCOPE_SPACE,
+      label: 'Space Boundary Out-Of-Scope',
+    });
+    assert.ok(
+      spaceRes.status === 201 || spaceRes.status === 409,
+      `Failed to create out-of-scope test space: ${JSON.stringify(spaceRes.body)}`,
+    );
 
     // Create a token scoped only to the "general" space
     const r = await post(INSTANCES.a, tokenA, '/api/tokens', {
@@ -36,13 +48,18 @@ describe('Space-scoped token enforcement', () => {
   });
 
   after(async () => {
-    // Clean up scoped token
     if (generalOnlyId) {
       await fetch(`${INSTANCES.a}/api/tokens/${generalOnlyId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${tokenA}` },
       });
     }
+    // Delete the scratch space (solo; no network)
+    await fetch(`${INSTANCES.a}/api/spaces/${OUT_OF_SCOPE_SPACE}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tokenA}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    });
   });
 
   it('Scoped token can access its own space (general) files', async () => {
@@ -61,31 +78,24 @@ describe('Space-scoped token enforcement', () => {
     assert.equal(r.status, 201, 'Token should write to its allowed space');
   });
 
-  // Spaces in Ythril — at minimum "general" is always present.
-  // "private" might or might not exist in test config; test if a token
-  // scoped to "general" is blocked from a different space slug.
-  it('Scoped token cannot access brain in a different space', async () => {
-    // Attempt to access /api/brain/private or /api/brain/nonexistent-space
-    // Both should return 401 (not authorized for that space) or 404 (space missing)
-    const r = await fetch(`${INSTANCES.a}/api/brain/private/memories`, {
+  it('Scoped token cannot access brain in a different space → 403', async () => {
+    // Uses OUT_OF_SCOPE_SPACE (created in before()) so a 404 cannot mask enforcement.
+    const r = await fetch(`${INSTANCES.a}/api/brain/${OUT_OF_SCOPE_SPACE}/memories`, {
       headers: { 'Authorization': `Bearer ${generalOnlyToken}` },
     });
-    // 401 = no/invalid token, 403 = valid token but out-of-scope, 404 = space doesn't exist
-    assert.ok(r.status === 401 || r.status === 403 || r.status === 404,
-      `Expected 401/403/404 for out-of-scope space, got ${r.status}`);
-    assert.notEqual(r.status, 200, 'Should NOT have access to private space');
+    assert.equal(r.status, 403,
+      `Expected 403 (scope rejection) for out-of-scope brain space, got ${r.status}`);
   });
 
-  it('Scoped token cannot upload to a different space via files API', async () => {
-    const r = await fetch(`${INSTANCES.a}/api/files/private?path=escape.txt`, {
+  it('Scoped token cannot upload to a different space via files API → 403', async () => {
+    // Uses OUT_OF_SCOPE_SPACE (created in before()) so a 404 cannot mask enforcement.
+    const r = await fetch(`${INSTANCES.a}/api/files/${OUT_OF_SCOPE_SPACE}?path=escape.txt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${generalOnlyToken}` },
       body: JSON.stringify({ content: 'escape', encoding: 'utf8' }),
     });
-    // 401 = no/invalid token, 403 = valid token but out-of-scope, 404 = space doesn't exist
-    assert.ok(r.status === 401 || r.status === 403 || r.status === 404,
-      `Expected 401/403/404 for out-of-scope space write, got ${r.status}`);
-    assert.notEqual(r.status, 201, 'Should NOT write to out-of-scope space');
+    assert.equal(r.status, 403,
+      `Expected 403 (scope rejection) for out-of-scope files write, got ${r.status}`);
   });
 });
 

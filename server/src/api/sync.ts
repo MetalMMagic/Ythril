@@ -12,7 +12,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { col } from '../db/mongo.js';
 import { syncRateLimit } from '../rate-limit/middleware.js';
-import { getConfig } from '../config/loader.js';
+import { getConfig, getSecrets } from '../config/loader.js';
 import { listTombstones, applyRemoteTombstone } from '../brain/tombstones.js';
 import { requireAuth } from '../auth/middleware.js';
 import { log } from '../util/log.js';
@@ -39,8 +39,17 @@ function decodeCursor(token: string): number {
 
 // ── Space access guard ─────────────────────────────────────────────────────
 
-function spaceAllowed(spaceId: string, networkId?: string): boolean {
+/**
+ * Returns true if:
+ *  1. The calling token (if space-scoped) includes spaceId in its allowlist, AND
+ *  2. The spaceId is valid for the given networkId (or exists locally if no networkId).
+ *
+ * @param tokenSpaces - the `spaces` field from req.authToken (undefined = full-access token)
+ */
+function spaceAllowed(spaceId: string, networkId?: string, tokenSpaces?: string[]): boolean {
   const cfg = getConfig();
+  // Enforce token-level space scope before any network check
+  if (tokenSpaces && !tokenSpaces.includes(spaceId)) return false;
   // If no networkId given, allow any known space
   if (!networkId) return cfg.spaces.some(s => s.id === spaceId);
   const net = cfg.networks.find(n => n.id === networkId);
@@ -64,7 +73,7 @@ syncRouter.get('/memories', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
     const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
@@ -99,7 +108,7 @@ syncRouter.get('/memories/:id', syncRateLimit, requireAuth, async (req, res) => 
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const doc = await col<MemoryDoc>(`${spaceId}_memories`).findOne({ _id: req.params['id'] } as never);
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
@@ -119,7 +128,7 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const incoming = req.body as MemoryDoc;
     if (!incoming?._id || typeof incoming.seq !== 'number') {
@@ -184,7 +193,7 @@ syncRouter.get('/entities', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
     const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
@@ -214,7 +223,7 @@ syncRouter.get('/entities/:id', syncRateLimit, requireAuth, async (req, res) => 
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const doc = await col<EntityDoc>(`${spaceId}_entities`).findOne({ _id: req.params['id'] } as never);
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
@@ -228,7 +237,7 @@ syncRouter.post('/entities', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const incoming = req.body as EntityDoc;
     if (!incoming?._id || typeof incoming.seq !== 'number') {
@@ -270,7 +279,7 @@ syncRouter.get('/edges', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
     const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
@@ -300,7 +309,7 @@ syncRouter.get('/edges/:id', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const doc = await col<EdgeDoc>(`${spaceId}_edges`).findOne({ _id: req.params['id'] } as never);
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
@@ -314,7 +323,7 @@ syncRouter.post('/edges', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const incoming = req.body as EdgeDoc;
     if (!incoming?._id || typeof incoming.seq !== 'number') {
@@ -359,7 +368,7 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, async (req, res) =>
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const body = req.body as { memories?: MemoryDoc[]; entities?: EntityDoc[]; edges?: EdgeDoc[] };
     const memories = Array.isArray(body?.memories) ? body.memories.slice(0, 500) : [];
@@ -455,7 +464,7 @@ syncRouter.get('/tombstones', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId, sinceSeq = '0' } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const since = parseInt(sinceSeq, 10);
     const all = await listTombstones(spaceId, since, 1000);
@@ -475,7 +484,7 @@ syncRouter.post('/tombstones', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const body = req.body as { tombstones?: TombstoneDoc[] };
     const tombstones = body?.tombstones ?? [];
@@ -512,7 +521,7 @@ syncRouter.get('/manifest', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId, since } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const { buildFileManifest } = await import('../files/manifest.js');
     const sinceDate = since ? new Date(since) : undefined;
@@ -525,8 +534,52 @@ syncRouter.get('/manifest', syncRateLimit, requireAuth, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// MERKLE ROOT
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/sync/merkle?spaceId=&networkId=
+ *
+ * Returns the SHA-256 Merkle root for the given space.  The root covers all
+ * memory / entity / edge documents (identified by their _id + seq) and all
+ * files in the space (identified by their relative path + sha256 hash).
+ *
+ * This endpoint is consumed by the sync engine when a network has
+ * `merkle: true` — after data sync the engine compares roots across peers and
+ * emits a MERKLE_DIVERGENCE warning if they disagree.
+ *
+ * Response: { spaceId, networkId, root, leafCount, computedAt }
+ */
+syncRouter.get('/merkle', syncRateLimit, requireAuth, async (req, res) => {
+  try {
+    const { spaceId, networkId } = req.query as Record<string, string>;
+    if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+
+    const { computeMerkleRoot } = await import('../brain/merkle.js');
+    const result = await computeMerkleRoot(spaceId);
+    res.json({ ...result, networkId: networkId ?? null });
+  } catch (err) {
+    log.error(`sync GET merkle: ${err}`);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // GOSSIP — member list & votes
 // ═══════════════════════════════════════════════════════════════════════════
+
+// ── Ejection guard ────────────────────────────────────────────────────────
+// If this instance has been removed from a network by vote, all sync requests
+// for that network return 401 {"error":"ejected"} so peers stop trying to sync.
+syncRouter.use('/networks/:networkId', (req, res, next) => {
+  const cfg = getConfig();
+  if (cfg.ejectedFromNetworks?.includes(req.params['networkId'] ?? '')) {
+    res.status(401).json({ error: 'ejected' });
+    return;
+  }
+  next();
+});
 
 /**
  * GET /api/sync/networks/:networkId/members
@@ -672,6 +725,25 @@ syncRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requireAut
       }
     }
 
+    // If a remove round just passed, notify the ejected member
+    if (round.concluded && round.passed && round.type === 'remove') {
+      sendMemberRemovedNotify(round.subjectUrl, round.subjectInstanceId, net.id);
+    }
+
+    // If a braintree join round just passed via this vote relay, add the pending member
+    // only if this instance is the direct parent in the tree.
+    if (round.concluded && round.type === 'join' && round.pendingMember &&
+        net.type === 'braintree') {
+      const alreadyAdded = net.members.some(m => m.instanceId === round.subjectInstanceId);
+      const isDirectParent = !round.pendingMember.parentInstanceId ||
+        round.pendingMember.parentInstanceId === cfg.instanceId;
+      const vetoed = round.votes.some(v => v.vote === 'veto');
+      if (!alreadyAdded && isDirectParent && !vetoed) {
+        net.members.push(round.pendingMember);
+        log.info(`Braintree join ${round.roundId} passed via vote relay — added ${round.subjectLabel} to network ${net.id}`);
+      }
+    }
+
     saveConfig(cfg);
     res.status(200).json({ status: 'ok' });
   } catch (err) {
@@ -685,14 +757,15 @@ syncRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requireAut
 function concludeRoundIfReady(
   net: import('../config/types.js').NetworkConfig,
   round: import('../config/types.js').VoteRound,
-): void {
+): boolean {
   const voters = net.members.filter(m => !round.subjectInstanceId || m.instanceId !== round.subjectInstanceId);
   const vetoCount = round.votes.filter(v => v.vote === 'veto').length;
   const pastDeadline = new Date(round.deadline) < new Date();
 
   if (vetoCount > 0 || pastDeadline) {
     round.concluded = true;
-    return;
+    round.passed = false;
+    return false;
   }
 
   // For unanimous-requirement types (closed, braintree): every remote voter must have voted yes
@@ -707,8 +780,20 @@ function concludeRoundIfReady(
   let passed = false;
   switch (net.type) {
     case 'closed':
-    case 'braintree':
       passed = allRemoteVotedYes;
+      break;
+    case 'braintree':
+      if (round.requiredVoters && round.requiredVoters.length > 0) {
+        // Only the designated ancestors (path from inviting node to root) must vote yes.
+        // The subject itself is excluded from the required set.
+        const relevant = round.requiredVoters.filter(id => id !== round.subjectInstanceId);
+        passed = relevant.every(id =>
+          round.votes.some(c => c.instanceId === id && c.vote === 'yes'),
+        );
+      } else {
+        // Fallback for rounds created before requiredVoters was introduced
+        passed = allRemoteVotedYes;
+      }
       break;
     case 'democratic':
       passed = (voters.length === 0 && yesCount > 0) || (yesCount > voters.length / 2 && vetoCount === 0);
@@ -720,14 +805,43 @@ function concludeRoundIfReady(
   }
   if (passed) {
     round.concluded = true;
+    round.passed = true;
     // On join round pass: the candidate will call join again and get a 200 with member list
     // On remove round pass: remove the member
     if (round.type === 'remove') {
       const idx = net.members.findIndex(m => m.instanceId === round.subjectInstanceId);
       if (idx >= 0) net.members.splice(idx, 1);
     }
+    return true;
   }
+  return false;
 }
 
-// Re-export the helper for use by the network router
+// ── Notify ejected member after a remove vote passes ──────────────────────
+// Fire-and-forget: non-fatal if the peer is unreachable.
+export function sendMemberRemovedNotify(
+  subjectUrl: string,
+  subjectInstanceId: string,
+  networkId: string,
+): void {
+  const cfg = getConfig();
+  const secrets = getSecrets();
+  const peerToken = secrets.peerTokens[subjectInstanceId];
+  if (!peerToken) {
+    log.warn(`member_removed: no outbound token for ${subjectInstanceId} — cannot notify`);
+    return;
+  }
+  fetch(`${subjectUrl}/api/notify`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${peerToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ networkId, instanceId: cfg.instanceId, event: 'member_removed' }),
+    signal: AbortSignal.timeout(10_000),
+  }).catch(err => log.warn(`member_removed notify to ${subjectInstanceId}: ${err}`));
+}
+
+// Re-export the helper for use by the network router and sync engine
 export { concludeRoundIfReady };
+

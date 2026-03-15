@@ -67,8 +67,14 @@ export async function findMatchingToken(
     _tokenCache.delete(plaintext);
   }
 
-  // Slow path: linear scan with bcrypt
-  for (const record of config.tokens) {
+  // Prefix-filtered path: only bcrypt-compare records whose prefix matches.
+  // `prefix` is the first 8 chars of the plaintext token, stored in the record
+  // at creation time — this allows O(small n) pre-filtering so we virtually
+  // never run more than 1 bcrypt compare (collisions are ~1/62^8 ≈ 1 in 218 trillion).
+  const prefix = plaintext.slice(0, 8);
+  const candidates = config.tokens.filter(t => t.prefix === prefix);
+
+  for (const record of candidates) {
     const ok = await verifyToken(plaintext, record.hash);
     if (!ok) continue;
     if (record.expiresAt && new Date(record.expiresAt) < new Date()) continue;
@@ -103,6 +109,7 @@ export async function createToken(opts: {
     id: uuidv4(),
     name: opts.name,
     hash,
+    prefix: plaintext.slice(0, 8),
     createdAt: new Date().toISOString(),
     lastUsed: null,
     expiresAt: opts.expiresAt ?? null,

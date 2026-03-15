@@ -1,93 +1,23 @@
 {
-  "instanceId": "b7c6116a-c417-47cf-ac71-6240d390040b",
-  "instanceLabel": "Instance A",
+  "instanceId": "62006f0f-9463-4067-a29d-19d7aa2a1465",
+  "instanceLabel": "Test Instance A",
   "tokens": [
     {
-      "id": "cd49a21d-ab24-489e-a396-4102ace61bd8",
+      "id": "54cf31d2-eb7e-4f3a-a3f0-53e6d2f70d69",
       "name": "test-token",
-      "hash": "$2b$12$aR5O0n8Gg9PmghIJNVXnYu9tXEWvarfxuQEkCFRllAvbWG6yv0DmW",
-      "createdAt": "2026-03-15T09:00:05.980Z",
+      "hash": "$2b$12$sOtwBRRvm3Lnl/NXhrNvVuLbPguj1BVYqEEI5np3iOw5mKx3Yqc7O",
+      "prefix": "ythril_7",
+      "createdAt": "2026-03-15T14:25:23.673Z",
+      "lastUsed": "2026-03-15T15:13:13.166Z",
+      "expiresAt": null
+    },
+    {
+      "id": "2a570937-d415-40d9-897f-85872427ae0f",
+      "name": "mass-assign-token-test 1773586928239",
+      "hash": "$2b$12$VB2ikFmAHZI4wNU.FaxpXOe8WWr2sk1Rc/116ybHl3DwCgvST8UMO",
+      "prefix": "ythril_T",
+      "createdAt": "2026-03-15T15:02:08.566Z",
       "lastUsed": null,
-      "expiresAt": null
-    },
-    {
-      "id": "6e7296f4-962f-4db2-8265-63cad03d70b5",
-      "name": "test-token",
-      "hash": "$2b$12$J/t1Up7gMH1/wsz0eeFIZOi4g9wGgTys7mhhfQbJ8.0VTvGqdaX2m",
-      "createdAt": "2026-03-15T09:00:11.920Z",
-      "lastUsed": "2026-03-15T09:58:14.802Z",
-      "expiresAt": null
-    },
-    {
-      "id": "3d697462-75c2-4c22-8308-b52997092d03",
-      "name": "gossip-test-peer-b-1773565445248",
-      "hash": "$2b$12$ArO97RnMsOb3l1fBsuVNkeefkhAwsJ.AZIj30TVx2/etXPyFJriXa",
-      "createdAt": "2026-03-15T09:04:05.427Z",
-      "lastUsed": null,
-      "expiresAt": null
-    },
-    {
-      "id": "251c8d06-75c4-4711-8df6-96b63a9034bb",
-      "name": "gossip-test-peer-b-1773566011849",
-      "hash": "$2b$12$9r6jF3P1FwTtSi9Cc7pB.uDvaBRk5EP1nLXO/4U9mcTMjt2v5V/tK",
-      "createdAt": "2026-03-15T09:13:31.996Z",
-      "lastUsed": null,
-      "expiresAt": null
-    },
-    {
-      "id": "ac76bb26-f97d-468b-a03f-a2251496d3dd",
-      "name": "gossip-test-peer-b-1773566276514",
-      "hash": "$2b$12$kvAEqewWbhJxzh.DYApQjO/drd.IfDnW5JSiFoF9NR/pQUvu2H7Sa",
-      "createdAt": "2026-03-15T09:17:56.672Z",
-      "lastUsed": null,
-      "expiresAt": null
-    },
-    {
-      "id": "12ef4a39-e069-44ab-b7d7-1504048dc9ae",
-      "name": "vote-test-peer-b-1773567638682",
-      "hash": "$2b$12$P5QhNXtm0Dewhnc6zveS9OY/m91hJL8zV3DKtRwO93id8TacwszcO",
-      "createdAt": "2026-03-15T09:40:39.152Z",
-      "lastUsed": "2026-03-15T09:41:15.475Z",
-      "expiresAt": null
-    },
-    {
-      "id": "642aceb1-b565-4283-a553-ebe3932dc2da",
-      "name": "vote-test-peer-b-1773568203335",
-      "hash": "$2b$12$B006lTnIMiOlMsE2fy0Wqu9B4/inyxOkTM3ch8EvCCHhTVQO/vxUa",
-      "createdAt": "2026-03-15T09:50:03.776Z",
-      "lastUsed": "2026-03-15T09:50:40.765Z",
-      "expiresAt": null
-    },
-    {
-      "id": "380b4fa2-7889-4949-be02-0aa0027c87d4",
-      "name": "vote-test-peer-b-1773568580819",
-      "hash": "$2b$12$rcbHkC6P97VMOcyc92Fp4ORCwIXdCPQibYpI0k6wMsxCbB3hIK.qy",
-      "createdAt": "2026-03-15T09:56:21.258Z",
-      "lastUsed": "2026-03-15T09:56:35.607Z",
-      "expiresAt": null
-    },
-    {
-      "id": "91ebc498-4873-4047-97da-43841b997d3e",
-      "name": "peer-token-b",
-      "hash": "$2b$12$Z0Hja.77396C9gK8TLj08.XjA3G.FxZHzxwUGSJeXLFmEknLcgyDW",
-      "createdAt": "2026-03-15T09:57:27.329Z",
-      "lastUsed": null,
-      "expiresAt": null
-    },
-    {
-      "id": "208a0944-8be5-4af0-a4df-b55e2ea73927",
-      "name": "gossip-test-peer-b-1773568658750",
-      "hash": "$2b$12$0egIhRvn6Jix76pRJRW5Wu4JpgJ6Ed6O04Y930mU09Xk4Ph9AtEuq",
-      "createdAt": "2026-03-15T09:57:38.936Z",
-      "lastUsed": null,
-      "expiresAt": null
-    },
-    {
-      "id": "820b06b9-ec89-4453-bcd0-873cf2ec0e7b",
-      "name": "vote-test-peer-b-1773568678459",
-      "hash": "$2b$12$1GQglacy2sw7Z1pDLQXnN.dPZvJUUREuHlWPVGpMY0LgoMhCXQ4/.",
-      "createdAt": "2026-03-15T09:57:58.606Z",
-      "lastUsed": "2026-03-15T09:58:14.801Z",
       "expiresAt": null
     }
   ],
@@ -97,246 +27,27 @@
       "label": "General",
       "builtIn": true,
       "folders": []
+    },
+    {
+      "id": "merkle-test-1773584767170",
+      "label": "Merkle Test 1773584767170",
+      "builtIn": false,
+      "folders": []
+    },
+    {
+      "id": "auth-test-space-1773585010747",
+      "label": "Auth Test Space 1773585010747",
+      "builtIn": false,
+      "folders": []
+    },
+    {
+      "id": "auth-test-space-1773585760119",
+      "label": "Auth Test Space 1773585760119",
+      "builtIn": false,
+      "folders": []
     }
   ],
-  "networks": [
-    {
-      "id": "04faac67-3d8b-4506-afd5-0e62feb731ee",
-      "label": "debug-net",
-      "type": "closed",
-      "spaces": [
-        "general"
-      ],
-      "votingDeadlineHours": 1,
-      "members": [
-        {
-          "instanceId": "dbg-b",
-          "label": "B",
-          "url": "http://ythril-b:3200",
-          "tokenHash": "$2b$12$kzxf.ZBao9AgOHgYQk.owO5UNaLfjVdsQueqyruFtdgGu7tYQgmXi",
-          "direction": "both"
-        }
-      ],
-      "pendingRounds": [
-        {
-          "roundId": "70d7228b-fa76-4e31-9150-f3edb9f8fdd0",
-          "type": "join",
-          "subjectInstanceId": "dbg-b",
-          "subjectLabel": "B",
-          "subjectUrl": "http://ythril-b:3200",
-          "deadline": "2026-03-15T10:51:55.952Z",
-          "openedAt": "2026-03-15T09:51:55.952Z",
-          "votes": [
-            {
-              "instanceId": "b7c6116a-c417-47cf-ac71-6240d390040b",
-              "vote": "yes",
-              "castAt": "2026-03-15T09:51:55.963Z"
-            }
-          ],
-          "pendingMember": {
-            "instanceId": "dbg-b",
-            "label": "B",
-            "url": "http://ythril-b:3200",
-            "tokenHash": "$2b$12$kzxf.ZBao9AgOHgYQk.owO5UNaLfjVdsQueqyruFtdgGu7tYQgmXi",
-            "direction": "both"
-          },
-          "concluded": true
-        },
-        {
-          "roundId": "1c60ee3d-cd34-4474-b767-e9c169c5ddfb",
-          "type": "join",
-          "subjectInstanceId": "candidate-d",
-          "subjectLabel": "D",
-          "subjectUrl": "http://x:3200",
-          "deadline": "2026-03-15T10:51:56.157Z",
-          "openedAt": "2026-03-15T09:51:56.157Z",
-          "votes": [
-            {
-              "instanceId": "b7c6116a-c417-47cf-ac71-6240d390040b",
-              "vote": "yes",
-              "castAt": "2026-03-15T09:51:56.172Z"
-            }
-          ],
-          "pendingMember": {
-            "instanceId": "candidate-d",
-            "label": "D",
-            "url": "http://x:3200",
-            "tokenHash": "$2b$12$VBMbDtKf1MpPZtt.e.8hpeLGgnDFu2OVox9rSlOh56fX2NAKjHBJa",
-            "direction": "both"
-          }
-        }
-      ],
-      "createdAt": "2026-03-15T09:51:55.796Z"
-    },
-    {
-      "id": "db583546-657d-448f-a1ed-0a8784b60350",
-      "label": "Test Braintree",
-      "type": "braintree",
-      "spaces": [
-        "general"
-      ],
-      "votingDeadlineHours": 24,
-      "members": [
-        {
-          "instanceId": "instance-b",
-          "label": "Instance B",
-          "url": "http://ythril-b:3200",
-          "tokenHash": "$2b$12$54.QiBLry16WYrMrzQUZfuwZfSxwuqkKCOjYt7mGm3PIRmF2JYO3G",
-          "direction": "push",
-          "parentInstanceId": "b7c6116a-c417-47cf-ac71-6240d390040b",
-          "lastSeqPushed": {
-            "general": 1
-          },
-          "lastSyncAt": "2026-03-15T09:57:23.896Z",
-          "consecutiveFailures": 0
-        }
-      ],
-      "pendingRounds": [],
-      "createdAt": "2026-03-15T09:56:45.951Z"
-    },
-    {
-      "id": "055b11f2-3228-48a9-9172-8fc475834854",
-      "label": "Test Closed Network",
-      "type": "closed",
-      "spaces": [
-        "general"
-      ],
-      "votingDeadlineHours": 24,
-      "members": [
-        {
-          "instanceId": "instance-b",
-          "label": "Instance B",
-          "url": "http://ythril-b:3200",
-          "tokenHash": "$2b$12$9UYOHZTu5HetnFio211m3OVPJZ5jZgl3bSKMNdsaf/HQk3cVJlAee",
-          "direction": "both",
-          "lastSeqReceived": {
-            "general": 3
-          },
-          "lastSeqPushed": {
-            "general": 3
-          },
-          "lastSyncAt": "2026-03-15T09:57:36.525Z",
-          "consecutiveFailures": 0
-        }
-      ],
-      "pendingRounds": [
-        {
-          "roundId": "f4d50771-60f5-4e72-9aa1-43f1235e91a8",
-          "type": "join",
-          "subjectInstanceId": "instance-b",
-          "subjectLabel": "Instance B",
-          "subjectUrl": "http://ythril-b:3200",
-          "deadline": "2026-03-16T09:57:27.480Z",
-          "openedAt": "2026-03-15T09:57:27.480Z",
-          "votes": [
-            {
-              "instanceId": "b7c6116a-c417-47cf-ac71-6240d390040b",
-              "vote": "yes",
-              "castAt": "2026-03-15T09:57:27.489Z"
-            }
-          ],
-          "pendingMember": {
-            "instanceId": "instance-b",
-            "label": "Instance B",
-            "url": "http://ythril-b:3200",
-            "tokenHash": "$2b$12$9UYOHZTu5HetnFio211m3OVPJZ5jZgl3bSKMNdsaf/HQk3cVJlAee",
-            "direction": "both",
-            "lastSeqReceived": {
-              "general": 3
-            },
-            "lastSeqPushed": {
-              "general": 3
-            },
-            "lastSyncAt": "2026-03-15T09:57:36.525Z",
-            "consecutiveFailures": 0
-          },
-          "concluded": true
-        }
-      ],
-      "createdAt": "2026-03-15T09:57:26.982Z"
-    },
-    {
-      "id": "d116d50a-8c5d-407d-9b19-3b2a6037f5fa",
-      "label": "Conflict Test Network",
-      "type": "closed",
-      "spaces": [
-        "general"
-      ],
-      "votingDeadlineHours": 24,
-      "members": [],
-      "pendingRounds": [],
-      "createdAt": "2026-03-15T09:57:37.078Z"
-    },
-    {
-      "id": "41c5c198-81b2-4aaf-a4ac-cadbaac7ccf8",
-      "label": "Test Democratic",
-      "type": "democratic",
-      "spaces": [
-        "general"
-      ],
-      "votingDeadlineHours": 24,
-      "members": [
-        {
-          "instanceId": "instance-b-dem",
-          "label": "Instance B",
-          "url": "http://ythril-b:3200",
-          "tokenHash": "$2b$12$LzgfQ2lToK6.Aeg/f83O/eegA.Oe6xuOsjDVoRzbIDFEh4VRlJWqq",
-          "direction": "both"
-        }
-      ],
-      "pendingRounds": [
-        {
-          "roundId": "b15d1eb2-3c2b-40dd-8fec-c7a857bf8dc1",
-          "type": "join",
-          "subjectInstanceId": "instance-b-dem",
-          "subjectLabel": "Instance B",
-          "subjectUrl": "http://ythril-b:3200",
-          "deadline": "2026-03-16T09:57:37.807Z",
-          "openedAt": "2026-03-15T09:57:37.807Z",
-          "votes": [
-            {
-              "instanceId": "b7c6116a-c417-47cf-ac71-6240d390040b",
-              "vote": "yes",
-              "castAt": "2026-03-15T09:57:37.838Z"
-            }
-          ],
-          "pendingMember": {
-            "instanceId": "instance-b-dem",
-            "label": "Instance B",
-            "url": "http://ythril-b:3200",
-            "tokenHash": "$2b$12$LzgfQ2lToK6.Aeg/f83O/eegA.Oe6xuOsjDVoRzbIDFEh4VRlJWqq",
-            "direction": "both"
-          },
-          "concluded": true
-        },
-        {
-          "roundId": "fffb48ba-7692-4cb0-9542-9e36c4e715d7",
-          "type": "join",
-          "subjectInstanceId": "instance-c-dem",
-          "subjectLabel": "Instance C",
-          "subjectUrl": "http://ythril-c:3200",
-          "deadline": "2026-03-16T09:57:38.206Z",
-          "openedAt": "2026-03-15T09:57:38.206Z",
-          "votes": [
-            {
-              "instanceId": "b7c6116a-c417-47cf-ac71-6240d390040b",
-              "vote": "veto",
-              "castAt": "2026-03-15T09:57:38.258Z"
-            }
-          ],
-          "pendingMember": {
-            "instanceId": "instance-c-dem",
-            "label": "Instance C",
-            "url": "http://ythril-c:3200",
-            "tokenHash": "$2b$12$GacLFkFVGByJzM5Y1bIlJOedKPmV3dOpwWVlAomJ9L1fat91lb0ly",
-            "direction": "both"
-          },
-          "concluded": true
-        }
-      ],
-      "createdAt": "2026-03-15T09:57:37.439Z"
-    }
-  ],
+  "networks": [],
   "setup": {
     "completed": true
   }

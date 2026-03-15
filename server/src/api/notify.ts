@@ -23,6 +23,7 @@ const NotifyBody = z.object({
   event: z.enum([
     'vote_pending',
     'member_departed',
+    'member_removed',           // sent to the ejected instance after a remove vote passes
     'space_deletion_pending',
     'sync_available',   // "I have new data, come pull me"
     'ping',             // health check / keep-alive
@@ -67,8 +68,14 @@ notifyRouter.post('/', notifyRateLimit, requireAuth, (req, res) => {
   if (!isMember) {
     // Allow if instanceId matches our own instance (for self-test pings)
     if (instanceId !== cfg.instanceId) {
-      res.status(403).json({ error: 'Caller is not a member of this network' });
-      return;
+      // member_departed is an advisory notification: a peer announcing they are
+      // leaving. Accept idempotently regardless of current membership state —
+      // the member may already have been removed by a prior handling of this event,
+      // or may never have been a member on this replica (e.g. asymmetric config).
+      if (event !== 'member_departed') {
+        res.status(403).json({ error: 'Caller is not a member of this network' });
+        return;
+      }
     }
   }
 
@@ -128,6 +135,35 @@ notifyRouter.post('/', notifyRateLimit, requireAuth, (req, res) => {
         if (changed) saveConfig(cfgW);
       }
     }
+  }
+
+  // All network types: remove the departed member from our local member list
+  if (event === 'member_departed') {
+    const cfgDep = getConfig();
+    const netDep = cfgDep.networks.find(n => n.id === networkId);
+    if (netDep) {
+      const depIdx = netDep.members.findIndex(m => m.instanceId === instanceId);
+      if (depIdx >= 0) {
+        netDep.members.splice(depIdx, 1);
+        saveConfig(cfgDep);
+        log.info(`Departed member ${instanceId} removed from network ${networkId}`);
+      }
+    }
+  }
+
+  // We have been ejected from this network — mark as ejected and remove it locally
+  if (event === 'member_removed') {
+    const cfgEject = getConfig();
+    cfgEject.ejectedFromNetworks = cfgEject.ejectedFromNetworks ?? [];
+    if (!cfgEject.ejectedFromNetworks.includes(networkId)) {
+      cfgEject.ejectedFromNetworks.push(networkId);
+    }
+    const netIdx = cfgEject.networks.findIndex(n => n.id === networkId);
+    if (netIdx >= 0) {
+      cfgEject.networks.splice(netIdx, 1);
+    }
+    saveConfig(cfgEject);
+    log.warn(`Ejected from network ${networkId} — network removed and marked as ejected`);
   }
 
   res.status(204).end();

@@ -112,8 +112,13 @@ describe('Path traversal — PATCH (move) endpoint', () => {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ destination: '../../../tmp/escaped.txt' }),
     });
-    assert.ok(r.status === 400 || r.status === 500,
-      `Move to traversal destination should be blocked, got ${r.status}`);
+    // Must be rejected at validation (400) or source not found (404).
+    // A 500 here is NOT acceptable: it would mean the server reached the
+    // filesystem before validating the destination path, then crashed.
+    assert.ok(
+      r.status === 400 || r.status === 404,
+      `Move to traversal destination should be blocked with 400/404, got ${r.status} — a 500 indicates the path sandbox is not checked before I/O`,
+    );
   });
 });
 

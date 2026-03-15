@@ -19,27 +19,36 @@ Think of it as the operational layer between your data, your models, and your da
 flowchart LR
 	U[You] --> C[Client or Agent]
 	C --> L[LLM]
-	L --> MCP
+	L --> BMCP[MCP]
 
 	subgraph Brain
-		MCP
+		BMCP
 
 		subgraph S1[Space]
-			MCP --> Mem1[Memories]
-			MCP --> Files1[Files]
-			Mem1 --> D1[(data)]
-			Files1 --> D2[(data)]
+			S1MCP[MCP]
+			S1MCP --> S1Mem[Memories] --> S1MD[(data)]
+			S1MCP --> S1Files[Files] --> S1FD[(data)]
 		end
 
 		subgraph S2[Space]
-			MCP --> Mem2[Memories]
-			MCP --> Files2[Files]
-			Mem2 --> D3[(data)]
-			Files2 --> D4[(data)]
+			S2MCP[MCP]
+			S2MCP --> S2Mem[Memories] --> S2MD[(data)]
+			S2MCP --> S2Files[Files] --> S2FD[(data)]
+		end
+
+		BMCP --> S1MCP
+		BMCP --> S2MCP
+	end
+
+	subgraph OB[Other Brain]
+		subgraph OS[Space]
+			OSMCP[MCP]
+			OSMCP --> OSMem[Memories] --> OSMD[(data)]
+			OSMCP --> OSFiles[Files] --> OSFD[(data)]
 		end
 	end
 
-	Brain <-.->|optional| OB[Other Brains]
+	S1 <-.->|optional sync| OS
 ```
 
 ## Philosophy

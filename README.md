@@ -81,13 +81,6 @@ flowchart LR
 - Knowledge can be distributed across trusted brains without central lock-in.
 - Governance controls membership. What members do with data on their own machines is not — and cannot be — governed.
 
-```mermaid
-flowchart TD
-	P1[Ownership and Control] --> P2[Selective Sharing]
-	P2 --> P3[Distributed Knowledge]
-	P3 --> P4[Useful AI Workflows]
-```
-
 ## Installation
 
 ### Quick Start with Docker

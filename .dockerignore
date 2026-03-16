@@ -4,3 +4,4 @@ dist/
 *.log
 config/config.json
 config/secrets.json
+testing/

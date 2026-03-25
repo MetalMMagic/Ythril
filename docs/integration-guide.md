@@ -219,7 +219,7 @@ POST /api/brain/:spaceId/recall
 }
 ```
 
-Requires embedding configuration in `config.json`. Uses MongoDB Atlas `$vectorSearch`.
+Uses the built-in embedding model and MongoDB Atlas `$vectorSearch`. No extra configuration needed.
 
 ---
 
@@ -381,26 +381,28 @@ Base path: `/api/files`
 ### Upload a File (raw bytes)
 
 ```
-POST /api/files/:spaceId?path=docs/notes.md
-Content-Type: text/plain
+POST /api/files/:spaceId?path=reports/q1.pdf
+Content-Type: application/octet-stream
 
-Raw file content here...
+<raw bytes>
 ```
+
+Any file type is supported — documents, images, binaries, archives, etc. The `Content-Type` header is informational; Ythril stores the raw bytes as-is.
 
 **Response** `201`:
 
 ```json
-{ "path": "docs/notes.md", "sha256": "a1b2c3..." }
+{ "path": "reports/q1.pdf", "sha256": "a1b2c3..." }
 ```
 
 ### Upload a File (JSON / base64)
 
 ```
-POST /api/files/:spaceId?path=images/logo.png
+POST /api/files/:spaceId?path=assets/diagram.svg
 Content-Type: application/json
 
 {
-  "content": "iVBORw0KGgo...",
+  "content": "PHN2ZyB4bWxucz0...",
   "encoding": "base64"
 }
 ```
@@ -410,28 +412,29 @@ Content-Type: application/json
 ### Download a File
 
 ```
-GET /api/files/:spaceId?path=docs/notes.md
+GET /api/files/:spaceId?path=reports/q1.pdf
 ```
 
-Returns raw file bytes with appropriate Content-Type. If `path` is a directory, returns a JSON listing.
+Returns raw file bytes. Works with any file type — PDFs, images, archives, source code, etc. If `path` is a directory, returns a JSON listing.
 
 ---
 
 ### List Directory
 
 ```
-GET /api/files/:spaceId?path=docs/
+GET /api/files/:spaceId?path=reports/
 ```
 
 **Response** `200`:
 
 ```json
 {
-  "path": "docs/",
+  "path": "reports/",
   "type": "dir",
   "entries": [
-    { "name": "notes.md", "type": "file", "size": 1234 },
-    { "name": "images", "type": "dir" }
+    { "name": "q1.pdf", "type": "file", "size": 204800 },
+    { "name": "q1-data.xlsx", "type": "file", "size": 51200 },
+    { "name": "charts", "type": "dir" }
   ]
 }
 ```
@@ -441,13 +444,13 @@ GET /api/files/:spaceId?path=docs/
 ### Create Directory
 
 ```
-POST /api/files/:spaceId/mkdir?path=docs/images
+POST /api/files/:spaceId/mkdir?path=reports/charts
 ```
 
 **Response** `201`:
 
 ```json
-{ "created": "docs/images" }
+{ "created": "reports/charts" }
 ```
 
 ---
@@ -455,16 +458,16 @@ POST /api/files/:spaceId/mkdir?path=docs/images
 ### Move / Rename
 
 ```
-PATCH /api/files/:spaceId?path=docs/old-name.md
+PATCH /api/files/:spaceId?path=reports/draft.docx
 Content-Type: application/json
 
-{ "destination": "docs/new-name.md" }
+{ "destination": "reports/final.docx" }
 ```
 
 **Response** `200`:
 
 ```json
-{ "from": "docs/old-name.md", "to": "docs/new-name.md" }
+{ "from": "reports/draft.docx", "to": "reports/final.docx" }
 ```
 
 ---
@@ -472,7 +475,7 @@ Content-Type: application/json
 ### Delete a File
 
 ```
-DELETE /api/files/:spaceId?path=docs/notes.md
+DELETE /api/files/:spaceId?path=reports/q1.pdf
 ```
 
 **Response** `204`.

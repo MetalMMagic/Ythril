@@ -20,6 +20,7 @@ import { col } from '../db/mongo.js';
 import { applyRemoteTombstone, listTombstones } from '../brain/tombstones.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { log } from '../util/log.js';
+import { bumpSeq } from '../util/seq.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from '../api/sync.js';
 import type {
   NetworkConfig,
@@ -601,6 +602,7 @@ async function pullFromPeer(
   // Pull memories — use full=true to return complete docs in a single pass,
   // eliminating the N per-document secondary fetches that would be brutal over WAN.
   let highestSeq = sinceSeq;
+  let overallMaxSeq = 0; // Track the highest seq seen across ALL items (used to bump local counter)
   let cursor: string | null = null;
   let page = 0;
   do {
@@ -618,6 +620,7 @@ async function pullFromPeer(
       if ('deletedAt' in item && item.deletedAt) continue; // already handled via tombstones above
       const doc = item as MemoryDoc;
       await upsertMemory(spaceId, doc);
+      if (doc.seq > overallMaxSeq) overallMaxSeq = doc.seq;
       // Only advance the pull watermark for docs authored by the peer.
       // Docs we pushed to the peer and are echoing back must not inflate our
       // received-from-peer watermark — doing so would cause us to miss their
@@ -639,7 +642,9 @@ async function pullFromPeer(
     const { items, nextCursor } = await resp.json() as { items: (EntityDoc | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null };
     for (const item of items) {
       if ('deletedAt' in item && item.deletedAt) continue;
-      await upsertEntity(spaceId, item as EntityDoc);
+      const ent = item as EntityDoc;
+      await upsertEntity(spaceId, ent);
+      if (ent.seq > overallMaxSeq) overallMaxSeq = ent.seq;
     }
     cursor = nextCursor; page++;
   } while (cursor && page < 50);
@@ -653,10 +658,21 @@ async function pullFromPeer(
     const { items, nextCursor } = await resp.json() as { items: (EdgeDoc | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null };
     for (const item of items) {
       if ('deletedAt' in item && item.deletedAt) continue;
-      await upsertEdge(spaceId, item as EdgeDoc);
+      const edge = item as EdgeDoc;
+      await upsertEdge(spaceId, edge);
+      if (edge.seq > overallMaxSeq) overallMaxSeq = edge.seq;
     }
     cursor = nextCursor; page++;
   } while (cursor && page < 50);
+
+  // Bump the local seq counter so future local writes always get a seq higher
+  // than any document received from this peer.  Without this, sync-upserted docs
+  // with high seq values from the source instance would sit above the local
+  // counter, causing newly written docs to get a lower seq that the pull
+  // watermark has already advanced past.
+  if (overallMaxSeq > 0) {
+    await bumpSeq(spaceId, overallMaxSeq);
+  }
 
   // Persist the high-water mark
   if (highestSeq > sinceSeq) {
@@ -687,75 +703,77 @@ async function pushToPeer(
   const lastSeqPushed = memberState?.lastSeqPushed?.[spaceId] ?? 0;
 
   // Push tombstones — only those newer than the last push watermark
-  const myTombstones = await listTombstones(spaceId, lastSeqPushed, 500);
-  if (myTombstones.length > 0) {
-    const resp = await fetch(`${member.url}/api/sync/tombstones?spaceId=${encodeURIComponent(spaceId)}&networkId=${encodeURIComponent(networkId)}`, {
-      ...opts,
-      method: 'POST',
-      body: JSON.stringify({ tombstones: myTombstones }),
-    });
-    if (!resp.ok) log.warn(`Push tombstones to ${member.label}: ${resp.status}`);
+  // Push tombstones — page through all tombstones since the last push watermark.
+  // A hard cap would silently drop deletions after long offline periods.
+  {
+    let tsCursor: number = lastSeqPushed;
+    const tsEndpoint = `${member.url}/api/sync/tombstones?spaceId=${encodeURIComponent(spaceId)}&networkId=${encodeURIComponent(networkId)}`;
+    while (true) {
+      const page = await listTombstones(spaceId, tsCursor, 500);
+      if (page.length === 0) break;
+      const resp = await fetch(tsEndpoint, {
+        ...opts,
+        method: 'POST',
+        body: JSON.stringify({ tombstones: page }),
+      });
+      if (!resp.ok) { log.warn(`Push tombstones to ${member.label}: ${resp.status}`); break; }
+      tsCursor = page[page.length - 1]!.seq;
+      if (page.length < 500) break;
+    }
   }
 
-  // Fetch only docs changed since the last push — then send in batches via batch-upsert.
-  // This makes push O(changed) instead of O(total), and O(ceil(changed/200)) HTTP requests
-  // instead of O(changed) — critical for WAN-distributed brains.
+  // Fetch only docs changed since the last push — read and send in PUSH_BATCH_SIZE
+  // chunks directly from MongoDB without loading the whole result set into memory first.
+  // This makes push O(changed) instead of O(total), and keeps heap usage flat regardless
+  // of how many documents have accumulated since the last sync.
   // Braintree nodes relay docs from all peers; other topologies only push their own authored docs
   // to prevent foreign docs (e.g. received from a third instance) from polluting peers' watermarks.
   const isBraintree = freshNet?.type === 'braintree';
   const ownedFilter = isBraintree ? {} : { 'author.instanceId': cfg.instanceId };
-  const memories = await col<MemoryDoc>(`${spaceId}_memories`)
-    .find({ seq: { $gt: lastSeqPushed }, ...ownedFilter } as never).sort({ seq: 1 }).toArray() as MemoryDoc[];
-  const entities = await col<EntityDoc>(`${spaceId}_entities`)
-    .find({ seq: { $gt: lastSeqPushed }, ...ownedFilter } as never).sort({ seq: 1 }).toArray() as EntityDoc[];
-  const edges = await col<EdgeDoc>(`${spaceId}_edges`)
-    .find({ seq: { $gt: lastSeqPushed }, ...ownedFilter } as never).sort({ seq: 1 }).toArray() as EdgeDoc[];
 
   let maxSeqPushed = lastSeqPushed;
+  let pushFailed = false;
 
   // Send in PUSH_BATCH_SIZE slices; stop early on persistent failure
   const batchEndpoint = `${member.url}/api/sync/batch-upsert?spaceId=${encodeURIComponent(spaceId)}&networkId=${encodeURIComponent(networkId)}`;
-  let pushFailed = false;
 
-  for (let i = 0; i < memories.length; i += PUSH_BATCH_SIZE) {
-    if (pushFailed) break;
-    const batch = memories.slice(i, i + PUSH_BATCH_SIZE);
-    const resp = await fetch(batchEndpoint, {
-      ...batchOpts, method: 'POST',
-      body: JSON.stringify({ memories: batch }),
-    });
-    if (!resp.ok) { log.warn(`Batch push memories to ${member.label}: ${resp.status}`); pushFailed = true; break; }
-    // Only advance the push watermark for docs authored by this instance.
-    // Relayed docs (received from peers) must not inflate the watermark —
-    // doing so would prevent future pushes of this instance's own content.
-    for (const m of batch) {
-      if (m.author?.instanceId === cfg.instanceId && m.seq > maxSeqPushed) maxSeqPushed = m.seq;
+  // Helper: stream one collection type to the peer in cursor-paginated batches.
+  async function pushCollection<T extends MemoryDoc | EntityDoc | EdgeDoc>(
+    collName: string,
+    payloadKey: 'memories' | 'entities' | 'edges',
+  ): Promise<void> {
+    let seqCursor = lastSeqPushed;
+    while (!pushFailed) {
+      const batch = await col<T>(collName)
+        .find({ seq: { $gt: seqCursor }, ...ownedFilter } as never)
+        .sort({ seq: 1 })
+        .limit(PUSH_BATCH_SIZE)
+        .toArray() as T[];
+      if (batch.length === 0) break;
+      const resp = await fetch(batchEndpoint, {
+        ...batchOpts, method: 'POST',
+        body: JSON.stringify({ [payloadKey]: batch }),
+      });
+      if (!resp.ok) {
+        log.warn(`Batch push ${payloadKey} to ${member.label}: ${resp.status}`);
+        pushFailed = true;
+        break;
+      }
+      // Only advance the push watermark for docs authored by this instance.
+      // Relayed docs (received from peers) must not inflate the watermark —
+      // doing so would prevent future pushes of this instance's own content.
+      for (const doc of batch) {
+        const d = doc as MemoryDoc;
+        if (d.author?.instanceId === cfg.instanceId && d.seq > maxSeqPushed) maxSeqPushed = d.seq;
+      }
+      seqCursor = (batch[batch.length - 1] as MemoryDoc).seq;
+      if (batch.length < PUSH_BATCH_SIZE) break;
     }
   }
 
-  for (let i = 0; i < entities.length && !pushFailed; i += PUSH_BATCH_SIZE) {
-    const batch = entities.slice(i, i + PUSH_BATCH_SIZE);
-    const resp = await fetch(batchEndpoint, {
-      ...batchOpts, method: 'POST',
-      body: JSON.stringify({ entities: batch }),
-    });
-    if (!resp.ok) { log.warn(`Batch push entities to ${member.label}: ${resp.status}`); pushFailed = true; break; }
-    for (const e of batch) {
-      if (e.author?.instanceId === cfg.instanceId && e.seq > maxSeqPushed) maxSeqPushed = e.seq;
-    }
-  }
-
-  for (let i = 0; i < edges.length && !pushFailed; i += PUSH_BATCH_SIZE) {
-    const batch = edges.slice(i, i + PUSH_BATCH_SIZE);
-    const resp = await fetch(batchEndpoint, {
-      ...batchOpts, method: 'POST',
-      body: JSON.stringify({ edges: batch }),
-    });
-    if (!resp.ok) { log.warn(`Batch push edges to ${member.label}: ${resp.status}`); pushFailed = true; break; }
-    for (const ed of batch) {
-      if (ed.author?.instanceId === cfg.instanceId && ed.seq > maxSeqPushed) maxSeqPushed = ed.seq;
-    }
-  }
+  await pushCollection<MemoryDoc>(`${spaceId}_memories`, 'memories');
+  await pushCollection<EntityDoc>(`${spaceId}_entities`, 'entities');
+  await pushCollection<EdgeDoc>(`${spaceId}_edges`, 'edges');
 
   // Persist the push high-water mark so next sync only sends new/changed docs
   if (maxSeqPushed > lastSeqPushed) {

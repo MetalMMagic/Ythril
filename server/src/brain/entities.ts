@@ -59,9 +59,11 @@ export async function listEntities(
   spaceId: string,
   filter: Record<string, unknown> = {},
   limit = 50,
+  skip = 0,
 ): Promise<EntityDoc[]> {
   return col<EntityDoc>(`${spaceId}_entities`)
     .find({ ...filter, spaceId } as never)
+    .skip(skip)
     .limit(limit)
     .toArray() as Promise<EntityDoc[]>;
 }

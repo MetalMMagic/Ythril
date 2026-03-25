@@ -65,10 +65,10 @@ describe('Brain â€” memories', () => {
     const delR = await del(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
     assert.equal(delR.status, 204, `Delete: ${JSON.stringify(delR.body)}`);
 
-    // Should no longer appear in list
-    const list = await get(INSTANCES.a, token(), '/api/brain/general/memories');
-    const stillExists = list.body.memories?.some(m => m._id === memId);
-    assert.ok(!stillExists, 'Deleted memory must not appear in list');
+    // Confirm deletion via direct ID lookup — 404 is the authoritative signal;
+    // scanning a paginated list would give a false pass once >100 memories exist.
+    const lookup = await get(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
+    assert.equal(lookup.status, 404, 'Deleted memory must return 404 on direct lookup');
   });
 
   it('Wipe all memories requires confirm:true in body', async () => {

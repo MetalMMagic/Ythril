@@ -12,6 +12,14 @@
     "build:client": "npm run build:prod --workspace=client",
     "start": "npm run start --workspace=server",
     "docker:build": "docker compose build && docker builder prune --keep-storage 3g --force",
-    "docker:build:test": "docker compose -f testing/docker-compose.test.yml build && docker builder prune --keep-storage 3g --force"
+    "docker:build:test": "docker compose -f testing/docker-compose.test.yml build && docker builder prune --keep-storage 3g --force",
+    "docker:down": "docker compose down -v && node -e \"const fs=require('fs'),p=require('path'),d=p.join('config');try{fs.readdirSync(d).forEach(f=>fs.unlinkSync(p.join(d,f)))}catch{};console.log('Full uninstall complete — volumes + config/ removed')\"",
+    "test:up": "docker compose -f testing/docker-compose.test.yml up --build -d && node testing/sync/setup.js",
+    "test:down": "docker compose -f testing/docker-compose.test.yml down -v && node -e \"const fs=require('fs'),p=require('path');['a','b','c'].forEach(x=>{const d=p.join('testing','sync','configs',x);try{fs.readdirSync(d).forEach(f=>fs.unlinkSync(p.join(d,f)))}catch{}});console.log('Full wipe complete — volumes + bind-mount configs removed')\"",
+    "test:standalone": "node --test --test-concurrency=1 testing/standalone/*.test.js",
+    "test:integration": "node --test --test-concurrency=1 testing/integration/*.test.js",
+    "test:sync": "node --test --test-concurrency=1 testing/sync/*.test.js",
+    "test:redteam": "node --test --test-concurrency=1 testing/red-team-tests/*.test.js",
+    "test:all": "npm run test:standalone && npm run test:integration && npm run test:sync && npm run test:redteam"
   }
 }

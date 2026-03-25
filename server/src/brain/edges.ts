@@ -54,6 +54,7 @@ export async function listEdges(
   spaceId: string,
   filter: { from?: string; to?: string; label?: string } = {},
   limit = 50,
+  skip = 0,
 ): Promise<EdgeDoc[]> {
   const q: Record<string, string> = { spaceId };
   if (filter.from) q['from'] = filter.from;
@@ -61,6 +62,7 @@ export async function listEdges(
   if (filter.label) q['label'] = filter.label;
   return col<EdgeDoc>(`${spaceId}_edges`)
     .find(q as never)
+    .skip(skip)
     .limit(limit)
     .toArray() as Promise<EdgeDoc[]>;
 }

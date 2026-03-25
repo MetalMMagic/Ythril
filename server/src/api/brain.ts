@@ -167,8 +167,9 @@ brainRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAuth, 
     return;
   }
   const limit = Math.min(Number(req.query['limit'] ?? 50), 200);
-  const docs = await listEntities(spaceId, {}, limit);
-  res.json({ entities: docs });
+  const skip = Number(req.query['skip'] ?? 0);
+  const docs = await listEntities(spaceId, {}, limit, skip);
+  res.json({ entities: docs, limit, skip });
 });
 
 // DELETE /api/brain/spaces/:spaceId/entities/:id
@@ -189,8 +190,9 @@ brainRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
     return;
   }
   const limit = Math.min(Number(req.query['limit'] ?? 50), 200);
-  const docs = await listEdges(spaceId, {}, limit);
-  res.json({ edges: docs });
+  const skip = Number(req.query['skip'] ?? 0);
+  const docs = await listEdges(spaceId, {}, limit, skip);
+  res.json({ edges: docs, limit, skip });
 });
 
 // DELETE /api/brain/spaces/:spaceId/edges/:id

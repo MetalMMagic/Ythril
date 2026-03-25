@@ -16,7 +16,7 @@ import { getConfig, getSecrets, getDataRoot } from '../config/loader.js';
 import { listTombstones, applyRemoteTombstone } from '../brain/tombstones.js';
 import { requireAuth } from '../auth/middleware.js';
 import { log } from '../util/log.js';
-import { nextSeq } from '../util/seq.js';
+import { nextSeq, bumpSeq } from '../util/seq.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type {
@@ -499,6 +499,16 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, async (req, res) =>
     }
 
     res.status(200).json({ status: 'ok', memories: memStats, entities: entStats, edges: edgeStats });
+
+    // Bump the local seq counter so future local writes always get a seq higher
+    // than any document received via push.  Fire-and-forget after the response.
+    const allSeqs = [
+      ...memories.map(m => m.seq ?? 0),
+      ...entities.map(e => e.seq ?? 0),
+      ...edges.map(e => e.seq ?? 0),
+    ];
+    const maxIncoming = Math.max(0, ...allSeqs);
+    if (maxIncoming > 0) bumpSeq(spaceId, maxIncoming).catch(() => {});
   } catch (err) {
     log.error(`sync POST batch-upsert: ${err}`);
     res.status(500).json({ error: 'Internal error' });

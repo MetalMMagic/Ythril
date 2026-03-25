@@ -316,8 +316,8 @@ describe('RSA invite handshake', () => {
     const member = netR.body.members?.find(m => m.instanceId === '22222222-2222-2222-8222-222222222222');
     assert.ok(member, 'Instance B should be a member after handshake');
 
-    // tokenForB was created by A for B to call A â€” verify it works against A
-    const pingA = await get(INSTANCES.a, tokenForB, '/api/tokens');
+    // tokenForB was created by A for B — verify it authenticates against A
+    const pingA = await get(INSTANCES.a, tokenForB, '/api/tokens/me');
     assert.equal(pingA.status, 200, 'tokenForB (A-issued PAT) must authenticate to instance A');
   });
 

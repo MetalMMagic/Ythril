@@ -3,6 +3,7 @@ import os from 'os';
 import { configExists, loadConfig, loadSecrets } from './config/loader.js';
 import { connectMongo, closeMongo } from './db/mongo.js';
 import { initAllSpaces } from './spaces/spaces.js';
+import { resetStaleWatermarksIfNeeded } from './util/seq.js';
 import { createApp } from './app.js';
 import { generateSetupCode } from './setup/routes.js';
 import { startSyncScheduler, stopSyncScheduler } from './sync/engine.js';
@@ -77,6 +78,7 @@ async function main(): Promise<void> {
 
   if (!isFirstRun) {
     await initAllSpaces();
+    await resetStaleWatermarksIfNeeded();
     startSyncScheduler();
   }
 

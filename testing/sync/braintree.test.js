@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  INSTANCES, post, get, del, triggerSync, createMemory, listMemories, waitFor,
+  INSTANCES, post, get, del, triggerSync, createMemory, waitFor,
 } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -88,21 +88,21 @@ describe('Braintree topology (A -> B -> C)', () => {
   it('Root A: write propagates down to B and then to C', async () => {
     const write = await createMemory(INSTANCES.a, tokenA, 'Root fact from A', ['braintree-test']);
     assert.equal(write.status, 201);
-    const fact = 'Root fact from A';
+    const memId = write.body._id ?? write.body.id;
 
     // A pushes to B
     await triggerSync(INSTANCES.a, tokenA, networkId);
     await waitFor(async () => {
-      const r = await listMemories(INSTANCES.b, tokenB);
-      return r.body.memories?.some(m => m.fact === fact);
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/general/memories/${memId}`);
+      return r.status === 200;
     }, 15_000);
     console.log(`  Root fact appeared on B ✓`);
 
     // B pushes to C
     await triggerSync(INSTANCES.b, tokenB, networkId);
     await waitFor(async () => {
-      const r = await listMemories(INSTANCES.c, tokenC);
-      return r.body.memories?.some(m => m.fact === fact);
+      const r = await get(INSTANCES.c, tokenC, `/api/brain/general/memories/${memId}`);
+      return r.status === 200;
     }, 15_000);
     console.log(`  Root fact appeared on C ✓`);
   });
@@ -118,9 +118,8 @@ describe('Braintree topology (A -> B -> C)', () => {
 
     // Wait a short time and verify this specific memory is NOT on B
     await new Promise(r => setTimeout(r, 3000));
-    const r = await listMemories(INSTANCES.b, tokenB);
-    const found = r.body.memories?.some(m => m._id === leafMemId);
-    assert(!found, 'Leaf fact should NOT have propagated to B');
+    const r = await get(INSTANCES.b, tokenB, `/api/brain/general/memories/${leafMemId}`);
+    assert.equal(r.status, 404, 'Leaf fact should NOT have propagated to B');
     console.log(`  Leaf fact correctly absent from B ✓`);
   });
 
@@ -133,9 +132,8 @@ describe('Braintree topology (A -> B -> C)', () => {
     await triggerSync(INSTANCES.a, tokenA, networkId);
 
     await new Promise(r => setTimeout(r, 3000));
-    const r = await listMemories(INSTANCES.a, tokenA);
-    const found = r.body.memories?.some(m => m._id === nodeMemId);
-    assert(!found, 'Node fact should NOT have propagated to A');
+    const r = await get(INSTANCES.a, tokenA, `/api/brain/general/memories/${nodeMemId}`);
+    assert.equal(r.status, 404, 'Node fact should NOT have propagated to A');
     console.log(`  Node fact correctly absent from A ✓`);
   });
 });

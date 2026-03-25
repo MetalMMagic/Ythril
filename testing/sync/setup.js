@@ -45,7 +45,7 @@ async function waitForHealth(url, timeout = 30_000) {
 async function getSetupCode(container) {
   // The setup code is printed to logs on first run
   const logs = execSync(`docker logs ${container} 2>&1`).toString();
-  const match = logs.match(/Setup code:\s+([A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4})/i);
+  const match = logs.match(/Setup code[:\s]+([A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4})/i);
   if (!match) throw new Error(`Could not find setup code in logs for ${container}. Is it a first run?`);
   return match[1];
 }
@@ -61,11 +61,21 @@ async function setupInstance(inst) {
   console.log(`  Waiting for ${inst.url} to be healthy...`);
   await waitForHealth(inst.url);
 
-  // Check if already setup
+  // Check if already setup — require non-empty token.txt AND server configured
   const tok = path.join(configDir, 'token.txt');
   if (fs.existsSync(tok)) {
-    console.log(`  Already set up — skipping (token.txt exists)`);
-    return { url: inst.url, token: fs.readFileSync(tok, 'utf8').trim() };
+    const existing = fs.readFileSync(tok, 'utf8').trim();
+    if (existing.length > 0) {
+      // Verify the token is still valid (avoids stale tokens after down -v)
+      const check = await fetch(`${inst.url}/api/tokens`, {
+        headers: { Authorization: `Bearer ${existing}` },
+      });
+      if (check.ok) {
+        console.log(`  Already set up — skipping (token.txt valid)`);
+        return { url: inst.url, token: existing };
+      }
+      console.log(`  token.txt exists but token is invalid — re-running setup`);
+    }
   }
 
   // Get setup code from container logs

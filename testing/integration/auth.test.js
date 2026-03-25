@@ -78,7 +78,7 @@ describe('Token lifecycle', () => {
     const plaintext = create.body.plaintext;
 
     // Verify it works before revocation
-    const before_ = await get(INSTANCES.a, plaintext, '/api/tokens');
+    const before_ = await get(INSTANCES.a, plaintext, '/api/tokens/me');
     assert.equal(before_.status, 200, 'Token should work before revocation');
 
     // Revoke
@@ -86,7 +86,7 @@ describe('Token lifecycle', () => {
     assert.equal(rev.status, 204);
 
     // Verify it fails after revocation
-    const after_ = await get(INSTANCES.a, plaintext, '/api/tokens');
+    const after_ = await get(INSTANCES.a, plaintext, '/api/tokens/me');
     assert.equal(after_.status, 401, 'Revoked token must return 401');
   });
 
@@ -167,7 +167,7 @@ describe('Startup migration: prefix-less tokens are evicted', () => {
     const legacyPlaintext = create.body.plaintext;
 
     // Sanity: it authenticates before we tamper with anything
-    const before = await get(INSTANCES.a, legacyPlaintext, '/api/tokens');
+    const before = await get(INSTANCES.a, legacyPlaintext, '/api/tokens/me');
     assert.equal(before.status, 200, 'Token must authenticate before simulation');
 
     // 2. Strip the prefix field from the on-disk config to simulate a legacy record

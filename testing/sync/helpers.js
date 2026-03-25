@@ -83,7 +83,22 @@ export async function createMemory(baseUrl, token, fact, tags = []) {
   return post(baseUrl, token, '/api/brain/general/memories', { fact, tags });
 }
 
-/** List memories on an instance's general space */
+/**
+ * List ALL memories on an instance's general space.
+ * Pages through the API (up to 500 per request) until exhausted so callers
+ * never silently receive a truncated result.
+ */
 export async function listMemories(baseUrl, token) {
-  return get(baseUrl, token, '/api/brain/general/memories');
+  const all = [];
+  let skip = 0;
+  const pageSize = 500;
+  while (true) {
+    const r = await get(baseUrl, token, `/api/brain/general/memories?limit=${pageSize}&skip=${skip}`);
+    if (r.status !== 200) return r; // surface errors to callers as-is
+    const page = r.body.memories ?? [];
+    all.push(...page);
+    if (page.length < pageSize) break;
+    skip += pageSize;
+  }
+  return { status: 200, body: { memories: all } };
 }

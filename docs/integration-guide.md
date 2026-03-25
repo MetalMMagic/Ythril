@@ -1,0 +1,1393 @@
+# Ythril Integration Guide
+
+> API and MCP reference for developers building on Ythril.
+
+---
+
+## Table of Contents
+
+1. [Authentication](#authentication)
+2. [Error Format](#error-format)
+3. [Rate Limits](#rate-limits)
+4. [Brain API](#brain-api) — memories, entities, edges, search, stats
+5. [Files API](#files-api) — upload, download, move, delete
+6. [Spaces API](#spaces-api) — create, list, delete
+7. [Tokens API](#tokens-api) — create, list, regenerate, revoke
+8. [Networks API](#networks-api) — create, join, members, voting
+9. [Invite API](#invite-api) — RSA peer handshake
+10. [Notify API](#notify-api) — peer events and sync triggers
+11. [Sync API](#sync-api) — change-feed, batch upsert, Merkle
+12. [MFA API](#mfa-api) — TOTP setup and verification
+13. [Conflicts API](#conflicts-api) — view and resolve sync conflicts
+14. [Setup API](#setup-api) — first-run setup
+15. [Admin API](#admin-api) — config reload
+16. [MCP (Model Context Protocol)](#mcp-model-context-protocol) — AI tool integration
+17. [Storage Quotas](#storage-quotas)
+18. [Pagination](#pagination)
+
+---
+
+## Authentication
+
+Every API request (except `/health`, `/setup`, and `/api/invite/apply`) requires a Bearer token:
+
+```
+Authorization: Bearer ythril_<base62-encoded-token>
+```
+
+Tokens are created during first-run setup or via `POST /api/tokens`. The plaintext token is shown **once** — store it securely.
+
+### Token Scoping
+
+| Token Type | Access |
+|---|---|
+| Full-access | All spaces and all endpoints |
+| Space-scoped | Only endpoints for listed spaces; admin routes blocked |
+| Admin | Full-access + admin-only routes (networks, tokens, config) |
+
+### Auth Middleware Levels
+
+| Middleware | Required |
+|---|---|
+| `requireAuth` | Any valid token |
+| `requireAdmin` | Token with `admin: true` |
+| `requireAdminMfa` | Admin token + MFA verified (if MFA enabled) |
+| `requireSpaceAuth` | Token with access to the `:spaceId` in the URL |
+
+---
+
+## Error Format
+
+All errors return JSON:
+
+```json
+{ "error": "Human-readable message" }
+```
+
+Extended errors may include:
+
+```json
+{ "error": "Storage limit exceeded", "storageExceeded": true }
+```
+
+### Common Status Codes
+
+| Code | Meaning |
+|---|---|
+| 400 | Bad request / validation failure |
+| 401 | Missing or invalid token |
+| 403 | Token lacks access to this resource |
+| 404 | Resource not found |
+| 409 | Conflict (duplicate ID) |
+| 413 | Payload too large (Express body limit: 10 MB for JSON) |
+| 429 | Rate limited — check `Retry-After` header |
+| 507 | Storage quota hard limit exceeded |
+
+---
+
+## Rate Limits
+
+| Scope | Limit | Applies To |
+|---|---|---|
+| Auth | 10 / min | Token creation, setup, invite/apply |
+| Global | 300 / min | All authenticated endpoints |
+| Sync | 2 000 / min | Sync API endpoints |
+| Notify | 60 / min | `POST /api/notify` |
+
+Rate limit headers are included in responses:
+
+```
+RateLimit-Limit: 300
+RateLimit-Remaining: 297
+RateLimit-Reset: 1711381200
+Retry-After: 42
+```
+
+---
+
+## Brain API
+
+Base path: `/api/brain`
+
+### Write a Memory
+
+```
+POST /api/brain/:spaceId/memories
+```
+
+```json
+{
+  "fact": "Kubernetes pods are ephemeral by design",
+  "tags": ["k8s", "architecture"],
+  "entityIds": []
+}
+```
+
+**Response** `201`:
+
+```json
+{
+  "_id": "a1b2c3d4-...",
+  "spaceId": "general",
+  "fact": "Kubernetes pods are ephemeral by design",
+  "tags": ["k8s", "architecture"],
+  "entityIds": [],
+  "seq": 42,
+  "createdAt": "2026-03-25T14:00:00.000Z",
+  "updatedAt": "2026-03-25T14:00:00.000Z",
+  "author": { "instanceId": "c6ff5d55-...", "instanceLabel": "My Ythril" }
+}
+```
+
+**Constraints**: `fact` max 50 000 chars. `tags` must be an array of strings.
+
+---
+
+### Get a Memory by ID
+
+```
+GET /api/brain/:spaceId/memories/:id
+```
+
+**Response** `200`: Full `MemoryDoc` (same shape as write response).
+
+---
+
+### List Memories
+
+```
+GET /api/brain/:spaceId/memories?limit=100&skip=0
+```
+
+**Response** `200`:
+
+```json
+{
+  "memories": [ ... ],
+  "limit": 100,
+  "skip": 0
+}
+```
+
+Default limit: 100, max: 500. Use `skip` for offset pagination.
+
+---
+
+### Delete a Memory
+
+```
+DELETE /api/brain/:spaceId/memories/:id
+```
+
+**Response** `204` (no body).
+
+---
+
+### Wipe All Memories
+
+```
+DELETE /api/brain/:spaceId/memories
+Content-Type: application/json
+
+{ "confirm": true }
+```
+
+**Response** `204`.
+
+---
+
+### Semantic Search (Recall)
+
+```
+POST /api/brain/:spaceId/recall
+```
+
+```json
+{
+  "query": "container orchestration patterns",
+  "topK": 10
+}
+```
+
+**Response** `200`:
+
+```json
+{
+  "results": [
+    { "_id": "...", "fact": "...", "score": 0.87, "tags": [...] }
+  ]
+}
+```
+
+Requires embedding configuration in `config.json`. Uses MongoDB Atlas `$vectorSearch`.
+
+---
+
+### Upsert an Entity
+
+```
+POST /api/brain/:spaceId/entities
+```
+
+```json
+{
+  "name": "Kubernetes",
+  "type": "technology",
+  "tags": ["container", "orchestration"]
+}
+```
+
+**Response** `201`:
+
+```json
+{
+  "_id": "...",
+  "spaceId": "general",
+  "name": "Kubernetes",
+  "type": "technology",
+  "tags": ["container", "orchestration"],
+  "seq": 15,
+  "author": { "instanceId": "...", "instanceLabel": "..." }
+}
+```
+
+Upserts on `(spaceId, name, type)` — tags are merged (deduplicated union).
+
+---
+
+### List Entities
+
+```
+GET /api/brain/spaces/:spaceId/entities?limit=50&skip=0
+```
+
+**Response** `200`:
+
+```json
+{
+  "entities": [ ... ],
+  "limit": 50,
+  "skip": 0
+}
+```
+
+Default limit: 50, max: 200.
+
+---
+
+### Delete an Entity
+
+```
+DELETE /api/brain/spaces/:spaceId/entities/:id
+```
+
+**Response** `204`.
+
+---
+
+### Upsert an Edge
+
+```
+POST /api/brain/:spaceId/edges
+```
+
+```json
+{
+  "from": "entity-id-1",
+  "to": "entity-id-2",
+  "label": "depends_on",
+  "weight": 0.9
+}
+```
+
+**Response** `201`:
+
+```json
+{
+  "_id": "...",
+  "from": "entity-id-1",
+  "to": "entity-id-2",
+  "label": "depends_on",
+  "weight": 0.9,
+  "seq": 8
+}
+```
+
+Upserts on `(spaceId, from, to, label)`.
+
+---
+
+### List Edges
+
+```
+GET /api/brain/spaces/:spaceId/edges?limit=50&skip=0
+```
+
+**Response** `200`:
+
+```json
+{
+  "edges": [ ... ],
+  "limit": 50,
+  "skip": 0
+}
+```
+
+---
+
+### Delete an Edge
+
+```
+DELETE /api/brain/spaces/:spaceId/edges/:id
+```
+
+**Response** `204`.
+
+---
+
+### Space Stats
+
+```
+GET /api/brain/spaces/:spaceId/stats
+```
+
+**Response** `200`:
+
+```json
+{
+  "spaceId": "general",
+  "memories": 1042,
+  "entities": 156,
+  "edges": 89
+}
+```
+
+---
+
+### Reindex Space
+
+```
+POST /api/brain/spaces/:spaceId/reindex
+```
+
+Re-computes all embeddings with the current model. Returns `202 Accepted`.
+
+---
+
+## Files API
+
+Base path: `/api/files`
+
+### Upload a File (raw bytes)
+
+```
+POST /api/files/:spaceId?path=docs/notes.md
+Content-Type: text/plain
+
+Raw file content here...
+```
+
+**Response** `201`:
+
+```json
+{ "path": "docs/notes.md", "sha256": "a1b2c3..." }
+```
+
+### Upload a File (JSON / base64)
+
+```
+POST /api/files/:spaceId?path=images/logo.png
+Content-Type: application/json
+
+{
+  "content": "iVBORw0KGgo...",
+  "encoding": "base64"
+}
+```
+
+---
+
+### Download a File
+
+```
+GET /api/files/:spaceId?path=docs/notes.md
+```
+
+Returns raw file bytes with appropriate Content-Type. If `path` is a directory, returns a JSON listing.
+
+---
+
+### List Directory
+
+```
+GET /api/files/:spaceId?path=docs/
+```
+
+**Response** `200`:
+
+```json
+{
+  "path": "docs/",
+  "type": "dir",
+  "entries": [
+    { "name": "notes.md", "type": "file", "size": 1234 },
+    { "name": "images", "type": "dir" }
+  ]
+}
+```
+
+---
+
+### Create Directory
+
+```
+POST /api/files/:spaceId/mkdir?path=docs/images
+```
+
+**Response** `201`:
+
+```json
+{ "created": "docs/images" }
+```
+
+---
+
+### Move / Rename
+
+```
+PATCH /api/files/:spaceId?path=docs/old-name.md
+Content-Type: application/json
+
+{ "destination": "docs/new-name.md" }
+```
+
+**Response** `200`:
+
+```json
+{ "from": "docs/old-name.md", "to": "docs/new-name.md" }
+```
+
+---
+
+### Delete a File
+
+```
+DELETE /api/files/:spaceId?path=docs/notes.md
+```
+
+**Response** `204`.
+
+To delete a directory, include `{ "confirm": true }` in the request body.
+
+---
+
+## Spaces API
+
+Base path: `/api/spaces`
+
+### List Spaces
+
+```
+GET /api/spaces
+```
+
+**Response** `200`:
+
+```json
+{
+  "spaces": [
+    { "id": "general", "label": "General", "builtIn": true }
+  ],
+  "storage": {
+    "total": { "usedBytes": 52428800, "softLimitGiB": 150, "hardLimitGiB": 200 }
+  }
+}
+```
+
+---
+
+### Create a Space
+
+```
+POST /api/spaces
+```
+
+```json
+{
+  "id": "research",
+  "label": "Research Notes"
+}
+```
+
+`id` must match `^[a-z0-9-]+$`, max 40 chars. If omitted, auto-generated.
+
+**Response** `201`: the created space object.
+
+---
+
+### Delete a Space
+
+```
+DELETE /api/spaces/:id
+Content-Type: application/json
+
+{ "confirm": true }
+```
+
+**Response** `204`. If the space participates in a network, deletion requires a governance vote.
+
+---
+
+## Tokens API
+
+Base path: `/api/tokens` — requires `admin` token.
+
+### List Tokens
+
+```
+GET /api/tokens
+```
+
+**Response** `200`:
+
+```json
+{
+  "tokens": [
+    {
+      "id": "tok_abc123",
+      "name": "Admin",
+      "prefix": "ythril_b",
+      "createdAt": "2026-03-25T14:00:00.000Z",
+      "lastUsed": "2026-03-25T15:30:00.000Z",
+      "expiresAt": null,
+      "spaces": null,
+      "admin": true
+    }
+  ]
+}
+```
+
+Note: `hash` is never exposed.
+
+---
+
+### Create a Token
+
+```
+POST /api/tokens
+```
+
+```json
+{
+  "name": "MCP Agent",
+  "spaces": ["general", "research"],
+  "admin": false,
+  "expiresAt": "2027-01-01T00:00:00.000Z"
+}
+```
+
+**Response** `201`:
+
+```json
+{
+  "token": { "id": "...", "name": "MCP Agent", "prefix": "ythril_x", ... },
+  "plaintext": "ythril_xK9mPq..."
+}
+```
+
+> **The `plaintext` field is shown once.** Store it immediately.
+
+---
+
+### Regenerate a Token
+
+```
+POST /api/tokens/:id/regenerate
+```
+
+Issues a new plaintext credential for an existing token record. The old value is invalidated.
+
+**Response** `200`:
+
+```json
+{ "plaintext": "ythril_newValue..." }
+```
+
+---
+
+### Revoke a Token
+
+```
+DELETE /api/tokens/:id
+```
+
+**Response** `204`.
+
+---
+
+## Networks API
+
+Base path: `/api/networks` — requires `admin` token.
+
+### List Networks
+
+```
+GET /api/networks
+```
+
+**Response** `200`:
+
+```json
+{
+  "networks": [
+    {
+      "id": "net-uuid",
+      "label": "Team Sync",
+      "type": "closed",
+      "spaces": ["general"],
+      "members": [
+        {
+          "instanceId": "peer-uuid",
+          "label": "Peer Brain",
+          "url": "https://peer.example.com",
+          "direction": "both"
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### Create a Network
+
+```
+POST /api/networks
+```
+
+```json
+{
+  "label": "Team Sync",
+  "type": "closed",
+  "spaces": ["general"],
+  "votingDeadlineHours": 24,
+  "syncSchedule": "*/5 * * * *"
+}
+```
+
+**Network types**: `closed` (unanimous vote), `democratic` (majority), `club` (proposer only), `braintree` (tree hierarchy).
+
+**Response** `201`: the created network object.
+
+---
+
+### Delete a Network
+
+```
+DELETE /api/networks/:id
+```
+
+Broadcasts `member_departed` to all peers. **Response** `204`.
+
+---
+
+### Update a Network
+
+```
+PATCH /api/networks/:id
+```
+
+```json
+{ "syncSchedule": "*/10 * * * *", "label": "Renamed" }
+```
+
+---
+
+### Add a Member (Manual)
+
+```
+POST /api/networks/:id/members
+```
+
+```json
+{
+  "instanceId": "peer-instance-uuid",
+  "label": "Remote Brain",
+  "url": "https://remote.example.com",
+  "token": "ythril_peerToken...",
+  "direction": "both"
+}
+```
+
+In `closed`/`democratic` networks this opens a voting round.
+In `club` networks the member is added immediately.
+
+---
+
+### Join via Invite Key
+
+```
+POST /api/networks/:id/join
+```
+
+```json
+{
+  "inviteKey": "the-shared-key",
+  "instanceId": "my-uuid",
+  "label": "My Brain",
+  "url": "https://me.example.com",
+  "token": "ythril_myToken..."
+}
+```
+
+---
+
+### Cast a Vote
+
+```
+POST /api/networks/:id/votes/:roundId
+```
+
+```json
+{ "vote": "yes" }
+```
+
+Accepted values: `yes`, `veto`.
+
+---
+
+### Generate an Invite Key
+
+```
+POST /api/networks/:id/invite-key
+```
+
+**Response** `201`:
+
+```json
+{ "inviteKey": "generated-key-string" }
+```
+
+---
+
+### Revoke an Invite Key
+
+```
+DELETE /api/networks/:id/invite-key
+```
+
+**Response** `204`.
+
+---
+
+### Join Remote (RSA Handshake)
+
+```
+POST /api/networks/join-remote
+```
+
+```json
+{
+  "handshakeId": "uuid",
+  "inviteUrl": "https://remote.example.com/api/invite/apply",
+  "rsaPublicKeyPem": "-----BEGIN PUBLIC KEY-----\n...",
+  "networkId": "net-uuid",
+  "myUrl": "https://me.example.com"
+}
+```
+
+Executes the full 3-step RSA handshake server-side. No plaintext tokens cross the wire.
+
+---
+
+## Invite API
+
+Base path: `/api/invite` — unauthenticated endpoints (rate-limited).
+
+### Generate Invite
+
+```
+POST /api/invite/generate
+Authorization: Bearer <admin-token>
+```
+
+```json
+{ "networkId": "net-uuid" }
+```
+
+**Response** `201`:
+
+```json
+{
+  "handshakeId": "uuid",
+  "networkId": "net-uuid",
+  "inviteUrl": "https://me.example.com/api/invite/apply",
+  "rsaPublicKeyPem": "-----BEGIN PUBLIC KEY-----\n...",
+  "expiresAt": "2026-03-25T15:00:00.000Z"
+}
+```
+
+---
+
+### Apply (Unauthenticated — called by joining brain)
+
+```
+POST /api/invite/apply
+```
+
+```json
+{
+  "handshakeId": "uuid",
+  "networkId": "net-uuid",
+  "instanceId": "joiner-uuid",
+  "instanceLabel": "Joiner Brain",
+  "instanceUrl": "https://joiner.example.com",
+  "rsaPublicKeyPem": "-----BEGIN PUBLIC KEY-----\n..."
+}
+```
+
+**Response** `200`:
+
+```json
+{
+  "encryptedTokenForB": "base64...",
+  "rsaPublicKeyPem": "-----BEGIN PUBLIC KEY-----\n...",
+  "instanceId": "inviter-uuid",
+  "instanceLabel": "Inviter Brain",
+  "networkId": "net-uuid",
+  "networkLabel": "Team Sync",
+  "networkType": "closed",
+  "spaces": ["general"]
+}
+```
+
+All tokens are RSA-OAEP-SHA256 encrypted — never plaintext over the wire.
+
+---
+
+### Finalize
+
+```
+POST /api/invite/finalize
+```
+
+```json
+{
+  "handshakeId": "uuid",
+  "encryptedTokenForA": "base64..."
+}
+```
+
+**Response** `200`:
+
+```json
+{ "status": "joined", "instanceId": "joiner-uuid", "networkId": "net-uuid" }
+```
+
+---
+
+### Check Invite Status
+
+```
+GET /api/invite/status/:handshakeId
+```
+
+**Response** `200`:
+
+```json
+{ "status": "pending", "expiresAt": "2026-03-25T15:00:00.000Z" }
+```
+
+---
+
+## Notify API
+
+Base path: `/api/notify`
+
+### Send Event (peer-to-peer)
+
+```
+POST /api/notify
+```
+
+```json
+{
+  "networkId": "net-uuid",
+  "instanceId": "sender-uuid",
+  "event": "sync_available"
+}
+```
+
+Events: `vote_pending`, `member_departed`, `member_removed`, `space_deletion_pending`, `sync_available`, `ping`.
+
+**Response** `204`.
+
+---
+
+### List Events
+
+```
+GET /api/notify?networkId=net-uuid&limit=50
+```
+
+---
+
+### Trigger Sync
+
+```
+POST /api/notify/trigger
+```
+
+```json
+{ "networkId": "net-uuid" }
+```
+
+Triggers an immediate sync cycle for the given network.
+
+**Response** `200`:
+
+```json
+{ "status": "ok", "networkId": "net-uuid" }
+```
+
+---
+
+## Sync API
+
+Base path: `/api/sync` — used by the sync engine between peers. All endpoints require auth + sync rate limit.
+
+### GET /api/sync/memories
+
+```
+GET /api/sync/memories?spaceId=general&sinceSeq=0&limit=200&full=true
+```
+
+Cursor-based pagination. Returns `{ items, nextCursor }`. Pass `nextCursor` as `cursor` in the next request.
+
+### GET /api/sync/entities
+
+Same pattern as memories.
+
+### GET /api/sync/edges
+
+Same pattern as memories.
+
+### GET /api/sync/tombstones
+
+```
+GET /api/sync/tombstones?spaceId=general&sinceSeq=0
+```
+
+### POST /api/sync/tombstones
+
+Push tombstones to a peer.
+
+```json
+{ "tombstones": [ { "_id": "...", "type": "memory", "seq": 42, ... } ] }
+```
+
+### POST /api/sync/batch-upsert
+
+Push changes to a peer in bulk.
+
+```
+POST /api/sync/batch-upsert?spaceId=general&networkId=net-uuid
+```
+
+```json
+{
+  "memories": [ ... ],
+  "entities": [ ... ],
+  "edges": [ ... ]
+}
+```
+
+### POST /api/sync/memory
+
+Push a single memory.
+
+### GET /api/sync/manifest
+
+File manifest for a space (used by file sync).
+
+```
+GET /api/sync/manifest?spaceId=general
+```
+
+### GET /api/sync/file
+
+Download a specific file from a peer.
+
+```
+GET /api/sync/file?spaceId=general&path=docs/notes.md
+```
+
+### POST /api/sync/file
+
+Upload a file to a peer.
+
+### GET /api/sync/merkle
+
+```
+GET /api/sync/merkle?spaceId=general
+```
+
+**Response** `200`:
+
+```json
+{ "root": "sha256-hex-string", "counts": { "memories": 100, "entities": 20, "edges": 10 } }
+```
+
+### GET /api/sync/gossip
+
+Network gossip exchange (vote round propagation).
+
+### POST /api/sync/file-tombstones
+
+Push file deletion tombstones to a peer.
+
+### GET /api/sync/file-tombstones
+
+Fetch file deletion tombstones from a peer.
+
+---
+
+## MFA API
+
+Base path: `/api/mfa` — requires admin token.
+
+### Check MFA Status
+
+```
+GET /api/mfa/status
+```
+
+**Response** `200`:
+
+```json
+{ "enabled": false }
+```
+
+---
+
+### Setup MFA
+
+```
+POST /api/mfa/setup
+```
+
+**Response** `201`:
+
+```json
+{
+  "secret": "JBSWY3DPEHPK3PXP",
+  "otpauth": "otpauth://totp/ythril:admin?secret=JBSWY3DPEHPK3PXP&issuer=ythril"
+}
+```
+
+Scan the `otpauth` URI as a QR code in any TOTP app.
+
+---
+
+### Verify OTP Code
+
+```
+POST /api/mfa/verify
+```
+
+```json
+{ "code": "123456" }
+```
+
+**Response** `200`:
+
+```json
+{ "valid": true }
+```
+
+---
+
+### Disable MFA
+
+```
+DELETE /api/mfa
+```
+
+**Response** `204`.
+
+---
+
+## Conflicts API
+
+Base path: `/api/conflicts`
+
+### List Conflicts
+
+```
+GET /api/conflicts?spaceId=general
+```
+
+---
+
+### Get Conflict
+
+```
+GET /api/conflicts/:id
+```
+
+---
+
+### Resolve Conflict
+
+```
+POST /api/conflicts/:id/resolve
+```
+
+**Response** `200`:
+
+```json
+{ "status": "resolved" }
+```
+
+---
+
+### Delete Conflict
+
+```
+DELETE /api/conflicts/:id
+```
+
+**Response** `204`.
+
+---
+
+## Setup API
+
+### Health Check (unauthenticated)
+
+```
+GET /health
+```
+
+**Response** `200`:
+
+```json
+{ "status": "ok", "ts": "2026-03-25T14:00:00.000Z" }
+```
+
+---
+
+### Check Setup Status (unauthenticated)
+
+```
+GET /api/setup/status
+```
+
+**Response** `200`:
+
+```json
+{ "configured": false }
+```
+
+---
+
+### Complete Setup (JSON)
+
+```
+POST /api/setup/json
+```
+
+```json
+{
+  "code": "6934-2185-2CE9-B010",
+  "label": "My Ythril"
+}
+```
+
+The `code` is printed to server logs on first run. Used exactly once.
+
+**Response** `201`:
+
+```json
+{
+  "token": { "id": "...", "name": "Admin", "admin": true, ... },
+  "plaintext": "ythril_initialAdminToken..."
+}
+```
+
+---
+
+## Admin API
+
+### Reload Config
+
+```
+POST /api/admin/reload-config
+Authorization: Bearer <admin-token>
+```
+
+Re-reads `config.json` from disk. Useful after manual edits.
+
+**Response** `200`:
+
+```json
+{ "ok": true }
+```
+
+---
+
+## MCP (Model Context Protocol)
+
+Ythril exposes an MCP server via SSE for AI agent integration. Each connection is scoped to a single space.
+
+### Connecting
+
+```
+GET /mcp/:spaceId
+Authorization: Bearer <token>
+Accept: text/event-stream
+```
+
+Returns an SSE stream with a `sessionId`.
+
+### Sending Tool Calls
+
+```
+POST /mcp/:spaceId/messages?sessionId=<sessionId>
+Authorization: Bearer <token>
+Content-Type: application/json
+```
+
+### Available Tools
+
+| Tool | Description |
+|---|---|
+| `remember` | Store a memory with optional tags and entity links |
+| `recall` | Semantic search within the current space |
+| `recall_global` | Semantic search across all accessible spaces |
+| `query` | Structured MongoDB filter query (read-only) |
+| `upsert_entity` | Create or update a named entity |
+| `upsert_edge` | Create or update a directed relationship |
+| `read_file` | Read a text file from the space file store |
+| `write_file` | Write a text file to the space file store |
+| `list_dir` | List directory contents |
+| `delete_file` | Delete a file |
+| `create_dir` | Create a directory |
+| `move_file` | Move or rename a file/directory |
+| `list_peers` | List all configured peer instances |
+| `sync_now` | Trigger immediate sync (all networks or specific peer) |
+
+### Example: remember
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "remember",
+    "arguments": {
+      "fact": "Traefik v3 requires CRD patches for allowSlashesInPath",
+      "tags": ["traefik", "gotcha"],
+      "entities": ["Traefik"]
+    }
+  }
+}
+```
+
+### Example: recall
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "recall",
+    "arguments": {
+      "query": "Traefik routing configuration",
+      "topK": 5
+    }
+  }
+}
+```
+
+### Example: query
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "query",
+    "arguments": {
+      "collection": "memories",
+      "filter": { "tags": "traefik" },
+      "limit": 20
+    }
+  }
+}
+```
+
+**Security**: The `query` tool rejects `$where`, `$function`, and deeply nested filters (>8 levels). Only safe read-only operators are allowed.
+
+### MCP Client Configuration
+
+For AI agents (Claude, Cursor, etc.), add to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "ythril": {
+      "url": "http://localhost:3200/mcp/general",
+      "headers": {
+        "Authorization": "Bearer ythril_yourTokenHere"
+      }
+    }
+  }
+}
+```
+
+---
+
+## Storage Quotas
+
+Configured in `config.json` under `storage`:
+
+```json
+{
+  "storage": {
+    "brain": { "softLimitGiB": 50, "hardLimitGiB": 100 },
+    "files": { "softLimitGiB": 100, "hardLimitGiB": 200 },
+    "total": { "softLimitGiB": 150, "hardLimitGiB": 200 }
+  }
+}
+```
+
+| Condition | Behaviour |
+|---|---|
+| Below soft limit | Normal operation |
+| Above soft limit | Write succeeds, response includes `storageWarning: true` |
+| Above hard limit | Write rejected with `507` and `storageExceeded: true` |
+
+---
+
+## Pagination
+
+### Offset Pagination (Brain API)
+
+All list endpoints accept `limit` and `skip`:
+
+```
+GET /api/brain/general/memories?limit=100&skip=200
+```
+
+### Cursor Pagination (Sync API)
+
+Sync endpoints return a `nextCursor` for efficient sequential reads:
+
+```
+GET /api/sync/memories?spaceId=general&sinceSeq=0&limit=200
+→ { "items": [...], "nextCursor": "eyJzZXEiOjIwMH0" }
+
+GET /api/sync/memories?spaceId=general&cursor=eyJzZXEiOjIwMH0&limit=200
+→ { "items": [...], "nextCursor": null }
+```
+
+When `nextCursor` is `null`, all data has been consumed.

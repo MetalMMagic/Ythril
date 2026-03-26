@@ -1,6 +1,8 @@
 ﻿services:
   ythril:
-    build: .
+    image: ghcr.io/ythril-network/ythril:latest
+    # To build locally instead of pulling, uncomment the next line:
+    # build: .
     container_name: ythril
     restart: unless-stopped
     ports:

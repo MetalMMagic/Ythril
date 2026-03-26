@@ -163,6 +163,29 @@ interface SpaceView {
       background: var(--bg-surface);
       color: var(--text-primary);
     }
+
+    .create-form {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg-surface);
+      margin-bottom: 12px;
+    }
+    .create-form .field { margin-bottom: 0; }
+    .create-form label { font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 2px; }
+    .create-form input, .create-form textarea {
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+    }
+    .create-form textarea { resize: vertical; }
   `],
   template: `
     <div class="page-header">
@@ -219,14 +242,41 @@ interface SpaceView {
         <!-- Memories -->
         @if (activeTab() === 'memories') {
 
+          <!-- Add memory form -->
+          @if (showMemoryForm()) {
+            <form class="create-form" (ngSubmit)="createMemory()">
+              <div class="field" style="flex:2; min-width:200px;">
+                <label>Fact</label>
+                <textarea [(ngModel)]="memoryForm.fact" name="fact" rows="2" placeholder="Something to remember…" required style="width:100%;"></textarea>
+              </div>
+              <div class="field" style="flex:1; min-width:140px;">
+                <label>Tags (comma-separated)</label>
+                <input type="text" [(ngModel)]="memoryForm.tags" name="tags" placeholder="tag1, tag2" />
+              </div>
+              <div class="field" style="flex:1; min-width:140px;">
+                <label>Entity IDs (comma-separated)</label>
+                <input type="text" [(ngModel)]="memoryForm.entityIds" name="entityIds" placeholder="entity-id-1" />
+              </div>
+              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingMemory() || !memoryForm.fact.trim()">
+                @if (creatingMemory()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                Save
+              </button>
+              <button class="btn-secondary btn btn-sm" type="button" (click)="showMemoryForm.set(false)">Cancel</button>
+            </form>
+          }
+
+          @if (createMemoryError()) {
+            <div class="alert alert-error" style="margin-bottom:12px;">{{ createMemoryError() }}</div>
+          }
+
           @if (filterTag() || filterEntity()) {
             <div class="filter-bar">
               <span class="filter-bar-label">Filters</span>
               @if (filterTag(); as tag) {
-                <span class="filter-chip">tag: {{ tag }} <button (click)="clearFilter('tag')">✕</button></span>
+                <span class="filter-chip">tag: {{ tag }} <button aria-label="Clear tag filter" (click)="clearFilter('tag')">✕</button></span>
               }
               @if (filterEntity(); as ent) {
-                <span class="filter-chip">entity: {{ ent }} <button (click)="clearFilter('entity')">✕</button></span>
+                <span class="filter-chip">entity: {{ ent }} <button aria-label="Clear entity filter" (click)="clearFilter('entity')">✕</button></span>
               }
               <button class="btn-secondary btn btn-sm" (click)="clearFilter('all')">Clear all</button>
             </div>
@@ -241,6 +291,7 @@ interface SpaceView {
                 [value]="wipeInput()"
                 (input)="wipeInput.set($any($event.target).value)"
                 placeholder="space id"
+                aria-label="Type space ID to confirm wipe"
               />
               <button
                 class="btn btn-danger btn-sm"
@@ -261,6 +312,11 @@ interface SpaceView {
             <button class="btn-secondary btn btn-sm" [disabled]="skip() === 0" (click)="prevPage()">← Prev</button>
             <button class="btn-secondary btn btn-sm" [disabled]="memories().length < pageSize" (click)="nextPage()">Next →</button>
             <button
+              class="btn-primary btn btn-sm"
+              (click)="showMemoryForm.set(true)"
+              [disabled]="showMemoryForm()"
+            >+ Add memory</button>
+            <button
               class="btn btn-danger btn-sm"
               [disabled]="!activeStats()?.memories"
               (click)="showWipeConfirm.set(true)"
@@ -280,7 +336,7 @@ interface SpaceView {
                 }
                 <span style="flex:1"></span>
                 <time>{{ mem.createdAt | date:'MMM d, y HH:mm' }}</time>
-                <button class="icon-btn danger" title="Delete memory" (click)="deleteMemory(mem._id)">✕</button>
+                <button class="icon-btn danger" title="Delete memory" aria-label="Delete memory" (click)="deleteMemory(mem._id)">✕</button>
               </div>
             </div>
           }
@@ -296,6 +352,36 @@ interface SpaceView {
 
         <!-- Entities -->
         @if (activeTab() === 'entities') {
+
+          <div style="margin-bottom:12px; display:flex; gap:8px;">
+            <button class="btn-primary btn btn-sm" (click)="showEntityForm.set(true)" [disabled]="showEntityForm()">+ Add entity</button>
+          </div>
+
+          @if (showEntityForm()) {
+            <form class="create-form" (ngSubmit)="createEntity()">
+              <div class="field" style="flex:1; min-width:140px;">
+                <label>Name</label>
+                <input type="text" [(ngModel)]="entityForm.name" name="name" placeholder="Kubernetes" required />
+              </div>
+              <div class="field" style="width:140px;">
+                <label>Type (optional)</label>
+                <input type="text" [(ngModel)]="entityForm.type" name="type" placeholder="technology" />
+              </div>
+              <div class="field" style="flex:1; min-width:140px;">
+                <label>Tags (comma-separated)</label>
+                <input type="text" [(ngModel)]="entityForm.tags" name="tags" placeholder="infra, devops" />
+              </div>
+              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEntity() || !entityForm.name.trim()">
+                @if (creatingEntity()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                Save
+              </button>
+              <button class="btn-secondary btn btn-sm" type="button" (click)="showEntityForm.set(false)">Cancel</button>
+            </form>
+          }
+
+          @if (createEntityError()) {
+            <div class="alert alert-error" style="margin-bottom:12px;">{{ createEntityError() }}</div>
+          }
           <div class="table-wrapper">
             <table>
               <thead>
@@ -311,7 +397,7 @@ interface SpaceView {
                       @if (ent.type) { <span class="badge badge-purple">{{ ent.type }}</span> }
                     </td>
                     <td style="color:var(--text-muted)">{{ ent.createdAt | date:'MMM d, y' }}</td>
-                    <td><button class="icon-btn danger" (click)="deleteEntity(ent._id)">✕</button></td>
+                    <td><button class="icon-btn danger" aria-label="Delete entity" (click)="deleteEntity(ent._id)">✕</button></td>
                   </tr>
                 } @empty {
                   <tr><td colspan="4">
@@ -328,6 +414,44 @@ interface SpaceView {
 
         <!-- Edges -->
         @if (activeTab() === 'edges') {
+
+          <div style="margin-bottom:12px; display:flex; gap:8px;">
+            <button class="btn-primary btn btn-sm" (click)="showEdgeForm.set(true)" [disabled]="showEdgeForm()">+ Add edge</button>
+          </div>
+
+          @if (showEdgeForm()) {
+            <form class="create-form" (ngSubmit)="createEdge()">
+              <div class="field" style="flex:1; min-width:120px;">
+                <label>From</label>
+                <input type="text" [(ngModel)]="edgeForm.from" name="from" placeholder="Entity A" required />
+              </div>
+              <div class="field" style="flex:1; min-width:120px;">
+                <label>Label (relation)</label>
+                <input type="text" [(ngModel)]="edgeForm.label" name="label" placeholder="depends_on" required />
+              </div>
+              <div class="field" style="flex:1; min-width:120px;">
+                <label>To</label>
+                <input type="text" [(ngModel)]="edgeForm.to" name="to" placeholder="Entity B" required />
+              </div>
+              <div class="field" style="width:100px;">
+                <label>Type (optional)</label>
+                <input type="text" [(ngModel)]="edgeForm.type" name="type" placeholder="causal" />
+              </div>
+              <div class="field" style="width:80px;">
+                <label>Weight</label>
+                <input type="number" [(ngModel)]="edgeForm.weight" name="weight" step="0.1" placeholder="—" />
+              </div>
+              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEdge() || !edgeForm.from.trim() || !edgeForm.to.trim() || !edgeForm.label.trim()">
+                @if (creatingEdge()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                Save
+              </button>
+              <button class="btn-secondary btn btn-sm" type="button" (click)="showEdgeForm.set(false)">Cancel</button>
+            </form>
+          }
+
+          @if (createEdgeError()) {
+            <div class="alert alert-error" style="margin-bottom:12px;">{{ createEdgeError() }}</div>
+          }
           <div class="table-wrapper">
             <table>
               <thead>
@@ -344,7 +468,7 @@ interface SpaceView {
                     <td class="mono" style="font-size:12px">{{ edge.to }}</td>
                     <td style="color:var(--text-muted)">{{ edge.weight ?? '—' }}</td>
                     <td style="color:var(--text-muted)">{{ edge.createdAt | date:'MMM d, y' }}</td>
-                    <td><button class="icon-btn danger" (click)="deleteEdge(edge._id)">✕</button></td>
+                    <td><button class="icon-btn danger" aria-label="Delete edge" (click)="deleteEdge(edge._id)">✕</button></td>
                   </tr>
                 } @empty {
                   <tr><td colspan="7">
@@ -389,6 +513,24 @@ export class BrainComponent implements OnInit {
   showWipeConfirm = signal(false);
   wipeInput = signal('');
   wipingInProgress = signal(false);
+
+  // Create memory form
+  showMemoryForm = signal(false);
+  creatingMemory = signal(false);
+  createMemoryError = signal('');
+  memoryForm = { fact: '', tags: '', entityIds: '' };
+
+  // Create entity form
+  showEntityForm = signal(false);
+  creatingEntity = signal(false);
+  createEntityError = signal('');
+  entityForm = { name: '', type: '', tags: '' };
+
+  // Create edge form
+  showEdgeForm = signal(false);
+  creatingEdge = signal(false);
+  createEdgeError = signal('');
+  edgeForm = { from: '', to: '', label: '', type: '', weight: null as number | null };
 
   activeStats = computed(() =>
     this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.stats,
@@ -441,6 +583,7 @@ export class BrainComponent implements OnInit {
           list.map(sv => sv.space.id === spaceId ? { ...sv, stats } : sv),
         );
       },
+      error: () => {},
     });
   }
 
@@ -512,6 +655,80 @@ export class BrainComponent implements OnInit {
         this.memories.update(list => list.filter(m => m._id !== id));
         this.loadStats(this.activeSpaceId());
       },
+      error: () => alert('Failed to delete memory.'),
+    });
+  }
+
+  createMemory(): void {
+    if (!this.memoryForm.fact.trim()) return;
+    this.creatingMemory.set(true);
+    this.createMemoryError.set('');
+    const tags = this.memoryForm.tags.split(',').map(s => s.trim()).filter(Boolean);
+    const entityIds = this.memoryForm.entityIds.split(',').map(s => s.trim()).filter(Boolean);
+    const body: { fact: string; tags?: string[]; entityIds?: string[] } = { fact: this.memoryForm.fact.trim() };
+    if (tags.length) body.tags = tags;
+    if (entityIds.length) body.entityIds = entityIds;
+    this.api.createMemory(this.activeSpaceId(), body).subscribe({
+      next: () => {
+        this.creatingMemory.set(false);
+        this.showMemoryForm.set(false);
+        this.memoryForm = { fact: '', tags: '', entityIds: '' };
+        this.loadStats(this.activeSpaceId());
+        this.loadCurrentTab(this.activeSpaceId());
+      },
+      error: (err) => {
+        this.creatingMemory.set(false);
+        this.createMemoryError.set(err.error?.error ?? 'Failed to create memory');
+      },
+    });
+  }
+
+  createEntity(): void {
+    if (!this.entityForm.name.trim()) return;
+    this.creatingEntity.set(true);
+    this.createEntityError.set('');
+    const tags = this.entityForm.tags.split(',').map(s => s.trim()).filter(Boolean);
+    const body: { name: string; type?: string; tags?: string[] } = { name: this.entityForm.name.trim() };
+    if (this.entityForm.type.trim()) body.type = this.entityForm.type.trim();
+    if (tags.length) body.tags = tags;
+    this.api.createEntity(this.activeSpaceId(), body).subscribe({
+      next: () => {
+        this.creatingEntity.set(false);
+        this.showEntityForm.set(false);
+        this.entityForm = { name: '', type: '', tags: '' };
+        this.loadStats(this.activeSpaceId());
+        this.loadCurrentTab(this.activeSpaceId());
+      },
+      error: (err) => {
+        this.creatingEntity.set(false);
+        this.createEntityError.set(err.error?.error ?? 'Failed to create entity');
+      },
+    });
+  }
+
+  createEdge(): void {
+    if (!this.edgeForm.from.trim() || !this.edgeForm.to.trim() || !this.edgeForm.label.trim()) return;
+    this.creatingEdge.set(true);
+    this.createEdgeError.set('');
+    const body: { from: string; to: string; label: string; type?: string; weight?: number } = {
+      from: this.edgeForm.from.trim(),
+      to: this.edgeForm.to.trim(),
+      label: this.edgeForm.label.trim(),
+    };
+    if (this.edgeForm.type.trim()) body.type = this.edgeForm.type.trim();
+    if (this.edgeForm.weight != null) body.weight = this.edgeForm.weight;
+    this.api.createEdge(this.activeSpaceId(), body).subscribe({
+      next: () => {
+        this.creatingEdge.set(false);
+        this.showEdgeForm.set(false);
+        this.edgeForm = { from: '', to: '', label: '', type: '', weight: null };
+        this.loadStats(this.activeSpaceId());
+        this.loadCurrentTab(this.activeSpaceId());
+      },
+      error: (err) => {
+        this.creatingEdge.set(false);
+        this.createEdgeError.set(err.error?.error ?? 'Failed to create edge');
+      },
     });
   }
 
@@ -522,6 +739,7 @@ export class BrainComponent implements OnInit {
         this.entities.update(list => list.filter(e => e._id !== id));
         this.loadStats(this.activeSpaceId());
       },
+      error: () => alert('Failed to delete entity.'),
     });
   }
 
@@ -529,6 +747,7 @@ export class BrainComponent implements OnInit {
     if (!confirm('Delete this edge?')) return;
     this.api.deleteEdge(this.activeSpaceId(), id).subscribe({
       next: () => this.edges.update(list => list.filter(e => e._id !== id)),
+      error: () => alert('Failed to delete edge.'),
     });
   }
 }

@@ -74,6 +74,7 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
               <input class="code-input" type="text" inputmode="numeric"
                      autocomplete="one-time-code" maxlength="6" placeholder="000000"
+                     aria-label="TOTP confirmation code"
                      [(ngModel)]="confirmCode" (keyup.enter)="confirmEnroll()" />
               <button class="btn btn-primary btn-sm" (click)="confirmEnroll()"
                       [disabled]="confirming() || confirmCode.length < 6">
@@ -150,6 +151,7 @@ export class MfaComponent implements OnInit {
         this.enrollError.set('');
         this.state.set('enrolling');
       },
+      error: (err) => this.enrollError.set(err.error?.error ?? 'Failed to start MFA setup.'),
     });
   }
 

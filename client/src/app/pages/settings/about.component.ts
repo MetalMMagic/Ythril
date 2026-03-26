@@ -166,6 +166,7 @@ export class AboutComponent implements OnInit, OnDestroy {
           if (el) el.scrollTop = el.scrollHeight;
         });
       },
+      error: () => this.logText.set('Failed to load logs.'),
     });
   }
 

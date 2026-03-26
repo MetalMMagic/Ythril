@@ -293,7 +293,7 @@ function previewKind(name: string): PreviewKind {
             <button class="btn-secondary btn btn-sm" (click)="showNewFolder.set(true)">+ New folder</button>
           } @else {
             <form class="rename-form" (ngSubmit)="createFolder()">
-              <input type="text" [(ngModel)]="newFolderName" name="fn" placeholder="Folder name" style="width:160px" />
+              <input type="text" [(ngModel)]="newFolderName" name="fn" placeholder="Folder name" aria-label="New folder name" style="width:160px" />
               <button class="btn-primary btn btn-sm" type="submit">Create</button>
               <button class="btn-ghost btn btn-sm" type="button" (click)="showNewFolder.set(false)">Cancel</button>
             </form>
@@ -355,7 +355,7 @@ function previewKind(name: string): PreviewKind {
                     <td>
                       @if (renamingEntry() === entry.name) {
                         <form class="rename-form" (ngSubmit)="confirmRename(entry)">
-                          <input type="text" [(ngModel)]="renameValue" name="rn" style="width:200px" />
+                          <input type="text" [(ngModel)]="renameValue" name="rn" aria-label="Rename entry" style="width:200px" />
                           <button class="btn-primary btn btn-sm" type="submit">Save</button>
                           <button class="btn-ghost btn btn-sm" type="button" (click)="renamingEntry.set('')">Cancel</button>
                         </form>
@@ -377,10 +377,11 @@ function previewKind(name: string): PreviewKind {
                           class="btn-ghost btn btn-sm"
                           [href]="downloadUrl(entry)"
                           download
+                          aria-label="Download file"
                         >↓</a>
                       }
                       <button class="btn-ghost btn btn-sm" (click)="startRename(entry)">Rename</button>
-                      <button class="icon-btn danger" (click)="deleteEntry(entry)">✕</button>
+                      <button class="icon-btn danger" (click)="deleteEntry(entry)" aria-label="Delete entry">✕</button>
                     </td>
                   </tr>
                 } @empty {
@@ -428,7 +429,7 @@ function previewKind(name: string): PreviewKind {
           <div class="preview-header">
             <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
             <a class="btn-secondary btn btn-sm" [href]="downloadUrl(pf)" download>↓ Download</a>
-            <button class="icon-btn" (click)="closePreview()">✕</button>
+            <button class="icon-btn" (click)="closePreview()" aria-label="Close preview">✕</button>
           </div>
           <div class="preview-body">
             @switch (previewKind()) {
@@ -599,6 +600,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
         this.loadDir(this.currentPath());
         this.loadTreeRoot();
       },
+      error: () => alert('Failed to create folder.'),
     });
   }
 
@@ -616,6 +618,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
         this.renamingEntry.set('');
         this.loadDir(this.currentPath());
       },
+      error: () => alert('Failed to rename file.'),
     });
   }
 
@@ -624,6 +627,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     const path = this.join(this.currentPath(), entry.name);
     this.api.deleteFile(this.activeSpaceId(), path).subscribe({
       next: () => this.loadDir(this.currentPath()),
+      error: () => alert('Failed to delete file.'),
     });
   }
 
@@ -674,6 +678,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
             .map(e => ({ name: e.name, path: this.join('/', e.name), expanded: false, loading: false, children: null })),
         );
       },
+      error: () => {},
     });
   }
 

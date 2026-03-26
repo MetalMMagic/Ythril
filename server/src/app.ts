@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import { tokensRouter } from './api/tokens.js';
 import { brainRouter } from './api/brain.js';
@@ -37,6 +38,14 @@ export function createApp() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+  });
+
+  // ── Request ID ───────────────────────────────────────────────────────────
+  app.use((req, res, next) => {
+    const id = crypto.randomUUID();
+    req.requestId = id;
+    res.setHeader('X-Request-Id', id);
     next();
   });
 
@@ -119,15 +128,17 @@ export function createApp() {
 
   // ── Global error handler ─────────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  app.use((err: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
     // Propagate HTTP-level errors from body-parser (e.g. 413 Payload Too Large)
     if (err && typeof err === 'object' && 'status' in err && typeof (err as { status: unknown }).status === 'number') {
       const httpErr = err as { status: number; message: string };
-      res.status(httpErr.status).json({ error: httpErr.message ?? 'Request error' });
+      const s = httpErr.status;
+      const status = (s >= 400 && s < 600) ? s : 500;
+      res.status(status).json({ error: httpErr.message ?? 'Request error' });
       return;
     }
     const message = err instanceof Error ? err.message : String(err);
-    log.error(`Unhandled error: ${message}`);
+    log.error(`Unhandled error [${req.requestId ?? '-'}]: ${message}`);
     res.status(500).json({ error: 'Internal server error' });
   });
 

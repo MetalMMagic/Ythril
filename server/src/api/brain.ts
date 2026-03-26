@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireSpaceAuth, denyReadOnly } from '../auth/middleware.js';
-import { globalRateLimit } from '../rate-limit/middleware.js';
+import { globalRateLimit, bulkWipeRateLimit } from '../rate-limit/middleware.js';
 import { listMemories, deleteMemory, countMemories, bulkDeleteMemories } from '../brain/memory.js';
-import { listEntities, deleteEntity } from '../brain/entities.js';
-import { listEdges, deleteEdge } from '../brain/edges.js';
+import { listEntities, deleteEntity, upsertEntity } from '../brain/entities.js';
+import { listEdges, deleteEdge, upsertEdge } from '../brain/edges.js';
 import { embed } from '../brain/embedding.js';
 import { getConfig } from '../config/loader.js';
 import { col } from '../db/mongo.js';
@@ -142,7 +142,7 @@ brainRouter.delete('/:spaceId/memories/:id', globalRateLimit, requireSpaceAuth, 
 });
 
 // DELETE /api/brain/:spaceId/memories — bulk wipe all memories
-brainRouter.delete('/:spaceId/memories', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+brainRouter.delete('/:spaceId/memories', bulkWipeRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {
@@ -189,7 +189,7 @@ brainRouter.get('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAuth, 
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const limit = Math.min(Number(req.query['limit'] ?? 20), 100);
+  const limit = Math.min(Number(req.query['limit'] ?? 100), 500);
   const skip = Number(req.query['skip'] ?? 0);
   const filter = buildMemoryFilter(req.query as Record<string, unknown>);
   const memberIds = resolveMemberSpaces(spaceId);
@@ -209,7 +209,7 @@ brainRouter.delete('/spaces/:spaceId/memories/:id', globalRateLimit, requireSpac
 });
 
 // DELETE /api/brain/spaces/:spaceId/memories — bulk wipe (long-form)
-brainRouter.delete('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+brainRouter.delete('/spaces/:spaceId/memories', bulkWipeRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {
@@ -226,6 +226,68 @@ brainRouter.delete('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAut
   }
   const deleted = await bulkDeleteMemories(spaceId);
   res.json({ deleted });
+});
+
+// POST /api/brain/spaces/:spaceId/entities — create/upsert an entity
+brainRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
+  if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  const { name, type = '', tags = [] } = req.body ?? {};
+  if (!name || typeof name !== 'string') {
+    res.status(400).json({ error: '`name` string required' });
+    return;
+  }
+  if (typeof type !== 'string') {
+    res.status(400).json({ error: '`type` must be a string' });
+    return;
+  }
+  if (!Array.isArray(tags) || tags.some((t: unknown) => typeof t !== 'string')) {
+    res.status(400).json({ error: '`tags` must be an array of strings' });
+    return;
+  }
+  const entity = await upsertEntity(wt.target, name.trim(), type.trim(), tags);
+  res.status(201).json(entity);
+});
+
+// POST /api/brain/spaces/:spaceId/edges — create/upsert an edge
+brainRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
+  if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  const { from, to, label, weight, type } = req.body ?? {};
+  if (!from || typeof from !== 'string') {
+    res.status(400).json({ error: '`from` string required' });
+    return;
+  }
+  if (!to || typeof to !== 'string') {
+    res.status(400).json({ error: '`to` string required' });
+    return;
+  }
+  if (!label || typeof label !== 'string') {
+    res.status(400).json({ error: '`label` string required' });
+    return;
+  }
+  if (weight !== undefined && typeof weight !== 'number') {
+    res.status(400).json({ error: '`weight` must be a number' });
+    return;
+  }
+  if (type !== undefined && typeof type !== 'string') {
+    res.status(400).json({ error: '`type` must be a string' });
+    return;
+  }
+  const edge = await upsertEdge(wt.target, from.trim(), to.trim(), label.trim(), weight, type?.trim());
+  res.status(201).json(edge);
 });
 
 // GET /api/brain/spaces/:spaceId/entities

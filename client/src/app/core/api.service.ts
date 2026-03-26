@@ -10,6 +10,8 @@ export interface Space {
   builtIn?: boolean;
   folders?: string[];
   minGiB?: number;
+  description?: string;
+  proxyFor?: string[];
 }
 
 export interface SpacesResponse {
@@ -33,6 +35,7 @@ export interface TokenRecord {
   expiresAt?: string;
   spaces?: string[];
   admin: boolean;
+  readOnly?: boolean;
 }
 
 export interface Memory {
@@ -183,7 +186,7 @@ export class ApiService {
     return this.http.get<SpacesResponse>('/api/spaces');
   }
 
-  createSpace(body: { label: string; id?: string; minGiB?: number }): Observable<{ space: Space }> {
+  createSpace(body: { label: string; id?: string; minGiB?: number; description?: string; proxyFor?: string[] }): Observable<{ space: Space }> {
     return this.http.post<{ space: Space }>('/api/spaces', body);
   }
 
@@ -201,7 +204,7 @@ export class ApiService {
     return this.http.get<{ tokens: TokenRecord[] }>('/api/tokens');
   }
 
-  createToken(body: { name: string; expiresAt?: string; spaces?: string[]; admin?: boolean }): Observable<{ token: TokenRecord; plaintext: string }> {
+  createToken(body: { name: string; expiresAt?: string; spaces?: string[]; admin?: boolean; readOnly?: boolean }): Observable<{ token: TokenRecord; plaintext: string }> {
     return this.http.post<{ token: TokenRecord; plaintext: string }>('/api/tokens', body);
   }
 
@@ -248,6 +251,10 @@ export class ApiService {
     return this.http.delete<void>(`/api/brain/spaces/${spaceId}/memories/${id}`);
   }
 
+  createMemory(spaceId: string, body: { fact: string; tags?: string[]; entityIds?: string[] }): Observable<Memory> {
+    return this.http.post<Memory>(`/api/brain/${spaceId}/memories`, body);
+  }
+
   wipeMemories(spaceId: string): Observable<{ deleted: number }> {
     return this.http.delete<{ deleted: number }>(`/api/brain/spaces/${spaceId}/memories`, {
       body: { confirm: true },
@@ -265,6 +272,10 @@ export class ApiService {
     return this.http.delete<void>(`/api/brain/spaces/${spaceId}/entities/${id}`);
   }
 
+  createEntity(spaceId: string, body: { name: string; type?: string; tags?: string[] }): Observable<Entity> {
+    return this.http.post<Entity>(`/api/brain/spaces/${spaceId}/entities`, body);
+  }
+
   // ── Brain — edges ─────────────────────────────────────────────────────────
 
   listEdges(spaceId: string, limit = 50): Observable<{ edges: Edge[] }> {
@@ -274,6 +285,10 @@ export class ApiService {
 
   deleteEdge(spaceId: string, id: string): Observable<void> {
     return this.http.delete<void>(`/api/brain/spaces/${spaceId}/edges/${id}`);
+  }
+
+  createEdge(spaceId: string, body: { from: string; to: string; label: string; weight?: number; type?: string }): Observable<Edge> {
+    return this.http.post<Edge>(`/api/brain/spaces/${spaceId}/edges`, body);
   }
 
   // ── Files ─────────────────────────────────────────────────────────────────

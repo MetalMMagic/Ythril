@@ -253,11 +253,16 @@ inviteRouter.post('/apply', authRateLimit, async (req, res) => {
     }
   }
 
-  // Validate the peer's RSA public key is parseable before proceeding
+  // Validate the peer's RSA public key is parseable and exactly 4096-bit
+  let peerKey: crypto.KeyObject;
   try {
-    crypto.createPublicKey(rsaPublicKeyPem);
+    peerKey = crypto.createPublicKey(rsaPublicKeyPem);
   } catch {
     res.status(400).json({ error: 'Invalid rsaPublicKeyPem' });
+    return;
+  }
+  if (peerKey.asymmetricKeyType !== 'rsa' || (peerKey.asymmetricKeyDetails as { modulusLength?: number })?.modulusLength !== 4096) {
+    res.status(400).json({ error: 'RSA public key must be exactly 4096-bit' });
     return;
   }
 

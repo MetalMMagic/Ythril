@@ -8,6 +8,9 @@
 
 1. [Getting Ythril](#getting-ythril)
 2. [Hosting](#hosting)
+   - [TLS Termination](#tls-termination)
+   - [Resource Requirements](#resource-requirements)
+   - [Upgrading](#upgrading)
 3. [Authentication](#authentication)
 4. [Error Format](#error-format)
 5. [Rate Limits](#rate-limits)
@@ -155,6 +158,127 @@ Keep `config/` bind mounts separate per brain. Each goes through first-run setup
 
 Networked brains reconnect automatically. On the next sync cycle after coming back up, each brain requests everything after its last recorded watermark. Tombstones propagate deletions that happened during downtime. No manual reconnection step required.
 
+### Security Headers
+
+Ythril sets the following headers on every response:
+
+| Header | Value | Purpose |
+|---|---|---|
+| `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
+| `X-Frame-Options` | `DENY` | Blocks iframe embedding (clickjacking) |
+| `Referrer-Policy` | `no-referrer` | Strips referrer on outbound requests |
+| `X-Request-Id` | UUID | Unique per-request ID for tracing (logged server-side) |
+
+**HSTS**: Since Ythril does not terminate TLS itself, `Strict-Transport-Security` should be set on your reverse proxy (Traefik, Nginx, Caddy).
+
+**CORS**: No `Access-Control-*` headers are set. The Angular SPA is served from the same origin, so cross-origin browser requests are blocked by default. If you need CORS for a custom frontend, configure it on your reverse proxy.
+
+### TLS Termination
+
+Ythril listens on plain HTTP. Place a reverse proxy in front to terminate TLS.
+
+**Nginx**
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name brain.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/brain.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/brain.example.com/privkey.pem;
+
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+
+    location / {
+        proxy_pass http://127.0.0.1:3200;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE (MCP transport) — disable buffering
+        proxy_buffering off;
+        proxy_cache     off;
+        proxy_read_timeout 86400s;
+    }
+
+    client_max_body_size 512M;
+}
+```
+
+**Caddy**
+
+```caddyfile
+brain.example.com {
+    reverse_proxy localhost:3200
+    header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+}
+```
+
+Caddy provisions TLS certificates automatically via Let's Encrypt/ZeroSSL.
+
+**Traefik (Docker labels)**
+
+```yaml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.ythril.rule=Host(`brain.example.com`)"
+  - "traefik.http.routers.ythril.entrypoints=websecure"
+  - "traefik.http.routers.ythril.tls.certresolver=letsencrypt"
+  - "traefik.http.services.ythril.loadbalancer.server.port=3200"
+  - "traefik.http.middlewares.ythril-hsts.headers.stsSeconds=63072000"
+  - "traefik.http.middlewares.ythril-hsts.headers.stsIncludeSubdomains=true"
+  - "traefik.http.routers.ythril.middlewares=ythril-hsts"
+```
+
+### Resource Requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| CPU | 1 core | 2+ cores |
+| RAM | 1 GB | 4 GB (MongoDB uses available RAM for its WiredTiger cache) |
+| Disk | 5 GB (OS + images) | Depends on data volume — plan for file storage + brain data + MongoDB journal |
+| Network | Any | Low-latency link between syncing brains improves convergence time |
+
+MongoDB Atlas Local runs a `mongot` sidecar for vector search. This adds ~300 MB RAM overhead on top of baseline `mongod` usage.
+
+For multi-brain networks, each brain runs its own full stack. Scale vertically (more RAM/disk) rather than horizontally — each brain is an independent unit.
+
+### Upgrading
+
+1. Pull the latest image:
+   ```bash
+   docker compose pull        # if using a registry
+   docker compose build       # if building from source
+   ```
+
+2. Restart the stack:
+   ```bash
+   docker compose up -d
+   ```
+
+Named volumes persist across upgrades. The server applies any pending MongoDB index changes on startup automatically. No manual migration scripts are needed.
+
+**Breaking changes**, when they occur, will be listed in `CHANGELOG.md` with migration steps.
+
+**Backup before upgrading:**
+
+```bash
+# Stop the stack to get a clean snapshot
+docker compose stop
+
+# Copy volumes
+docker run --rm -v ythril-data:/src -v $(pwd)/backup:/dst alpine \
+  sh -c "cp -a /src/. /dst/data/"
+docker run --rm -v ythril-mongo-data:/src -v $(pwd)/backup:/dst alpine \
+  sh -c "cp -a /src/. /dst/mongo/"
+
+# Also back up config/ (bind mount — just copy)
+cp -r config/ backup/config/
+
+docker compose start
+```
+
 ---
 
 ## Authentication
@@ -227,6 +351,7 @@ Extended errors may include:
 | Global | 300 / min | All authenticated endpoints |
 | Sync | 2 000 / min | Sync API endpoints |
 | Notify | 60 / min | `POST /api/notify` |
+| Bulk wipe | 5 / min | `DELETE /api/brain/:spaceId/memories` |
 
 Rate limit headers are included in responses:
 
@@ -236,6 +361,8 @@ RateLimit-Remaining: 297
 RateLimit-Reset: 1711381200
 Retry-After: 42
 ```
+
+Every response includes an `X-Request-Id` header (UUID) for log correlation.
 
 ---
 
@@ -339,32 +466,13 @@ Content-Type: application/json
 { "confirm": true }
 ```
 
-**Response** `204`.
+**Response** `200` `{ deleted: <count> }`. Rate-limited to 5 requests/minute.
 
 ---
 
 ### Semantic Search (Recall)
 
-```
-POST /api/brain/:spaceId/recall
-```
-
-```json
-{
-  "query": "container orchestration patterns",
-  "topK": 10
-}
-```
-
-**Response** `200`:
-
-```json
-{
-  "results": [
-    { "_id": "...", "fact": "...", "score": 0.87, "tags": [...] }
-  ]
-}
-```
+> **MCP-only.** This operation is exposed as the `recall` MCP tool, not as a REST endpoint. See the [MCP section](#mcp-model-context-protocol) for tool parameters.
 
 Uses the built-in embedding model and MongoDB Atlas `$vectorSearch`. No extra configuration needed.
 
@@ -373,32 +481,20 @@ Uses the built-in embedding model and MongoDB Atlas `$vectorSearch`. No extra co
 ### Upsert an Entity
 
 ```
-POST /api/brain/:spaceId/entities
+POST /api/brain/spaces/:spaceId/entities
 ```
 
 ```json
 {
   "name": "Kubernetes",
   "type": "technology",
-  "tags": ["container", "orchestration"]
+  "tags": ["infra", "containers"]
 }
 ```
 
-**Response** `201`:
+**Response** `201`: Full entity doc. Upserts on `(spaceId, name, type)` — tags are merged (deduplicated union).
 
-```json
-{
-  "_id": "...",
-  "spaceId": "general",
-  "name": "Kubernetes",
-  "type": "technology",
-  "tags": ["container", "orchestration"],
-  "seq": 15,
-  "author": { "instanceId": "...", "instanceLabel": "..." }
-}
-```
-
-Upserts on `(spaceId, name, type)` — tags are merged (deduplicated union).
+**Constraints**: `name` required string; `type` optional string (defaults to empty); `tags` optional array of strings.
 
 ---
 
@@ -435,18 +531,20 @@ DELETE /api/brain/spaces/:spaceId/entities/:id
 ### Upsert an Edge
 
 ```
-POST /api/brain/:spaceId/edges
+POST /api/brain/spaces/:spaceId/edges
 ```
 
 ```json
 {
-  "from": "entity-id-1",
-  "to": "entity-id-2",
+  "from": "kubernetes",
+  "to": "docker",
   "label": "depends_on",
   "weight": 0.9,
   "type": "causal"
 }
 ```
+
+**Response** `201`: Full edge doc.
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -455,20 +553,6 @@ POST /api/brain/:spaceId/edges
 | `label` | yes | Relationship label (e.g. `depends_on`, `related_to`) |
 | `weight` | no | Numeric weight (0–1). Defaults to none. |
 | `type` | no | Free-form edge type string (e.g. `causal`, `hierarchical`). |
-
-**Response** `201`:
-
-```json
-{
-  "_id": "...",
-  "from": "entity-id-1",
-  "to": "entity-id-2",
-  "label": "depends_on",
-  "weight": 0.9,
-  "type": "causal",
-  "seq": 8
-}
-```
 
 Upserts on `(spaceId, from, to, label)`.
 
@@ -521,13 +605,35 @@ GET /api/brain/spaces/:spaceId/stats
 
 ---
 
+### Check Reindex Status
+
+```
+GET /api/brain/spaces/:spaceId/reindex-status
+```
+
+**Response** `200`:
+
+```json
+{ "spaceId": "general", "needsReindex": false }
+```
+
+Returns `true` when the embedding model has changed and memories need re-embedding.
+
+---
+
 ### Reindex Space
 
 ```
 POST /api/brain/spaces/:spaceId/reindex
 ```
 
-Re-computes all embeddings with the current model. Returns `202 Accepted`.
+Re-computes all embeddings with the current model. Long-running — may take minutes for large spaces.
+
+**Response** `200`:
+
+```json
+{ "spaceId": "general", "reindexed": 1042, "errors": 0 }
+```
 
 ---
 
@@ -721,12 +827,19 @@ POST /api/spaces
 {
   "id": "research",
   "label": "Research Notes",
-  "description": "Papers, notes, and findings from the AI research team."
+  "description": "Papers, notes, and findings from the AI research team.",
+  "folders": ["papers", "notes"],
+  "minGiB": 2
 }
 ```
 
-`id` must match `^[a-z0-9-]+$`, max 40 chars. If omitted, auto-generated.
-`description` (max 2000 chars) is surfaced to MCP clients as space-level instructions, telling AI agents what this brain is about.
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | no | Lowercase `^[a-z0-9-]+$`, max 40 chars. Auto-generated if omitted. |
+| `label` | yes | Human-readable display name, max 200 chars. |
+| `description` | no | Max 2000 chars. Surfaced to MCP clients as space-level instructions. |
+| `folders` | no | Pre-create these directories on disk at space creation time. |
+| `minGiB` | no | Reserve minimum storage (positive number in GiB). |
 
 **Response** `201`: the created space object.
 
@@ -936,7 +1049,7 @@ POST /api/networks
 DELETE /api/networks/:id
 ```
 
-Broadcasts `member_departed` to all peers. **Response** `204`.
+Broadcasts `member_departed` to all peers. **Response** `204` on success, or `200` with `{ ok: true, warnings: [...] }` if some peer notifications failed.
 
 ---
 
@@ -1109,6 +1222,102 @@ Creates a new independent network from your local copy of the data.
 - **Unknown ID** — `404`.
 
 The fork gets a fresh UUID, no members, no pending rounds. You become the root.
+
+---
+
+### Remove a Member
+
+```
+DELETE /api/networks/:id/members/:instanceId
+```
+
+In `closed`/`democratic` networks this opens a removal voting round (**202**). In `club` networks the member is removed immediately (**204**). In `braintree` networks the ancestor path must vote; if the subject is a direct child, the round auto-concludes.
+
+**Response** `204` (immediate removal) or `202`:
+
+```json
+{ "status": "vote_pending", "roundId": "round-uuid" }
+```
+
+---
+
+### Reparent Self (Braintree)
+
+Called by a braintree child node on itself after completing an RSA handshake with a grandparent. Records a temporary reparent so the node syncs through the grandparent while its original parent is offline.
+
+```
+POST /api/networks/:id/reparent-self
+```
+
+```json
+{
+  "newParentInstanceId": "grandparent-uuid",
+  "newParentLabel": "Grandparent Brain",
+  "newParentUrl": "https://grandparent.example.com",
+  "tokenForNewParent": "ythril_peerToken...",
+  "originalParentInstanceId": "original-parent-uuid"
+}
+```
+
+**Response** `200`:
+
+```json
+{
+  "status": "reparented",
+  "newParentInstanceId": "grandparent-uuid",
+  "originalParentInstanceId": "original-parent-uuid"
+}
+```
+
+Only valid for `braintree` networks. Returns `400` for other types.
+
+---
+
+### Adopt Member (Braintree)
+
+Called on the grandparent to make a temporary reparent permanent. The member's parent is officially changed.
+
+```
+POST /api/networks/:id/members/:instanceId/adopt
+```
+
+No request body.
+
+**Response** `200`:
+
+```json
+{
+  "status": "adopted",
+  "instanceId": "child-uuid",
+  "parentInstanceId": "grandparent-uuid"
+}
+```
+
+Returns `409` if the member is not in a temporary reparent state.
+
+---
+
+### Revert Parent (Braintree)
+
+Called on the grandparent when the original parent comes back online. Restores the member to its original parent and removes the direct grandparent link.
+
+```
+POST /api/networks/:id/members/:instanceId/revert-parent
+```
+
+No request body.
+
+**Response** `200`:
+
+```json
+{
+  "status": "reverted",
+  "instanceId": "child-uuid",
+  "parentInstanceId": "original-parent-uuid"
+}
+```
+
+Returns `409` if the member is not in a temporary reparent state.
 
 ---
 
@@ -1449,11 +1658,32 @@ GET /api/conflicts/:id
 
 ---
 
-### Resolve Conflict
+### Resolve a Conflict
 
 ```
 POST /api/conflicts/:id/resolve
 ```
+
+```json
+{
+  "action": "keep-local",
+  "rename": "report-v2.pdf",
+  "targetSpaceId": "archive"
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `action` | yes | One of: `keep-local`, `keep-incoming`, `keep-both`, `save-to-space` |
+| `rename` | no | New filename for `keep-both`, or destination path for `save-to-space` |
+| `targetSpaceId` | when `save-to-space` | Space to copy the incoming file into |
+
+| Action | Result |
+|--------|--------|
+| `keep-local` | Deletes the conflict copy, keeps your file |
+| `keep-incoming` | Replaces your file with the conflict copy |
+| `keep-both` | Keeps both files; optionally renames the conflict copy |
+| `save-to-space` | Copies the conflict file to another space, removes the conflict |
 
 **Response** `200`:
 
@@ -1463,11 +1693,39 @@ POST /api/conflicts/:id/resolve
 
 ---
 
-### Delete Conflict
+### Bulk Resolve Conflicts
+
+```
+POST /api/conflicts/bulk-resolve
+```
+
+```json
+{
+  "ids": ["conflict-id-1", "conflict-id-2"],
+  "action": "keep-local"
+}
+```
+
+Accepts the same `action`, `rename`, and `targetSpaceId` fields as single resolve. Applies the action to all listed conflicts.
+
+**Response** `200`:
+
+```json
+{
+  "resolved": 2,
+  "failed": []
+}
+```
+
+---
+
+### Dismiss a Conflict
 
 ```
 DELETE /api/conflicts/:id
 ```
+
+Removes the conflict record without touching any files.
 
 **Response** `204`.
 

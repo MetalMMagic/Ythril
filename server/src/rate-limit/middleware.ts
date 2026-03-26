@@ -1,4 +1,5 @@
 import rateLimit from 'express-rate-limit';
+import { log } from '../util/log.js';
 
 /** 10 requests/minute per IP — used for auth-sensitive endpoints (setup, login) */
 export const authRateLimit = rateLimit({
@@ -7,6 +8,10 @@ export const authRateLimit = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
+  handler: (req, res, _next, options) => {
+    log.warn(`authRateLimit hit: ${req.ip} on ${req.method} ${req.path}`);
+    res.status(options.statusCode).json(options.message);
+  },
   // Allow test infrastructure to disable this limit on A/B instances so
   // parallel test suites don't exhaust the window. Instance C omits this env
   // so rate-limit tests on C still exercise the real 429 behaviour.
@@ -20,6 +25,10 @@ export const notifyRateLimit = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
+  handler: (req, res, _next, options) => {
+    log.warn(`notifyRateLimit hit: ${req.ip} on ${req.method} ${req.path}`);
+    res.status(options.statusCode).json(options.message);
+  },
 });
 
 /** 300 requests/minute per IP — general API and MCP endpoints */
@@ -29,6 +38,10 @@ export const globalRateLimit = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { error: 'Rate limit exceeded, please slow down.' },
+  handler: (req, res, _next, options) => {
+    log.warn(`globalRateLimit hit: ${req.ip} on ${req.method} ${req.path}`);
+    res.status(options.statusCode).json(options.message);
+  },
   // Allow test infrastructure to disable this limit on A/B instances so
   // parallel test suites don't exhaust the window on the same IP. Instance C
   // omits this env so rate-limit tests can exercise the real 429 behaviour.
@@ -44,4 +57,22 @@ export const syncRateLimit = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { error: 'Sync rate limit exceeded, please slow down.' },
+  handler: (req, res, _next, options) => {
+    log.warn(`syncRateLimit hit: ${req.ip} on ${req.method} ${req.path}`);
+    res.status(options.statusCode).json(options.message);
+  },
+});
+
+/** 5 requests/minute per IP — destructive bulk operations (memory wipe) */
+export const bulkWipeRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Bulk delete rate limit exceeded, please try again later.' },
+  handler: (req, res, _next, options) => {
+    log.warn(`bulkWipeRateLimit hit: ${req.ip} on ${req.method} ${req.path}`);
+    res.status(options.statusCode).json(options.message);
+  },
+  skip: () => process.env['SKIP_GLOBAL_RATE_LIMIT'] === 'true',
 });

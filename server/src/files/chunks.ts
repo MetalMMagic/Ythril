@@ -106,18 +106,23 @@ export async function assembleChunks(
   const hash = createHash('sha256');
   const out = createWriteStream(targetPath);
 
-  for (const cf of chunkFiles) {
-    const chunkPath = path.join(dir, cf.name);
-    const rs = createReadStream(chunkPath);
-    rs.on('data', (chunk) => hash.update(chunk));
-    await pipeline(rs, out, { end: false });
-  }
+  try {
+    for (const cf of chunkFiles) {
+      const chunkPath = path.join(dir, cf.name);
+      const rs = createReadStream(chunkPath);
+      rs.on('data', (chunk) => hash.update(chunk));
+      await pipeline(rs, out, { end: false });
+    }
 
-  out.end();
-  await new Promise<void>((resolve, reject) => {
-    out.on('finish', resolve);
-    out.on('error', reject);
-  });
+    out.end();
+    await new Promise<void>((resolve, reject) => {
+      out.on('finish', resolve);
+      out.on('error', reject);
+    });
+  } catch (err) {
+    out.destroy();
+    throw err;
+  }
 
   const sha256 = hash.digest('hex');
 

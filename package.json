@@ -1,6 +1,6 @@
 ﻿{
   "name": "ythril",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
@@ -20,6 +20,6 @@
     "test:integration": "node --test --test-concurrency=1 testing/integration/*.test.js",
     "test:sync": "node --test --test-concurrency=1 testing/sync/*.test.js",
     "test:redteam": "node --test --test-concurrency=1 testing/red-team-tests/*.test.js",
-    "test:all": "npm run test:standalone && npm run test:integration && npm run test:sync && npm run test:redteam"
+    "test:all": "npm run test:integration && npm run test:sync && npm run test:redteam && npm run test:standalone"
   }
 }

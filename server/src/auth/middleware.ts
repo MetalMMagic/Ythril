@@ -11,6 +11,7 @@ declare global {
     interface Request {
       authToken?: Omit<TokenRecord, 'hash'>;
       resolvedSpaceId?: string;
+      requestId?: string;
     }
   }
 }

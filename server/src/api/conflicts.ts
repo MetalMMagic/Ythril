@@ -49,8 +49,8 @@ async function executeResolve(
       try {
         const abs = resolveSafePath(spaceId, doc.conflictPath);
         await fs.unlink(abs);
-      } catch (err: any) {
-        if (err.code !== 'ENOENT') throw err; // already gone is fine
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err; // already gone is fine
       }
       break;
     }
@@ -204,8 +204,8 @@ conflictsRouter.post('/bulk-resolve', globalRateLimit, requireAuth, async (req, 
         }
         await executeResolve(found.doc, found.spaceId, action, rename, targetSpaceId);
         resolved++;
-      } catch (err: any) {
-        failed.push({ id, error: err.message || 'Unknown error' });
+      } catch (err: unknown) {
+        failed.push({ id, error: err instanceof Error ? err.message : 'Unknown error' });
       }
     }
 

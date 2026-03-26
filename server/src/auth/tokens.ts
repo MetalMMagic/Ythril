@@ -147,6 +147,10 @@ export async function revokeToken(id: string): Promise<boolean> {
   config.tokens = config.tokens.filter(t => t.id !== id);
   if (config.tokens.length === before) return false;
   saveConfig(config);
+  // Evict any cached entry for this token so bcrypt compare is never skipped
+  for (const [key, val] of _tokenCache) {
+    if (val.tokenId === id) _tokenCache.delete(key);
+  }
   return true;
 }
 

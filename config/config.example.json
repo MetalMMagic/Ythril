@@ -7,11 +7,15 @@
   "embedding": {
     "model": "nomic-ai/nomic-embed-text-v1.5",
     "dimensions": 768,
-    "similarity": "cosine"
+    "similarity": "cosine",
+    "baseUrl": ""
   },
   "storage": {
-    "total": { "softLimitGiB": 150, "hardLimitGiB": 200 }
+    "total": { "softLimitGiB": 150, "hardLimitGiB": 200 },
+    "files": { "softLimitGiB": 100, "hardLimitGiB": 150 },
+    "brain": { "softLimitGiB": 50, "hardLimitGiB": 75 }
   },
+  "ejectedFromNetworks": [],
   "maxUploadBodyBytes": 5368709120,
   "allowInsecurePlaintext": false
 }

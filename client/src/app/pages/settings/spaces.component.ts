@@ -34,6 +34,14 @@ import { ApiService, Space } from '../../core/api.service';
           <label>Min GiB</label>
           <input type="number" [(ngModel)]="form.minGiB" name="minGiB" min="0" step="0.1" placeholder="—" />
         </div>
+        <div class="field" style="flex-basis:100%; margin-bottom:0;">
+          <label>Description (optional)</label>
+          <textarea [(ngModel)]="form.description" name="description" placeholder="Surfaced to MCP clients as space-level instructions" maxlength="2000" rows="2" style="resize:vertical;"></textarea>
+        </div>
+        <div class="field" style="flex:1; min-width:200px; margin-bottom:0;">
+          <label>Proxy for (optional, comma-separated space IDs)</label>
+          <input type="text" [(ngModel)]="form.proxyFor" name="proxyFor" placeholder="eng-kb, research" />
+        </div>
         <button class="btn-primary btn" type="submit" [disabled]="creating() || !form.label.trim()">
           @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
           Create
@@ -54,25 +62,33 @@ import { ApiService, Space } from '../../core/api.service';
         <div class="table-wrapper">
           <table>
             <thead>
-              <tr><th>Label</th><th>ID</th><th>Min storage</th><th>Built-in</th><th></th></tr>
+              <tr><th>Label</th><th>ID</th><th>Description</th><th>Min storage</th><th>Proxy</th><th>Built-in</th><th></th></tr>
             </thead>
             <tbody>
               @for (s of spaces(); track s.id) {
                 <tr>
                   <td style="font-weight:500;">{{ s.label }}</td>
                   <td><span class="badge badge-gray mono">{{ s.id }}</span></td>
+                  <td style="color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="s.description ?? ''">{{ s.description ?? '—' }}</td>
                   <td style="color:var(--text-muted)">{{ s.minGiB ? s.minGiB + ' GiB' : '—' }}</td>
+                  <td>
+                    @if (s.proxyFor && s.proxyFor.length) {
+                      @for (pid of s.proxyFor; track pid) {
+                        <span class="badge badge-blue" style="margin-right:4px;">{{ pid }}</span>
+                      }
+                    } @else { <span style="color:var(--text-muted)">—</span> }
+                  </td>
                   <td>
                     @if (s.builtIn) { <span class="badge badge-blue">built-in</span> }
                   </td>
                   <td>
                     @if (!s.builtIn) {
-                      <button class="icon-btn danger" (click)="deleteSpace(s)">✕</button>
+                      <button class="icon-btn danger" aria-label="Delete space" (click)="deleteSpace(s)">✕</button>
                     }
                   </td>
                 </tr>
               } @empty {
-                <tr><td colspan="5">
+                <tr><td colspan="7">
                   <div class="empty-state" style="padding:24px;"><h3>No spaces</h3></div>
                 </td></tr>
               }
@@ -90,7 +106,7 @@ export class SpacesComponent implements OnInit {
   loading = signal(true);
   creating = signal(false);
   createError = signal('');
-  form = { label: '', id: '', minGiB: null as number | null };
+  form = { label: '', id: '', minGiB: null as number | null, description: '', proxyFor: '' };
 
   ngOnInit(): void { this.load(); }
 
@@ -107,15 +123,18 @@ export class SpacesComponent implements OnInit {
     this.creating.set(true);
     this.createError.set('');
 
-    const body: { label: string; id?: string; minGiB?: number } = { label: this.form.label.trim() };
+    const body: { label: string; id?: string; minGiB?: number; description?: string; proxyFor?: string[] } = { label: this.form.label.trim() };
     if (this.form.id.trim()) body.id = this.form.id.trim();
     if (this.form.minGiB) body.minGiB = this.form.minGiB;
+    if (this.form.description.trim()) body.description = this.form.description.trim();
+    const proxyIds = this.form.proxyFor.split(',').map(s => s.trim()).filter(Boolean);
+    if (proxyIds.length) body.proxyFor = proxyIds;
 
     this.api.createSpace(body).subscribe({
       next: ({ space }) => {
         this.creating.set(false);
         this.spaces.update(list => [...list, space]);
-        this.form = { label: '', id: '', minGiB: null };
+        this.form = { label: '', id: '', minGiB: null, description: '', proxyFor: '' };
       },
       error: (err) => {
         this.creating.set(false);
@@ -128,6 +147,7 @@ export class SpacesComponent implements OnInit {
     if (!confirm(`Delete space "${s.label}" (${s.id})? All brain data and files in this space will be permanently removed.`)) return;
     this.api.deleteSpace(s.id).subscribe({
       next: () => this.spaces.update(list => list.filter(x => x.id !== s.id)),
+      error: () => alert('Failed to delete space.'),
     });
   }
 }

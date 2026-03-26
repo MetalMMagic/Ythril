@@ -31,6 +31,15 @@ import { ApiService, TokenRecord } from '../../core/api.service';
       font-weight: 600;
       letter-spacing: 0.02em;
     }
+    .badge-readonly {
+      background: #fc6;
+      color: #000;
+      border-radius: 4px;
+      padding: 1px 7px;
+      font-size: 0.73rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
   `],
   template: `
     <div class="card" style="margin-bottom: 24px;">
@@ -47,7 +56,7 @@ import { ApiService, TokenRecord } from '../../core/api.service';
         </div>
         <div class="token-value">
           <span>{{ newToken() }}</span>
-          <button class="btn-ghost btn btn-sm" (click)="copyNew()">
+          <button class="btn-ghost btn btn-sm" aria-label="Copy new token" (click)="copyNew()">
             {{ copied() ? '✓ Copied' : 'Copy' }}
           </button>
         </div>
@@ -68,6 +77,14 @@ import { ApiService, TokenRecord } from '../../core/api.service';
               <label for="newAdmin" style="margin:0; font-size:0.9rem; color:var(--text-muted);">Admin</label>
             </div>
           }
+          <div class="field" style="width:auto; margin-bottom:0; display:flex; align-items:center; gap:6px; padding-bottom:2px;">
+            <input type="checkbox" [(ngModel)]="newReadOnly" name="readOnly" id="newReadOnly" style="width:16px;height:16px;margin:0;" />
+            <label for="newReadOnly" style="margin:0; font-size:0.9rem; color:var(--text-muted);">Read-only</label>
+          </div>
+          <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
+            <label>Spaces (optional, comma-separated)</label>
+            <input type="text" [(ngModel)]="newSpaces" name="spaces" placeholder="All spaces" />
+          </div>
           <button class="btn-primary btn" type="submit" [disabled]="creating() || !newName.trim()">
             @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
             Create
@@ -92,7 +109,7 @@ import { ApiService, TokenRecord } from '../../core/api.service';
         </div>
         <div class="token-value">
           <span>{{ regenToken() }}</span>
-          <button class="btn-ghost btn btn-sm" (click)="copyRegen()">
+          <button class="btn-ghost btn btn-sm" aria-label="Copy rotated token" (click)="copyRegen()">
             {{ copiedRegen() ? '✓ Copied' : 'Copy' }}
           </button>
         </div>
@@ -115,6 +132,7 @@ import { ApiService, TokenRecord } from '../../core/api.service';
                   <td style="font-weight:500;">
                     {{ t.name }}
                     @if (t.admin) { <span class="badge-admin" style="margin-left:6px;">admin</span> }
+                    @if (t.readOnly) { <span class="badge-readonly" style="margin-left:6px;">read-only</span> }
                     @if (t.id === selfToken()?.id) { <span style="margin-left:6px;font-size:0.75rem;color:var(--text-muted);">(you)</span> }
                   </td>
                   <td style="color:var(--text-muted)">{{ t.createdAt | date:'MMM d, y' }}</td>
@@ -136,8 +154,8 @@ import { ApiService, TokenRecord } from '../../core/api.service';
                     }
                   </td>
                   <td style="white-space:nowrap; display:flex; gap:6px; align-items:center;">
-                    <button class="icon-btn" title="Rotate secret" (click)="regenerate(t)" style="font-size:14px;">↺</button>
-                    <button class="icon-btn danger" title="Revoke" (click)="revoke(t)">✕</button>
+                    <button class="icon-btn" title="Rotate secret" aria-label="Rotate token secret" (click)="regenerate(t)" style="font-size:14px;">↺</button>
+                    <button class="icon-btn danger" title="Revoke" aria-label="Revoke token" (click)="revoke(t)">✕</button>
                   </td>
                 </tr>
               } @empty {
@@ -165,13 +183,15 @@ export class TokensComponent implements OnInit {
   newName = '';
   newExpiry = '';
   newAdmin = false;
+  newReadOnly = false;
+  newSpaces = '';
   newToken = signal('');
   copied = signal(false);
   regenToken = signal('');
   copiedRegen = signal(false);
 
   ngOnInit(): void {
-    this.api.getMe().subscribe({ next: (t) => this.selfToken.set(t) });
+    this.api.getMe().subscribe({ next: (t) => this.selfToken.set(t), error: () => {} });
     this.load();
   }
 
@@ -188,9 +208,12 @@ export class TokensComponent implements OnInit {
     this.creating.set(true);
     this.createError.set('');
 
-    const body: { name: string; expiresAt?: string; admin?: boolean } = { name: this.newName.trim() };
+    const body: { name: string; expiresAt?: string; admin?: boolean; readOnly?: boolean; spaces?: string[] } = { name: this.newName.trim() };
     if (this.newExpiry) body.expiresAt = new Date(this.newExpiry).toISOString();
     if (this.newAdmin) body.admin = true;
+    if (this.newReadOnly) body.readOnly = true;
+    const spaceIds = this.newSpaces.split(',').map(s => s.trim()).filter(Boolean);
+    if (spaceIds.length) body.spaces = spaceIds;
 
     this.api.createToken(body).subscribe({
       next: ({ token, plaintext }) => {
@@ -200,6 +223,8 @@ export class TokensComponent implements OnInit {
         this.newName = '';
         this.newExpiry = '';
         this.newAdmin = false;
+        this.newReadOnly = false;
+        this.newSpaces = '';
       },
       error: (err) => {
         this.creating.set(false);
@@ -213,6 +238,7 @@ export class TokensComponent implements OnInit {
     this.clearRegen();
     this.api.regenerateToken(t.id).subscribe({
       next: ({ plaintext }) => this.regenToken.set(plaintext),
+      error: () => alert('Failed to regenerate token.'),
     });
   }
 
@@ -220,6 +246,7 @@ export class TokensComponent implements OnInit {
     if (!confirm(`Revoke token "${t.name}"? This cannot be undone.`)) return;
     this.api.revokeToken(t.id).subscribe({
       next: () => this.tokens.update(list => list.filter(x => x.id !== t.id)),
+      error: () => alert('Failed to revoke token.'),
     });
   }
 

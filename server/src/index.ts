@@ -75,7 +75,7 @@ async function main(): Promise<void> {
     await initAllSpaces();
     await resetStaleWatermarksIfNeeded();
     startSyncScheduler();
-    cleanupStaleChunks().catch(() => {});
+    cleanupStaleChunks().catch(err => log.error(`Stale chunk cleanup failed: ${err}`));
   }
 
   const app = createApp();
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
 
   // Periodic stale-chunk cleanup (every hour)
   const chunkCleanupInterval = setInterval(
-    () => cleanupStaleChunks().catch(() => {}),
+    () => cleanupStaleChunks().catch(err => log.error(`Stale chunk cleanup failed: ${err}`)),
     60 * 60 * 1000,
   );
   chunkCleanupInterval.unref(); // don't block shutdown

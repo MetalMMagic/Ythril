@@ -234,6 +234,8 @@ All endpoints are under `/api/sync` and require a `Bearer` token that resolves t
 
 `POST /batch-upsert` is the primary push path used by the engine. The individual `POST /memories`, `/entities`, `/edges` endpoints remain for backwards compatibility and direct API usage.
 
+All incoming documents are validated against Zod schemas before any database write. Invalid documents are rejected with `400` (single endpoints) or silently filtered out (batch-upsert). Key constraints: `tags` max 100 items, `entityIds` max 500, `seq` max 2^50, all string fields validated for type safety. Unknown fields are stripped.
+
 ### Gossip endpoints
 
 | Method | Path | Body | Returns |

@@ -73,7 +73,13 @@ export function loadConfig(): Config {
  */
 export function reloadConfig(): Config {
   const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
-  const parsed = JSON.parse(raw) as Config;
+  let parsed: Config;
+  try {
+    parsed = JSON.parse(raw) as Config;
+  } catch (err) {
+    log.error(`reloadConfig: config.json has invalid JSON — keeping current config: ${err}`);
+    throw new Error('config.json contains invalid JSON; current configuration unchanged');
+  }
   saveConfig(parsed); // updates _config and fixes permissions
   return parsed;
 }

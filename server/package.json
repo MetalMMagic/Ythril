@@ -1,6 +1,6 @@
 {
   "name": "@ythril/server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -10,16 +10,16 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
-    "@modelcontextprotocol/sdk": "latest",
-    "bcrypt": "^6",
-    "express": "^5",
-    "express-rate-limit": "^8",
-    "mongodb": "^7",
-    "multer": "^2",
-    "node-cron": "^4",
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "bcrypt": "^6.0.0",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.3.1",
+    "mongodb": "^7.1.1",
+    "multer": "^2.1.1",
+    "node-cron": "^4.2.1",
     "otplib": "^13.4.0",
-    "uuid": "^13",
-    "zod": "^4"
+    "uuid": "^13.0.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/bcrypt": "^5",

@@ -42,7 +42,7 @@ type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-spa
           </label>
           <span style="flex:1"></span>
           @if (selectedIds().length > 0) {
-            <select [(ngModel)]="bulkAction" style="font-size:13px; padding:4px 8px; border:1px solid var(--border-color); border-radius:4px; background:var(--bg-primary);">
+            <select [(ngModel)]="bulkAction" aria-label="Bulk action" style="font-size:13px; padding:4px 8px; border:1px solid var(--border-color); border-radius:4px; background:var(--bg-primary);">
               <option value="keep-local">Keep local</option>
               <option value="keep-incoming">Keep incoming</option>
               <option value="keep-both">Keep both</option>
@@ -89,6 +89,7 @@ type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-spa
                 </td>
                 <td>
                   <select [(ngModel)]="conflictActions[c.id]"
+                          aria-label="Resolve action"
                           style="font-size:12px; padding:2px 6px; border:1px solid var(--border-color); border-radius:4px; background:var(--bg-primary);">
                     <option value="keep-local">Keep local</option>
                     <option value="keep-incoming">Keep incoming</option>
@@ -97,6 +98,7 @@ type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-spa
                   </select>
                   @if (conflictActions[c.id] === 'save-to-space') {
                     <select [(ngModel)]="conflictTargetSpace[c.id]"
+                            aria-label="Target space"
                             style="margin-left:4px; font-size:12px; padding:2px 6px; border:1px solid var(--border-color); border-radius:4px; background:var(--bg-primary);">
                       @for (s of spaces(); track s.id) {
                         @if (s.id !== c.spaceId) {
@@ -113,7 +115,7 @@ type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-spa
                   </button>
                   <button class="btn-secondary btn btn-sm" style="margin-left:4px"
                           (click)="dismiss(c)" [disabled]="resolving() === c.id"
-                          title="Dismiss without file changes">✕</button>
+                          title="Dismiss without file changes" aria-label="Dismiss conflict">✕</button>
                 </td>
               </tr>
             }
@@ -141,6 +143,7 @@ export class ConflictsComponent implements OnInit {
     this.load();
     this.api.listSpaces().subscribe({
       next: (r) => this.spaces.set(r.spaces || []),
+      error: () => {},
     });
   }
 

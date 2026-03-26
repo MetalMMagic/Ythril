@@ -44,6 +44,8 @@ The left sidebar has three main sections:
 
 Everything is scoped to the spaces your token has access to. A token with `spaces: ["eng-kb"]` only sees that space throughout the UI.
 
+A red **conflict badge** appears next to **Files** in the sidebar when unresolved file conflicts exist. The count updates every 60 seconds.
+
 ---
 
 ## Brain — Memories
@@ -52,7 +54,9 @@ The **Brain** tab shows all memories in the selected space, sorted newest-first.
 
 ### Creating a memory
 
-Click **Add memory**. Enter the fact text and optional tags (comma-separated). Tags help with filtering and are synced to peers.
+Click **+ Add memory** in the toolbar. Enter the fact text, optional comma-separated tags, and optional entity IDs, then click **Save**. The memory is embedded and stored immediately.
+
+Memories can also be written by MCP clients (e.g. Claude, Cursor) using the `remember` tool, or via the REST API (`POST /api/brain/:spaceId/memories`).
 
 ### Semantic search (Recall)
 
@@ -74,13 +78,13 @@ To delete all memories in a space, click **Wipe all** in the toolbar. A confirma
 
 Entities are named concepts inside a space (e.g. "Kubernetes", "Team Alpha"). Each entity has a `name`, an optional `type` (e.g. `technology`, `person`), and optional `tags`.
 
-Create entities from the **Entities** tab. If an entity with the same `(name, type)` already exists, tags are merged.
+Click **+ Add entity** in the Entities tab to create one from the UI. Enter a name, optional type, and optional comma-separated tags, then click **Save**. If an entity with the same `(name, type)` already exists, tags are merged.
 
 ### Edges
 
 Edges connect two entities. Each edge has a `from`, `to`, `label` (the relationship name), an optional numeric `weight`, and an optional `type` for classification (e.g. `causal`, `hierarchical`, `temporal`).
 
-The **Edges** tab shows all edges in the current space with their type displayed in the table.
+Click **+ Add edge** in the Edges tab to create one from the UI. Enter the source entity, relationship label, target entity, and optional type/weight, then click **Save**. If an edge with the same `(from, to, label)` already exists, the weight and type are updated.
 
 ---
 
@@ -98,6 +102,10 @@ Drag files onto the file list or click **Upload**. Files larger than 10 MB are a
 - **Move / Rename** — click the move icon, enter the new path.
 - **Delete** — click the delete icon and confirm.
 - **New Folder** — click **New folder** in the toolbar.
+
+### Breadcrumb navigation
+
+A clickable breadcrumb bar (`root / docs / guides`) appears above the file list. Click any segment to jump to that directory.
 
 ---
 
@@ -166,10 +174,13 @@ Open **Settings → Spaces** and fill in:
 - **ID** — lowercase alphanumeric + hyphens, max 40 chars. Cannot be renamed after creation.
 - **Label** — human-readable display name.
 - **Description** — optional. Surfaced to MCP clients as space-level instructions.
+- **Min GiB** — optional. Reserve minimum storage for this space.
 
 ### Proxy spaces
 
-A proxy space groups multiple real spaces into a single virtual endpoint. Reads aggregate across all members; writes require selecting a target space. Create one by listing the member space IDs in the **Proxy for** field.
+A proxy space groups multiple real spaces into a single virtual endpoint. Reads aggregate across all members; writes require selecting a target space.
+
+To create a proxy space from the UI, enter comma-separated space IDs in the **Proxy for** field when creating a space. Proxy members must be existing non-proxy spaces (nesting is not allowed).
 
 ### Deleting a space
 
@@ -190,11 +201,15 @@ All API and MCP access requires a Bearer PAT (`ythril_` prefix). Tokens are bcry
 | Read-only | Search and read only — all mutations blocked |
 | Space-scoped | Restricted to listed spaces; all others invisible |
 
+The web UI supports creating all token types: admin, non-admin, read-only, and space-scoped.
+
 ### Actions
 
-- **Create** — provide a name, optional expiry, optional space allowlist, and admin/read-only flags. The plaintext is shown **once** — copy it immediately.
+- **Create** — provide a name, optional expiry, admin toggle, read-only toggle, and optional comma-separated space IDs. The plaintext is shown **once** — copy it immediately.
 - **Rotate** (↺) — generates a new secret, invalidating the old one instantly. The new plaintext is shown once.
 - **Revoke** (✕) — permanently deletes the token.
+
+The token you are currently logged in with is marked **(you)** in the list. Read-only tokens show a yellow **read-only** badge next to the name.
 
 ---
 

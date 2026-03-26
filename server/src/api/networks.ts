@@ -186,7 +186,7 @@ networksRouter.post('/', globalRateLimit, requireAdmin, async (req, res) => {
 
 // â”€â”€ DELETE /api/networks/:id â€” leave/delete a network â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-networksRouter.delete('/:id', globalRateLimit, requireAdmin, (req, res) => {
+networksRouter.delete('/:id', globalRateLimit, requireAdmin, async (req, res) => {
   const cfg = getConfig();
   const idx = cfg.networks.findIndex(n => n.id === req.params['id']);
   if (idx < 0) { res.status(404).json({ error: 'Network not found' }); return; }
@@ -194,26 +194,38 @@ networksRouter.delete('/:id', globalRateLimit, requireAdmin, (req, res) => {
   const net = cfg.networks[idx]!;
 
   // Broadcast member_departed to all peers before removing the network locally.
-  // Fire-and-forget: non-fatal if a peer is unreachable.
   const secrets = getSecrets();
-  for (const member of net.members) {
+  const warnings: string[] = [];
+  await Promise.all(net.members.map(async (member) => {
     const peerToken = secrets.peerTokens[member.instanceId];
-    if (!peerToken) continue;
-    fetch(`${member.url}/api/notify`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${peerToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ networkId: net.id, instanceId: cfg.instanceId, event: 'member_departed' }),
-      signal: AbortSignal.timeout(5_000),
-    }).catch(err => log.warn(`member_departed to ${member.label}: ${err}`));
-  }
+    if (!peerToken) return;
+    try {
+      const r = await fetch(`${member.url}/api/notify`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${peerToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ networkId: net.id, instanceId: cfg.instanceId, event: 'member_departed' }),
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!r.ok) warnings.push(`${member.label}: HTTP ${r.status}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(`member_departed to ${member.label}: ${msg}`);
+      warnings.push(`${member.label}: ${msg}`);
+    }
+  }));
 
   cfg.networks.splice(idx, 1);
   saveConfig(cfg);
   log.info(`Deleted network id=${net.id}`);
-  res.status(204).end();
+
+  if (warnings.length) {
+    res.json({ ok: true, warnings });
+  } else {
+    res.status(204).end();
+  }
 });
 
 // â”€â”€ PATCH /api/networks/:id â€” update mutable network fields â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

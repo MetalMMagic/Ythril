@@ -91,6 +91,39 @@ describe('Invite handshake security', () => {
     assert.ok(r.status >= 400, `Expected 4xx for bad handshakeId, got ${r.status}`);
   });
 
+  it('Apply with non-4096-bit RSA key → 400', async () => {
+    // Fresh handshake
+    const gen = await post(INVITE_INSTANCE, tokenA, '/api/invite/generate', {
+      networkId,
+      targetInstanceLabel: 'B-bad-key-size',
+      targetUrl: `${INSTANCES.b}`,
+    });
+    assert.equal(gen.status, 201);
+
+    // Generate a 2048-bit key (too small)
+    const { publicKey } = crypto.generateKeyPairSync('rsa', {
+      modulusLength: 2048,
+      publicKeyEncoding: { type: 'spki', format: 'pem' },
+      privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    });
+
+    const r = await fetch(`${INVITE_INSTANCE}/api/invite/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        handshakeId: gen.body.handshakeId,
+        networkId,
+        instanceId: crypto.randomUUID(),
+        instanceLabel: 'B-bad-key-size',
+        instanceUrl: 'https://b.ythril-test.example.com',
+        rsaPublicKeyPem: publicKey,
+      }),
+    });
+    assert.equal(r.status, 400, `Expected 400 for non-4096-bit key, got ${r.status}`);
+    const body = await r.json().catch(() => ({}));
+    assert.ok(body.error?.includes('4096'), `Error should mention 4096, got: ${body.error}`);
+  });
+
   it('Apply with valid handshakeId succeeds', async () => {
     // Need a fresh handshake for this
     const gen = await post(INVITE_INSTANCE, tokenA, '/api/invite/generate', {
@@ -101,7 +134,7 @@ describe('Invite handshake security', () => {
     assert.equal(gen.status, 201);
 
     const { publicKey: bPubKey } = crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
+      modulusLength: 4096,
       publicKeyEncoding: { type: 'spki', format: 'pem' },
       privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
     });
@@ -145,7 +178,7 @@ describe('Invite handshake security', () => {
     assert.equal(gen.status, 201);
 
     const { publicKey: bPubKey } = crypto.generateKeyPairSync('rsa', {
-      modulusLength: 2048,
+      modulusLength: 4096,
       publicKeyEncoding: { type: 'spki', format: 'pem' },
       privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
     });

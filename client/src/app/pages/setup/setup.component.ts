@@ -76,6 +76,7 @@ import { CommonModule } from '@angular/common';
                 name="pw2"
                 [(ngModel)]="form.confirm"
                 autocomplete="new-password"
+                minlength="8"
                 required
                 [disabled]="loading()"
               />

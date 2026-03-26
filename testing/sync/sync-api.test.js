@@ -172,6 +172,63 @@ describe('POST /api/sync/memories — conflict rules', () => {
     });
     assert.equal(r.status, 400);
   });
+
+  it('returns 400 for memory with non-numeric seq', async () => {
+    const r = await post(INSTANCES.a, token, '/api/sync/memories?spaceId=general', {
+      _id: 'bad-seq', spaceId: 'general', fact: 'bad', seq: 'not-a-number',
+      embedding: [], tags: [], entityIds: [],
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), embeddingModel: 'none',
+    });
+    assert.equal(r.status, 400);
+  });
+
+  it('returns 400 for memory with MongoDB operator in tags', async () => {
+    const r = await post(INSTANCES.a, token, '/api/sync/memories?spaceId=general', {
+      _id: 'inject-tags', spaceId: 'general', fact: 'injection', seq: 1,
+      embedding: [], tags: [{ $ne: '' }], entityIds: [],
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), embeddingModel: 'none',
+    });
+    assert.equal(r.status, 400);
+  });
+
+  it('returns 400 for memory with missing author', async () => {
+    const r = await post(INSTANCES.a, token, '/api/sync/memories?spaceId=general', {
+      _id: 'no-author', spaceId: 'general', fact: 'test', seq: 1,
+      embedding: [], tags: [], entityIds: [],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), embeddingModel: 'none',
+    });
+    assert.equal(r.status, 400);
+  });
+
+  it('returns 400 for memory with seq exceeding safety limit', async () => {
+    const r = await post(INSTANCES.a, token, '/api/sync/memories?spaceId=general', {
+      _id: 'huge-seq', spaceId: 'general', fact: 'huge', seq: Number.MAX_SAFE_INTEGER,
+      embedding: [], tags: [], entityIds: [],
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), embeddingModel: 'none',
+    });
+    assert.equal(r.status, 400);
+  });
+
+  it('returns 400 for entity with missing name', async () => {
+    const r = await post(INSTANCES.a, token, '/api/sync/entities?spaceId=general', {
+      _id: 'no-name', spaceId: 'general', type: 'concept', tags: [], seq: 1,
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 400);
+  });
+
+  it('returns 400 for edge with missing from/to', async () => {
+    const r = await post(INSTANCES.a, token, '/api/sync/edges?spaceId=general', {
+      _id: 'no-from', spaceId: 'general', label: 'test', seq: 1,
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 400);
+  });
 });
 
 // ── POST /api/sync/batch-upsert ───────────────────────────────────────────
@@ -241,6 +298,29 @@ describe('POST /api/sync/batch-upsert', () => {
     assert.equal(r.status, 200, JSON.stringify(r.body));
     // All three should be silently skipped
     assert.equal(r.body.memories.inserted, 0);
+  });
+
+  it('batch-upsert drops documents containing non-string tags (Zod filter)', async () => {
+    const goodId = `batch-zod-good-${RUN}`;
+    const r = await post(INSTANCES.a, token, '/api/sync/batch-upsert?spaceId=general', {
+      memories: [
+        // valid
+        {
+          _id: goodId, spaceId: 'general', fact: 'good', seq: Date.now(), embedding: [], tags: [],
+          entityIds: [], author: { instanceId: 'test', instanceLabel: 'Test' },
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), embeddingModel: 'none',
+        },
+        // invalid: tags contain an object (potential MongoDB operator)
+        {
+          _id: `batch-zod-bad-${RUN}`, spaceId: 'general', fact: 'bad', seq: Date.now() + 1,
+          embedding: [], tags: [{ $ne: '' }], entityIds: [],
+          author: { instanceId: 'test', instanceLabel: 'Test' },
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), embeddingModel: 'none',
+        },
+      ],
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.memories.inserted, 1, 'Only the valid memory should be inserted');
   });
 
   it('batch-upsert caps memories at 500 per type', async () => {

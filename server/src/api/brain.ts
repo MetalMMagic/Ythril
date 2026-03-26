@@ -3,9 +3,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { requireSpaceAuth, denyReadOnly } from '../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../rate-limit/middleware.js';
 import { listMemories, deleteMemory, countMemories, bulkDeleteMemories } from '../brain/memory.js';
-import { listEntities, deleteEntity, upsertEntity } from '../brain/entities.js';
-import { listEdges, deleteEdge, upsertEdge } from '../brain/edges.js';
-import { createChrono, updateChrono, listChrono, deleteChrono } from '../brain/chrono.js';
+import { listEntities, deleteEntity, upsertEntity, getEntityById, bulkDeleteEntities } from '../brain/entities.js';
+import { listEdges, deleteEdge, upsertEdge, getEdgeById, bulkDeleteEdges } from '../brain/edges.js';
+import { createChrono, updateChrono, getChronoById, listChrono, deleteChrono, bulkDeleteChrono } from '../brain/chrono.js';
 import { embed } from '../brain/embedding.js';
 import { getConfig } from '../config/loader.js';
 import { col } from '../db/mongo.js';
@@ -313,9 +313,25 @@ brainRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAuth, 
   }
   const limit = Math.min(Number(req.query['limit'] ?? 50), 200);
   const skip = Number(req.query['skip'] ?? 0);
+  const filter: Record<string, unknown> = {};
+  if (typeof req.query['name'] === 'string') filter['name'] = req.query['name'];
+  if (typeof req.query['type'] === 'string') filter['type'] = req.query['type'];
+  if (typeof req.query['tag'] === 'string') filter['tags'] = req.query['tag'];
   const memberIds = resolveMemberSpaces(spaceId);
-  const all = (await Promise.all(memberIds.map(mid => listEntities(mid, {}, limit, skip)))).flat();
+  const all = (await Promise.all(memberIds.map(mid => listEntities(mid, filter, limit, skip)))).flat();
   res.json({ entities: all, limit, skip });
+});
+
+// GET /api/brain/spaces/:spaceId/entities/:id
+brainRouter.get('/spaces/:spaceId/entities/:id', globalRateLimit, requireSpaceAuth, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const id = req.params['id'] as string;
+  const memberIds = resolveMemberSpaces(spaceId);
+  for (const mid of memberIds) {
+    const doc = await getEntityById(mid, id);
+    if (doc) { res.json(doc); return; }
+  }
+  res.status(404).json({ error: 'Entity not found' });
 });
 
 // DELETE /api/brain/spaces/:spaceId/entities/:id
@@ -329,6 +345,26 @@ brainRouter.delete('/spaces/:spaceId/entities/:id', globalRateLimit, requireSpac
   res.status(404).json({ error: 'Entity not found' });
 });
 
+// DELETE /api/brain/spaces/:spaceId/entities — bulk wipe all entities
+brainRouter.delete('/spaces/:spaceId/entities', bulkWipeRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  if (isProxySpace(spaceId)) {
+    res.status(400).json({ error: 'Bulk wipe not supported on proxy spaces — target member spaces individually' });
+    return;
+  }
+  if (req.body?.confirm !== true) {
+    res.status(400).json({ error: '`confirm: true` required in request body' });
+    return;
+  }
+  const deleted = await bulkDeleteEntities(spaceId);
+  res.json({ deleted });
+});
+
 // GET /api/brain/spaces/:spaceId/edges
 brainRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
@@ -339,9 +375,25 @@ brainRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
   }
   const limit = Math.min(Number(req.query['limit'] ?? 50), 200);
   const skip = Number(req.query['skip'] ?? 0);
+  const filter: { from?: string; to?: string; label?: string } = {};
+  if (typeof req.query['from'] === 'string') filter.from = req.query['from'];
+  if (typeof req.query['to'] === 'string') filter.to = req.query['to'];
+  if (typeof req.query['label'] === 'string') filter.label = req.query['label'];
   const memberIds = resolveMemberSpaces(spaceId);
-  const all = (await Promise.all(memberIds.map(mid => listEdges(mid, {}, limit, skip)))).flat();
+  const all = (await Promise.all(memberIds.map(mid => listEdges(mid, filter, limit, skip)))).flat();
   res.json({ edges: all, limit, skip });
+});
+
+// GET /api/brain/spaces/:spaceId/edges/:id
+brainRouter.get('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAuth, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const id = req.params['id'] as string;
+  const memberIds = resolveMemberSpaces(spaceId);
+  for (const mid of memberIds) {
+    const doc = await getEdgeById(mid, id);
+    if (doc) { res.json(doc); return; }
+  }
+  res.status(404).json({ error: 'Edge not found' });
 });
 
 // DELETE /api/brain/spaces/:spaceId/edges/:id
@@ -353,6 +405,26 @@ brainRouter.delete('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAu
     if (await deleteEdge(mid, id)) { res.status(204).end(); return; }
   }
   res.status(404).json({ error: 'Edge not found' });
+});
+
+// DELETE /api/brain/spaces/:spaceId/edges — bulk wipe all edges
+brainRouter.delete('/spaces/:spaceId/edges', bulkWipeRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  if (isProxySpace(spaceId)) {
+    res.status(400).json({ error: 'Bulk wipe not supported on proxy spaces — target member spaces individually' });
+    return;
+  }
+  if (req.body?.confirm !== true) {
+    res.status(400).json({ error: '`confirm: true` required in request body' });
+    return;
+  }
+  const deleted = await bulkDeleteEdges(spaceId);
+  res.json({ deleted });
 });
 
 // ── Chrono CRUD ───────────────────────────────────────────────────────────────
@@ -441,6 +513,18 @@ brainRouter.post('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAut
   res.json(updated);
 });
 
+// GET /api/brain/spaces/:spaceId/chrono/:id
+brainRouter.get('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAuth, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const id = req.params['id'] as string;
+  const memberIds = resolveMemberSpaces(spaceId);
+  for (const mid of memberIds) {
+    const doc = await getChronoById(mid, id);
+    if (doc) { res.json(doc); return; }
+  }
+  res.status(404).json({ error: 'Chrono entry not found' });
+});
+
 // GET /api/brain/spaces/:spaceId/chrono
 brainRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
@@ -451,8 +535,12 @@ brainRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, as
   }
   const limit = Math.min(Number(req.query['limit'] ?? 50), 200);
   const skip = Number(req.query['skip'] ?? 0);
+  const filter: Record<string, unknown> = {};
+  if (typeof req.query['status'] === 'string') filter['status'] = req.query['status'];
+  if (typeof req.query['kind'] === 'string') filter['kind'] = req.query['kind'];
+  if (typeof req.query['tag'] === 'string') filter['tags'] = req.query['tag'];
   const memberIds = resolveMemberSpaces(spaceId);
-  const all = (await Promise.all(memberIds.map(mid => listChrono(mid, {}, limit, skip)))).flat();
+  const all = (await Promise.all(memberIds.map(mid => listChrono(mid, filter, limit, skip)))).flat();
   res.json({ chrono: all, limit, skip });
 });
 
@@ -465,6 +553,26 @@ brainRouter.delete('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
     if (await deleteChrono(mid, id)) { res.status(204).end(); return; }
   }
   res.status(404).json({ error: 'Chrono entry not found' });
+});
+
+// DELETE /api/brain/spaces/:spaceId/chrono — bulk wipe all chrono entries
+brainRouter.delete('/spaces/:spaceId/chrono', bulkWipeRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  if (isProxySpace(spaceId)) {
+    res.status(400).json({ error: 'Bulk wipe not supported on proxy spaces — target member spaces individually' });
+    return;
+  }
+  if (req.body?.confirm !== true) {
+    res.status(400).json({ error: '`confirm: true` required in request body' });
+    return;
+  }
+  const deleted = await bulkDeleteChrono(spaceId);
+  res.json({ deleted });
 });
 
 // GET /api/brain/spaces/:spaceId/reindex-status

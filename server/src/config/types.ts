@@ -173,6 +173,7 @@ export interface EdgeDoc {
   weight?: number;
   author: AuthorRef;
   createdAt: string;
+  updatedAt: string;
   seq: number;
 }
 

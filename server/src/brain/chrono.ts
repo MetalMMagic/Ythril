@@ -114,3 +114,30 @@ export async function deleteChrono(
   await col<TombstoneDoc>(`${spaceId}_tombstones`).insertOne(tombstone as never);
   return true;
 }
+
+/** Bulk-delete all chrono entries in a space, writing a tombstone per deleted doc. */
+export async function bulkDeleteChrono(spaceId: string): Promise<number> {
+  const coll = col<ChronoEntry>(`${spaceId}_chrono`);
+  const ids = await coll.find({}, { projection: { _id: 1 } }).toArray();
+  if (ids.length === 0) return 0;
+
+  const now = new Date().toISOString();
+  const instanceId = getConfig().instanceId;
+  const tombstones: TombstoneDoc[] = [];
+
+  for (const doc of ids) {
+    const seq = await nextSeq(spaceId);
+    tombstones.push({
+      _id: doc._id,
+      type: 'chrono',
+      spaceId,
+      deletedAt: now,
+      instanceId,
+      seq,
+    });
+  }
+
+  await col<TombstoneDoc>(`${spaceId}_tombstones`).insertMany(tombstones as never);
+  await coll.deleteMany({});
+  return ids.length;
+}

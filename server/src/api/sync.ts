@@ -96,6 +96,7 @@ const IncomingEdgeDoc = z.object({
   weight: z.number().optional(),
   author: AuthorRefSchema,
   createdAt: z.string(),
+  updatedAt: z.string().optional(),
   seq: z.number().int().nonnegative().max(MAX_SYNC_SEQ),
 });
 

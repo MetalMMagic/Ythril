@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 /**
  * Seed a running Ythril instance with realistic-looking test brain data.
  *
@@ -11,8 +11,8 @@
  * Usage:
  *   node testing/_init/seed-brain.js [port] [token]
  *
- *   port   — defaults to 3200
- *   token  — defaults to content of testing/sync/configs/a/token.txt
+ *   port   â€” defaults to 3200
+ *   token  â€” defaults to content of testing/sync/configs/a/token.txt
  *
  * Examples:
  *   node testing/_init/seed-brain.js 3200 yt_mytoken123
@@ -48,12 +48,12 @@ async function api(method, path_, body) {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`${method} ${path_} → ${res.status}: ${text}`);
+    throw new Error(`${method} ${path_} â†’ ${res.status}: ${text}`);
   }
   return res.status === 204 ? null : res.json();
 }
 
-// ── Spaces ────────────────────────────────────────────────────────────────
+// â”€â”€ Spaces â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const EXTRA_SPACES = [
   { id: 'work',     label: 'Work' },
@@ -75,79 +75,79 @@ async function ensureSpaces() {
   }
 }
 
-// ── Memories ──────────────────────────────────────────────────────────────
+// â”€â”€ Memories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const MEMORIES = [
   // general
-  { space: 'general', content: 'The quick brown fox jumps over the lazy dog.', tags: ['animals', 'classic'] },
-  { space: 'general', content: 'Ythril stores memories, entities, and edges as a knowledge graph.', tags: ['ythril', 'product'] },
-  { space: 'general', content: 'ISO 27001 requires documented information security policies.', tags: ['security', 'compliance'] },
-  { space: 'general', content: 'The sync engine uses Merkle trees to detect divergence between instances.', tags: ['sync', 'architecture'] },
-  { space: 'general', content: 'Vector search enables semantic similarity queries over stored memories.', tags: ['search', 'embeddings'] },
-  { space: 'general', content: 'Rate limiting prevents brute-force attacks on the authentication layer.', tags: ['security'] },
-  { space: 'general', content: 'TypeScript strict mode catches many potential runtime errors at compile time.', tags: ['typescript', 'dev'] },
-  { space: 'general', content: 'bcrypt with cost factor 12 is used for all password and token hashing.', tags: ['security', 'crypto'] },
-  { space: 'general', content: 'Atomic file writes (write to tmp, then rename) prevent partial config corruption.', tags: ['reliability'] },
-  { space: 'general', content: 'MongoDB Atlas local image includes mongot for $vectorSearch support.', tags: ['mongodb', 'infrastructure'] },
+  { space: 'general', fact: 'The quick brown fox jumps over the lazy dog.', tags: ['animals', 'classic'] },
+  { space: 'general', fact: 'Ythril stores memories, entities, and edges as a knowledge graph.', tags: ['ythril', 'product'] },
+  { space: 'general', fact: 'ISO 27001 requires documented information security policies.', tags: ['security', 'compliance'] },
+  { space: 'general', fact: 'The sync engine uses Merkle trees to detect divergence between instances.', tags: ['sync', 'architecture'] },
+  { space: 'general', fact: 'Vector search enables semantic similarity queries over stored memories.', tags: ['search', 'embeddings'] },
+  { space: 'general', fact: 'Rate limiting prevents brute-force attacks on the authentication layer.', tags: ['security'] },
+  { space: 'general', fact: 'TypeScript strict mode catches many potential runtime errors at compile time.', tags: ['typescript', 'dev'] },
+  { space: 'general', fact: 'bcrypt with cost factor 12 is used for all password and token hashing.', tags: ['security', 'crypto'] },
+  { space: 'general', fact: 'Atomic file writes (write to tmp, then rename) prevent partial config corruption.', tags: ['reliability'] },
+  { space: 'general', fact: 'MongoDB Atlas local image includes mongot for $vectorSearch support.', tags: ['mongodb', 'infrastructure'] },
   // work
-  { space: 'work', content: 'Q2 planning meeting scheduled for next Thursday at 14:00.', tags: ['meeting', 'planning'] },
-  { space: 'work', content: 'Sprint velocity has stabilised at 42 story points per two-week cycle.', tags: ['agile', 'metrics'] },
-  { space: 'work', content: 'The API latency SLO is p99 < 200 ms. Current p99 is 47 ms.', tags: ['slo', 'performance'] },
-  { space: 'work', content: 'Security audit report delivered. Three medium findings, zero criticals.', tags: ['security', 'audit'] },
-  { space: 'work', content: 'Annual penetration test booked for June 3–7.', tags: ['security', 'pentest'] },
-  { space: 'work', content: 'On-call rotation: Alice (Mon–Wed), Bob (Thu–Fri), Carol (weekend).', tags: ['oncall', 'team'] },
-  { space: 'work', content: 'Customer A reported latency spikes on file upload. Traced to disk IOPS saturation.', tags: ['incident', 'files'] },
-  { space: 'work', content: 'The Kubernetes node was upgraded to 1.30.2 without downtime.', tags: ['kubernetes', 'ops'] },
-  { space: 'work', content: 'Data retention policy: logs kept 90 days, backups kept 1 year.', tags: ['policy', 'data'] },
-  { space: 'work', content: 'GDPR DPA signed with payment processor. DPO notified.', tags: ['gdpr', 'legal'] },
-  { space: 'work', content: 'Monitoring dashboard added alerts for MongoDB replication lag > 5 s.', tags: ['monitoring', 'mongodb'] },
-  { space: 'work', content: 'Code review turnaround target is 24 hours. Current average: 18 hours.', tags: ['dev', 'process'] },
-  { space: 'work', content: 'Rollback procedure documented in the runbook under /docs/runbook.md.', tags: ['ops', 'documentation'] },
-  { space: 'work', content: 'Risk register updated with three new items from the threat modelling session.', tags: ['security', 'risk'] },
-  { space: 'work', content: 'Budget approval for additional node required before end of quarter.', tags: ['budget', 'infrastructure'] },
+  { space: 'work', fact: 'Q2 planning meeting scheduled for next Thursday at 14:00.', tags: ['meeting', 'planning'] },
+  { space: 'work', fact: 'Sprint velocity has stabilised at 42 story points per two-week cycle.', tags: ['agile', 'metrics'] },
+  { space: 'work', fact: 'The API latency SLO is p99 < 200 ms. Current p99 is 47 ms.', tags: ['slo', 'performance'] },
+  { space: 'work', fact: 'Security audit report delivered. Three medium findings, zero criticals.', tags: ['security', 'audit'] },
+  { space: 'work', fact: 'Annual penetration test booked for June 3â€“7.', tags: ['security', 'pentest'] },
+  { space: 'work', fact: 'On-call rotation: Alice (Monâ€“Wed), Bob (Thuâ€“Fri), Carol (weekend).', tags: ['oncall', 'team'] },
+  { space: 'work', fact: 'Customer A reported latency spikes on file upload. Traced to disk IOPS saturation.', tags: ['incident', 'files'] },
+  { space: 'work', fact: 'The Kubernetes node was upgraded to 1.30.2 without downtime.', tags: ['kubernetes', 'ops'] },
+  { space: 'work', fact: 'Data retention policy: logs kept 90 days, backups kept 1 year.', tags: ['policy', 'data'] },
+  { space: 'work', fact: 'GDPR DPA signed with payment processor. DPO notified.', tags: ['gdpr', 'legal'] },
+  { space: 'work', fact: 'Monitoring dashboard added alerts for MongoDB replication lag > 5 s.', tags: ['monitoring', 'mongodb'] },
+  { space: 'work', fact: 'Code review turnaround target is 24 hours. Current average: 18 hours.', tags: ['dev', 'process'] },
+  { space: 'work', fact: 'Rollback procedure documented in the runbook under /docs/runbook.md.', tags: ['ops', 'documentation'] },
+  { space: 'work', fact: 'Risk register updated with three new items from the threat modelling session.', tags: ['security', 'risk'] },
+  { space: 'work', fact: 'Budget approval for additional node required before end of quarter.', tags: ['budget', 'infrastructure'] },
   // personal
-  { space: 'personal', content: 'Started reading "Designing Data-Intensive Applications" by Kleppmann.', tags: ['books', 'learning'] },
-  { space: 'personal', content: 'Gym goal: 3× per week. Currently averaging 2.3×.', tags: ['health', 'goals'] },
-  { space: 'personal', content: 'Passport renewal due in 4 months. Book appointment online.', tags: ['admin', 'todo'] },
-  { space: 'personal', content: 'Flight booked to Amsterdam for the distributed systems conference.', tags: ['travel', 'conference'] },
-  { space: 'personal', content: 'Favourite coffee: single-origin Ethiopian, light roast, filter method.', tags: ['coffee', 'preferences'] },
-  { space: 'personal', content: 'Bought a mechanical keyboard: HHKB Professional Hybrid.', tags: ['hardware', 'tools'] },
-  { space: 'personal', content: 'Standing desk height: 118 cm sitting, 145 cm standing.', tags: ['ergonomics', 'setup'] },
-  { space: 'personal', content: 'Weekly review every Sunday at 19:00. Duration: ~30 minutes.', tags: ['productivity', 'routine'] },
-  { space: 'personal', content: 'Useful shell alias: alias k=kubectl', tags: ['dev', 'tips'] },
-  { space: 'personal', content: 'Completed the Advent of Code 2024 with Go. Finished 48/50 stars.', tags: ['programming', 'aoc'] },
+  { space: 'personal', fact: 'Started reading "Designing Data-Intensive Applications" by Kleppmann.', tags: ['books', 'learning'] },
+  { space: 'personal', fact: 'Gym goal: 3Ã— per week. Currently averaging 2.3Ã—.', tags: ['health', 'goals'] },
+  { space: 'personal', fact: 'Passport renewal due in 4 months. Book appointment online.', tags: ['admin', 'todo'] },
+  { space: 'personal', fact: 'Flight booked to Amsterdam for the distributed systems conference.', tags: ['travel', 'conference'] },
+  { space: 'personal', fact: 'Favourite coffee: single-origin Ethiopian, light roast, filter method.', tags: ['coffee', 'preferences'] },
+  { space: 'personal', fact: 'Bought a mechanical keyboard: HHKB Professional Hybrid.', tags: ['hardware', 'tools'] },
+  { space: 'personal', fact: 'Standing desk height: 118 cm sitting, 145 cm standing.', tags: ['ergonomics', 'setup'] },
+  { space: 'personal', fact: 'Weekly review every Sunday at 19:00. Duration: ~30 minutes.', tags: ['productivity', 'routine'] },
+  { space: 'personal', fact: 'Useful shell alias: alias k=kubectl', tags: ['dev', 'tips'] },
+  { space: 'personal', fact: 'Completed the Advent of Code 2024 with Go. Finished 48/50 stars.', tags: ['programming', 'aoc'] },
   // research
-  { space: 'research', content: 'Merkle CRDT paper (Kleppmann & Beresford, 2017) covers conflict-free replicated data types over Merkle trees.', tags: ['crdt', 'sync', 'papers'] },
-  { space: 'research', content: 'The CALM theorem states: coordination-free programs maintain consistency iff they are monotone.', tags: ['distributed', 'theory'] },
-  { space: 'research', content: 'Vector clocks allow partial-order causality tracking across distributed nodes.', tags: ['distributed', 'clocks'] },
-  { space: 'research', content: 'RAFT consensus: leader election requires majority quorum. Split-brain impossible with odd node count.', tags: ['consensus', 'raft'] },
-  { space: 'research', content: 'Bloom filters enable membership tests with configurable false-positive rate and no false negatives.', tags: ['data-structures', 'probability'] },
-  { space: 'research', content: 'Consistent hashing minimises key redistribution when nodes are added or removed.', tags: ['distributed', 'hashing'] },
-  { space: 'research', content: 'LSM-tree writes are sequential (fast); reads require merging SSTables (slower without bloom filters).', tags: ['storage', 'lsm'] },
-  { space: 'research', content: 'Gossip protocols achieve eventual consistency with O(log N) convergence time.', tags: ['gossip', 'distributed'] },
-  { space: 'research', content: 'Two-phase commit (2PC) blocks if the coordinator crashes during the commit phase.', tags: ['distributed', '2pc'] },
-  { space: 'research', content: 'Paxos and RAFT are both crash fault-tolerant but not Byzantine fault-tolerant.', tags: ['consensus', 'fault-tolerance'] },
-  { space: 'research', content: 'Paxos Multi-Paxos variant reduces round-trips by electing a stable leader.', tags: ['consensus', 'paxos'] },
-  { space: 'research', content: 'Lamport clocks provide happens-before ordering but not wall-clock time.', tags: ['clocks', 'distributed'] },
-  { space: 'research', content: 'Key insight in CRDTs: commutativity + associativity + idempotency = merge without coordination.', tags: ['crdt', 'theory'] },
-  { space: 'research', content: 'Spanner uses TrueTime API (GPS + atomic clocks) to bound clock uncertainty to ~7 ms.', tags: ['spanner', 'google', 'distributed'] },
-  { space: 'research', content: 'Event sourcing: instead of mutating state, append events. State is a fold over the event log.', tags: ['event-sourcing', 'architecture'] },
-  { space: 'research', content: 'Append-only data structures simplify replication: no deleted rows, just new versions.', tags: ['architecture', 'immutability'] },
-  { space: 'research', content: 'Semantic search with nomic-embed-text achieves high recall on short factual sentences.', tags: ['embeddings', 'search', 'ml'] },
-  { space: 'research', content: 'Knowledge graph traversal: BFS for shortest path, DFS for exhaustive enumeration.', tags: ['graph', 'algorithms'] },
-  { space: 'research', content: 'HNSW index enables approximate nearest-neighbour search in O(log N) with tunable recall.', tags: ['ann', 'index', 'ml'] },
+  { space: 'research', fact: 'Merkle CRDT paper (Kleppmann & Beresford, 2017) covers conflict-free replicated data types over Merkle trees.', tags: ['crdt', 'sync', 'papers'] },
+  { space: 'research', fact: 'The CALM theorem states: coordination-free programs maintain consistency iff they are monotone.', tags: ['distributed', 'theory'] },
+  { space: 'research', fact: 'Vector clocks allow partial-order causality tracking across distributed nodes.', tags: ['distributed', 'clocks'] },
+  { space: 'research', fact: 'RAFT consensus: leader election requires majority quorum. Split-brain impossible with odd node count.', tags: ['consensus', 'raft'] },
+  { space: 'research', fact: 'Bloom filters enable membership tests with configurable false-positive rate and no false negatives.', tags: ['data-structures', 'probability'] },
+  { space: 'research', fact: 'Consistent hashing minimises key redistribution when nodes are added or removed.', tags: ['distributed', 'hashing'] },
+  { space: 'research', fact: 'LSM-tree writes are sequential (fast); reads require merging SSTables (slower without bloom filters).', tags: ['storage', 'lsm'] },
+  { space: 'research', fact: 'Gossip protocols achieve eventual consistency with O(log N) convergence time.', tags: ['gossip', 'distributed'] },
+  { space: 'research', fact: 'Two-phase commit (2PC) blocks if the coordinator crashes during the commit phase.', tags: ['distributed', '2pc'] },
+  { space: 'research', fact: 'Paxos and RAFT are both crash fault-tolerant but not Byzantine fault-tolerant.', tags: ['consensus', 'fault-tolerance'] },
+  { space: 'research', fact: 'Paxos Multi-Paxos variant reduces round-trips by electing a stable leader.', tags: ['consensus', 'paxos'] },
+  { space: 'research', fact: 'Lamport clocks provide happens-before ordering but not wall-clock time.', tags: ['clocks', 'distributed'] },
+  { space: 'research', fact: 'Key insight in CRDTs: commutativity + associativity + idempotency = merge without coordination.', tags: ['crdt', 'theory'] },
+  { space: 'research', fact: 'Spanner uses TrueTime API (GPS + atomic clocks) to bound clock uncertainty to ~7 ms.', tags: ['spanner', 'google', 'distributed'] },
+  { space: 'research', fact: 'Event sourcing: instead of mutating state, append events. State is a fold over the event log.', tags: ['event-sourcing', 'architecture'] },
+  { space: 'research', fact: 'Append-only data structures simplify replication: no deleted rows, just new versions.', tags: ['architecture', 'immutability'] },
+  { space: 'research', fact: 'Semantic search with nomic-embed-text achieves high recall on short factual sentences.', tags: ['embeddings', 'search', 'ml'] },
+  { space: 'research', fact: 'Knowledge graph traversal: BFS for shortest path, DFS for exhaustive enumeration.', tags: ['graph', 'algorithms'] },
+  { space: 'research', fact: 'HNSW index enables approximate nearest-neighbour search in O(log N) with tunable recall.', tags: ['ann', 'index', 'ml'] },
 ];
 
 async function seedMemories() {
   let count = 0;
-  for (const { space, content, tags } of MEMORIES) {
-    await api('POST', `/api/brain/${space}/memories`, { content, tags });
+  for (const { space, fact, tags } of MEMORIES) {
+    await api('POST', `/api/brain/${space}/memories`, { fact, tags });
     count++;
   }
   console.log(`  Created ${count} memories`);
 }
 
-// ── Entities ──────────────────────────────────────────────────────────────
+// â”€â”€ Entities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const ENTITIES = [
   { space: 'general',  name: 'Ythril',        type: 'product' },
@@ -184,7 +184,7 @@ async function seedEntities() {
   console.log(`  Created ${count} entities`);
 }
 
-// ── Edges ─────────────────────────────────────────────────────────────────
+// â”€â”€ Edges â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const EDGES = [
   { from: 'Ythril',          to: 'MongoDB',         label: 'stores data in',   space: 'general' },
@@ -210,7 +210,7 @@ async function seedEdges() {
     const fromId = _entityIds[from]?.id;
     const toId   = _entityIds[to]?.id;
     if (!fromId || !toId) {
-      console.warn(`  Skipping edge "${from} → ${to}": entity not found`);
+      console.warn(`  Skipping edge "${from} â†’ ${to}": entity not found`);
       continue;
     }
     await api('POST', `/api/brain/${space}/edges`, { from: fromId, to: toId, label });
@@ -219,7 +219,7 @@ async function seedEdges() {
   console.log(`  Created ${count} edges`);
 }
 
-// ── Main ──────────────────────────────────────────────────────────────────
+// â”€â”€ Main â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function main() {
   console.log(`Seeding brain at ${BASE}`);
@@ -252,11 +252,12 @@ async function main() {
     console.log('\nSeeding edges...');
     await seedEdges();
 
-    console.log('\n✓ Seed complete');
+    console.log('\nâœ“ Seed complete');
   } catch (err) {
-    console.error('\n✗ Seed failed:', err.message);
+    console.error('\nâœ— Seed failed:', err.message);
     process.exit(1);
   }
 }
 
 main();
+

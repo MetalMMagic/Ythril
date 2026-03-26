@@ -30,9 +30,9 @@ export async function upsertEdge(
   if (existing) {
     await collection.updateOne(
       { _id: (existing as EdgeDoc)._id } as never,
-      { $set: { ...(weight !== undefined ? { weight } : {}), ...(type !== undefined ? { type } : {}), seq } } as never,
+      { $set: { ...(weight !== undefined ? { weight } : {}), ...(type !== undefined ? { type } : {}), updatedAt: now, seq } } as never,
     );
-    return { ...(existing as EdgeDoc), seq, ...(weight !== undefined ? { weight } : {}), ...(type !== undefined ? { type } : {}) };
+    return { ...(existing as EdgeDoc), seq, updatedAt: now, ...(weight !== undefined ? { weight } : {}), ...(type !== undefined ? { type } : {}) };
   }
 
   const doc: EdgeDoc = {
@@ -45,6 +45,7 @@ export async function upsertEdge(
     ...(weight !== undefined ? { weight } : {}),
     author: authorRef(),
     createdAt: now,
+    updatedAt: now,
     seq,
   };
   await collection.insertOne(doc as never);
@@ -88,4 +89,36 @@ export async function deleteEdge(spaceId: string, edgeId: string): Promise<boole
   };
   await col<TombstoneDoc>(`${spaceId}_tombstones`).insertOne(tombstone as never);
   return true;
+}
+
+/** Find an edge by exact ID */
+export async function getEdgeById(spaceId: string, id: string): Promise<EdgeDoc | null> {
+  return col<EdgeDoc>(`${spaceId}_edges`).findOne({ _id: id, spaceId } as never) as Promise<EdgeDoc | null>;
+}
+
+/** Bulk-delete all edges in a space, writing a tombstone per deleted doc. */
+export async function bulkDeleteEdges(spaceId: string): Promise<number> {
+  const coll = col<EdgeDoc>(`${spaceId}_edges`);
+  const ids = await coll.find({}, { projection: { _id: 1 } }).toArray();
+  if (ids.length === 0) return 0;
+
+  const now = new Date().toISOString();
+  const instanceId = getConfig().instanceId;
+  const tombstones: TombstoneDoc[] = [];
+
+  for (const doc of ids) {
+    const seq = await nextSeq(spaceId);
+    tombstones.push({
+      _id: doc._id,
+      type: 'edge',
+      spaceId,
+      deletedAt: now,
+      instanceId,
+      seq,
+    });
+  }
+
+  await col<TombstoneDoc>(`${spaceId}_tombstones`).insertMany(tombstones as never);
+  await coll.deleteMany({});
+  return ids.length;
 }

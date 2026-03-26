@@ -40,8 +40,7 @@ export interface TokenRecord {
 
 export interface Memory {
   _id: string;
-  content?: string;
-  fact?: string;
+  fact: string;
   tags?: string[];
   entityIds?: string[];
   createdAt: string;

@@ -326,7 +326,7 @@ interface SpaceView {
 
           @for (mem of memories(); track mem._id) {
             <div class="memory-item">
-              <div class="memory-content">{{ mem.content ?? mem.fact }}</div>
+              <div class="memory-content">{{ mem.fact }}</div>
               <div class="memory-meta">
                 @for (tag of (mem.tags ?? []); track tag) {
                   <span class="tag tag-clickable" (click)="applyFilter('tag', tag)">{{ tag }}</span>

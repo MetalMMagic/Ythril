@@ -29,6 +29,7 @@ import type {
   MemoryDoc,
   EntityDoc,
   EdgeDoc,
+  ChronoEntry,
   TombstoneDoc,
   FileTombstoneDoc,
   ConflictDoc,
@@ -149,8 +150,8 @@ export async function runSyncForNetwork(networkId: string): Promise<{ synced: nu
   if (!net) throw new Error(`Network ${networkId} not found`);
 
   const triggeredAt = new Date().toISOString();
-  const pulled: SyncCounts = { memories: 0, entities: 0, edges: 0, files: 0 };
-  const pushed: SyncCounts = { memories: 0, entities: 0, edges: 0, files: 0 };
+  const pulled: SyncCounts = { memories: 0, entities: 0, edges: 0, files: 0, chrono: 0 };
+  const pushed: SyncCounts = { memories: 0, entities: 0, edges: 0, files: 0, chrono: 0 };
   const errorMessages: string[] = [];
 
   log.info(`Starting sync cycle for network '${net.label}' (${net.members.length} members)`);
@@ -163,10 +164,12 @@ export async function runSyncForNetwork(networkId: string): Promise<{ synced: nu
       pulled.entities += counts.pulled.entities;
       pulled.edges += counts.pulled.edges;
       pulled.files += counts.pulled.files;
+      pulled.chrono += counts.pulled.chrono;
       pushed.memories += counts.pushed.memories;
       pushed.entities += counts.pushed.entities;
       pushed.edges += counts.pushed.edges;
       pushed.files += counts.pushed.files;
+      pushed.chrono += counts.pushed.chrono;
       synced++;
       // Reset failure counter on success
       _persistFailureCount(net.id, member.instanceId, 0);
@@ -298,8 +301,8 @@ async function runSyncForMember(
   net: NetworkConfig,
   member: NetworkMember,
 ): Promise<{ pulled: SyncCounts; pushed: SyncCounts }> {
-  const pulled: SyncCounts = { memories: 0, entities: 0, edges: 0, files: 0 };
-  const pushed: SyncCounts = { memories: 0, entities: 0, edges: 0, files: 0 };
+  const pulled: SyncCounts = { memories: 0, entities: 0, edges: 0, files: 0, chrono: 0 };
+  const pushed: SyncCounts = { memories: 0, entities: 0, edges: 0, files: 0, chrono: 0 };
   const secrets = getSecrets();
   const peerToken = secrets.peerTokens[member.instanceId];
   if (!peerToken) {
@@ -336,11 +339,11 @@ async function runSyncForMember(
 
     if (shouldPull) {
       const pc = await pullFromPeer(member, spaceId, net.id, headers, fetchOpts, batchFetchOpts);
-      pulled.memories += pc.memories; pulled.entities += pc.entities; pulled.edges += pc.edges;
+      pulled.memories += pc.memories; pulled.entities += pc.entities; pulled.edges += pc.edges; pulled.chrono += pc.chrono;
     }
     if (shouldPush) {
       const pc = await pushToPeer(member, spaceId, net.id, headers, fetchOpts, batchFetchOpts);
-      pushed.memories += pc.memories; pushed.entities += pc.entities; pushed.edges += pc.edges;
+      pushed.memories += pc.memories; pushed.entities += pc.entities; pushed.edges += pc.edges; pushed.chrono += pc.chrono;
     }
 
     // Sync file manifest
@@ -618,8 +621,8 @@ async function pullFromPeer(
   headers: Record<string, string>,
   opts: RequestInit,
   batchOpts: RequestInit,
-): Promise<{ memories: number; entities: number; edges: number }> {
-  let pulledMemories = 0, pulledEntities = 0, pulledEdges = 0;
+): Promise<{ memories: number; entities: number; edges: number; chrono: number }> {
+  let pulledMemories = 0, pulledEntities = 0, pulledEdges = 0, pulledChrono = 0;
   const cfg = getConfig();
   const freshNet = cfg.networks.find(n => n.id === networkId);
   const memberState = freshNet?.members.find(m => m.instanceId === member.instanceId);
@@ -630,8 +633,8 @@ async function pullFromPeer(
     const tombsUrl = `${member.url}/api/sync/tombstones?spaceId=${encodeURIComponent(spaceId)}&networkId=${encodeURIComponent(networkId)}&sinceSeq=${sinceSeq}`;
     const resp = await fetch(tombsUrl, opts);
     if (resp.ok) {
-      const data = await resp.json() as { memories?: TombstoneDoc[]; entities?: TombstoneDoc[]; edges?: TombstoneDoc[] };
-      const all = [...(data.memories ?? []), ...(data.entities ?? []), ...(data.edges ?? [])];
+      const data = await resp.json() as { memories?: TombstoneDoc[]; entities?: TombstoneDoc[]; edges?: TombstoneDoc[]; chrono?: TombstoneDoc[] };
+      const all = [...(data.memories ?? []), ...(data.entities ?? []), ...(data.edges ?? []), ...(data.chrono ?? [])];
       for (const t of all) { await applyRemoteTombstone(t); }
     }
   } catch (err) {
@@ -707,6 +710,23 @@ async function pullFromPeer(
     cursor = nextCursor; page++;
   } while (cursor && page < 50);
 
+  // Pull chrono
+  cursor = null; page = 0;
+  do {
+    const params = new URLSearchParams({ spaceId, networkId, sinceSeq: String(sinceSeq), limit: '200', full: 'true', ...(cursor ? { cursor } : {}) });
+    const resp = await fetch(`${member.url}/api/sync/chrono?${params}`, batchOpts);
+    if (!resp.ok) break;
+    const { items, nextCursor } = await resp.json() as { items: (ChronoEntry | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null };
+    for (const item of items) {
+      if ('deletedAt' in item && item.deletedAt) continue;
+      const chrono = item as ChronoEntry;
+      await upsertChrono(spaceId, chrono);
+      pulledChrono++;
+      if (chrono.seq > overallMaxSeq) overallMaxSeq = chrono.seq;
+    }
+    cursor = nextCursor; page++;
+  } while (cursor && page < 50);
+
   // Bump the local seq counter so future local writes always get a seq higher
   // than any document received from this peer.  Without this, sync-upserted docs
   // with high seq values from the source instance would sit above the local
@@ -728,7 +748,7 @@ async function pullFromPeer(
     }
   }
 
-  return { memories: pulledMemories, entities: pulledEntities, edges: pulledEdges };
+  return { memories: pulledMemories, entities: pulledEntities, edges: pulledEdges, chrono: pulledChrono };
 }
 
 // ── Push (upload our changes to peer) ──────────────────────────────────────
@@ -740,8 +760,8 @@ async function pushToPeer(
   headers: Record<string, string>,
   opts: RequestInit,
   batchOpts: RequestInit,
-): Promise<{ memories: number; entities: number; edges: number }> {
-  let pushedMemories = 0, pushedEntities = 0, pushedEdges = 0;
+): Promise<{ memories: number; entities: number; edges: number; chrono: number }> {
+  let pushedMemories = 0, pushedEntities = 0, pushedEdges = 0, pushedChrono = 0;
   const cfg = getConfig();
   const freshNet = cfg.networks.find(n => n.id === networkId);
   const memberState = freshNet?.members.find(m => m.instanceId === member.instanceId);
@@ -783,9 +803,9 @@ async function pushToPeer(
   const batchEndpoint = `${member.url}/api/sync/batch-upsert?spaceId=${encodeURIComponent(spaceId)}&networkId=${encodeURIComponent(networkId)}`;
 
   // Helper: stream one collection type to the peer in cursor-paginated batches.
-  async function pushCollection<T extends MemoryDoc | EntityDoc | EdgeDoc>(
+  async function pushCollection<T extends MemoryDoc | EntityDoc | EdgeDoc | ChronoEntry>(
     collName: string,
-    payloadKey: 'memories' | 'entities' | 'edges',
+    payloadKey: 'memories' | 'entities' | 'edges' | 'chrono',
   ): Promise<number> {
     let pushed = 0;
     let seqCursor = lastSeqPushed;
@@ -822,6 +842,7 @@ async function pushToPeer(
   pushedMemories = await pushCollection<MemoryDoc>(`${spaceId}_memories`, 'memories');
   pushedEntities = await pushCollection<EntityDoc>(`${spaceId}_entities`, 'entities');
   pushedEdges = await pushCollection<EdgeDoc>(`${spaceId}_edges`, 'edges');
+  pushedChrono = await pushCollection<ChronoEntry>(`${spaceId}_chrono`, 'chrono');
 
   // Persist the push high-water mark so next sync only sends new/changed docs
   if (maxSeqPushed > lastSeqPushed) {
@@ -835,7 +856,7 @@ async function pushToPeer(
     }
   }
 
-  return { memories: pushedMemories, entities: pushedEntities, edges: pushedEdges };
+  return { memories: pushedMemories, entities: pushedEntities, edges: pushedEdges, chrono: pushedChrono };
 }
 
 // ── File sync ──────────────────────────────────────────────────────────────
@@ -1032,6 +1053,13 @@ async function upsertEdge(spaceId: string, incoming: EdgeDoc): Promise<void> {
   const existing = await col<EdgeDoc>(`${spaceId}_edges`).findOne({ _id: incoming._id } as never) as EdgeDoc | null;
   if (!existing || incoming.seq > existing.seq) {
     await col<EdgeDoc>(`${spaceId}_edges`).replaceOne({ _id: incoming._id } as never, incoming as never, { upsert: true });
+  }
+}
+
+async function upsertChrono(spaceId: string, incoming: ChronoEntry): Promise<void> {
+  const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne({ _id: incoming._id } as never) as ChronoEntry | null;
+  if (!existing || incoming.seq > existing.seq) {
+    await col<ChronoEntry>(`${spaceId}_chrono`).replaceOne({ _id: incoming._id } as never, incoming as never, { upsert: true });
   }
 }
 

@@ -6,6 +6,7 @@ export interface SyncCounts {
   entities: number;
   edges: number;
   files: number;
+  chrono: number;
 }
 
 export interface SyncHistoryRecord {

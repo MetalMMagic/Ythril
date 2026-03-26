@@ -175,11 +175,13 @@ brainRouter.get('/spaces/:spaceId/stats', globalRateLimit, requireSpaceAuth, asy
     memories: await countMemories(mid),
     entities: await col(`${mid}_entities`).countDocuments(),
     edges: await col(`${mid}_edges`).countDocuments(),
+    chrono: await col(`${mid}_chrono`).countDocuments(),
   })));
   const memories = counts.reduce((s, c) => s + c.memories, 0);
   const entities = counts.reduce((s, c) => s + c.entities, 0);
   const edges = counts.reduce((s, c) => s + c.edges, 0);
-  res.json({ spaceId, memories, entities, edges });
+  const chrono = counts.reduce((s, c) => s + c.chrono, 0);
+  res.json({ spaceId, memories, entities, edges, chrono });
 });
 
 // GET /api/brain/spaces/:spaceId/memories

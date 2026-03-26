@@ -213,12 +213,12 @@ function sanitizeFilter(filter: unknown, depth = 0): unknown {
   return filter;
 }
 
-const ALLOWED_COLLECTIONS = new Set(['memories', 'entities', 'edges']);
+const ALLOWED_COLLECTIONS = new Set(['memories', 'entities', 'edges', 'chrono']);
 
 /** Structured read-only query (operator whitelist enforced) */
 export async function queryBrain(
   spaceId: string,
-  collectionName: 'memories' | 'entities' | 'edges',
+  collectionName: 'memories' | 'entities' | 'edges' | 'chrono',
   filter: Record<string, unknown>,
   projection?: Record<string, unknown>,
   limit = 20,

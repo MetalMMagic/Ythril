@@ -74,7 +74,7 @@ export async function computeMerkleRoot(spaceId: string): Promise<MerkleResult> 
 
   // ── Brain documents ────────────────────────────────────────────────────
   // Only (_id, seq) — no need to load payload data.
-  for (const collType of ['memories', 'entities', 'edges'] as const) {
+  for (const collType of ['memories', 'entities', 'edges', 'chrono'] as const) {
     const collName = `${spaceId}_${collType}`;
     const docs = await col<{ _id: string; seq: number }>(collName)
       .find({} as never)

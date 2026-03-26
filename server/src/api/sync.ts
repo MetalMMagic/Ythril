@@ -703,6 +703,7 @@ syncRouter.get('/tombstones', syncRateLimit, requireAuth, async (req, res) => {
       memories: all.filter(t => t.type === 'memory'),
       entities: all.filter(t => t.type === 'entity'),
       edges: all.filter(t => t.type === 'edge'),
+      chrono: all.filter(t => t.type === 'chrono'),
     });
   } catch (err) {
     log.error(`sync GET tombstones: ${err}`);

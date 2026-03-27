@@ -13,6 +13,7 @@ import { notifyRouter } from './api/notify.js';
 import { inviteRouter } from './api/invite.js';
 import { mfaRouter } from './api/mfa.js';
 import { aboutRouter } from './api/about.js';
+import { oidcRouter } from './api/oidc.js';
 import { metricsRouter } from './api/metrics.js';
 import { setupRouter } from './setup/routes.js';
 import { mcpRouter } from './mcp/router.js';
@@ -20,6 +21,7 @@ import { globalRateLimit } from './rate-limit/middleware.js';
 import { configExists, reloadConfig } from './config/loader.js';
 import { requireAuth } from './auth/middleware.js';
 import { clearTokenCache } from './auth/tokens.js';
+import { clearOidcCache } from './auth/oidc.js';
 import { log } from './util/log.js';
 import { getReadiness } from './ready.js';
 import {
@@ -135,6 +137,7 @@ export function createApp() {
   app.use('/api/invite', inviteRouter);
   app.use('/api/mfa', mfaRouter);
   app.use('/api/about', aboutRouter);
+  app.use('/api/auth', oidcRouter);
 
   // ── MCP endpoints ────────────────────────────────────────────────────────
   app.use('/mcp', mcpRouter);
@@ -146,8 +149,9 @@ export function createApp() {
   app.post('/api/admin/reload-config', globalRateLimit, requireAuth, (_req, res) => {
     try {
       reloadConfig();
-      // Flush the bcrypt verification cache so revoked tokens take effect immediately
+      // Flush caches so revoked tokens and updated OIDC config take effect immediately
       clearTokenCache();
+      clearOidcCache();
       res.json({ ok: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

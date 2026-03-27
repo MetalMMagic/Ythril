@@ -1,7 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import { findMatchingToken, touchToken } from './tokens.js';
 import { isMfaEnabled, verifyMfaCode } from './totp.js';
+import { validateOidcJwt, getOidcConfig } from './oidc.js';
 import type { TokenRecord } from '../config/types.js';
+import type { OidcTokenRecord } from './oidc.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { authAttemptsTotal } from '../metrics/registry.js';
 
@@ -10,11 +12,41 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
-      authToken?: Omit<TokenRecord, 'hash'>;
+      authToken?: Omit<TokenRecord, 'hash'> | OidcTokenRecord;
       resolvedSpaceId?: string;
       requestId?: string;
     }
   }
+}
+
+/** Returns true when the bearer value looks like a PAT (Ythril-issued token). */
+function isPat(bearer: string): boolean {
+  return bearer.startsWith('ythril_');
+}
+
+/**
+ * Resolve a bearer token to an auth record, trying PAT first and OIDC JWT
+ * as a fallback when OIDC is enabled and the value is not a PAT.
+ *
+ * Returns null when validation fails.
+ */
+async function resolveBearer(
+  bearer: string,
+): Promise<Omit<TokenRecord, 'hash'> | OidcTokenRecord | null> {
+  if (isPat(bearer)) {
+    // PAT path — existing bcrypt verification
+    const record = await findMatchingToken(bearer);
+    if (!record) return null;
+    const { hash: _h, ...safeRecord } = record;
+    return safeRecord;
+  }
+
+  // Non-PAT bearer — attempt OIDC JWT validation when OIDC is enabled
+  if (getOidcConfig()) {
+    return validateOidcJwt(bearer);
+  }
+
+  return null;
 }
 
 /**
@@ -44,25 +76,26 @@ export async function requireAuth(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const plaintext = extractBearer(req);
-  if (!plaintext) {
+  const bearer = extractBearer(req);
+  if (!bearer) {
     res.status(401).json({ error: 'Missing Authorization header' });
     return;
   }
 
-  const record = await findMatchingToken(plaintext);
+  const record = await resolveBearer(bearer);
   if (!record) {
     authAttemptsTotal.inc({ result: 'invalid' });
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
   }
 
+  
   authAttemptsTotal.inc({ result: 'success' });
   const { hash: _h, ...safeRecord } = record;
   req.authToken = safeRecord;
 
-  // Update lastUsed asynchronously — do not block request
-  touchToken(record.id);
+  // Update lastUsed asynchronously for PAT tokens — do not block request
+  if (isPat(bearer) && 'id' in record) touchToken(record.id);
 
   next();
 }
@@ -76,13 +109,13 @@ export async function requireSpaceAuth(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const plaintext = extractBearer(req);
-  if (!plaintext) {
+  const bearer = extractBearer(req);
+  if (!bearer) {
     res.status(401).json({ error: 'Missing Authorization header' });
     return;
   }
 
-  const record = await findMatchingToken(plaintext);
+  const record = await resolveBearer(bearer);
   if (!record) {
     authAttemptsTotal.inc({ result: 'invalid' });
     res.status(401).json({ error: 'Invalid or expired token' });
@@ -100,26 +133,30 @@ export async function requireSpaceAuth(
     }
   }
 
+  req.authToken = record;
   authAttemptsTotal.inc({ result: 'success' });
   const { hash: _h, ...safeRecord } = record;
   req.authToken = safeRecord;
   req.resolvedSpaceId = spaceId;
-  touchToken(record.id);
+  if (isPat(bearer) && 'id' in record) touchToken(record.id);
   next();
 }
 
 /** Middleware: requires a valid PAT **with admin: true**.
  *  Must be used after (or instead of) requireAuth on admin-only routes.
  *  Non-admin tokens receive 403 even if they are otherwise valid.
+ *
+ *  Note: OIDC JWT tokens are also accepted when OIDC is enabled — the
+ *  admin flag is derived from the configured claimMapping.admin rule.
  */
 export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const plaintext = extractBearer(req);
-  if (!plaintext) {
+  const bearer = extractBearer(req);
+  if (!bearer) {
     res.status(401).json({ error: 'Missing Authorization header' });
     return;
   }
 
-  const record = await findMatchingToken(plaintext);
+  const record = await resolveBearer(bearer);
   if (!record) {
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
@@ -130,9 +167,8 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  const { hash: _h, ...safeRecord } = record;
-  req.authToken = safeRecord;
-  touchToken(record.id);
+  req.authToken = record;
+  if (isPat(bearer) && 'id' in record) touchToken(record.id);
   next();
 }
 
@@ -143,18 +179,21 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
  * When MFA is disabled (no `totpSecret` in secrets.json) this behaves
  * identically to `requireAdmin` so enabling MFA is purely additive.
  *
+ * Note: OIDC JWT tokens are also accepted when OIDC is enabled.  MFA is
+ * NOT enforced for OIDC sessions (the IdP handles its own step-up auth).
+ *
  * Error codes returned (distinguish from generic 403 on the client):
  *   403 { error: 'MFA_REQUIRED' } — MFA enabled, header missing
  *   403 { error: 'MFA_INVALID'  } — MFA enabled, code wrong / expired
  */
 export async function requireAdminMfa(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const plaintext = extractBearer(req);
-  if (!plaintext) {
+  const bearer = extractBearer(req);
+  if (!bearer) {
     res.status(401).json({ error: 'Missing Authorization header' });
     return;
   }
 
-  const record = await findMatchingToken(plaintext);
+  const record = await resolveBearer(bearer);
   if (!record) {
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
@@ -165,7 +204,8 @@ export async function requireAdminMfa(req: Request, res: Response, next: NextFun
     return;
   }
 
-  if (isMfaEnabled()) {
+  // MFA is only enforced for PAT sessions; OIDC sessions use IdP step-up auth.
+  if (isPat(bearer) && isMfaEnabled()) {
     const code = (req.headers['x-totp-code'] as string | undefined ?? '').trim();
     if (!code) {
       res.status(403).json({ error: 'MFA_REQUIRED' });
@@ -177,8 +217,7 @@ export async function requireAdminMfa(req: Request, res: Response, next: NextFun
     }
   }
 
-  const { hash: _h, ...safeRecord } = record;
-  req.authToken = safeRecord;
-  touchToken(record.id);
+  req.authToken = record;
+  if (isPat(bearer) && 'id' in record) touchToken(record.id);
   next();
 }

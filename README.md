@@ -75,7 +75,7 @@ flowchart TD
 
 ## License
 
-Ythril is licensed under [AGPL-3.0](LICENSE). You can use, modify, and self-host it freely. If you provide a modified version as a network service, you must make the source available under AGPL. Commercial licensing is available for closed-source or proprietary deployments — contact `contact@ythril.net`.
+Ythril is source-available under the [PolyForm Small Business License 1.0.0](LICENSE). Individuals and small businesses (< 100 people, < $1M revenue) can use, modify, and self-host it freely. Larger organisations require a commercial license — contact `contact@ythril.net`.
 
 ## Contributing
 

@@ -42,7 +42,7 @@ FROM node:22-slim AS production
 
 LABEL org.opencontainers.image.source="https://github.com/ythril-network/Ythril"
 LABEL org.opencontainers.image.description="Ythril — self-hosted brain & knowledge management platform"
-LABEL org.opencontainers.image.licenses="AGPL-3.0-only"
+LABEL org.opencontainers.image.licenses="PolyForm-Small-Business-1.0.0"
 
 # Build tools for bcrypt native addon (compiled during npm ci --omit=dev)
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*

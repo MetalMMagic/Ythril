@@ -21,6 +21,7 @@ import { configExists, reloadConfig } from './config/loader.js';
 import { requireAuth } from './auth/middleware.js';
 import { clearTokenCache } from './auth/tokens.js';
 import { log } from './util/log.js';
+import { getReadiness } from './ready.js';
 import {
   httpRequestsTotal,
   httpRequestDurationSeconds,
@@ -62,6 +63,21 @@ export function createApp() {
     res.json({ status: 'ok', ts: new Date().toISOString() });
   });
 
+  // ── Readiness ────────────────────────────────────────────────────────────
+  app.get('/ready', async (_req, res) => {
+    try {
+      const result = await getReadiness();
+      res.status(result.ready ? 200 : 503).json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(503).json({
+        ready: false,
+        checks: {
+          mongodb: { status: 'error', error: message },
+          vectorSearch: { status: 'error', error: 'check skipped' },
+        },
+      });
+    }
   // ── Prometheus metrics ───────────────────────────────────────────────────
   // Unauthenticated — same as /health — so Prometheus scrapers work without PATs.
   app.use('/metrics', metricsRouter);

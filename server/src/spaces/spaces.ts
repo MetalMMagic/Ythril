@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs/promises';
+import path from 'path';
 import { getDb, col } from '../db/mongo.js';
-import { getConfig, saveConfig, getEmbeddingConfig } from '../config/loader.js';
+import { getConfig, saveConfig, getEmbeddingConfig, getDataRoot } from '../config/loader.js';
 import { ensureSpaceFilesDir } from '../files/files.js';
 import { log } from '../util/log.js';
 import type { SpaceConfig, MemoryDoc } from '../config/types.js';
@@ -218,12 +220,62 @@ export async function createSpace(opts: {
   return space;
 }
 
-/** Delete a space (config only — data retained unless explicitly purged) */
+/** Delete a space: drops all MongoDB collections, removes files, then removes from config */
 export async function removeSpace(spaceId: string): Promise<boolean> {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
   if (!space) return false;
   if (space.builtIn) throw new Error(`Cannot delete built-in space '${spaceId}'`);
+
+  // Only real (non-proxy) spaces have DB collections and files
+  if (!space.proxyFor) {
+    const db = getDb();
+
+    // 1. Drop vector search index on the memories collection (best-effort)
+    const indexName = `${spaceId}_memories_embedding`;
+    try {
+      const memoriesColl = db.collection(`${spaceId}_memories`);
+      const indexes = await memoriesColl.listSearchIndexes().toArray() as Array<{ name?: string }>;
+      if (indexes.some(i => i.name === indexName)) {
+        await memoriesColl.dropSearchIndex(indexName);
+        log.debug(`Dropped vector search index ${indexName}`);
+      }
+    } catch (err) {
+      log.warn(`Could not drop vector search index ${indexName}: ${err}`);
+    }
+
+    // 2. Drop all MongoDB collections associated with this space
+    const prefix = `${spaceId}_`;
+    const existingColls = await db.listCollections({ name: { $regex: `^${prefix}` } }).toArray();
+    for (const coll of existingColls) {
+      try {
+        await db.collection(coll.name).drop();
+        log.debug(`Dropped collection ${coll.name}`);
+      } catch (err) {
+        log.warn(`Could not drop collection ${coll.name}: ${err}`);
+      }
+    }
+
+    // 3. Delete the space files directory
+    const filesDir = path.resolve(getDataRoot(), 'files', spaceId);
+    try {
+      await fs.rm(filesDir, { recursive: true, force: true });
+      log.debug(`Deleted files directory ${filesDir}`);
+    } catch (err) {
+      log.warn(`Could not delete files directory ${filesDir}: ${err}`);
+    }
+
+    // 4. Delete any stale chunked-upload directories for this space
+    const chunksDir = path.resolve(getDataRoot(), '.chunks', spaceId);
+    try {
+      await fs.rm(chunksDir, { recursive: true, force: true });
+      log.debug(`Deleted chunk uploads directory ${chunksDir}`);
+    } catch (err) {
+      log.warn(`Could not delete chunk uploads directory ${chunksDir}: ${err}`);
+    }
+  }
+
+  // 5. Remove the space from config
   cfg.spaces = cfg.spaces.filter(s => s.id !== spaceId);
   saveConfig(cfg);
   return true;

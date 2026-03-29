@@ -1,5 +1,5 @@
 ﻿/**
- * Network management API â€” CRUD for Ythril sync networks.
+ * Network management API — CRUD for Ythril sync networks.
  *
  * Route prefix: /api/networks
  *
@@ -23,13 +23,13 @@ export const networksRouter = Router();
 
 const BCRYPT_ROUNDS = 12;
 
-// â”€â”€ SSRF-safe peer URL validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── SSRF-safe peer URL validation ────────────────────────────────────────────
 // Shared validator from util/ssrf.ts covers:
 //   RFC-1918 IPv4, loopback, 169.254 IMDS, IPv6 ULA (fc00::/7),
 //   IPv6 link-local (fe80::/10), GCP metadata FQDN, embedded credentials.
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 
-// â”€â”€ Schemas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Schemas ─────────────────────────────────────────────────────────────────
 
 const SSRF_SAFE_URL = z
   .string()
@@ -39,20 +39,20 @@ const SSRF_SAFE_URL = z
 const CreateNetworkBody = z.object({
   id: z.string().uuid().optional(),  // optional pre-specified ID for cross-instance registration
   label: z.string().min(1).max(200),
-  type: z.enum(['closed', 'democratic', 'club', 'braintree']),
+  type: z.enum(['closed', 'democratic', 'club', 'braintree', 'pubsub']),
   spaces: z.array(z.string().min(1)).min(1),
   votingDeadlineHours: z.number().int().min(1).max(72).default(24),
   syncSchedule: z.string().optional(),
   merkle: z.boolean().optional(),
-  myParentInstanceId: z.string().optional(),  // braintree: this instance's parent in the tree (omit â†’ root)
+  myParentInstanceId: z.string().optional(),  // braintree: this instance's parent in the tree (omit → root)
 });
 
 const AddMemberBody = z.object({
   instanceId: z.string().min(1),
   label: z.string().min(1).max(200),
   url: SSRF_SAFE_URL,
-  token: z.string().min(1),   // plaintext peer token â€” stored as bcrypt hash
-  direction: z.enum(['both', 'push']).default('both'),
+  token: z.string().min(1),   // plaintext peer token — stored as bcrypt hash
+  direction: z.enum(['both', 'push', 'pull']).default('both'),
   parentInstanceId: z.string().optional(),
   skipTlsVerify: z.boolean().optional(),
 });
@@ -77,7 +77,7 @@ const JoinRemoteBody = z.object({
   networkId: z.string().uuid(),
   /** This brain's externally reachable base URL (e.g. https://brain-b.example.com) */
   myUrl: z.string().url(),
-  /** expiresAt from invite bundle â€” informational only */
+  /** expiresAt from invite bundle — informational only */
   expiresAt: z.string().optional(),
 });
 
@@ -92,7 +92,7 @@ const ReparentSelfBody = z.object({
   originalParentInstanceId: z.string().uuid(),
 });
 
-// â”€â”€ GET /api/networks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── GET /api/networks ──────────────────────────────────────────────────────
 
 networksRouter.get('/', globalRateLimit, requireAdmin, (_req, res) => {
   const cfg = getConfig();
@@ -105,7 +105,7 @@ networksRouter.get('/', globalRateLimit, requireAdmin, (_req, res) => {
   res.json({ networks });
 });
 
-// â”€â”€ GET /api/networks/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── GET /api/networks/:id ──────────────────────────────────────────────────
 
 networksRouter.get('/:id', globalRateLimit, requireAdmin, (req, res) => {
   const cfg = getConfig();
@@ -184,7 +184,7 @@ networksRouter.post('/', globalRateLimit, requireAdmin, async (req, res) => {
   }
 });
 
-// â”€â”€ DELETE /api/networks/:id â€” leave/delete a network â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── DELETE /api/networks/:id — leave/delete a network ─────────────────────
 
 networksRouter.delete('/:id', globalRateLimit, requireAdmin, async (req, res) => {
   const cfg = getConfig();
@@ -228,7 +228,7 @@ networksRouter.delete('/:id', globalRateLimit, requireAdmin, async (req, res) =>
   }
 });
 
-// â”€â”€ PATCH /api/networks/:id â€” update mutable network fields â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── PATCH /api/networks/:id — update mutable network fields ───────────────
 
 networksRouter.patch('/:id', globalRateLimit, requireAdmin, (req, res) => {
   const parsed = UpdateNetworkBody.safeParse(req.body);
@@ -253,13 +253,13 @@ networksRouter.patch('/:id', globalRateLimit, requireAdmin, (req, res) => {
   res.json({ ...safe, members: net.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => m) });
 });
 
-// â”€â”€ POST /api/networks/join-remote â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── POST /api/networks/join-remote ─────────────────────────────────────────
 // Called by the JOINING brain's UI. Executes the full RSA invite handshake
 // server-side so the browser never handles raw crypto or plaintext tokens.
 //
 // Flow:
-//   1. Brain A admin clicks "Generate invite" â†’ calls POST /api/invite/generate
-//      â†’ gets { handshakeId, inviteUrl, rsaPublicKeyPem, networkId, expiresAt }
+//   1. Brain A admin clicks "Generate invite" → calls POST /api/invite/generate
+//      → gets { handshakeId, inviteUrl, rsaPublicKeyPem, networkId, expiresAt }
 //   2. Brain A admin sends that bundle to Brain B admin (out-of-band)
 //   3. Brain B admin pastes bundle + enters their own URL in Brain B's UI
 //   4. Brain B's UI calls this endpoint
@@ -274,7 +274,7 @@ networksRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, r
     const { handshakeId, inviteUrl, rsaPublicKeyPem: aPubKeyPem, networkId, myUrl } = parsed.data;
     const cfg = getConfig();
 
-    // â”€â”€ Step A: apply â€” call Brain A's /api/invite/apply â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Step A: apply — call Brain A's /api/invite/apply ──────────────────────
     const { generateKeyPairSync, privateDecrypt, publicEncrypt, constants: C } =
       await import('node:crypto');
 
@@ -322,7 +322,7 @@ networksRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, r
       spaces: string[];
     };
 
-    // Decrypt tokenForB â€” the PAT Brain A created on its own server for Brain B to use
+    // Decrypt tokenForB — the PAT Brain A created on its own server for Brain B to use
     let tokenForB: string;
     try {
       tokenForB = privateDecrypt(
@@ -348,7 +348,7 @@ networksRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, r
       peerInstanceId: applyData.instanceId, // link this PAT to the peer that will present it
     });
 
-    // â”€â”€ Step B: finalize â€” send Brain A an encrypted token for it to call us â”€â”€
+    // ── Step B: finalize — send Brain A an encrypted token for it to call us ──
     const encryptedTokenForA = publicEncrypt(
       { key: applyData.rsaPublicKeyPem, padding: C.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha256' },
       Buffer.from(tokenForAPlaintext, 'utf8'),
@@ -378,7 +378,7 @@ networksRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, r
 
     const finalizeData = await finalizeRes.json() as { status: string };
 
-    // â”€â”€ Register network and peer locally â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Register network and peer locally ────────────────────────────────────
     // Store tokenForB so this brain can call Brain A's sync endpoints.
     const secrets = getSecrets();
     secrets.peerTokens[applyData.instanceId] = tokenForB;
@@ -409,7 +409,9 @@ networksRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, r
         label: applyData.instanceLabel ?? 'remote',
         url: new URL(inviteUrl).origin,
         tokenHash: tokenForAHash,
-        direction: applyData.networkType === 'braintree' ? 'push' : 'both',
+        direction: applyData.networkType === 'pubsub' ? 'pull'
+                 : applyData.networkType === 'braintree' ? 'pull'
+                 : 'both',
         lastSeqReceived: {},
       });
     }
@@ -432,7 +434,7 @@ networksRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, r
   }
 });
 
-// â”€â”€ Braintree governance helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Braintree governance helpers ────────────────────────────────────────────
 
 /**
  * Compute the list of instance IDs that must vote yes for a Braintree governance action.
@@ -466,7 +468,7 @@ function buildBraintreeAncestors(
   return path;
 }
 
-// â”€â”€ POST /api/networks/:id/members â€” add a peer member â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── POST /api/networks/:id/members — add a peer member ────────────────────
 
 networksRouter.post('/:id/members', globalRateLimit, requireAdmin, async (req, res) => {
   try {
@@ -520,8 +522,13 @@ networksRouter.post('/:id/members', globalRateLimit, requireAdmin, async (req, r
       return;
     }
 
-    if (net.type === 'club') {
-      // Club: direct add, no vote required
+    if (net.type === 'club' || net.type === 'pubsub') {
+      // Club / Pubsub: direct add, no vote required.
+      // Pubsub never allows 'both' — publisher stores subscribers as 'push',
+      // subscriber stores publisher as 'pull'.  If 'both' is provided, default
+      // to 'push' (the common publisher-side case); explicit 'pull' is respected
+      // so the subscriber can manually add the publisher.
+      if (net.type === 'pubsub' && member.direction === 'both') member.direction = 'push';
       net.members.push(member);
       const secrets = getSecrets();
       secrets.peerTokens[instanceId] = token;
@@ -535,7 +542,7 @@ networksRouter.post('/:id/members', globalRateLimit, requireAdmin, async (req, r
 
     // Braintree: open a vote round with requiredVoters = ancestry path from self to root.
     // The proposer (this instance) auto-votes yes.  If the path is only [self] (root case),
-    // concludeRoundIfReady passes immediately and we add the member right away â†’ 201.
+    // concludeRoundIfReady passes immediately and we add the member right away → 201.
     // Otherwise we return 202 and wait for all ancestors to vote via gossip propagation.
     const requiredVoters = buildBraintreeAncestors(net, cfg.instanceId, cfg.instanceId);
     const round: VoteRound = {
@@ -558,7 +565,7 @@ networksRouter.post('/:id/members', globalRateLimit, requireAdmin, async (req, r
     saveSecrets(secrets);
     const immediatePassed = concludeRoundIfReady(net, round);
     if (immediatePassed) {
-      // Root case: only self needed to vote â†’ add member directly
+      // Root case: only self needed to vote → add member directly
       net.members.push(member);
       saveConfig(cfg);
       log.info(`Braintree join immediate (root): added ${label} (${instanceId}) to network ${net.id}`);
@@ -575,7 +582,7 @@ networksRouter.post('/:id/members', globalRateLimit, requireAdmin, async (req, r
   }
 });
 
-// â”€â”€ DELETE /api/networks/:id/members/:instanceId â€” remove a member â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── DELETE /api/networks/:id/members/:instanceId — remove a member ─────────
 
 networksRouter.delete('/:id/members/:instanceId', globalRateLimit, requireAdmin, (req, res) => {
   const cfg = getConfig();
@@ -605,7 +612,8 @@ networksRouter.delete('/:id/members/:instanceId', globalRateLimit, requireAdmin,
     return;
   }
 
-  if (net.type === 'club') {
+  if (net.type === 'club' || net.type === 'pubsub') {
+    // Club / Pubsub: publisher (owner) removes directly, no vote required
     net.members.splice(memberIdx, 1);
     saveConfig(cfg);
     res.status(204).end();
@@ -637,7 +645,7 @@ networksRouter.delete('/:id/members/:instanceId', globalRateLimit, requireAdmin,
   }
   const immediatePassed = concludeRoundIfReady(net, removeRound);
   if (immediatePassed) {
-    // Ancestor path is only [self] â†’ remove immediately (member already spliced by concludeRoundIfReady)
+    // Ancestor path is only [self] → remove immediately (member already spliced by concludeRoundIfReady)
     saveConfig(cfg);
     sendMemberRemovedNotify(removeRound.subjectUrl, removeRound.subjectInstanceId, net.id);
     log.info(`Braintree remove immediate: removed ${subject.label} (${subject.instanceId}) from network ${net.id}`);
@@ -649,7 +657,7 @@ networksRouter.delete('/:id/members/:instanceId', globalRateLimit, requireAdmin,
   res.status(202).json({ status: 'vote_pending', roundId: removeRound.roundId });
 });
 
-// â”€â”€ POST /api/networks/:id/reparent-self â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── POST /api/networks/:id/reparent-self ────────────────────────────────────
 // Called by a node on ITSELF after completing the invite apply step.
 // Records the new parent in the local config so this node knows it is
 // temporarily connected to a grandparent rather than its original parent.
@@ -673,7 +681,7 @@ networksRouter.post('/:id/reparent-self', globalRateLimit, requireAdmin, async (
         instanceId: newParentInstanceId,
         label: newParentLabel,
         url: newParentUrl,
-        tokenHash: '',   // no inbound auth needed on this side â€” new parent pushes TO us
+        tokenHash: '',   // no inbound auth needed on this side — new parent pushes TO us
         direction: 'push',
       });
     }
@@ -691,7 +699,7 @@ networksRouter.post('/:id/reparent-self', globalRateLimit, requireAdmin, async (
     };
 
     saveConfig(cfg);
-    log.info(`reparent-self: network ${net.id} â€” new parent ${newParentInstanceId} (was ${originalParentInstanceId})`);
+    log.info(`reparent-self: network ${net.id} — new parent ${newParentInstanceId} (was ${originalParentInstanceId})`);
     res.json({ status: 'reparented', newParentInstanceId, originalParentInstanceId });
   } catch (err) {
     log.error(`POST /api/networks reparent-self: ${err}`);
@@ -699,7 +707,7 @@ networksRouter.post('/:id/reparent-self', globalRateLimit, requireAdmin, async (
   }
 });
 
-// â”€â”€ POST /api/networks/:id/members/:instanceId/adopt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── POST /api/networks/:id/members/:instanceId/adopt ───────────────────────
 // Called on the GRANDPARENT side. Makes a temporary reparent permanent by clearing
 // originalParentInstanceId from the grandchild's member record.
 
@@ -723,7 +731,7 @@ networksRouter.post('/:id/members/:instanceId/adopt', globalRateLimit, requireAd
   res.json({ status: 'adopted', instanceId: member.instanceId, parentInstanceId: member.parentInstanceId });
 });
 
-// â”€â”€ POST /api/networks/:id/members/:instanceId/revert-parent â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── POST /api/networks/:id/members/:instanceId/revert-parent ───────────────
 // Called on the GRANDPARENT side when the original parent is back online.
 // Restores the topology: grandchild re-parents to its original parent.
 
@@ -754,7 +762,7 @@ networksRouter.post('/:id/members/:instanceId/revert-parent', globalRateLimit, r
     originalParent.children.push(member.instanceId);
   }
 
-  // Remove direct outbound token â€” grandparent no longer pushes directly
+  // Remove direct outbound token — grandparent no longer pushes directly
   const secrets = getSecrets();
   delete secrets.peerTokens[member.instanceId];
   saveSecrets(secrets);
@@ -763,7 +771,7 @@ networksRouter.post('/:id/members/:instanceId/revert-parent', globalRateLimit, r
   log.info(`Parent reverted: '${member.label}' (${member.instanceId}) re-parented back to ${restoredParentId} in network ${net.id}`);
   res.json({ status: 'reverted', instanceId: member.instanceId, parentInstanceId: restoredParentId });
 });
-// â”€â”€ GET /api/networks/:id/vote â€” list open vote rounds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── GET /api/networks/:id/vote — list open vote rounds ─────────────────────
 
 networksRouter.get('/:id/votes', globalRateLimit, requireAdmin, (req, res) => {
   const cfg = getConfig();
@@ -772,7 +780,7 @@ networksRouter.get('/:id/votes', globalRateLimit, requireAdmin, (req, res) => {
   res.json({ rounds: net.pendingRounds.filter(r => !r.concluded) });
 });
 
-// â”€â”€ POST /api/networks/:id/votes/:roundId â€” cast a vote â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── POST /api/networks/:id/votes/:roundId — cast a vote ────────────────────
 
 networksRouter.post('/:id/votes/:roundId', globalRateLimit, requireAdmin, (req, res) => {
   try {
@@ -794,7 +802,7 @@ networksRouter.post('/:id/votes/:roundId', globalRateLimit, requireAdmin, (req, 
 
     concludeRoundIfReady(net, round);
 
-    // If join round concluded and passed, add the pending member â€”
+    // If join round concluded and passed, add the pending member —
     // but only if this instance is the direct parent in the tree (for braintree networks
     // this check prevents ancestor-voters from adding the member to their own list).
     if (round.concluded && round.type === 'join' && round.pendingMember &&
@@ -804,7 +812,7 @@ networksRouter.post('/:id/votes/:roundId', globalRateLimit, requireAdmin, (req, 
         round.pendingMember.parentInstanceId === cfg.instanceId;
       if (vetoCount === 0 && (net.type !== 'braintree' || isDirectParent)) {
         net.members.push(round.pendingMember);
-        log.info(`Join vote ${round.roundId} passed â€” added member ${round.subjectLabel} to network ${net.id}`);
+        log.info(`Join vote ${round.roundId} passed — added member ${round.subjectLabel} to network ${net.id}`);
       }
     }
 
@@ -832,7 +840,7 @@ networksRouter.post('/:id/votes/:roundId', globalRateLimit, requireAdmin, (req, 
   }
 });
 
-// â”€â”€ POST /api/networks/:id/invite â€” generate invite key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── POST /api/networks/:id/invite — generate invite key ───────────────────
 
 networksRouter.post('/:id/invite', globalRateLimit, requireAdmin, async (req, res) => {
   try {
@@ -845,15 +853,21 @@ networksRouter.post('/:id/invite', globalRateLimit, requireAdmin, async (req, re
     net.inviteKeyHash = await bcrypt.hash(key, BCRYPT_ROUNDS);
     saveConfig(cfg);
 
-    log.info(`Generated new invite key for network ${net.id} (shown once)`);
-    res.json({ inviteKey: key, note: 'Store this key securely â€” it will not be shown again' });
+    log.info(`Generated new invite key for network ${net.id}${net.type === 'pubsub' ? ' (reusable)' : ' (shown once)'}`);
+    res.json({
+      inviteKey: key,
+      networkId: net.id,
+      ...(net.type === 'pubsub'
+        ? { reusable: true, note: 'This key is reusable — safe to publish in docs, QR codes, or share openly. Regenerating a new key revokes this one.' }
+        : { reusable: false, note: 'Store this key securely — it is single-use and will not be shown again' }),
+    });
   } catch (err) {
     log.error(`POST /api/networks/:id/invite: ${err}`);
     res.status(500).json({ error: 'Internal error' });
   }
 });
 
-// â”€â”€ POST /api/networks/:id/join â€” join via invite key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── POST /api/networks/:id/join — join via invite key ─────────────────────
 
 const JoinNetworkBody = z.object({
   inviteKey: z.string().min(1),
@@ -861,7 +875,7 @@ const JoinNetworkBody = z.object({
   label: z.string().min(1).max(200),
   url: SSRF_SAFE_URL,
   token: z.string().min(1),  // plaintext token for inbound auth
-  direction: z.enum(['both', 'push']).default('both'),
+  direction: z.enum(['both', 'push', 'pull']).default('both'),
   parentInstanceId: z.string().optional(),
   skipTlsVerify: z.boolean().optional(),
 });
@@ -876,7 +890,7 @@ networksRouter.post('/:id/join', globalRateLimit, requireAdmin, async (req, res)
     if (!net) { res.status(404).json({ error: 'Network not found' }); return; }
 
     if (!net.inviteKeyHash) {
-      res.status(400).json({ error: 'No active invite key â€” generate one first via POST /invite' });
+      res.status(400).json({ error: 'No active invite key — generate one first via POST /invite' });
       return;
     }
 
@@ -916,9 +930,13 @@ networksRouter.post('/:id/join', globalRateLimit, requireAdmin, async (req, res)
       return;
     }
 
-    // Club / Braintree â€” direct join via invite key
+    // Club / Braintree / Pubsub — direct join via invite key
+    // Pubsub subscribers are always push-only (publisher pushes to them).
+    if (net.type === 'pubsub') member.direction = 'push';
     net.members.push(member);
-    net.inviteKeyHash = undefined; // single-use key
+    // Pubsub keys are reusable (publishable in docs, QR codes, etc.)
+    // All other types consume the key after use to prevent replay.
+    if (net.type !== 'pubsub') net.inviteKeyHash = undefined;
     saveConfig(cfg);
     log.info(`Member ${label} joined network ${net.id} via invite key`);
 
@@ -933,11 +951,11 @@ networksRouter.post('/:id/join', globalRateLimit, requireAdmin, async (req, res)
   }
 });
 
-// â”€â”€ POST /api/networks/:id/fork â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── POST /api/networks/:id/fork ──────────────────────────────────────────────
 // Creates a new standalone/closed network seeded from the caller's copy of the
 // source network's spaces. Works for:
-//   â€¢ Active member  â€” source network still present; spaces are inherited
-//   â€¢ Ejected member â€” source network is gone (deleted on ejection); caller must
+//   • Active member  — source network still present; spaces are inherited
+//   • Ejected member — source network is gone (deleted on ejection); caller must
 //     supply spaces explicitly in the request body
 //
 // The source network is never modified. ejectedFromNetworks is never cleared.
@@ -997,7 +1015,7 @@ networksRouter.post('/:id/fork', globalRateLimit, requireAdmin, (req, res) => {
 
     cfg.networks.push(forkedNet);
     saveConfig(cfg);
-    log.info(`Forked network ${sourceId} â†’ new network ${forkedNet.id} ('${forkedNet.label}')`);
+    log.info(`Forked network ${sourceId} → new network ${forkedNet.id} ('${forkedNet.label}')`);
     res.status(201).json(forkedNet);
   } catch (err) {
     log.error(`POST /api/networks/:id/fork: ${err}`);

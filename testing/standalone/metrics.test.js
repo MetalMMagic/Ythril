@@ -187,9 +187,13 @@ describe('GET /metrics — Prometheus endpoint', () => {
 
     // Use an API route that is tracked by the HTTP middleware.
     // /health and /metrics are excluded from the counter.
-    await fetch(`${INSTANCES.a}/api/about`, {
+    const r = await fetch(`${INSTANCES.a}/api/about`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    // Consume the response body so the server's 'finish' event fires promptly
+    await r.text();
+    // Allow the server's finish callback to run and increment the counter
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     const after = await getMetrics();
 

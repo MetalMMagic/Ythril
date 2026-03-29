@@ -300,6 +300,7 @@ Networks sync specific spaces between brains. Each network has a governance type
 | **Democratic** | Majority vote, no vetoes | Small teams |
 | **Club** | Inviter decides alone | Open collaboration |
 | **Braintree** | All ancestors to root | Hierarchical orgs |
+| **Pub/Sub** | Automatic (no approval) | Public distribution, documentation |
 
 For full governance rules see [network-types.md](network-types.md).
 
@@ -336,6 +337,7 @@ Expand a network card to see its member list. Click **×** on any member to remo
 | Closed | Immediate removal |
 | Democratic / Club | Vote round opened |
 | Braintree | Ancestor approval required |
+| Pub/Sub | Publisher removes directly (no vote) |
 
 ### Sync schedule
 

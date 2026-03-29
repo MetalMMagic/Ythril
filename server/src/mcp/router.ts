@@ -378,6 +378,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
         case 'remember': {
           const fact = String(a['fact'] ?? '');
           if (!fact.trim()) throw new Error('fact must not be empty');
+          if (fact.length > 50_000) throw new Error('fact must not exceed 50 000 characters');
           const tags = Array.isArray(a['tags']) ? (a['tags'] as string[]) : [];
           const entityNames = Array.isArray(a['entities']) ? (a['entities'] as string[]) : [];
 

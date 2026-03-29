@@ -30,7 +30,10 @@ export async function applyRemoteTombstone(tombstone: TombstoneDoc): Promise<voi
   const existing = await col<TombstoneDoc>(`${spaceId}_tombstones`).findOne({ _id } as never);
   if (existing && (existing as TombstoneDoc).seq > seq) return;
 
-  // Delete the underlying document
+  // Delete the underlying document — but only if it was authored by the same
+  // instance that issued the tombstone. This prevents a remote tombstone from
+  // deleting locally-authored content (critical for pubsub subscribers who
+  // may have their own data alongside publisher-pushed content).
   const collMap: Record<string, string> = {
     memory: `${spaceId}_memories`,
     entity: `${spaceId}_entities`,
@@ -39,6 +42,13 @@ export async function applyRemoteTombstone(tombstone: TombstoneDoc): Promise<voi
   };
   const targetColl = collMap[type];
   if (targetColl) {
+    const localDoc = await col(targetColl).findOne({ _id } as never) as { author?: { instanceId?: string } } | null;
+    // If the local doc has an author and it doesn't match the tombstone issuer, skip deletion.
+    // Documents without author metadata (legacy) are deleted as before.
+    if (localDoc?.author?.instanceId && tombstone.instanceId &&
+        localDoc.author.instanceId !== tombstone.instanceId) {
+      return;
+    }
     await col(targetColl).deleteOne({ _id } as never);
   }
 }

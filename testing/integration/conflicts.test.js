@@ -205,36 +205,32 @@ describe('Conflicts API â€” seeded via file sync hash mismatch', () => {
     if (networkId2) await del(INSTANCES.a, tokenA, `/api/networks/${networkId2}`).catch(() => {});
   });
 
-  it('conflict document was created by file hash mismatch detection', function() {
+  it('conflict document was created by file hash mismatch detection', async (t) => {
     // If the sync stack is not fully wired for file sync, skip gracefully.
     if (!conflictId) {
-      console.log('  [SKIP] No conflict was seeded â€” file sync peers not fully wired in test stack.');
+      return t.skip('No conflict was seeded â€” file sync peers not fully wired in test stack.');
       return;
     }
     assert.ok(conflictId, 'conflictId must be set');
   });
 
-  it('GET /api/conflicts returns the seeded conflict with correct shape', function() {
-    if (!conflictId) return; // skip if not seeded
-    // already retrieved above â€” check from the list
-    (async () => {
-      const r = await get(INSTANCES.a, tokenA, '/api/conflicts');
-      assert.equal(r.status, 200);
-      const c = r.body.conflicts.find(x => x.id === conflictId);
-      assert.ok(c, 'Seeded conflict must appear in list');
-      assert.ok(c.spaceId, 'conflict.spaceId must be present');
-      assert.ok(c.originalPath, 'conflict.originalPath must be present');
-      assert.ok(c.conflictPath, 'conflict.conflictPath must be present');
-      assert.ok(c.peerInstanceId, 'conflict.peerInstanceId must be present');
-      assert.ok(c.peerInstanceLabel, 'conflict.peerInstanceLabel must be present');
-      assert.ok(c.detectedAt, 'conflict.detectedAt must be present â€” ISO8601 timestamp');
-      // detectedAt must be a valid ISO8601 date
-      assert.ok(!isNaN(Date.parse(c.detectedAt)), 'conflict.detectedAt must be a valid ISO8601 date');
-    })();
+  it('GET /api/conflicts returns the seeded conflict with correct shape', async (t) => {
+    if (!conflictId) return t.skip('No conflict seeded');
+    const r = await get(INSTANCES.a, tokenA, '/api/conflicts');
+    assert.equal(r.status, 200);
+    const c = r.body.conflicts.find(x => x.id === conflictId);
+    assert.ok(c, 'Seeded conflict must appear in list');
+    assert.ok(c.spaceId, 'conflict.spaceId must be present');
+    assert.ok(c.originalPath, 'conflict.originalPath must be present');
+    assert.ok(c.conflictPath, 'conflict.conflictPath must be present');
+    assert.ok(c.peerInstanceId, 'conflict.peerInstanceId must be present');
+    assert.ok(c.peerInstanceLabel, 'conflict.peerInstanceLabel must be present');
+    assert.ok(c.detectedAt, 'conflict.detectedAt must be present');
+    assert.ok(!isNaN(Date.parse(c.detectedAt)), 'conflict.detectedAt must be a valid ISO8601 date');
   });
 
-  it('GET /api/conflicts/:id returns the single conflict record', async function() {
-    if (!conflictId) return;
+  it('GET /api/conflicts/:id returns the single conflict record', async (t) => {
+    if (!conflictId) return t.skip('No conflict seeded');
     const r = await get(INSTANCES.a, tokenA, `/api/conflicts/${conflictId}`);
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.id, conflictId);
@@ -245,8 +241,8 @@ describe('Conflicts API â€” seeded via file sync hash mismatch', () => {
     assert.ok(r.body.detectedAt);
   });
 
-  it('POST /api/conflicts/:id/resolve returns 200 {status:resolved} and removes the record', async function() {
-    if (!conflictId) return;
+  it('POST /api/conflicts/:id/resolve returns 200 {status:resolved} and removes the record', async (t) => {
+    if (!conflictId) return t.skip('No conflict seeded');
     const r = await post(INSTANCES.a, tokenA, `/api/conflicts/${conflictId}/resolve`, { action: 'keep-local' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.status, 'resolved');
@@ -256,7 +252,7 @@ describe('Conflicts API â€” seeded via file sync hash mismatch', () => {
     assert.equal(check.status, 404, 'Resolved conflict must return 404');
   });
 
-  it('DELETE /api/conflicts/:id returns 204 and record is gone', async function() {
+  it('DELETE /api/conflicts/:id returns 204 and record is gone', async (t) => {
     // Re-seed: write competing files again on a fresh path
     const path2 = `conflict-test-del-${RUN}.txt`;
     const uploadA = `${INSTANCES.a}/api/files/general?path=${encodeURIComponent(path2)}`;
@@ -268,9 +264,9 @@ describe('Conflicts API â€” seeded via file sync hash mismatch', () => {
     });
 
     const rA = await fetch(uploadA, putOpts(tokenA, `del-version-A-${RUN}`));
-    if (rA.status !== 201) { console.log('[SKIP] Could not write competing file for DELETE test'); return; }
+    if (rA.status !== 201) return t.skip('Could not write competing file for DELETE test');
     const rB = await fetch(uploadB, putOpts(tokenB, `del-version-B-${RUN}`));
-    if (rB.status !== 201) { console.log('[SKIP] Could not write competing file for DELETE test'); return; }
+    if (rB.status !== 201) return t.skip('Could not write competing file for DELETE test');
 
     let delConflictId;
     for (let attempt = 0; attempt < 6; attempt++) {
@@ -280,7 +276,7 @@ describe('Conflicts API â€” seeded via file sync hash mismatch', () => {
       const seeded = (check.body?.conflicts ?? []).filter(c => c.originalPath === path2 || c.conflictPath?.startsWith(path2.replace('.txt', '')));
       if (seeded.length > 0) { delConflictId = seeded[0].id; break; }
     }
-    if (!delConflictId) { console.log('[SKIP] Could not seed second conflict for DELETE test'); return; }
+    if (!delConflictId) return t.skip('Could not seed second conflict for DELETE test');
 
     const r = await del(INSTANCES.a, tokenA, `/api/conflicts/${delConflictId}`);
     assert.equal(r.status, 204, JSON.stringify(r.body));

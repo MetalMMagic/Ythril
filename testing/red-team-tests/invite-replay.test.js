@@ -24,11 +24,11 @@ import { fileURLToPath } from 'url';
 import { INSTANCES, post } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TOKEN_C = path.join(__dirname, '..', 'sync', 'configs', 'c', 'token.txt');
+const TOKEN_A = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
 
-// Use instance C for invite tests to avoid exhausting A's authRateLimit
-// (the invite/apply and invite/finalize endpoints count against authRateLimit)
-const INVITE_INSTANCE = INSTANCES.c;
+// Use instance A which has SKIP_AUTH_RATE_LIMIT=true — the test makes 10+
+// requests per minute to authRateLimit-protected invite endpoints.
+const INVITE_INSTANCE = INSTANCES.a;
 
 let tokenA;
 let networkId;
@@ -47,7 +47,7 @@ async function createTestNetwork(token) {
 
 describe('Invite handshake security', () => {
   before(async () => {
-    tokenA = fs.readFileSync(TOKEN_C, 'utf8').trim();
+    tokenA = fs.readFileSync(TOKEN_A, 'utf8').trim();
     networkId = await createTestNetwork(tokenA);
   });
 
@@ -233,7 +233,7 @@ describe('Invite handshake security', () => {
 
 describe('Invite status endpoint', () => {
   before(() => {
-    tokenA = fs.readFileSync(TOKEN_C, 'utf8').trim();
+    tokenA = fs.readFileSync(TOKEN_A, 'utf8').trim();
   });
 
   it('Status of non-existent handshake → 400 (invalid UUID format)', async () => {

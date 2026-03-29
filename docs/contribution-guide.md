@@ -161,7 +161,7 @@ npm run test:sync
 npm run test:down
 ```
 
-Covers: closed-network sync, braintree governance, democratic voting, gossip exchange, conflict detection, file sync, entity/edge sync, fork/merge, Merkle verification, vote propagation, leave/removal.
+Covers: closed-network sync, braintree governance, democratic voting, pubsub topology, gossip exchange, conflict detection, file sync, entity/edge sync, fork/merge, Merkle verification, vote propagation, direction enforcement, leave/removal.
 
 ### Red-team tests
 
@@ -169,7 +169,7 @@ Covers: closed-network sync, braintree governance, democratic voting, gossip exc
 npm run test:redteam
 ```
 
-Attack simulations: auth bypass, path traversal, MongoDB injection, space boundary, oversized payload, invite replay, SSRF, sequence injection, mass assignment, token brute-force, sync scope bypass.
+Attack simulations: auth bypass, path traversal, MongoDB injection, space boundary, oversized payload, invite replay, SSRF, sequence injection, mass assignment, token brute-force, sync scope bypass, MCP security (token hygiene, input validation, operator injection), direction enforcement.
 
 ### Run everything
 

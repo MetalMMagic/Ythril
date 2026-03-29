@@ -68,34 +68,15 @@ describe('Entity/edge sync — cross-instance (A→B)', () => {
   });
 
   it('entity created on A syncs to B', async () => {
-    // Use MCP upsert path (or just POST via sync endpoint directly)
     const entityName = `SyncEntity-${RUN}`;
 
-    // Create via brain API (the sync engine will propagate via GET /api/sync/entities)
-    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/entities-upsert', {
+    // Create via brain API — this sets author.instanceId to A's real instanceId,
+    // which is required for pushToPeer() to include it (non-braintree networks
+    // only push docs authored by this instance).
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/entities', {
       name: entityName, type: 'concept', tags: ['sync-test'],
-    }).catch(() => ({ status: 0, body: null }));
-
-    // Fall back to MCP tool path if brain route doesn't exist as CRUD
-    // The sync endpoint approach creates via POST /api/sync/entities directly:
-    const syncCreate = await post(INSTANCES.a, tokenA, `/api/sync/entities?spaceId=general&networkId=${networkId}`, {
-      _id: `entity-sync-${RUN}`,
-      spaceId: 'general',
-      name: entityName,
-      type: 'concept',
-      tags: ['sync-test'],
-      author: { instanceId: 'test', instanceLabel: 'Test' },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      seq: Date.now(),
     });
-    // Could be 200 (inserted/ok) or 401 (sync endpoint requires peer auth)
-    // If 401, the entity must be created via brain API
-    if (syncCreate.status === 401) {
-      // Entity creation via sync endpoint requires peer auth not admin PAT
-      // Use MCP tool chain or skip gracefully
-      console.log('  [INFO] /api/sync/entities requires peer token — testing via brain API');
-    }
+    assert.equal(r.status, 201, `Create entity on A: ${JSON.stringify(r.body)}`);
 
     // Trigger sync and wait for entity on B via GET /api/sync/entities
     let found = false;
@@ -107,33 +88,29 @@ describe('Entity/edge sync — cross-instance (A→B)', () => {
         found = true; break;
       }
     }
-    if (!found) {
-      console.log('  [SKIP] Entity did not propagate — sync peer tokens may not be wired');
-    }
-    // Not a hard failure — peer secret wiring is environment-dependent
+    assert.ok(found, 'Entity did not propagate — sync peer tokens may not be wired');
   });
 
   it('edge created on A syncs to B', async () => {
-    const edgeId = `edge-sync-${RUN}`;
-    const entityFromId = `efrom-${RUN}`;
-    const entityToId = `eto-${RUN}`;
+    // Create two entities via brain API (sets correct author for sync push)
+    const fromR = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/entities', {
+      name: `EFrom-${RUN}`, type: 'concept', tags: [],
+    });
+    assert.equal(fromR.status, 201, `Create EFrom: ${JSON.stringify(fromR.body)}`);
+    const entityFromId = fromR.body._id;
 
-    // Seed via sync endpoint with admin token (will fail if sync requires peer auth)
-    await post(INSTANCES.a, tokenA, `/api/sync/entities?spaceId=general`, {
-      _id: entityFromId, spaceId: 'general', name: `EFrom-${RUN}`, type: 'concept', tags: [],
-      author: { instanceId: 'test', instanceLabel: 'Test' },
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), seq: Date.now() - 1,
+    const toR = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/entities', {
+      name: `ETo-${RUN}`, type: 'concept', tags: [],
     });
-    await post(INSTANCES.a, tokenA, `/api/sync/entities?spaceId=general`, {
-      _id: entityToId, spaceId: 'general', name: `ETo-${RUN}`, type: 'concept', tags: [],
-      author: { instanceId: 'test', instanceLabel: 'Test' },
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), seq: Date.now() - 2,
+    assert.equal(toR.status, 201, `Create ETo: ${JSON.stringify(toR.body)}`);
+    const entityToId = toR.body._id;
+
+    // Create edge via brain API (sets correct author for sync push)
+    const edgeR = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/edges', {
+      from: entityFromId, to: entityToId, label: 'test_relation',
     });
-    await post(INSTANCES.a, tokenA, `/api/sync/edges?spaceId=general`, {
-      _id: edgeId, spaceId: 'general', from: entityFromId, to: entityToId, label: 'test_relation',
-      author: { instanceId: 'test', instanceLabel: 'Test' },
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), seq: Date.now(),
-    });
+    assert.equal(edgeR.status, 201, `Create edge: ${JSON.stringify(edgeR.body)}`);
+    const edgeId = edgeR.body._id;
 
     let found = false;
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -144,7 +121,7 @@ describe('Entity/edge sync — cross-instance (A→B)', () => {
         found = true; break;
       }
     }
-    if (!found) console.log('  [SKIP] Edge did not propagate — sync peer tokens may not be wired');
+    assert.ok(found, 'Edge did not propagate — sync peer tokens may not be wired');
   });
 
   it('entity tombstone propagates from A to B', async () => {

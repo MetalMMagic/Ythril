@@ -171,11 +171,11 @@ describe('Space deletion — full cleanup', () => {
     assert.ok(r.status >= 400 && r.status < 500, `Expected client error, got ${r.status}`);
   });
 
-  it('deleting a space that was networked opens a vote round', async () => {
+  it('deleting a space that was networked opens a vote round', async (t) => {
     // This test requires two instances with a network — skip if only one is available
     const healthB = await fetch(`${INSTANCES.b}/health`).catch(() => null);
     if (!healthB || healthB.status !== 200) {
-      return; // skip — instance B not available
+      return t.skip('Instance B not available');
     }
 
     // Create a space, add it to a temporary network, then attempt deletion

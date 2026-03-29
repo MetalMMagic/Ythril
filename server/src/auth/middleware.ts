@@ -122,9 +122,13 @@ export async function requireSpaceAuth(
 
   const spaceId = req.params['spaceId'] as string | undefined;
   if (record.spaces && spaceId) {
-    // For proxy spaces, the token must have access to all member spaces
+    // For proxy spaces, the token must have access to all member spaces.
+    // If the space doesn't exist in config, resolveMemberSpaces returns [].
+    // Fall back to [spaceId] so the scope check still rejects tokens that
+    // don't list this space — returning 403 instead of leaking a 404.
     const memberIds = resolveMemberSpaces(spaceId);
-    const missing = memberIds.filter(sid => !record.spaces!.includes(sid));
+    const targets = memberIds.length > 0 ? memberIds : [spaceId];
+    const missing = targets.filter(sid => !record.spaces!.includes(sid));
     if (missing.length > 0) {
       res.status(403).json({ error: `Token does not have access to space '${spaceId}'` });
       return;

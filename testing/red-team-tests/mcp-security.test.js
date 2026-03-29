@@ -15,8 +15,8 @@
  *  6. MCP unauthenticated access — GET/POST to /mcp without a valid Bearer
  *     token must return 401
  *
- * Tests 1 and 3 are EXPECTED TO FAIL until the corresponding fixes are applied.
- * All other tests should pass if the existing allowlist and rate-limit middleware work.
+ * All tests should pass with the current codebase. Token prefix collision (test 1)
+ * and recall_global scope isolation (test 3) fixes have been applied.
  *
  * Run: node --test testing/red-team-tests/mcp-security.test.js
  */
@@ -25,6 +25,7 @@ import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
+import http from 'node:http';
 import { fileURLToPath } from 'url';
 import { INSTANCES, post, get, reqJson } from '../sync/helpers.js';
 
@@ -36,59 +37,126 @@ let tokenA;
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /**
- * Open an MCP SSE session and return the session endpoint URL.
- * Returns null if the server returns a non-200 status.
+ * Open an MCP SSE session using Node's http module (keeps stream alive).
+ * Returns { status, callTool, close } or { status: <non-200>, callTool: null, close: noop }.
  */
-async function openMcpSession(instance, bearerToken) {
-  const res = await fetch(`${instance}/mcp`, {
-    headers: bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {},
-  });
-  if (res.status !== 200) return { status: res.status, sessionUrl: null };
-  // SSE: read first event to get the session URL
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const match = buf.match(/data:\s*(.+)\n/);
-    if (match) {
-      try {
-        const data = JSON.parse(match[1]);
-        const sessionUrl = data.sessionId
-          ? `${instance}/mcp/${data.sessionId}`
-          : (data.endpoint ?? null);
-        reader.cancel();
-        return { status: 200, sessionUrl };
-      } catch {
-        reader.cancel();
-        return { status: 200, sessionUrl: null };
-      }
-    }
-  }
-  return { status: 200, sessionUrl: null };
-}
+function openMcpSession(instance, bearerToken, spaceId = 'general', timeoutMs = 15_000) {
+  const parsed = new URL(instance);
+  const host = parsed.hostname;
+  const port = parseInt(parsed.port || '80', 10);
 
-/**
- * Call an MCP tool over JSON-RPC on an already-opened session.
- */
-async function callTool(instance, bearerToken, sessionUrl, toolName, toolArgs) {
-  const payload = {
-    jsonrpc: '2.0',
-    id: Math.floor(Math.random() * 1e9),
-    method: 'tools/call',
-    params: { name: toolName, arguments: toolArgs },
-  };
-  const res = await fetch(sessionUrl ?? `${instance}/mcp/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
-    },
-    body: JSON.stringify(payload),
+  return new Promise((resolve) => {
+    const req = http.request(
+      { host, port, path: `/mcp/${spaceId}`, method: 'GET',
+        headers: {
+          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+          Accept: 'text/event-stream',
+        } },
+      (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          resolve({ status: res.statusCode, callTool: null, close: () => {} });
+          return;
+        }
+
+        let buffer = '';
+        let sessionId = null;
+        const pendingMessages = [];
+        const waiters = [];
+
+        res.setEncoding('utf8');
+        res.on('data', chunk => {
+          buffer += chunk;
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() ?? '';
+          for (const part of parts) {
+            if (!part.trim()) continue;
+            const lines = part.split('\n');
+            let eventType = 'message';
+            let data = '';
+            for (const line of lines) {
+              if (line.startsWith('event:')) eventType = line.slice(6).trim();
+              else if (line.startsWith('data:')) data = line.slice(5).trim();
+            }
+            if (eventType === 'endpoint') {
+              const m = data.match(/sessionId=([^&\s]+)/);
+              if (m) sessionId = m[1];
+            } else if (eventType === 'message' && data) {
+              try {
+                const parsed = JSON.parse(data);
+                const waiter = waiters.shift();
+                if (waiter) waiter(parsed);
+                else pendingMessages.push(parsed);
+              } catch { /* non-JSON */ }
+            }
+          }
+        });
+
+        const deadline = Date.now() + timeoutMs;
+        const poll = setInterval(() => {
+          if (sessionId) {
+            clearInterval(poll);
+            resolve({ status: 200, callTool, close });
+          } else if (Date.now() > deadline) {
+            clearInterval(poll);
+            req.destroy();
+            resolve({ status: 200, callTool: null, close: () => {} });
+          }
+        }, 50);
+
+        async function callTool(toolName, toolArgs) {
+          return new Promise((res2, rej2) => {
+            const waiterTimeout = setTimeout(
+              () => rej2(new Error('MCP tool call timed out')), timeoutMs,
+            );
+            if (pendingMessages.length > 0) {
+              clearTimeout(waiterTimeout);
+              res2(pendingMessages.shift());
+              return;
+            }
+            waiters.push(msg => { clearTimeout(waiterTimeout); res2(msg); });
+
+            const payload = JSON.stringify({
+              jsonrpc: '2.0',
+              id: Math.floor(Math.random() * 1e9),
+              method: 'tools/call',
+              params: { name: toolName, arguments: toolArgs },
+            });
+            const pr = http.request(
+              { host, port,
+                path: `/mcp/${spaceId}/messages?sessionId=${sessionId}`,
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Content-Length': Buffer.byteLength(payload),
+                  ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
+                },
+              },
+              pres => {
+                let txt = '';
+                pres.setEncoding('utf8');
+                pres.on('data', c => { txt += c; });
+                pres.on('end', () => {
+                  if (pres.statusCode !== 202 && pres.statusCode !== 200) {
+                    clearTimeout(waiterTimeout);
+                    waiters.shift(); // remove our waiter
+                    rej2(new Error(`MCP POST failed: ${pres.statusCode} ${txt}`));
+                  }
+                });
+              },
+            );
+            pr.on('error', rej2);
+            pr.write(payload);
+            pr.end();
+          });
+        }
+
+        function close() { req.destroy(); }
+      },
+    );
+    req.on('error', () => resolve({ status: 0, callTool: null, close: () => {} }));
+    req.end();
   });
-  return { status: res.status, body: res.status !== 204 ? await res.json().catch(() => null) : null };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -142,7 +210,7 @@ describe('MCP security — recall_global scope isolation', () => {
     // If only one space is configured, we skip this test gracefully.
     const tokenBPath = path.join(CONFIGS, 'b', 'token.txt');
     if (!fs.existsSync(tokenBPath)) {
-      return; // skip: single-space setup
+      return; // skip: single-space setup — B not configured
     }
     const tokenB = fs.readFileSync(tokenBPath, 'utf8').trim();
 
@@ -151,23 +219,21 @@ describe('MCP security — recall_global scope isolation', () => {
     await post(INSTANCES.b, tokenB, '/api/brain/general/memories', { fact: secretFact });
 
     // Now open an MCP session on instance A with tokenA (scope: instance A only)
-    const { status, sessionUrl } = await openMcpSession(INSTANCES.a, tokenA);
-    if (status !== 200 || !sessionUrl) {
-      // MCP not wired or session URL not obtainable — skip gracefully
-      return;
-    }
+    const { status, callTool, close } = await openMcpSession(INSTANCES.a, tokenA);
+    try {
+      assert.equal(status, 200, 'MCP endpoint must be reachable for recall_global scope test');
+      assert.ok(callTool, 'MCP session must establish');
 
-    // Call recall_global — this should only search spaces allowed by tokenA
-    const toolR = await callTool(INSTANCES.a, tokenA, sessionUrl, 'recall_global', {
-      query: secretFact,
-    });
+      // Call recall_global — this should only search spaces allowed by tokenA
+      const rpc = await callTool('recall_global', { query: secretFact });
 
-    // The result must NOT contain the secret from instance B
-    const content = JSON.stringify(toolR.body ?? '');
-    assert.ok(!content.includes(secretFact),
-      `VULNERABILITY: recall_global returned a memory from outside the token's allowed spaces.\n` +
-      `Found "${secretFact}" in cross-instance response. ` +
-      `Fix: filter cfg.spaces against req.authToken?.spaces in the recall_global handler.`);
+      // The result must NOT contain the secret from instance B
+      const content = JSON.stringify(rpc?.result ?? rpc ?? '');
+      assert.ok(!content.includes(secretFact),
+        `VULNERABILITY: recall_global returned a memory from outside the token's allowed spaces.\n` +
+        `Found "${secretFact}" in cross-instance response. ` +
+        `Fix: filter cfg.spaces against req.authToken?.spaces in the recall_global handler.`);
+    } finally { close(); }
   });
 });
 
@@ -175,20 +241,23 @@ describe('MCP security — recall_global scope isolation', () => {
 
 describe('MCP security — remember tool input validation', () => {
   it('remember with a 200KB fact returns isError=true', async () => {
-    const { status, sessionUrl } = await openMcpSession(INSTANCES.a, tokenA);
-    if (status !== 200 || !sessionUrl) return; // skip if MCP not wired
+    const { status, callTool, close } = await openMcpSession(INSTANCES.a, tokenA);
+    try {
+      assert.equal(status, 200, 'MCP endpoint must be reachable for security testing');
+      assert.ok(callTool, 'MCP session must establish');
 
-    const r = await callTool(INSTANCES.a, tokenA, sessionUrl, 'remember', {
-      spaceId: 'general',
-      fact: 'X'.repeat(200_000),
-    });
-    const body = r.body;
-    // MCP spec: isError=true for tool execution errors
-    assert.ok(
-      (body?.result?.isError === true) ||
-      (Array.isArray(body?.result?.content) && body.result.content.some(c => c.text?.toLowerCase().includes('error'))),
-      `Expected isError=true for oversized fact, got: ${JSON.stringify(body)}`
-    );
+      const rpc = await callTool('remember', {
+        spaceId: 'general',
+        fact: 'X'.repeat(200_000),
+      });
+      const result = rpc?.result ?? rpc;
+      // MCP spec: isError=true for tool execution errors
+      assert.ok(
+        (result?.isError === true) ||
+        (Array.isArray(result?.content) && result.content.some(c => c.text?.toLowerCase().includes('error'))),
+        `Expected isError=true for oversized fact, got: ${JSON.stringify(rpc)}`
+      );
+    } finally { close(); }
   });
 });
 
@@ -196,71 +265,84 @@ describe('MCP security — remember tool input validation', () => {
 
 describe('MCP security — query tool operator allowlist', () => {
   it('query with $where returns isError=true', async () => {
-    const { status, sessionUrl } = await openMcpSession(INSTANCES.a, tokenA);
-    if (status !== 200 || !sessionUrl) return;
+    const { status, callTool, close } = await openMcpSession(INSTANCES.a, tokenA);
+    try {
+      assert.equal(status, 200, 'MCP endpoint must be reachable for security testing');
+      assert.ok(callTool, 'MCP session must establish');
 
-    const r = await callTool(INSTANCES.a, tokenA, sessionUrl, 'query', {
-      spaceId: 'general',
-      filter: { $where: 'function() { return true; }' },
-    });
-    const body = r.body;
-    assert.ok(
-      (body?.result?.isError === true) ||
-      (Array.isArray(body?.result?.content) && body.result.content.some(c => c.text?.toLowerCase().includes('error'))),
-      `Expected isError=true for $where injection, got: ${JSON.stringify(body)}`
-    );
+      const rpc = await callTool('query', {
+        spaceId: 'general',
+        filter: { $where: 'function() { return true; }' },
+      });
+      const result = rpc?.result ?? rpc;
+      assert.ok(
+        (result?.isError === true) ||
+        (Array.isArray(result?.content) && result.content.some(c => c.text?.toLowerCase().includes('error'))),
+        `Expected isError=true for $where injection, got: ${JSON.stringify(rpc)}`
+      );
+    } finally { close(); }
   });
 
   it('query with $function returns isError=true', async () => {
-    const { status, sessionUrl } = await openMcpSession(INSTANCES.a, tokenA);
-    if (status !== 200 || !sessionUrl) return;
+    const { status, callTool, close } = await openMcpSession(INSTANCES.a, tokenA);
+    try {
+      assert.equal(status, 200, 'MCP endpoint must be reachable for security testing');
+      assert.ok(callTool, 'MCP session must establish');
 
-    const r = await callTool(INSTANCES.a, tokenA, sessionUrl, 'query', {
-      spaceId: 'general',
-      filter: { $function: { body: 'return true', args: [], lang: 'js' } },
-    });
-    const body = r.body;
-    assert.ok(
-      (body?.result?.isError === true) ||
-      (Array.isArray(body?.result?.content) && body.result.content.some(c => c.text?.toLowerCase().includes('error'))),
-      `Expected isError=true for $function injection, got: ${JSON.stringify(body)}`
-    );
+      const rpc = await callTool('query', {
+        spaceId: 'general',
+        filter: { $function: { body: 'return true', args: [], lang: 'js' } },
+      });
+      const result = rpc?.result ?? rpc;
+      assert.ok(
+        (result?.isError === true) ||
+        (Array.isArray(result?.content) && result.content.some(c => c.text?.toLowerCase().includes('error'))),
+        `Expected isError=true for $function injection, got: ${JSON.stringify(rpc)}`
+      );
+    } finally { close(); }
   });
 
   it('query with deeply nested filter (>8 deep) returns isError=true', async () => {
-    const { status, sessionUrl } = await openMcpSession(INSTANCES.a, tokenA);
-    if (status !== 200 || !sessionUrl) return;
+    const { status, callTool, close } = await openMcpSession(INSTANCES.a, tokenA);
+    try {
+      assert.equal(status, 200, 'MCP endpoint must be reachable for security testing');
+      assert.ok(callTool, 'MCP session must establish');
 
-    // Build a 10-deep nested $and filter
-    let deep = { tags: { $exists: true } };
-    for (let i = 0; i < 10; i++) {
-      deep = { $and: [deep] };
-    }
+      // Build a 10-deep nested $and filter
+      let deep = { tags: { $exists: true } };
+      for (let i = 0; i < 10; i++) {
+        deep = { $and: [deep] };
+      }
 
-    const r = await callTool(INSTANCES.a, tokenA, sessionUrl, 'query', {
-      spaceId: 'general',
-      filter: deep,
-    });
-    const body = r.body;
-    assert.ok(
-      (body?.result?.isError === true) ||
-      (Array.isArray(body?.result?.content) && body.result.content.some(c => c.text?.toLowerCase().includes('error'))),
-      `Expected isError=true for depth-10 filter, got: ${JSON.stringify(body)}`
-    );
+      const rpc = await callTool('query', {
+        spaceId: 'general',
+        filter: deep,
+      });
+      const result = rpc?.result ?? rpc;
+      assert.ok(
+        (result?.isError === true) ||
+        (Array.isArray(result?.content) && result.content.some(c => c.text?.toLowerCase().includes('error'))),
+        `Expected isError=true for depth-10 filter, got: ${JSON.stringify(rpc)}`
+      );
+    } finally { close(); }
   });
 
   it('query with allowed operators ($eq, $in, $and) returns results (not error)', async () => {
-    const { status, sessionUrl } = await openMcpSession(INSTANCES.a, tokenA);
-    if (status !== 200 || !sessionUrl) return;
+    const { status, callTool, close } = await openMcpSession(INSTANCES.a, tokenA);
+    try {
+      assert.equal(status, 200, 'MCP endpoint must be reachable for security testing');
+      assert.ok(callTool, 'MCP session must establish');
 
-    const r = await callTool(INSTANCES.a, tokenA, sessionUrl, 'query', {
-      spaceId: 'general',
-      filter: { tags: { $in: ['test'] } },
-    });
-    const body = r.body;
-    assert.ok(
-      (body?.result?.isError !== true),
-      `False positive: valid $in query was errored out: ${JSON.stringify(body)}`
-    );
+      const rpc = await callTool('query', {
+        spaceId: 'general',
+        collection: 'memories',
+        filter: { tags: { $in: ['test'] } },
+      });
+      const result = rpc?.result ?? rpc;
+      assert.ok(
+        (result?.isError !== true),
+        `False positive: valid $in query was errored out: ${JSON.stringify(rpc)}`
+      );
+    } finally { close(); }
   });
 });

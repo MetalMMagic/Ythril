@@ -113,7 +113,7 @@ export interface UploadProgress {
 export interface Network {
   id: string;
   label: string;
-  type: 'closed' | 'democratic' | 'club' | 'braintree';
+  type: 'closed' | 'democratic' | 'club' | 'braintree' | 'pubsub';
   spaces: string[];
   members: NetworkMember[];
   votingDeadlineHours?: number;
@@ -125,7 +125,7 @@ export interface NetworkMember {
   instanceId: string;
   label: string;
   endpoint: string;
-  syncDirection?: 'both' | 'push';
+  syncDirection?: 'both' | 'push' | 'pull';
 }
 
 export interface InviteBundle {

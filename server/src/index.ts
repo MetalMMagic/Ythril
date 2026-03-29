@@ -86,6 +86,12 @@ async function main(): Promise<void> {
   }
 
   if (!isFirstRun) {
+    // Ensure the built-in general space exists even if config was manually
+    // edited or a previous test run left it missing.  Must run BEFORE
+    // initAllSpaces() so the general space collections get created.
+    const { ensureGeneralSpace } = await import('./spaces/spaces.js');
+    await ensureGeneralSpace();
+
     await initAllSpaces();
     await resetStaleWatermarksIfNeeded();
     startSyncScheduler();

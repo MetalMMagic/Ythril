@@ -81,11 +81,10 @@ describe('authRateLimit on POST /api/invite/apply (unauthenticated)', () => {
     // Each should be 400 (bad input) or eventually 429 (rate limit)
     assert.ok(statuses.every(s => s === 400 || s === 404 || s === 429),
       `Unexpected status codes: ${JSON.stringify(statuses)}`);
-    // After 10 invalid requests the 11th could be 429
+    // After 10 requests the 11th must be 429 — rate limit must be enforced
     const got429 = statuses.includes(429);
-    // 429 is expected if these 11 requests are within a 1-min window
-    // (may not always hit 429 if prior tests already exhausted the window)
-    assert.ok(got429 || statuses.every(s => s !== 200),
-      'All requests should fail (either 4xx or 429)');
+    assert.ok(got429,
+      `Expected at least one 429 (rate limit) in ${JSON.stringify(statuses)}. ` +
+      `If all are 400, the rate limiter may not be active on /api/invite/apply.`);
   });
 });

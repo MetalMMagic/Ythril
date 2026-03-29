@@ -583,14 +583,14 @@ describe('MCP brain tools — update_memory / delete_memory / get_stats', () => 
     assert.ok(result?.isError, 'Empty id must return isError');
   });
 
-  it('update_memory with no fields to update returns isError', async () => {
-    if (!storedMemoryId) return;
+  it('update_memory with no fields to update returns isError', async (t) => {
+    if (!storedMemoryId) return t.skip('No storedMemoryId — prior test failed');
     const result = await session.callTool('update_memory', { id: storedMemoryId });
     assert.ok(result?.isError, 'No update fields must return isError');
   });
 
-  it('update_memory updates tags on an existing memory', async () => {
-    if (!storedMemoryId) return;
+  it('update_memory updates tags on an existing memory', async (t) => {
+    if (!storedMemoryId) return t.skip('No storedMemoryId — prior test failed');
     const result = await session.callTool('update_memory', {
       id: storedMemoryId,
       tags: ['mcp-updated-tag'],
@@ -613,16 +613,16 @@ describe('MCP brain tools — update_memory / delete_memory / get_stats', () => 
     assert.ok(result?.isError, 'Empty id must return isError');
   });
 
-  it('delete_memory removes the memory', async () => {
-    if (!storedMemoryId) return;
+  it('delete_memory removes the memory', async (t) => {
+    if (!storedMemoryId) return t.skip('No storedMemoryId — prior test failed');
     const result = await session.callTool('delete_memory', { id: storedMemoryId });
     assert.ok(!result?.isError, `delete_memory returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes('deleted') || text.includes(storedMemoryId), `Expected deletion confirmation: ${text}`);
   });
 
-  it('delete_memory on already-deleted id returns isError', async () => {
-    if (!storedMemoryId) return;
+  it('delete_memory on already-deleted id returns isError', async (t) => {
+    if (!storedMemoryId) return t.skip('No storedMemoryId — prior test failed');
     const result = await session.callTool('delete_memory', { id: storedMemoryId });
     assert.ok(result?.isError, 'Double-delete must return isError');
   });

@@ -244,6 +244,9 @@ export const syncCyclesTotal = new Counter({
   labelNames: ['network', 'status'] as const,
   registers: [register],
 });
+// Pre-initialise so HELP/TYPE lines appear in /metrics from startup
+// (labelled counters are invisible until first .inc() in prom-client)
+syncCyclesTotal.labels({ network: '', status: 'success' }).inc(0);
 
 export const syncItemsPulledTotal = new Counter({
   name: 'ythril_sync_items_pulled_total',

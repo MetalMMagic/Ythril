@@ -4,6 +4,25 @@ All notable changes to Ythril are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-03-29
+
+### Added
+
+- **Pub/Sub network type**: Single publisher distributes knowledge to any number of subscribers. Auto-accept joins (no voting), reusable invite key, push-only data flow (publisher → subscribers). Publisher can remove subscribers unilaterally. Subscriber-local data is protected by UUIDv4 identity and author guard on tombstones.
+- **Sync direction enforcement**: `SyncDirection = 'both' | 'push' | 'pull'` on member records. Seven inbound sync POST endpoints (`/memories`, `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/tombstones`, `/file-tombstones`) now reject writes from peers whose `direction === 'push'` with `403`. Server-side complement to the engine's client-side skip logic.
+- **MCP `remember` input size limit**: `fact` field capped at 50 000 characters in the MCP handler, matching the existing REST API constraint. Prevents oversized facts from bypassing quota semantics.
+- Tests: `pubsub-topology.test.js` (sync), `direction-enforcement.test.js` (red-team), `mcp-security.test.js` (red-team) — 6 MCP SSE session tests covering recall_global scope isolation, oversized input rejection, operator injection blocklist, and depth-limited filters.
+
+### Fixed
+
+- **`requireSpaceAuth` scope bypass** (MEDIUM): Scoped tokens accessing non-existent spaces received `404` instead of `403` because `resolveMemberSpaces()` returned `[]` for unknown spaces, causing the scope check to silently pass. Now falls back to `[spaceId]` so the check correctly rejects.
+- **`reloadConfig()` missing `initSpace()`** (MEDIUM): Adding a new space to `config.json` and calling `POST /api/admin/reload-config` left the space without MongoDB collections, indexes, vector search index, or file directories until the next container restart. The endpoint now calls `ensureGeneralSpace()` and `initSpace()` for any newly added non-proxy spaces.
+- **`syncCyclesTotal` metric invisible at startup**: prom-client labeled counters don't emit HELP/TYPE lines until the first `.inc()` call. Pre-initialized with `.inc(0)` so the metric is discoverable by monitoring dashboards from startup.
+
+### Changed
+
+- Documentation updated: `sync-protocol.md` (direction enforcement section), `integration-guide.md` (pubsub type, reload-config behaviour, add-member pubsub notes, sync 403), `userguide.md` (pubsub rows in governance/removal tables), `contribution-guide.md` (test coverage descriptions).
+
 ## [0.5.1] — 2026-03-28
 
 ### Added

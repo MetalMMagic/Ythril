@@ -95,11 +95,10 @@ describe('Democratic network (3-member voting)', () => {
     }
   });
 
-  it('Majority yes (2 of 3) allows a member to join', async () => {
+  it('Majority yes (2 of 3) allows a member to join', async (t) => {
     const members = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
     if ((members.body.members?.length ?? 0) < 2) {
-      console.log(`  Not enough members for this test — skipping`);
-      return;
+      return t.skip('Not enough members for this test');
     }
 
     const dPeer = await post(INSTANCES.a, tokenA, '/api/tokens', { name: 'dem-peer-d' });
@@ -112,7 +111,7 @@ describe('Democratic network (3-member voting)', () => {
       token: dPeer.body.plaintext,
       direction: 'both',
     });
-    if (addD.status !== 202) { console.log(`  Open round not triggered — skipping`); return; }
+    if (addD.status !== 202) return t.skip(`Open round not triggered (got ${addD.status})`);
 
     const roundId = addD.body.roundId;
     // Cast yes from A

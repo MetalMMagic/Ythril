@@ -25,7 +25,7 @@ const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
 let tokenA, tokenB;
 
 describe('Network CRUD', () => {
-  let closedNetId, democraticNetId, clubNetId, braintreeNetId;
+  let closedNetId, democraticNetId, clubNetId, braintreeNetId, pubsubNetId;
 
   before(() => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
@@ -81,6 +81,18 @@ describe('Network CRUD', () => {
     braintreeNetId = r.body.id;
   });
 
+  it('Create a pubsub network', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/networks', {
+      label: 'Governance Test Pubsub',
+      type: 'pubsub',
+      spaces: ['general'],
+      votingDeadlineHours: 1,
+    });
+    assert.equal(r.status, 201);
+    assert.equal(r.body.type, 'pubsub');
+    pubsubNetId = r.body.id;
+  });
+
   it('Networks are listed after creation', async () => {
     const r = await get(INSTANCES.a, tokenA, '/api/networks');
     assert.equal(r.status, 200);
@@ -108,7 +120,7 @@ describe('Network CRUD', () => {
   });
 
   after(async () => {
-    for (const id of [closedNetId, democraticNetId, clubNetId, braintreeNetId]) {
+    for (const id of [closedNetId, democraticNetId, clubNetId, braintreeNetId, pubsubNetId]) {
       if (id) await del(INSTANCES.a, tokenA, `/api/networks/${id}`).catch(() => {});
     }
   });
@@ -446,5 +458,123 @@ describe('About endpoint', () => {
   it('GET /api/about requires auth', async () => {
     const r = await get(INSTANCES.a, 'invalid-token', '/api/about');
     assert.equal(r.status, 401);
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Pub/Sub governance — join without approval, publisher-only removal
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('Pub/Sub network governance', () => {
+  let networkId;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+
+    const r = await post(INSTANCES.a, tokenA, '/api/networks', {
+      label: 'PubSub Governance Test',
+      type: 'pubsub',
+      spaces: ['general'],
+      votingDeadlineHours: 1,
+    });
+    assert.equal(r.status, 201);
+    networkId = r.body.id;
+  });
+
+  it('Add subscriber directly (no vote round) — returns 201', async () => {
+    const r = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/members`, {
+      instanceId: 'pubsub-sub-1',
+      label: 'Subscriber One',
+      url: 'http://ythril-b:3200',
+      token: 'ythril_pubsub_test_token_sub1',
+      direction: 'both', // will be forced to 'push' by server
+    });
+    assert.equal(r.status, 201, `Expected 201 (direct add), got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(r.body.instanceId, 'Should return member data');
+  });
+
+  it('Subscriber direction is forced to push', async () => {
+    const r = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
+    assert.equal(r.status, 200);
+    const sub = r.body.members?.find(m => m.instanceId === 'pubsub-sub-1');
+    assert.ok(sub, 'Subscriber should be listed');
+    assert.equal(sub.direction, 'push', 'Subscriber direction must be push (publisher pushes to them)');
+  });
+
+  it('Remove subscriber directly (no vote round) — returns 204', async () => {
+    const r = await del(INSTANCES.a, tokenA, `/api/networks/${networkId}/members/pubsub-sub-1`);
+    assert.equal(r.status, 204, `Expected 204, got ${r.status}`);
+
+    // Verify member is gone
+    const netR = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
+    const sub = netR.body.members?.find(m => m.instanceId === 'pubsub-sub-1');
+    assert.ok(!sub, 'Subscriber should be removed');
+  });
+
+  it('Join via invite key auto-accepts subscriber with push direction', async () => {
+    // Generate invite key
+    const invR = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/invite`, {});
+    assert.ok(invR.body.inviteKey, 'Invite key should be returned');
+
+    // Join via invite key
+    const joinR = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/join`, {
+      inviteKey: invR.body.inviteKey,
+      instanceId: 'pubsub-sub-2',
+      label: 'Subscriber Two',
+      url: 'http://ythril-b:3200',
+      token: 'ythril_pubsub_test_token_sub2',
+      direction: 'both',
+    });
+    assert.equal(joinR.status, 200, `Expected 200 (direct join), got ${joinR.status}: ${JSON.stringify(joinR.body)}`);
+    assert.equal(joinR.body.status, 'joined', 'Should join immediately without voting');
+
+    // Verify direction was forced to push
+    const netR = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
+    const sub = netR.body.members?.find(m => m.instanceId === 'pubsub-sub-2');
+    assert.ok(sub, 'Subscriber should be listed after invite-key join');
+    assert.equal(sub.direction, 'push', 'Direction must be push for pubsub subscriber');
+
+    // ── Reusable key: a second subscriber can join with the same key ──
+    const joinR2 = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/join`, {
+      inviteKey: invR.body.inviteKey,
+      instanceId: 'pubsub-sub-3',
+      label: 'Subscriber Three',
+      url: 'http://ythril-b:3200',
+      token: 'ythril_pubsub_test_token_sub3',
+      direction: 'both',
+    });
+    assert.equal(joinR2.status, 200, `Reusable key: Expected 200, got ${joinR2.status}: ${JSON.stringify(joinR2.body)}`);
+    assert.equal(joinR2.body.status, 'joined', 'Second subscriber should also join with same key');
+
+    // Cleanup extra subscribers
+    await del(INSTANCES.a, tokenA, `/api/networks/${networkId}/members/pubsub-sub-2`).catch(() => {});
+    await del(INSTANCES.a, tokenA, `/api/networks/${networkId}/members/pubsub-sub-3`).catch(() => {});
+  });
+
+  it('Direction "pull" is preserved by add-member API (subscriber adding publisher)', async () => {
+    // The 'pull' direction is used by the subscriber's local config (set in join-remote
+    // or manual setup). The API must respect it so subscribers can manually add the
+    // publisher with the correct direction.
+    const r = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/members`, {
+      instanceId: 'pubsub-sub-pull',
+      label: 'Subscriber Pull Test',
+      url: 'http://ythril-b:3200',
+      token: 'ythril_pubsub_test_token_pull',
+      direction: 'pull',
+    });
+    assert.equal(r.status, 201, `Expected 201, got ${r.status}: ${JSON.stringify(r.body)}`);
+
+    // 'pull' must be preserved — subscribers need this to store the publisher correctly
+    const netR = await get(INSTANCES.a, tokenA, `/api/networks/${networkId}`);
+    const sub = netR.body.members?.find(m => m.instanceId === 'pubsub-sub-pull');
+    assert.ok(sub, 'Member should exist');
+    assert.equal(sub.direction, 'pull', 'Explicit pull direction must be preserved for subscriber-side manual setup');
+
+    // Cleanup
+    await del(INSTANCES.a, tokenA, `/api/networks/${networkId}/members/pubsub-sub-pull`);
+  });
+
+  after(async () => {
+    if (networkId) await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
   });
 });

@@ -2,22 +2,18 @@
  * Red-team tests: SSRF via invite handshake instanceUrl.
  *
  * The invite /apply endpoint accepts an `instanceUrl` via ApplyBody.
- * The schema uses `z.string().url()` — plain Zod URL validation — NOT the
- * `isSsrfSafeUrl()` SSRF validator used on the /networks member URL.
+ * The schema now uses `INVITE_SSRF_SAFE_URL` (Zod `.url().refine(isSsrfSafeUrl)`)
+ * which blocks private IPs, cloud metadata endpoints, loopback, and ULA/link-local
+ * addresses — same validator used on the /networks member URL.
  *
- * This means an attacker can perform the invite handshake using a crafted
- * instanceUrl pointing at:
+ * These tests are regression guards that verify the SSRF validator rejects:
  *   - Cloud metadata endpoints (169.254.169.254, metadata.google.internal)
  *   - RFC-1918 private hosts
  *   - Localhost
  *   - IPv6 ULA / link-local
+ *   - URLs with embedded credentials
  *
- * The invite flow stores this URL in the pending member record and later
- * commits it to the network config.  If the server later POSTs sync data
- * to that URL, it will reach an internal host.
- *
- * These tests are EXPECTED TO FAIL until instanceUrl in ApplyBody is
- * changed to use the SSRF_SAFE_URL validator.
+ * All tests should PASS. If any fail, the SSRF validator has regressed.
  *
  * Run: node --test testing/red-team-tests/ssrf-invite.test.js
  */

@@ -385,7 +385,7 @@ inviteRouter.post('/finalize', authRateLimit, async (req, res) => {
       label: instanceLabel,
       url: instanceUrl,
       tokenHash,
-      direction: net.type === 'braintree' ? 'push' : 'both',
+      direction: (net.type === 'braintree' || net.type === 'pubsub') ? 'push' : 'both',
       lastSyncAt: undefined,
       lastSeqReceived: {},
       children: net.type === 'braintree' ? [] : undefined,

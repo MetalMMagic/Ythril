@@ -1166,7 +1166,7 @@ POST /api/networks
 }
 ```
 
-**Network types**: `closed` (unanimous vote), `democratic` (majority), `club` (proposer only), `braintree` (tree hierarchy).
+**Network types**: `closed` (unanimous vote), `democratic` (majority), `club` (proposer only), `braintree` (tree hierarchy), `pubsub` (auto-join publisher/subscriber, push-only).
 
 **Response** `201`: the created network object.
 
@@ -1212,6 +1212,8 @@ POST /api/networks/:id/members
 
 In `closed`/`democratic` networks this opens a voting round.
 In `club` networks the member is added immediately.
+In `braintree` networks all ancestors up to the root must approve.
+In `pubsub` networks the subscriber is added immediately with `direction` forced to `push` (publisher pushes to subscriber) regardless of the request body value.
 
 ---
 
@@ -1993,7 +1995,7 @@ POST /api/admin/reload-config
 Authorization: Bearer <admin-token>
 ```
 
-Re-reads `config.json` from disk. Useful after manual edits.
+Re-reads `config.json` from disk. Useful after manual edits. Any spaces added to the config since the last load are automatically initialized (MongoDB collections, indexes, vector search index, and file directories created). The built-in `general` space is ensured to exist.
 
 **Response** `200`:
 

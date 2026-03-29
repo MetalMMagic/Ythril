@@ -595,10 +595,20 @@ describe('Brain — bulk memory wipe', () => {
   });
 
   it('Tombstones were written for wiped memories', async () => {
-    // Query only tombstones created after our seq watermark
-    const r = await get(INSTANCES.a, tokenA, `/api/sync/tombstones?spaceId=${WIPE_SPACE}&sinceSeq=${seqBefore}`);
-    assert.equal(r.status, 200, JSON.stringify(r.body));
-    const tombIds = (r.body.memories ?? []).map(t => t._id);
+    // Query tombstones created after our seq watermark; paginate if needed
+    let tombIds = [];
+    let sinceSeq = seqBefore;
+    for (let page = 0; page < 10; page++) {
+      const r = await get(INSTANCES.a, tokenA, `/api/sync/tombstones?spaceId=${WIPE_SPACE}&sinceSeq=${sinceSeq}`);
+      assert.equal(r.status, 200, JSON.stringify(r.body));
+      const batch = r.body.memories ?? [];
+      if (batch.length === 0) break;
+      tombIds.push(...batch.map(t => t._id));
+      // Advance past this page's highest seq
+      const maxSeq = Math.max(...batch.map(t => t.seq ?? 0));
+      if (maxSeq <= sinceSeq) break; // no progress
+      sinceSeq = maxSeq;
+    }
     for (const id of seededIds) {
       assert.ok(tombIds.includes(id), `Tombstone for ${id} should exist (got ${tombIds.length} tombstones since seq ${seqBefore})`);
     }

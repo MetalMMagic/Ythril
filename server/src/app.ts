@@ -19,10 +19,11 @@ import { themeRouter } from './api/theme.js';
 import { setupRouter } from './setup/routes.js';
 import { mcpRouter } from './mcp/router.js';
 import { globalRateLimit } from './rate-limit/middleware.js';
-import { configExists, reloadConfig } from './config/loader.js';
+import { configExists, reloadConfig, getConfig } from './config/loader.js';
 import { requireAuth } from './auth/middleware.js';
 import { clearTokenCache } from './auth/tokens.js';
 import { clearOidcCache } from './auth/oidc.js';
+import { initSpace, ensureGeneralSpace } from './spaces/spaces.js';
 import { log } from './util/log.js';
 import { getReadiness } from './ready.js';
 import {
@@ -153,12 +154,22 @@ export function createApp() {
   // Reload config.json from disk without a container restart.  Useful when the
   // operator edits config.json directly or when integration tests inject new
   // settings.  Requires a valid Bearer PAT (same auth as all other API routes).
-  app.post('/api/admin/reload-config', globalRateLimit, requireAuth, (_req, res) => {
+  app.post('/api/admin/reload-config', globalRateLimit, requireAuth, async (_req, res) => {
     try {
+      const oldSpaceIds = new Set(getConfig().spaces.map(s => s.id));
       reloadConfig();
       // Flush caches so revoked tokens and updated OIDC config take effect immediately
       clearTokenCache();
       clearOidcCache();
+      // Ensure the built-in general space survives config edits
+      await ensureGeneralSpace();
+      // Initialise any spaces that were added to the config file
+      const newCfg = getConfig();
+      for (const space of newCfg.spaces) {
+        if (!oldSpaceIds.has(space.id) && !space.proxyFor) {
+          await initSpace(space.id);
+        }
+      }
       res.json({ ok: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -349,11 +349,11 @@ async function runSyncForMember(
 
   for (const spaceId of net.spaces) {
     // Push to this member if the direction allows it (push or both).
-    // Pull from this member if bidirectional (both), or for non-braintree networks.
-    // Braintree with direction='push': parent pushes down, child never pushes up.
-    const isBraintree = net.type === 'braintree';
-    const shouldPull = member.direction === 'both' || !isBraintree;
-    const shouldPush = member.direction === 'both' || member.direction === 'push';
+    // Pull from this member if bidirectional (both), or for non-directional networks.
+    // Braintree/Pubsub with direction='push': parent/publisher pushes down, child/subscriber never pushes up.
+    const isDirectional = net.type === 'braintree' || net.type === 'pubsub';
+    const shouldPull = !isDirectional || member.direction === 'both' || member.direction === 'pull';
+    const shouldPush = !isDirectional || member.direction === 'both' || member.direction === 'push';
 
     if (shouldPull) {
       const pc = await pullFromPeer(member, spaceId, net.id, headers, fetchOpts, batchFetchOpts);
@@ -364,9 +364,11 @@ async function runSyncForMember(
       pushed.memories += pc.memories; pushed.entities += pc.entities; pushed.edges += pc.edges; pushed.chrono += pc.chrono;
     }
 
-    // Sync file manifest
-    const fc = await syncFiles(member, spaceId, net.id, headers, fetchOpts);
-    pulled.files += fc.pulledFiles; pushed.files += fc.pushedFiles;
+    // Sync file manifest — respect direction guards like pull/push above
+    if (shouldPull || shouldPush) {
+      const fc = await syncFiles(member, spaceId, net.id, headers, fetchOpts, shouldPull, shouldPush);
+      pulled.files += fc.pulledFiles; pushed.files += fc.pushedFiles;
+    }
 
     // Merkle integrity check (opt-in: network.merkle === true)
     if (net.merkle) {
@@ -811,8 +813,8 @@ async function pushToPeer(
   // of how many documents have accumulated since the last sync.
   // Braintree nodes relay docs from all peers; other topologies only push their own authored docs
   // to prevent foreign docs (e.g. received from a third instance) from polluting peers' watermarks.
-  const isBraintree = freshNet?.type === 'braintree';
-  const ownedFilter = isBraintree ? {} : { 'author.instanceId': cfg.instanceId };
+  const isDirectionalType = freshNet?.type === 'braintree' || freshNet?.type === 'pubsub';
+  const ownedFilter = isDirectionalType ? {} : { 'author.instanceId': cfg.instanceId };
 
   let maxSeqPushed = lastSeqPushed;
   let pushFailed = false;
@@ -885,13 +887,15 @@ async function syncFiles(
   networkId: string,
   headers: Record<string, string>,
   opts: RequestInit,
+  doPull = true,
+  doPush = true,
 ): Promise<{ pulledFiles: number; pushedFiles: number }> {
   let pulledFiles = 0, pushedFiles = 0;
   try {
     // ── 1. Apply peer's file tombstones (deletions) first ─────────────────
     // Fetch tombstones before the manifest so that files deleted on the peer
     // are removed locally before the manifest comparison runs.
-    try {
+    if (doPull) try {
       const tsResp = await fetch(
         `${member.url}/api/sync/file-tombstones?spaceId=${encodeURIComponent(spaceId)}&networkId=${encodeURIComponent(networkId)}`,
         opts,
@@ -919,13 +923,13 @@ async function syncFiles(
 
     // ── 1b. Push our file tombstones to the peer ──────────────────────────
     // Files we deleted locally must be propagated to the peer so they disappear there too.
-    try {
+    if (doPush) try {
       const ourTombstones = await col<FileTombstoneDoc>(`${spaceId}_file_tombstones`)
         .find({ spaceId } as never)
         .toArray();
       if (ourTombstones.length > 0) {
         await fetch(
-          `${member.url}/api/sync/file-tombstones`,
+          `${member.url}/api/sync/file-tombstones?networkId=${encodeURIComponent(networkId)}`,
           {
             ...opts,
             method: 'POST',
@@ -939,6 +943,9 @@ async function syncFiles(
     }
 
     // ── 2. Fetch peer manifest and download new/changed files ─────────────
+    // Only fetch the peer manifest if we need to pull or push (manifest comparison
+    // drives both directions). When neither direction needs manifest, skip entirely.
+    if (!doPull && !doPush) return { pulledFiles, pushedFiles };
     const resp = await fetch(`${member.url}/api/sync/manifest?spaceId=${encodeURIComponent(spaceId)}&networkId=${encodeURIComponent(networkId)}`, opts);
     if (!resp.ok) { log.warn(`File manifest from ${member.label}: ${resp.status}`); return { pulledFiles, pushedFiles }; }
     const { manifest } = await resp.json() as { manifest: { path: string; sha256: string; size: number; modifiedAt: string }[] };
@@ -950,7 +957,7 @@ async function syncFiles(
     const dataRoot = getDataRoot();
     const spaceRoot = path.resolve(dataRoot, 'files', spaceId);
 
-    for (const remote of manifest) {
+    if (doPull) for (const remote of manifest) {
       const local = oursMap.get(remote.path);
       if (local && local.sha256 === remote.sha256) continue; // already in sync
 
@@ -1012,6 +1019,7 @@ async function syncFiles(
     // • Peer doesn't have the file at all → push new
     // • Peer has an older version (our modifiedAt > peer modifiedAt) → push update
     // • Peer is at same version or newer → skip (pull step handled that)
+    if (doPush) {
     const peerManifestMap = new Map(manifest.map(e => [e.path, e]));
     for (const [localPath, localEntry] of oursMap) {
       const peerEntry = peerManifestMap.get(localPath);
@@ -1045,6 +1053,7 @@ async function syncFiles(
         log.warn(`Push file '${localPath}' to ${member.label}: ${err}`);
       }
     }
+    } // end doPush
   } catch (err) {
     log.warn(`syncFiles for ${member.label} space ${spaceId}: ${err}`);
   }

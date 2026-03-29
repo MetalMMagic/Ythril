@@ -19,6 +19,16 @@ A sync cycle for a single member consists of four phases in order:
 
 Phases 1 and 2 are gated by [watermarks](#watermarks) so only new or changed documents travel over the wire. Phase 3 is manifest-based and equally incremental. Phase 4 propagates identity metadata across the member graph.
 
+Which phases run for a given member depends on the `member.direction` field:
+
+| Direction | Pull | Push | Used by |
+|-----------|------|------|---------|
+| `both`    | ✓    | ✓    | Closed, Democratic, Club (default) |
+| `push`    | ✗    | ✓    | Braintree parent → child, Pub/Sub publisher → subscriber |
+| `pull`    | ✓    | ✗    | Pub/Sub subscriber → publisher |
+
+For non-directional networks (`closed`, `democratic`, `club`), pull and push always run regardless of the direction field.
+
 ---
 
 ## Trigger
@@ -71,11 +81,21 @@ With `?full=true` the full document payload is embedded in the paginated list re
 
 Tombstones are fetched before documents so that a deletion that arrived at the peer applies before the engine could accidentally re-insert the same document that was just deleted. After tombstones are applied, items appearing in the list with a `deletedAt` field are skipped (they're stubs that the tombstone phase already handled).
 
+### Tombstone author guard
+
+When `applyRemoteTombstone` processes an incoming tombstone it compares `tombstone.instanceId` (the instance that issued the delete) with `localDoc.author.instanceId` (the instance that created the document). If they differ, the local document is **not deleted**. This prevents a remote deletion from destroying locally-authored content — critical for pubsub subscribers and braintree leaves that may have their own data alongside pushed content.
+
+Documents without `author` metadata (legacy, pre-author-field data) are deleted unconditionally since authorship cannot be determined.
+
+### Document ID collision safety
+
+All document `_id` values (`memories`, `entities`, `edges`, `chrono`) are **UUIDv4** — 122 bits of cryptographic randomness from Node.js `uuid` v4. The probability of two independent instances generating the same `_id` is astronomically low (~2.7 × 10⁻²⁰ after 1 billion documents). In practice, a publisher's tombstone targeting `_id = X` will never match a subscriber-created document because the subscriber's documents will always have different UUIDv4 identifiers. The tombstone author guard is a defence-in-depth layer on top of this structural guarantee.
+
 ### `lastSeqReceived` update
 
 After all three document types are pulled, `lastSeqReceived[spaceId]` is advanced to the highest `seq` seen **among documents authored by the peer** (`doc.author.instanceId === member.instanceId`) and written to config. On the next cycle the watermark is passed as `sinceSeq` so the peer returns only documents newer than that point.
 
-Docs that originate from a third instance but were relayed through the peer (e.g. during braintree fanout) deliberately do not advance the watermark. Those relayed docs may carry a `seq` assigned by their true author's counter, which can be much higher than the peer's own counter. Allowing them to advance `lastSeqReceived` would cause the engine to skip the peer's locally-written documents on the next pull.
+Docs that originate from a third instance but were relayed through the peer (e.g. during braintree or pubsub fanout) deliberately do not advance the watermark. Those relayed docs may carry a `seq` assigned by their true author's counter, which can be much higher than the peer's own counter. Allowing them to advance `lastSeqReceived` would cause the engine to skip the peer's locally-written documents on the next pull.
 
 ---
 
@@ -111,7 +131,7 @@ After a successful batch push, `lastSeqPushed[spaceId]` is advanced to the highe
 
 Relayed docs (received from a third peer and stored locally) are pushed to other members but do **not** advance `lastSeqPushed`. Their seq values belong to the originating instance's counter and could be arbitrarily higher than the local counter, which would incorrectly suppress future pushes of this instance's own work.
 
-**Non-braintree push filter**: for `closed`, `democratic`, and `club` networks, only documents authored by this instance are queried for push (`{ seq: { $gt: lastSeqPushed }, 'author.instanceId': cfg.instanceId }`). This prevents echoing a peer's own documents back to them. For `braintree` networks no author filter is applied — relay of third-party docs through the tree is the intended topology.
+**Non-directional push filter**: for `closed`, `democratic`, and `club` networks, only documents authored by this instance are queried for push (`{ seq: { $gt: lastSeqPushed }, 'author.instanceId': cfg.instanceId }`). This prevents echoing a peer's own documents back to them. For `braintree` and `pubsub` networks no author filter is applied — relay of third-party docs through the tree (or star) is the intended topology.
 
 ---
 
@@ -170,6 +190,23 @@ In a braintree network, `member.direction` controls which phases run:
 | `push` | no | yes |
 
 A leaf node has `direction='push'` toward its parent — meaning the engine pushes down to children and only the parent pulls from its own source. Data does not travel upward.
+
+---
+
+## Direction enforcement on inbound endpoints
+
+The direction field controls not only which phases the sync *engine* runs on the initiating side, but also which writes the *receiving server* accepts.
+
+When a peer POSTs data to any write endpoint (`/api/sync/memories`, `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/tombstones`, `/file-tombstones`), the server looks up the caller's member record in the network. If `member.direction === 'push'` — meaning "we push to them, they should not write to us" — the server responds `403 { error: 'Direction enforcement: inbound writes blocked for this member' }`.
+
+This is the server-side complement to the engine's client-side skip logic. Together they guarantee:
+
+| Scenario | Engine (client) | Server (receiver) |
+|----------|----------------|-------------------|
+| Braintree parent → child | Parent pushes, child does not push back | Child rejects POST from parent's subtree peers |
+| Pub/Sub publisher → subscriber | Publisher pushes, subscriber does not push | Publisher rejects POST from subscribers |
+
+Bidirectional network types (`closed`, `democratic`, `club`) always have `direction='both'` on all members, so the guard never fires.
 
 ---
 
@@ -235,6 +272,8 @@ All endpoints are under `/api/sync` and require a `Bearer` token that resolves t
 | `POST` | `/api/sync/edges` | `EdgeDoc` | `200 { status:'ok' }` |
 | `POST` | `/api/sync/batch-upsert` | `{ memories?, entities?, edges?, chrono? }` | `200 { status:'ok', memories:{…}, entities:{…}, edges:{…}, chrono:{…} }` |
 | `POST` | `/api/sync/tombstones` | `{ tombstones[] }` | `200 { applied: N }` |
+
+All write endpoints enforce direction policy: if the caller's `member.direction === 'push'` in the network, the server returns `403`. See [Direction enforcement on inbound endpoints](#direction-enforcement-on-inbound-endpoints).
 
 `POST /batch-upsert` is the primary push path used by the engine. The individual `POST /memories`, `/entities`, `/edges` endpoints remain for backwards compatibility and direct API usage.
 

@@ -108,16 +108,19 @@ import { ApiService, InviteBundle, Network, SyncHistoryRecord, VoteRound } from 
             <option value="democratic">Democratic (majority vote)</option>
             <option value="club">Club (supermajority)</option>
             <option value="braintree">Braintree (hierarchical)</option>
+            <option value="pubsub">Pub/Sub (publisher → subscribers)</option>
           </select>
         </div>
         <div class="field" style="margin-bottom:0;">
           <label>Spaces (comma-separated IDs)</label>
           <input type="text" [(ngModel)]="form.spaces" name="spaces" placeholder="general" />
         </div>
-        <div class="field" style="margin-bottom:0;">
-          <label>Voting deadline (hours)</label>
-          <input type="number" [(ngModel)]="form.votingDeadlineHours" name="deadline" min="1" max="72" />
-        </div>
+        @if (form.type !== 'pubsub') {
+          <div class="field" style="margin-bottom:0;">
+            <label>Voting deadline (hours)</label>
+            <input type="number" [(ngModel)]="form.votingDeadlineHours" name="deadline" min="1" max="72" />
+          </div>
+        }
         <button
           class="btn-primary btn"
           type="submit"
@@ -210,8 +213,14 @@ import { ApiService, InviteBundle, Network, SyncHistoryRecord, VoteRound } from 
               <div style="margin-bottom:16px; margin-top:12px;">
                 <div class="section-title">Invite</div>
                 <p style="font-size:12px; color:var(--text-muted); margin:0 0 8px;">
-                  Generate a one-time invite bundle and share it with the brain you want to connect to.
-                  The invite expires after 24 hours.
+                  @if (net.type === 'pubsub') {
+                    Generate a reusable invite bundle. Share it in documentation,
+                    QR codes, or anywhere — subscribers can join without approval.
+                    Regenerating a new bundle revokes the previous one.
+                  } @else {
+                    Generate a one-time invite bundle and share it with the brain you want to connect to.
+                    The invite expires after 24 hours.
+                  }
                 </p>
                 @if (inviteBundle(net.id); as bundle) {
                   <div class="code-block" style="margin-bottom:8px; font-size:11px; white-space:pre-wrap; word-break:break-all;">{{ bundleJson(bundle) }}</div>
@@ -606,6 +615,7 @@ export class NetworksComponent implements OnInit {
       democratic: 'badge-green',
       club: 'badge-blue',
       braintree: 'badge-purple',
+      pubsub: 'badge-orange',
     };
     return map[type] ?? 'badge-gray';
   }

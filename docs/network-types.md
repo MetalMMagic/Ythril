@@ -38,7 +38,7 @@ A brain's spaces are isolated from each other. A network is scoped to specific s
 | **Democratic** | ≥ 50% + zero vetoes | ≥ 50% + zero vetoes | Explicit — any member may veto |
 | **Club** | The member who issued the key | The member who proposed removal | None |
 | **Braintree** | All ancestors from inviter to root | All ancestors from target to root | Implicit per ancestor |
-| ~~**Open**~~ | Automatic | — | None — **excluded from v1; not implemented** |
+| **Pub/Sub** | Automatic (no approval needed) | Publisher only | None |
 
 ---
 
@@ -212,6 +212,69 @@ sequenceDiagram
 
 > **If A1 does not voluntarily depart but A goes offline**, Root can instead do a reparent invite to reconnect A1 directly. See [Offline peers and silent departure](#offline-peers-and-silent-departure).
 
+---
+
+## Pub/Sub network
+
+A single publisher distributes knowledge to any number of subscribers. Subscribers join without approval — no voting, no invite accept step. The publisher controls content; subscribers receive only. Data flows **publisher → subscribers** (push-only). Subscribers can leave at any time; the publisher can remove any subscriber unilaterally.
+
+Designed for publicly available knowledge: documentation, reference data, policy libraries, curated datasets — anything where interested parties should be able to subscribe without friction.
+
+```mermaid
+graph TD
+    Pub["Publisher\n(content authority)"]
+    S1["Subscriber 1"]
+    S2["Subscriber 2"]
+    S3["Subscriber 3"]
+    S4["Subscriber 4"]
+
+    Pub -->|push| S1
+    Pub -->|push| S2
+    Pub -->|push| S3
+    Pub -->|push| S4
+
+    style Pub fill:#5c3a1a,color:#eee,stroke:#e38625
+    style S1  fill:#3a2a1a,color:#eee,stroke:#cc8844
+    style S2  fill:#3a2a1a,color:#eee,stroke:#cc8844
+    style S3  fill:#3a2a1a,color:#eee,stroke:#cc8844
+    style S4  fill:#3a2a1a,color:#eee,stroke:#cc8844
+```
+
+**Subscriber joining:**
+
+```mermaid
+sequenceDiagram
+    participant S as Subscriber (new)
+    participant P as Publisher
+
+    S->>P: POST /api/networks/:id/join (invite key)
+    P->>P: auto-accept — no vote round
+    P-->>S: member list + sync starts
+    Note over P,S: publisher stores subscriber direction=push<br/>subscriber stores publisher direction=pull<br/>content flows publisher → subscriber only
+```
+
+No vote round opens. No other members are consulted. The invite key is **reusable** — unlike other network types where the key is consumed after a single join, pubsub keys persist until the publisher generates a new one (which revokes the old). This allows the key to be embedded in documentation pages, QR codes, or shared openly.
+
+**Subscriber-local data safety:**
+
+Subscribers may add their own content to the synced spaces. Publisher-pushed content coexists alongside subscriber-local content — it is never overwritten or displaced. If the publisher deletes a document, the tombstone only removes the publisher's copy on the subscriber; subscriber-authored documents are unaffected. Two layers of protection guarantee this:
+
+1. **UUIDv4 identity** — every document `_id` is a UUIDv4 (122 bits of randomness). Two independent instances will never generate the same ID, so a publisher's tombstone structurally cannot target a subscriber-created document.
+2. **Author guard** — even if IDs hypothetically collided, `applyRemoteTombstone` compares `tombstone.instanceId` against `localDoc.author.instanceId` and skips the delete when they differ.
+
+See [Tombstone author guard](sync-protocol.md#tombstone-author-guard) and [Document ID collision safety](sync-protocol.md#document-id-collision-safety) in the sync protocol for details. The same protection applies to all directional network types (braintree, pubsub).
+
+**Key differences from Braintree:**
+
+| | Braintree | Pub/Sub |
+|---|-----------|---------|
+| **Topology** | Arbitrary depth tree | Flat — publisher + subscribers (depth 1) |
+| **Join approval** | All ancestors must vote yes | Automatic (no approval) |
+| **Removal** | Ancestor voting | Publisher removes directly |
+| **Use case** | Organisational hierarchy, cascading knowledge | Public distribution, documentation, reference data |
+
+---
+
 ## Offline peers and silent departure
 
 ### Temporarily offline (vacation scenario)
@@ -369,10 +432,10 @@ graph TD
         M1 <--> M3
     end
 
-    subgraph "Star / pub-sub (Braintree depth=1)"
-        Hub -->|push| L1
-        Hub -->|push| L2
-        Hub -->|push| L3
+    subgraph "Star / pub-sub (Pub/Sub)"
+        Hub["Publisher"] -->|push| L1["Sub 1"]
+        Hub -->|push| L2["Sub 2"]
+        Hub -->|push| L3["Sub 3"]
     end
 
     subgraph "Chain (Braintree width=1)"

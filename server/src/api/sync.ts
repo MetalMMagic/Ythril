@@ -1,5 +1,5 @@
-/**
- * Sync protocol endpoints — called by remote peer instances.
+﻿/**
+ * Sync protocol endpoints â€” called by remote peer instances.
  *
  * Authentication: validated against the network member's tokenHash using the
  * same Bearer token mechanism as client tokens, but via a separate lookup
@@ -31,7 +31,7 @@ import type {
 
 export const syncRouter = Router();
 
-// ── Safety limits ─────────────────────────────────────────────────────────
+// â”€â”€ Safety limits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Upper bound on any seq value accepted from a remote peer.
@@ -39,7 +39,7 @@ export const syncRouter = Router();
  * to permanently poison the high-water mark, causing all future legitimate
  * writes by other peers to be silently ignored.
  *
- * 2^50 ≈ 1.1 quadrillion — larger than any realistic counter, but safely
+ * 2^50 â‰ˆ 1.1 quadrillion â€” larger than any realistic counter, but safely
  * below MAX_SAFE_INTEGER so that nextSeq() arithmetic stays in safe range.
  */
 const MAX_SYNC_SEQ = 2 ** 50; // 1_125_899_906_842_624
@@ -51,7 +51,7 @@ const MAX_SYNC_SEQ = 2 ** 50; // 1_125_899_906_842_624
  */
 const MAX_FORK_DEPTH = 10;
 
-// ── Incoming document schemas (Zod validation for peer-submitted docs) ─────
+// â”€â”€ Incoming document schemas (Zod validation for peer-submitted docs) â”€â”€â”€â”€â”€
 
 const AuthorRefSchema = z.object({
   instanceId: z.string().min(1),
@@ -124,7 +124,7 @@ const IncomingChronoDoc = z.object({
   seq: z.number().int().nonnegative().max(MAX_SYNC_SEQ),
 });
 
-// ── Paginated cursor helpers ─────────────────────────────────────────────────
+// â”€â”€ Paginated cursor helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function encodeCursor(seq: number): string {
   return Buffer.from(String(seq)).toString('base64url');
@@ -134,7 +134,7 @@ function decodeCursor(token: string): number {
   catch { return 0; }
 }
 
-// ── Space access guard ─────────────────────────────────────────────────────
+// â”€â”€ Space access guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * Returns true if:
@@ -150,16 +150,39 @@ function spaceAllowed(spaceId: string, networkId?: string, tokenSpaces?: string[
   // If no networkId given, allow any known space
   if (!networkId) return cfg.spaces.some(s => s.id === spaceId);
   const net = cfg.networks.find(n => n.id === networkId);
-  // networkId not found locally — fall back to checking the space exists.
+  // networkId not found locally â€” fall back to checking the space exists.
   // This handles asymmetric networks where the caller has the network config
   // but the recipient does not (e.g. single-side configured networks).
   if (!net) return cfg.spaces.some(s => s.id === spaceId);
   return net.spaces.includes(spaceId);
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * For directional networks (braintree, pubsub), reject inbound writes from
+ * members whose direction is 'push'. Direction is stored from THIS instance's
+ * perspective:
+ *   direction='push'  â†’ we push TO them â†’ they must NOT push to us
+ *   direction='pull'  â†’ we pull FROM them â†’ they may push to us (data source)
+ *   direction='both'  â†’ bidirectional â†’ accept
+ *
+ * Returns true if the write should be REJECTED (403).
+ */
+function isDirectionalWriteBlocked(networkId: string | undefined, authToken: Record<string, unknown> | undefined): boolean {
+  const peerInstanceId = authToken && typeof authToken['peerInstanceId'] === 'string' ? authToken['peerInstanceId'] : undefined;
+  if (!networkId || !peerInstanceId) return false;
+  const cfg = getConfig();
+  const net = cfg.networks.find(n => n.id === networkId);
+  if (!net) return false;
+  if (net.type !== 'braintree' && net.type !== 'pubsub') return false;
+  const member = net.members.find(m => m.instanceId === peerInstanceId);
+  if (!member) return false;
+  // direction='push' means WE push to THEM â€” they should not be writing to us
+  return member.direction === 'push';
+}
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // MEMORIES
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /**
  * GET /api/sync/memories?spaceId=&networkId=&sinceSeq=&limit=&cursor=&full=
@@ -229,6 +252,7 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, async (req, res) => {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingMemoryDoc.safeParse(req.body);
     if (!parsed.success) {
@@ -237,7 +261,7 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, async (req, res) => {
     }
     const incoming = parsed.data as MemoryDoc;
 
-    // Check for tombstone — if a tombstone with >= seq exists, skip
+    // Check for tombstone â€” if a tombstone with >= seq exists, skip
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
       .findOne({ _id: incoming._id, type: 'memory' } as never) as TombstoneDoc | null;
     if (tombstone && tombstone.seq >= incoming.seq) {
@@ -253,21 +277,21 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, async (req, res) => {
       .findOne({ _id: incoming._id } as never) as MemoryDoc | null;
 
     if (!existing) {
-      // No local copy — insert directly
+      // No local copy â€” insert directly
       await col<MemoryDoc>(`${spaceId}_memories`).insertOne(incoming as never);
       res.status(200).json({ status: 'inserted' });
       return;
     }
 
     if (incoming.seq > existing.seq) {
-      // Remote is newer — overwrite
+      // Remote is newer â€” overwrite
       await col<MemoryDoc>(`${spaceId}_memories`).replaceOne({ _id: incoming._id } as never, incoming as never);
       res.status(200).json({ status: 'updated' });
       return;
     }
 
     if (incoming.seq === existing.seq && incoming.fact !== existing.fact) {
-      // Concurrent independent edit — fork; but cap the chain length
+      // Concurrent independent edit â€” fork; but cap the chain length
       const forkCount = await col<MemoryDoc>(`${spaceId}_memories`)
         .countDocuments({ forkOf: incoming._id } as never);
       if (forkCount >= MAX_FORK_DEPTH) {
@@ -296,9 +320,9 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // ENTITIES
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 syncRouter.get('/entities', syncRateLimit, requireAuth, async (req, res) => {
   try {
@@ -350,6 +374,7 @@ syncRouter.post('/entities', syncRateLimit, requireAuth, async (req, res) => {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingEntityDoc.safeParse(req.body);
     if (!parsed.success) {
@@ -387,9 +412,9 @@ syncRouter.post('/entities', syncRateLimit, requireAuth, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // EDGES
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 syncRouter.get('/edges', syncRateLimit, requireAuth, async (req, res) => {
   try {
@@ -441,6 +466,7 @@ syncRouter.post('/edges', syncRateLimit, requireAuth, async (req, res) => {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingEdgeDoc.safeParse(req.body);
     if (!parsed.success) {
@@ -475,9 +501,9 @@ syncRouter.post('/edges', syncRateLimit, requireAuth, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // CHRONO
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 syncRouter.get('/chrono', syncRateLimit, requireAuth, async (req, res) => {
   try {
@@ -529,6 +555,7 @@ syncRouter.post('/chrono', syncRateLimit, requireAuth, async (req, res) => {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingChronoDoc.safeParse(req.body);
     if (!parsed.success) {
@@ -563,9 +590,9 @@ syncRouter.post('/chrono', syncRateLimit, requireAuth, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // BATCH UPSERT
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /**
  * POST /api/sync/batch-upsert?spaceId=&networkId=
@@ -578,6 +605,7 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, async (req, res) =>
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const body = req.body as { memories?: unknown[]; entities?: unknown[]; edges?: unknown[]; chrono?: unknown[] };
     const memories = (Array.isArray(body?.memories) ? body.memories.slice(0, 500) : [])
@@ -589,7 +617,7 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, async (req, res) =>
     const chrono = (Array.isArray(body?.chrono) ? body.chrono.slice(0, 500) : [])
       .flatMap(c => { const r = IncomingChronoDoc.safeParse(c); return r.success ? [r.data as ChronoEntry] : []; });
 
-    // ── Memories ─────────────────────────────────────────────────────────
+    // â”€â”€ Memories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const memStats = { inserted: 0, updated: 0, forked: 0, skipped: 0, tombstoned: 0 };
     for (const incoming of memories) {
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
@@ -623,7 +651,7 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, async (req, res) =>
       }
     }
 
-    // ── Entities ─────────────────────────────────────────────────────────
+    // â”€â”€ Entities â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const entStats = { upserted: 0, skipped: 0, tombstoned: 0 };
     for (const incoming of entities) {
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
@@ -643,7 +671,7 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, async (req, res) =>
       }
     }
 
-    // ── Edges ─────────────────────────────────────────────────────────────
+    // â”€â”€ Edges â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const edgeStats = { upserted: 0, skipped: 0, tombstoned: 0 };
     for (const incoming of edges) {
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
@@ -663,7 +691,7 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, async (req, res) =>
       }
     }
 
-    // ── Chrono ─────────────────────────────────────────────────────────────────
+    // â”€â”€ Chrono â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const chronoStats = { upserted: 0, skipped: 0, tombstoned: 0 };
     for (const incoming of chrono) {
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
@@ -701,9 +729,9 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, async (req, res) =>
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // TOMBSTONES
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /**
  * GET /api/sync/tombstones?spaceId=&networkId=&sinceSeq=
@@ -729,19 +757,20 @@ syncRouter.get('/tombstones', syncRateLimit, requireAuth, async (req, res) => {
   }
 });
 
-/** POST /api/sync/tombstones — apply tombstones received from a peer */
+/** POST /api/sync/tombstones â€” apply tombstones received from a peer */
 syncRouter.post('/tombstones', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const body = req.body as { tombstones?: TombstoneDoc[] };
     const tombstones = body?.tombstones ?? [];
 
     const schema = z.array(z.object({
       _id: z.string(),
-      type: z.enum(['memory', 'entity', 'edge']),
+      type: z.enum(['memory', 'entity', 'edge', 'chrono']),
       spaceId: z.string(),
       deletedAt: z.string(),
       instanceId: z.string(),
@@ -758,9 +787,9 @@ syncRouter.post('/tombstones', syncRateLimit, requireAuth, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // FILE MANIFEST
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /**
  * GET /api/sync/manifest?spaceId=&networkId=&since=<isoTimestamp>
@@ -783,9 +812,9 @@ syncRouter.get('/manifest', syncRateLimit, requireAuth, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // FILE TOMBSTONES
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /**
  * GET /api/sync/file-tombstones?spaceId=&networkId=&since=<isoTimestamp>
@@ -823,9 +852,11 @@ syncRouter.get('/file-tombstones', syncRateLimit, requireAuth, async (req, res) 
 syncRouter.post('/file-tombstones', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, tombstones } = req.body as { spaceId?: string; tombstones?: unknown[] };
+    const { networkId } = req.query as Record<string, string>;
     if (!spaceId || typeof spaceId !== 'string') { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!Array.isArray(tombstones)) { res.status(400).json({ error: 'tombstones must be array' }); return; }
     if (!spaceAllowed(spaceId, undefined, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const spaceFiles = path.resolve(getDataRoot(), 'files', spaceId);
     let applied = 0;
@@ -834,7 +865,7 @@ syncRouter.post('/file-tombstones', syncRateLimit, requireAuth, async (req, res)
       const ts = raw as Partial<FileTombstoneDoc>;
       if (!ts._id || !ts.path || typeof ts.path !== 'string') continue;
 
-      // Path-traversal guard — must stay within the space's files directory.
+      // Path-traversal guard â€” must stay within the space's files directory.
       const rel = ts.path.replace(/\\/g, '/').replace(/^\/+/, '');
       const abs = path.join(spaceFiles, rel);
       if (!abs.startsWith(spaceFiles + path.sep) && abs !== spaceFiles) continue;
@@ -864,9 +895,9 @@ syncRouter.post('/file-tombstones', syncRateLimit, requireAuth, async (req, res)
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // MERKLE ROOT
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 /**
  * GET /api/sync/merkle?spaceId=&networkId=
@@ -876,7 +907,7 @@ syncRouter.post('/file-tombstones', syncRateLimit, requireAuth, async (req, res)
  * files in the space (identified by their relative path + sha256 hash).
  *
  * This endpoint is consumed by the sync engine when a network has
- * `merkle: true` — after data sync the engine compares roots across peers and
+ * `merkle: true` â€” after data sync the engine compares roots across peers and
  * emits a MERKLE_DIVERGENCE warning if they disagree.
  *
  * Response: { spaceId, networkId, root, leafCount, computedAt }
@@ -896,11 +927,11 @@ syncRouter.get('/merkle', syncRateLimit, requireAuth, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// GOSSIP — member list & votes
-// ═══════════════════════════════════════════════════════════════════════════
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// GOSSIP â€” member list & votes
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-// ── Ejection guard ────────────────────────────────────────────────────────
+// â”€â”€ Ejection guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // If this instance has been removed from a network by vote, all sync requests
 // for that network return 401 {"error":"ejected"} so peers stop trying to sync.
 syncRouter.use('/networks/:networkId', (req, res, next) => {
@@ -954,7 +985,7 @@ syncRouter.post('/networks/:networkId/members', syncRateLimit, requireAuth, asyn
     // For Now, we validate that the URL hostname matches expected.
     const existing = net.members.find(m => m.instanceId === incoming.instanceId);
     if (!existing) {
-      // Unknown member — relay is informational; don't auto-add
+      // Unknown member â€” relay is informational; don't auto-add
       res.status(200).json({ status: 'unknown_member' });
       return;
     }
@@ -1071,7 +1102,7 @@ syncRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requireAut
       const vetoed = round.votes.some(v => v.vote === 'veto');
       if (!alreadyAdded && isDirectParent && !vetoed) {
         net.members.push(round.pendingMember);
-        log.info(`Braintree join ${round.roundId} passed via vote relay — added ${round.subjectLabel} to network ${net.id}`);
+        log.info(`Braintree join ${round.roundId} passed via vote relay â€” added ${round.subjectLabel} to network ${net.id}`);
       }
     }
 
@@ -1083,7 +1114,7 @@ syncRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requireAut
   }
 });
 
-// ── Vote conclusion logic ──────────────────────────────────────────────────
+// â”€â”€ Vote conclusion logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function concludeRoundIfReady(
   net: import('../config/types.js').NetworkConfig,
@@ -1130,7 +1161,8 @@ function concludeRoundIfReady(
       passed = (voters.length === 0 && yesCount > 0) || (yesCount > voters.length / 2 && vetoCount === 0);
       break;
     case 'club':
-      // For Club: only the inviter/proposer (first yes voter) decides
+    case 'pubsub':
+      // For Club/Pubsub: only the inviter/publisher (first yes voter) decides
       passed = yesCount >= 1 && vetoCount === 0;
       break;
   }
@@ -1148,7 +1180,7 @@ function concludeRoundIfReady(
   return false;
 }
 
-// ── Notify ejected member after a remove vote passes ──────────────────────
+// â”€â”€ Notify ejected member after a remove vote passes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Fire-and-forget: non-fatal if the peer is unreachable.
 export function sendMemberRemovedNotify(
   subjectUrl: string,
@@ -1159,7 +1191,7 @@ export function sendMemberRemovedNotify(
   const secrets = getSecrets();
   const peerToken = secrets.peerTokens[subjectInstanceId];
   if (!peerToken) {
-    log.warn(`member_removed: no outbound token for ${subjectInstanceId} — cannot notify`);
+    log.warn(`member_removed: no outbound token for ${subjectInstanceId} â€” cannot notify`);
     return;
   }
   fetch(`${subjectUrl}/api/notify`, {

@@ -40,8 +40,8 @@ export interface StorageConfig {
 
 // ── Network types ──────────────────────────────────────────────────────────
 
-export type NetworkType = 'closed' | 'democratic' | 'club' | 'braintree';
-export type SyncDirection = 'both' | 'push';
+export type NetworkType = 'closed' | 'democratic' | 'club' | 'braintree' | 'pubsub';
+export type SyncDirection = 'both' | 'push' | 'pull';
 export type VoteValue = 'yes' | 'veto';
 export type VoteRoundType = 'join' | 'remove' | 'space_deletion';
 

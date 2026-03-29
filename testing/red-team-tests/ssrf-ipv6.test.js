@@ -1,12 +1,14 @@
 /**
- * Red-team tests: IPv6 SSRF gaps in network peer URL validation.
+ * Red-team tests: IPv6 SSRF regression guards for network peer URL validation.
  *
- * The existing isSsrfSafeUrl() in networks.ts blocks RFC-1918 IPv4, loopback,
- * and localhost — but it does NOT block:
- *  - IPv6 ULA addresses  (fc00::/7 → fc__ and fd__)
- *  - IPv6 link-local     (fe80::/10 → fe80 through fe_B_)
+ * The isSsrfSafeUrl() validator in util/ssrf.ts now blocks all of:
+ *  - RFC-1918 IPv4 (10/8, 172.16-31/12, 192.168/16)
+ *  - Loopback IPv4/IPv6 (127/8, ::1)
+ *  - IPv6 ULA addresses  (fc00::/7 — fc__ and fd__ prefixes)
+ *  - IPv6 link-local     (fe80::/10 — fe80 through feBF)
+ *  - Cloud metadata (169.254/16, metadata.google.internal)
  *
- * These tests are EXPECTED TO FAIL until the fix is applied.
+ * All tests should PASS. If any fail, the SSRF validator has regressed.
  *
  * Run: node --test testing/red-team-tests/ssrf-ipv6.test.js
  */

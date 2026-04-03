@@ -1008,6 +1008,32 @@ The `targetSpace` must be one of the proxy's `proxyFor` members. Omitting it on 
 
 ---
 
+### Update a Space
+
+```
+PATCH /api/spaces/:id
+```
+
+Update the `label` and/or `description` of an existing space. At least one field must be provided. Requires an admin token (+ TOTP if MFA is enabled).
+
+```json
+{
+  "label": "Research Notes (Updated)",
+  "description": "Updated description surfaced to MCP clients as space-level instructions."
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `label` | no (at least one) | New display name, max 200 chars. |
+| `description` | no (at least one) | New description, max 2000 chars. Surfaced to MCP clients as `instructions` during handshake. |
+
+**Response** `200`: the updated space object.
+
+> **MCP tool:** `update_space` — accepts the same `label` and `description` arguments. Requires the MCP session token to have `admin: true`.
+
+---
+
 ### Delete a Space
 
 ```

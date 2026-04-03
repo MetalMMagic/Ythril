@@ -11,6 +11,7 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { checkQuota, QuotaError } from '../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace } from '../spaces/proxy.js';
+import { updateSpace } from '../spaces/spaces.js';
 
 // Brain tools
 import { remember, recall, recallGlobal, queryBrain, updateMemory, deleteMemory } from '../brain/memory.js';
@@ -36,11 +37,11 @@ const MUTATING_TOOLS = new Set([
   'upsert_entity', 'upsert_edge',
   'create_chrono', 'update_chrono',
   'write_file', 'delete_file', 'create_dir', 'move_file',
-  'sync_now',
+  'sync_now', 'update_space',
 ]);
 
 /** Create a MCP Server instance with all tools bound to the given space */
-function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boolean): Server {
+function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boolean, isAdmin?: boolean): Server {
   // Surface the space description as MCP instructions so AI clients know
   // what this brain space is about *before* they make any tool calls.
   const cfg = getConfig();
@@ -327,6 +328,18 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
           required: ['src', 'dst'],
+        },
+      },
+      {
+        name: 'update_space',
+        description: 'Update the label or description of the current space. Requires an admin token.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            label: { type: 'string', description: 'New display label for the space (max 200 chars).' },
+            description: { type: 'string', description: 'New description for the space (max 2000 chars). Surfaced to MCP clients as space-level instructions.' },
+          },
+          required: [],
         },
       },
       {
@@ -828,6 +841,31 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           }
         }
 
+        case 'update_space': {
+          if (!isAdmin) {
+            return {
+              content: [{ type: 'text' as const, text: 'Error: update_space requires an admin token' }],
+              isError: true,
+            };
+          }
+          const newLabel = typeof a['label'] === 'string' ? a['label'].trim() : undefined;
+          const newDesc = typeof a['description'] === 'string' ? a['description'] : undefined;
+          if (newLabel === undefined && newDesc === undefined) {
+            throw new Error('At least one of label or description must be provided');
+          }
+          if (newLabel !== undefined && newLabel.length === 0) throw new Error('label must not be empty');
+          if (newDesc !== undefined && newDesc.length > 2000) throw new Error('description must not exceed 2000 characters');
+          if (newLabel !== undefined && newLabel.length > 200) throw new Error('label must not exceed 200 characters');
+          const updates: { label?: string; description?: string } = {};
+          if (newLabel !== undefined) updates.label = newLabel;
+          if (newDesc !== undefined) updates.description = newDesc;
+          const updated = updateSpace(spaceId, updates);
+          if (!updated) throw new Error(`Space '${spaceId}' not found`);
+          return {
+            content: [{ type: 'text' as const, text: `Space '${spaceId}' updated.` }],
+          };
+        }
+
         default:
           return {
             content: [{ type: 'text' as const, text: `Unknown tool: ${name}` }],
@@ -878,7 +916,7 @@ mcpRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, res) =
     log.debug(`MCP session ${transport.sessionId} closed (space: ${spaceId})`);
   });
 
-  const server = createMcpServer(spaceId, req.authToken?.spaces, req.authToken?.readOnly);
+  const server = createMcpServer(spaceId, req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin);
   log.debug(`MCP session ${transport.sessionId} opened (space: ${spaceId})`);
   await server.connect(transport);
 });

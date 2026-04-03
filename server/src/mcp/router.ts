@@ -664,6 +664,9 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           const skip = typeof a['skip'] === 'number' ? Math.max(a['skip'], 0) : 0;
 
           const memberIds = resolveMemberSpaces(spaceId);
+          // Fetch skip+limit from each member so the combined list has enough entries
+          // after global sort/slice. For large skip values this over-fetches slightly,
+          // but chrono lists are expected to be small in practice.
           const all = (await Promise.all(memberIds.map(mid => listChrono(mid, filter, skip + limit)))).flat();
           all.sort((x, y) => new Date(y.startsAt).getTime() - new Date(x.startsAt).getTime());
           const results = all.slice(skip, skip + limit);

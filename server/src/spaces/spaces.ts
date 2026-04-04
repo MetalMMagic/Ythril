@@ -313,6 +313,9 @@ export async function removeSpace(spaceId: string): Promise<boolean> {
   return true;
 }
 
+export type WipeCollectionType = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
+export const WIPE_COLLECTION_TYPES: readonly WipeCollectionType[] = ['memories', 'entities', 'edges', 'chrono', 'files'];
+
 export interface WipeResult {
   memories: number;
   entities: number;
@@ -321,17 +324,22 @@ export interface WipeResult {
   files: number;
 }
 
-/** Wipe all data from a space — memories, entities, edges, chrono, file metadata,
- *  and the physical files directory — while preserving the space itself (label,
- *  description, config, OIDC mappings, quota settings).
+/** Wipe data from a space — by default wipes memories, entities, edges, chrono,
+ *  file metadata, and the physical files directory — while preserving the space
+ *  itself (label, description, config, OIDC mappings, quota settings).
+ *
+ *  @param types  Optional list of collection types to wipe.  When omitted (or
+ *                when all five types are supplied) all collections are wiped and
+ *                tombstones are cleared.  When a subset is supplied only those
+ *                collections are cleared and only the matching tombstone records
+ *                are removed, leaving the rest of the space intact.
  *
  *  Idempotent: wiping an already-empty space returns all-zero counts without error.
  *  Scoped strictly to the target space — no cross-space side effects.
  *
  *  The returned counts reflect the number of documents actually deleted.
- *  Tombstones are also cleared (internal sync state) but not included in the result.
  */
-export async function wipeSpace(spaceId: string): Promise<WipeResult> {
+export async function wipeSpace(spaceId: string, types?: WipeCollectionType[]): Promise<WipeResult> {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
   if (!space) throw new Error(`Space '${spaceId}' not found`);
@@ -342,30 +350,60 @@ export async function wipeSpace(spaceId: string): Promise<WipeResult> {
     throw new Error(`Invalid spaceId '${spaceId}'`);
   }
 
-  const [memRes, entRes, edgeRes, chronoRes, fileRes] = await Promise.all([
-    col(`${spaceId}_memories`).deleteMany({}),
-    col(`${spaceId}_entities`).deleteMany({}),
-    col(`${spaceId}_edges`).deleteMany({}),
-    col(`${spaceId}_chrono`).deleteMany({}),
-    col(`${spaceId}_files`).deleteMany({}),
-  ]);
-  // Tombstones are internal sync state — clear them too but don't report the count
-  await col(`${spaceId}_tombstones`).deleteMany({});
+  // Resolve which types to wipe — default to all when not specified.
+  const targets: Set<WipeCollectionType> = new Set(
+    types && types.length > 0 ? types : WIPE_COLLECTION_TYPES,
+  );
+  const isFullWipe = WIPE_COLLECTION_TYPES.every(t => targets.has(t));
 
-  // Delete the physical files directory, then recreate it empty.
-  // Validate the resolved path stays within the expected data root to guard
-  // against any unexpected traversal (defence-in-depth alongside the regex above).
-  const dataRoot = getDataRoot();
-  const filesDir = path.resolve(dataRoot, 'files', spaceId);
-  const boundary = path.resolve(dataRoot, 'files') + path.sep;
-  if (!filesDir.startsWith(boundary)) {
-    throw new Error(`wipeSpace: resolved path '${filesDir}' escapes expected data root`);
+  // Run all applicable deletes in parallel.
+  const zero = Promise.resolve({ deletedCount: 0 });
+  const [memRes, entRes, edgeRes, chronoRes, fileRes] = await Promise.all([
+    targets.has('memories') ? col(`${spaceId}_memories`).deleteMany({}) : zero,
+    targets.has('entities') ? col(`${spaceId}_entities`).deleteMany({}) : zero,
+    targets.has('edges') ? col(`${spaceId}_edges`).deleteMany({}) : zero,
+    targets.has('chrono') ? col(`${spaceId}_chrono`).deleteMany({}) : zero,
+    targets.has('files') ? col(`${spaceId}_files`).deleteMany({}) : zero,
+  ]);
+
+  // Clear tombstones for the wiped types.
+  // Full wipe: drop everything (single deleteMany with no filter).
+  // Partial wipe: filter by the `type` field present on brain tombstones.
+  const TOMBSTONE_TYPE_MAP: Partial<Record<WipeCollectionType, string>> = {
+    memories: 'memory',
+    entities: 'entity',
+    edges: 'edge',
+    chrono: 'chrono',
+  };
+  if (isFullWipe) {
+    await col(`${spaceId}_tombstones`).deleteMany({});
+  } else {
+    const tombstoneTypes = Array.from(targets)
+      .map(t => TOMBSTONE_TYPE_MAP[t])
+      .filter((t): t is string => t !== undefined);
+    if (tombstoneTypes.length > 0) {
+      await col(`${spaceId}_tombstones`).deleteMany({ type: { $in: tombstoneTypes } });
+    }
   }
-  try {
-    await fs.rm(filesDir, { recursive: true, force: true });
-    await fs.mkdir(filesDir, { recursive: true });
-  } catch (err) {
-    log.warn(`wipeSpace: could not clear files directory for '${spaceId}': ${err}`);
+  // File tombstones live in a separate collection — clear them when files is wiped.
+  if (targets.has('files')) {
+    await col(`${spaceId}_file_tombstones`).deleteMany({});
+
+    // Delete the physical files directory, then recreate it empty.
+    // Validate the resolved path stays within the expected data root to guard
+    // against any unexpected traversal (defence-in-depth alongside the regex above).
+    const dataRoot = getDataRoot();
+    const filesDir = path.resolve(dataRoot, 'files', spaceId);
+    const boundary = path.resolve(dataRoot, 'files') + path.sep;
+    if (!filesDir.startsWith(boundary)) {
+      throw new Error(`wipeSpace: resolved path '${filesDir}' escapes expected data root`);
+    }
+    try {
+      await fs.rm(filesDir, { recursive: true, force: true });
+      await fs.mkdir(filesDir, { recursive: true });
+    } catch (err) {
+      log.warn(`wipeSpace: could not clear files directory for '${spaceId}': ${err}`);
+    }
   }
 
   const result: WipeResult = {
@@ -375,7 +413,8 @@ export async function wipeSpace(spaceId: string): Promise<WipeResult> {
     chrono: chronoRes.deletedCount ?? 0,
     files: fileRes.deletedCount ?? 0,
   };
-  log.info(`Wiped space '${spaceId}': ${result.memories} memories, ${result.entities} entities, ${result.edges} edges, ${result.chrono} chrono, ${result.files} files`);
+  const typesLabel = isFullWipe ? 'all' : Array.from(targets).join(', ');
+  log.info(`Wiped space '${spaceId}' [${typesLabel}]: ${result.memories} memories, ${result.entities} entities, ${result.edges} edges, ${result.chrono} chrono, ${result.files} files`);
   return result;
 }
 

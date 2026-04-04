@@ -23,7 +23,7 @@ import { configExists, reloadConfig, getConfig, saveConfig } from './config/load
 import { requireAuth, requireAdminMfa } from './auth/middleware.js';
 import { clearTokenCache } from './auth/tokens.js';
 import { clearOidcCache } from './auth/oidc.js';
-import { initSpace, ensureGeneralSpace, wipeSpace } from './spaces/spaces.js';
+import { initSpace, ensureGeneralSpace, wipeSpace, WIPE_COLLECTION_TYPES } from './spaces/spaces.js';
 import { log } from './util/log.js';
 import { getReadiness } from './ready.js';
 import {
@@ -151,8 +151,8 @@ export function createApp() {
   app.use('/mcp', mcpRouter);
 
   // ── Admin: space wipe ─────────────────────────────────────────────────────
-  // Wipes all data (memories, entities, edges, chrono, files) from a space
-  // while preserving the space itself and its configuration.
+  // Wipes data from a space while preserving the space itself and its configuration.
+  // Pass an optional `types` array to wipe only specific collections; omit to wipe all.
   // Requires an admin-scoped token and respects TOTP if MFA is enabled.
   app.post('/api/admin/spaces/:spaceId/wipe', globalRateLimit, requireAdminMfa, async (req, res) => {
     const spaceId = req.params['spaceId'] as string;
@@ -161,8 +161,18 @@ export function createApp() {
       res.status(404).json({ error: `Space '${spaceId}' not found` });
       return;
     }
+    // Optional `types` body parameter — validate each value.
+    const rawTypes = req.body?.types;
+    if (rawTypes !== undefined) {
+      if (!Array.isArray(rawTypes) || rawTypes.some((t: unknown) => !WIPE_COLLECTION_TYPES.includes(t as never))) {
+        res.status(400).json({
+          error: `'types' must be an array of: ${WIPE_COLLECTION_TYPES.join(', ')}`,
+        });
+        return;
+      }
+    }
     try {
-      const deleted = await wipeSpace(spaceId);
+      const deleted = await wipeSpace(spaceId, rawTypes);
       res.json({ deleted });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

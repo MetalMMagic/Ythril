@@ -227,10 +227,9 @@ describe('Space wipe — partial wipe (by type)', () => {
     assert.equal(postStats.body.files, 0, 'Files should be 0 after partial wipe');
     assert.ok(postStats.body.memories >= 1, 'Memories must survive partial files wipe');
 
-    // Physical file should be gone
+    // Physical file should be gone (directory was cleared)
     const fileRead = await reqJson(INSTANCES.a, adminTok, `/api/files/${spaceId}?path=partial-wipe.txt`);
-    assert.ok(fileRead.status === 404 || fileRead.status === 200, `File after wipe: ${fileRead.status}`);
-    // Note: file may not be found (404) because the directory was cleared
+    assert.equal(fileRead.status, 404, `File should return 404 after files wipe, got ${fileRead.status}`);
   });
 
   it('partial wipe with multiple types wipes only those types', async () => {

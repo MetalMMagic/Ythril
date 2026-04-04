@@ -199,6 +199,64 @@ interface SpaceView {
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
     }
+
+    .reindex-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 14px;
+      margin-bottom: 12px;
+      border: 1px solid var(--warning);
+      border-radius: var(--radius-md);
+      background: color-mix(in srgb, var(--warning) 6%, transparent);
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+    .reindex-result {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-left: auto;
+    }
+
+    .search-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .search-bar input {
+      padding: 5px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      min-width: 200px;
+    }
+    .search-bar select {
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      background: var(--bg-surface);
+      color: var(--text-primary);
+    }
+
+    .inline-confirm {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--error);
+    }
+    .inline-confirm button { font-size: 11px; }
+
+    .memory-description {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      line-height: 1.4;
+    }
   `],
   template: `
     @if (loadingSpaces()) {
@@ -230,7 +288,23 @@ interface SpaceView {
           <span class="stat-pill"><strong>{{ stats.memories }}</strong> memories</span>
           <span class="stat-pill"><strong>{{ stats.entities }}</strong> entities</span>
           <span class="stat-pill"><strong>{{ stats.edges }}</strong> edges</span>
+          <span class="stat-pill"><strong>{{ stats.chrono }}</strong> chrono</span>
+          <span class="stat-pill"><strong>{{ stats.files }}</strong> files</span>
         </div>
+      }
+
+      @if (needsReindex()) {
+        <div class="reindex-banner">
+          <span>⚠️ Embeddings are stale — the embedding model has changed and this space needs reindexing.</span>
+          <button class="btn btn-sm btn-primary" [disabled]="reindexing()" (click)="runReindex()">
+            @if (reindexing()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+            Reindex now
+          </button>
+          @if (reindexResult()) { <span class="reindex-result">{{ reindexResult() }}</span> }
+        </div>
+      }
+      @if (!needsReindex() && reindexResult()) {
+        <div class="alert alert-success" style="margin-bottom:10px; font-size:13px;">✓ {{ reindexResult() }}</div>
       }
 
       <!-- Sub-tabs -->
@@ -264,6 +338,14 @@ interface SpaceView {
               <div class="field" style="flex:1; min-width:140px;">
                 <label>Entity IDs (comma-separated)</label>
                 <input type="text" [(ngModel)]="memoryForm.entityIds" name="entityIds" placeholder="entity-id-1" />
+              </div>
+              <div class="field" style="flex:2; min-width:200px;">
+                <label>Description (optional)</label>
+                <input type="text" [(ngModel)]="memoryForm.description" name="description" placeholder="Context or rationale…" />
+              </div>
+              <div class="field" style="flex:1; min-width:160px;">
+                <label>Properties (JSON, optional)</label>
+                <input type="text" [(ngModel)]="memoryForm.properties" name="properties" placeholder='{"key": "value"}' />
               </div>
               <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingMemory() || !memoryForm.fact.trim()">
                 @if (creatingMemory()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
@@ -335,6 +417,7 @@ interface SpaceView {
           @for (mem of memories(); track mem._id) {
             <div class="memory-item">
               <div class="memory-content">{{ mem.fact }}</div>
+              @if (mem.description) { <div class="memory-description">{{ mem.description }}</div> }
               <div class="memory-meta">
                 @for (tag of (mem.tags ?? []); track tag) {
                   <span class="tag tag-clickable" (click)="applyFilter('tag', tag)">{{ tag }}</span>
@@ -342,9 +425,20 @@ interface SpaceView {
                 @for (eid of (mem.entityIds ?? []); track eid) {
                   <span class="badge badge-purple entity-clickable" (click)="applyFilter('entity', eid)">{{ eid }}</span>
                 }
+                @if (mem.properties && formatProps(mem.properties) !== '—') {
+                  <span style="font-size:11px; color:var(--text-muted); font-family:monospace;" [title]="formatProps(mem.properties)">{{ formatProps(mem.properties) }}</span>
+                }
                 <span style="flex:1"></span>
                 <time>{{ mem.createdAt | date:'MMM d, y HH:mm' }}</time>
-                <button class="icon-btn danger" title="Delete memory" aria-label="Delete memory" (click)="deleteMemory(mem._id)">✕</button>
+                @if (confirmDeleteId() === mem._id) {
+                  <span class="inline-confirm">
+                    Delete?
+                    <button class="btn btn-sm btn-danger" (click)="deleteMemory(mem._id)">Yes</button>
+                    <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
+                  </span>
+                } @else {
+                  <button class="icon-btn danger" title="Delete memory" aria-label="Delete memory" (click)="requestDelete(mem._id)">✕</button>
+                }
               </div>
             </div>
           }
@@ -379,6 +473,10 @@ interface SpaceView {
                 <label>Tags (comma-separated)</label>
                 <input type="text" [(ngModel)]="entityForm.tags" name="tags" placeholder="infra, devops" />
               </div>
+              <div class="field" style="flex:1; min-width:200px;">
+                <label>Description (optional)</label>
+                <input type="text" [(ngModel)]="entityForm.description" name="description" placeholder="Brief description…" />
+              </div>
               <div class="field" style="flex:1; min-width:180px;">
                 <label>Properties (JSON)</label>
                 <input type="text" [(ngModel)]="entityForm.properties" name="properties" placeholder='{"wheels": 4, "color": "red"}' />
@@ -394,11 +492,19 @@ interface SpaceView {
           @if (createEntityError()) {
             <div class="alert alert-error" style="margin-bottom:12px;">{{ createEntityError() }}</div>
           }
+
+          <div class="search-bar">
+            <input type="search" placeholder="Search by name…" [(ngModel)]="entitySearch" (input)="searchEntities()" aria-label="Search entities" />
+            @if (entitySearch()) {
+              <button class="btn btn-sm btn-secondary" (click)="entitySearch.set(''); searchEntities()">Clear</button>
+            }
+          </div>
+
           <div class="table-wrapper">
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Type</th><th>Properties</th><th>Created</th><th></th>
+                  <th>Name</th><th>Type</th><th>Description</th><th>Properties</th><th>Created</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -408,14 +514,27 @@ interface SpaceView {
                     <td>
                       @if (ent.type) { <span class="badge badge-purple">{{ ent.type }}</span> }
                     </td>
-                    <td style="font-size:12px; color:var(--text-muted); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="formatProps(ent.properties)">
+                    <td style="font-size:12px; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="ent.description ?? ''">
+                      {{ ent.description || '—' }}
+                    </td>
+                    <td style="font-size:12px; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="formatProps(ent.properties)">
                       {{ formatProps(ent.properties) }}
                     </td>
                     <td style="color:var(--text-muted)">{{ ent.createdAt | date:'MMM d, y' }}</td>
-                    <td><button class="icon-btn danger" aria-label="Delete entity" (click)="deleteEntity(ent._id)">✕</button></td>
+                    <td>
+                      @if (confirmDeleteId() === ent._id) {
+                        <span class="inline-confirm">
+                          Delete?
+                          <button class="btn btn-sm btn-danger" (click)="deleteEntity(ent._id)">Yes</button>
+                          <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
+                        </span>
+                      } @else {
+                        <button class="icon-btn danger" aria-label="Delete entity" (click)="requestDelete(ent._id)">✕</button>
+                      }
+                    </td>
                   </tr>
                 } @empty {
-                  <tr><td colspan="5">
+                  <tr><td colspan="6">
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon">🏷️</div>
                       <h3>No entities</h3>
@@ -424,6 +543,11 @@ interface SpaceView {
                 }
               </tbody>
             </table>
+          </div>
+          <div class="pagination">
+            <button class="btn btn-sm btn-secondary" [disabled]="entitySkip() === 0" (click)="prevEntityPage()">← Prev</button>
+            <span class="pager-info">{{ entitySkip() + 1 }}–{{ entitySkip() + entities().length }}</span>
+            <button class="btn btn-sm btn-secondary" [disabled]="entities().length < pageSize" (click)="nextEntityPage()">Next →</button>
           </div>
         }
 
@@ -456,6 +580,18 @@ interface SpaceView {
                 <label>Weight</label>
                 <input type="number" [(ngModel)]="edgeForm.weight" name="weight" step="0.1" placeholder="—" />
               </div>
+              <div class="field" style="flex:1; min-width:140px;">
+                <label>Tags (comma-separated)</label>
+                <input type="text" [(ngModel)]="edgeForm.tags" name="tags" placeholder="tag1, tag2" />
+              </div>
+              <div class="field" style="flex:2; min-width:200px;">
+                <label>Description (optional)</label>
+                <input type="text" [(ngModel)]="edgeForm.description" name="description" placeholder="Why does this relation exist?" />
+              </div>
+              <div class="field" style="flex:1; min-width:160px;">
+                <label>Properties (JSON, optional)</label>
+                <input type="text" [(ngModel)]="edgeForm.properties" name="properties" placeholder='{"since": "2024"}' />
+              </div>
               <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEdge() || !edgeForm.from.trim() || !edgeForm.to.trim() || !edgeForm.label.trim()">
                 @if (creatingEdge()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
                 Save
@@ -471,22 +607,41 @@ interface SpaceView {
             <table>
               <thead>
                 <tr>
-                  <th>From</th><th>Relation</th><th>Type</th><th>To</th><th>Weight</th><th>Created</th><th></th>
+                  <th>From</th><th>Relation</th><th>Type</th><th>To</th><th>Tags</th><th>Weight</th><th>Created</th><th></th>
                 </tr>
               </thead>
               <tbody>
                 @for (edge of edges(); track edge._id) {
                   <tr>
                     <td class="mono" style="font-size:12px">{{ edge.from }}</td>
-                    <td><span class="badge badge-blue">{{ edge.label }}</span></td>
+                    <td>
+                      <span class="badge badge-blue">{{ edge.label }}</span>
+                      @if (edge.description) {
+                        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;" [title]="edge.description">{{ edge.description }}</div>
+                      }
+                    </td>
                     <td style="color:var(--text-muted); font-size:12px">{{ edge.type ?? '—' }}</td>
                     <td class="mono" style="font-size:12px">{{ edge.to }}</td>
+                    <td style="font-size:11px;">
+                      @for (tag of (edge.tags ?? []); track tag) { <span class="tag">{{ tag }}</span> }
+                      @if (!(edge.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
+                    </td>
                     <td style="color:var(--text-muted)">{{ edge.weight ?? '—' }}</td>
                     <td style="color:var(--text-muted)">{{ edge.createdAt | date:'MMM d, y' }}</td>
-                    <td><button class="icon-btn danger" aria-label="Delete edge" (click)="deleteEdge(edge._id)">✕</button></td>
+                    <td>
+                      @if (confirmDeleteId() === edge._id) {
+                        <span class="inline-confirm">
+                          Delete?
+                          <button class="btn btn-sm btn-danger" (click)="deleteEdge(edge._id)">Yes</button>
+                          <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
+                        </span>
+                      } @else {
+                        <button class="icon-btn danger" aria-label="Delete edge" (click)="requestDelete(edge._id)">✕</button>
+                      }
+                    </td>
                   </tr>
                 } @empty {
-                  <tr><td colspan="7">
+                  <tr><td colspan="8">
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon">🕸️</div>
                       <h3>No edges</h3>
@@ -495,6 +650,11 @@ interface SpaceView {
                 }
               </tbody>
             </table>
+          </div>
+          <div class="pagination">
+            <button class="btn btn-sm btn-secondary" [disabled]="edgeSkip() === 0" (click)="prevEdgePage()">← Prev</button>
+            <span class="pager-info">{{ edgeSkip() + 1 }}–{{ edgeSkip() + edges().length }}</span>
+            <button class="btn btn-sm btn-secondary" [disabled]="edges().length < pageSize" (click)="nextEdgePage()">Next →</button>
           </div>
         }
 
@@ -556,6 +716,19 @@ interface SpaceView {
           @if (createChronoError()) {
             <div class="alert alert-error" style="margin-bottom:12px;">{{ createChronoError() }}</div>
           }
+
+          <div class="search-bar">
+            <label style="font-size:12px; color:var(--text-muted);">Filter:</label>
+            <input type="search" placeholder="Tags…" [(ngModel)]="chronoFilterTag" (input)="applyChronoFilter()" style="min-width:140px;" aria-label="Filter by tag" />
+            <select [(ngModel)]="chronoFilterStatus" (change)="applyChronoFilter()" aria-label="Filter by status">
+              <option value="">All statuses</option>
+              @for (s of chronoStatusOptions; track s) { <option [value]="s">{{ s }}</option> }
+            </select>
+            @if (chronoFilterTag() || chronoFilterStatus()) {
+              <button class="btn btn-sm btn-secondary" (click)="chronoFilterTag.set(''); chronoFilterStatus.set(''); applyChronoFilter()">Clear</button>
+            }
+          </div>
+
           <div class="table-wrapper">
             <table>
               <thead>
@@ -584,7 +757,17 @@ interface SpaceView {
                         {{ entry.entityIds.length }} linked
                       } @else { — }
                     </td>
-                    <td><button class="icon-btn danger" aria-label="Delete chrono entry" (click)="deleteChrono(entry._id)">✕</button></td>
+                    <td>
+                      @if (confirmDeleteId() === entry._id) {
+                        <span class="inline-confirm">
+                          Delete?
+                          <button class="btn btn-sm btn-danger" (click)="deleteChrono(entry._id)">Yes</button>
+                          <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
+                        </span>
+                      } @else {
+                        <button class="icon-btn danger" aria-label="Delete chrono entry" (click)="requestDelete(entry._id)">✕</button>
+                      }
+                    </td>
                   </tr>
                 } @empty {
                   <tr><td colspan="8">
@@ -596,6 +779,11 @@ interface SpaceView {
                 }
               </tbody>
             </table>
+          </div>
+          <div class="pagination">
+            <button class="btn btn-sm btn-secondary" [disabled]="chronoSkip() === 0" (click)="prevChronoPage()">← Prev</button>
+            <span class="pager-info">{{ chronoSkip() + 1 }}–{{ chronoSkip() + chrono().length }}</span>
+            <button class="btn btn-sm btn-secondary" [disabled]="chrono().length < pageSize" (click)="nextChronoPage()">Next →</button>
           </div>
         }
 
@@ -625,6 +813,8 @@ export class BrainComponent implements OnInit {
   entities = signal<Entity[]>([]);
   edges = signal<Edge[]>([]);
   chrono = signal<ChronoEntry[]>([]);
+
+  // Memories pagination + filter
   skip = signal(0);
   filterTag = signal('');
   filterEntity = signal('');
@@ -632,29 +822,50 @@ export class BrainComponent implements OnInit {
   wipeInput = signal('');
   wipingInProgress = signal(false);
 
+  // Entities pagination + search
+  entitySkip = signal(0);
+  entitySearch = signal('');
+
+  // Edges pagination
+  edgeSkip = signal(0);
+
+  // Chrono pagination + filter
+  chronoSkip = signal(0);
+  chronoFilterTag = signal('');
+  chronoFilterStatus = signal('');
+
+  // Reindex
+  needsReindex = signal(false);
+  reindexing = signal(false);
+  reindexResult = signal('');
+
+  // Inline delete confirmation (stores the ID pending confirmation)
+  confirmDeleteId = signal('');
+
   // Create memory form
   showMemoryForm = signal(false);
   creatingMemory = signal(false);
   createMemoryError = signal('');
-  memoryForm = { fact: '', tags: '', entityIds: '' };
+  memoryForm = { fact: '', tags: '', entityIds: '', description: '', properties: '' };
 
   // Create entity form
   showEntityForm = signal(false);
   creatingEntity = signal(false);
   createEntityError = signal('');
-  entityForm = { name: '', type: '', tags: '', properties: '' };
+  entityForm = { name: '', type: '', tags: '', description: '', properties: '' };
 
   // Create edge form
   showEdgeForm = signal(false);
   creatingEdge = signal(false);
   createEdgeError = signal('');
-  edgeForm = { from: '', to: '', label: '', type: '', weight: null as number | null };
+  edgeForm = { from: '', to: '', label: '', type: '', weight: null as number | null, tags: '', description: '', properties: '' };
 
   // Create chrono form
   showChronoForm = signal(false);
   creatingChrono = signal(false);
   createChronoError = signal('');
   chronoKinds: ChronoKind[] = ['event', 'deadline', 'plan', 'prediction', 'milestone'];
+  chronoStatusOptions: ChronoStatus[] = ['upcoming', 'active', 'completed', 'overdue', 'cancelled'];
   chronoForm = { title: '', kind: 'event' as ChronoKind | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: '', entityIds: '' };
 
   activeStats = computed(() =>
@@ -677,8 +888,16 @@ export class BrainComponent implements OnInit {
   selectSpace(id: string): void {
     this.activeSpaceId.set(id);
     this.skip.set(0);
+    this.entitySkip.set(0);
+    this.edgeSkip.set(0);
+    this.chronoSkip.set(0);
     this.filterTag.set('');
     this.filterEntity.set('');
+    this.entitySearch.set('');
+    this.chronoFilterTag.set('');
+    this.chronoFilterStatus.set('');
+    this.confirmDeleteId.set('');
+    this.reindexResult.set('');
     this.loadStats(id);
     this.loadCurrentTab(id);
   }
@@ -686,20 +905,29 @@ export class BrainComponent implements OnInit {
   setTab(tab: BrainTab): void {
     this.activeTab.set(tab);
     this.skip.set(0);
+    this.entitySkip.set(0);
+    this.edgeSkip.set(0);
+    this.chronoSkip.set(0);
     this.filterTag.set('');
     this.filterEntity.set('');
+    this.confirmDeleteId.set('');
     this.loadCurrentTab(this.activeSpaceId());
   }
 
-  prevPage(): void {
-    this.skip.update(s => Math.max(0, s - this.pageSize));
-    this.loadCurrentTab(this.activeSpaceId());
-  }
+  prevPage(): void { this.skip.update(s => Math.max(0, s - this.pageSize)); this.loadCurrentTab(this.activeSpaceId()); }
+  nextPage(): void { this.skip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
 
-  nextPage(): void {
-    this.skip.update(s => s + this.pageSize);
-    this.loadCurrentTab(this.activeSpaceId());
-  }
+  prevEntityPage(): void { this.entitySkip.update(s => Math.max(0, s - this.pageSize)); this.loadCurrentTab(this.activeSpaceId()); }
+  nextEntityPage(): void { this.entitySkip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
+
+  prevEdgePage(): void { this.edgeSkip.update(s => Math.max(0, s - this.pageSize)); this.loadCurrentTab(this.activeSpaceId()); }
+  nextEdgePage(): void { this.edgeSkip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
+
+  prevChronoPage(): void { this.chronoSkip.update(s => Math.max(0, s - this.pageSize)); this.loadCurrentTab(this.activeSpaceId()); }
+  nextChronoPage(): void { this.chronoSkip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
+
+  searchEntities(): void { this.entitySkip.set(0); this.loadCurrentTab(this.activeSpaceId()); }
+  applyChronoFilter(): void { this.chronoSkip.set(0); this.loadCurrentTab(this.activeSpaceId()); }
 
   private loadStats(spaceId: string): void {
     this.api.getSpaceStats(spaceId).subscribe({
@@ -708,6 +936,10 @@ export class BrainComponent implements OnInit {
           list.map(sv => sv.space.id === spaceId ? { ...sv, stats } : sv),
         );
       },
+      error: () => {},
+    });
+    this.api.getReindexStatus(spaceId).subscribe({
+      next: ({ needsReindex }) => this.needsReindex.set(needsReindex),
       error: () => {},
     });
   }
@@ -728,23 +960,27 @@ export class BrainComponent implements OnInit {
         break;
       }
       case 'entities':
-        this.api.listEntities(spaceId).subscribe({
+        this.api.listEntities(spaceId, this.pageSize, this.entitySkip(), this.entitySearch() || undefined).subscribe({
           next: ({ entities }) => { this.entities.set(entities); this.loading.set(false); },
           error: () => this.loading.set(false),
         });
         break;
       case 'edges':
-        this.api.listEdges(spaceId).subscribe({
+        this.api.listEdges(spaceId, this.pageSize, this.edgeSkip()).subscribe({
           next: ({ edges }) => { this.edges.set(edges); this.loading.set(false); },
           error: () => this.loading.set(false),
         });
         break;
-      case 'chrono':
-        this.api.listChrono(spaceId).subscribe({
+      case 'chrono': {
+        const cf: { tags?: string; status?: string } = {};
+        if (this.chronoFilterTag()) cf.tags = this.chronoFilterTag();
+        if (this.chronoFilterStatus()) cf.status = this.chronoFilterStatus();
+        this.api.listChrono(spaceId, this.pageSize, this.chronoSkip(), cf).subscribe({
           next: ({ chrono }) => { this.chrono.set(chrono); this.loading.set(false); },
           error: () => this.loading.set(false),
         });
         break;
+      }
     }
   }
 
@@ -779,14 +1015,14 @@ export class BrainComponent implements OnInit {
     });
   }
 
+  requestDelete(id: string): void { this.confirmDeleteId.set(id); }
+  cancelDelete(): void { this.confirmDeleteId.set(''); }
+
   deleteMemory(id: string): void {
-    if (!confirm('Delete this memory?')) return;
+    this.confirmDeleteId.set('');
     this.api.deleteMemory(this.activeSpaceId(), id).subscribe({
-      next: () => {
-        this.memories.update(list => list.filter(m => m._id !== id));
-        this.loadStats(this.activeSpaceId());
-      },
-      error: () => alert('Failed to delete memory.'),
+      next: () => { this.memories.update(list => list.filter(m => m._id !== id)); this.loadStats(this.activeSpaceId()); },
+      error: () => {},
     });
   }
 
@@ -796,21 +1032,23 @@ export class BrainComponent implements OnInit {
     this.createMemoryError.set('');
     const tags = this.memoryForm.tags.split(',').map(s => s.trim()).filter(Boolean);
     const entityIds = this.memoryForm.entityIds.split(',').map(s => s.trim()).filter(Boolean);
-    const body: { fact: string; tags?: string[]; entityIds?: string[] } = { fact: this.memoryForm.fact.trim() };
+    const body: Parameters<ApiService['createMemory']>[1] = { fact: this.memoryForm.fact.trim() };
     if (tags.length) body.tags = tags;
     if (entityIds.length) body.entityIds = entityIds;
+    if (this.memoryForm.description.trim()) body.description = this.memoryForm.description.trim();
+    if (this.memoryForm.properties.trim()) {
+      try { body.properties = JSON.parse(this.memoryForm.properties.trim()); }
+      catch { this.creatingMemory.set(false); this.createMemoryError.set('Properties must be valid JSON'); return; }
+    }
     this.api.createMemory(this.activeSpaceId(), body).subscribe({
       next: () => {
         this.creatingMemory.set(false);
         this.showMemoryForm.set(false);
-        this.memoryForm = { fact: '', tags: '', entityIds: '' };
+        this.memoryForm = { fact: '', tags: '', entityIds: '', description: '', properties: '' };
         this.loadStats(this.activeSpaceId());
         this.loadCurrentTab(this.activeSpaceId());
       },
-      error: (err) => {
-        this.creatingMemory.set(false);
-        this.createMemoryError.set(err.error?.error ?? 'Failed to create memory');
-      },
+      error: (err) => { this.creatingMemory.set(false); this.createMemoryError.set(err.error?.error ?? 'Failed to create memory'); },
     });
   }
 
@@ -819,30 +1057,23 @@ export class BrainComponent implements OnInit {
     this.creatingEntity.set(true);
     this.createEntityError.set('');
     const tags = this.entityForm.tags.split(',').map(s => s.trim()).filter(Boolean);
-    const body: { name: string; type?: string; tags?: string[]; properties?: Record<string, string | number | boolean> } = { name: this.entityForm.name.trim() };
+    const body: Parameters<ApiService['createEntity']>[1] = { name: this.entityForm.name.trim() };
     if (this.entityForm.type.trim()) body.type = this.entityForm.type.trim();
     if (tags.length) body.tags = tags;
+    if (this.entityForm.description.trim()) body.description = this.entityForm.description.trim();
     if (this.entityForm.properties.trim()) {
-      try {
-        body.properties = JSON.parse(this.entityForm.properties.trim());
-      } catch {
-        this.creatingEntity.set(false);
-        this.createEntityError.set('Properties must be valid JSON');
-        return;
-      }
+      try { body.properties = JSON.parse(this.entityForm.properties.trim()); }
+      catch { this.creatingEntity.set(false); this.createEntityError.set('Properties must be valid JSON'); return; }
     }
     this.api.createEntity(this.activeSpaceId(), body).subscribe({
       next: () => {
         this.creatingEntity.set(false);
         this.showEntityForm.set(false);
-        this.entityForm = { name: '', type: '', tags: '', properties: '' };
+        this.entityForm = { name: '', type: '', tags: '', description: '', properties: '' };
         this.loadStats(this.activeSpaceId());
         this.loadCurrentTab(this.activeSpaceId());
       },
-      error: (err) => {
-        this.creatingEntity.set(false);
-        this.createEntityError.set(err.error?.error ?? 'Failed to create entity');
-      },
+      error: (err) => { this.creatingEntity.set(false); this.createEntityError.set(err.error?.error ?? 'Failed to create entity'); },
     });
   }
 
@@ -850,52 +1081,52 @@ export class BrainComponent implements OnInit {
     if (!this.edgeForm.from.trim() || !this.edgeForm.to.trim() || !this.edgeForm.label.trim()) return;
     this.creatingEdge.set(true);
     this.createEdgeError.set('');
-    const body: { from: string; to: string; label: string; type?: string; weight?: number } = {
+    const tags = this.edgeForm.tags.split(',').map(s => s.trim()).filter(Boolean);
+    const body: Parameters<ApiService['createEdge']>[1] = {
       from: this.edgeForm.from.trim(),
       to: this.edgeForm.to.trim(),
       label: this.edgeForm.label.trim(),
     };
     if (this.edgeForm.type.trim()) body.type = this.edgeForm.type.trim();
     if (this.edgeForm.weight != null) body.weight = this.edgeForm.weight;
+    if (tags.length) body.tags = tags;
+    if (this.edgeForm.description.trim()) body.description = this.edgeForm.description.trim();
+    if (this.edgeForm.properties.trim()) {
+      try { body.properties = JSON.parse(this.edgeForm.properties.trim()); }
+      catch { this.creatingEdge.set(false); this.createEdgeError.set('Properties must be valid JSON'); return; }
+    }
     this.api.createEdge(this.activeSpaceId(), body).subscribe({
       next: () => {
         this.creatingEdge.set(false);
         this.showEdgeForm.set(false);
-        this.edgeForm = { from: '', to: '', label: '', type: '', weight: null };
+        this.edgeForm = { from: '', to: '', label: '', type: '', weight: null, tags: '', description: '', properties: '' };
         this.loadStats(this.activeSpaceId());
         this.loadCurrentTab(this.activeSpaceId());
       },
-      error: (err) => {
-        this.creatingEdge.set(false);
-        this.createEdgeError.set(err.error?.error ?? 'Failed to create edge');
-      },
+      error: (err) => { this.creatingEdge.set(false); this.createEdgeError.set(err.error?.error ?? 'Failed to create edge'); },
     });
   }
 
   deleteEntity(id: string): void {
-    if (!confirm('Delete this entity?')) return;
+    this.confirmDeleteId.set('');
     this.api.deleteEntity(this.activeSpaceId(), id).subscribe({
-      next: () => {
-        this.entities.update(list => list.filter(e => e._id !== id));
-        this.loadStats(this.activeSpaceId());
-      },
-      error: () => alert('Failed to delete entity.'),
+      next: () => { this.entities.update(list => list.filter(e => e._id !== id)); this.loadStats(this.activeSpaceId()); },
+      error: () => {},
     });
   }
 
   deleteEdge(id: string): void {
-    if (!confirm('Delete this edge?')) return;
+    this.confirmDeleteId.set('');
     this.api.deleteEdge(this.activeSpaceId(), id).subscribe({
       next: () => this.edges.update(list => list.filter(e => e._id !== id)),
-      error: () => alert('Failed to delete edge.'),
+      error: () => {},
     });
   }
 
   createChrono(): void {
     if (!this.chronoForm.title.trim() || !this.chronoForm.startsAt) return;
     const resolvedKind = this.chronoForm.kind === '__custom__'
-      // Custom kind: the server accepts free-text values beyond the predefined enum,
-      // which is the intentional behaviour requested in the feature spec.
+      // Custom kind: the server accepts free-text values beyond the predefined enum.
       ? (this.chronoForm.customKind.trim() as ChronoKind)
       : this.chronoForm.kind as ChronoKind;
     if (!resolvedKind) return;
@@ -903,7 +1134,7 @@ export class BrainComponent implements OnInit {
     this.createChronoError.set('');
     const tags = this.chronoForm.tags.split(',').map(s => s.trim()).filter(Boolean);
     const entityIds = this.chronoForm.entityIds.split(',').map(s => s.trim()).filter(Boolean);
-    const body: { title: string; kind: ChronoKind; startsAt: string; endsAt?: string; description?: string; tags?: string[]; entityIds?: string[] } = {
+    const body: Parameters<ApiService['createChrono']>[1] = {
       title: this.chronoForm.title.trim(),
       kind: resolvedKind,
       startsAt: new Date(this.chronoForm.startsAt).toISOString(),
@@ -919,18 +1150,30 @@ export class BrainComponent implements OnInit {
         this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: '', entityIds: '' };
         this.loadCurrentTab(this.activeSpaceId());
       },
-      error: (err) => {
-        this.creatingChrono.set(false);
-        this.createChronoError.set(err.error?.error ?? 'Failed to create chrono entry');
-      },
+      error: (err) => { this.creatingChrono.set(false); this.createChronoError.set(err.error?.error ?? 'Failed to create chrono entry'); },
     });
   }
 
   deleteChrono(id: string): void {
-    if (!confirm('Delete this chrono entry?')) return;
+    this.confirmDeleteId.set('');
     this.api.deleteChrono(this.activeSpaceId(), id).subscribe({
       next: () => this.chrono.update(list => list.filter(c => c._id !== id)),
-      error: () => alert('Failed to delete chrono entry.'),
+      error: () => {},
+    });
+  }
+
+  runReindex(): void {
+    this.reindexing.set(true);
+    this.reindexResult.set('');
+    this.api.reindex(this.activeSpaceId()).subscribe({
+      next: (result) => {
+        this.reindexing.set(false);
+        const total = Object.values(result).reduce((s: number, n) => s + (typeof n === 'number' ? n : 0), 0);
+        this.reindexResult.set(`Reindexed ${total} documents.`);
+        this.needsReindex.set(false);
+        this.loadStats(this.activeSpaceId());
+      },
+      error: () => { this.reindexing.set(false); this.reindexResult.set('Reindex failed — check server logs.'); },
     });
   }
 

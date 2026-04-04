@@ -61,9 +61,25 @@ A red **conflict badge** appears next to **Files** in the sidebar when unresolve
 
 The **Brain** tab shows all memories in the selected space, sorted newest-first.
 
+### Space stats and reindex
+
+Five stat pills at the top of the Brain view show current counts: **memories**, **entities**, **edges**, **chrono**, and **files**.
+
+If the embedding model has changed since the last embed run, an **⚠️ Needs reindex** warning banner appears. Click **Reindex now** to rebuild all vector embeddings for the space. Progress is tracked server-side; a completion message appears when done.
+
 ### Creating a memory
 
-Click **+ Add memory** in the toolbar. Enter the fact text, optional comma-separated tags, and optional entity IDs, then click **Save**. The memory is embedded and stored immediately.
+Click **+ Add memory** in the toolbar. Fill in the form:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| Fact | Yes | The statement to remember. |
+| Tags | No | Comma-separated categorisation tags. |
+| Entity IDs | No | Comma-separated entity IDs to link. |
+| Description | No | Free-text context or rationale behind the fact. |
+| Properties | No | JSON object of key-value metadata, e.g. `{"source": "docs", "confidence": 0.9}`. |
+
+Click **Save**. The memory is embedded and stored immediately. `description` and `properties` are also shown on each memory row in the list.
 
 Memories can also be written by MCP clients (e.g. Claude, Cursor) using the `remember` tool, or via the REST API (`POST /api/brain/:spaceId/memories`).
 
@@ -75,6 +91,10 @@ Type a natural-language query in the search bar and press Enter. Ythril uses the
 
 Click any **tag pill** or **entity badge** on a memory row to filter the list. Active filters appear as removable chips above the table. Click the **×** on a chip to clear it, or **Clear all** to reset.
 
+### Deleting memories
+
+Each memory row has a **✕** delete button. Clicking it shows an inline **Delete? / Yes / No** confirmation in the same row — no browser dialog. Click **Yes** to confirm or **No** (or any other ✕ button) to cancel.
+
 ### Bulk wipe
 
 To delete all memories in a space, click **Wipe all** in the toolbar. A confirmation dialog will ask you to type the space ID to proceed. This writes tombstones so the deletion syncs to peers.
@@ -85,15 +105,36 @@ To delete all memories in a space, click **Wipe all** in the toolbar. A confirma
 
 ### Entities
 
-Entities are named concepts inside a space (e.g. "Kubernetes", "Team Alpha"). Each entity has a `name`, an optional `type` (e.g. `technology`, `person`), optional `tags`, and optional `properties` — arbitrary key-value pairs where each value is a string, number, or boolean (e.g. `{"wheels": 4, "color": "red"}`).
+Entities are named concepts inside a space (e.g. "Kubernetes", "Team Alpha"). Each entity has a `name`, an optional `type` (e.g. `technology`, `person`), optional `tags`, an optional `description`, and optional `properties` — arbitrary key-value pairs where each value is a string, number, or boolean (e.g. `{"wheels": 4, "color": "red"}`).
 
-Click **+ Add entity** in the Entities tab to create one from the UI. Enter a name, optional type, optional comma-separated tags, and optional properties as a JSON object, then click **Save**. If an entity with the same `(name, type)` already exists, tags are merged and properties are shallow-merged (new keys added, existing keys overwritten).
+Click **+ Add entity** in the Entities tab to create one from the UI. Enter a name, optional type, optional comma-separated tags, an optional description, and optional properties as a JSON object, then click **Save**. If an entity with the same `(name, type)` already exists, tags are merged and properties are shallow-merged (new keys added, existing keys overwritten).
+
+A **search bar** above the entity table lets you filter by name in real time. Results are paginated (20 per page) — use the **← Prev** / **Next →** controls below the table.
+
+Each entity row has an inline **✕ / Delete? / Yes / No** confirmation (no browser dialog).
 
 ### Edges
 
-Edges connect two entities. Each edge has a `from`, `to`, `label` (the relationship name), an optional numeric `weight`, and an optional `type` for classification (e.g. `causal`, `hierarchical`, `temporal`).
+Edges connect two entities. Each edge has a `from`, `to`, `label` (the relationship name), an optional numeric `weight`, an optional `type` for classification (e.g. `causal`, `hierarchical`, `temporal`), optional `tags`, an optional `description`, and optional `properties` (key-value metadata).
 
-Click **+ Add edge** in the Edges tab to create one from the UI. Enter the source entity, relationship label, target entity, and optional type/weight, then click **Save**. If an edge with the same `(from, to, label)` already exists, the weight and type are updated.
+Click **+ Add edge** in the Edges tab to create one from the UI. The form accepts:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| From | Yes | Source entity name or ID. |
+| Label | Yes | Relationship name, e.g. `depends_on`. |
+| To | Yes | Target entity name or ID. |
+| Type | No | Classification, e.g. `causal`, `hierarchical`. |
+| Weight | No | Numeric strength (0–1 convention). |
+| Tags | No | Comma-separated tags. |
+| Description | No | Free-text rationale. |
+| Properties | No | JSON key-value metadata. |
+
+Click **Save**. If an edge with the same `(from, to, label)` already exists, tags are union-merged, properties are shallow-merged, and weight/type are updated.
+
+The edge table shows a **Tags** column and renders `description` as a subtitle below the relation label. Results are paginated (20 per page) with **← Prev** / **Next →** controls.
+
+Each edge row has an inline **✕ / Delete? / Yes / No** confirmation (no browser dialog).
 
 ---
 
@@ -118,7 +159,19 @@ The **Chrono** tab stores time-based entries: events, deadlines, plans, predicti
 
 ### Creating from the UI
 
-Click **+ Add entry** in the Chrono tab. Fill in the title, select a kind, pick a start date/time, and optionally add a description, tags, etc. Click **Save**.
+Click **+ Add entry** in the Chrono tab. Fill in the title, select a kind (or type a custom kind), pick a start date/time, and optionally add a description, tags, and linked entity IDs. Click **Save**.
+
+### Filtering
+
+A filter bar above the chrono table lets you narrow the list by **tag** (text input) and **status** (dropdown). Filters apply immediately and reset pagination. Use **Clear** to remove active filters.
+
+### Pagination
+
+Chrono results are paginated (20 per page). Use the **← Prev** / **Next →** controls below the table.
+
+### Deleting entries
+
+Each chrono row has an inline **✕ / Delete? / Yes / No** confirmation (no browser dialog).
 
 ### MCP tools
 
@@ -140,13 +193,19 @@ The file manager lets you browse, upload, download, move, rename, and delete fil
 
 ### Uploading
 
-Drag files onto the file list or click **Upload**. Files larger than 10 MB are automatically chunked (5 MB pieces) with a progress bar. Failed chunks retry up to 3 times.
+There are two ways to upload:
+
+- **Toolbar button** — click **↑ Upload** and select one or more files.
+- **Drag and drop** — drag files from your desktop and drop them anywhere onto the file listing area. The panel highlights with a border when a drop is detected.
+
+Files larger than 10 MB are automatically chunked (5 MB pieces) with a progress bar. Failed chunks retry up to 3 times.
 
 ### Actions
 
-- **Download** — click the download icon on any file row.
-- **Move / Rename** — click the move icon, enter the new path.
-- **Delete** — click the delete icon and confirm.
+- **Preview** — click the 👁 icon on any file row to open the preview pane.
+- **Download** — click the **↓** icon on any file row.
+- **Rename** — click **Rename** on any row.
+- **Delete** — click the **✕** icon and confirm.
 - **New Folder** — click **New folder** in the toolbar.
 
 ### Breadcrumb navigation
@@ -157,7 +216,7 @@ A clickable breadcrumb bar (`root / docs / guides`) appears above the file list.
 
 ## File preview
 
-Clicking a file opens a preview pane instead of downloading.
+Clicking a filename or the 👁 **Preview** button in the Actions column opens a preview pane instead of downloading.
 
 | File type | Extensions | How it renders |
 |-----------|-----------|----------------|
@@ -262,7 +321,7 @@ The web UI supports creating all token types: admin, non-admin, read-only, and s
 
 ### Actions
 
-- **Create** — provide a name, optional expiry, admin toggle, read-only toggle, and optional comma-separated space IDs. The plaintext is shown **once** — copy it immediately.
+- **Create** — provide a name and optional expiry date, then choose a **permission level** (Read-only, Standard, or Admin) using the radio buttons, and optionally restrict the token to specific spaces using the checkbox list. The plaintext is shown **once** — copy it immediately.
 - **Rotate** (↺) — generates a new secret, invalidating the old one instantly. The new plaintext is shown once.
 - **Revoke** (✕) — permanently deletes the token.
 
@@ -456,20 +515,20 @@ If a space has a `description`, it is sent to the MCP client as `instructions` d
 
 | Tool | Description |
 |------|-------------|
-| `remember` | Store a memory with optional tags and entity links |
+| `remember` | Store a memory with optional tags, entity links, `description`, and `properties` |
 | `update_memory` | Update an existing memory's fact, tags, or entity links |
 | `delete_memory` | Delete a memory by ID |
-| `recall` | Semantic search within the current space |
-| `recall_global` | Semantic search across all accessible spaces |
+| `recall` | Semantic search within the current space. Optional `tags` and `types` filters narrow results; `minPerType` guarantees a minimum result count per knowledge type |
+| `recall_global` | Semantic search across all accessible spaces. Accepts the same `tags`, `types`, and `minPerType` parameters as `recall` |
 | `query` | Structured filter query (read-only) — supports `memories`, `entities`, `edges`, `chrono`, and `files` collections |
 | `get_stats` | Return counts of memories, entities, edges, chrono entries, and files |
-| `upsert_entity` | Create or update a named entity (with optional properties) |
-| `upsert_edge` | Create or update a directed relationship |
+| `upsert_entity` | Create or update a named entity (`name`, `type`, `tags`, `description`, `properties`) |
+| `upsert_edge` | Create or update a directed relationship (`label`, `type`, `weight`, `tags`, `description`, `properties`) |
 | `create_chrono` | Create a chrono entry (event, deadline, plan, prediction, milestone) |
 | `update_chrono` | Update an existing chrono entry |
 | `list_chrono` | List chrono entries, optionally filtered by status, kind, or tags |
 | `read_file` | Read a file from the space |
-| `write_file` | Write a file to the space (optional `description` and `tags` stored as metadata) |
+| `write_file` | Write a file to the space (optional `description`, `tags`, and `properties` stored as metadata) |
 | `list_dir` | List directory contents |
 | `delete_file` | Delete a file |
 | `create_dir` | Create a directory |

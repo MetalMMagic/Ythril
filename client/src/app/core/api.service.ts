@@ -43,6 +43,8 @@ export interface Memory {
   fact: string;
   tags?: string[];
   entityIds?: string[];
+  description?: string;
+  properties?: Record<string, string | number | boolean>;
   createdAt: string;
   seq: number;
   author?: { instanceId: string };
@@ -53,6 +55,7 @@ export interface Entity {
   name: string;
   type?: string;
   tags?: string[];
+  description?: string;
   properties?: Record<string, string | number | boolean>;
   createdAt: string;
 }
@@ -64,6 +67,9 @@ export interface Edge {
   label: string;
   type?: string;
   weight?: number;
+  tags?: string[];
+  description?: string;
+  properties?: Record<string, string | number | boolean>;
   createdAt: string;
 }
 
@@ -95,6 +101,9 @@ export interface SpaceStats {
   memories: number;
   entities: number;
   edges: number;
+  chrono: number;
+  files: number;
+  needsReindex?: boolean;
 }
 
 export interface FileEntry {
@@ -273,6 +282,14 @@ export class ApiService {
     return this.http.get<SpaceStats>(`/api/brain/spaces/${spaceId}/stats`);
   }
 
+  getReindexStatus(spaceId: string): Observable<{ spaceId: string; needsReindex: boolean }> {
+    return this.http.get<{ spaceId: string; needsReindex: boolean }>(`/api/brain/spaces/${spaceId}/reindex-status`);
+  }
+
+  reindex(spaceId: string): Observable<Record<string, number>> {
+    return this.http.post<Record<string, number>>(`/api/brain/spaces/${spaceId}/reindex`, {});
+  }
+
   // ── Brain — memories ──────────────────────────────────────────────────────
 
   listMemories(spaceId: string, limit = 20, skip = 0, filters?: { tag?: string; entity?: string }): Observable<{ memories: Memory[]; limit: number; skip: number }> {
@@ -286,7 +303,7 @@ export class ApiService {
     return this.http.delete<void>(`/api/brain/spaces/${spaceId}/memories/${id}`);
   }
 
-  createMemory(spaceId: string, body: { fact: string; tags?: string[]; entityIds?: string[] }): Observable<Memory> {
+  createMemory(spaceId: string, body: { fact: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean> }): Observable<Memory> {
     return this.http.post<Memory>(`/api/brain/${spaceId}/memories`, body);
   }
 
@@ -298,8 +315,9 @@ export class ApiService {
 
   // ── Brain — entities ──────────────────────────────────────────────────────
 
-  listEntities(spaceId: string, limit = 50): Observable<{ entities: Entity[] }> {
-    const params = new HttpParams().set('limit', limit);
+  listEntities(spaceId: string, limit = 50, skip = 0, search?: string): Observable<{ entities: Entity[] }> {
+    let params = new HttpParams().set('limit', limit).set('skip', skip);
+    if (search) params = params.set('name', search);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/entities`, { params });
   }
 
@@ -307,14 +325,14 @@ export class ApiService {
     return this.http.delete<void>(`/api/brain/spaces/${spaceId}/entities/${id}`);
   }
 
-  createEntity(spaceId: string, body: { name: string; type?: string; tags?: string[]; properties?: Record<string, string | number | boolean> }): Observable<Entity> {
+  createEntity(spaceId: string, body: { name: string; type?: string; tags?: string[]; description?: string; properties?: Record<string, string | number | boolean> }): Observable<Entity> {
     return this.http.post<Entity>(`/api/brain/spaces/${spaceId}/entities`, body);
   }
 
   // ── Brain — edges ─────────────────────────────────────────────────────────
 
-  listEdges(spaceId: string, limit = 50): Observable<{ edges: Edge[] }> {
-    const params = new HttpParams().set('limit', limit);
+  listEdges(spaceId: string, limit = 50, skip = 0): Observable<{ edges: Edge[] }> {
+    const params = new HttpParams().set('limit', limit).set('skip', skip);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/edges`, { params });
   }
 
@@ -322,14 +340,17 @@ export class ApiService {
     return this.http.delete<void>(`/api/brain/spaces/${spaceId}/edges/${id}`);
   }
 
-  createEdge(spaceId: string, body: { from: string; to: string; label: string; weight?: number; type?: string }): Observable<Edge> {
+  createEdge(spaceId: string, body: { from: string; to: string; label: string; weight?: number; type?: string; tags?: string[]; description?: string; properties?: Record<string, string | number | boolean> }): Observable<Edge> {
     return this.http.post<Edge>(`/api/brain/spaces/${spaceId}/edges`, body);
   }
 
   // ── Brain — chrono ──────────────────────────────────────────────────────
 
-  listChrono(spaceId: string, limit = 50, skip = 0): Observable<{ chrono: ChronoEntry[] }> {
-    const params = new HttpParams().set('limit', limit).set('skip', skip);
+  listChrono(spaceId: string, limit = 50, skip = 0, filters?: { tags?: string; kind?: string; status?: string }): Observable<{ chrono: ChronoEntry[] }> {
+    let params = new HttpParams().set('limit', limit).set('skip', skip);
+    if (filters?.tags) params = params.set('tags', filters.tags);
+    if (filters?.kind) params = params.set('kind', filters.kind);
+    if (filters?.status) params = params.set('status', filters.status);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/chrono`, { params });
   }
 

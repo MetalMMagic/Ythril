@@ -328,7 +328,7 @@ function previewKind(name: string): PreviewKind {
           }
 
           <!-- Main file listing -->
-          <div class="fm-main">
+          <div class="fm-main" [class.drag-over]="dragOver()">
             @if (loading()) {
               <div class="loading-overlay"><span class="spinner"></span></div>
             } @else {
@@ -368,6 +368,7 @@ function previewKind(name: string): PreviewKind {
                     <td style="color:var(--text-muted)">{{ entry.modified | date:'MMM d, y HH:mm' }}</td>
                     <td style="display:flex; gap:6px; align-items:center;">
                       @if (entry.isFile) {
+                        <button class="btn-ghost btn btn-sm" (click)="openPreview(entry)" aria-label="Preview file" title="Preview">👁</button>
                         <a
                           class="btn-ghost btn btn-sm"
                           [href]="downloadUrl(entry)"
@@ -470,6 +471,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   uploadError = signal('');
   uploadPercent = signal(0);
 
+  dragOver = signal(false);
+
   showNewFolder = signal(false);
   newFolderName = '';
 
@@ -537,10 +540,40 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     });
   }
 
+  @HostListener('dragover', ['$event'])
+  onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.dragOver.set(true);
+  }
+
+  @HostListener('dragleave', ['$event'])
+  onDragLeave(event: DragEvent): void {
+    // Only clear when leaving the component boundary
+    if (!(event.currentTarget as HTMLElement).contains(event.relatedTarget as Node)) {
+      this.dragOver.set(false);
+    }
+  }
+
+  @HostListener('drop', ['$event'])
+  onDrop(event: DragEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.dragOver.set(false);
+    const files = event.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    this.uploadFiles(files);
+  }
+
   onFileInput(event: Event): void {
     const input = event.target as HTMLInputElement;
     const files = input.files;
     if (!files || files.length === 0) return;
+    this.uploadFiles(files);
+    input.value = '';
+  }
+
+  private uploadFiles(files: FileList): void {
 
     this.uploading.set(true);
     this.uploadError.set('');
@@ -553,20 +586,17 @@ export class FileManagerComponent implements OnInit, OnDestroy {
       if (index >= total) {
         this.uploading.set(false);
         this.loadDir(this.currentPath());
-        input.value = '';
         return;
       }
       const file = files[index];
       this.api.uploadFileChunked(this.activeSpaceId(), this.currentPath(), file).subscribe({
         next: (progress) => {
-          const fileWeight = 1 / total;
           const overallPercent = Math.round((completed * 100 + progress.percent) / total);
           this.uploadPercent.set(overallPercent);
         },
         error: (err) => {
           this.uploading.set(false);
           this.uploadError.set(err.error?.error ?? 'Upload failed');
-          input.value = '';
         },
         complete: () => {
           completed++;
@@ -574,7 +604,6 @@ export class FileManagerComponent implements OnInit, OnDestroy {
             this.uploading.set(false);
             this.uploadPercent.set(100);
             this.loadDir(this.currentPath());
-            input.value = '';
           } else {
             uploadNext(index + 1);
           }

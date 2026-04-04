@@ -332,9 +332,12 @@ filesRouter.post(
       }
 
       // Persist file metadata to MongoDB
-      const metaOpts: { description?: string; tags?: string[] } = {};
+      const metaOpts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> } = {};
       if (typeof req.body?.description === 'string') metaOpts.description = req.body.description;
       if (Array.isArray(req.body?.tags)) metaOpts.tags = req.body.tags as string[];
+      if (req.body?.properties != null && typeof req.body.properties === 'object' && !Array.isArray(req.body.properties)) {
+        metaOpts.properties = req.body.properties as Record<string, string | number | boolean>;
+      }
       await upsertFileMeta(targetSpace, filePath, incomingBytes, metaOpts).catch(err => {
         log.warn(`upsertFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
       });

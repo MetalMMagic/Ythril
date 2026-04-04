@@ -495,7 +495,7 @@ brainRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, d
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
 
-  const { title, kind, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, recurrence } = req.body ?? {};
+  const { title, kind, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
   if (!title || typeof title !== 'string') {
     res.status(400).json({ error: '`title` string required' }); return;
   }
@@ -526,10 +526,17 @@ brainRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, d
   if (description !== undefined && typeof description !== 'string') {
     res.status(400).json({ error: '`description` must be a string' }); return;
   }
+  if (properties !== undefined && (typeof properties !== 'object' || properties === null || Array.isArray(properties))) {
+    res.status(400).json({ error: '`properties` must be a plain object' }); return;
+  }
+  const safeProps: Record<string, string | number | boolean> | undefined =
+    properties != null && typeof properties === 'object' && !Array.isArray(properties)
+      ? (properties as Record<string, string | number | boolean>)
+      : undefined;
 
   const entry = await createChrono(wt.target, {
     title: title.trim(), kind, startsAt, endsAt, status, confidence,
-    tags, entityIds, memoryIds, description, recurrence,
+    tags, entityIds, memoryIds, description, properties: safeProps, recurrence,
   });
   res.status(201).json(entry);
 });
@@ -546,7 +553,7 @@ brainRouter.post('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAut
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
 
-  const { title, kind, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, recurrence } = req.body ?? {};
+  const { title, kind, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
   if (status !== undefined && !CHRONO_STATUSES.has(status)) {
     res.status(400).json({ error: '`status` must be one of: upcoming, active, completed, overdue, cancelled' }); return;
   }
@@ -556,10 +563,17 @@ brainRouter.post('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAut
   if (confidence !== undefined && (typeof confidence !== 'number' || confidence < 0 || confidence > 1)) {
     res.status(400).json({ error: '`confidence` must be a number between 0 and 1' }); return;
   }
+  if (properties !== undefined && (typeof properties !== 'object' || properties === null || Array.isArray(properties))) {
+    res.status(400).json({ error: '`properties` must be a plain object' }); return;
+  }
+  const safeProps: Record<string, string | number | boolean> | undefined =
+    properties != null && typeof properties === 'object' && !Array.isArray(properties)
+      ? (properties as Record<string, string | number | boolean>)
+      : undefined;
 
   const updated = await updateChrono(wt.target, id, {
     title, kind, startsAt, endsAt, status, confidence,
-    tags, entityIds, memoryIds, description, recurrence,
+    tags, entityIds, memoryIds, description, properties: safeProps, recurrence,
   });
   if (!updated) { res.status(404).json({ error: 'Chrono entry not found' }); return; }
   res.json(updated);

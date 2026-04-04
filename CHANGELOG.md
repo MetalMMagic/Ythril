@@ -4,6 +4,35 @@ All notable changes to Ythril are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-04-04
+
+### Added
+
+- **Brain UI — space stats bar**: five stat pills (Memories, Entities, Edges, Chrono, Files) at the top of the Brain page pull from `GET /api/brain/spaces/:id/stats` and refresh on every load.
+- **Brain UI — needs-reindex banner**: when the space returns `needsReindex: true`, a banner prompts the user to reindex. Clicking "Reindex now" calls `POST /api/brain/spaces/:id/reindex` and shows a confirmation on completion.
+- **Brain UI — memory `description` + `properties` fields**: free-text description textarea and key/value properties builder added to the create-memory form. Values are displayed inline on each memory card.
+- **Brain UI — entity `description` field**: optional description field added to the create-entity form; displayed in the entity table's Description column.
+- **Brain UI — entity search + pagination**: search-by-name bar dispatches `GET /api/brain/spaces/:id/entities?search=…` and entity list pages 20 at a time with Prev / Next controls.
+- **Brain UI — edge `tags`, `description`, `properties` fields**: tags (comma-separated), description, and properties added to the create-edge form; Tags column added to the edge table; description shown as a subtitle row.
+- **Brain UI — edge pagination**: edge list pages 20 at a time with Prev / Next controls.
+- **Brain UI — chrono filter bar + pagination**: tag and status filter dropdowns filter `GET /api/brain/spaces/:id/chrono`; chrono list pages 20 at a time with Prev / Next controls.
+- **Brain UI — inline delete confirmations**: per-row inline confirm/cancel buttons replace browser `confirm()` dialogs for deleting memories, entities, edges, and chrono entries. A single `confirmDeleteId` signal tracks the active confirmation.
+- **Files UI — drag-and-drop upload**: the file listing area accepts drag-and-drop; `dragover`/`dragleave`/`drop` host listeners toggle a `.drag-over` CSS class and route dropped files through the shared `uploadFiles()` method.
+- **Files UI — preview button**: a 👁 Preview button in the Actions column opens a file in the preview panel (before the existing Download button).
+- **Server: `properties` field on chrono entries**: chrono create (`POST /spaces/:spaceId/chrono`) and update (`POST /spaces/:spaceId/chrono/:id`) REST routes now accept, validate, and persist an optional `properties: Record<string, string | number | boolean>` body field.
+- **Server: `properties` field on file metadata via REST upload**: the file write route (`PUT /api/files/spaces/:spaceId/*`) now accepts and persists an optional `properties` body field alongside the existing `description` and `tags`.
+
+### Fixed
+
+- **Chrono REST routes missing `properties` pass-through**: the `POST /spaces/:spaceId/chrono` and `POST /spaces/:spaceId/chrono/:id` routes did not destructure `properties` from `req.body` and did not forward it to `createChrono()` / `updateChrono()`. Values were silently dropped.
+- **File upload REST route missing `properties` pass-through**: `metaOpts` type only declared `description` and `tags`; `properties` was never extracted from `req.body` or forwarded to `upsertFileMeta()`.
+
+### Changed
+
+- `docs/userguide.md`: updated Brain and Files sections to document all new UI fields, controls, and interactions added in this release.
+- Brain integration tests: new tests for memory `description`/`properties`, entity `description`, edge `tags`/`description`/`properties` with union-merge and validation, chrono `properties`, and file metadata `properties`. All 385 integration tests pass (0 failures).
+- Red-team tests: all 175 pass (0 failures). Sync tests: 158 pass, 1 skip. Standalone tests: 194 pass, 4 skip (Windows permission-bit checks not applicable).
+
 ## [0.7.1] — 2026-04-04
 
 ### Added

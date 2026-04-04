@@ -7,7 +7,7 @@ import { ensureSpaceFilesDir } from '../files/files.js';
 import { log } from '../util/log.js';
 import type { SpaceConfig, MemoryDoc } from '../config/types.js';
 
-const SPACE_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'tombstones', 'conflicts'] as const;
+const SPACE_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'tombstones', 'conflicts', 'files'] as const;
 
 // Collections that have vector search indexes for semantic recall
 const VECTOR_INDEXED_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono'] as const;
@@ -63,6 +63,9 @@ export async function initSpace(spaceId: string): Promise<void> {
   await chronoColl.createIndex({ spaceId: 1, seq: 1 });
   await tombstonesColl.createIndex({ spaceId: 1, seq: 1 });
   await db.collection(`${spaceId}_conflicts`).createIndex({ spaceId: 1, detectedAt: -1 });
+  const filesColl = db.collection(`${spaceId}_files`);
+  await filesColl.createIndex({ spaceId: 1, tags: 1 });
+  await filesColl.createIndex({ spaceId: 1, updatedAt: -1 });
 
   // Vector search indexes (Atlas Local / Atlas)
   for (const suffix of VECTOR_INDEXED_COLLECTIONS) {

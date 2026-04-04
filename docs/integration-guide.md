@@ -444,7 +444,9 @@ POST /api/brain/:spaceId/memories
 {
   "fact": "Kubernetes pods are ephemeral by design",
   "tags": ["k8s", "architecture"],
-  "entityIds": []
+  "entityIds": [],
+  "description": "This means pod-local storage is lost on restart.",
+  "properties": { "source": "k8s-docs", "confidence": 0.95 }
 }
 ```
 
@@ -457,6 +459,8 @@ POST /api/brain/:spaceId/memories
   "fact": "Kubernetes pods are ephemeral by design",
   "tags": ["k8s", "architecture"],
   "entityIds": [],
+  "description": "This means pod-local storage is lost on restart.",
+  "properties": { "source": "k8s-docs", "confidence": 0.95 },
   "seq": 42,
   "createdAt": "2026-03-25T14:00:00.000Z",
   "updatedAt": "2026-03-25T14:00:00.000Z",
@@ -464,7 +468,7 @@ POST /api/brain/:spaceId/memories
 }
 ```
 
-**Constraints**: `fact` max 50 000 chars. `tags` must be an array of strings.
+**Constraints**: `fact` max 50 000 chars. `tags` must be an array of strings. `description` optional string. `properties` optional object where each value must be a string, number, or boolean.
 
 ---
 
@@ -556,13 +560,11 @@ Searches **all knowledge types** (memories, entities, edges, chrono entries, and
 
 | Data type | Embedded? | Fields included in embedding text | Returned by `recall`? |
 |-----------|:---------:|-----------------------------------|:---------------------:|
-| `memory` | ✅ | `fact` | ✅ |
-| `entity` | ✅ | `name` + `type` (e.g. `portal-backend service`) | ✅ |
-| `edge` | ✅ | `label` (e.g. `connects_to`) | ✅ |
-| `chrono` | ✅ | `title` + `description` (if set) | ✅ |
-| `file` | ✅ | `description` (if set), otherwise `path` | ✅ |
-
-> **Note:** Entity `description` is not a supported field — entities are identified by `name` + `type` only. The `tags` filter parameter does not apply to edges (edges have no tags).
+| `memory` | ✅ | `tags` + entity names + `fact` + `description` + `properties` | ✅ |
+| `entity` | ✅ | `name` + `type` + `tags` + `description` + `properties` | ✅ |
+| `edge` | ✅ | `tags` + `from` + `label` + `to` + `type` + `description` | ✅ |
+| `chrono` | ✅ | `kind` + `status` + `title` + `tags` + `description` | ✅ |
+| `file` | ✅ | `path` + `tags` + `description` | ✅ |
 
 ---
 
@@ -577,13 +579,14 @@ POST /api/brain/spaces/:spaceId/entities
   "name": "Kubernetes",
   "type": "technology",
   "tags": ["infra", "containers"],
+  "description": "CNCF-graduated container orchestration platform.",
   "properties": { "cncf": true, "version": "1.32" }
 }
 ```
 
 **Response** `201`: Full entity doc. Upserts on `(spaceId, name, type)` — tags are merged (deduplicated union), properties are shallow-merged (new keys added, existing keys overwritten).
 
-**Constraints**: `name` required string; `type` optional string (defaults to empty); `tags` optional array of strings; `properties` optional object where each value must be a string, number, or boolean.
+**Constraints**: `name` required string; `type` optional string (defaults to empty); `tags` optional array of strings; `description` optional string (included in embedding text); `properties` optional object where each value must be a string, number, or boolean.
 
 ---
 
@@ -629,7 +632,9 @@ POST /api/brain/spaces/:spaceId/edges
   "to": "docker",
   "label": "depends_on",
   "weight": 0.9,
-  "type": "causal"
+  "type": "causal",
+  "tags": ["infra"],
+  "description": "K8s uses Docker as its container runtime."
 }
 ```
 
@@ -642,6 +647,9 @@ POST /api/brain/spaces/:spaceId/edges
 | `label` | yes | Relationship label (e.g. `depends_on`, `related_to`) |
 | `weight` | no | Numeric weight (0–1). Defaults to none. |
 | `type` | no | Free-form edge type string (e.g. `causal`, `hierarchical`). |
+| `tags` | no | Array of strings. Merged (union) with existing tags on upsert. Included in embedding text and filterable via `recall`. |
+| `description` | no | Optional prose description of the relationship. Included in embedding text. |
+| `properties` | no | Optional key-value metadata object. Values must be string, number, or boolean. Shallow-merged on upsert. |
 
 Upserts on `(spaceId, from, to, label)`.
 
@@ -2318,13 +2326,11 @@ Content-Type: application/json
 
 | Data type | Embedded? | Fields included in embedding text | Returned by `recall`? |
 |-----------|:---------:|-----------------------------------|:---------------------:|
-| `memory` | ✅ | `fact` | ✅ |
-| `entity` | ✅ | `name` + `type` (e.g. `portal-backend service`) | ✅ |
-| `edge` | ✅ | `label` (e.g. `connects_to`) | ✅ |
-| `chrono` | ✅ | `title` + `description` (if set) | ✅ |
-| `file` | ✅ | `description` (if set), otherwise `path` | ✅ |
-
-> **Note:** Entity `description` is not a supported field — entities are identified by `name` + `type` only. The `tags` filter parameter does not apply to edges (edges have no tags).
+| `memory` | ✅ | `tags` + entity names + `fact` + `description` + `properties` | ✅ |
+| `entity` | ✅ | `name` + `type` + `tags` + `description` + `properties` | ✅ |
+| `edge` | ✅ | `tags` + `from` + `label` + `to` + `type` + `description` | ✅ |
+| `chrono` | ✅ | `kind` + `status` + `title` + `tags` + `description` | ✅ |
+| `file` | ✅ | `path` + `tags` + `description` | ✅ |
 
 **Parameters:**
 
@@ -2332,10 +2338,11 @@ Content-Type: application/json
 |-----------|------|----------|-------------|
 | `query` | `string` | ✅ | Natural language search query |
 | `topK` | `number` | — | Max results to return (default `10`) |
-| `tags` | `string[]` | — | Optional tag filter — only results bearing **all** of these tags are returned (applies to memories, entities, chrono entries, and files). Useful for scoping a semantic search to a specific service or ADR (e.g. `["portal-backend"]`) |
+| `tags` | `string[]` | — | Optional tag filter — only results bearing **all** of these tags are returned (applies to all knowledge types). Useful for scoping a semantic search to a specific service or ADR (e.g. `["portal-backend"]`) |
 | `types` | `string[]` | — | Optional knowledge-type filter — restrict results to one or more of `memory`, `entity`, `edge`, `chrono`, `file`. Omit to search all types. |
+| `minPerType` | `object` | — | Optional minimum result count per type. Guarantees at least that many results of each specified type if available (e.g. `{"entity": 2, "edge": 1}`). Uses two-phase search: guaranteed slots filled first, remaining slots filled by score. Omit to use pure score ranking. |
 
-`recall_global` accepts the same `tags` and `types` parameters and applies them across all searched spaces.
+`recall_global` accepts the same `tags`, `types`, and `minPerType` parameters and applies them across all searched spaces.
 
 ### Example: update_memory
 

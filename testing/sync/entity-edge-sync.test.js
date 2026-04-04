@@ -226,3 +226,157 @@ describe('POST /api/sync/tombstones — apply incoming tombstones', () => {
     assert.equal(r.status, 400);
   });
 });
+
+// ── Sync Zod schema parity — new optional fields accepted ─────────────────
+
+describe('Sync API — new optional fields accepted by Zod schemas', () => {
+  let token;
+  const RUN = Date.now();
+
+  before(() => {
+    token = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+  });
+
+  it('POST /api/sync/memories accepts description and properties fields', async () => {
+    const r = await post(INSTANCES.a, token, '/api/sync/memories?spaceId=general', {
+      _id: `sync-mem-desc-${RUN}`,
+      spaceId: 'general',
+      fact: `Sync memory with description ${RUN}`,
+      embedding: [],
+      embeddingModel: 'none',
+      tags: ['sync-schema-test'],
+      entityIds: [],
+      description: 'A synced description',
+      properties: { synced: true, version: 2 },
+      seq: Date.now(),
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 200, `Sync memory with description/properties: ${JSON.stringify(r.body)}`);
+  });
+
+  it('description and properties are persisted after sync upsert', async () => {
+    const memId = `sync-mem-desc-verify-${RUN}`;
+    await post(INSTANCES.a, token, '/api/sync/memories?spaceId=general', {
+      _id: memId,
+      spaceId: 'general',
+      fact: `Verify desc/props after sync ${RUN}`,
+      embedding: [],
+      embeddingModel: 'none',
+      tags: [],
+      entityIds: [],
+      description: 'Verified description',
+      properties: { key: 'synced-val' },
+      seq: Date.now(),
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const r = await reqJson(INSTANCES.a, token, `/api/sync/memories/${memId}?spaceId=general`);
+    assert.equal(r.status, 200, `Fetch synced memory: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.description, 'Verified description', 'description must survive sync round-trip');
+    assert.deepStrictEqual(r.body.properties, { key: 'synced-val' }, 'properties must survive sync round-trip');
+  });
+
+  it('POST /api/sync/entities accepts description field', async () => {
+    const r = await post(INSTANCES.a, token, '/api/sync/entities?spaceId=general', {
+      _id: `sync-ent-desc-${RUN}`,
+      spaceId: 'general',
+      name: `SyncDescEntity-${RUN}`,
+      type: 'concept',
+      tags: ['sync-schema-test'],
+      description: 'Entity synced with description',
+      properties: {},
+      seq: Date.now(),
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 200, `Sync entity with description: ${JSON.stringify(r.body)}`);
+  });
+
+  it('entity description survives sync round-trip', async () => {
+    const entId = `sync-ent-desc-verify-${RUN}`;
+    await post(INSTANCES.a, token, '/api/sync/entities?spaceId=general', {
+      _id: entId,
+      spaceId: 'general',
+      name: `VerifyDescEnt-${RUN}`,
+      type: 'concept',
+      tags: [],
+      description: 'Round-trip description',
+      properties: {},
+      seq: Date.now(),
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const r = await reqJson(INSTANCES.a, token, `/api/sync/entities/${entId}?spaceId=general`);
+    assert.equal(r.status, 200, `Fetch synced entity: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.description, 'Round-trip description', 'entity description must survive sync round-trip');
+  });
+
+  it('POST /api/sync/edges accepts tags, description, and properties fields', async () => {
+    const r = await post(INSTANCES.a, token, '/api/sync/edges?spaceId=general', {
+      _id: `sync-edge-rich-${RUN}`,
+      spaceId: 'general',
+      from: `sync-rich-from-${RUN}`,
+      to: `sync-rich-to-${RUN}`,
+      label: 'sync_rich_rel',
+      tags: ['sync-schema-test', 'causal'],
+      description: 'Edge synced with full rich fields',
+      properties: { validated: true, score: 0.9 },
+      seq: Date.now(),
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 200, `Sync edge with tags/description/properties: ${JSON.stringify(r.body)}`);
+  });
+
+  it('edge tags, description, and properties survive sync round-trip', async () => {
+    const edgeId = `sync-edge-verify-${RUN}`;
+    await post(INSTANCES.a, token, '/api/sync/edges?spaceId=general', {
+      _id: edgeId,
+      spaceId: 'general',
+      from: `verify-from-${RUN}`,
+      to: `verify-to-${RUN}`,
+      label: 'verify_sync_rel',
+      tags: ['edge-roundtrip'],
+      description: 'Round-trip edge description',
+      properties: { edge_key: 'edge_val' },
+      seq: Date.now(),
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    const r = await reqJson(INSTANCES.a, token, `/api/sync/edges/${edgeId}?spaceId=general`);
+    assert.equal(r.status, 200, `Fetch synced edge: ${JSON.stringify(r.body)}`);
+    assert.ok(Array.isArray(r.body.tags) && r.body.tags.includes('edge-roundtrip'), 'edge tags must survive sync round-trip');
+    assert.equal(r.body.description, 'Round-trip edge description', 'edge description must survive sync round-trip');
+    assert.deepStrictEqual(r.body.properties, { edge_key: 'edge_val' }, 'edge properties must survive sync round-trip');
+  });
+
+  it('POST /api/sync/chrono accepts properties field', async () => {
+    const r = await post(INSTANCES.a, token, '/api/sync/chrono?spaceId=general', {
+      _id: `sync-chrono-props-${RUN}`,
+      spaceId: 'general',
+      title: `SyncChronoProps-${RUN}`,
+      kind: 'milestone',
+      startsAt: new Date().toISOString(),
+      status: 'upcoming',
+      tags: ['sync-schema-test'],
+      entityIds: [],
+      memoryIds: [],
+      properties: { phase: 'sync', priority: 1 },
+      seq: Date.now(),
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 200, `Sync chrono with properties: ${JSON.stringify(r.body)}`);
+  });
+});

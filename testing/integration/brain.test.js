@@ -500,6 +500,88 @@ describe('Brain â€” reindex-status endpoint', () => {
   });
 });
 
+// ── Reindex endpoint ─────────────────────────────────────────────────────────────────
+
+describe('Brain — POST /api/brain/spaces/:spaceId/reindex', () => {
+  const RUN = Date.now();
+
+  before(async () => {
+    // Seed one of each type with rich fields so the reindex formulas exercise the new fieldsets
+    const { post: syncPost } = await import('../sync/helpers.js');
+
+    await syncPost(INSTANCES.a, token(), '/api/sync/memories?spaceId=general', {
+      _id: `reindex-mem-${RUN}`,
+      spaceId: 'general',
+      fact: `Reindex memory fact ${RUN}`,
+      embedding: [],
+      embeddingModel: '__stale__',   // mark as stale so needsReindex triggers
+      tags: ['reindex-test'],
+      entityIds: [],
+      description: 'Reindex description',
+      properties: { aspect: 'test' },
+      seq: Date.now(),
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await syncPost(INSTANCES.a, token(), '/api/sync/entities?spaceId=general', {
+      _id: `reindex-ent-${RUN}`,
+      spaceId: 'general',
+      name: `ReindexEnt-${RUN}`,
+      type: 'concept',
+      tags: ['reindex-test'],
+      description: 'Entity for reindex',
+      properties: { tier: 'core' },
+      seq: Date.now() + 1,
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await syncPost(INSTANCES.a, token(), '/api/sync/edges?spaceId=general', {
+      _id: `reindex-edge-${RUN}`,
+      spaceId: 'general',
+      from: `reindex-ent-${RUN}`,
+      to: `reindex-ent-${RUN}`,
+      label: 'self_ref',
+      tags: ['reindex-test'],
+      description: 'Edge for reindex test',
+      seq: Date.now() + 2,
+      author: { instanceId: 'test', instanceLabel: 'Test' },
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  });
+
+  it('POST /reindex returns 200 with count summary', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/reindex', {});
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(typeof r.body === 'object', 'response must be an object');
+    // The reindex response includes count fields for each collection type
+    const keys = Object.keys(r.body);
+    assert.ok(
+      keys.some(k => ['memories', 'entities', 'edges', 'chrono', 'files', 'reindexed'].includes(k)),
+      `Expected count key in response: ${JSON.stringify(r.body)}`,
+    );
+  });
+
+  it('POST /reindex requires auth', async () => {
+    const r = await fetch(`${INSTANCES.a}/api/brain/spaces/general/reindex`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+    assert.equal(r.status, 401);
+  });
+
+  it('POST /reindex for unknown space returns 404', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/no-such-space/reindex', {});
+    assert.equal(r.status, 404);
+  });
+});
+
+
 // â”€â”€ Memory fact validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe('Brain â€” memory fact validation', () => {
@@ -814,6 +896,239 @@ describe('Brain -- chrono tags filter (/api/brain/spaces/:spaceId/chrono?tags=..
     const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono?tags=no-such-tag-${RUN}`);
     assert.equal(r.status, 200);
     assert.deepStrictEqual(r.body.chrono, []);
+  });
+});
+
+// ── Memory description + properties fields ─────────────────────────────────
+
+describe('Brain — memory description and properties fields', () => {
+  const RUN = Date.now();
+
+  it('POST /memories with description and properties stores both fields', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+      fact: `DescPropFact-${RUN}`,
+      tags: ['desc-prop-test'],
+      description: 'Context for this fact',
+      properties: { source: 'unit-test', confidence: 0.9, reviewed: true },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.description, 'Context for this fact');
+    assert.deepStrictEqual(r.body.properties, { source: 'unit-test', confidence: 0.9, reviewed: true });
+  });
+
+  it('description and properties are retrievable by ID', async () => {
+    const write = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+      fact: `DescPropRetrieve-${RUN}`,
+      description: 'Retrievable description',
+      properties: { key: 'val' },
+    });
+    assert.equal(write.status, 201);
+    const memId = write.body._id;
+
+    const r = await get(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
+    assert.equal(r.status, 200);
+    assert.equal(r.body.description, 'Retrievable description');
+    assert.deepStrictEqual(r.body.properties, { key: 'val' });
+  });
+
+  it('memory without description/properties works (optional fields)', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+      fact: `NoDescProp-${RUN}`,
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.description, undefined);
+    assert.equal(r.body.properties, undefined);
+  });
+
+  it('non-string description is ignored (coerced away)', async () => {
+    // Server strips non-string description — must not crash
+    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+      fact: `BadDesc-${RUN}`,
+      description: 12345,
+    });
+    assert.ok(r.status === 201 || r.status === 400, `Expected 201 or 400, got ${r.status}`);
+  });
+
+  it('non-object properties is ignored (coerced away)', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+      fact: `BadProps-${RUN}`,
+      properties: 'not-an-object',
+    });
+    assert.ok(r.status === 201 || r.status === 400, `Expected 201 or 400, got ${r.status}`);
+  });
+});
+
+// ── Entity description field ────────────────────────────────────────────────
+
+describe('Brain — entity description field', () => {
+  const RUN = Date.now();
+
+  it('Create entity with description stores and returns it', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `DescEntity-${RUN}`,
+      type: 'concept',
+      description: 'A well-described entity',
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.description, 'A well-described entity');
+  });
+
+  it('Upsert preserves description when not re-supplied', async () => {
+    // Second upsert without description — should preserve the existing one
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `DescEntity-${RUN}`,
+      type: 'concept',
+      tags: ['extra-tag'],
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.description, 'A well-described entity', 'description preserved on re-upsert without description');
+  });
+
+  it('Upsert overwrites description when re-supplied', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `DescEntity-${RUN}`,
+      type: 'concept',
+      description: 'Updated description',
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.description, 'Updated description');
+  });
+
+  it('Entity without description has no description field', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `NoDescEntity-${RUN}`,
+      type: 'misc',
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.description, undefined);
+  });
+});
+
+// ── Edge tags, description, and properties fields ──────────────────────────
+
+describe('Brain — edge tags, description, and properties fields', () => {
+  const RUN = Date.now();
+  let entFromId;
+  let entToId;
+
+  before(async () => {
+    const fR = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `EdgeDescFrom-${RUN}`, type: 'concept',
+    });
+    assert.equal(fR.status, 201);
+    entFromId = fR.body._id;
+
+    const tR = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `EdgeDescTo-${RUN}`, type: 'concept',
+    });
+    assert.equal(tR.status, 201);
+    entToId = tR.body._id;
+  });
+
+  it('Create edge with tags, description, and properties stores all three', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/edges', {
+      from: entFromId,
+      to: entToId,
+      label: `rich-edge-${RUN}`,
+      tags: ['causal', 'infra'],
+      description: 'Why this edge exists',
+      properties: { score: 0.85, validated: true },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body.tags) && r.body.tags.includes('causal'), 'tags stored');
+    assert.ok(r.body.tags.includes('infra'), 'both tags stored');
+    assert.equal(r.body.description, 'Why this edge exists', 'description stored');
+    assert.deepStrictEqual(r.body.properties, { score: 0.85, validated: true }, 'properties stored');
+  });
+
+  it('Upsert merges edge tags (union)', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/edges', {
+      from: entFromId,
+      to: entToId,
+      label: `rich-edge-${RUN}`,
+      tags: ['new-tag'],
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.ok(r.body.tags.includes('causal'), 'original tag preserved');
+    assert.ok(r.body.tags.includes('new-tag'), 'new tag merged');
+  });
+
+  it('Upsert merges edge properties (shallow merge)', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/edges', {
+      from: entFromId,
+      to: entToId,
+      label: `rich-edge-${RUN}`,
+      properties: { extra: 'yes' },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.properties.score, 0.85, 'original property preserved');
+    assert.equal(r.body.properties.extra, 'yes', 'new property merged');
+  });
+
+  it('Edge without new fields returns valid response', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/edges', {
+      from: entFromId,
+      to: entToId,
+      label: `plain-edge-${RUN}`,
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.ok(!r.body.description, 'description absent when not set');
+  });
+
+  it('Invalid tags value returns 400', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/edges', {
+      from: entFromId,
+      to: entToId,
+      label: `bad-tags-${RUN}`,
+      tags: 'not-an-array',
+    });
+    assert.equal(r.status, 400, `Expected 400 for non-array tags`);
+  });
+
+  it('Invalid description type returns 400', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/edges', {
+      from: entFromId,
+      to: entToId,
+      label: `bad-desc-${RUN}`,
+      description: { nested: true },
+    });
+    assert.equal(r.status, 400, `Expected 400 for non-string description`);
+  });
+});
+
+// ── Chrono properties field ─────────────────────────────────────────────────
+
+describe('Brain — chrono properties field', () => {
+  const RUN = Date.now();
+  let chronoId;
+
+  before(async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/chrono', {
+      title: `ChronoPropTest-${RUN}`,
+      kind: 'milestone',
+      startsAt: new Date().toISOString(),
+      properties: { phase: 'alpha', priority: 1, critical: true },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    chronoId = r.body._id;
+  });
+
+  it('Create chrono with properties stores them in response', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepStrictEqual(r.body.properties, { phase: 'alpha', priority: 1, critical: true });
+  });
+
+  it('Update chrono can set properties', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+      properties: { phase: 'beta', priority: 2, critical: false },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepStrictEqual(r.body.properties, { phase: 'beta', priority: 2, critical: false });
+  });
+
+  after(async () => {
+    if (chronoId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`).catch(() => {});
   });
 });
 

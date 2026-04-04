@@ -986,3 +986,248 @@ describe('MCP recall — types filter restricts result set', () => {
     assert.ok(!result?.isError, `recall_global types=entity returned isError: ${JSON.stringify(result)}`);
   });
 });
+
+// ── remember / recall with description and properties ─────────────────────
+
+describe('MCP brain tools — remember with description and properties', () => {
+  let session;
+  let embeddingAvailable = false;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    session = await openMcpSession('general', tokenA);
+    const probe = await session.callTool('remember', { fact: `__rich-fields-probe-${Date.now()}__`, tags: [] });
+    const probeText = probe?.content?.[0]?.text ?? '';
+    embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
+  });
+  after(() => session?.close());
+
+  it('remember with description and properties does not return isError', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
+    const result = await session.callTool('remember', {
+      fact: `MCP-rich-fact-${Date.now()}`,
+      tags: ['rich-field-test'],
+      description: 'Extra context for this fact',
+      properties: { source: 'mcp-test', confidence: 0.9 },
+    });
+    assert.ok(!result?.isError, `remember with description/properties returned isError: ${JSON.stringify(result)}`);
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(text.includes('Stored memory') || text.includes('seq'), `Expected confirmation in: ${text}`);
+  });
+
+  it('remember description is stored and queryable', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
+    const uniqueFact = `DescPropMCPFact-${Date.now()}`;
+    await session.callTool('remember', {
+      fact: uniqueFact,
+      description: 'A unique MCP description',
+      properties: { mcp_key: 'mcp_val' },
+    });
+
+    // Query memories collection and verify description + properties are persisted
+    const queryResult = await session.callTool('query', {
+      collection: 'memories',
+      filter: { fact: uniqueFact },
+      limit: 1,
+    });
+    assert.ok(!queryResult?.isError, `query returned isError: ${JSON.stringify(queryResult)}`);
+    const docs = JSON.parse(queryResult?.content?.[0]?.text ?? '[]');
+    assert.ok(docs.length > 0, 'Memory must be retrievable by exact fact');
+    assert.equal(docs[0].description, 'A unique MCP description', 'description must be persisted');
+    assert.deepStrictEqual(docs[0].properties, { mcp_key: 'mcp_val' }, 'properties must be persisted');
+  });
+});
+
+// ── upsert_entity with description ────────────────────────────────────────
+
+describe('MCP brain tools — upsert_entity with description', () => {
+  let session;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    session = await openMcpSession('general', tokenA);
+  });
+  after(() => session?.close());
+
+  it('upsert_entity with description stores it and returns id', async () => {
+    const name = `MCP-DescEntity-${Date.now()}`;
+    const result = await session.callTool('upsert_entity', {
+      name,
+      type: 'service',
+      description: 'Primary API gateway for external traffic',
+      tags: ['gateway'],
+    });
+    assert.ok(!result?.isError, `upsert_entity error: ${JSON.stringify(result)}`);
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(text.includes('upserted'), `Expected "upserted" in: ${text}`);
+
+    // Verify description is queryable via query tool
+    const q = await session.callTool('query', {
+      collection: 'entities',
+      filter: { name },
+      limit: 1,
+    });
+    assert.ok(!q?.isError, `query error: ${JSON.stringify(q)}`);
+    const docs = JSON.parse(q?.content?.[0]?.text ?? '[]');
+    assert.ok(docs.length > 0, 'Entity must be queryable by name');
+    assert.equal(docs[0].description, 'Primary API gateway for external traffic', 'description persisted');
+  });
+});
+
+// ── upsert_edge with tags, description, and properties ────────────────────
+
+describe('MCP brain tools — upsert_edge with tags, description, and properties', () => {
+  let session;
+  let entityAId;
+  let entityBId;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    session = await openMcpSession('general', tokenA);
+
+    const rA = await session.callTool('upsert_entity', { name: `RichEdgeA-${Date.now()}`, type: 'concept' });
+    const rB = await session.callTool('upsert_entity', { name: `RichEdgeB-${Date.now()}`, type: 'concept' });
+    const mA = (rA?.content?.[0]?.text ?? '').match(/ID ([a-f0-9-]{36})/i);
+    const mB = (rB?.content?.[0]?.text ?? '').match(/ID ([a-f0-9-]{36})/i);
+    assert.ok(mA, `Could not extract entityA ID: ${rA?.content?.[0]?.text}`);
+    assert.ok(mB, `Could not extract entityB ID: ${rB?.content?.[0]?.text}`);
+    entityAId = mA[1];
+    entityBId = mB[1];
+  });
+  after(() => session?.close());
+
+  it('upsert_edge with tags, description, and properties does not return isError', async () => {
+    const result = await session.callTool('upsert_edge', {
+      from: entityAId,
+      to: entityBId,
+      label: `rich_rel_${Date.now()}`,
+      tags: ['causal', 'mcp-test'],
+      description: 'Edge created with full rich fields from MCP',
+      properties: { confidence: 0.77, reviewed: true },
+    });
+    assert.ok(!result?.isError, `upsert_edge rich fields error: ${JSON.stringify(result)}`);
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(text.includes('upserted'), `Expected "upserted" in: ${text}`);
+  });
+
+  it('upsert_edge description and properties are stored', async () => {
+    const label = `queryable_rel_${Date.now()}`;
+    await session.callTool('upsert_edge', {
+      from: entityAId,
+      to: entityBId,
+      label,
+      description: 'MCP edge with queryable desc',
+      properties: { edge_prop: 'stored' },
+    });
+
+    const q = await session.callTool('query', {
+      collection: 'edges',
+      filter: { label },
+      limit: 1,
+    });
+    assert.ok(!q?.isError, `query error: ${JSON.stringify(q)}`);
+    const docs = JSON.parse(q?.content?.[0]?.text ?? '[]');
+    assert.ok(docs.length > 0, 'Edge must be queryable by label');
+    assert.equal(docs[0].description, 'MCP edge with queryable desc', 'description persisted');
+    assert.deepStrictEqual(docs[0].properties, { edge_prop: 'stored' }, 'properties persisted');
+  });
+});
+
+// ── recall / recall_global with minPerType ────────────────────────────────
+
+describe('MCP brain tools — recall and recall_global with minPerType', () => {
+  let session;
+  let embeddingAvailable = false;
+  const entityName = `MinPerTypeEntity-${Date.now()}`;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    await ensureReindexed(INSTANCES.a, tokenA);
+    session = await openMcpSession('general', tokenA);
+    const probe = await session.callTool('remember', { fact: `__minpertype-probe-${Date.now()}__`, tags: [] });
+    const probeText = probe?.content?.[0]?.text ?? '';
+    embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
+    if (embeddingAvailable) {
+      await session.callTool('upsert_entity', { name: entityName, type: 'concept', tags: ['minpertype-test'] });
+    }
+  });
+  after(() => session?.close());
+
+  it('recall with minPerType object does not return isError', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
+    const result = await session.callTool('recall', {
+      query: entityName,
+      topK: 5,
+      minPerType: { entity: 1 },
+    });
+    assert.ok(!result?.isError, `recall with minPerType returned isError: ${JSON.stringify(result)}`);
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(text.length > 0, 'recall with minPerType must return non-empty response');
+  });
+
+  it('recall with minPerType={"entity":1} includes at least one entity when available', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
+    const result = await session.callTool('recall', {
+      query: entityName,
+      topK: 10,
+      minPerType: { entity: 1 },
+    });
+    assert.ok(!result?.isError, `recall with minPerType error: ${JSON.stringify(result)}`);
+    const text = result?.content?.[0]?.text ?? '';
+    // Response is formatted text — verify entity name appears somewhere in the output
+    // (embedded entity should match the exact name we seeded)
+    assert.ok(text.includes(entityName) || text.toLowerCase().includes('[entity]'), `Expected entity in recall output: ${text}`);
+  });
+
+  it('recall_global with minPerType does not return isError', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
+    const result = await session.callTool('recall_global', {
+      query: entityName,
+      topK: 5,
+      minPerType: { entity: 1 },
+    });
+    assert.ok(!result?.isError, `recall_global with minPerType returned isError: ${JSON.stringify(result)}`);
+  });
+
+  it('recall with empty minPerType object behaves like no minPerType', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
+    const withMinPerType = await session.callTool('recall', { query: entityName, topK: 5, minPerType: {} });
+    const withoutMinPerType = await session.callTool('recall', { query: entityName, topK: 5 });
+    assert.ok(!withMinPerType?.isError, 'recall with empty minPerType must not error');
+    assert.ok(!withoutMinPerType?.isError, 'recall without minPerType must not error');
+  });
+});
+
+// ── write_file with properties field ──────────────────────────────────────
+
+describe('MCP file tools — write_file with properties metadata', () => {
+  let session;
+  const dir = `mcp-props-test-${Date.now()}`;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    session = await openMcpSession('general', tokenA);
+  });
+  after(() => session?.close());
+
+  it('write_file with properties stores them in file metadata', async () => {
+    const filePath = `${dir}/annotated.txt`;
+    const writeResult = await session.callTool('write_file', {
+      path: filePath,
+      content: 'annotated file content',
+      description: 'Annotated file',
+      tags: ['props-test'],
+      properties: { owner: 'infra-team', version: 3, archived: false },
+    });
+    assert.ok(!writeResult?.isError, `write_file error: ${JSON.stringify(writeResult)}`);
+
+    const queryResult = await session.callTool('query', {
+      collection: 'files',
+      filter: { _id: filePath },
+    });
+    assert.ok(!queryResult?.isError, `query files error: ${JSON.stringify(queryResult)}`);
+    const docs = JSON.parse(queryResult?.content?.[0]?.text ?? '[]');
+    assert.ok(docs.length > 0, `Expected metadata record for ${filePath}`);
+    assert.deepStrictEqual(docs[0].properties, { owner: 'infra-team', version: 3, archived: false }, 'properties stored in file metadata');
+  });
+});

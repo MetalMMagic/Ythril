@@ -211,6 +211,8 @@ export interface EntityDoc {
   createdAt: string;
   updatedAt: string;
   seq: number;
+  embedding?: number[];
+  embeddingModel?: string;
 }
 
 export interface EdgeDoc {
@@ -225,6 +227,8 @@ export interface EdgeDoc {
   createdAt: string;
   updatedAt: string;
   seq: number;
+  embedding?: number[];
+  embeddingModel?: string;
 }
 
 export type ChronoKind = 'event' | 'deadline' | 'plan' | 'prediction' | 'milestone';
@@ -252,6 +256,8 @@ export interface ChronoEntry {
   createdAt: string;
   updatedAt: string;
   seq: number;
+  embedding?: number[];
+  embeddingModel?: string;
 }
 
 export interface TombstoneDoc {

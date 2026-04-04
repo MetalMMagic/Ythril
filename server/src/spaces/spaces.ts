@@ -352,8 +352,15 @@ export async function wipeSpace(spaceId: string): Promise<WipeResult> {
   // Tombstones are internal sync state — clear them too but don't report the count
   await col(`${spaceId}_tombstones`).deleteMany({});
 
-  // Delete the physical files directory, then recreate it empty
-  const filesDir = path.resolve(getDataRoot(), 'files', spaceId);
+  // Delete the physical files directory, then recreate it empty.
+  // Validate the resolved path stays within the expected data root to guard
+  // against any unexpected traversal (defence-in-depth alongside the regex above).
+  const dataRoot = getDataRoot();
+  const filesDir = path.resolve(dataRoot, 'files', spaceId);
+  const boundary = path.resolve(dataRoot, 'files') + path.sep;
+  if (!filesDir.startsWith(boundary)) {
+    throw new Error(`wipeSpace: resolved path '${filesDir}' escapes expected data root`);
+  }
   try {
     await fs.rm(filesDir, { recursive: true, force: true });
     await fs.mkdir(filesDir, { recursive: true });

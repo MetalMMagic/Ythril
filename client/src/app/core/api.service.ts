@@ -353,15 +353,18 @@ export class ApiService {
   }
 
   deleteFile(spaceId: string, path: string): Observable<void> {
-    return this.http.delete<void>(`/api/files/${spaceId}`, { body: { path, confirm: true } });
+    const params = new HttpParams().set('path', path);
+    return this.http.delete<void>(`/api/files/${spaceId}`, { params, body: { confirm: true } });
   }
 
   createDir(spaceId: string, path: string): Observable<void> {
-    return this.http.post<void>(`/api/files/${spaceId}/mkdir`, { path });
+    const params = new HttpParams().set('path', path);
+    return this.http.post<void>(`/api/files/${spaceId}/mkdir`, null, { params });
   }
 
   moveFile(spaceId: string, from: string, to: string): Observable<void> {
-    return this.http.post<void>(`/api/files/${spaceId}/move`, { from, to });
+    const params = new HttpParams().set('path', from);
+    return this.http.patch<void>(`/api/files/${spaceId}`, { destination: to }, { params });
   }
 
   uploadFile(spaceId: string, path: string, formData: FormData): Observable<void> {
@@ -449,7 +452,7 @@ export class ApiService {
   }
 
   getFileDownloadUrl(spaceId: string, path: string): string {
-    return `/api/files/${spaceId}/download?path=${encodeURIComponent(path)}`;
+    return `/api/files/${spaceId}?path=${encodeURIComponent(path)}`;
   }
 
   // ── File conflicts ────────────────────────────────────────────────────────

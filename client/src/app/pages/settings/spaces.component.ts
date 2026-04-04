@@ -117,7 +117,8 @@ import { ApiService, Space } from '../../core/api.service';
                   <td>
                     @if (s.builtIn) { <span class="badge badge-blue">built-in</span> }
                   </td>
-                  <td>
+                  <td style="display:flex; gap:6px;">
+                    <button class="icon-btn" aria-label="Edit space" (click)="openEdit(s)" title="Edit label/description">✎</button>
                     @if (!s.builtIn) {
                       <button class="icon-btn danger" aria-label="Delete space" (click)="deleteSpace(s)">✕</button>
                     }
@@ -133,6 +134,38 @@ import { ApiService, Space } from '../../core/api.service';
         </div>
       }
     </div>
+
+    <!-- Edit space modal -->
+    @if (editTarget()) {
+      <div class="modal-backdrop" (click)="closeEdit()">
+        <div class="modal" (click)="$event.stopPropagation()" style="min-width:360px; max-width:520px;">
+          <div class="modal-header">
+            <div class="card-title">Edit space</div>
+            <button class="icon-btn" (click)="closeEdit()">✕</button>
+          </div>
+          @if (editError()) {
+            <div class="alert alert-error" style="margin-bottom:12px;">{{ editError() }}</div>
+          }
+          <form (ngSubmit)="saveEdit()" style="display:flex; flex-direction:column; gap:12px;">
+            <div class="field" style="margin-bottom:0;">
+              <label>Label</label>
+              <input type="text" [(ngModel)]="editForm.label" name="editLabel" maxlength="200" required />
+            </div>
+            <div class="field" style="margin-bottom:0;">
+              <label>Description</label>
+              <textarea [(ngModel)]="editForm.description" name="editDescription" maxlength="2000" rows="3" style="resize:vertical;" placeholder="Surfaced to MCP clients as space-level instructions"></textarea>
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:4px;">
+              <button type="button" class="btn btn-secondary" (click)="closeEdit()">Cancel</button>
+              <button type="submit" class="btn btn-primary" [disabled]="saving() || !editForm.label.trim()">
+                @if (saving()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                Save
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    }
   `,
 })
 export class SpacesComponent implements OnInit {
@@ -144,6 +177,11 @@ export class SpacesComponent implements OnInit {
   createError = signal('');
   form = { label: '', id: '', minGiB: null as number | null, description: '' };
   proxyForSelected: string[] = [];
+
+  editTarget = signal<Space | null>(null);
+  editForm = { label: '', description: '' };
+  saving = signal(false);
+  editError = signal('');
 
   ngOnInit(): void { this.load(); }
 
@@ -188,6 +226,48 @@ export class SpacesComponent implements OnInit {
       error: (err) => {
         this.creating.set(false);
         this.createError.set(err.error?.error ?? 'Failed to create space');
+      },
+    });
+  }
+
+  openEdit(s: Space): void {
+    this.editTarget.set(s);
+    this.editForm = { label: s.label, description: s.description ?? '' };
+    this.editError.set('');
+  }
+
+  closeEdit(): void {
+    this.editTarget.set(null);
+    this.editError.set('');
+  }
+
+  saveEdit(): void {
+    const target = this.editTarget();
+    if (!target || !this.editForm.label.trim()) return;
+    this.saving.set(true);
+    this.editError.set('');
+
+    const body: { label?: string; description?: string } = {};
+    if (this.editForm.label.trim() !== target.label) body.label = this.editForm.label.trim();
+    const newDesc = this.editForm.description.trim();
+    const oldDesc = target.description ?? '';
+    if (newDesc !== oldDesc) body.description = newDesc;
+
+    if (Object.keys(body).length === 0) {
+      this.saving.set(false);
+      this.closeEdit();
+      return;
+    }
+
+    this.api.updateSpace(target.id, body).subscribe({
+      next: ({ space }) => {
+        this.saving.set(false);
+        this.spaces.update(list => list.map(s => s.id === space.id ? { ...s, ...space } : s));
+        this.closeEdit();
+      },
+      error: (err) => {
+        this.saving.set(false);
+        this.editError.set(err.error?.error ?? 'Failed to update space');
       },
     });
   }

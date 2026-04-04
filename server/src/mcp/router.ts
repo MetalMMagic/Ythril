@@ -11,6 +11,7 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { checkQuota, QuotaError } from '../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace } from '../spaces/proxy.js';
+import { updateSpace } from '../spaces/spaces.js';
 
 // Brain tools
 import { remember, recall, recallGlobal, queryBrain, updateMemory, deleteMemory } from '../brain/memory.js';
@@ -37,11 +38,11 @@ const MUTATING_TOOLS = new Set([
   'upsert_entity', 'upsert_edge',
   'create_chrono', 'update_chrono',
   'write_file', 'delete_file', 'create_dir', 'move_file',
-  'sync_now',
+  'sync_now', 'update_space',
 ]);
 
 /** Create a MCP Server instance with all tools bound to the given space */
-function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boolean): Server {
+function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boolean, isAdmin?: boolean): Server {
   // Surface the space description as MCP instructions so AI clients know
   // what this brain space is about *before* they make any tool calls.
   const cfg = getConfig();
@@ -92,6 +93,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           properties: {
             query: { type: 'string', description: 'Natural language search query.' },
             topK: { type: 'number', description: 'Max results (default 10).' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Optional tag filter — only memories bearing ALL of these tags are returned.' },
           },
           required: ['query'],
         },
@@ -104,6 +106,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           properties: {
             query: { type: 'string', description: 'Natural language search query.' },
             topK: { type: 'number', description: 'Max results per space before merging (default 5).' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Optional tag filter — only memories bearing ALL of these tags are returned.' },
           },
           required: ['query'],
         },
@@ -244,13 +247,15 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
       },
       {
         name: 'list_chrono',
-        description: 'List chronological entries, optionally filtered by status or kind.',
+        description: 'List chronological entries, optionally filtered by status, kind, or tags.',
         inputSchema: {
           type: 'object',
           properties: {
             status: { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], description: 'Filter by status.' },
             kind: { type: 'string', enum: ['event', 'deadline', 'plan', 'prediction', 'milestone'], description: 'Filter by kind.' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Filter to entries that carry at least one of these tags.' },
             limit: { type: 'number', description: 'Max results (default 20, max 100).' },
+            skip: { type: 'number', description: 'Number of results to skip for pagination (default 0).' },
           },
           required: [],
         },
@@ -333,6 +338,18 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
         },
       },
       {
+        name: 'update_space',
+        description: 'Update the label or description of the current space. Requires an admin token.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            label: { type: 'string', description: 'New display label for the space (max 200 chars).' },
+            description: { type: 'string', description: 'New description for the space (max 2000 chars). Surfaced to MCP clients as space-level instructions.' },
+          },
+          required: [],
+        },
+      },
+      {
         name: 'list_peers',
         description: 'List all configured peer ythril instances (for Brain Networks).',
         inputSchema: { type: 'object', properties: {}, required: [] },
@@ -411,8 +428,9 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           const query = String(a['query'] ?? '');
           if (!query.trim()) throw new Error('query must not be empty');
           const topK = typeof a['topK'] === 'number' ? a['topK'] : 10;
+          const tags = Array.isArray(a['tags']) ? (a['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
           const memberIds = resolveMemberSpaces(spaceId);
-          const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK)))).flat();
+          const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags)))).flat();
           // Sort by score descending and take topK
           all.sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
           const results = all.slice(0, topK);
@@ -438,12 +456,13 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           const query = String(a['query'] ?? '');
           if (!query.trim()) throw new Error('query must not be empty');
           const topK = typeof a['topK'] === 'number' ? a['topK'] : 5;
+          const tags = Array.isArray(a['tags']) ? (a['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
           const cfg = getConfig();
           // Only search spaces allowed by the calling token (tokenSpaces undefined = all spaces).
           const spaceIds = cfg.spaces
             .filter(s => !tokenSpaces || tokenSpaces.includes(s.id))
             .map(s => s.id);
-          const results = await recallGlobal(spaceIds, query, topK);
+          const results = await recallGlobal(spaceIds, query, topK, tags);
           return {
             content: [
               {
@@ -660,12 +679,19 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           const filter: Record<string, unknown> = {};
           if (typeof a['status'] === 'string') filter['status'] = a['status'];
           if (typeof a['kind'] === 'string') filter['kind'] = a['kind'];
+          if (Array.isArray(a['tags']) && (a['tags'] as unknown[]).length > 0) {
+            filter['tags'] = { $in: a['tags'] };
+          }
           const limit = typeof a['limit'] === 'number' ? Math.min(a['limit'], 100) : 20;
+          const skip = typeof a['skip'] === 'number' ? Math.max(a['skip'], 0) : 0;
 
           const memberIds = resolveMemberSpaces(spaceId);
-          const all = (await Promise.all(memberIds.map(mid => listChrono(mid, filter, limit)))).flat();
+          // Fetch skip+limit from each member so the combined list has enough entries
+          // after global sort/slice. For large skip values this over-fetches slightly,
+          // but chrono lists are expected to be small in practice.
+          const all = (await Promise.all(memberIds.map(mid => listChrono(mid, filter, skip + limit)))).flat();
           all.sort((x, y) => new Date(y.startsAt).getTime() - new Date(x.startsAt).getTime());
-          const results = all.slice(0, limit);
+          const results = all.slice(skip, skip + limit);
           return {
             content: [{
               type: 'text' as const,
@@ -840,6 +866,31 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           }
         }
 
+        case 'update_space': {
+          if (!isAdmin) {
+            return {
+              content: [{ type: 'text' as const, text: 'Error: update_space requires an admin token' }],
+              isError: true,
+            };
+          }
+          const newLabel = typeof a['label'] === 'string' ? a['label'].trim() : undefined;
+          const newDesc = typeof a['description'] === 'string' ? a['description'] : undefined;
+          if (newLabel === undefined && newDesc === undefined) {
+            throw new Error('At least one of label or description must be provided');
+          }
+          if (newLabel !== undefined && newLabel.length === 0) throw new Error('label must not be empty');
+          if (newDesc !== undefined && newDesc.length > 2000) throw new Error('description must not exceed 2000 characters');
+          if (newLabel !== undefined && newLabel.length > 200) throw new Error('label must not exceed 200 characters');
+          const updates: { label?: string; description?: string } = {};
+          if (newLabel !== undefined) updates.label = newLabel;
+          if (newDesc !== undefined) updates.description = newDesc;
+          const updated = updateSpace(spaceId, updates);
+          if (!updated) throw new Error(`Space '${spaceId}' not found`);
+          return {
+            content: [{ type: 'text' as const, text: `Space '${spaceId}' updated.` }],
+          };
+        }
+
         default:
           return {
             content: [{ type: 'text' as const, text: `Unknown tool: ${name}` }],
@@ -890,7 +941,7 @@ mcpRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, res) =
     log.debug(`MCP session ${transport.sessionId} closed (space: ${spaceId})`);
   });
 
-  const server = createMcpServer(spaceId, req.authToken?.spaces, req.authToken?.readOnly);
+  const server = createMcpServer(spaceId, req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin);
   log.debug(`MCP session ${transport.sessionId} opened (space: ${spaceId})`);
   await server.connect(transport);
 });

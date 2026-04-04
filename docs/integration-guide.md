@@ -1008,6 +1008,32 @@ The `targetSpace` must be one of the proxy's `proxyFor` members. Omitting it on 
 
 ---
 
+### Update a Space
+
+```
+PATCH /api/spaces/:id
+```
+
+Update the `label` and/or `description` of an existing space. At least one field must be provided. Requires an admin token (+ TOTP if MFA is enabled).
+
+```json
+{
+  "label": "Research Notes (Updated)",
+  "description": "Updated description surfaced to MCP clients as space-level instructions."
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `label` | no (at least one) | New display name, max 200 chars. |
+| `description` | no (at least one) | New description, max 2000 chars. Surfaced to MCP clients as `instructions` during handshake. |
+
+**Response** `200`: the updated space object.
+
+> **MCP tool:** `update_space` — accepts the same `label` and `description` arguments. Requires the MCP session token to have `admin: true`.
+
+---
+
 ### Delete a Space
 
 ```
@@ -2162,7 +2188,7 @@ Content-Type: application/json
 | `upsert_edge` | Create or update a directed relationship |
 | `create_chrono` | Create a chrono entry (event, deadline, plan, prediction, milestone) |
 | `update_chrono` | Update an existing chrono entry |
-| `list_chrono` | List chrono entries, optionally filtered by status or kind |
+| `list_chrono` | List chrono entries, optionally filtered by status, kind, or tags |
 | `read_file` | Read a text file from the space file store |
 | `write_file` | Write a text file to the space file store (optional `description` and `tags` stored as metadata) |
 | `list_dir` | List directory contents |
@@ -2197,11 +2223,22 @@ Content-Type: application/json
     "name": "recall",
     "arguments": {
       "query": "Traefik routing configuration",
-      "topK": 5
+      "topK": 5,
+      "tags": ["portal-backend"]
     }
   }
 }
 ```
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | `string` | ✅ | Natural language search query |
+| `topK` | `number` | — | Max results to return (default `10`) |
+| `tags` | `string[]` | — | Optional tag filter — only memories bearing **all** of these tags are returned. Mirrors the REST `?tag=` parameter and is useful for scoping a semantic search to a specific service or ADR (e.g. `["portal-backend"]`) |
+
+`recall_global` accepts the same `tags` parameter and applies the filter across all searched spaces.
 
 ### Example: update_memory
 
@@ -2278,6 +2315,25 @@ Works with any valid token (including read-only). For proxy spaces, returns aggr
   }
 }
 ```
+
+**Valid `collection` values:**
+
+| Value | Contents |
+|-------|----------|
+| `memories` | Memory facts with tags, entity links, and embeddings |
+| `entities` | Named entities in the knowledge graph |
+| `edges` | Directed relationship edges between entities |
+| `chrono` | Chronological entries (events, deadlines, plans, predictions, milestones) |
+
+**Parameters:**
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `collection` | `string` | ✅ | One of the four values above |
+| `filter` | `object` | ✅ | MongoDB filter document |
+| `projection` | `object` | — | Fields to include (`1`) or exclude (`0`) |
+| `limit` | `number` | — | Max documents (default `20`, max `100`) |
+| `maxTimeMS` | `number` | — | Query timeout in ms (max `30000`) |
 
 **Security**: The `query` tool rejects `$where`, `$function`, and deeply nested filters (>8 levels). Only safe read-only operators are allowed.
 

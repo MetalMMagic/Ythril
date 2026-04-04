@@ -304,6 +304,21 @@ export async function removeSpace(spaceId: string): Promise<boolean> {
   return true;
 }
 
+/** Update mutable fields (label, description) of an existing space in config.
+ *  Returns the updated SpaceConfig, or null if the space was not found. */
+export function updateSpace(
+  spaceId: string,
+  updates: { label?: string; description?: string },
+): SpaceConfig | null {
+  const cfg = getConfig();
+  const space = cfg.spaces.find(s => s.id === spaceId);
+  if (!space) return null;
+  if (typeof updates.label === 'string') space.label = updates.label;
+  if (typeof updates.description === 'string') space.description = updates.description;
+  saveConfig(cfg);
+  return space;
+}
+
 /** Generate a URL-safe space ID from a label */
 export function slugify(label: string): string {
   return label

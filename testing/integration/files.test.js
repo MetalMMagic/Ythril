@@ -530,4 +530,96 @@ describe('Chunked upload (Content-Range)', () => {
     assert.equal(r.status, 201, JSON.stringify(r.body));
     assert.ok(r.body.sha256);
   });
+
+  it('Completed chunked upload creates a metadata record', async () => {
+    const filePath = `chunked-meta-${RUN}.bin`;
+
+    // Upload all 3 chunks
+    await uploadChunk(tokenA, 'general', filePath, fullBuffer.subarray(0, CHUNK_SIZE), 0, CHUNK_SIZE - 1, TOTAL_SIZE);
+    await uploadChunk(tokenA, 'general', filePath, fullBuffer.subarray(CHUNK_SIZE, 2 * CHUNK_SIZE), CHUNK_SIZE, 2 * CHUNK_SIZE - 1, TOTAL_SIZE);
+    const final = await uploadChunk(tokenA, 'general', filePath, fullBuffer.subarray(2 * CHUNK_SIZE, TOTAL_SIZE), 2 * CHUNK_SIZE, TOTAL_SIZE - 1, TOTAL_SIZE);
+    assert.equal(final.status, 201, `Final chunk: ${JSON.stringify(final.body)}`);
+
+    // Verify metadata record was created
+    const url = `${INSTANCES.a}/api/brain/spaces/general/files?path=${encodeURIComponent(filePath)}`;
+    const r = await fetch(url, { headers: { 'Authorization': `Bearer ${tokenA}` } });
+    assert.equal(r.status, 200, 'Metadata endpoint must respond 200');
+    const body = await r.json();
+    assert.ok(body.files.length > 0, `Expected metadata record for ${filePath}`);
+    assert.equal(body.files[0].sizeBytes, TOTAL_SIZE, 'sizeBytes must equal total assembled size');
+  });
+});
+
+describe('File metadata (MongoDB) — directory operations', () => {
+  const RUN = Date.now();
+
+  before(() => {
+    tokenA = fs.readFileSync(TOKEN_FILE_A, 'utf8').trim();
+  });
+
+  /** Upload a text file via JSON body */
+  async function upload(filePath, content) {
+    return uploadFile(tokenA, 'general', filePath, content);
+  }
+
+  /** Fetch file metadata records */
+  async function listFileMeta(queryParams = '') {
+    const url = `${INSTANCES.a}/api/brain/spaces/general/files${queryParams}`;
+    const r = await fetch(url, { headers: { 'Authorization': `Bearer ${tokenA}` } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  }
+
+  it('Deleting a directory removes metadata for all files inside it', async () => {
+    const dir = `meta-dir-del-${RUN}`;
+    await upload(`${dir}/a.txt`, 'alpha');
+    await upload(`${dir}/b.txt`, 'beta');
+    await upload(`${dir}/sub/c.txt`, 'gamma');
+
+    // All three should have metadata
+    const before = await listFileMeta();
+    const inDir = before.body.files.filter(f => f.path.startsWith(`${dir}/`));
+    assert.ok(inDir.length >= 3, `Expected ≥3 metadata records under ${dir}, got ${inDir.length}`);
+
+    // Delete the directory
+    const delUrl = `${INSTANCES.a}/api/files/general?path=${encodeURIComponent(dir)}`;
+    const dr = await fetch(delUrl, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenA}` },
+      body: JSON.stringify({ confirm: true }),
+    });
+    assert.equal(dr.status, 204, 'Directory delete should return 204');
+
+    // Metadata for all child files must be gone
+    const after = await listFileMeta();
+    const remaining = after.body.files.filter(f => f.path.startsWith(`${dir}/`));
+    assert.equal(remaining.length, 0, `Metadata must be removed for all files under ${dir}`);
+  });
+
+  it('Moving a directory updates metadata paths for all files inside it', async () => {
+    const srcDir = `meta-dir-mv-src-${RUN}`;
+    const dstDir = `meta-dir-mv-dst-${RUN}`;
+    await upload(`${srcDir}/x.txt`, 'x');
+    await upload(`${srcDir}/y.txt`, 'y');
+    await upload(`${srcDir}/nested/z.txt`, 'z');
+
+    // Move the directory
+    const patchUrl = `${INSTANCES.a}/api/files/general?path=${encodeURIComponent(srcDir)}`;
+    const pr = await fetch(patchUrl, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenA}` },
+      body: JSON.stringify({ destination: dstDir }),
+    });
+    assert.equal(pr.status, 200, await pr.text());
+
+    // Source paths should have no metadata
+    const srcMeta = await listFileMeta();
+    const srcRemaining = srcMeta.body.files.filter(f => f.path.startsWith(`${srcDir}/`));
+    assert.equal(srcRemaining.length, 0, `Source metadata must be gone after directory move`);
+
+    // Destination paths should have metadata
+    const dstMeta = await listFileMeta();
+    const dstRecords = dstMeta.body.files.filter(f => f.path.startsWith(`${dstDir}/`));
+    assert.ok(dstRecords.length >= 3, `Expected ≥3 metadata records under ${dstDir}, got ${dstRecords.length}`);
+    assert.ok(dstRecords.every(f => f.path.startsWith(`${dstDir}/`)), 'All records must use new dir prefix');
+  });
 });

@@ -43,7 +43,7 @@ import { checkQuota, QuotaError } from '../quota/quota.js';
 import { resolveSafePath, spaceRoot } from '../files/sandbox.js';
 import { col } from '../db/mongo.js';
 import type { FileTombstoneDoc } from '../config/types.js';
-import { upsertFileMeta, deleteFileMeta, renameFileMeta } from '../files/file-meta.js';
+import { upsertFileMeta, deleteFileMeta, deleteFileMetaByPrefix, renameFileMeta, renameFileMetaByPrefix } from '../files/file-meta.js';
 import { v4 as uuidv4 } from 'uuid';
 import { resolveMemberSpaces, resolveWriteTarget } from '../spaces/proxy.js';
 
@@ -269,6 +269,9 @@ filesRouter.post(
           // Assemble final file
           const absTarget = resolveSafePath(targetSpace, filePath);
           const sha256 = await assembleChunks(targetSpace, filePath, range.total, absTarget);
+          await upsertFileMeta(targetSpace, filePath, range.total).catch(err => {
+            log.warn(`upsertFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
+          });
           res.status(201).json({ path: filePath, sha256 });
         } else {
           res.status(202).json({ path: filePath, received });
@@ -398,6 +401,9 @@ filesRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly,
     try {
       await fs.rm(absPath, { recursive: true, force: false });
       log.info(`Deleted directory ${absPath} (space: ${targetSpace})`);
+      await deleteFileMetaByPrefix(targetSpace, filePath).catch(err => {
+        log.warn(`deleteFileMetaByPrefix error for space ${targetSpace}, path ${filePath}: ${err}`);
+      });
       res.status(204).end();
     } catch (err) {
       log.warn(`rm dir error for space ${targetSpace}, path ${filePath}: ${err}`);
@@ -454,7 +460,10 @@ filesRouter.patch('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly, 
 
   try {
     await moveFile(targetSpace, srcPath, destination);
-    await renameFileMeta(targetSpace, srcPath, destination).catch(err => {
+    await Promise.all([
+      renameFileMeta(targetSpace, srcPath, destination),
+      renameFileMetaByPrefix(targetSpace, srcPath, destination),
+    ]).catch(err => {
       log.warn(`renameFileMeta error for space ${targetSpace}, ${srcPath} → ${destination}: ${err}`);
     });
     res.json({ from: srcPath, to: destination });

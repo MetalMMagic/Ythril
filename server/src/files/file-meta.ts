@@ -80,6 +80,25 @@ export async function deleteFileMeta(
 }
 
 /**
+ * Remove all metadata records whose path starts with `dirPath/`.
+ * Used when an entire directory is deleted recursively.
+ */
+export async function deleteFileMetaByPrefix(
+  spaceId: string,
+  dirPath: string,
+): Promise<void> {
+  const norm = normPath(dirPath).replace(/\/?$/, '');
+  if (!norm) return; // guard: empty path would match everything
+  const prefix = norm + '/';
+  // Escape regex special characters in the prefix so a path like "my.dir/"
+  // doesn't accidentally match "myXdir/" etc.
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  await col<FileMetaDoc>(`${spaceId}_files`).deleteMany(
+    { _id: { $regex: `^${escaped}` } } as never,
+  );
+}
+
+/**
  * Move/rename the metadata record to a new path.
  * If no record exists for `srcPath` the call is a no-op (e.g. plain
  * directory moves where individual file records don't need renaming).
@@ -107,4 +126,48 @@ export async function renameFileMeta(
     path: normDst,
     updatedAt: now,
   } as never);
+}
+
+/**
+ * Bulk-rename all metadata records whose path starts with `srcDir/`.
+ * Used when an entire directory is moved/renamed so that all child records
+ * are re-rooted under the new path.
+ *
+ * Note: MongoDB does not support updating `_id` in-place, so this uses a
+ * delete-then-insert pattern per document.  A concurrent read between the
+ * two steps will see missing metadata — acceptable given this is a
+ * best-effort metadata store (disk is the source of truth).
+ */
+export async function renameFileMetaByPrefix(
+  spaceId: string,
+  srcDir: string,
+  dstDir: string,
+): Promise<void> {
+  const normSrc = normPath(srcDir).replace(/\/?$/, '');
+  const normDst = normPath(dstDir).replace(/\/?$/, '');
+  if (!normSrc || !normDst) return; // guard: empty path would match everything
+  const srcPrefix = normSrc + '/';
+  const dstPrefix = normDst + '/';
+  if (srcPrefix === dstPrefix) return;
+
+  const escaped = srcPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const docs = await col<FileMetaDoc>(`${spaceId}_files`)
+    .find({ _id: { $regex: `^${escaped}` } } as never)
+    .toArray() as FileMetaDoc[];
+
+  if (docs.length === 0) return;
+
+  const now = new Date().toISOString();
+  // Delete existing records and re-insert with updated paths.
+  const oldIds = docs.map(d => d._id);
+  await col<FileMetaDoc>(`${spaceId}_files`).deleteMany(
+    { _id: { $in: oldIds } } as never,
+  );
+  const updated = docs.map(d => ({
+    ...d,
+    _id: dstPrefix + d._id.slice(srcPrefix.length),
+    path: dstPrefix + d.path.slice(srcPrefix.length),
+    updatedAt: now,
+  }));
+  await col<FileMetaDoc>(`${spaceId}_files`).insertMany(updated as never[]);
 }

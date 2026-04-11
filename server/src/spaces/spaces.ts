@@ -54,7 +54,9 @@ export async function initSpace(spaceId: string): Promise<void> {
   await memoriesColl.createIndex({ spaceId: 1, seq: 1 });
   await memoriesColl.createIndex({ spaceId: 1, tags: 1 });
   await memoriesColl.createIndex({ spaceId: 1, entityIds: 1 });
-  await entitiesColl.createIndex({ spaceId: 1, name: 1, type: 1 }, { unique: true });
+  // Migration: drop the old unique entity index if it exists (name+type is not unique)
+  try { await entitiesColl.dropIndex('spaceId_1_name_1_type_1'); } catch { /* index may not exist */ }
+  await entitiesColl.createIndex({ spaceId: 1, name: 1, type: 1 });
   await entitiesColl.createIndex({ spaceId: 1, seq: 1 });
   await edgesColl.createIndex({ spaceId: 1, from: 1, to: 1, label: 1 }, { unique: true });
   await edgesColl.createIndex({ spaceId: 1, seq: 1 });

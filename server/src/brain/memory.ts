@@ -444,7 +444,7 @@ export async function bulkDeleteMemories(spaceId: string): Promise<number> {
 // Allowed top-level query operators for the structured query tool
 const ALLOWED_OPERATORS = new Set([
   '$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin',
-  '$and', '$or', '$nor', '$not', '$exists', '$type', '$regex',
+  '$and', '$or', '$nor', '$not', '$exists', '$type', '$regex', '$options',
   '$all', '$elemMatch', '$size', '$mod',
 ]);
 

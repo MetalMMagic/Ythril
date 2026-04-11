@@ -158,6 +158,7 @@ describe('Brain â€” entities CRUD (/api/brain/spaces/:spaceId/entities)', (
 
 describe('Brain -- entity properties', () => {
   const RUN = Date.now();
+  let createdId;
 
   it('Create entity with properties returns them in response', async () => {
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
@@ -168,10 +169,12 @@ describe('Brain -- entity properties', () => {
     });
     assert.equal(r.status, 201, JSON.stringify(r.body));
     assert.deepStrictEqual(r.body.properties, { wheels: 4, color: 'red', electric: true });
+    createdId = r.body._id;
   });
 
   it('Upsert merges properties with existing', async () => {
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      id: createdId,
       name: `PropTest-${RUN}`,
       type: 'concept',
       tags: [],
@@ -185,6 +188,7 @@ describe('Brain -- entity properties', () => {
 
   it('Upsert overrides same-key property', async () => {
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      id: createdId,
       name: `PropTest-${RUN}`,
       type: 'concept',
       properties: { color: 'blue' },
@@ -213,13 +217,11 @@ describe('Brain -- entity properties', () => {
   });
 
   it('Properties appear in entity listing', async () => {
-    // Filter by name so the test isn't fragile when 100+ entities accumulate from prior runs
-    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/entities?name=${encodeURIComponent(`PropTest-${RUN}`)}`);
+    // Look up by the specific id we updated
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${createdId}`);
     assert.equal(r.status, 200);
-    const ent = r.body.entities.find(e => e.name === `PropTest-${RUN}`);
-    assert.ok(ent, 'entity found');
-    assert.equal(ent.properties.wheels, 4);
-    assert.equal(ent.properties.color, 'blue');
+    assert.equal(r.body.properties.wheels, 4);
+    assert.equal(r.body.properties.color, 'blue');
   });
 });
 
@@ -1019,6 +1021,7 @@ describe('Brain — memory description and properties fields', () => {
 
 describe('Brain — entity description field', () => {
   const RUN = Date.now();
+  let createdId;
 
   it('Create entity with description stores and returns it', async () => {
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
@@ -1028,11 +1031,13 @@ describe('Brain — entity description field', () => {
     });
     assert.equal(r.status, 201, JSON.stringify(r.body));
     assert.equal(r.body.description, 'A well-described entity');
+    createdId = r.body._id;
   });
 
   it('Upsert preserves description when not re-supplied', async () => {
-    // Second upsert without description — should preserve the existing one
+    // Update by id without description — should preserve the existing one
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      id: createdId,
       name: `DescEntity-${RUN}`,
       type: 'concept',
       tags: ['extra-tag'],
@@ -1043,6 +1048,7 @@ describe('Brain — entity description field', () => {
 
   it('Upsert overwrites description when re-supplied', async () => {
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      id: createdId,
       name: `DescEntity-${RUN}`,
       type: 'concept',
       description: 'Updated description',
@@ -1210,11 +1216,15 @@ describe('Brain — POST /api/brain/spaces/:spaceId/bulk', () => {
 
   it('Second call for same entity counts as updated', async () => {
     const name = `BulkUpsert-${RUN}`;
-    await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+    const first = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
       entities: [{ name, type: 'concept' }],
     });
+    // Retrieve the created entity's id
+    const listR = await get(INSTANCES.a, token(), `/api/brain/spaces/general/entities?name=${encodeURIComponent(name)}`);
+    const createdId = listR.body.entities.find(e => e.name === name)?._id;
+    assert.ok(createdId, 'entity must exist after first bulk call');
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
-      entities: [{ name, type: 'concept', description: 'updated' }],
+      entities: [{ id: createdId, name, type: 'concept', description: 'updated' }],
     });
     assert.equal(r.status, 207, JSON.stringify(r.body));
     assert.equal(r.body.updated.entities, 1, 'second upsert should be counted as updated');

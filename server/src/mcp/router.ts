@@ -890,9 +890,10 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           if (rawId !== undefined && !UUID_V4_RE.test(rawId)) throw new Error('id must be a valid UUID v4');
           const wt = resolveWriteTarget(spaceId, a['targetSpace'] as string | undefined);
           if (!wt.ok) throw new Error(wt.error);
-          const entity = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId);
+          const { entity, warning } = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId);
+          const msg = `Entity '${entity.name}' (${entity.type}) upserted (ID ${entity._id}).${warning ? `\n⚠️ ${warning}` : ''}`;
           return {
-            content: [{ type: 'text' as const, text: `Entity '${entity.name}' (${entity.type}) upserted (ID ${entity._id}).` }],
+            content: [{ type: 'text' as const, text: msg }],
           };
         }
 
@@ -1369,8 +1370,9 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
               const existing = rawId
                 ? await col<import('../config/types.js').EntityDoc>(`${ts}_entities`).findOne({ _id: rawId, spaceId: ts } as never)
                 : null;
-              await upsertEntity(ts, eName, eType, tags, props, description, rawId);
+              const result = await upsertEntity(ts, eName, eType, tags, props, description, rawId);
               if (existing) { updated.entities++; } else { inserted.entities++; }
+              if (result.warning) { errors.push({ type: 'entity', index: i, reason: result.warning }); }
             } catch (err) {
               errors.push({ type: 'entity', index: i, reason: err instanceof Error ? err.message : String(err) });
             }

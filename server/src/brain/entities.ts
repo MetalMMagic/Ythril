@@ -5,6 +5,11 @@ import { embed } from './embedding.js';
 import { getConfig } from '../config/loader.js';
 import type { EntityDoc, TombstoneDoc } from '../config/types.js';
 
+export interface UpsertResult {
+  entity: EntityDoc;
+  warning?: string;
+}
+
 function authorRef() {
   const cfg = getConfig();
   return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
@@ -47,7 +52,7 @@ export async function upsertEntity(
   properties: Record<string, string | number | boolean> = {},
   description?: string,
   id?: string,
-): Promise<EntityDoc> {
+): Promise<UpsertResult> {
   const collection = col<EntityDoc>(`${spaceId}_entities`);
 
   // When an id is provided, attempt to find the existing record by primary key.
@@ -77,7 +82,17 @@ export async function upsertEntity(
       { _id: existing._id } as never,
       { $set } as never,
     );
-    return { ...existing, name, type, tags: updatedTags, properties: mergedProps, updatedAt: now, seq, ...embeddingFields, ...(description !== undefined ? { description } : {}) };
+    const entity: EntityDoc = { ...existing, name, type, tags: updatedTags, properties: mergedProps, updatedAt: now, seq, ...embeddingFields, ...(description !== undefined ? { description } : {}) };
+    return { entity };
+  }
+
+  // Warn when inserting without an explicit id and duplicates already exist
+  let warning: string | undefined;
+  if (!id) {
+    const existingCount = await collection.countDocuments({ spaceId, name, type } as never);
+    if (existingCount > 0) {
+      warning = `${existingCount} existing entit${existingCount === 1 ? 'y' : 'ies'} with name '${name}' and type '${type}' already exist in this space. A new entity was created because no id was supplied. To update an existing entity, provide its id.`;
+    }
   }
 
   const doc: EntityDoc = {
@@ -95,7 +110,7 @@ export async function upsertEntity(
   };
   if (description !== undefined) doc.description = description;
   await collection.insertOne(doc as never);
-  return doc;
+  return { entity: doc, warning };
 }
 
 /**

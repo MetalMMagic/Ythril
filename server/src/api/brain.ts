@@ -393,8 +393,12 @@ brainRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAuth,
   }
   const safeDesc: string | undefined = typeof description === 'string' ? description : undefined;
   const safeId: string | undefined = typeof id === 'string' ? id : undefined;
-  const entity = await upsertEntity(wt.target, name.trim(), type.trim(), tags, properties, safeDesc, safeId);
-  res.status(201).json(entity);
+  try {
+    const { entity, warning } = await upsertEntity(wt.target, name.trim(), type.trim(), tags, properties, safeDesc, safeId);
+    res.status(201).json(warning ? { ...entity, warning } : entity);
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // POST /api/brain/spaces/:spaceId/edges — create/upsert an edge
@@ -1306,8 +1310,9 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
       const existing = rawId
         ? await col<EntityDoc>(`${targetSpace}_entities`).findOne({ _id: rawId, spaceId: targetSpace } as never)
         : null;
-      await upsertEntity(targetSpace, name, type, tags, properties, description, rawId);
+      const result = await upsertEntity(targetSpace, name, type, tags, properties, description, rawId);
       if (existing) { updated.entities++; } else { inserted.entities++; }
+      if (result.warning) { errors.push({ type: 'entity', index: i, reason: result.warning }); }
     } catch (err) {
       errors.push({ type: 'entity', index: i, reason: err instanceof Error ? err.message : String(err) });
     }

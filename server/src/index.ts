@@ -93,6 +93,11 @@ async function main(): Promise<void> {
     await ensureGeneralSpace();
 
     await initAllSpaces();
+
+    // Initialise the audit log collection and indexes
+    const { initAuditCollection } = await import('./audit/audit.js');
+    await initAuditCollection();
+
     await resetStaleWatermarksIfNeeded();
     startSyncScheduler();
     cleanupStaleChunks().catch(err => log.error(`Stale chunk cleanup failed: ${err}`));

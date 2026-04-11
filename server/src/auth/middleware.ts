@@ -6,6 +6,7 @@ import type { TokenRecord } from '../config/types.js';
 import type { OidcTokenRecord } from './oidc.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { authAttemptsTotal } from '../metrics/registry.js';
+import { logAuthFailure } from '../audit/middleware.js';
 
 // Augment Express Request type
 declare global {
@@ -85,6 +86,7 @@ export async function requireAuth(
   const record = await resolveBearer(bearer);
   if (!record) {
     authAttemptsTotal.inc({ result: 'invalid' });
+    logAuthFailure(req, 'invalid_token');
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
   }
@@ -116,6 +118,7 @@ export async function requireSpaceAuth(
   const record = await resolveBearer(bearer);
   if (!record) {
     authAttemptsTotal.inc({ result: 'invalid' });
+    logAuthFailure(req, 'invalid_token');
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
   }

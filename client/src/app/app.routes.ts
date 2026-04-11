@@ -80,6 +80,11 @@ export const routes: Routes = [
               import('./pages/settings/mfa.component').then(m => m.MfaComponent),
           },
           {
+            path: 'audit-log',
+            loadComponent: () =>
+              import('./pages/settings/audit-log.component').then(m => m.AuditLogComponent),
+          },
+          {
             path: 'about',
             loadComponent: () =>
               import('./pages/settings/about.component').then(m => m.AboutComponent),

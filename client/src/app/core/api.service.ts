@@ -207,6 +207,44 @@ export interface AboutInfo {
   publicUrl?: string;
 }
 
+// ── Audit log types ──────────────────────────────────────────────────────────
+
+export interface AuditLogEntry {
+  _id: string;
+  timestamp: string;
+  tokenId: string | null;
+  tokenLabel: string | null;
+  authMethod: 'pat' | 'oidc' | null;
+  oidcSubject: string | null;
+  ip: string;
+  method: string;
+  path: string;
+  spaceId: string | null;
+  operation: string;
+  status: number;
+  entryId: string | null;
+  durationMs: number;
+}
+
+export interface AuditLogResponse {
+  entries: AuditLogEntry[];
+  total: number;
+  hasMore: boolean;
+}
+
+export interface AuditLogParams {
+  after?: string;
+  before?: string;
+  tokenId?: string;
+  oidcSubject?: string;
+  spaceId?: string;
+  operation?: string;
+  status?: number;
+  ip?: string;
+  limit?: number;
+  offset?: number;
+}
+
 // ── API service ───────────────────────────────────────────────────────────────
 
 @Injectable({ providedIn: 'root' })
@@ -606,5 +644,22 @@ export class ApiService {
 
   getAboutLogs(lines: number = 200): Observable<{ lines: string[] }> {
     return this.http.get<{ lines: string[] }>(`/api/about/logs?lines=${lines}`);
+  }
+
+  // ── Audit Log ───────────────────────────────────────────────────────────
+
+  getAuditLog(params: AuditLogParams = {}): Observable<AuditLogResponse> {
+    let p = new HttpParams();
+    if (params.after) p = p.set('after', params.after);
+    if (params.before) p = p.set('before', params.before);
+    if (params.tokenId) p = p.set('tokenId', params.tokenId);
+    if (params.oidcSubject) p = p.set('oidcSubject', params.oidcSubject);
+    if (params.spaceId) p = p.set('spaceId', params.spaceId);
+    if (params.operation) p = p.set('operation', params.operation);
+    if (params.status !== undefined) p = p.set('status', String(params.status));
+    if (params.ip) p = p.set('ip', params.ip);
+    if (params.limit !== undefined) p = p.set('limit', String(params.limit));
+    if (params.offset !== undefined) p = p.set('offset', String(params.offset));
+    return this.http.get<AuditLogResponse>('/api/admin/audit-log', { params: p });
   }
 }

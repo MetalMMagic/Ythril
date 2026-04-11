@@ -1133,6 +1133,139 @@ describe('Brain — chrono properties field', () => {
 });
 
 
+// ── Brain — structured query endpoint ───────────────────────────────────────
+
+describe('Brain — POST /spaces/:spaceId/query', () => {
+  const RUN = Date.now();
+  let seededId;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    // Seed a memory with a distinctive tag and fact for query tests
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/general/memories', {
+      fact: `QueryTest-${RUN} authentication service bootstrap`,
+      tags: [`qtest-${RUN}`, 'auth'],
+    });
+    assert.equal(r.status, 201, `Seeding query test memory: ${JSON.stringify(r.body)}`);
+    seededId = r.body._id;
+  });
+
+  after(async () => {
+    if (seededId) {
+      await del(INSTANCES.a, tokenA, `/api/brain/spaces/general/memories/${seededId}`).catch(() => {});
+    }
+  });
+
+  it('Returns 200 with results array and count for basic query', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: {},
+      limit: 5,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body.results), 'results must be an array');
+    assert.equal(typeof r.body.count, 'number', 'count must be a number');
+    assert.equal(r.body.collection, 'memories', 'collection echoed back');
+  });
+
+  it('Returns seeded memory when filtering by exact tag', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { tags: { $in: [`qtest-${RUN}`] } },
+      limit: 10,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const ids = r.body.results.map(d => d._id);
+    assert.ok(ids.includes(seededId), `Seeded memory ${seededId} should appear in $in filter results`);
+  });
+
+  it('Supports $regex filter for partial text match on fact', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { fact: { $regex: `QueryTest-${RUN}`, $options: 'i' } },
+      limit: 10,
+    });
+    assert.equal(r.status, 200, `$regex query should succeed: ${JSON.stringify(r.body)}`);
+    const ids = r.body.results.map(d => d._id);
+    assert.ok(ids.includes(seededId), `$regex match should include seeded memory ${seededId}`);
+  });
+
+  it('$regex with case-insensitive flag matches uppercase version', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { fact: { $regex: `QUERYTEST-${RUN}`, $options: 'i' } },
+      limit: 10,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const ids = r.body.results.map(d => d._id);
+    assert.ok(ids.includes(seededId), 'Case-insensitive $regex should match seeded memory');
+  });
+
+  it('Rejects disallowed operator $where with 400', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { $where: 'function() { return true; }' },
+    });
+    assert.equal(r.status, 400, `$where must be rejected with 400, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(r.body.error, 'error message expected');
+  });
+
+  it('Rejects unknown collection with 400', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'unknown_collection',
+      filter: {},
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+    assert.ok(r.body.error, 'error message expected');
+  });
+
+  it('Returns 404 for unknown space', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/no-such-space/query', {
+      collection: 'memories',
+      filter: {},
+    });
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+  });
+
+  it('Returns 401 without auth token', async () => {
+    const r = await fetch(`${INSTANCES.a}/api/brain/spaces/general/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collection: 'memories', filter: {} }),
+    });
+    assert.equal(r.status, 401, 'Query endpoint must require authentication');
+  });
+
+  it('Embedding field is excluded from query results', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { _id: seededId },
+      limit: 1,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body.results.length > 0, 'Expected at least one result');
+    assert.ok(!('embedding' in r.body.results[0]), 'embedding field must be excluded from results');
+  });
+
+  it('Respects limit parameter', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: {},
+      limit: 2,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body.results.length <= 2, `Results must not exceed limit of 2, got ${r.body.results.length}`);
+  });
+
+  it('Query across entities collection works', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'entities',
+      filter: {},
+      limit: 5,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body.results), 'entities results must be an array');
+
 // ── PATCH /memories/:id — description and properties update ─────────────────
 
 describe('Brain — PATCH memory updates description and properties', () => {

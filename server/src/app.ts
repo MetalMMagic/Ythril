@@ -17,8 +17,10 @@ import { aboutRouter } from './api/about.js';
 import { oidcRouter } from './api/oidc.js';
 import { metricsRouter } from './api/metrics.js';
 import { themeRouter } from './api/theme.js';
+import { auditRouter } from './api/audit.js';
 import { setupRouter } from './setup/routes.js';
 import { mcpRouter } from './mcp/router.js';
+import { auditMiddleware } from './audit/middleware.js';
 import { webhooksRouter } from './api/webhooks.js';
 import { globalRateLimit } from './rate-limit/middleware.js';
 import { configExists, reloadConfig, getConfig, saveConfig } from './config/loader.js';
@@ -123,6 +125,12 @@ export function createApp() {
     next();
   });
 
+  // ── Audit log middleware ────────────────────────────────────────────────
+  // Captures audit entries for every authenticated API request.
+  // Runs after metrics so durationMs is accurate; before routes so it sees
+  // the 'finish' event for every response.
+  app.use(auditMiddleware);
+
   // ── Setup (first-run only) — JSON API ────────────────────────────────────
   app.use('/api/setup', setupRouter);
   app.use('/setup', setupRouter);  // legacy HTML form (kept for non-SPA access)
@@ -154,6 +162,7 @@ export function createApp() {
   app.use('/api/mfa', mfaRouter);
   app.use('/api/about', aboutRouter);
   app.use('/api/auth', oidcRouter);
+  app.use('/api/admin/audit-log', auditRouter);
 
   // ── MCP endpoints ────────────────────────────────────────────────────────
   app.use('/mcp', mcpRouter);

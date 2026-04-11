@@ -203,6 +203,32 @@ export interface OidcConfig {
   claimMapping?: OidcClaimMapping;
 }
 
+// ── Audit log types ────────────────────────────────────────────────────────
+
+export interface AuditConfig {
+  /** Log read operations (recall, query, list, etc.). Default: false. */
+  logReads?: boolean;
+  /** Number of days to retain audit entries (TTL). Default: 90. */
+  retentionDays?: number;
+}
+
+export interface AuditLogEntry {
+  _id: string;
+  timestamp: string;       // ISO8601
+  tokenId: string | null;
+  tokenLabel: string | null;
+  authMethod: 'pat' | 'oidc' | null;
+  oidcSubject: string | null;
+  ip: string;
+  method: string;          // HTTP method
+  path: string;            // request path
+  spaceId: string | null;
+  operation: string;       // structured event name
+  status: number;          // HTTP status code
+  entryId: string | null;
+  durationMs: number;
+}
+
 export interface Config {
   instanceId: string;
   instanceLabel: string;
@@ -224,6 +250,8 @@ export interface Config {
     /** URL to an external CSS stylesheet that overrides Ythril's default CSS custom properties. */
     cssUrl?: string;
   };
+  /** Optional audit log configuration. */
+  audit?: AuditConfig;
 }
 
 export interface SecretsFile {

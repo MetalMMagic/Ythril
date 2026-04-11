@@ -134,7 +134,7 @@ All tests use Node.js built-in `node --test` — no extra test framework.
 npm run test:standalone
 ```
 
-Covers: config reload, config loader normalisation, config file permissions, log redaction, metrics endpoint, OIDC contracts, OIDC silent refresh, quota logic, rate-limit bucketing, readiness probe, secrets permissions, theme API, theme postMessage tokens, vector search detection.
+Covers: config reload, config loader normalisation, config file permissions, log redaction, metrics endpoint, OIDC contracts, OIDC silent refresh, quota logic, rate-limit bucketing, readiness probe, secrets permissions, schema validation (ReDoS protection, $options sanitisation, operator whitelist), theme API, theme postMessage tokens, vector search detection.
 
 ### Integration tests (single Docker instance)
 
@@ -146,7 +146,7 @@ docker compose up -d
 npm run test:integration
 ```
 
-Covers: setup gating, auth, files, spaces, brain CRUD, networks, voting, invite handshake, MCP tools, notifications, about endpoint, sync history.
+Covers: setup gating, auth, files, spaces, brain CRUD (memories, entities, edges, chrono), schema validation (strict/warn/off, bulk, dry-run), networks, voting, invite handshake, MCP tools (including bulk_write), notifications, about endpoint, sync history, space rename, space deletion, space export, space wipe, conflict resolution, proxy spaces.
 
 ### Sync tests (three Docker instances)
 
@@ -169,7 +169,7 @@ Covers: closed-network sync, braintree governance, democratic voting, pubsub top
 npm run test:redteam
 ```
 
-Attack simulations: auth bypass, path traversal, MongoDB injection, space boundary, oversized payload, invite replay, SSRF, sequence injection, mass assignment, token brute-force, sync scope bypass, MCP security (token hygiene, input validation, operator injection), direction enforcement.
+Attack simulations: auth bypass, path traversal, MongoDB injection ($options injection, operator whitelist), space boundary, oversized payload, invite replay, SSRF (IPv4/IPv6, network members), sequence injection, mass assignment, token brute-force, sync scope bypass, MCP security (token hygiene, input validation, operator injection), direction enforcement, space rename.
 
 ### Run everything
 

@@ -4,6 +4,43 @@ All notable changes to Ythril are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] — 2026-04-11
+
+### Added
+
+- **Space schema definition and validation**: Spaces now carry a `meta` block that defines allowed entity types, edge labels, naming patterns (regex per entity type), required properties (per knowledge type), and property value schemas (type, enum, min/max, pattern). Three validation modes: **strict** (rejects violations with 400), **warn** (accepts with warnings array), **off** (default). Configured via `PATCH /api/spaces/:id` with a `meta` field.
+- **`GET /api/spaces/:id/meta`**: Read a space's full schema definition with derived stats (memory/entity/edge/chrono/file counts). Returned to MCP clients via the `get_space_meta` tool.
+- **`POST /api/spaces/:id/validate-schema`**: Dry-run schema validation — scans existing data (up to 10K docs per collection, 500 violations reported) against the current or proposed schema without writing anything. Useful for auditing impact before enabling strict mode.
+- **Schema validation in bulk writes**: `POST /api/brain/spaces/:spaceId/bulk` and the MCP `bulk_write` tool now validate each item against the space schema. Strict mode skips violating items (recorded as errors); warn mode proceeds with warnings.
+- **MCP `get_space_meta` tool**: Returns the full space schema, purpose, usage notes, and stats. The schema summary is also injected into MCP `instructions` during the SSE handshake so LLM clients see constraints upfront.
+- **MCP `find_entities_by_name` tool**: Exact name lookup returning all matching entities regardless of type.
+- **Space export API**: `GET /api/admin/spaces/:spaceId/export` dumps all knowledge (memories, entities, edges, chrono, file metadata) as a single JSON document with embedding vectors stripped. Binary file content is not included.
+- **Space import API**: `POST /api/admin/spaces/:spaceId/import` upserts exported data back into a space. Each document is matched by `_id` — existing docs are replaced, new docs are inserted. Run reindex afterward to rebuild embeddings.
+- **Bulk write API**: `POST /api/brain/spaces/:spaceId/bulk` and MCP `bulk_write` tool for batch-upserting up to 500 memories, entities, edges, and chrono entries per call. Processing order: memories → entities → edges → chrono (edges can reference entities created in the same batch).
+- **Graph traversal API**: `POST /api/brain/spaces/:spaceId/traverse` and MCP `traverse` tool — multi-hop BFS from a starting entity with direction control (`outgoing`, `incoming`, `both`), edge-label filtering, configurable `maxDepth` (hard cap 10), cycle detection, and result limiting.
+- **Query REST endpoint**: `POST /api/brain/spaces/:spaceId/query` — structured MongoDB filter queries on any collection (`memories`, `entities`, `edges`, `chrono`, `files`) with projection, limit, and timeout control. Previously MCP-only (`query` tool), now accessible via REST.
+- **Query panel in Brain UI**: Interactive query builder in the web interface for running structured queries against any collection.
+- **Chrono advanced filters**: `list_chrono` tool and `GET /chrono` now support date-range (`after`/`before`), AND/OR tag filtering (`tags`/`tagsAny`), full-text `search`, and `kind`/`status` filters.
+- **Space wipe API**: `POST /api/admin/spaces/:spaceId/wipe` with per-type granularity — wipe only memories, or only entities+edges, etc. Tombstones are cleaned for wiped types. Also available as MCP `wipe_space` tool.
+- **MCP `update_space` tool**: Update space label and/or description from MCP (admin tokens only).
+- **ID-only update paths**: `update_entity`, `update_edge`, `update_memory`, and `update_chrono` now accept updates by ID without requiring all fields — partial patches work correctly.
+- **Entity upsert duplicate warning**: When inserting an entity without an `id` and entities with the same `name`+`type` already exist, the response includes a `warning` field explaining how many duplicates exist and advising to pass `id` for updates. Surfaced in both REST and MCP responses.
+
+### Fixed
+
+- **Entity identity model**: Name+type is no longer a unique constraint. Multiple entities with the same name and type are valid — `id` (UUID v4) is the sole unique key. The `(spaceId, name, type)` index now exists as a non-unique performance index.
+- **Index migration**: On startup, if the legacy unique index `spaceId_1_name_1_type_1` exists, it is dropped and recreated as non-unique. The migration check runs once via `listIndexes()` and is a no-op after the first run.
+- **`$options` injection hardening**: The `$options` MongoDB operator is now validated: must appear alongside `$regex` (bare `$options` rejected), value must be a string containing only valid regex flags (`i`, `m`, `s`, `x`). Invalid flags or non-string values return 400.
+- **ReDoS protection**: User-supplied regex patterns in schema `namingPatterns` and `propertySchemas` are structurally analysed for nested quantifiers (`(a+)+`) and alternation-with-quantifier (`(a|b)+`) patterns. Dangerous patterns are rejected before execution. Pattern length is capped at 500 characters, test values at 10K characters.
+- **PATCH endpoints dropping fields**: All PATCH/update endpoints for entities, edges, memories, and chrono now correctly preserve unmentioned fields instead of silently clearing them.
+- **Schema validation double-call in MCP**: The MCP router previously validated once for strict and again for warn mode. Fixed to validate once and reuse the result.
+
+### Changed
+
+- **README**: Rewritten with structured feature sections (semantic recall, knowledge graph, chrono timeline, file storage, schema validation, bulk operations, proxy spaces, export/import, 28 MCP tools, multi-brain sync, security) for better discoverability.
+- Documentation: `integration-guide.md` updated — schema validation section, space meta endpoint, validate-schema endpoint, export/import endpoints, entity identity model clarification, $options validation, bulk write schema validation note. `userguide.md` updated — schema configuration, export/import, query panel. `contribution-guide.md` updated — test suite descriptions reflect current coverage.
+- Test suites: 22 new schema validation integration tests, 22 new standalone tests (ReDoS protection + $options sanitisation), 2 new $options integration tests in brain.test.js, bulk_write tool tests. Total: 1113 tests (518 integration, 262 standalone, 158 sync, 175 red-team).
+
 ## [0.8.0] — 2026-04-04
 
 ### Added

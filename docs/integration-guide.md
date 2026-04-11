@@ -14,9 +14,9 @@
 3. [Authentication](#authentication)
 4. [Error Format](#error-format)
 5. [Rate Limits](#rate-limits)
-6. [Brain API](#brain-api) — memories, entities, edges, chrono, traverse, search, stats
+6. [Brain API](#brain-api) — memories, entities, edges, chrono, traverse, search, stats, bulk write
 7. [Files API](#files-api) — upload, download, chunked upload, move, delete
-8. [Spaces API](#spaces-api) — create, list, delete, proxy spaces
+8. [Spaces API](#spaces-api) — create, list, delete, proxy spaces, schema validation, meta
 9. [Tokens API](#tokens-api) — create, list, regenerate, revoke
 10. [Networks API](#networks-api) — create, join, members, voting, sync history, fork
 11. [Invite API](#invite-api) — RSA peer handshake
@@ -587,7 +587,18 @@ POST /api/brain/spaces/:spaceId/entities
 
 **Response** `201`: Full entity doc.
 
-**Identity model**: If `id` is supplied (must be a valid UUID v4), the entity with that `_id` is updated; if no entity with that ID exists, a new one is created with that ID. If `id` is omitted, a new entity is always inserted with a freshly generated UUID v4. Name is a non-unique searchable label, not a primary key.
+**Identity model**: If `id` is supplied (must be a valid UUID v4), the entity with that `_id` is updated; if no entity with that ID exists, a new one is created with that ID. If `id` is omitted, a new entity is always inserted with a freshly generated UUID v4. Name is a non-unique searchable label, not a primary key. Multiple entities with the same name and type can coexist in a space (e.g. several "Lisa" entities of type "person").
+
+**Duplicate warning**: When inserting without `id` and entities with the same `name` + `type` already exist, the response includes a `warning` field:
+
+```json
+{
+  "_id": "...",
+  "name": "Lisa",
+  "type": "person",
+  "warning": "2 existing entities with name 'Lisa' and type 'person' already exist in this space. A new entity was created because no id was supplied. To update an existing entity, provide its id."
+}
+```
 
 Tags are merged (deduplicated union), properties are shallow-merged (new keys added, existing keys overwritten).
 
@@ -944,6 +955,8 @@ Each item accepts the same fields as its corresponding individual endpoint (`POS
 
 Entity items in the `entities` array accept an optional `id` field (UUID v4). If `id` is supplied, the entity with that ID is updated (or created with that ID). If `id` is omitted, a new entity is always inserted. See [Upsert an Entity](#upsert-an-entity) for full identity semantics.
 
+**Schema validation:** When the target space has `validationMode` set to `strict` or `warn`, each item is validated against the space schema before writing. In strict mode, violating items are skipped and recorded in `errors` (e.g. `"schema_violation: type 'unknown' is not in entityTypes"`). In warn mode, violations are recorded as warnings but the item is written. See [Schema Validation](#schema-validation) for the full schema specification.
+
 **Proxy spaces:** add `?targetSpace=<member>` to route all writes to a specific member space.
 
 ---
@@ -1235,23 +1248,152 @@ The rename atomically:
 PATCH /api/spaces/:id
 ```
 
-Update the `label` and/or `description` of an existing space. At least one field must be provided. Requires an admin token (+ TOTP if MFA is enabled).
+Update space properties. Requires an admin token (+ TOTP if MFA is enabled). At least one of `label`, `description`, or `meta` must be provided.
 
 ```json
 {
   "label": "Research Notes (Updated)",
-  "description": "Updated description surfaced to MCP clients as space-level instructions."
+  "description": "Updated description surfaced to MCP clients as space-level instructions.",
+  "meta": {
+    "purpose": "Team engineering knowledge base.",
+    "validationMode": "strict",
+    "entityTypes": ["service", "team", "technology", "concept"],
+    "edgeLabels": ["depends_on", "owns", "related_to"],
+    "namingPatterns": { "service": "^[a-z][a-z0-9-]{1,60}$" },
+    "requiredProperties": { "entity": ["status"] },
+    "propertySchemas": {
+      "entity": {
+        "status": { "type": "string", "enum": ["active", "deprecated", "planned"] }
+      }
+    },
+    "tagSuggestions": ["backend", "frontend", "infra"]
+  }
 }
 ```
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `label` | no (at least one) | New display name, max 200 chars. |
-| `description` | no (at least one) | New description, max 4000 chars. Surfaced to MCP clients as `instructions` during handshake. |
+| `label` | no | New display name, max 200 chars. |
+| `description` | no | New description, max 4000 chars. Surfaced to MCP clients as `instructions` during handshake. |
+| `meta` | no | Space schema definition (see [Schema Validation](#schema-validation) below). |
 
 **Response** `200`: the updated space object.
 
-> **MCP tool:** `update_space` — accepts the same `label` and `description` arguments. Requires the MCP session token to have `admin: true`.
+If the space participates in a network and `meta` is included, the update triggers a governance vote and returns `202`:
+
+```json
+{ "status": "vote_pending", "rounds": [...], "message": "Meta change requires peer approval." }
+```
+
+> **MCP tool:** `update_space` — accepts `label` and `description`. Requires `admin: true`.
+
+---
+
+### Get Space Meta
+
+```
+GET /api/spaces/:id/meta
+Authorization: Bearer <token>
+```
+
+Returns the full schema definition for a space along with derived stats.
+
+**Response** `200`:
+
+```json
+{
+  "spaceId": "eng-kb",
+  "spaceName": "Engineering Knowledge Base",
+  "purpose": "Team engineering knowledge base.",
+  "usageNotes": "Markdown-formatted usage guidance for the web UI.",
+  "validationMode": "strict",
+  "entityTypes": ["service", "team", "technology"],
+  "edgeLabels": ["depends_on", "owns"],
+  "namingPatterns": { "service": "^[a-z][a-z0-9-]{1,60}$" },
+  "requiredProperties": { "entity": ["status"] },
+  "propertySchemas": {
+    "entity": { "status": { "type": "string", "enum": ["active", "deprecated"] } }
+  },
+  "tagSuggestions": ["backend", "frontend"],
+  "stats": { "memories": 142, "entities": 53, "edges": 87, "chrono": 12, "files": 31 }
+}
+```
+
+> **MCP tool:** `get_space_meta` — returns the same information. Available to all tokens (not admin-only).
+
+---
+
+### Validate Schema (Dry Run)
+
+```
+POST /api/spaces/:id/validate-schema
+Content-Type: application/json
+Authorization: Bearer <admin-token>
+```
+
+Scans existing data against the current (or proposed) schema definition without writing anything. Pass a `meta` body to test a schema change before applying it, or omit to validate against the current schema.
+
+**Request body** (optional):
+
+```json
+{
+  "meta": {
+    "validationMode": "strict",
+    "entityTypes": ["service", "person"]
+  }
+}
+```
+
+**Response** `200`:
+
+```json
+{
+  "spaceId": "eng-kb",
+  "meta": { "validationMode": "strict", "entityTypes": ["service", "person"], "..." : "..." },
+  "totalViolations": 3,
+  "violations": [
+    {
+      "collection": "entities",
+      "_id": "550e8400-e29b-41d4-a716-446655440000",
+      "violations": [
+        { "field": "type", "value": "concept", "reason": "type 'concept' is not in entityTypes" }
+      ]
+    }
+  ]
+}
+```
+
+Scans up to 10,000 documents per collection per member space. Response capped at 500 violations.
+
+---
+
+### Schema Validation
+
+Each space can define a schema in its `meta` block that governs what data is accepted. The `validationMode` controls enforcement:
+
+| Mode | Behaviour |
+|------|-----------|
+| `off` | No validation (default). All writes accepted. |
+| `warn` | Violations are returned as `warnings` in the response but writes proceed. |
+| `strict` | Violations cause a `400` with `{ "error": "schema_violation", "violations": [...] }`. |
+
+**Schema fields:**
+
+| Field | Applies to | Description |
+|-------|-----------|-------------|
+| `entityTypes` | entities | Allowlist of valid `type` values (max 200). |
+| `edgeLabels` | edges | Allowlist of valid `label` values (max 200). |
+| `namingPatterns` | entities | Regex pattern per entity type for validating `name` (max 500 chars, ReDoS-protected). |
+| `requiredProperties` | entity, memory, edge, chrono | Array of required property keys per knowledge type. |
+| `propertySchemas` | entity, memory, edge, chrono | Property value constraints per knowledge type — `type` (string/number/boolean), `enum`, `minimum`/`maximum`, `pattern` (regex, ReDoS-protected). |
+| `tagSuggestions` | all | Non-enforced tag hints shown in the UI (max 200). |
+
+Schema validation runs on:
+- Individual writes: `POST /entities`, `POST /edges`, `POST /memories`, `POST /chrono`
+- Bulk writes: `POST /bulk` (per-item; strict skips violating items, warn records warnings)
+- MCP tools: `remember`, `upsert_entity`, `upsert_edge`, `create_chrono`, `bulk_write`
+
+**Security:** Regex patterns in `namingPatterns` and `propertySchemas` are protected against ReDoS: patterns are limited to 500 characters, test values to 10K characters, and structural analysis rejects nested quantifiers and alternation-with-quantifier patterns.
 
 ---
 
@@ -2260,6 +2402,77 @@ After reloading, the endpoint also runs a **token migration pass**: any tokens t
 
 ---
 
+### Export Space
+
+```
+GET /api/admin/spaces/:spaceId/export
+Authorization: Bearer <admin-token>
+```
+
+Dumps the entire knowledge base of a space as a single JSON document. Requires admin token + TOTP when MFA is enabled.
+
+**Response** `200`:
+
+```json
+{
+  "exportedAt": "2026-04-11T10:00:00.000Z",
+  "spaceId": "eng-kb",
+  "spaceName": "Engineering Knowledge Base",
+  "version": "0.9.0",
+  "memories": [ { "_id": "...", "fact": "...", "tags": [], "...": "..." } ],
+  "entities": [ { "_id": "...", "name": "...", "type": "...", "...": "..." } ],
+  "edges":    [ { "_id": "...", "from": "...", "to": "...", "label": "...", "...": "..." } ],
+  "chrono":   [ { "_id": "...", "title": "...", "kind": "...", "...": "..." } ],
+  "files":    [ { "_id": "...", "path": "...", "...": "..." } ]
+}
+```
+
+- Embedding vectors are stripped (`embedding` field excluded) — exported data is model-independent.
+- `embeddingModel` is retained on each doc so you can see what model last embedded it.
+- Binary file content is **not** included — only file metadata. Use the Files API to download actual files.
+
+---
+
+### Import Space
+
+```
+POST /api/admin/spaces/:spaceId/import
+Content-Type: application/json
+Authorization: Bearer <admin-token>
+```
+
+Upserts exported data into a space. Requires admin token + TOTP when MFA is enabled.
+
+**Request body** — same shape as the export response. Each array is optional:
+
+```json
+{
+  "memories": [ { "_id": "...", "fact": "...", "tags": [] } ],
+  "entities": [ { "_id": "...", "name": "...", "type": "..." } ]
+}
+```
+
+Each document must have a string `_id`. Documents with an existing `_id` in the space are replaced; new `_id`s are inserted.
+
+**Response** `200`:
+
+```json
+{
+  "spaceId": "eng-kb",
+  "results": {
+    "memories": { "inserted": 5, "updated": 2, "errors": 0 },
+    "entities": { "inserted": 3, "updated": 1, "errors": 0 },
+    "edges":    { "inserted": 0, "updated": 0, "errors": 0 },
+    "chrono":   { "inserted": 0, "updated": 0, "errors": 0 },
+    "files":    { "inserted": 0, "updated": 0, "errors": 0 }
+  }
+}
+```
+
+> After importing, run `POST /api/brain/spaces/:spaceId/reindex` to rebuild embedding vectors.
+
+---
+
 ### Wipe Space
 
 Clear all data — or a specific subset of collection types — from a space, while
@@ -2474,9 +2687,11 @@ Ythril exposes an MCP server via SSE for AI agent integration. Each connection i
 
 If a space has a `description`, it is sent to the MCP client as `instructions` during the server handshake. This tells the AI agent what the brain space contains before it calls any tools — no need for the agent to "discover" the space's purpose by reading data first.
 
+When a space has a schema defined (via `meta`), a compact schema summary is appended to the instructions. This includes allowed entity types, edge labels, naming patterns, required properties, and property constraints — so the LLM knows the schema rules before its first write.
+
 ### Read-Only Tokens
 
-When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`, `write_file`, `delete_file`, `create_dir`, `move_file`, `sync_now`, `update_space`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`recall`, `recall_global`, `query`, `get_stats`, `list_chrono`, `read_file`, `list_dir`, `list_peers`, `traverse`) work normally.
+When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `sync_now`, `update_space`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`recall`, `recall_global`, `query`, `get_stats`, `get_space_meta`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `list_peers`, `traverse`) work normally.
 
 ### Connecting
 
@@ -2507,21 +2722,25 @@ Content-Type: application/json
 | `recall_global` | Semantic search across all knowledge types in all accessible spaces |
 | `query` | Structured MongoDB filter query (read-only) — supports `memories`, `entities`, `edges`, `chrono`, and `files` collections |
 | `get_stats` | Return counts of memories, entities, edges, chrono entries, and files |
+| `get_space_meta` | Return the full space schema definition, purpose, usage notes, and stats |
 | `upsert_entity` | Create or update a named entity (with optional properties) |
 | `update_entity` | Update an existing entity by ID (name, type, description, tags, properties) |
+| `find_entities_by_name` | Find all entities with an exact name match (returns list regardless of type) |
 | `upsert_edge` | Create or update a directed relationship |
 | `update_edge` | Update an existing edge by ID (label, type, weight, description, tags, properties) |
 | `traverse` | BFS graph traversal — follow edges from a starting entity up to `maxDepth` hops |
 | `create_chrono` | Create a chrono entry (event, deadline, plan, prediction, milestone) |
 | `update_chrono` | Update an existing chrono entry |
 | `list_chrono` | List chrono entries, optionally filtered by status, kind, tags, date range, or text search |
-| `bulk_write` | Batch-upsert memories, entities, edges, and/or chrono entries in a single call |
+| `bulk_write` | Batch-upsert memories, entities, edges, and/or chrono entries in a single call (schema-validated) |
 | `read_file` | Read a text file from the space file store |
 | `write_file` | Write a text file to the space file store (optional `description` and `tags` stored as metadata) |
 | `list_dir` | List directory contents |
 | `delete_file` | Delete a file |
 | `create_dir` | Create a directory |
 | `move_file` | Move or rename a file/directory |
+| `update_space` | Update space label and/or description (admin only) |
+| `wipe_space` | Wipe all or specific collection types from the space (admin only) |
 | `list_peers` | List all configured peer instances |
 | `sync_now` | Trigger immediate sync (all networks or specific peer) |
 

@@ -13,17 +13,18 @@ For contributing and building from source see [contribution-guide.md](contributi
 2. [Brain — Memories](#brain--memories)
 3. [Brain — Entities & Edges](#brain--entities--edges)
 4. [Brain — Chrono](#brain--chrono)
-5. [Files](#files)
-6. [File preview](#file-preview)
-7. [Directory tree sidebar](#directory-tree-sidebar)
-8. [Conflict resolution](#conflict-resolution)
-9. [Settings — Spaces](#settings--spaces)
-10. [Settings — Tokens](#settings--tokens)
-11. [Settings — MFA](#settings--mfa)
-12. [Settings — Networks](#settings--networks)
-13. [Settings — Storage](#settings--storage)
-14. [Settings — About](#settings--about)
-15. [Connecting MCP clients](#connecting-mcp-clients)
+5. [Brain — Query](#brain--query)
+6. [Files](#files)
+7. [File preview](#file-preview)
+8. [Directory tree sidebar](#directory-tree-sidebar)
+9. [Conflict resolution](#conflict-resolution)
+10. [Settings — Spaces](#settings--spaces)
+11. [Settings — Tokens](#settings--tokens)
+12. [Settings — MFA](#settings--mfa)
+13. [Settings — Networks](#settings--networks)
+14. [Settings — Storage](#settings--storage)
+15. [Settings — About](#settings--about)
+16. [Connecting MCP clients](#connecting-mcp-clients)
 
 ---
 
@@ -107,7 +108,7 @@ To delete all memories in a space, click **Wipe all** in the toolbar. A confirma
 
 Entities are named concepts inside a space (e.g. "Kubernetes", "Team Alpha"). Each entity has a `name`, an optional `type` (e.g. `technology`, `person`), optional `tags`, an optional `description`, and optional `properties` — arbitrary key-value pairs where each value is a string, number, or boolean (e.g. `{"wheels": 4, "color": "red"}`).
 
-Click **+ Add entity** in the Entities tab to create one from the UI. Enter a name, optional type, optional comma-separated tags, an optional description, and optional properties as a JSON object, then click **Save**. If an entity with the same `(name, type)` already exists, tags are merged and properties are shallow-merged (new keys added, existing keys overwritten).
+Click **+ Add entity** in the Entities tab to create one from the UI. Enter a name, optional type, optional comma-separated tags, an optional description, and optional properties as a JSON object, then click **Save**. Each save creates a new entity with a unique ID — multiple entities with the same name and type can coexist (e.g. several "Lisa" entries of type "person"). To update an existing entity, use the edit action on its row, or pass its `id` via the API/MCP tool. If entities with the same name and type already exist you will see a warning.
 
 A **search bar** above the entity table lets you filter by name in real time. Results are paginated (20 per page) — use the **← Prev** / **Next →** controls below the table.
 
@@ -184,6 +185,24 @@ The `query` tool also supports `collection: "chrono"` for advanced MongoDB filte
 ### Sync
 
 Chrono entries sync across brain networks using the same seq-based last-writer-wins protocol as entities and edges. Deleted entries create tombstones that propagate to peers.
+
+---
+
+## Brain — Query
+
+The **Query** panel lets you run structured filter queries directly against any collection in the current space.
+
+Select a **collection** (`memories`, `entities`, `edges`, `chrono`, or `files`) from the dropdown, enter a MongoDB-style filter as JSON, and click **Run**. Results are displayed in a table below.
+
+The filter supports standard MongoDB operators like `$eq`, `$gt`, `$lt`, `$in`, `$regex`, etc. Dangerous operators (`$where`, `$function`) are blocked. Filters deeper than 8 levels are rejected.
+
+Examples:
+
+- All entities of type `service`: `{ "type": "service" }`
+- Memories tagged `infra`: `{ "tags": "infra" }`
+- Chrono entries after a date: `{ "startsAt": { "$gte": "2026-01-01" } }`
+
+The same functionality is available as the `query` MCP tool and `POST /api/brain/spaces/:spaceId/query` REST endpoint.
 
 ---
 
@@ -309,6 +328,40 @@ Click the ⊘ **Wipe space** button on a space row to erase all data from a spac
 A confirmation dialog loads the current per-collection document counts (memories, entities, edges, chrono, files) before proceeding so you can confirm the scope of the operation. Click **Wipe space** to confirm.
 
 This is equivalent to `POST /api/admin/spaces/:spaceId/wipe` — see the [Integration Guide](integration-guide.md#wipe-space) for the API reference including partial-type wipes.
+
+### Schema validation
+
+Each space can define a schema that governs what data is accepted. Open a space's settings to configure:
+
+- **Validation mode** — `off` (default), `warn` (accept with warnings), or `strict` (reject violations).
+- **Entity types** — allowlist of valid entity `type` values (e.g. `service`, `team`, `concept`).
+- **Edge labels** — allowlist of valid edge `label` values (e.g. `depends_on`, `owns`).
+- **Naming patterns** — regex pattern per entity type to validate entity `name` (e.g. `service` names must match `^[a-z][a-z0-9-]+$`).
+- **Required properties** — per knowledge type (entity, memory, edge, chrono), list property keys that must be present on every write.
+- **Property schemas** — per knowledge type, define value constraints: `type` (string/number/boolean), `enum` (allowed values), `minimum`/`maximum` (numeric ranges), `pattern` (regex).
+- **Tag suggestions** — non-enforced hints shown in the UI to encourage consistent tagging.
+
+When validation is `strict`, any write (individual or bulk) that violates the schema is rejected with a detailed error listing every violation. When `warn`, writes proceed but the response includes warnings. The `validate-schema` endpoint lets you dry-run a proposed schema change against existing data — see the [Integration Guide](integration-guide.md#validate-schema-dry-run).
+
+Schema validation applies equally to REST API writes, MCP tool calls, and bulk operations.
+
+### Exporting a space
+
+Use the REST API to export a full space dump:
+
+```
+GET /api/admin/spaces/:spaceId/export
+```
+
+Returns all memories, entities, edges, chrono entries, and file metadata as a single JSON document. Embedding vectors are stripped so the export is model-independent. Binary file content is not included.
+
+### Importing into a space
+
+```
+POST /api/admin/spaces/:spaceId/import
+```
+
+Accepts the same JSON format as the export. Each document is matched by `_id` — existing documents are replaced, new ones are inserted. After importing, run a reindex (`POST /api/brain/spaces/:spaceId/reindex`) to rebuild embedding vectors.
 
 ---
 
@@ -515,9 +568,9 @@ Add to your MCP client config (Claude Desktop, Cursor, Windsurf, VS Code, etc.):
 
 Replace `general` with any space ID. Add multiple entries to give the agent access to multiple spaces. A single token works for all entries if it has access to all listed spaces.
 
-### Space descriptions as instructions
+### Space descriptions and schema as instructions
 
-If a space has a `description`, it is sent to the MCP client as `instructions` during the handshake. This tells the AI agent what the space contains before it calls any tools.
+If a space has a `description`, it is sent to the MCP client as `instructions` during the handshake. This tells the AI agent what the space contains before it calls any tools. When a space has a schema defined (via `meta`), a compact summary of allowed types, labels, naming patterns, and required properties is appended — so the LLM knows the rules before its first write.
 
 ### Available tools
 
@@ -527,26 +580,34 @@ If a space has a `description`, it is sent to the MCP client as `instructions` d
 | `update_memory` | Update an existing memory's fact, tags, or entity links |
 | `delete_memory` | Delete a memory by ID |
 | `recall` | Semantic search within the current space. Optional `tags` and `types` filters narrow results; `minPerType` guarantees a minimum result count per knowledge type |
-| `recall_global` | Semantic search across all accessible spaces. Accepts the same `tags`, `types`, and `minPerType` parameters as `recall` |
+| `recall_global` | Semantic search across all accessible spaces. Same parameters as `recall` |
 | `query` | Structured filter query (read-only) — supports `memories`, `entities`, `edges`, `chrono`, and `files` collections |
 | `get_stats` | Return counts of memories, entities, edges, chrono entries, and files |
+| `get_space_meta` | Return the full space schema, purpose, usage notes, and stats |
 | `upsert_entity` | Create or update a named entity (`name`, `type`, `tags`, `description`, `properties`) |
+| `update_entity` | Update an existing entity by ID |
+| `find_entities_by_name` | Find all entities with an exact name match |
 | `upsert_edge` | Create or update a directed relationship (`label`, `type`, `weight`, `tags`, `description`, `properties`) |
+| `update_edge` | Update an existing edge by ID |
+| `traverse` | BFS graph traversal — follow edges from a starting entity up to N hops |
 | `create_chrono` | Create a chrono entry (event, deadline, plan, prediction, milestone) |
 | `update_chrono` | Update an existing chrono entry |
-| `list_chrono` | List chrono entries, optionally filtered by status, kind, or tags |
+| `list_chrono` | List chrono entries with filters for status, kind, tags, date range, and text search |
+| `bulk_write` | Batch-upsert memories, entities, edges, and chrono entries in a single call |
 | `read_file` | Read a file from the space |
 | `write_file` | Write a file to the space (optional `description`, `tags`, and `properties` stored as metadata) |
 | `list_dir` | List directory contents |
 | `delete_file` | Delete a file |
 | `create_dir` | Create a directory |
 | `move_file` | Move or rename a file/directory |
+| `update_space` | Update space label and/or description (admin only) |
+| `wipe_space` | Wipe all or specific collection types (admin only) |
 | `list_peers` | List all configured sync peers |
 | `sync_now` | Trigger immediate sync |
 
 ### Read-only tokens
 
-When connected with a `readOnly` token, mutating tools are hidden from `tools/list` and rejected if called directly. Read-only tools (`recall`, `recall_global`, `query`, `get_stats`, `list_chrono`, `read_file`, `list_dir`, `list_peers`) work normally.
+When connected with a `readOnly` token, mutating tools are hidden from `tools/list` and rejected if called directly. Read-only tools (`recall`, `recall_global`, `query`, `get_stats`, `get_space_meta`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `list_peers`, `traverse`) work normally.
 
 ### Proxy spaces
 

@@ -27,11 +27,11 @@
 16. [Setup API](#setup-api) — first-run setup
 17. [Admin API](#admin-api) — config reload, space wipe
 18. [Webhooks API](#webhooks-api) — event subscriptions for space write events
-18. [About API](#about-api) — instance info and logs
-19. [Theme API](#theme-api) — external CSS theming
-20. [MCP (Model Context Protocol)](#mcp-model-context-protocol) — AI tool integration
-21. [Storage Quotas](#storage-quotas)
-22. [Pagination](#pagination)
+19. [About API](#about-api) — instance info and logs
+20. [Theme API](#theme-api) — external CSS theming
+21. [MCP (Model Context Protocol)](#mcp-model-context-protocol) — AI tool integration
+22. [Storage Quotas](#storage-quotas)
+23. [Pagination](#pagination)
 
 ---
 

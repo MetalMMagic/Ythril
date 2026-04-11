@@ -696,14 +696,11 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           if (!wt.ok) throw new Error(wt.error);
           const ts = wt.target;
 
-          // Schema validation
+          // Schema validation (single pass — reuse for both strict gate and warn output)
           const remMeta = getConfig().spaces.find(s => s.id === ts)?.meta;
-          if (remMeta) {
-            const v = validateMemory(remMeta, { properties: props });
-            if (v.length > 0 && remMeta.validationMode === 'strict') {
-              return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(v, null, 2)}` }], isError: true };
-            }
-            // warnings are appended below
+          const remSchemaViolations = remMeta ? validateMemory(remMeta, { properties: props }) : [];
+          if (remSchemaViolations.length > 0 && remMeta?.validationMode === 'strict') {
+            return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(remSchemaViolations, null, 2)}` }], isError: true };
           }
 
           // Quota check — throws QuotaError (caught below) on hard limit
@@ -733,10 +730,9 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             warnings.push(`⚠️ Unresolved entity names (not linked — create them first): ${unresolvedNames.map(n => `'${n}'`).join(', ')}`);
           }
           for (const w of multiMatchWarnings) warnings.push(`⚠️ ${w}`);
-          // Schema warnings
-          if (remMeta && remMeta.validationMode === 'warn') {
-            const sv = validateMemory(remMeta, { properties: props });
-            for (const v of sv) warnings.push(`⚠️ Schema: ${v.field} — ${v.reason}`);
+          // Schema warnings (reuse violations from pre-write check)
+          if (remMeta?.validationMode === 'warn') {
+            for (const v of remSchemaViolations) warnings.push(`⚠️ Schema: ${v.field} — ${v.reason}`);
           }
           const remText = `Stored memory (seq ${mem.seq}, ID ${mem._id}).`
             + (remQuota.softBreached ? `\n⚠️ Storage warning: ${remQuota.warning}` : '')
@@ -971,21 +967,18 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           const wt = resolveWriteTarget(spaceId, a['targetSpace'] as string | undefined);
           if (!wt.ok) throw new Error(wt.error);
 
-          // Schema validation
+          // Schema validation (single pass)
           const entMeta = getConfig().spaces.find(s => s.id === wt.target)?.meta;
-          if (entMeta) {
-            const v = validateEntity(entMeta, { name: eName.trim(), type: eType.trim(), properties: props });
-            if (v.length > 0 && entMeta.validationMode === 'strict') {
-              return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(v, null, 2)}` }], isError: true };
-            }
+          const entSchemaViolations = entMeta ? validateEntity(entMeta, { name: eName.trim(), type: eType.trim(), properties: props }) : [];
+          if (entSchemaViolations.length > 0 && entMeta?.validationMode === 'strict') {
+            return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(entSchemaViolations, null, 2)}` }], isError: true };
           }
 
           const { entity, warning } = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId);
           let msg = `Entity '${entity.name}' (${entity.type}) upserted (ID ${entity._id}).${warning ? `\n⚠️ ${warning}` : ''}`;
-          // Schema warnings
-          if (entMeta && entMeta.validationMode === 'warn') {
-            const sv = validateEntity(entMeta, { name: eName.trim(), type: eType.trim(), properties: props });
-            for (const v of sv) msg += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
+          // Schema warnings (reuse violations from pre-write check)
+          if (entMeta?.validationMode === 'warn') {
+            for (const v of entSchemaViolations) msg += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
           }
           return {
             content: [{ type: 'text' as const, text: msg }],
@@ -1026,20 +1019,17 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           const wt = resolveWriteTarget(spaceId, a['targetSpace'] as string | undefined);
           if (!wt.ok) throw new Error(wt.error);
 
-          // Schema validation
+          // Schema validation (single pass)
           const edgeMeta = getConfig().spaces.find(s => s.id === wt.target)?.meta;
-          if (edgeMeta) {
-            const v = validateEdge(edgeMeta, { label: label.trim(), properties: edgeProps });
-            if (v.length > 0 && edgeMeta.validationMode === 'strict') {
-              return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(v, null, 2)}` }], isError: true };
-            }
+          const edgeSchemaViolations = edgeMeta ? validateEdge(edgeMeta, { label: label.trim(), properties: edgeProps }) : [];
+          if (edgeSchemaViolations.length > 0 && edgeMeta?.validationMode === 'strict') {
+            return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(edgeSchemaViolations, null, 2)}` }], isError: true };
           }
 
           const edge = await upsertEdge(wt.target, from, to, label, weight, edgeType, description, edgeProps, edgeTags);
           let edgeMsg = `Edge '${label}' (${from} → ${to}) upserted (ID ${edge._id}).`;
-          if (edgeMeta && edgeMeta.validationMode === 'warn') {
-            const sv = validateEdge(edgeMeta, { label: label.trim(), properties: edgeProps });
-            for (const v of sv) edgeMsg += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
+          if (edgeMeta?.validationMode === 'warn') {
+            for (const v of edgeSchemaViolations) edgeMsg += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
           }
           return {
             content: [{ type: 'text' as const, text: edgeMsg }],
@@ -1139,13 +1129,11 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           const wt = resolveWriteTarget(spaceId, a['targetSpace'] as string | undefined);
           if (!wt.ok) throw new Error(wt.error);
 
-          // Schema validation
+          // Schema validation (single pass)
           const chronoMeta = getConfig().spaces.find(s => s.id === wt.target)?.meta;
-          if (chronoMeta) {
-            const v = validateChrono(chronoMeta, { properties: chronoProps });
-            if (v.length > 0 && chronoMeta.validationMode === 'strict') {
-              return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(v, null, 2)}` }], isError: true };
-            }
+          const chronoSchemaViolations = chronoMeta ? validateChrono(chronoMeta, { properties: chronoProps }) : [];
+          if (chronoSchemaViolations.length > 0 && chronoMeta?.validationMode === 'strict') {
+            return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(chronoSchemaViolations, null, 2)}` }], isError: true };
           }
 
           const remQuota = await checkQuota('brain');
@@ -1165,9 +1153,8 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           });
           let text = `Chrono entry '${entry.title}' (${entry.kind}) created (ID ${entry._id}, seq ${entry.seq}).`
             + (remQuota.softBreached ? `\n⚠️ Storage warning: ${remQuota.warning}` : '');
-          if (chronoMeta && chronoMeta.validationMode === 'warn') {
-            const sv = validateChrono(chronoMeta, { properties: chronoProps });
-            for (const v of sv) text += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
+          if (chronoMeta?.validationMode === 'warn') {
+            for (const v of chronoSchemaViolations) text += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
           }
           return { content: [{ type: 'text' as const, text }] };
         }
@@ -1448,6 +1435,10 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           if (!wt.ok) throw new Error(wt.error);
           const ts = wt.target;
 
+          // Schema validation context
+          const bwMeta = getConfig().spaces.find(s => s.id === ts)?.meta;
+          const bwValidation = bwMeta?.validationMode ?? 'off';
+
           const BULK_MAX = 500;
           const rawMemories = Array.isArray(a['memories']) ? (a['memories'] as unknown[]).slice(0, BULK_MAX) : [];
           const rawEntities = Array.isArray(a['entities']) ? (a['entities'] as unknown[]).slice(0, BULK_MAX) : [];
@@ -1469,6 +1460,14 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             const props = (item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties']))
               ? (item['properties'] as Record<string, string | number | boolean>) : undefined;
             try {
+              // Schema validation per memory
+              if (bwValidation !== 'off' && bwMeta) {
+                const sv = validateMemory(bwMeta, { properties: props });
+                if (sv.length > 0) {
+                  if (bwValidation === 'strict') { errors.push({ type: 'memory', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
+                  for (const v of sv) errors.push({ type: 'memory', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
+                }
+              }
               await remember(ts, fact, entityIds, tags, description, props);
               inserted.memories++;
             } catch (err) {
@@ -1492,6 +1491,14 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             const props = (item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties']))
               ? (item['properties'] as Record<string, string | number | boolean>) : {};
             try {
+              // Schema validation per entity
+              if (bwValidation !== 'off' && bwMeta) {
+                const sv = validateEntity(bwMeta, { name: eName, type: eType, properties: props });
+                if (sv.length > 0) {
+                  if (bwValidation === 'strict') { errors.push({ type: 'entity', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
+                  for (const v of sv) errors.push({ type: 'entity', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
+                }
+              }
               // Check for existing entity by ID (if supplied) to determine inserted vs updated
               const existing = rawId
                 ? await col<import('../config/types.js').EntityDoc>(`${ts}_entities`).findOne({ _id: rawId, spaceId: ts } as never)
@@ -1520,6 +1527,14 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             const props       = (item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties']))
               ? (item['properties'] as Record<string, string | number | boolean>) : undefined;
             try {
+              // Schema validation per edge
+              if (bwValidation !== 'off' && bwMeta) {
+                const sv = validateEdge(bwMeta, { label });
+                if (sv.length > 0) {
+                  if (bwValidation === 'strict') { errors.push({ type: 'edge', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
+                  for (const v of sv) errors.push({ type: 'edge', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
+                }
+              }
               const existing = await col<import('../config/types.js').EdgeDoc>(`${ts}_edges`).findOne({ spaceId: ts, from, to, label } as never);
               await upsertEdge(ts, from, to, label, weight, edgeType, description, props, tags);
               if (existing) { updated.edges++; } else { inserted.edges++; }
@@ -1548,6 +1563,14 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             const props       = (item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties']))
               ? (item['properties'] as Record<string, string | number | boolean>) : undefined;
             try {
+              // Schema validation per chrono
+              if (bwValidation !== 'off' && bwMeta) {
+                const sv = validateChrono(bwMeta, { properties: props });
+                if (sv.length > 0) {
+                  if (bwValidation === 'strict') { errors.push({ type: 'chrono', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
+                  for (const v of sv) errors.push({ type: 'chrono', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
+                }
+              }
               await createChrono(ts, {
                 title, kind: kind as import('../config/types.js').ChronoKind, startsAt, endsAt,
                 status: status as import('../config/types.js').ChronoStatus | undefined,

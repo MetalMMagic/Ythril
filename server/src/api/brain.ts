@@ -1332,6 +1332,10 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
   const targetSpace = wt.target;
 
+  // Schema validation context
+  const bulkMeta = getSpaceMeta(targetSpace);
+  const bulkValidation = bulkMeta?.validationMode ?? 'off';
+
   const body = (req.body ?? {}) as Record<string, unknown>;
   const rawMemories = Array.isArray(body['memories']) ? (body['memories'] as unknown[]).slice(0, BULK_MAX_PER_TYPE) : [];
   const rawEntities = Array.isArray(body['entities']) ? (body['entities'] as unknown[]).slice(0, BULK_MAX_PER_TYPE) : [];
@@ -1356,6 +1360,14 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
         ? (item['properties'] as Record<string, string | number | boolean>)
         : undefined;
     try {
+      // Schema validation per memory
+      if (bulkValidation !== 'off' && bulkMeta) {
+        const sv = validateMemory(bulkMeta, { properties });
+        if (sv.length > 0) {
+          if (bulkValidation === 'strict') { errors.push({ type: 'memory', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
+          for (const v of sv) errors.push({ type: 'memory', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
+        }
+      }
       await remember(targetSpace, fact, entityIds, tags, description, properties);
       inserted.memories++;
     } catch (err) {
@@ -1381,6 +1393,14 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
         ? (item['properties'] as Record<string, string | number | boolean>)
         : {};
     try {
+      // Schema validation per entity
+      if (bulkValidation !== 'off' && bulkMeta) {
+        const sv = validateEntity(bulkMeta, { name, type, properties });
+        if (sv.length > 0) {
+          if (bulkValidation === 'strict') { errors.push({ type: 'entity', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
+          for (const v of sv) errors.push({ type: 'entity', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
+        }
+      }
       // Check for existing entity by ID (if supplied) to determine inserted vs updated
       const existing = rawId
         ? await col<EntityDoc>(`${targetSpace}_entities`).findOne({ _id: rawId, spaceId: targetSpace } as never)
@@ -1411,6 +1431,14 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
         ? (item['properties'] as Record<string, string | number | boolean>)
         : undefined;
     try {
+      // Schema validation per edge
+      if (bulkValidation !== 'off' && bulkMeta) {
+        const sv = validateEdge(bulkMeta, { label, properties });
+        if (sv.length > 0) {
+          if (bulkValidation === 'strict') { errors.push({ type: 'edge', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
+          for (const v of sv) errors.push({ type: 'edge', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
+        }
+      }
       const existing = await col<EdgeDoc>(`${targetSpace}_edges`).findOne({ spaceId: targetSpace, from, to, label } as never);
       await upsertEdge(targetSpace, from, to, label, weight, edgeType, description, properties, tags);
       if (existing) { updated.edges++; } else { inserted.edges++; }
@@ -1443,6 +1471,14 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
         ? (item['properties'] as Record<string, string | number | boolean>)
         : undefined;
     try {
+      // Schema validation per chrono
+      if (bulkValidation !== 'off' && bulkMeta) {
+        const sv = validateChrono(bulkMeta, { properties });
+        if (sv.length > 0) {
+          if (bulkValidation === 'strict') { errors.push({ type: 'chrono', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
+          for (const v of sv) errors.push({ type: 'chrono', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
+        }
+      }
       await createChrono(targetSpace, {
         title, kind: kind as ChronoKind, startsAt, endsAt, status, confidence,
         description, tags, entityIds, memoryIds, properties,

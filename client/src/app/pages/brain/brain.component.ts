@@ -25,7 +25,7 @@ interface SpaceView {
 
     .space-chip {
       padding: 6px 14px;
-      border-radius: 20px;
+      border-radius: 4px;
       font-size: 12px;
       font-weight: 500;
       border: 1px solid var(--border);
@@ -37,6 +37,7 @@ interface SpaceView {
       flex-direction: column;
       align-items: center;
       gap: 2px;
+      min-width: 110px;
     }
 
     .space-chip:hover { border-color: var(--accent); color: var(--text-primary); }
@@ -49,6 +50,12 @@ interface SpaceView {
 
     .space-chip-label { font-size: 13px; font-weight: 500; }
     .space-chip-id { font-size: 10px; color: var(--text-muted); }
+    .space-chip-count {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .space-chip.active .space-chip-count { color: var(--accent); opacity: 0.8; }
 
     .content-header {
       display: flex;
@@ -58,26 +65,37 @@ interface SpaceView {
       flex-wrap: wrap;
     }
 
-    .stat-pills {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-bottom: 20px;
+    .tab-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-elevated);
+      border-radius: 10px;
+      padding: 1px 6px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-left: 5px;
+      min-width: 20px;
+      font-variant-numeric: tabular-nums;
     }
 
-    .stat-pill {
+    .tab.active .tab-count {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+
+    .tab-files-info {
+      margin-left: auto;
+      cursor: default;
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 5px 12px;
-      border: 1px solid var(--border);
-      border-radius: 20px;
+      gap: 4px;
+      padding: 8px 12px;
       font-size: 12px;
-      color: var(--text-secondary);
-      background: var(--bg-surface);
+      color: var(--text-muted);
+      border-bottom: 2px solid transparent;
     }
-
-    .stat-pill strong { color: var(--text-primary); font-size: 13px; }
 
     .memory-item {
       padding: 14px 16px;
@@ -279,19 +297,12 @@ interface SpaceView {
           >
             <span class="space-chip-label">{{ sv.space.label }}</span>
             <span class="space-chip-id">{{ sv.space.id }}</span>
+            @if (sv.stats) {
+              <span class="space-chip-count">{{ spaceTotal(sv.stats) }} entries</span>
+            }
           </button>
         }
       </div>
-
-      @if (activeStats(); as stats) {
-        <div class="stat-pills">
-          <span class="stat-pill"><strong>{{ stats.memories }}</strong> memories</span>
-          <span class="stat-pill"><strong>{{ stats.entities }}</strong> entities</span>
-          <span class="stat-pill"><strong>{{ stats.edges }}</strong> edges</span>
-          <span class="stat-pill"><strong>{{ stats.chrono }}</strong> chrono</span>
-          <span class="stat-pill"><strong>{{ stats.files }}</strong> files</span>
-        </div>
-      }
 
       @if (needsReindex()) {
         <div class="reindex-banner">
@@ -307,12 +318,20 @@ interface SpaceView {
         <div class="alert alert-success" style="margin-bottom:10px; font-size:13px;">✓ {{ reindexResult() }}</div>
       }
 
-      <!-- Sub-tabs -->
+      <!-- Sub-tabs with counts -->
       <div class="tabs">
         @for (tab of tabs; track tab.key) {
           <button class="tab" [class.active]="activeTab() === tab.key" (click)="setTab(tab.key)">
             {{ tab.label }}
+            @if (activeStats(); as s) {
+              <span class="tab-count">{{ s[tab.statsKey] }}</span>
+            }
           </button>
+        }
+        @if (activeStats(); as s) {
+          <span class="tab-files-info" title="Files stored in this space">
+            Files <span class="tab-count">{{ s.files }}</span>
+          </span>
         }
       </div>
 
@@ -794,11 +813,11 @@ interface SpaceView {
 export class BrainComponent implements OnInit {
   private api = inject(ApiService);
 
-  tabs: { key: BrainTab; label: string }[] = [
-    { key: 'memories', label: 'Memories' },
-    { key: 'entities', label: 'Entities' },
-    { key: 'edges', label: 'Edges' },
-    { key: 'chrono', label: 'Chrono' },
+  tabs: { key: BrainTab; label: string; statsKey: keyof SpaceStats }[] = [
+    { key: 'memories', label: 'Memories', statsKey: 'memories' },
+    { key: 'entities', label: 'Entities', statsKey: 'entities' },
+    { key: 'edges', label: 'Edges', statsKey: 'edges' },
+    { key: 'chrono', label: 'Chrono', statsKey: 'chrono' },
   ];
 
   readonly pageSize = 20;
@@ -872,6 +891,10 @@ export class BrainComponent implements OnInit {
     this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.stats,
   );
 
+  spaceTotal(stats: SpaceStats): number {
+    return stats.memories + stats.entities + stats.edges + stats.chrono + stats.files;
+  }
+
   ngOnInit(): void {
     this.api.listSpaces().subscribe({
       next: ({ spaces }) => {
@@ -879,6 +902,8 @@ export class BrainComponent implements OnInit {
         this.loadingSpaces.set(false);
         if (spaces.length > 0) {
           this.selectSpace(spaces[0].id);
+          // Pre-load stats for all other spaces so counts show on their chips
+          spaces.slice(1).forEach(s => this.loadStats(s.id));
         }
       },
       error: () => this.loadingSpaces.set(false),

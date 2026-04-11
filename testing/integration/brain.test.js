@@ -19,7 +19,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, delWithBody } from '../sync/helpers.js';
+import { INSTANCES, post, get, del, delWithBody, patch } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -848,21 +848,26 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
   });
 });
 
-describe('Brain -- chrono tags filter (/api/brain/spaces/:spaceId/chrono?tags=...)', () => {
+describe('Brain -- chrono filter queries (/api/brain/spaces/:spaceId/chrono)', () => {
   const RUN = Date.now();
   const tagA = `brain-chrono-tag-a-${RUN}`;
   const tagB = `brain-chrono-tag-b-${RUN}`;
   const ids = [];
+  const pastTime = new Date(Date.now() - 60_000).toISOString();
+  const futureTime = new Date(Date.now() + 3_600_000).toISOString();
 
   before(async () => {
-    // Seed three chrono entries: two with distinct tags, one untagged
-    for (const [title, tags] of [
-      [`TagA-${RUN}`, [tagA]],
-      [`TagB-${RUN}`, [tagB]],
-      [`NoTag-${RUN}`, []],
+    // Seed chrono entries with various tags/descriptions
+    for (const [title, tags, description] of [
+      [`TagA-${RUN}`, [tagA], undefined],
+      [`TagB-${RUN}`, [tagB], undefined],
+      [`TagBoth-${RUN}`, [tagA, tagB], undefined],
+      [`NoTag-${RUN}`, [], undefined],
+      [`SearchMe-${RUN}`, [], 'find-this-special-description'],
     ]) {
       const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/chrono', {
         title, kind: 'event', startsAt: new Date().toISOString(), tags,
+        ...(description ? { description } : {}),
       });
       if (r.body._id) ids.push(r.body._id);
     }
@@ -874,28 +879,80 @@ describe('Brain -- chrono tags filter (/api/brain/spaces/:spaceId/chrono?tags=..
     }
   });
 
-  it('Filter by single tag returns only matching entries', async () => {
+  it('Filter by single tag (AND) returns only matching entries', async () => {
     const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono?tags=${encodeURIComponent(tagA)}`);
     assert.equal(r.status, 200);
     assert.ok(Array.isArray(r.body.chrono), 'chrono must be an array');
     const resultIds = r.body.chrono.map(c => c._id);
     assert.ok(resultIds.includes(ids[0]), `Entry with tag ${tagA} should be in results`);
-    assert.ok(!resultIds.includes(ids[1]), `Entry with tag ${tagB} should NOT be in results`);
+    assert.ok(resultIds.includes(ids[2]), `Entry with both tags should be in results`);
+    assert.ok(!resultIds.includes(ids[1]), `Entry with only ${tagB} should NOT be in results`);
   });
 
-  it('Filter by multiple tags returns entries matching any tag', async () => {
+  it('Filter by multiple tags (AND) returns only entries with all specified tags', async () => {
     const qs = `tags=${encodeURIComponent(tagA)}&tags=${encodeURIComponent(tagB)}`;
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono?${qs}`);
+    assert.equal(r.status, 200);
+    const resultIds = r.body.chrono.map(c => c._id);
+    assert.ok(resultIds.includes(ids[2]), `Entry with both tags should be in results`);
+    assert.ok(!resultIds.includes(ids[0]), `Entry with only ${tagA} should NOT appear for AND query`);
+    assert.ok(!resultIds.includes(ids[1]), `Entry with only ${tagB} should NOT appear for AND query`);
+  });
+
+  it('tagsAny filter (OR) returns entries matching any of the tags', async () => {
+    const qs = `tagsAny=${encodeURIComponent(tagA)}&tagsAny=${encodeURIComponent(tagB)}`;
     const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono?${qs}`);
     assert.equal(r.status, 200);
     const resultIds = r.body.chrono.map(c => c._id);
     assert.ok(resultIds.includes(ids[0]), `Entry with tag ${tagA} should be in results`);
     assert.ok(resultIds.includes(ids[1]), `Entry with tag ${tagB} should be in results`);
+    assert.ok(resultIds.includes(ids[2]), `Entry with both tags should be in results`);
+    assert.ok(!resultIds.includes(ids[3]), `Entry with no tags should NOT be in results`);
   });
 
   it('Filter by non-existent tag returns empty array', async () => {
     const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono?tags=no-such-tag-${RUN}`);
     assert.equal(r.status, 200);
     assert.deepStrictEqual(r.body.chrono, []);
+  });
+
+  it('after filter returns only entries created after the timestamp', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono?after=${encodeURIComponent(pastTime)}`);
+    assert.equal(r.status, 200);
+    assert.ok(Array.isArray(r.body.chrono), 'chrono must be an array');
+    // Seeded entries were created after pastTime, so at least our seeded entries should appear
+    const resultIds = r.body.chrono.map(c => c._id);
+    assert.ok(resultIds.includes(ids[0]), 'Seeded entry should appear when after < createdAt');
+  });
+
+  it('before filter returns only entries created before the timestamp', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono?before=${encodeURIComponent(futureTime)}`);
+    assert.equal(r.status, 200);
+    assert.ok(Array.isArray(r.body.chrono), 'chrono must be an array');
+    const resultIds = r.body.chrono.map(c => c._id);
+    assert.ok(resultIds.includes(ids[0]), 'Seeded entry should appear when before > createdAt');
+  });
+
+  it('after filter in the far future returns empty array', async () => {
+    const farFuture = new Date(Date.now() + 86_400_000 * 365).toISOString();
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono?after=${encodeURIComponent(farFuture)}`);
+    assert.equal(r.status, 200);
+    assert.deepStrictEqual(r.body.chrono, []);
+  });
+
+  it('search filter matches on title', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono?search=${encodeURIComponent('TagA-' + RUN)}`);
+    assert.equal(r.status, 200);
+    const resultIds = r.body.chrono.map(c => c._id);
+    assert.ok(resultIds.includes(ids[0]), 'Entry with matching title should appear');
+    assert.ok(!resultIds.includes(ids[1]), 'Entry with non-matching title should not appear');
+  });
+
+  it('search filter matches on description (case-insensitive)', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono?search=FIND-THIS-SPECIAL`);
+    assert.equal(r.status, 200);
+    const resultIds = r.body.chrono.map(c => c._id);
+    assert.ok(resultIds.includes(ids[4]), 'Entry with matching description should appear');
   });
 });
 
@@ -1280,3 +1337,567 @@ describe('Brain — POST /api/brain/spaces/:spaceId/bulk', () => {
   });
 });
 
+// ── Graph traversal ─────────────────────────────────────────────────────────
+
+describe('Brain — graph traversal (/api/brain/spaces/:spaceId/traverse)', () => {
+  const RUN = Date.now();
+  // Entity IDs for a small graph: A → B → C (chain), A → D (branch)
+  const entA = `trav-A-${RUN}`;
+  const entB = `trav-B-${RUN}`;
+  const entC = `trav-C-${RUN}`;
+  const entD = `trav-D-${RUN}`;
+
+  before(async () => {
+    const { post: syncPost } = await import('../sync/helpers.js');
+    const now = new Date().toISOString();
+    let seq = Date.now();
+
+    for (const [id, name] of [[entA, 'A'], [entB, 'B'], [entC, 'C'], [entD, 'D']]) {
+      await syncPost(INSTANCES.a, token(), '/api/sync/entities?spaceId=general', {
+        _id: id, spaceId: 'general', name: `TravEnt-${name}-${RUN}`, type: 'service', tags: [],
+        seq: seq++, author: { instanceId: 'test', instanceLabel: 'Test' },
+        createdAt: now, updatedAt: now,
+      });
+    }
+    // A → B (depends_on), B → C (depends_on), A → D (references)
+    for (const [from, to, label] of [
+      [entA, entB, 'depends_on'],
+      [entB, entC, 'depends_on'],
+      [entA, entD, 'references'],
+    ]) {
+      await syncPost(INSTANCES.a, token(), '/api/sync/edges?spaceId=general', {
+        _id: `trav-edge-${from}-${to}-${RUN}`, spaceId: 'general',
+        from, to, label,
+        seq: seq++, author: { instanceId: 'test', instanceLabel: 'Test' },
+        createdAt: now, updatedAt: now,
+      });
+    }
+  });
+
+  it('Returns 400 when startId is missing', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {});
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  });
+
+  it('Returns 404 for unknown space', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/no-such-space/traverse', { startId: entA });
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+  });
+
+  it('Returns 401 without auth', async () => {
+    const r = await fetch(`${INSTANCES.a}/api/brain/spaces/general/traverse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startId: entA }),
+    });
+    assert.equal(r.status, 401);
+  });
+
+  it('Outbound depth=1 returns direct neighbours B and D', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 1,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body.nodes), 'nodes must be array');
+    assert.ok(Array.isArray(r.body.edges), 'edges must be array');
+    assert.equal(typeof r.body.truncated, 'boolean', 'truncated must be boolean');
+    const nodeIds = r.body.nodes.map(n => n._id);
+    assert.ok(nodeIds.includes(entB), 'B must be in depth-1 neighbours');
+    assert.ok(nodeIds.includes(entD), 'D must be in depth-1 neighbours');
+    assert.ok(!nodeIds.includes(entA), 'start node must not appear in results');
+    assert.ok(!nodeIds.includes(entC), 'C must not appear at depth 1');
+    // All returned nodes must have depth=1
+    for (const n of r.body.nodes) assert.equal(n.depth, 1, `Node ${n._id} must have depth=1`);
+  });
+
+  it('Outbound depth=2 reaches C via B', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 2,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const nodeIds = r.body.nodes.map(n => n._id);
+    assert.ok(nodeIds.includes(entC), 'C must appear at depth 2');
+    const nodeC = r.body.nodes.find(n => n._id === entC);
+    assert.equal(nodeC.depth, 2, 'C must have depth=2');
+  });
+
+  it('edgeLabels filter restricts traversal to matching labels', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 1, edgeLabels: ['depends_on'],
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const nodeIds = r.body.nodes.map(n => n._id);
+    assert.ok(nodeIds.includes(entB), 'B (depends_on) must appear');
+    assert.ok(!nodeIds.includes(entD), 'D (references) must not appear with depends_on filter');
+  });
+
+  it('Inbound traversal from C returns B then A', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entC, direction: 'inbound', maxDepth: 2,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const nodeIds = r.body.nodes.map(n => n._id);
+    assert.ok(nodeIds.includes(entB), 'B must appear in inbound traversal from C');
+    assert.ok(nodeIds.includes(entA), 'A must appear in inbound traversal from C at depth 2');
+  });
+
+  it('limit=1 returns only one node and sets truncated=true', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 3, limit: 1,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.nodes.length, 1, 'Only one node must be returned');
+    assert.equal(r.body.truncated, true, 'truncated must be true');
+  });
+
+  it('Response edges only include traversed edges (not all edges)', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 1, edgeLabels: ['depends_on'],
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    // Only the A→B edge should appear (not A→D)
+    assert.equal(r.body.edges.length, 1, 'Only traversed edge should be returned');
+    const e = r.body.edges[0];
+    assert.equal(e.from, entA);
+    assert.equal(e.to, entB);
+    assert.equal(e.label, 'depends_on');
+  });
+
+  it('maxDepth is capped at 10 and does not error with large value', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 999,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+  });
+
+  it('Unknown startId returns empty nodes and edges', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: 'nonexistent-entity-id-xyz',
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(r.body.nodes, []);
+    assert.deepEqual(r.body.edges, []);
+    assert.equal(r.body.truncated, false);
+  });
+
+  it('direction=both returns neighbours in either direction and start node never appears in results', async () => {
+    // A→B and A→D outbound; C→B is not in graph, but B→C is. Starting from B with both:
+    // outbound: C; inbound: A
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entB, direction: 'both', maxDepth: 1,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const nodeIds = r.body.nodes.map(n => n._id);
+    // A is an inbound neighbour of B (A→B depends_on)
+    assert.ok(nodeIds.includes(entA), 'A must appear as inbound neighbour of B in both direction');
+    // C is an outbound neighbour of B (B→C depends_on)
+    assert.ok(nodeIds.includes(entC), 'C must appear as outbound neighbour of B in both direction');
+    // Start node (B) must never appear in results
+    assert.ok(!nodeIds.includes(entB), 'Start node must not appear in traversal results');
+  });
+});
+
+
+// ── Brain — structured query endpoint ───────────────────────────────────────
+
+describe('Brain — POST /spaces/:spaceId/query', () => {
+  const RUN = Date.now();
+  let seededId;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    // Seed a memory with a distinctive tag and fact for query tests
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/general/memories', {
+      fact: `QueryTest-${RUN} authentication service bootstrap`,
+      tags: [`qtest-${RUN}`, 'auth'],
+    });
+    assert.equal(r.status, 201, `Seeding query test memory: ${JSON.stringify(r.body)}`);
+    seededId = r.body._id;
+  });
+
+  after(async () => {
+    if (seededId) {
+      await del(INSTANCES.a, tokenA, `/api/brain/spaces/general/memories/${seededId}`).catch(() => {});
+    }
+  });
+
+  it('Returns 200 with results array and count for basic query', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: {},
+      limit: 5,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body.results), 'results must be an array');
+    assert.equal(typeof r.body.count, 'number', 'count must be a number');
+    assert.equal(r.body.collection, 'memories', 'collection echoed back');
+  });
+
+  it('Returns seeded memory when filtering by exact tag', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { tags: { $in: [`qtest-${RUN}`] } },
+      limit: 10,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const ids = r.body.results.map(d => d._id);
+    assert.ok(ids.includes(seededId), `Seeded memory ${seededId} should appear in $in filter results`);
+  });
+
+  it('Supports $regex filter for partial text match on fact', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { fact: { $regex: `QueryTest-${RUN}`, $options: 'i' } },
+      limit: 10,
+    });
+    assert.equal(r.status, 200, `$regex query should succeed: ${JSON.stringify(r.body)}`);
+    const ids = r.body.results.map(d => d._id);
+    assert.ok(ids.includes(seededId), `$regex match should include seeded memory ${seededId}`);
+  });
+
+  it('$regex with case-insensitive flag matches uppercase version', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { fact: { $regex: `QUERYTEST-${RUN}`, $options: 'i' } },
+      limit: 10,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const ids = r.body.results.map(d => d._id);
+    assert.ok(ids.includes(seededId), 'Case-insensitive $regex should match seeded memory');
+  });
+
+  it('Rejects disallowed operator $where with 400', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { $where: 'function() { return true; }' },
+    });
+    assert.equal(r.status, 400, `$where must be rejected with 400, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(r.body.error, 'error message expected');
+  });
+
+  it('Rejects unknown collection with 400', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'unknown_collection',
+      filter: {},
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+    assert.ok(r.body.error, 'error message expected');
+  });
+
+  it('Returns 404 for unknown space', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/no-such-space/query', {
+      collection: 'memories',
+      filter: {},
+    });
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+  });
+
+  it('Returns 401 without auth token', async () => {
+    const r = await fetch(`${INSTANCES.a}/api/brain/spaces/general/query`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ collection: 'memories', filter: {} }),
+    });
+    assert.equal(r.status, 401, 'Query endpoint must require authentication');
+  });
+
+  it('Embedding field is excluded from query results', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { _id: seededId },
+      limit: 1,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body.results.length > 0, 'Expected at least one result');
+    assert.ok(!('embedding' in r.body.results[0]), 'embedding field must be excluded from results');
+  });
+
+  it('Respects limit parameter', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: {},
+      limit: 2,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body.results.length <= 2, `Results must not exceed limit of 2, got ${r.body.results.length}`);
+  });
+
+  it('Query across entities collection works', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'entities',
+      filter: {},
+      limit: 5,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body.results), 'entities results must be an array');
+  });
+});
+
+// ── PATCH /memories/:id — description and properties update ─────────────────
+
+describe('Brain — PATCH memory updates description and properties', () => {
+  const RUN = Date.now();
+  let memId;
+
+  before(async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+      fact: `PatchMemFact-${RUN}`,
+      tags: ['patch-test'],
+      description: 'Initial description',
+      properties: { source: 'original', confidence: 0.5 },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    memId = r.body._id;
+  });
+
+  it('PATCH memory updates description field', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`, {
+      description: 'Updated description',
+    });
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.description, 'Updated description', 'description must be updated');
+
+    const get2 = await get(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
+    assert.equal(get2.status, 200);
+    assert.equal(get2.body.description, 'Updated description', 'description persisted to DB');
+  });
+
+  it('PATCH memory updates properties field', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`, {
+      properties: { source: 'patched', extra: 'yes' },
+    });
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.properties?.source, 'patched', 'source property updated');
+
+    const get2 = await get(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
+    assert.equal(get2.status, 200);
+    assert.equal(get2.body.properties?.source, 'patched', 'properties persisted to DB');
+    assert.equal(get2.body.properties?.extra, 'yes', 'new property persisted');
+  });
+
+  it('PATCH memory updates fact field', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`, {
+      fact: `PatchMemFact-updated-${RUN}`,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.fact, `PatchMemFact-updated-${RUN}`);
+  });
+
+  it('PATCH memory with no fields returns 400', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`, {});
+    assert.equal(r.status, 400, `Expected 400 for empty body`);
+  });
+
+  it('PATCH memory with unknown ID returns 404', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/general/memories/nonexistent-id-${RUN}`, {
+      description: 'should not matter',
+    });
+    assert.equal(r.status, 404, `Expected 404 for unknown ID`);
+  });
+
+  after(async () => {
+    if (memId) await del(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`).catch(() => {});
+  });
+});
+
+// ── PATCH /spaces/:spaceId/memories/:id — long-form path ──────────────────
+
+describe('Brain — PATCH memory long-form path persists description and properties', () => {
+  const RUN = Date.now();
+  let memId;
+
+  before(async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+      fact: `PatchMemLong-${RUN}`,
+      description: 'Initial',
+      properties: { v: 1 },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    memId = r.body._id;
+  });
+
+  it('PATCH long-form updates description and properties', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`, {
+      description: 'Long-form updated',
+      properties: { v: 2 },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.description, 'Long-form updated');
+    assert.equal(r.body.properties?.v, 2);
+  });
+
+  after(async () => {
+    if (memId) await del(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`).catch(() => {});
+  });
+});
+
+// ── PATCH /spaces/:spaceId/entities/:id ──────────────────────────────────────
+
+describe('Brain — PATCH entity by ID', () => {
+  const RUN = Date.now();
+  let entId;
+
+  before(async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `PatchEntityName-${RUN}`,
+      type: 'concept',
+      description: 'Original entity description',
+      properties: { tier: 'core' },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    entId = r.body._id;
+  });
+
+  it('PATCH entity updates description by ID', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${entId}`, {
+      description: 'Updated entity description',
+    });
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.description, 'Updated entity description', 'description updated');
+
+    const getR = await get(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${entId}`);
+    assert.equal(getR.body.description, 'Updated entity description', 'persisted to DB');
+  });
+
+  it('PATCH entity merges properties by ID', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${entId}`, {
+      properties: { tier: 'premium', extra: 'yes' },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.properties?.tier, 'premium', 'property updated');
+    assert.equal(r.body.properties?.extra, 'yes', 'new property added');
+  });
+
+  it('PATCH entity with no fields returns 400', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${entId}`, {});
+    assert.equal(r.status, 400, `Expected 400`);
+  });
+
+  it('PATCH entity with unknown ID returns 404', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/entities/nonexistent-${RUN}`, {
+      description: 'nope',
+    });
+    assert.equal(r.status, 404, `Expected 404`);
+  });
+
+  after(async () => {
+    if (entId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${entId}`).catch(() => {});
+  });
+});
+
+// ── PATCH /spaces/:spaceId/edges/:id ─────────────────────────────────────────
+
+describe('Brain — PATCH edge by ID', () => {
+  const RUN = Date.now();
+  let edgeId;
+  let fromId;
+  let toId;
+
+  before(async () => {
+    const fR = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `PatchEdgeFrom-${RUN}`, type: 'concept',
+    });
+    assert.equal(fR.status, 201);
+    fromId = fR.body._id;
+
+    const tR = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `PatchEdgeTo-${RUN}`, type: 'concept',
+    });
+    assert.equal(tR.status, 201);
+    toId = tR.body._id;
+
+    const eR = await post(INSTANCES.a, token(), '/api/brain/spaces/general/edges', {
+      from: fromId,
+      to: toId,
+      label: `patch-edge-${RUN}`,
+      description: 'Original edge description',
+      properties: { score: 0.5 },
+    });
+    assert.equal(eR.status, 201, JSON.stringify(eR.body));
+    edgeId = eR.body._id;
+  });
+
+  it('PATCH edge updates description by ID', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/edges/${edgeId}`, {
+      description: 'Updated edge description',
+    });
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.description, 'Updated edge description', 'description updated');
+
+    const getR = await get(INSTANCES.a, token(), `/api/brain/spaces/general/edges/${edgeId}`);
+    assert.equal(getR.body.description, 'Updated edge description', 'persisted to DB');
+  });
+
+  it('PATCH edge merges properties by ID', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/edges/${edgeId}`, {
+      properties: { score: 0.9, validated: true },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.properties?.score, 0.9, 'property updated');
+    assert.equal(r.body.properties?.validated, true, 'new property added');
+  });
+
+  it('PATCH edge with no fields returns 400', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/edges/${edgeId}`, {});
+    assert.equal(r.status, 400, `Expected 400`);
+  });
+
+  it('PATCH edge with unknown ID returns 404', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/edges/nonexistent-${RUN}`, {
+      description: 'nope',
+    });
+    assert.equal(r.status, 404, `Expected 404`);
+  });
+
+  after(async () => {
+    if (edgeId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/edges/${edgeId}`).catch(() => {});
+    if (fromId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${fromId}`).catch(() => {});
+    if (toId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${toId}`).catch(() => {});
+  });
+});
+
+// ── PATCH /spaces/:spaceId/chrono/:id ────────────────────────────────────────
+
+describe('Brain — PATCH chrono by ID', () => {
+  const RUN = Date.now();
+  let chronoId;
+
+  before(async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/chrono', {
+      title: `PatchChrono-${RUN}`,
+      kind: 'milestone',
+      startsAt: new Date().toISOString(),
+      description: 'Original chrono description',
+      properties: { phase: 'alpha' },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    chronoId = r.body._id;
+  });
+
+  it('PATCH chrono updates description by ID', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+      description: 'Updated chrono description',
+    });
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.description, 'Updated chrono description', 'description updated');
+  });
+
+  it('PATCH chrono updates properties by ID', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`, {
+      properties: { phase: 'beta' },
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.properties?.phase, 'beta', 'property updated');
+  });
+
+  it('PATCH chrono with unknown ID returns 404', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/nonexistent-${RUN}`, {
+      description: 'nope',
+    });
+    assert.equal(r.status, 404, `Expected 404`);
+  });
+
+  after(async () => {
+    if (chronoId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`).catch(() => {});
+  });
+});

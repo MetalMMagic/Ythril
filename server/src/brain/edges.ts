@@ -3,7 +3,27 @@ import { col } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { embed } from './embedding.js';
 import { getConfig } from '../config/loader.js';
-import type { EdgeDoc, TombstoneDoc } from '../config/types.js';
+import type { EdgeDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
+
+export interface TraverseNode {
+  _id: string;
+  name: string;
+  type: string;
+  depth: number;
+}
+
+export interface TraverseEdge {
+  _id: string;
+  from: string;
+  to: string;
+  label: string;
+}
+
+export interface TraverseResult {
+  nodes: TraverseNode[];
+  edges: TraverseEdge[];
+  truncated: boolean;
+}
 
 function authorRef() {
   const cfg = getConfig();
@@ -158,6 +178,60 @@ export async function getEdgeById(spaceId: string, id: string): Promise<EdgeDoc 
   return col<EdgeDoc>(`${spaceId}_edges`).findOne({ _id: id, spaceId } as never) as Promise<EdgeDoc | null>;
 }
 
+/** Update an existing edge by ID. Partial update — only supplied fields are changed. Re-embeds when any content field changes. */
+export async function updateEdgeById(
+  spaceId: string,
+  id: string,
+  updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string },
+): Promise<EdgeDoc | null> {
+  const collection = col<EdgeDoc>(`${spaceId}_edges`);
+  const existing = await collection.findOne({ _id: id, spaceId } as never) as EdgeDoc | null;
+  if (!existing) return null;
+
+  const seq = await nextSeq(spaceId);
+  const now = new Date().toISOString();
+  const $set: Record<string, unknown> = { updatedAt: now, seq };
+
+  const newLabel = updates.label ?? existing.label;
+  const newDesc = updates.description !== undefined ? updates.description : existing.description;
+  const newTags = updates.tags !== undefined
+    ? Array.from(new Set([...(existing.tags ?? []), ...updates.tags]))
+    : existing.tags ?? [];
+  const newProps = updates.properties !== undefined
+    ? { ...(existing.properties ?? {}), ...updates.properties }
+    : existing.properties;
+  const newType = updates.type !== undefined ? updates.type : existing.type;
+  const newWeight = updates.weight !== undefined ? updates.weight : existing.weight;
+
+  if (updates.label !== undefined) $set['label'] = newLabel;
+  if (updates.description !== undefined) $set['description'] = newDesc;
+  if (updates.tags !== undefined) $set['tags'] = newTags;
+  if (updates.properties !== undefined) $set['properties'] = newProps;
+  if (updates.type !== undefined) $set['type'] = newType;
+  if (updates.weight !== undefined) $set['weight'] = newWeight;
+
+  // Re-embed whenever any content field changes
+  try {
+    const embResult = await embed(edgeEmbedText(existing.from, newLabel, existing.to, newTags, newType, newDesc));
+    $set['embedding'] = embResult.vector;
+    $set['embeddingModel'] = embResult.model;
+  } catch { /* embedding unavailable — keep existing embedding */ }
+
+  await collection.updateOne({ _id: id } as never, { $set } as never);
+  return {
+    ...existing,
+    label: newLabel,
+    tags: newTags,
+    updatedAt: now,
+    seq,
+    ...(updates.description !== undefined ? { description: newDesc } : {}),
+    ...(updates.properties !== undefined ? { properties: newProps } : {}),
+    ...(updates.type !== undefined ? { type: newType } : {}),
+    ...(updates.weight !== undefined ? { weight: newWeight } : {}),
+    ...('embedding' in $set ? { embedding: $set['embedding'] as number[], embeddingModel: $set['embeddingModel'] as string } : {}),
+  } as EdgeDoc;
+}
+
 /** Bulk-delete all edges in a space, writing a tombstone per deleted doc. */
 export async function bulkDeleteEdges(spaceId: string): Promise<number> {
   const coll = col<EdgeDoc>(`${spaceId}_edges`);
@@ -186,4 +260,107 @@ export async function bulkDeleteEdges(spaceId: string): Promise<number> {
   await col<TombstoneDoc>(`${spaceId}_tombstones`).bulkWrite(ops as never);
   await coll.deleteMany({});
   return ids.length;
+}
+
+/**
+ * BFS graph traversal from a starting entity.
+ *
+ * @param memberIds  Space IDs to search for edges and entities (supports proxy spaces).
+ * @param startId    UUID of the starting entity.
+ * @param direction  Follow edges from the node (outbound), to the node (inbound), or both.
+ * @param edgeLabels If provided, only traverse edges with one of these labels.
+ * @param maxDepth   Maximum hop count from startId (hard cap enforced by caller).
+ * @param limit      Maximum total nodes to return.
+ */
+export async function traverseGraph(
+  memberIds: string[],
+  startId: string,
+  direction: 'outbound' | 'inbound' | 'both' = 'outbound',
+  edgeLabels?: string[],
+  maxDepth = 3,
+  limit = 100,
+): Promise<TraverseResult> {
+  const visited = new Set<string>([startId]);
+  // frontier: nodes whose outgoing edges we need to explore at the current depth
+  let frontier: string[] = [startId];
+  let frontierSet = new Set<string>(frontier);
+  let currentDepth = 0;
+  const resultNodes: TraverseNode[] = [];
+  const resultEdges: TraverseEdge[] = [];
+
+  const labelFilter = edgeLabels && edgeLabels.length > 0
+    ? { label: { $in: edgeLabels } }
+    : {};
+
+  while (frontier.length > 0 && currentDepth < maxDepth) {
+    // Batch-fetch all edges for the current frontier across all member spaces
+    const adjacentEdges: EdgeDoc[] = [];
+    for (const mid of memberIds) {
+      let q: Record<string, unknown>;
+      if (direction === 'outbound') {
+        q = { spaceId: mid, from: { $in: frontier }, ...labelFilter };
+      } else if (direction === 'inbound') {
+        q = { spaceId: mid, to: { $in: frontier }, ...labelFilter };
+      } else {
+        q = { spaceId: mid, $or: [{ from: { $in: frontier } }, { to: { $in: frontier } }], ...labelFilter };
+      }
+      const edges = await col<EdgeDoc>(`${mid}_edges`).find(q as never).toArray() as EdgeDoc[];
+      adjacentEdges.push(...edges);
+    }
+
+    // Collect new neighbor IDs (not yet visited) and their traversed edges
+    const newNeighborIds: string[] = [];
+    const edgesForNewNeighbors: EdgeDoc[] = [];
+    for (const edge of adjacentEdges) {
+      let neighborId: string;
+      if (direction === 'outbound') {
+        neighborId = edge.to;
+      } else if (direction === 'inbound') {
+        neighborId = edge.from;
+      } else {
+        // For 'both', skip if both ends are in the current frontier (same-level connection)
+        if (frontierSet.has(edge.from) && frontierSet.has(edge.to)) continue;
+        neighborId = frontierSet.has(edge.from) ? edge.to : edge.from;
+      }
+      if (visited.has(neighborId)) continue;
+      visited.add(neighborId);
+      newNeighborIds.push(neighborId);
+      edgesForNewNeighbors.push(edge);
+    }
+
+    if (newNeighborIds.length === 0) break;
+
+    // Batch-fetch entity docs for all new neighbors
+    const entityMap = new Map<string, EntityDoc>();
+    for (const mid of memberIds) {
+      const entities = await col<EntityDoc>(`${mid}_entities`)
+        .find({ _id: { $in: newNeighborIds }, spaceId: mid } as never)
+        .toArray() as EntityDoc[];
+      for (const e of entities) entityMap.set(e._id, e);
+    }
+
+    // Build results for this depth level
+    const nextFrontier: string[] = [];
+    for (let i = 0; i < newNeighborIds.length; i++) {
+      const neighborId = newNeighborIds[i];
+      const entity = entityMap.get(neighborId);
+      if (!entity) continue;
+
+      const edge = edgesForNewNeighbors[i];
+      resultEdges.push({ _id: edge._id, from: edge.from, to: edge.to, label: edge.label });
+      resultNodes.push({ _id: entity._id, name: entity.name, type: entity.type, depth: currentDepth + 1 });
+
+      if (resultNodes.length >= limit) {
+        return { nodes: resultNodes, edges: resultEdges, truncated: true };
+      }
+
+      nextFrontier.push(neighborId);
+    }
+
+    frontier = nextFrontier;
+    frontierSet = new Set<string>(frontier);
+    currentDepth++;
+  }
+
+  return { nodes: resultNodes, edges: resultEdges, truncated: false };
 }

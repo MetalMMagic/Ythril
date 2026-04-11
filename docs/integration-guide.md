@@ -14,7 +14,7 @@
 3. [Authentication](#authentication)
 4. [Error Format](#error-format)
 5. [Rate Limits](#rate-limits)
-6. [Brain API](#brain-api) — memories, entities, edges, chrono, search, stats
+6. [Brain API](#brain-api) — memories, entities, edges, chrono, traverse, search, stats
 7. [Files API](#files-api) — upload, download, chunked upload, move, delete
 8. [Spaces API](#spaces-api) — create, list, delete, proxy spaces
 9. [Tokens API](#tokens-api) — create, list, regenerate, revoke
@@ -683,6 +683,57 @@ DELETE /api/brain/spaces/:spaceId/edges/:id
 
 ---
 
+### Traverse Graph
+
+BFS traversal from a starting entity, following edges up to `maxDepth` hops.
+
+```
+POST /api/brain/spaces/:spaceId/traverse
+```
+
+**Body**:
+
+```json
+{
+  "startId":    "entity-uuid",
+  "direction":  "outbound",
+  "edgeLabels": ["depends_on", "references"],
+  "maxDepth":   2,
+  "limit":      50
+}
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `startId` | ✅ | — | UUID of the starting entity |
+| `direction` | — | `"outbound"` | `"outbound"` follows edges from the node, `"inbound"` follows edges to it, `"both"` follows in either direction |
+| `edgeLabels` | — | all labels | Filter traversal to specific edge labels only |
+| `maxDepth` | — | `3` | Maximum hops from `startId`; hard-capped at `10` |
+| `limit` | — | `100` | Maximum total nodes returned |
+
+**Response** `200`:
+
+```json
+{
+  "nodes": [
+    { "_id": "...", "name": "auth-service", "type": "service", "depth": 1 },
+    { "_id": "...", "name": "user-service",  "type": "service", "depth": 2 }
+  ],
+  "edges": [
+    { "_id": "...", "from": "...", "to": "...", "label": "depends_on" }
+  ],
+  "truncated": false
+}
+```
+
+- `nodes` — entities discovered during traversal, excluding the start entity itself; each node includes a `depth` field indicating the hop count from `startId`
+- `edges` — only the edges actually traversed (not all edges of the returned nodes)
+- `truncated: true` if `limit` was reached before exhausting the graph
+
+Server-side cycle detection ensures each entity is visited at most once, so cyclic graphs are handled safely.
+
+---
+
 ### Create a Chrono Entry
 
 ```
@@ -729,6 +780,29 @@ POST /api/brain/spaces/:spaceId/chrono/:id
 
 ```
 GET /api/brain/spaces/:spaceId/chrono?limit=50&skip=0
+```
+
+**Query parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `after` | ISO 8601 string | Return entries with `createdAt` > this timestamp |
+| `before` | ISO 8601 string | Return entries with `createdAt` < this timestamp |
+| `tags` | comma-separated strings | Return entries where `tags` contains **ALL** listed values (AND semantics) |
+| `tagsAny` | comma-separated strings | Return entries where `tags` contains **ANY** listed value (OR semantics) |
+| `search` | string | Case-insensitive substring match on `title` and `description` |
+| `status` | string | Filter by status (`upcoming`, `active`, `completed`, `overdue`, `cancelled`) |
+| `kind` | string | Filter by kind (`event`, `deadline`, `plan`, `prediction`, `milestone`) |
+| `limit` | number | Max entries to return (default 50, max 500) |
+| `skip` | number | Pagination offset (default 0) |
+
+**Example queries**
+
+```
+GET /api/brain/spaces/:id/chrono?after=2026-04-04T00:00:00Z
+GET /api/brain/spaces/:id/chrono?after=2026-01-01T00:00:00Z&before=2026-04-01T00:00:00Z&tags=incident
+GET /api/brain/spaces/:id/chrono?tagsAny=deploy,auth-service
+GET /api/brain/spaces/:id/chrono?search=migration
 ```
 
 **Response** `200`:
@@ -2377,7 +2451,7 @@ If a space has a `description`, it is sent to the MCP client as `instructions` d
 
 ### Read-Only Tokens
 
-When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `upsert_edge`, `create_chrono`, `update_chrono`, `write_file`, `delete_file`, `create_dir`, `move_file`, `sync_now`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`recall`, `recall_global`, `query`, `get_stats`, `list_chrono`, `read_file`, `list_dir`, `list_peers`) work normally.
+When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`, `write_file`, `delete_file`, `create_dir`, `move_file`, `sync_now`, `update_space`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`recall`, `recall_global`, `query`, `get_stats`, `list_chrono`, `read_file`, `list_dir`, `list_peers`, `traverse`) work normally.
 
 ### Connecting
 
@@ -2409,10 +2483,13 @@ Content-Type: application/json
 | `query` | Structured MongoDB filter query (read-only) — supports `memories`, `entities`, `edges`, `chrono`, and `files` collections |
 | `get_stats` | Return counts of memories, entities, edges, chrono entries, and files |
 | `upsert_entity` | Create or update a named entity (with optional properties) |
+| `update_entity` | Update an existing entity by ID (name, type, description, tags, properties) |
 | `upsert_edge` | Create or update a directed relationship |
+| `update_edge` | Update an existing edge by ID (label, type, weight, description, tags, properties) |
+| `traverse` | BFS graph traversal — follow edges from a starting entity up to `maxDepth` hops |
 | `create_chrono` | Create a chrono entry (event, deadline, plan, prediction, milestone) |
 | `update_chrono` | Update an existing chrono entry |
-| `list_chrono` | List chrono entries, optionally filtered by status, kind, or tags |
+| `list_chrono` | List chrono entries, optionally filtered by status, kind, tags, date range, or text search |
 | `bulk_write` | Batch-upsert memories, entities, edges, and/or chrono entries in a single call |
 | `read_file` | Read a text file from the space file store |
 | `write_file` | Write a text file to the space file store (optional `description` and `tags` stored as metadata) |

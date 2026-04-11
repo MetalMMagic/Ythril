@@ -16,9 +16,9 @@ import { updateSpace, wipeSpace, WIPE_COLLECTION_TYPES, type WipeCollectionType 
 // Brain tools
 import { remember, recall, recallGlobal, queryBrain, updateMemory, deleteMemory, type RecallKnowledgeType, type RecallResult } from '../brain/memory.js';
 import { col } from '../db/mongo.js';
-import { upsertEntity, listEntities } from '../brain/entities.js';
-import { upsertEdge, listEdges } from '../brain/edges.js';
-import { createChrono, updateChrono, listChrono } from '../brain/chrono.js';
+import { upsertEntity, listEntities, updateEntityById } from '../brain/entities.js';
+import { upsertEdge, listEdges, traverseGraph, updateEdgeById } from '../brain/edges.js';
+import { createChrono, updateChrono, listChrono, ChronoFilter } from '../brain/chrono.js';
 // File tools
 import {
   readFile,
@@ -53,7 +53,7 @@ function formatRecallSummary(r: RecallResult): string {
 
 const MUTATING_TOOLS = new Set([
   'remember', 'update_memory', 'delete_memory',
-  'upsert_entity', 'upsert_edge',
+  'upsert_entity', 'update_entity', 'upsert_edge', 'update_edge',
   'create_chrono', 'update_chrono',
   'write_file', 'delete_file', 'create_dir', 'move_file',
   'sync_now', 'update_space', 'wipe_space',
@@ -158,7 +158,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
       },
       {
         name: 'update_memory',
-        description: 'Update an existing memory\'s fact, tags, or entity links. Re-embeds automatically if fact changes.',
+        description: 'Update an existing memory\'s fact, tags, entity links, description, or properties. Re-embeds automatically if any content field changes.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -166,6 +166,12 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             fact: { type: 'string', description: 'New fact text (triggers re-embedding).' },
             tags: { type: 'array', items: { type: 'string' }, description: 'New tags (replaces existing).' },
             entityIds: { type: 'array', items: { type: 'string' }, description: 'New entity ID links (replaces existing).' },
+            description: { type: 'string', description: 'New prose description or context.' },
+            properties: {
+              type: 'object',
+              description: 'Key-value properties to merge (e.g. {"source": "manual"}). Values must be string, number, or boolean.',
+              additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+            },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
           required: ['id'],
@@ -256,6 +262,72 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
         },
       },
       {
+        name: 'traverse',
+        description: 'Follow edges from a starting entity and return reachable nodes up to maxDepth hops. Useful for dependency analysis, impact assessment, and lineage queries.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            startId: { type: 'string', description: 'UUID of the starting entity.' },
+            direction: {
+              type: 'string',
+              enum: ['outbound', 'inbound', 'both'],
+              description: 'Follow edges from the node (outbound), to the node (inbound), or both directions. Default: outbound.',
+            },
+            edgeLabels: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter traversal to specific edge labels only. Omit to traverse all labels.',
+            },
+            maxDepth: { type: 'number', description: 'Maximum hops from startId (default 3, max 10).' },
+            limit: { type: 'number', description: 'Maximum total nodes returned (default 100).' },
+          },
+          required: ['startId'],
+        },
+      },
+      {
+        name: 'update_entity',
+        description: 'Update an existing entity by its ID. All fields are optional — only supplied fields are changed.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: 'Entity ID to update.' },
+            name: { type: 'string', description: 'New entity name.' },
+            type: { type: 'string', description: 'New entity type.' },
+            description: { type: 'string', description: 'New prose description or summary.' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Tags to merge with existing tags.' },
+            properties: {
+              type: 'object',
+              description: 'Key-value properties to merge with existing (e.g. {"wheels": 4}). Values must be string, number, or boolean.',
+              additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+            },
+            targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+          },
+          required: ['id'],
+        },
+      },
+      {
+        name: 'update_edge',
+        description: 'Update an existing edge by its ID. All fields are optional — only supplied fields are changed.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', description: 'Edge ID to update.' },
+            label: { type: 'string', description: 'New relationship label.' },
+            type: { type: 'string', description: 'New edge type.' },
+            weight: { type: 'number', description: 'New edge weight (0–1).' },
+            description: { type: 'string', description: 'New prose description.' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Tags to merge with existing tags.' },
+            properties: {
+              type: 'object',
+              description: 'Key-value properties to merge with existing. Values must be string, number, or boolean.',
+              additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+            },
+            targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+          },
+          required: ['id'],
+        },
+      },
+      {
         name: 'create_chrono',
         description: 'Create a chronological entry (event, deadline, plan, prediction, or milestone) in the knowledge graph.',
         inputSchema: {
@@ -310,13 +382,17 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
       },
       {
         name: 'list_chrono',
-        description: 'List chronological entries, optionally filtered by status, kind, or tags.',
+        description: 'List chronological entries, optionally filtered by status, kind, tags, date range, or a text search.',
         inputSchema: {
           type: 'object',
           properties: {
             status: { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], description: 'Filter by status.' },
             kind: { type: 'string', enum: ['event', 'deadline', 'plan', 'prediction', 'milestone'], description: 'Filter by kind.' },
-            tags: { type: 'array', items: { type: 'string' }, description: 'Filter to entries that carry at least one of these tags.' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Return entries containing ALL of these tags (AND semantics).' },
+            tagsAny: { type: 'array', items: { type: 'string' }, description: 'Return entries containing ANY of these tags (OR semantics).' },
+            after: { type: 'string', description: 'ISO 8601 timestamp — return entries created after this point in time.' },
+            before: { type: 'string', description: 'ISO 8601 timestamp — return entries created before this point in time.' },
+            search: { type: 'string', description: 'Case-insensitive substring match on title and description.' },
             limit: { type: 'number', description: 'Max results (default 20, max 100).' },
             skip: { type: 'number', description: 'Number of results to skip for pagination (default 0).' },
           },
@@ -663,15 +739,19 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           const wt = resolveWriteTarget(spaceId, a['targetSpace'] as string | undefined);
           if (!wt.ok) throw new Error(wt.error);
 
-          const updates: { fact?: string; tags?: string[]; entityIds?: string[] } = {};
+          const updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean> } = {};
           if (typeof a['fact'] === 'string') {
             if (!a['fact'].trim()) throw new Error('fact must not be empty');
             updates.fact = a['fact'] as string;
           }
           if (Array.isArray(a['tags'])) updates.tags = a['tags'] as string[];
           if (Array.isArray(a['entityIds'])) updates.entityIds = a['entityIds'] as string[];
+          if (typeof a['description'] === 'string') updates.description = a['description'] as string;
+          if (a['properties'] !== null && typeof a['properties'] === 'object' && !Array.isArray(a['properties'])) {
+            updates.properties = a['properties'] as Record<string, string | number | boolean>;
+          }
 
-          if (Object.keys(updates).length === 0) throw new Error('At least one of fact, tags, or entityIds must be provided');
+          if (Object.keys(updates).length === 0) throw new Error('At least one of fact, tags, entityIds, description, or properties must be provided');
 
           const memberIds = resolveMemberSpaces(wt.target);
           // Search member spaces sequentially — consistent with REST endpoint behaviour.
@@ -803,6 +883,83 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           };
         }
 
+        case 'traverse': {
+          const startId = String(a['startId'] ?? '').trim();
+          if (!startId) throw new Error('startId must not be empty');
+          const directionRaw = typeof a['direction'] === 'string' ? a['direction'] : 'outbound';
+          const validDirections = new Set(['outbound', 'inbound', 'both']);
+          const direction: 'outbound' | 'inbound' | 'both' = validDirections.has(directionRaw)
+            ? (directionRaw as 'outbound' | 'inbound' | 'both')
+            : 'outbound';
+          const edgeLabels = Array.isArray(a['edgeLabels'])
+            ? (a['edgeLabels'] as unknown[]).filter((l): l is string => typeof l === 'string')
+            : undefined;
+          const maxDepth = typeof a['maxDepth'] === 'number' ? Math.min(Math.max(1, a['maxDepth']), 10) : 3;
+          const limit = typeof a['limit'] === 'number' ? Math.min(Math.max(1, a['limit']), 1000) : 100;
+
+          const memberIds = resolveMemberSpaces(spaceId);
+          const result = await traverseGraph(memberIds, startId, direction, edgeLabels, maxDepth, limit);
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify(result, null, 2),
+            }],
+          };
+        }
+
+        case 'update_entity': {
+          const id = String(a['id'] ?? '').trim();
+          if (!id) throw new Error('id must not be empty');
+          const wt = resolveWriteTarget(spaceId, a['targetSpace'] as string | undefined);
+          if (!wt.ok) throw new Error(wt.error);
+          const updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> } = {};
+          if (typeof a['name'] === 'string') updates.name = a['name'].trim();
+          if (typeof a['type'] === 'string') updates.type = (a['type'] as string).trim();
+          if (typeof a['description'] === 'string') updates.description = a['description'] as string;
+          if (Array.isArray(a['tags'])) updates.tags = a['tags'] as string[];
+          if (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties'])) {
+            updates.properties = a['properties'] as Record<string, string | number | boolean>;
+          }
+          if (Object.keys(updates).length === 0) throw new Error('At least one of name, type, description, tags, or properties must be provided');
+          const memberIds = resolveMemberSpaces(wt.target);
+          let updatedEnt = null;
+          for (const mid of memberIds) {
+            updatedEnt = await updateEntityById(mid, id, updates);
+            if (updatedEnt) break;
+          }
+          if (!updatedEnt) throw new Error(`Entity '${id}' not found`);
+          return {
+            content: [{ type: 'text' as const, text: `Entity '${updatedEnt.name}' (${updatedEnt.type}) updated (ID ${updatedEnt._id}, seq ${updatedEnt.seq}).` }],
+          };
+        }
+
+        case 'update_edge': {
+          const id = String(a['id'] ?? '').trim();
+          if (!id) throw new Error('id must not be empty');
+          const wt = resolveWriteTarget(spaceId, a['targetSpace'] as string | undefined);
+          if (!wt.ok) throw new Error(wt.error);
+          const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string } = {};
+          if (typeof a['label'] === 'string') updates.label = (a['label'] as string).trim();
+          if (typeof a['description'] === 'string') updates.description = a['description'] as string;
+          if (Array.isArray(a['tags'])) updates.tags = a['tags'] as string[];
+          if (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties'])) {
+            updates.properties = a['properties'] as Record<string, string | number | boolean>;
+          }
+          if (typeof a['weight'] === 'number') updates.weight = a['weight'] as number;
+          if (typeof a['type'] === 'string') updates.type = (a['type'] as string).trim();
+          if (Object.keys(updates).length === 0) throw new Error('At least one of label, description, tags, properties, weight, or type must be provided');
+          const memberIds = resolveMemberSpaces(wt.target);
+          let updatedEdge = null;
+          for (const mid of memberIds) {
+            updatedEdge = await updateEdgeById(mid, id, updates);
+            if (updatedEdge) break;
+          }
+          if (!updatedEdge) throw new Error(`Edge '${id}' not found`);
+          return {
+            content: [{ type: 'text' as const, text: `Edge '${updatedEdge.label}' updated (ID ${updatedEdge._id}, seq ${updatedEdge.seq}).` }],
+          };
+        }
+
         // ── Chrono ─────────────────────────────────────────────────────────
         case 'create_chrono': {
           const title = String(a['title'] ?? '').trim();
@@ -863,12 +1020,18 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
         }
 
         case 'list_chrono': {
-          const filter: Record<string, unknown> = {};
-          if (typeof a['status'] === 'string') filter['status'] = a['status'];
-          if (typeof a['kind'] === 'string') filter['kind'] = a['kind'];
+          const filter: ChronoFilter = {};
+          if (typeof a['status'] === 'string') filter.status = a['status'];
+          if (typeof a['kind'] === 'string') filter.kind = a['kind'];
           if (Array.isArray(a['tags']) && (a['tags'] as unknown[]).length > 0) {
-            filter['tags'] = { $in: a['tags'] };
+            filter.tags = a['tags'] as string[];
           }
+          if (Array.isArray(a['tagsAny']) && (a['tagsAny'] as unknown[]).length > 0) {
+            filter.tagsAny = a['tagsAny'] as string[];
+          }
+          if (typeof a['after'] === 'string') filter.after = a['after'];
+          if (typeof a['before'] === 'string') filter.before = a['before'];
+          if (typeof a['search'] === 'string') filter.search = a['search'];
           const limit = typeof a['limit'] === 'number' ? Math.min(a['limit'], 100) : 20;
           const skip = typeof a['skip'] === 'number' ? Math.max(a['skip'], 0) : 0;
 
@@ -877,7 +1040,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           // after global sort/slice. For large skip values this over-fetches slightly,
           // but chrono lists are expected to be small in practice.
           const all = (await Promise.all(memberIds.map(mid => listChrono(mid, filter, skip + limit)))).flat();
-          all.sort((x, y) => new Date(y.startsAt).getTime() - new Date(x.startsAt).getTime());
+          all.sort((x, y) => new Date(y.createdAt).getTime() - new Date(x.createdAt).getTime());
           const results = all.slice(skip, skip + limit);
           return {
             content: [{

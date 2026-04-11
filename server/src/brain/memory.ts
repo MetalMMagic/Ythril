@@ -448,16 +448,29 @@ const ALLOWED_OPERATORS = new Set([
   '$all', '$elemMatch', '$size', '$mod',
 ]);
 
+// Valid MongoDB regex flags (i=case-insensitive, m=multiline, s=dotAll, x=extended)
+const VALID_OPTIONS_RE = /^[imsx]+$/;
+
 function sanitizeFilter(filter: unknown, depth = 0): unknown {
   if (depth > 8) throw new Error('Filter too deeply nested');
   if (Array.isArray(filter)) return filter.map(v => sanitizeFilter(v, depth + 1));
   if (filter !== null && typeof filter === 'object') {
+    const entries = Object.entries(filter as Record<string, unknown>);
     const out: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(filter as Record<string, unknown>)) {
+    for (const [key, val] of entries) {
       if (key.startsWith('$') && !ALLOWED_OPERATORS.has(key)) {
         throw new Error(`Operator '${key}' is not allowed in queries`);
       }
       out[key] = sanitizeFilter(val, depth + 1);
+    }
+    // $options must only appear alongside $regex and contain valid flags
+    if ('$options' in out) {
+      if (!('$regex' in out)) {
+        throw new Error("'$options' is only allowed alongside '$regex'");
+      }
+      if (typeof out['$options'] !== 'string' || !VALID_OPTIONS_RE.test(out['$options'] as string)) {
+        throw new Error("'$options' must be a string of valid regex flags (i, m, s, x)");
+      }
     }
     return out;
   }

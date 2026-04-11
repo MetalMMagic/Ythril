@@ -25,11 +25,19 @@ import assert from 'node:assert/strict';
 
 function safeRegexTest(pattern, value) {
   if (pattern.length > 500 || value.length > 10_000) return false;
+  if (hasReDoSRisk(pattern)) return false;
   try {
     return new RegExp(pattern).test(value);
   } catch {
     return false;
   }
+}
+
+const NESTED_QUANTIFIER_RE = /([+*])\)([+*?]|\{)/;
+const ALTERNATION_QUANTIFIER_RE = /\([^)]*\|[^)]*\)([+*?]|\{)/;
+
+function hasReDoSRisk(pattern) {
+  return NESTED_QUANTIFIER_RE.test(pattern) || ALTERNATION_QUANTIFIER_RE.test(pattern);
 }
 
 function validateValue(field, value, schema) {
@@ -451,5 +459,170 @@ describe('buildSchemaSummary', () => {
   it('returns empty string when arrays are empty', () => {
     const summary = buildSchemaSummary({ entityTypes: [], edgeLabels: [] });
     assert.equal(summary, '');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  ReDoS protection — safeRegexTest rejects dangerous patterns
+// ═════════════════════════════════════════════════════════════════════════════
+describe('safeRegexTest — ReDoS protection', () => {
+  it('rejects nested quantifier (a+)+', () => {
+    assert.equal(safeRegexTest('(a+)+', 'aaa'), false);
+  });
+
+  it('rejects nested quantifier (a*)*b', () => {
+    assert.equal(safeRegexTest('(a*)*b', 'aaa'), false);
+  });
+
+  it('rejects alternation with quantifier (a|a)+', () => {
+    assert.equal(safeRegexTest('(a|a)+', 'aaa'), false);
+  });
+
+  it('rejects alternation with repeat (a|b){2,}', () => {
+    assert.equal(safeRegexTest('(a|b){2,}', 'aaa'), false);
+  });
+
+  it('rejects (\\d+)+', () => {
+    assert.equal(safeRegexTest('(\\d+)+', '123'), false);
+  });
+
+  it('allows simple quantifiers like ^[A-Z]', () => {
+    assert.equal(safeRegexTest('^[A-Z]', 'Hello'), true);
+  });
+
+  it('allows simple quantifiers like \\d+', () => {
+    assert.equal(safeRegexTest('\\d+', '123'), true);
+  });
+
+  it('allows anchored patterns ^v\\d+\\.\\d+\\.\\d+$', () => {
+    assert.equal(safeRegexTest('^v\\d+\\.\\d+\\.\\d+$', 'v1.2.3'), true);
+  });
+
+  it('allows non-capturing groups (?:a|b)', () => {
+    assert.equal(safeRegexTest('(?:a|b)', 'a'), true);
+  });
+
+  it('rejects pattern exceeding 500 chars', () => {
+    assert.equal(safeRegexTest('a'.repeat(501), 'a'), false);
+  });
+
+  it('rejects value exceeding 10K chars', () => {
+    assert.equal(safeRegexTest('^a', 'a'.repeat(10_001)), false);
+  });
+
+  it('returns false for invalid regex (fail-safe)', () => {
+    assert.equal(safeRegexTest('[invalid', 'test'), false);
+  });
+
+  it('naming pattern with ReDoS risk causes entity violation', () => {
+    const meta = {
+      namingPatterns: { service: '(a+)+' },  // ReDoS-vulnerable
+    };
+    const v = validateEntity(meta, { name: 'ValidService', type: 'service' });
+    assert.ok(v.some(x => x.field === 'name' && x.reason.includes('naming pattern')),
+      'ReDoS pattern should cause a naming violation');
+  });
+
+  it('property schema with ReDoS pattern causes violation', () => {
+    const meta = {
+      propertySchemas: {
+        entity: { code: { type: 'string', pattern: '(a|a)+' } },
+      },
+    };
+    const v = validateEntity(meta, {
+      name: 'test', type: 'svc',
+      properties: { code: 'aaa' },
+    });
+    assert.ok(v.some(x => x.field === 'properties.code' && x.reason.includes('pattern')));
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  $options validation in sanitizeFilter
+// ═════════════════════════════════════════════════════════════════════════════
+describe('sanitizeFilter — $options validation', () => {
+  // Replicate the sanitizeFilter logic to test in isolation
+  const ALLOWED_OPERATORS = new Set([
+    '$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin',
+    '$and', '$or', '$nor', '$not', '$exists', '$type', '$regex', '$options',
+    '$all', '$elemMatch', '$size', '$mod',
+  ]);
+  const VALID_OPTIONS_RE = /^[imsx]+$/;
+
+  function sanitizeFilter(filter, depth = 0) {
+    if (depth > 8) throw new Error('Filter too deeply nested');
+    if (Array.isArray(filter)) return filter.map(v => sanitizeFilter(v, depth + 1));
+    if (filter !== null && typeof filter === 'object') {
+      const entries = Object.entries(filter);
+      const out = {};
+      for (const [key, val] of entries) {
+        if (key.startsWith('$') && !ALLOWED_OPERATORS.has(key)) {
+          throw new Error(`Operator '${key}' is not allowed in queries`);
+        }
+        out[key] = sanitizeFilter(val, depth + 1);
+      }
+      if ('$options' in out) {
+        if (!('$regex' in out)) {
+          throw new Error("'$options' is only allowed alongside '$regex'");
+        }
+        if (typeof out['$options'] !== 'string' || !VALID_OPTIONS_RE.test(out['$options'])) {
+          throw new Error("'$options' must be a string of valid regex flags (i, m, s, x)");
+        }
+      }
+      return out;
+    }
+    return filter;
+  }
+
+  it('allows $options: "i" alongside $regex', () => {
+    const result = sanitizeFilter({ fact: { $regex: 'test', $options: 'i' } });
+    assert.deepStrictEqual(result, { fact: { $regex: 'test', $options: 'i' } });
+  });
+
+  it('allows $options: "ims" alongside $regex', () => {
+    const result = sanitizeFilter({ fact: { $regex: 'test', $options: 'ims' } });
+    assert.deepStrictEqual(result, { fact: { $regex: 'test', $options: 'ims' } });
+  });
+
+  it('rejects $options without $regex', () => {
+    assert.throws(
+      () => sanitizeFilter({ fact: { $options: 'i' } }),
+      /only allowed alongside/,
+    );
+  });
+
+  it('rejects $options with invalid flags', () => {
+    assert.throws(
+      () => sanitizeFilter({ fact: { $regex: 'test', $options: 'ig' } }),
+      /valid regex flags/,
+    );
+  });
+
+  it('rejects $options with non-string value', () => {
+    assert.throws(
+      () => sanitizeFilter({ fact: { $regex: 'test', $options: 42 } }),
+      /valid regex flags/,
+    );
+  });
+
+  it('rejects $options with empty string', () => {
+    assert.throws(
+      () => sanitizeFilter({ fact: { $regex: 'test', $options: '' } }),
+      /valid regex flags/,
+    );
+  });
+
+  it('rejects $options with injection-like value', () => {
+    assert.throws(
+      () => sanitizeFilter({ fact: { $regex: 'test', $options: 'i\x00' } }),
+      /valid regex flags/,
+    );
+  });
+
+  it('still blocks disallowed operators', () => {
+    assert.throws(
+      () => sanitizeFilter({ $where: 'true' }),
+      /not allowed/,
+    );
   });
 });

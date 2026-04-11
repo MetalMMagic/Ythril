@@ -54,17 +54,15 @@ export async function initSpace(spaceId: string): Promise<void> {
   await memoriesColl.createIndex({ spaceId: 1, seq: 1 });
   await memoriesColl.createIndex({ spaceId: 1, tags: 1 });
   await memoriesColl.createIndex({ spaceId: 1, entityIds: 1 });
-  // Migration: drop the old unique entity index if it exists (name+type is not unique)
+  // Migration: drop the old unique entity index if it exists (name+type is not unique).
+  // Uses listIndexes() once to check — after migration the non-unique index passes
+  // createIndex() as a no-op, so zero overhead on subsequent boots.
   try {
-    const existing = await entitiesColl.indexInformation();
-    const old = existing['spaceId_1_name_1_type_1'];
-    if (old) {
-      // Only drop if it was the old unique index; non-unique replacement is fine
-      const opts = await entitiesColl.listIndexes().toArray();
-      const isUnique = opts.some(i => i.name === 'spaceId_1_name_1_type_1' && i.unique);
-      if (isUnique) await entitiesColl.dropIndex('spaceId_1_name_1_type_1');
+    const indexes = await entitiesColl.listIndexes().toArray();
+    if (indexes.some(i => i.name === 'spaceId_1_name_1_type_1' && i.unique)) {
+      await entitiesColl.dropIndex('spaceId_1_name_1_type_1');
     }
-  } catch { /* index may not exist or concurrent build in progress */ }
+  } catch { /* collection may not exist yet — createIndex below will handle it */ }
   await entitiesColl.createIndex({ spaceId: 1, name: 1, type: 1 });
   await entitiesColl.createIndex({ spaceId: 1, seq: 1 });
   await edgesColl.createIndex({ spaceId: 1, from: 1, to: 1, label: 1 }, { unique: true });

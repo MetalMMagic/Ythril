@@ -1585,6 +1585,24 @@ describe('Brain — POST /spaces/:spaceId/query', () => {
     assert.ok(r.body.error, 'error message expected');
   });
 
+  it('Rejects $options without $regex with 400', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { fact: { $options: 'i' } },
+    });
+    assert.equal(r.status, 400, `$options without $regex must be rejected, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(r.body.error.includes('$regex'), 'Error should mention $regex requirement');
+  });
+
+  it('Rejects $options with invalid flags with 400', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { fact: { $regex: 'test', $options: 'ig' } },
+    });
+    assert.equal(r.status, 400, `$options with invalid flags must be rejected, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(r.body.error.includes('valid regex flags'), 'Error should mention valid flags');
+  });
+
   it('Rejects unknown collection with 400', async () => {
     const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
       collection: 'unknown_collection',

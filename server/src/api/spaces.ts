@@ -39,6 +39,20 @@ const PropertySchemaZ = z.object({
   pattern: z.string().max(500).optional(),
 }).strict();
 
+const RequiredPropertiesZ = z.object({
+  entity: z.array(z.string().min(1).max(200)).optional(),
+  memory: z.array(z.string().min(1).max(200)).optional(),
+  edge: z.array(z.string().min(1).max(200)).optional(),
+  chrono: z.array(z.string().min(1).max(200)).optional(),
+}).strict();
+
+const PropertySchemasZ = z.object({
+  entity: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
+  memory: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
+  edge: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
+  chrono: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
+}).strict();
+
 const KnowledgeTypeKey = z.enum(['entity', 'memory', 'edge', 'chrono']);
 
 const SpaceMetaBody = z.object({
@@ -48,8 +62,8 @@ const SpaceMetaBody = z.object({
   entityTypes: z.array(z.string().min(1).max(200)).max(200).optional(),
   edgeLabels: z.array(z.string().min(1).max(200)).max(200).optional(),
   namingPatterns: z.record(z.string().min(1).max(200), z.string().min(1).max(500)).optional(),
-  requiredProperties: z.record(KnowledgeTypeKey, z.array(z.string().min(1).max(200))).optional(),
-  propertySchemas: z.record(KnowledgeTypeKey, z.record(z.string().min(1).max(200), PropertySchemaZ)).optional(),
+  requiredProperties: RequiredPropertiesZ.optional(),
+  propertySchemas: PropertySchemasZ.optional(),
   tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
 }).strict();
 
@@ -285,7 +299,10 @@ spacesRouter.post('/:id/validate-schema', globalRateLimit, requireAdminMfa, asyn
   }
 
   // Use the provided meta for dry-run, or fall back to the space's current meta
-  const parsedMeta = SpaceMetaBody.safeParse(req.body?.meta ?? space.meta ?? {});
+  // Strip internal-only fields (version, updatedAt, previousVersions) before Zod validation
+  const rawMeta = req.body?.meta ?? space.meta ?? {};
+  const { version: _v, updatedAt: _u, previousVersions: _pv, ...metaForParse } = rawMeta;
+  const parsedMeta = SpaceMetaBody.safeParse(metaForParse);
   if (!parsedMeta.success) {
     res.status(400).json({ error: parsedMeta.error.message });
     return;

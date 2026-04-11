@@ -221,18 +221,30 @@ function validateValue(field: string, value: unknown, schema: PropertySchema): S
 }
 
 /**
- * Test a regex pattern against a value, guarding against ReDoS by using a
- * timeout-safe approach (simple length limit on pattern and value).
- * Returns false (fail-safe) when inputs exceed size limits — the value will
- * be reported as non-matching rather than silently allowed through.
+ * Detect regex patterns susceptible to catastrophic backtracking (ReDoS).
+ * Rejects patterns with nested quantifiers like (a+)+, (a*)*b, (a|a)+, etc.
+ * This is a conservative heuristic — it may block some safe patterns, which
+ * is the correct fail-safe direction for user-supplied regexes.
+ */
+const NESTED_QUANTIFIER_RE = /([+*])\)([+*?]|\{)/;
+const ALTERNATION_QUANTIFIER_RE = /\([^)]*\|[^)]*\)([+*?]|\{)/;
+
+function hasReDoSRisk(pattern: string): boolean {
+  return NESTED_QUANTIFIER_RE.test(pattern) || ALTERNATION_QUANTIFIER_RE.test(pattern);
+}
+
+/**
+ * Test a regex pattern against a value with comprehensive ReDoS protection:
+ * 1. Length limits on both pattern (500) and value (10K)
+ * 2. Structural analysis rejecting nested quantifiers / alternation+quantifier
+ * 3. Fail-safe: returns false (non-matching → reported as violation) on any issue
  */
 function safeRegexTest(pattern: string, value: string): boolean {
-  // Fail-safe: reject oversized inputs rather than silently allowing them
   if (pattern.length > 500 || value.length > 10_000) return false;
+  if (hasReDoSRisk(pattern)) return false;
   try {
     return new RegExp(pattern).test(value);
   } catch {
-    // Invalid regex — treat as non-matching (report as violation)
     return false;
   }
 }

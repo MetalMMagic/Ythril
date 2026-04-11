@@ -1189,6 +1189,314 @@ describe('Brain — chrono properties field', () => {
   });
 });
 
+// ── Bulk write ─────────────────────────────────────────────────────────────
+
+describe('Brain — POST /api/brain/spaces/:spaceId/bulk', () => {
+  const RUN = Date.now();
+
+  it('Returns 207 with inserted/updated/errors shape', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+      memories: [{ fact: `Bulk memory ${RUN}`, tags: ['bulk-test'] }],
+      entities: [{ name: `BulkEnt-${RUN}`, type: 'concept', tags: ['bulk-test'] }],
+    });
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    assert.ok(typeof r.body.inserted === 'object', 'inserted must be an object');
+    assert.ok(typeof r.body.updated === 'object', 'updated must be an object');
+    assert.ok(Array.isArray(r.body.errors), 'errors must be an array');
+    assert.equal(r.body.inserted.memories, 1, 'memory should be inserted');
+    assert.equal(r.body.inserted.entities, 1, 'entity should be inserted');
+    assert.equal(r.body.errors.length, 0, `Unexpected errors: ${JSON.stringify(r.body.errors)}`);
+  });
+
+  it('Second call for same entity counts as updated', async () => {
+    const name = `BulkUpsert-${RUN}`;
+    await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+      entities: [{ name, type: 'concept' }],
+    });
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+      entities: [{ name, type: 'concept', description: 'updated' }],
+    });
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    assert.equal(r.body.updated.entities, 1, 'second upsert should be counted as updated');
+    assert.equal(r.body.inserted.entities, 0);
+  });
+
+  it('Processes edges referencing entities from same batch', async () => {
+    const entityName = `BulkEdgeEnt-${RUN}`;
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+      entities: [{ name: `${entityName}-A`, type: 'concept' }, { name: `${entityName}-B`, type: 'concept' }],
+    });
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    assert.equal(r.body.inserted.entities, 2, JSON.stringify(r.body));
+
+    // Get the entity IDs
+    const listR = await get(INSTANCES.a, token(), `/api/brain/spaces/general/entities?name=${encodeURIComponent(`${entityName}-A`)}`);
+    const entA = listR.body.entities?.[0];
+    const listRB = await get(INSTANCES.a, token(), `/api/brain/spaces/general/entities?name=${encodeURIComponent(`${entityName}-B`)}`);
+    const entB = listRB.body.entities?.[0];
+    assert.ok(entA, 'entity A should be found');
+    assert.ok(entB, 'entity B should be found');
+
+    const edgeR = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+      edges: [{ from: entA._id, to: entB._id, label: `bulk-rel-${RUN}` }],
+    });
+    assert.equal(edgeR.status, 207, JSON.stringify(edgeR.body));
+    assert.equal(edgeR.body.inserted.edges, 1, JSON.stringify(edgeR.body));
+    assert.equal(edgeR.body.errors.length, 0, JSON.stringify(edgeR.body.errors));
+  });
+
+  it('Inserts chrono entries', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+      chrono: [
+        { title: `BulkEvent-${RUN}`, kind: 'event', startsAt: new Date().toISOString() },
+        { title: `BulkDeadline-${RUN}`, kind: 'deadline', startsAt: new Date().toISOString(), status: 'upcoming' },
+      ],
+    });
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    assert.equal(r.body.inserted.chrono, 2, JSON.stringify(r.body));
+    assert.equal(r.body.errors.length, 0, JSON.stringify(r.body.errors));
+  });
+
+  it('Per-item validation errors do not abort the batch', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+      memories: [
+        { fact: `Valid bulk memory ${RUN} A` },
+        { tags: ['no-fact'] },          // missing fact → error
+        { fact: `Valid bulk memory ${RUN} B` },
+      ],
+    });
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    assert.equal(r.body.inserted.memories, 2, 'two valid memories should be inserted');
+    assert.equal(r.body.errors.length, 1, 'one error expected');
+    assert.equal(r.body.errors[0].type, 'memory');
+    assert.equal(r.body.errors[0].index, 1);
+    assert.ok(r.body.errors[0].reason, 'error reason should be set');
+  });
+
+  it('Entity missing name returns error entry', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+      entities: [{ type: 'concept' }],
+    });
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    assert.equal(r.body.errors.length, 1);
+    assert.equal(r.body.errors[0].type, 'entity');
+    assert.ok(r.body.errors[0].reason.includes('name'), `Expected name in reason: ${r.body.errors[0].reason}`);
+  });
+
+  it('Edge missing required fields returns per-field errors', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+      edges: [{ to: 'some-id', label: 'rel' }], // missing from
+    });
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    assert.equal(r.body.errors.length, 1);
+    assert.equal(r.body.errors[0].type, 'edge');
+    assert.ok(r.body.errors[0].reason.includes('from'));
+  });
+
+  it('Chrono with invalid kind returns error entry', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+      chrono: [{ title: 'Bad kind', kind: 'invalid', startsAt: new Date().toISOString() }],
+    });
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    assert.equal(r.body.errors.length, 1);
+    assert.equal(r.body.errors[0].type, 'chrono');
+  });
+
+  it('Empty arrays is a no-op returning zero counts', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {
+      memories: [], entities: [], edges: [], chrono: [],
+    });
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    assert.equal(r.body.inserted.memories, 0);
+    assert.equal(r.body.inserted.entities, 0);
+    assert.equal(r.body.inserted.edges, 0);
+    assert.equal(r.body.inserted.chrono, 0);
+    assert.equal(r.body.errors.length, 0);
+  });
+
+  it('Empty body (all arrays omitted) is a no-op', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', {});
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    assert.equal(r.body.inserted.memories + r.body.inserted.entities + r.body.inserted.edges + r.body.inserted.chrono, 0);
+  });
+
+  it('Returns 404 for unknown space', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/no-such-space/bulk', {
+      memories: [{ fact: 'test' }],
+    });
+    assert.equal(r.status, 404);
+  });
+
+  it('Returns 401 without auth', async () => {
+    const r = await fetch(`${INSTANCES.a}/api/brain/spaces/general/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ memories: [{ fact: 'test' }] }),
+    });
+    assert.equal(r.status, 401);
+  });
+});
+
+// ── Graph traversal ─────────────────────────────────────────────────────────
+
+describe('Brain — graph traversal (/api/brain/spaces/:spaceId/traverse)', () => {
+  const RUN = Date.now();
+  // Entity IDs for a small graph: A → B → C (chain), A → D (branch)
+  const entA = `trav-A-${RUN}`;
+  const entB = `trav-B-${RUN}`;
+  const entC = `trav-C-${RUN}`;
+  const entD = `trav-D-${RUN}`;
+
+  before(async () => {
+    const { post: syncPost } = await import('../sync/helpers.js');
+    const now = new Date().toISOString();
+    let seq = Date.now();
+
+    for (const [id, name] of [[entA, 'A'], [entB, 'B'], [entC, 'C'], [entD, 'D']]) {
+      await syncPost(INSTANCES.a, token(), '/api/sync/entities?spaceId=general', {
+        _id: id, spaceId: 'general', name: `TravEnt-${name}-${RUN}`, type: 'service', tags: [],
+        seq: seq++, author: { instanceId: 'test', instanceLabel: 'Test' },
+        createdAt: now, updatedAt: now,
+      });
+    }
+    // A → B (depends_on), B → C (depends_on), A → D (references)
+    for (const [from, to, label] of [
+      [entA, entB, 'depends_on'],
+      [entB, entC, 'depends_on'],
+      [entA, entD, 'references'],
+    ]) {
+      await syncPost(INSTANCES.a, token(), '/api/sync/edges?spaceId=general', {
+        _id: `trav-edge-${from}-${to}-${RUN}`, spaceId: 'general',
+        from, to, label,
+        seq: seq++, author: { instanceId: 'test', instanceLabel: 'Test' },
+        createdAt: now, updatedAt: now,
+      });
+    }
+  });
+
+  it('Returns 400 when startId is missing', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {});
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  });
+
+  it('Returns 404 for unknown space', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/no-such-space/traverse', { startId: entA });
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+  });
+
+  it('Returns 401 without auth', async () => {
+    const r = await fetch(`${INSTANCES.a}/api/brain/spaces/general/traverse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startId: entA }),
+    });
+    assert.equal(r.status, 401);
+  });
+
+  it('Outbound depth=1 returns direct neighbours B and D', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 1,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body.nodes), 'nodes must be array');
+    assert.ok(Array.isArray(r.body.edges), 'edges must be array');
+    assert.equal(typeof r.body.truncated, 'boolean', 'truncated must be boolean');
+    const nodeIds = r.body.nodes.map(n => n._id);
+    assert.ok(nodeIds.includes(entB), 'B must be in depth-1 neighbours');
+    assert.ok(nodeIds.includes(entD), 'D must be in depth-1 neighbours');
+    assert.ok(!nodeIds.includes(entA), 'start node must not appear in results');
+    assert.ok(!nodeIds.includes(entC), 'C must not appear at depth 1');
+    // All returned nodes must have depth=1
+    for (const n of r.body.nodes) assert.equal(n.depth, 1, `Node ${n._id} must have depth=1`);
+  });
+
+  it('Outbound depth=2 reaches C via B', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 2,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const nodeIds = r.body.nodes.map(n => n._id);
+    assert.ok(nodeIds.includes(entC), 'C must appear at depth 2');
+    const nodeC = r.body.nodes.find(n => n._id === entC);
+    assert.equal(nodeC.depth, 2, 'C must have depth=2');
+  });
+
+  it('edgeLabels filter restricts traversal to matching labels', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 1, edgeLabels: ['depends_on'],
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const nodeIds = r.body.nodes.map(n => n._id);
+    assert.ok(nodeIds.includes(entB), 'B (depends_on) must appear');
+    assert.ok(!nodeIds.includes(entD), 'D (references) must not appear with depends_on filter');
+  });
+
+  it('Inbound traversal from C returns B then A', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entC, direction: 'inbound', maxDepth: 2,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const nodeIds = r.body.nodes.map(n => n._id);
+    assert.ok(nodeIds.includes(entB), 'B must appear in inbound traversal from C');
+    assert.ok(nodeIds.includes(entA), 'A must appear in inbound traversal from C at depth 2');
+  });
+
+  it('limit=1 returns only one node and sets truncated=true', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 3, limit: 1,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.nodes.length, 1, 'Only one node must be returned');
+    assert.equal(r.body.truncated, true, 'truncated must be true');
+  });
+
+  it('Response edges only include traversed edges (not all edges)', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 1, edgeLabels: ['depends_on'],
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    // Only the A→B edge should appear (not A→D)
+    assert.equal(r.body.edges.length, 1, 'Only traversed edge should be returned');
+    const e = r.body.edges[0];
+    assert.equal(e.from, entA);
+    assert.equal(e.to, entB);
+    assert.equal(e.label, 'depends_on');
+  });
+
+  it('maxDepth is capped at 10 and does not error with large value', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entA, direction: 'outbound', maxDepth: 999,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+  });
+
+  it('Unknown startId returns empty nodes and edges', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: 'nonexistent-entity-id-xyz',
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(r.body.nodes, []);
+    assert.deepEqual(r.body.edges, []);
+    assert.equal(r.body.truncated, false);
+  });
+
+  it('direction=both returns neighbours in either direction and start node never appears in results', async () => {
+    // A→B and A→D outbound; C→B is not in graph, but B→C is. Starting from B with both:
+    // outbound: C; inbound: A
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/traverse', {
+      startId: entB, direction: 'both', maxDepth: 1,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const nodeIds = r.body.nodes.map(n => n._id);
+    // A is an inbound neighbour of B (A→B depends_on)
+    assert.ok(nodeIds.includes(entA), 'A must appear as inbound neighbour of B in both direction');
+    // C is an outbound neighbour of B (B→C depends_on)
+    assert.ok(nodeIds.includes(entC), 'C must appear as outbound neighbour of B in both direction');
+    // Start node (B) must never appear in results
+    assert.ok(!nodeIds.includes(entB), 'Start node must not appear in traversal results');
+  });
+});
+
 
 // ── Brain — structured query endpoint ───────────────────────────────────────
 
@@ -1322,6 +1630,8 @@ describe('Brain — POST /spaces/:spaceId/query', () => {
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.ok(Array.isArray(r.body.results), 'entities results must be an array');
+  });
+});
 
 // ── PATCH /memories/:id — description and properties update ─────────────────
 

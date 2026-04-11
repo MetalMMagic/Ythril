@@ -2,11 +2,11 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireSpaceAuth, denyReadOnly } from '../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../rate-limit/middleware.js';
-import { listMemories, deleteMemory, countMemories, bulkDeleteMemories, updateMemory, queryBrain } from '../brain/memory.js';
+import { listMemories, deleteMemory, countMemories, bulkDeleteMemories, remember, updateMemory, queryBrain } from '../brain/memory.js';
 import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityById, bulkDeleteEntities, findEntitiesByName } from '../brain/entities.js';
-/** Regex that matches a lowercase UUID v4 exactly. */
+import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges, traverseGraph } from '../brain/edges.js';
+/** Regex that matches a UUID v4 (case-insensitive). */
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges } from '../brain/edges.js';
 import { createChrono, updateChrono, getChronoById, listChrono, deleteChrono, bulkDeleteChrono, ChronoFilter } from '../brain/chrono.js';
 import { embed } from '../brain/embedding.js';
 import { getConfig } from '../config/loader.js';
@@ -678,6 +678,42 @@ brainRouter.delete('/spaces/:spaceId/edges', bulkWipeRateLimit, requireSpaceAuth
   res.json({ deleted });
 });
 
+// POST /api/brain/spaces/:spaceId/traverse — graph traversal (BFS)
+brainRouter.post('/spaces/:spaceId/traverse', globalRateLimit, requireSpaceAuth, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  const { startId, direction, edgeLabels, maxDepth, limit } = req.body ?? {};
+  if (!startId || typeof startId !== 'string') {
+    res.status(400).json({ error: '`startId` string required' });
+    return;
+  }
+  const validDirections = new Set(['outbound', 'inbound', 'both']);
+  const effectiveDirection: 'outbound' | 'inbound' | 'both' =
+    typeof direction === 'string' && validDirections.has(direction)
+      ? (direction as 'outbound' | 'inbound' | 'both')
+      : 'outbound';
+  const effectiveEdgeLabels: string[] | undefined =
+    Array.isArray(edgeLabels) && edgeLabels.every((l: unknown) => typeof l === 'string')
+      ? edgeLabels
+      : undefined;
+  if (edgeLabels !== undefined && !Array.isArray(edgeLabels)) {
+    res.status(400).json({ error: '`edgeLabels` must be an array of strings' });
+    return;
+  }
+  const rawDepth = typeof maxDepth === 'number' ? maxDepth : 3;
+  const effectiveDepth = Math.min(Math.max(1, rawDepth), 10);
+  const rawLimit = typeof limit === 'number' ? limit : 100;
+  const effectiveLimit = Math.min(Math.max(1, rawLimit), 1000);
+
+  const memberIds = resolveMemberSpaces(spaceId);
+  const result = await traverseGraph(memberIds, startId.trim(), effectiveDirection, effectiveEdgeLabels, effectiveDepth, effectiveLimit);
+  res.json(result);
+});
+
 // ── Chrono CRUD ───────────────────────────────────────────────────────────────
 
 const CHRONO_KINDS = new Set<ChronoKind>(['event', 'deadline', 'plan', 'prediction', 'milestone']);
@@ -1177,4 +1213,158 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
   }
 
   res.json({ spaceId, reindexed, errors });
+});
+
+// ── Bulk write ────────────────────────────────────────────────────────────────
+
+const BULK_MAX_PER_TYPE = 500;
+
+interface BulkError {
+  type: 'memory' | 'entity' | 'edge' | 'chrono';
+  index: number;
+  reason: string;
+}
+
+interface BulkCounts {
+  memories: number;
+  entities: number;
+  edges: number;
+  chrono: number;
+}
+
+/**
+ * POST /api/brain/spaces/:spaceId/bulk
+ *
+ * Batch upsert memories, entities, edges, and chrono entries in a single
+ * request.  Processing order: memories → entities → edges → chrono, so edges
+ * referencing newly created entities within the same batch resolve correctly.
+ *
+ * All four arrays are optional.  Entries that fail per-item validation are
+ * recorded in `errors` and do not abort the remaining batch items.
+ */
+brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
+  if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+  const targetSpace = wt.target;
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const rawMemories = Array.isArray(body['memories']) ? (body['memories'] as unknown[]).slice(0, BULK_MAX_PER_TYPE) : [];
+  const rawEntities = Array.isArray(body['entities']) ? (body['entities'] as unknown[]).slice(0, BULK_MAX_PER_TYPE) : [];
+  const rawEdges    = Array.isArray(body['edges'])    ? (body['edges']    as unknown[]).slice(0, BULK_MAX_PER_TYPE) : [];
+  const rawChrono   = Array.isArray(body['chrono'])   ? (body['chrono']   as unknown[]).slice(0, BULK_MAX_PER_TYPE) : [];
+
+  const inserted: BulkCounts = { memories: 0, entities: 0, edges: 0, chrono: 0 };
+  const updated:  BulkCounts = { memories: 0, entities: 0, edges: 0, chrono: 0 };
+  const errors: BulkError[] = [];
+
+  // ── memories ───────────────────────────────────────────────────────────────
+  for (let i = 0; i < rawMemories.length; i++) {
+    const item = rawMemories[i] as Record<string, unknown>;
+    const fact = typeof item['fact'] === 'string' ? item['fact'].trim() : '';
+    if (!fact) { errors.push({ type: 'memory', index: i, reason: 'missing required field: fact' }); continue; }
+    if (fact.length > 50_000) { errors.push({ type: 'memory', index: i, reason: '`fact` must not exceed 50 000 characters' }); continue; }
+    const tags: string[] = Array.isArray(item['tags']) ? (item['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
+    const entityIds: string[] = Array.isArray(item['entityIds']) ? (item['entityIds'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
+    const description: string | undefined = typeof item['description'] === 'string' ? item['description'] : undefined;
+    const properties: Record<string, string | number | boolean> | undefined =
+      item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties'])
+        ? (item['properties'] as Record<string, string | number | boolean>)
+        : undefined;
+    try {
+      await remember(targetSpace, fact, entityIds, tags, description, properties);
+      inserted.memories++;
+    } catch (err) {
+      errors.push({ type: 'memory', index: i, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // ── entities ───────────────────────────────────────────────────────────────
+  for (let i = 0; i < rawEntities.length; i++) {
+    const item = rawEntities[i] as Record<string, unknown>;
+    const name = typeof item['name'] === 'string' ? item['name'].trim() : '';
+    if (!name) { errors.push({ type: 'entity', index: i, reason: 'missing required field: name' }); continue; }
+    const type = typeof item['type'] === 'string' ? item['type'].trim() : '';
+    if (!type) { errors.push({ type: 'entity', index: i, reason: 'missing required field: type' }); continue; }
+    const tags: string[] = Array.isArray(item['tags']) ? (item['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
+    const description: string | undefined = typeof item['description'] === 'string' ? item['description'] : undefined;
+    const properties: Record<string, string | number | boolean> =
+      item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties'])
+        ? (item['properties'] as Record<string, string | number | boolean>)
+        : {};
+    try {
+      const existing = await col<EntityDoc>(`${targetSpace}_entities`).findOne({ spaceId: targetSpace, name, type } as never);
+      await upsertEntity(targetSpace, name, type, tags, properties, description);
+      if (existing) { updated.entities++; } else { inserted.entities++; }
+    } catch (err) {
+      errors.push({ type: 'entity', index: i, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // ── edges ──────────────────────────────────────────────────────────────────
+  for (let i = 0; i < rawEdges.length; i++) {
+    const item = rawEdges[i] as Record<string, unknown>;
+    const from  = typeof item['from']  === 'string' ? item['from'].trim()  : '';
+    const to    = typeof item['to']    === 'string' ? item['to'].trim()    : '';
+    const label = typeof item['label'] === 'string' ? item['label'].trim() : '';
+    if (!from)  { errors.push({ type: 'edge', index: i, reason: 'missing required field: from' });  continue; }
+    if (!to)    { errors.push({ type: 'edge', index: i, reason: 'missing required field: to' });    continue; }
+    if (!label) { errors.push({ type: 'edge', index: i, reason: 'missing required field: label' }); continue; }
+    const weight:      number | undefined = typeof item['weight'] === 'number' ? item['weight'] : undefined;
+    const edgeType:    string | undefined = typeof item['type']   === 'string' ? item['type']   : undefined;
+    const description: string | undefined = typeof item['description'] === 'string' ? item['description'] : undefined;
+    const tags: string[] | undefined = Array.isArray(item['tags']) ? (item['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
+    const properties: Record<string, string | number | boolean> | undefined =
+      item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties'])
+        ? (item['properties'] as Record<string, string | number | boolean>)
+        : undefined;
+    try {
+      const existing = await col<EdgeDoc>(`${targetSpace}_edges`).findOne({ spaceId: targetSpace, from, to, label } as never);
+      await upsertEdge(targetSpace, from, to, label, weight, edgeType, description, properties, tags);
+      if (existing) { updated.edges++; } else { inserted.edges++; }
+    } catch (err) {
+      errors.push({ type: 'edge', index: i, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // ── chrono ─────────────────────────────────────────────────────────────────
+  for (let i = 0; i < rawChrono.length; i++) {
+    const item = rawChrono[i] as Record<string, unknown>;
+    const title   = typeof item['title']   === 'string' ? item['title'].trim()   : '';
+    const kind    = typeof item['kind']    === 'string' ? item['kind']           : '';
+    const startsAt = typeof item['startsAt'] === 'string' ? item['startsAt']     : '';
+    if (!title)   { errors.push({ type: 'chrono', index: i, reason: 'missing required field: title' });   continue; }
+    if (!CHRONO_KINDS.has(kind as ChronoKind)) {
+      errors.push({ type: 'chrono', index: i, reason: '`kind` must be one of: event, deadline, plan, prediction, milestone' });
+      continue;
+    }
+    if (!startsAt) { errors.push({ type: 'chrono', index: i, reason: 'missing required field: startsAt' }); continue; }
+    const endsAt:      string | undefined = typeof item['endsAt']      === 'string' ? item['endsAt']      : undefined;
+    const status:      ChronoStatus | undefined = typeof item['status'] === 'string' && CHRONO_STATUSES.has(item['status'] as ChronoStatus) ? item['status'] as ChronoStatus : undefined;
+    const confidence:  number | undefined = typeof item['confidence'] === 'number' ? item['confidence']   : undefined;
+    const description: string | undefined = typeof item['description'] === 'string' ? item['description'] : undefined;
+    const tags: string[] | undefined = Array.isArray(item['tags']) ? (item['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
+    const entityIds: string[] | undefined = Array.isArray(item['entityIds']) ? (item['entityIds'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
+    const memoryIds: string[] | undefined = Array.isArray(item['memoryIds']) ? (item['memoryIds'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
+    const properties: Record<string, string | number | boolean> | undefined =
+      item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties'])
+        ? (item['properties'] as Record<string, string | number | boolean>)
+        : undefined;
+    try {
+      await createChrono(targetSpace, {
+        title, kind: kind as ChronoKind, startsAt, endsAt, status, confidence,
+        description, tags, entityIds, memoryIds, properties,
+      });
+      inserted.chrono++;
+    } catch (err) {
+      errors.push({ type: 'chrono', index: i, reason: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  res.status(207).json({ inserted, updated, errors });
 });

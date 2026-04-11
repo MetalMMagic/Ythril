@@ -106,6 +106,14 @@ export interface SpaceStats {
   needsReindex?: boolean;
 }
 
+export type QueryCollection = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
+
+export interface QueryResult {
+  results: Record<string, unknown>[];
+  collection: QueryCollection;
+  count: number;
+}
+
 export type WipeCollectionType = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
 
 export interface WipeResult {
@@ -305,6 +313,19 @@ export class ApiService {
     return this.http.post<Record<string, number>>(`/api/brain/spaces/${spaceId}/reindex`, {});
   }
 
+  queryBrain(
+    spaceId: string,
+    body: {
+      collection: QueryCollection;
+      filter?: Record<string, unknown>;
+      projection?: Record<string, unknown>;
+      limit?: number;
+      maxTimeMS?: number;
+    },
+  ): Observable<QueryResult> {
+    return this.http.post<QueryResult>(`/api/brain/spaces/${spaceId}/query`, body);
+  }
+
   // ── Brain — memories ──────────────────────────────────────────────────────
 
   listMemories(spaceId: string, limit = 20, skip = 0, filters?: { tag?: string; entity?: string }): Observable<{ memories: Memory[]; limit: number; skip: number }> {
@@ -361,11 +382,15 @@ export class ApiService {
 
   // ── Brain — chrono ──────────────────────────────────────────────────────
 
-  listChrono(spaceId: string, limit = 50, skip = 0, filters?: { tags?: string; kind?: string; status?: string }): Observable<{ chrono: ChronoEntry[] }> {
+  listChrono(spaceId: string, limit = 50, skip = 0, filters?: { tags?: string; tagsAny?: string; kind?: string; status?: string; after?: string; before?: string; search?: string }): Observable<{ chrono: ChronoEntry[] }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.tags) params = params.set('tags', filters.tags);
+    if (filters?.tagsAny) params = params.set('tagsAny', filters.tagsAny);
     if (filters?.kind) params = params.set('kind', filters.kind);
     if (filters?.status) params = params.set('status', filters.status);
+    if (filters?.after) params = params.set('after', filters.after);
+    if (filters?.before) params = params.set('before', filters.before);
+    if (filters?.search) params = params.set('search', filters.search);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/chrono`, { params });
   }
 

@@ -260,9 +260,9 @@ export function createApp() {
     const results: Record<ImportType, { inserted: number; updated: number; errors: number }> = {
       memories: { inserted: 0, updated: 0, errors: 0 },
       entities: { inserted: 0, updated: 0, errors: 0 },
-      edges:    { inserted: 0, updated: 0, errors: 0 },
-      chrono:   { inserted: 0, updated: 0, errors: 0 },
-      files:    { inserted: 0, updated: 0, errors: 0 },
+      edges: { inserted: 0, updated: 0, errors: 0 },
+      chrono: { inserted: 0, updated: 0, errors: 0 },
+      files: { inserted: 0, updated: 0, errors: 0 },
     };
 
     for (const t of IMPORT_TYPES) {
@@ -277,9 +277,11 @@ export function createApp() {
           result.errors++;
           continue;
         }
+        // Extract and coerce the _id to a plain string to prevent any operator injection.
+        const docId = String((doc as Record<string, unknown>)['_id']);
         try {
           const r = await col(collName).replaceOne(
-            { _id: (doc as Record<string, unknown>)['_id'] } as never,
+            { _id: docId } as never,
             doc as never,
             { upsert: true },
           );

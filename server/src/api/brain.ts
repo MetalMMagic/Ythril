@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireSpaceAuth, denyReadOnly } from '../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../rate-limit/middleware.js';
-import { listMemories, deleteMemory, countMemories, bulkDeleteMemories } from '../brain/memory.js';
+import { listMemories, deleteMemory, countMemories, bulkDeleteMemories, queryBrain } from '../brain/memory.js';
 import { listEntities, deleteEntity, upsertEntity, getEntityById, bulkDeleteEntities } from '../brain/entities.js';
 import { listEdges, deleteEdge, upsertEdge, getEdgeById, bulkDeleteEdges } from '../brain/edges.js';
 import { createChrono, updateChrono, getChronoById, listChrono, deleteChrono, bulkDeleteChrono } from '../brain/chrono.js';
@@ -671,6 +671,53 @@ brainRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, asy
   ))).flat();
   res.json({ files: all, limit, skip });
 });
+
+// POST /api/brain/spaces/:spaceId/query — structured query with filter/projection
+brainRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  const { collection, filter, projection, limit, maxTimeMS } = req.body ?? {};
+  const validCollections = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
+  if (!validCollections.includes(collection)) {
+    res.status(400).json({ error: `collection must be one of: ${validCollections.join(', ')}` });
+    return;
+  }
+  const safeFilter: Record<string, unknown> =
+    filter != null && typeof filter === 'object' && !Array.isArray(filter)
+      ? (filter as Record<string, unknown>)
+      : {};
+  const safeProjection: Record<string, unknown> | undefined =
+    projection != null && typeof projection === 'object' && !Array.isArray(projection)
+      ? (projection as Record<string, unknown>)
+      : undefined;
+  const safeLimit = typeof limit === 'number' ? limit : 20;
+  const safeMaxTimeMS = typeof maxTimeMS === 'number' ? maxTimeMS : 5000;
+
+  try {
+    const memberIds = resolveMemberSpaces(spaceId);
+    const docs = (await Promise.all(
+      memberIds.map(mid =>
+        queryBrain(
+          mid,
+          collection as typeof validCollections[number],
+          safeFilter,
+          safeProjection,
+          safeLimit,
+          safeMaxTimeMS,
+        ),
+      ),
+    )).flat();
+    res.json({ results: docs, collection, count: docs.length });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ error: msg });
+  }
+});
+
 brainRouter.get('/spaces/:spaceId/reindex-status', globalRateLimit, requireSpaceAuth, (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();

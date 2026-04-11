@@ -2,9 +2,9 @@ import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus } from '../../core/api.service';
+import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult } from '../../core/api.service';
 
-type BrainTab = 'memories' | 'entities' | 'edges' | 'chrono';
+type BrainTab = 'memories' | 'entities' | 'edges' | 'chrono' | 'query';
 
 interface SpaceView {
   space: Space;
@@ -256,6 +256,67 @@ interface SpaceView {
       color: var(--text-muted);
       margin-top: 4px;
       line-height: 1.4;
+    }
+
+    .query-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .query-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg-surface);
+    }
+    .query-form-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+    .query-form-row .field { margin: 0; }
+    .query-textarea {
+      width: 100%;
+      font-family: var(--font-mono, monospace);
+      font-size: 12px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      resize: vertical;
+      min-height: 64px;
+    }
+    .query-textarea.error { border-color: var(--error); }
+    .query-results-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .query-results-header strong { color: var(--text-primary); }
+    .query-result-card {
+      padding: 10px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg-surface);
+      font-family: var(--font-mono, monospace);
+      font-size: 11px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: var(--text-secondary);
+    }
+    .query-empty {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      font-size: 14px;
     }
   `],
   template: `
@@ -787,6 +848,83 @@ interface SpaceView {
           </div>
         }
 
+        <!-- Query -->
+        @if (activeTab() === 'query') {
+          <div class="query-panel">
+            <div class="query-form">
+              <div class="query-form-row">
+                <div class="field" style="min-width:160px;">
+                  <label>Collection</label>
+                  <select [(ngModel)]="queryForm.collection" name="queryCollection" aria-label="Collection">
+                    @for (c of queryCollections; track c) { <option [value]="c">{{ c }}</option> }
+                  </select>
+                </div>
+                <div class="field" style="min-width:80px;">
+                  <label>Limit</label>
+                  <input type="number" [(ngModel)]="queryForm.limit" name="queryLimit" min="1" max="100" style="width:80px;" />
+                </div>
+                <div class="field" style="min-width:100px;">
+                  <label>maxTimeMS</label>
+                  <input type="number" [(ngModel)]="queryForm.maxTimeMS" name="queryMaxTimeMS" min="100" max="30000" style="width:100px;" />
+                </div>
+              </div>
+              <div class="field">
+                <label>Filter <span style="color:var(--text-muted);font-size:11px;">(JSON — supports $eq $in $regex $and $or $elemMatch etc.)</span></label>
+                <textarea
+                  class="query-textarea"
+                  [class.error]="queryFilterError()"
+                  [(ngModel)]="queryForm.filter"
+                  name="queryFilter"
+                  rows="3"
+                  placeholder='{"tags": {"$in": ["my-tag"]}} or {"name": {"$regex": "auth", "$options": "i"}}'
+                ></textarea>
+                @if (queryFilterError()) {
+                  <div style="font-size:11px; color:var(--error); margin-top:3px;">{{ queryFilterError() }}</div>
+                }
+              </div>
+              <div class="field">
+                <label>Projection <span style="color:var(--text-muted);font-size:11px;">(optional JSON — e.g. {"fact":1,"tags":1})</span></label>
+                <textarea
+                  class="query-textarea"
+                  [class.error]="queryProjectionError()"
+                  [(ngModel)]="queryForm.projection"
+                  name="queryProjection"
+                  rows="2"
+                  placeholder='{"fact": 1, "tags": 1}'
+                ></textarea>
+                @if (queryProjectionError()) {
+                  <div style="font-size:11px; color:var(--error); margin-top:3px;">{{ queryProjectionError() }}</div>
+                }
+              </div>
+              <div style="display:flex; align-items:center; gap:10px;">
+                <button class="btn btn-sm btn-primary" [disabled]="queryRunning()" (click)="runQuery()">
+                  @if (queryRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                  Run Query
+                </button>
+                @if (queryResult()) {
+                  <button class="btn btn-sm btn-secondary" (click)="clearQuery()">Clear results</button>
+                }
+                @if (queryError()) {
+                  <span style="font-size:12px; color:var(--error);">{{ queryError() }}</span>
+                }
+              </div>
+            </div>
+
+            @if (queryResult(); as res) {
+              <div class="query-results-header">
+                <strong>{{ res.count }}</strong> result{{ res.count === 1 ? '' : 's' }} from <code>{{ res.collection }}</code>
+              </div>
+              @if (res.results.length === 0) {
+                <div class="query-empty">No documents matched the filter.</div>
+              } @else {
+                @for (doc of res.results; track $index) {
+                  <div class="query-result-card">{{ formatQueryDoc(doc) }}</div>
+                }
+              }
+            }
+          </div>
+        }
+
       }
     }
   `,
@@ -799,6 +937,7 @@ export class BrainComponent implements OnInit {
     { key: 'entities', label: 'Entities' },
     { key: 'edges', label: 'Edges' },
     { key: 'chrono', label: 'Chrono' },
+    { key: 'query', label: '🔍 Query' },
   ];
 
   readonly pageSize = 20;
@@ -868,7 +1007,16 @@ export class BrainComponent implements OnInit {
   chronoStatusOptions: ChronoStatus[] = ['upcoming', 'active', 'completed', 'overdue', 'cancelled'];
   chronoForm = { title: '', kind: 'event' as ChronoKind | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: '', entityIds: '' };
 
-  activeStats = computed(() =>
+  // Query panel
+  queryCollections: QueryCollection[] = ['memories', 'entities', 'edges', 'chrono', 'files'];
+  queryForm = { collection: 'memories' as QueryCollection, filter: '', projection: '', limit: 20, maxTimeMS: 5000 };
+  queryRunning = signal(false);
+  queryResult = signal<QueryResult | null>(null);
+  queryError = signal('');
+  queryFilterError = signal('');
+  queryProjectionError = signal('');
+
+ = computed(() =>
     this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.stats,
   );
 
@@ -981,6 +1129,10 @@ export class BrainComponent implements OnInit {
         });
         break;
       }
+      case 'query':
+        // Query tab manages its own loading state; just clear the global overlay
+        this.loading.set(false);
+        break;
     }
   }
 
@@ -1180,5 +1332,47 @@ export class BrainComponent implements OnInit {
   formatProps(props?: Record<string, string | number | boolean>): string {
     if (!props || Object.keys(props).length === 0) return '—';
     return Object.entries(props).map(([k, v]) => `${k}: ${v}`).join(', ');
+  }
+
+  runQuery(): void {
+    this.queryFilterError.set('');
+    this.queryProjectionError.set('');
+    this.queryError.set('');
+
+    let filter: Record<string, unknown> = {};
+    let projection: Record<string, unknown> | undefined;
+
+    if (this.queryForm.filter.trim()) {
+      try { filter = JSON.parse(this.queryForm.filter.trim()); }
+      catch { this.queryFilterError.set('Invalid JSON — check your filter syntax'); return; }
+    }
+    if (this.queryForm.projection.trim()) {
+      try { projection = JSON.parse(this.queryForm.projection.trim()); }
+      catch { this.queryProjectionError.set('Invalid JSON — check your projection syntax'); return; }
+    }
+
+    this.queryRunning.set(true);
+    this.api.queryBrain(this.activeSpaceId(), {
+      collection: this.queryForm.collection,
+      filter,
+      projection,
+      limit: this.queryForm.limit,
+      maxTimeMS: this.queryForm.maxTimeMS,
+    }).subscribe({
+      next: (res) => { this.queryRunning.set(false); this.queryResult.set(res); },
+      error: (err) => {
+        this.queryRunning.set(false);
+        this.queryError.set(err.error?.error ?? 'Query failed');
+      },
+    });
+  }
+
+  clearQuery(): void {
+    this.queryResult.set(null);
+    this.queryError.set('');
+  }
+
+  formatQueryDoc(doc: Record<string, unknown>): string {
+    return JSON.stringify(doc, null, 2);
   }
 }

@@ -1164,6 +1164,129 @@ describe('MCP brain tools — upsert_entity with description', () => {
   });
 });
 
+// ── MCP bulk_write tool ──────────────────────────────────────────────────────
+
+describe('MCP brain tools — bulk_write', () => {
+  let session;
+  const RUN = Date.now();
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    session = await openMcpSession('general', tokenA);
+  });
+  after(() => session?.close());
+
+  it('bulk_write inserts memories, entities, edges, and chrono', async () => {
+    const entName1 = `BulkEnt1-${RUN}`;
+    const entName2 = `BulkEnt2-${RUN}`;
+    const result = await session.callTool('bulk_write', {
+      memories: [
+        { fact: `BulkMem-${RUN}`, tags: ['bulk-test'] },
+      ],
+      entities: [
+        { name: entName1, type: 'service' },
+        { name: entName2, type: 'concept' },
+      ],
+      edges: [
+        { from: entName1, to: entName2, label: `bulk-edge-${RUN}` },
+      ],
+      chrono: [
+        { title: `BulkChrono-${RUN}`, kind: 'event', startsAt: new Date().toISOString() },
+      ],
+    });
+    assert.ok(!result?.isError, `bulk_write returned isError: ${JSON.stringify(result)}`);
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(text.includes('bulk_write complete'), `Expected summary in: ${text}`);
+    // Verify counts
+    assert.ok(text.includes('"memories":1'), `Expected 1 memory inserted: ${text}`);
+    assert.ok(text.includes('"entities":2') || text.includes('"entities":1'), `Expected entities inserted: ${text}`);
+  });
+
+  it('bulk_write with validation errors returns error entries without aborting batch', async () => {
+    const result = await session.callTool('bulk_write', {
+      memories: [
+        { fact: '' },                                // invalid — empty fact
+        { fact: `ValidBulkMem-${RUN}`, tags: [] },   // valid
+      ],
+      entities: [
+        { name: '', type: 'concept' },               // invalid — missing name
+        { name: `ValidBulkEnt-${RUN}`, type: '' },   // invalid — missing type
+      ],
+    });
+    assert.ok(!result?.isError, `bulk_write should not be isError for validation failures: ${JSON.stringify(result)}`);
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(text.includes('bulk_write complete'), `Expected summary: ${text}`);
+    // At least 2 errors (empty fact + empty name), plus potentially the empty type
+    assert.ok(text.includes('errors: ') && !text.includes('errors: 0'), `Expected non-zero errors: ${text}`);
+  });
+
+  it('bulk_write with empty arrays returns zero counts', async () => {
+    const result = await session.callTool('bulk_write', {
+      memories: [],
+      entities: [],
+      edges: [],
+      chrono: [],
+    });
+    assert.ok(!result?.isError, `bulk_write returned isError for empty: ${JSON.stringify(result)}`);
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(text.includes('"memories":0'), `Expected 0 memories: ${text}`);
+    assert.ok(text.includes('errors: 0'), `Expected 0 errors: ${text}`);
+  });
+
+  it('bulk_write with no arrays returns zero counts', async () => {
+    const result = await session.callTool('bulk_write', {});
+    assert.ok(!result?.isError, `bulk_write returned isError for no arrays: ${JSON.stringify(result)}`);
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(text.includes('bulk_write complete'), `Expected summary: ${text}`);
+    assert.ok(text.includes('errors: 0'), `Expected 0 errors: ${text}`);
+  });
+
+  it('bulk_write chrono with invalid kind returns error entry', async () => {
+    const result = await session.callTool('bulk_write', {
+      chrono: [
+        { title: 'Bad Kind', kind: 'invalid_kind', startsAt: new Date().toISOString() },
+      ],
+    });
+    assert.ok(!result?.isError, `bulk_write should not be isError: ${JSON.stringify(result)}`);
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(text.includes('errors: 1'), `Expected 1 error for invalid kind: ${text}`);
+    assert.ok(text.includes('kind'), `Error should mention kind: ${text}`);
+  });
+});
+
+// ── MCP bulk_write — read-only token blocked ─────────────────────────────────
+
+describe('MCP security — read-only token cannot call bulk_write', () => {
+  let readOnlySession;
+  let readOnlyTokenPlaintext;
+  let readOnlyTokenId;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    const tokenRes = await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `readonly-bulk-${Date.now()}`,
+      readOnly: true,
+    });
+    assert.equal(tokenRes.status, 201, `Create read-only token: ${JSON.stringify(tokenRes.body)}`);
+    readOnlyTokenPlaintext = tokenRes.body.plaintext;
+    readOnlyTokenId = tokenRes.body.id;
+    readOnlySession = await openMcpSession('general', readOnlyTokenPlaintext);
+  });
+  after(async () => {
+    readOnlySession?.close();
+    if (readOnlyTokenId) await del(INSTANCES.a, tokenA, `/api/tokens/${readOnlyTokenId}`).catch(() => {});
+  });
+
+  it('bulk_write is rejected with read-only token', async () => {
+    const result = await readOnlySession.callTool('bulk_write', {
+      memories: [{ fact: 'This should be blocked' }],
+    });
+    assert.ok(result?.isError, 'bulk_write must be rejected by read-only token');
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(text.toLowerCase().includes('read-only'), `Expected read-only message: ${text}`);
+  });
+});
+
 // ── upsert_edge with tags, description, and properties ────────────────────
 
 describe('MCP brain tools — upsert_edge with tags, description, and properties', () => {

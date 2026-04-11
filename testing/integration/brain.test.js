@@ -1901,3 +1901,301 @@ describe('Brain — PATCH chrono by ID', () => {
     if (chronoId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`).catch(() => {});
   });
 });
+
+// ── Entity creation with explicit UUID id ────────────────────────────────────
+
+describe('Brain — entity creation with explicit UUID id', () => {
+  const RUN = Date.now();
+  const validUuid = `550e8400-e29b-41d4-a716-${String(RUN).padStart(12, '0').slice(0, 12)}`;
+  const createdIds = [];
+
+  before(() => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+  });
+
+  after(async () => {
+    for (const id of createdIds) {
+      await del(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${id}`).catch(() => {});
+    }
+  });
+
+  it('Create entity with valid UUID id uses that id', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      id: validUuid,
+      name: `ExplicitId-${RUN}`,
+      type: 'concept',
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body._id, validUuid, 'Entity _id must match supplied UUID');
+    createdIds.push(validUuid);
+  });
+
+  it('Retrieve entity by explicit UUID id', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${validUuid}`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body._id, validUuid);
+    assert.equal(r.body.name, `ExplicitId-${RUN}`);
+  });
+
+  it('Second POST with same UUID id updates (upserts) the entity', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      id: validUuid,
+      name: `ExplicitId-${RUN}`,
+      type: 'concept',
+      description: 'updated via id-based upsert',
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body._id, validUuid, 'Same UUID must be reused');
+    assert.equal(r.body.description, 'updated via id-based upsert');
+  });
+
+  it('Rejects invalid UUID (ObjectId format) with 400', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      id: '507f1f77bcf86cd799439011',
+      name: `BadId-${RUN}`,
+      type: 'concept',
+    });
+    assert.equal(r.status, 400, `Expected 400 for ObjectId, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('Rejects UUID v1 with 400', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      id: '550e8400-e29b-11d4-a716-446655440000',
+      name: `V1Id-${RUN}`,
+      type: 'concept',
+    });
+    assert.equal(r.status, 400, `Expected 400 for UUID v1, got ${r.status}`);
+  });
+
+  it('Rejects empty string id with 400', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      id: '',
+      name: `EmptyId-${RUN}`,
+      type: 'concept',
+    });
+    assert.equal(r.status, 400, `Expected 400 for empty id, got ${r.status}`);
+  });
+});
+
+// ── Entities by-name endpoint ────────────────────────────────────────────────
+
+describe('Brain — GET /spaces/:spaceId/entities/by-name', () => {
+  const RUN = Date.now();
+  const entityName = `ByNameTest-${RUN}`;
+  const createdIds = [];
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    const r1 = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: entityName,
+      type: 'person',
+    });
+    assert.equal(r1.status, 201);
+    createdIds.push(r1.body._id);
+
+    const r2 = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: entityName,
+      type: 'character',
+    });
+    assert.equal(r2.status, 201);
+    createdIds.push(r2.body._id);
+  });
+
+  after(async () => {
+    for (const id of createdIds) {
+      await del(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${id}`).catch(() => {});
+    }
+  });
+
+  it('Returns entities matching the name', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/entities/by-name?name=${encodeURIComponent(entityName)}`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body.entities), 'entities must be an array');
+    assert.ok(r.body.entities.length >= 2, `Expected at least 2 results, got ${r.body.entities.length}`);
+    for (const ent of r.body.entities) {
+      assert.equal(ent.name, entityName);
+    }
+  });
+
+  it('Returns empty array for non-existent name', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/entities/by-name?name=no-such-entity-ever-${RUN}`);
+    assert.equal(r.status, 200);
+    assert.deepStrictEqual(r.body.entities, []);
+  });
+
+  it('Returns 400 when name query param is missing', async () => {
+    const r = await get(INSTANCES.a, token(), '/api/brain/spaces/general/entities/by-name');
+    assert.equal(r.status, 400, `Expected 400 without name param, got ${r.status}`);
+  });
+
+  it('Returns 404 for non-existent space', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/no-such-space/entities/by-name?name=${entityName}`);
+    assert.equal(r.status, 404);
+  });
+});
+
+// ── Read-only token enforcement on REST write endpoints ─────────────────────
+
+describe('Brain — read-only token blocked on REST write endpoints', () => {
+  const RUN = Date.now();
+  let readOnlyToken;
+  let readOnlyTokenId;
+  let testMemId;
+  let testEntId;
+  let testEdgeId;
+  let testChronoId;
+  let helperEntId2;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+
+    // Create a read-only token
+    const tokenRes = await post(INSTANCES.a, token(), '/api/tokens', {
+      name: `readonly-rest-${RUN}`,
+      readOnly: true,
+    });
+    assert.equal(tokenRes.status, 201, `Create read-only token: ${JSON.stringify(tokenRes.body)}`);
+    readOnlyToken = tokenRes.body.plaintext;
+    readOnlyTokenId = tokenRes.body.id;
+
+    // Seed test objects using the admin token for later PATCH/DELETE tests
+    const memR = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+      fact: `ROTest-mem-${RUN}`,
+    });
+    testMemId = memR.body._id;
+
+    const entR = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `ROTest-ent-${RUN}`, type: 'concept',
+    });
+    testEntId = entR.body._id;
+
+    const entR2 = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `ROTest-ent2-${RUN}`, type: 'concept',
+    });
+    helperEntId2 = entR2.body._id;
+
+    const edgeR = await post(INSTANCES.a, token(), '/api/brain/spaces/general/edges', {
+      from: testEntId, to: helperEntId2, label: `ro-edge-${RUN}`,
+    });
+    testEdgeId = edgeR.body._id;
+
+    const chronoR = await post(INSTANCES.a, token(), '/api/brain/spaces/general/chrono', {
+      title: `ROTest-chrono-${RUN}`, kind: 'event', startsAt: new Date().toISOString(),
+    });
+    testChronoId = chronoR.body._id;
+  });
+
+  after(async () => {
+    if (readOnlyTokenId) await del(INSTANCES.a, token(), `/api/tokens/${readOnlyTokenId}`).catch(() => {});
+    if (testMemId) await del(INSTANCES.a, token(), `/api/brain/general/memories/${testMemId}`).catch(() => {});
+    if (testEntId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${testEntId}`).catch(() => {});
+    if (helperEntId2) await del(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${helperEntId2}`).catch(() => {});
+    if (testEdgeId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/edges/${testEdgeId}`).catch(() => {});
+    if (testChronoId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${testChronoId}`).catch(() => {});
+  });
+
+  it('POST /memories blocked with read-only token (403)', async () => {
+    const r = await post(INSTANCES.a, readOnlyToken, '/api/brain/general/memories', {
+      fact: 'Should be blocked',
+    });
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
+  });
+
+  it('PATCH /memories/:id blocked with read-only token (403)', async () => {
+    const r = await patch(INSTANCES.a, readOnlyToken, `/api/brain/general/memories/${testMemId}`, {
+      fact: 'Should be blocked',
+    });
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
+  });
+
+  it('POST /entities blocked with read-only token (403)', async () => {
+    const r = await post(INSTANCES.a, readOnlyToken, '/api/brain/spaces/general/entities', {
+      name: 'Blocked', type: 'concept',
+    });
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
+  });
+
+  it('PATCH /entities/:id blocked with read-only token (403)', async () => {
+    const r = await patch(INSTANCES.a, readOnlyToken, `/api/brain/spaces/general/entities/${testEntId}`, {
+      description: 'Should be blocked',
+    });
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
+  });
+
+  it('POST /edges blocked with read-only token (403)', async () => {
+    const r = await post(INSTANCES.a, readOnlyToken, '/api/brain/spaces/general/edges', {
+      from: testEntId, to: helperEntId2, label: 'blocked',
+    });
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
+  });
+
+  it('PATCH /edges/:id blocked with read-only token (403)', async () => {
+    const r = await patch(INSTANCES.a, readOnlyToken, `/api/brain/spaces/general/edges/${testEdgeId}`, {
+      description: 'Should be blocked',
+    });
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
+  });
+
+  it('POST /chrono blocked with read-only token (403)', async () => {
+    const r = await post(INSTANCES.a, readOnlyToken, '/api/brain/spaces/general/chrono', {
+      title: 'Blocked', kind: 'event', startsAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
+  });
+
+  it('PATCH /chrono/:id blocked with read-only token (403)', async () => {
+    const r = await patch(INSTANCES.a, readOnlyToken, `/api/brain/spaces/general/chrono/${testChronoId}`, {
+      description: 'Should be blocked',
+    });
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
+  });
+
+  it('POST /bulk blocked with read-only token (403)', async () => {
+    const r = await post(INSTANCES.a, readOnlyToken, '/api/brain/spaces/general/bulk', {
+      memories: [{ fact: 'Blocked' }],
+    });
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
+  });
+
+  it('POST /traverse allowed with read-only token (read-only operation)', async () => {
+    const r = await post(INSTANCES.a, readOnlyToken, '/api/brain/spaces/general/traverse', {
+      startId: testEntId,
+    });
+    assert.equal(r.status, 200, `Traverse is read-only — should be allowed, got ${r.status}`);
+  });
+
+  it('POST /query allowed with read-only token (read-only operation)', async () => {
+    const r = await post(INSTANCES.a, readOnlyToken, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: {},
+      limit: 1,
+    });
+    assert.equal(r.status, 200, `Query is read-only — should be allowed, got ${r.status}`);
+  });
+
+  it('GET /memories allowed with read-only token', async () => {
+    const r = await get(INSTANCES.a, readOnlyToken, '/api/brain/general/memories?limit=1');
+    assert.equal(r.status, 200, `GET memories should be allowed, got ${r.status}`);
+  });
+});
+
+// ── Bulk write cap at 500 items per type ─────────────────────────────────────
+
+describe('Brain — bulk write caps at 500 items per type', () => {
+  const RUN = Date.now();
+
+  before(() => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+  });
+
+  it('Items beyond 500 are silently dropped', async () => {
+    const memories = [];
+    for (let i = 0; i < 502; i++) {
+      memories.push({ fact: `BulkCap-${RUN}-${i}` });
+    }
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', { memories });
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    const total = r.body.inserted.memories + r.body.errors.length;
+    assert.ok(total <= 500, `Total processed must be <= 500, got ${total}`);
+  });
+});

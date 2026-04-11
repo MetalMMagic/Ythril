@@ -913,7 +913,7 @@ interface SpaceView {
                 }
               </div>
               <div class="field">
-                <label>Projection <span style="color:var(--text-muted);font-size:11px;">(optional JSON — e.g. {"fact":1,"tags":1})</span></label>
+                <label>Projection <span style="color:var(--text-muted);font-size:11px;">(optional JSON — e.g. {{ '{' }}"fact":1,"tags":1{{ '}' }})</span></label>
                 <textarea
                   class="query-textarea"
                   [class.error]="queryProjectionError()"

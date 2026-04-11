@@ -814,7 +814,7 @@ describe('MCP chrono tools — list_chrono tags filter / query chrono collection
     assert.ok(!result?.isError, `list_chrono multi-tag AND returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes(idBoth), `Entry with both tags should appear for AND query: ${text}`);
-    assert.ok(!text.includes(idTagA) || text.includes(idBoth), `Entry with only ${tagA} should not appear for AND [${tagA},${tagB}] query`);
+    assert.ok(!text.includes(idTagA), `Entry with only ${tagA} should NOT appear for AND [${tagA},${tagB}] query: ${text}`);
   });
 
   it('list_chrono with tagsAny filter (OR) returns entries matching any tag', async (t) => {

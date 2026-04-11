@@ -86,7 +86,7 @@ export async function requireAuth(
   const record = await resolveBearer(bearer);
   if (!record) {
     authAttemptsTotal.inc({ result: 'invalid' });
-    logAuthFailure(req, 'invalid_token');
+    logAuthFailure(req);
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
   }
@@ -118,7 +118,7 @@ export async function requireSpaceAuth(
   const record = await resolveBearer(bearer);
   if (!record) {
     authAttemptsTotal.inc({ result: 'invalid' });
-    logAuthFailure(req, 'invalid_token');
+    logAuthFailure(req);
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
   }

@@ -301,7 +301,9 @@ export class AuditLogComponent implements OnInit {
     'webhook.create', 'webhook.update', 'webhook.delete',
     'config.reload',
     'auth.failed',
-    'recall', 'recall_global', 'query', 'list_chrono', 'get_stats', 'read_file', 'list_dir',
+    'brain.recall', 'brain.recall_global', 'brain.query', 'brain.stats',
+    'chrono.list', 'memory.list', 'entity.list', 'edge.list',
+    'file.read', 'file.list', 'space.list',
   ];
 
   ngOnInit(): void {

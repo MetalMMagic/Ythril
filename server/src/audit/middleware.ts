@@ -52,14 +52,14 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono$/,     operation: 'chrono.create',  spaceGroup: 1 },
   { method: 'PATCH',  pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono\/([^/]+)$/, operation: 'chrono.update', spaceGroup: 1, entryGroup: 2 },
   { method: 'DELETE', pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono\/([^/]+)$/, operation: 'chrono.delete', spaceGroup: 1, entryGroup: 2 },
-  { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono/,      operation: 'list_chrono',    spaceGroup: 1, read: true },
+  { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono/,      operation: 'chrono.list',    spaceGroup: 1, read: true },
 
   // ── File operations ──────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/files\/([^/]+)\/upload/,                   operation: 'file.create',    spaceGroup: 1 },
   { method: 'DELETE', pattern: /^\/api\/files\/([^/]+)\//,                         operation: 'file.delete',    spaceGroup: 1 },
   { method: 'PATCH',  pattern: /^\/api\/files\/([^/]+)\//,                         operation: 'file.update',    spaceGroup: 1 },
-  { method: 'GET',    pattern: /^\/api\/files\/([^/]+)\//,                         operation: 'read_file',      spaceGroup: 1, read: true },
-  { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/files/,       operation: 'list_dir',       spaceGroup: 1, read: true },
+  { method: 'GET',    pattern: /^\/api\/files\/([^/]+)\//,                         operation: 'file.read',      spaceGroup: 1, read: true },
+  { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/files/,       operation: 'file.list',      spaceGroup: 1, read: true },
 
   // ── Space operations ─────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/spaces$/,                                  operation: 'space.create' },
@@ -81,16 +81,16 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'POST',   pattern: /^\/api\/admin\/reload-config$/,                    operation: 'config.reload' },
 
   // ── Brain query / recall / stats (reads) ─────────────────────────────────
-  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/recall/,      operation: 'recall',         spaceGroup: 1, read: true },
-  { method: 'POST',   pattern: /^\/api\/brain\/recall$/,                           operation: 'recall_global',  read: true },
-  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/query$/,      operation: 'query',          spaceGroup: 1, read: true },
-  { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/stats$/,      operation: 'get_stats',      spaceGroup: 1, read: true },
+  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/recall/,      operation: 'brain.recall',         spaceGroup: 1, read: true },
+  { method: 'POST',   pattern: /^\/api\/brain\/recall$/,                           operation: 'brain.recall_global',  read: true },
+  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/query$/,      operation: 'brain.query',          spaceGroup: 1, read: true },
+  { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/stats$/,      operation: 'brain.stats',          spaceGroup: 1, read: true },
 
   // ── Bulk write ───────────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/bulk$/,       operation: 'memory.create',  spaceGroup: 1 },
 
   // ── Traverse ─────────────────────────────────────────────────────────────
-  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/traverse$/,   operation: 'query',          spaceGroup: 1, read: true },
+  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/traverse$/,   operation: 'brain.query',    spaceGroup: 1, read: true },
 ];
 
 function resolveOperation(method: string, path: string): { operation: string; spaceId: string | null; entryId: string | null; read: boolean } | null {
@@ -159,7 +159,7 @@ export function auditMiddleware(req: Request, res: Response, next: NextFunction)
 }
 
 /** Log a failed auth attempt — called explicitly from auth middleware when needed. */
-export function logAuthFailure(req: Request, reason: string): void {
+export function logAuthFailure(req: Request): void {
   logAuditEntry({
     tokenId: null,
     tokenLabel: null,

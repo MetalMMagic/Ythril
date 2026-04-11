@@ -227,66 +227,83 @@ export async function traverseGraph(
   limit = 100,
 ): Promise<TraverseResult> {
   const visited = new Set<string>([startId]);
-  const queue: Array<{ id: string; depth: number }> = [{ id: startId, depth: 0 }];
+  // frontier: nodes whose outgoing edges we need to explore at the current depth
+  let frontier: string[] = [startId];
+  let currentDepth = 0;
   const resultNodes: TraverseNode[] = [];
   const resultEdges: TraverseEdge[] = [];
 
-  while (queue.length > 0) {
-    const { id: currentId, depth } = queue.shift()!;
-    if (depth >= maxDepth) continue;
+  const labelFilter = edgeLabels && edgeLabels.length > 0
+    ? { label: { $in: edgeLabels } }
+    : {};
 
-    // Build edge query — search across all member spaces
-    const labelFilter = edgeLabels && edgeLabels.length > 0
-      ? { label: { $in: edgeLabels } }
-      : {};
-
+  while (frontier.length > 0 && currentDepth < maxDepth) {
+    // Batch-fetch all edges for the current frontier across all member spaces
     const adjacentEdges: EdgeDoc[] = [];
     for (const mid of memberIds) {
       let q: Record<string, unknown>;
       if (direction === 'outbound') {
-        q = { spaceId: mid, from: currentId, ...labelFilter };
+        q = { spaceId: mid, from: { $in: frontier }, ...labelFilter };
       } else if (direction === 'inbound') {
-        q = { spaceId: mid, to: currentId, ...labelFilter };
+        q = { spaceId: mid, to: { $in: frontier }, ...labelFilter };
       } else {
-        q = { spaceId: mid, $or: [{ from: currentId }, { to: currentId }], ...labelFilter };
+        q = { spaceId: mid, $or: [{ from: { $in: frontier } }, { to: { $in: frontier } }], ...labelFilter };
       }
       const edges = await col<EdgeDoc>(`${mid}_edges`).find(q as never).toArray() as EdgeDoc[];
       adjacentEdges.push(...edges);
     }
 
+    // Collect new neighbor IDs (not yet visited) and their traversed edges
+    const newNeighborIds: string[] = [];
+    const edgesForNewNeighbors: EdgeDoc[] = [];
     for (const edge of adjacentEdges) {
-      // Determine the neighbor node ID for this edge
       let neighborId: string;
       if (direction === 'outbound') {
         neighborId = edge.to;
       } else if (direction === 'inbound') {
         neighborId = edge.from;
       } else {
-        neighborId = edge.from === currentId ? edge.to : edge.from;
+        // For 'both', skip if both ends are in the current frontier (same-level connection)
+        if (frontier.includes(edge.from) && frontier.includes(edge.to)) continue;
+        neighborId = frontier.includes(edge.from) ? edge.to : edge.from;
       }
-
       if (visited.has(neighborId)) continue;
       visited.add(neighborId);
+      newNeighborIds.push(neighborId);
+      edgesForNewNeighbors.push(edge);
+    }
 
-      // Look up entity across member spaces
-      let entity: EntityDoc | null = null;
-      for (const mid of memberIds) {
-        entity = await col<EntityDoc>(`${mid}_entities`).findOne({ _id: neighborId, spaceId: mid } as never) as EntityDoc | null;
-        if (entity) break;
-      }
+    if (newNeighborIds.length === 0) break;
+
+    // Batch-fetch entity docs for all new neighbors
+    const entityMap = new Map<string, EntityDoc>();
+    for (const mid of memberIds) {
+      const entities = await col<EntityDoc>(`${mid}_entities`)
+        .find({ _id: { $in: newNeighborIds }, spaceId: mid } as never)
+        .toArray() as EntityDoc[];
+      for (const e of entities) entityMap.set(e._id, e);
+    }
+
+    // Build results for this depth level
+    const nextFrontier: string[] = [];
+    for (let i = 0; i < newNeighborIds.length; i++) {
+      const neighborId = newNeighborIds[i];
+      const entity = entityMap.get(neighborId);
       if (!entity) continue;
 
+      const edge = edgesForNewNeighbors[i];
       resultEdges.push({ _id: edge._id, from: edge.from, to: edge.to, label: edge.label });
-      resultNodes.push({ _id: entity._id, name: entity.name, type: entity.type, depth: depth + 1 });
+      resultNodes.push({ _id: entity._id, name: entity.name, type: entity.type, depth: currentDepth + 1 });
 
       if (resultNodes.length >= limit) {
         return { nodes: resultNodes, edges: resultEdges, truncated: true };
       }
 
-      if (depth + 1 < maxDepth) {
-        queue.push({ id: neighborId, depth: depth + 1 });
-      }
+      nextFrontier.push(neighborId);
     }
+
+    frontier = nextFrontier;
+    currentDepth++;
   }
 
   return { nodes: resultNodes, edges: resultEdges, truncated: false };

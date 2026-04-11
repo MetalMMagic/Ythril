@@ -198,7 +198,18 @@ export async function updateEdgeById(
   } catch { /* embedding unavailable — keep existing embedding */ }
 
   await collection.updateOne({ _id: id } as never, { $set } as never);
-  return { ...existing, ...($set as Partial<EdgeDoc>) } as EdgeDoc;
+  return {
+    ...existing,
+    label: newLabel,
+    tags: newTags,
+    updatedAt: now,
+    seq,
+    ...(updates.description !== undefined ? { description: newDesc } : {}),
+    ...(updates.properties !== undefined ? { properties: newProps } : {}),
+    ...(updates.type !== undefined ? { type: newType } : {}),
+    ...(updates.weight !== undefined ? { weight: newWeight } : {}),
+    ...('embedding' in $set ? { embedding: $set['embedding'] as number[], embeddingModel: $set['embeddingModel'] as string } : {}),
+  } as EdgeDoc;
 }
 
 /** Bulk-delete all edges in a space, writing a tombstone per deleted doc. */

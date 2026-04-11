@@ -129,7 +129,17 @@ export async function updateEntityById(
   } catch { /* embedding unavailable — keep existing embedding */ }
 
   await collection.updateOne({ _id: id } as never, { $set } as never);
-  return { ...existing, ...($set as Partial<EntityDoc>) } as EntityDoc;
+  return {
+    ...existing,
+    name: newName,
+    type: newType,
+    tags: newTags,
+    properties: newProps,
+    updatedAt: now,
+    seq,
+    ...(updates.description !== undefined ? { description: newDesc } : {}),
+    ...('embedding' in $set ? { embedding: $set['embedding'] as number[], embeddingModel: $set['embeddingModel'] as string } : {}),
+  } as EntityDoc;
 }
 
 /** List entities with optional filter */

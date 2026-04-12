@@ -119,13 +119,20 @@ export function auditMiddleware(req: Request, res: Response, next: NextFunction)
   const start = process.hrtime.bigint();
 
   res.on('finish', () => {
-    // Skip paths that are not API calls or are audit-log reads themselves
-    if (!req.path.startsWith('/api/') && !req.path.startsWith('/mcp')) return;
-    if (req.path.startsWith('/api/admin/audit-log')) return;
-    // Skip health / ready / metrics / theme / setup
-    if (req.path.startsWith('/api/theme') || req.path.startsWith('/api/setup')) return;
+    // Use originalUrl (strip query string) — req.path inside the 'finish'
+    // callback reflects the router-relative path (e.g. "/general/memories"
+    // instead of "/api/brain/general/memories") because Express strips the
+    // mount prefix for sub-routers and the response finishes within that
+    // router context.
+    const fullPath = (req.originalUrl || req.url).split('?')[0];
 
-    const matched = resolveOperation(req.method, req.path);
+    // Skip paths that are not API calls or are audit-log reads themselves
+    if (!fullPath.startsWith('/api/') && !fullPath.startsWith('/mcp')) return;
+    if (fullPath.startsWith('/api/admin/audit-log')) return;
+    // Skip health / ready / metrics / theme / setup
+    if (fullPath.startsWith('/api/theme') || fullPath.startsWith('/api/setup')) return;
+
+    const matched = resolveOperation(req.method, fullPath);
     if (!matched) return; // not an operation we track
 
     // Check logReads config
@@ -147,7 +154,7 @@ export function auditMiddleware(req: Request, res: Response, next: NextFunction)
       oidcSubject: isOidc(token) ? token.id.replace(/^oidc:/, '') : null,
       ip: req.ip ?? req.socket.remoteAddress ?? 'unknown',
       method: req.method,
-      path: req.path,
+      path: fullPath,
       spaceId: matched.spaceId,
       operation: matched.operation,
       status: res.statusCode,
@@ -161,6 +168,7 @@ export function auditMiddleware(req: Request, res: Response, next: NextFunction)
 
 /** Log a failed auth attempt — called explicitly from auth middleware when needed. */
 export function logAuthFailure(req: Request): void {
+  const fullPath = (req.originalUrl || req.url).split('?')[0];
   logAuditEntry({
     tokenId: null,
     tokenLabel: null,
@@ -168,7 +176,7 @@ export function logAuthFailure(req: Request): void {
     oidcSubject: null,
     ip: req.ip ?? req.socket.remoteAddress ?? 'unknown',
     method: req.method,
-    path: req.path,
+    path: fullPath,
     spaceId: null,
     operation: 'auth.failed',
     status: 401,

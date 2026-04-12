@@ -28,6 +28,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Local-only docs
+docs/docker-build-protocol.md
+
 # Logs
 *.log
 npm-debug.log*

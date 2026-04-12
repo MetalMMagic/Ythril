@@ -116,6 +116,19 @@ export interface QueryResult {
 
 export type WipeCollectionType = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
 
+export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
+
+export interface RecallResult {
+  type: RecallKnowledgeType;
+  score?: number;
+  [key: string]: unknown;
+}
+
+export interface RecallResponse {
+  results: RecallResult[];
+  count: number;
+}
+
 export interface WipeResult {
   memories: number;
   entities: number;
@@ -362,6 +375,18 @@ export class ApiService {
     },
   ): Observable<QueryResult> {
     return this.http.post<QueryResult>(`/api/brain/spaces/${spaceId}/query`, body);
+  }
+
+  recallBrain(
+    spaceId: string,
+    body: {
+      query: string;
+      topK?: number;
+      types?: RecallKnowledgeType[];
+      minScore?: number;
+    },
+  ): Observable<RecallResponse> {
+    return this.http.post<RecallResponse>(`/api/brain/spaces/${spaceId}/recall`, body);
   }
 
   // ── Brain — memories ──────────────────────────────────────────────────────

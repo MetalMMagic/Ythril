@@ -49,6 +49,7 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/edges/,       operation: 'edge.list',      spaceGroup: 1, read: true },
 
   // ── Chrono CRUD ──────────────────────────────────────────────────────────
+  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono\/([^/]+)$/, operation: 'chrono.update', spaceGroup: 1, entryGroup: 2 },
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono$/,     operation: 'chrono.create',  spaceGroup: 1 },
   { method: 'PATCH',  pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono\/([^/]+)$/, operation: 'chrono.update', spaceGroup: 1, entryGroup: 2 },
   { method: 'DELETE', pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono\/([^/]+)$/, operation: 'chrono.delete', spaceGroup: 1, entryGroup: 2 },

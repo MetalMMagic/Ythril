@@ -148,7 +148,23 @@ import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from 
     .error-msg { color: var(--danger, #e53e3e); margin: 12px 0; }
   `],
   template: `
-    <h2>Audit Log</h2>
+    <h2>Logs</h2>
+
+    <!-- Sub-tabs -->
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <button class="btn btn-sm" [class.btn-primary]="activeLogTab() === 'audit'" [class.btn-secondary]="activeLogTab() !== 'audit'" (click)="activeLogTab.set('audit')">Audit Log</button>
+      <button class="btn btn-sm" [class.btn-primary]="activeLogTab() === 'server'" [class.btn-secondary]="activeLogTab() !== 'server'" (click)="activeLogTab.set('server')">Server Log</button>
+    </div>
+
+    @if (activeLogTab() === 'server') {
+      <div class="empty" style="padding:40px;">
+        <div style="font-size:24px;">📋</div>
+        <h3>Server Log</h3>
+        <p style="color:var(--text-muted);">Server log streaming is not yet available in the UI. Check the server console or log files for runtime output.</p>
+      </div>
+    }
+
+    @if (activeLogTab() === 'audit') {
 
     <!-- Filters -->
     <div class="audit-toolbar">
@@ -268,11 +284,14 @@ import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from 
         </div>
       </div>
     }
+
+    } <!-- end audit tab -->
   `,
 })
 export class AuditLogComponent implements OnInit {
   private api = inject(ApiService);
 
+  activeLogTab = signal<'audit' | 'server'>('audit');
   loading = signal(true);
   error = signal('');
   entries = signal<AuditLogEntry[]>([]);

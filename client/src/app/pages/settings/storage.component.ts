@@ -43,7 +43,7 @@ interface StorageData {
   `],
   template: `
     <div class="page-header" style="margin-bottom:16px;">
-      <div class="card-title">Storage usage</div>
+      <div class="card-title">Metrics</div>
     </div>
 
     <button class="btn-secondary btn btn-sm" style="margin-bottom:20px;" (click)="load()">Refresh</button>

@@ -2,9 +2,9 @@ import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult } from '../../core/api.service';
+import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallResponse, RecallKnowledgeType } from '../../core/api.service';
 
-type BrainTab = 'memories' | 'entities' | 'edges' | 'chrono' | 'query';
+type BrainTab = 'query' | 'entities' | 'edges' | 'memories' | 'chrono';
 
 interface SpaceView {
   space: Space;
@@ -368,7 +368,7 @@ interface SpaceView {
             <span class="space-chip-label">{{ sv.space.label }}</span>
             <span class="space-chip-id">{{ sv.space.id }}</span>
             @if (sv.stats) {
-              <span class="space-chip-count">{{ spaceTotal(sv.stats) }} entries</span>
+              <span class="space-chip-count">{{ spaceTotal(sv.stats) }} records</span>
             }
           </button>
         }
@@ -881,74 +881,140 @@ interface SpaceView {
         <!-- Query -->
         @if (activeTab() === 'query') {
           <div class="query-panel">
-            <div class="query-form">
-              <div class="query-form-row">
-                <div class="field" style="min-width:160px;">
-                  <label>Collection</label>
-                  <select [(ngModel)]="queryForm.collection" name="queryCollection" aria-label="Collection">
-                    @for (c of queryCollections; track c) { <option [value]="c">{{ c }}</option> }
-                  </select>
-                </div>
-                <div class="field" style="min-width:80px;">
-                  <label>Limit</label>
-                  <input type="number" [(ngModel)]="queryForm.limit" name="queryLimit" min="1" max="100" style="width:80px;" />
-                </div>
-                <div class="field" style="min-width:100px;">
-                  <label>maxTimeMS</label>
-                  <input type="number" [(ngModel)]="queryForm.maxTimeMS" name="queryMaxTimeMS" min="100" max="30000" style="width:100px;" />
-                </div>
-              </div>
-              <div class="field">
-                <label>Filter <span style="color:var(--text-muted);font-size:11px;">(JSON — supports $eq $in $regex $and $or $elemMatch etc.)</span></label>
-                <textarea
-                  class="query-textarea"
-                  [class.error]="queryFilterError()"
-                  [(ngModel)]="queryForm.filter"
-                  name="queryFilter"
-                  rows="3"
-                  placeholder='{"tags": {"$in": ["my-tag"]}} or {"name": {"$regex": "auth", "$options": "i"}}'
-                ></textarea>
-                @if (queryFilterError()) {
-                  <div style="font-size:11px; color:var(--error); margin-top:3px;">{{ queryFilterError() }}</div>
-                }
-              </div>
-              <div class="field">
-                <label>Projection <span style="color:var(--text-muted);font-size:11px;">(optional JSON — e.g. {{ '{' }}"fact":1,"tags":1{{ '}' }})</span></label>
-                <textarea
-                  class="query-textarea"
-                  [class.error]="queryProjectionError()"
-                  [(ngModel)]="queryForm.projection"
-                  name="queryProjection"
-                  rows="2"
-                  placeholder='{"fact": 1, "tags": 1}'
-                ></textarea>
-                @if (queryProjectionError()) {
-                  <div style="font-size:11px; color:var(--error); margin-top:3px;">{{ queryProjectionError() }}</div>
-                }
-              </div>
-              <div style="display:flex; align-items:center; gap:10px;">
-                <button class="btn btn-sm btn-primary" [disabled]="queryRunning()" (click)="runQuery()">
-                  @if (queryRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
-                  Run Query
-                </button>
-                @if (queryResult()) {
-                  <button class="btn btn-sm btn-secondary" (click)="clearQuery()">Clear results</button>
-                }
-                @if (queryError()) {
-                  <span style="font-size:12px; color:var(--error);">{{ queryError() }}</span>
-                }
-              </div>
+            <!-- Mode switcher -->
+            <div style="display:flex; gap:8px; margin-bottom:12px;">
+              <button class="btn btn-sm" [class.btn-primary]="queryMode() === 'search'" [class.btn-secondary]="queryMode() !== 'search'" (click)="queryMode.set('search')">Semantic Search</button>
+              <button class="btn btn-sm" [class.btn-primary]="queryMode() === 'advanced'" [class.btn-secondary]="queryMode() !== 'advanced'" (click)="queryMode.set('advanced')">Advanced Query</button>
             </div>
 
-            @if (queryResult(); as res) {
-              <div class="query-results-header">
-                <strong>{{ res.count }}</strong> result{{ res.count === 1 ? '' : 's' }} from <code>{{ res.collection }}</code>
+            <!-- Semantic Search mode -->
+            @if (queryMode() === 'search') {
+              <div class="query-form">
+                <div class="field" style="margin-bottom:0;">
+                  <label>Search your knowledge base</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="recallForm.query"
+                    name="recallQuery"
+                    placeholder="What do you want to find?"
+                    style="width:100%; font-size:14px; padding:8px 12px;"
+                    (keydown.enter)="runRecall()"
+                    aria-label="Semantic search query"
+                  />
+                </div>
+                <div class="query-form-row" style="margin-top:8px;">
+                  <div class="field" style="min-width:100px; margin:0;">
+                    <label>Top K <span style="color:var(--text-muted);font-size:11px;" title="Maximum number of results to return">ⓘ</span></label>
+                    <input type="number" [(ngModel)]="recallForm.topK" name="recallTopK" min="1" max="100" style="width:80px;" />
+                  </div>
+                  <div class="field" style="min-width:120px; margin:0;">
+                    <label>Min score <span style="color:var(--text-muted);font-size:11px;" title="Minimum similarity score (0–1). Higher = more relevant.">ⓘ</span></label>
+                    <input type="number" [(ngModel)]="recallForm.minScore" name="recallMinScore" min="0" max="1" step="0.05" style="width:80px;" />
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
+                  <button class="btn btn-sm btn-primary" [disabled]="recallRunning() || !recallForm.query.trim()" (click)="runRecall()">
+                    @if (recallRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                    Search
+                  </button>
+                  @if (recallResults().length) {
+                    <button class="btn btn-sm btn-secondary" (click)="clearRecall()">Clear results</button>
+                  }
+                  @if (recallError()) {
+                    <span style="font-size:12px; color:var(--error);">{{ recallError() }}</span>
+                  }
+                </div>
               </div>
-              @if (res.results.length === 0) {
-                <div class="query-empty">No documents matched the filter.</div>
-              } @else {
-                @for (doc of res.results; track $index) {
-                  <div class="query-result-card">{{ formatQueryDoc(doc) }}</div>
+
+              @if (recallResults().length) {
+                <div class="query-results-header" style="margin-top:12px;">
+                  <strong>{{ recallResults().length }}</strong> result{{ recallResults().length === 1 ? '' : 's' }}
+                </div>
+                @for (r of recallResults(); track $index) {
+                  <div class="query-result-card" style="margin-top:6px;">
+                    <div style="display:flex; gap:8px; margin-bottom:4px; align-items:center;">
+                      <span class="badge badge-purple" style="font-size:10px;">{{ r.type }}</span>
+                      @if (r.score != null) {
+                        <span style="font-size:11px; color:var(--text-muted);">score: {{ r.score.toFixed(3) }}</span>
+                      }
+                    </div>
+                    <div style="white-space:pre-wrap; word-break:break-all;">{{ formatQueryDoc(r) }}</div>
+                  </div>
+                }
+              }
+            }
+
+            <!-- Advanced Query mode -->
+            @if (queryMode() === 'advanced') {
+              <div class="query-form">
+                <div class="query-form-row">
+                  <div class="field" style="min-width:160px;">
+                    <label>Collection</label>
+                    <select [(ngModel)]="queryForm.collection" name="queryCollection" aria-label="Collection">
+                      @for (c of queryCollections; track c) { <option [value]="c">{{ c }}</option> }
+                    </select>
+                  </div>
+                  <div class="field" style="min-width:80px;">
+                    <label>Limit</label>
+                    <input type="number" [(ngModel)]="queryForm.limit" name="queryLimit" min="1" max="100" style="width:80px;" />
+                  </div>
+                  <div class="field" style="min-width:100px;">
+                    <label>maxTimeMS</label>
+                    <input type="number" [(ngModel)]="queryForm.maxTimeMS" name="queryMaxTimeMS" min="100" max="30000" style="width:100px;" />
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Filter <span style="color:var(--text-muted);font-size:11px;">(JSON — supports $eq $in $regex $and $or $elemMatch etc.)</span></label>
+                  <textarea
+                    class="query-textarea"
+                    [class.error]="queryFilterError()"
+                    [(ngModel)]="queryForm.filter"
+                    name="queryFilter"
+                    rows="3"
+                    placeholder='{"tags": {"$in": ["my-tag"]}} or {"name": {"$regex": "auth", "$options": "i"}}'
+                  ></textarea>
+                  @if (queryFilterError()) {
+                    <div style="font-size:11px; color:var(--error); margin-top:3px;">{{ queryFilterError() }}</div>
+                  }
+                </div>
+                <div class="field">
+                  <label>Projection <span style="color:var(--text-muted);font-size:11px;">(optional JSON — e.g. {{ '{' }}"fact":1,"tags":1{{ '}' }})</span></label>
+                  <textarea
+                    class="query-textarea"
+                    [class.error]="queryProjectionError()"
+                    [(ngModel)]="queryForm.projection"
+                    name="queryProjection"
+                    rows="2"
+                    placeholder='{"fact": 1, "tags": 1}'
+                  ></textarea>
+                  @if (queryProjectionError()) {
+                    <div style="font-size:11px; color:var(--error); margin-top:3px;">{{ queryProjectionError() }}</div>
+                  }
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <button class="btn btn-sm btn-primary" [disabled]="queryRunning()" (click)="runQuery()">
+                    @if (queryRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                    Run Query
+                  </button>
+                  @if (queryResult()) {
+                    <button class="btn btn-sm btn-secondary" (click)="clearQuery()">Clear results</button>
+                  }
+                  @if (queryError()) {
+                    <span style="font-size:12px; color:var(--error);">{{ queryError() }}</span>
+                  }
+                </div>
+              </div>
+
+              @if (queryResult(); as res) {
+                <div class="query-results-header">
+                  <strong>{{ res.count }}</strong> result{{ res.count === 1 ? '' : 's' }} from <code>{{ res.collection }}</code>
+                </div>
+                @if (res.results.length === 0) {
+                  <div class="query-empty">No documents matched the filter.</div>
+                } @else {
+                  @for (doc of res.results; track $index) {
+                    <div class="query-result-card">{{ formatQueryDoc(doc) }}</div>
+                  }
                 }
               }
             }
@@ -963,18 +1029,18 @@ export class BrainComponent implements OnInit {
   private api = inject(ApiService);
 
   tabs: { key: BrainTab; label: string; statsKey?: keyof SpaceStats }[] = [
-    { key: 'memories', label: 'Memories', statsKey: 'memories' },
+    { key: 'query', label: '🔍 Query' },
     { key: 'entities', label: 'Entities', statsKey: 'entities' },
     { key: 'edges', label: 'Edges', statsKey: 'edges' },
+    { key: 'memories', label: 'Memories', statsKey: 'memories' },
     { key: 'chrono', label: 'Chrono', statsKey: 'chrono' },
-    { key: 'query', label: '🔍 Query' },
   ];
 
   readonly pageSize = 20;
 
   spaces = signal<SpaceView[]>([]);
   activeSpaceId = signal('');
-  activeTab = signal<BrainTab>('memories');
+  activeTab = signal<BrainTab>('query');
   loading = signal(false);
   loadingSpaces = signal(true);
 
@@ -1038,6 +1104,7 @@ export class BrainComponent implements OnInit {
   chronoForm = { title: '', kind: 'event' as ChronoKind | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: '', entityIds: '' };
 
   // Query panel
+  queryMode = signal<'search' | 'advanced'>('search');
   queryCollections: QueryCollection[] = ['memories', 'entities', 'edges', 'chrono', 'files'];
   queryForm = { collection: 'memories' as QueryCollection, filter: '', projection: '', limit: 20, maxTimeMS: 5000 };
   queryRunning = signal(false);
@@ -1045,6 +1112,13 @@ export class BrainComponent implements OnInit {
   queryError = signal('');
   queryFilterError = signal('');
   queryProjectionError = signal('');
+
+  // Semantic search
+  recallKnowledgeTypes: RecallKnowledgeType[] = ['memory', 'entity', 'edge', 'chrono', 'file'];
+  recallForm = { query: '', topK: 10, minScore: 0 };
+  recallRunning = signal(false);
+  recallResults = signal<RecallResult[]>([]);
+  recallError = signal('');
 
   activeStats = computed(() =>
     this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.stats,
@@ -1406,6 +1480,26 @@ export class BrainComponent implements OnInit {
   clearQuery(): void {
     this.queryResult.set(null);
     this.queryError.set('');
+  }
+
+  runRecall(): void {
+    if (!this.recallForm.query.trim()) return;
+    this.recallRunning.set(true);
+    this.recallError.set('');
+    this.recallResults.set([]);
+    this.api.recallBrain(this.activeSpaceId(), {
+      query: this.recallForm.query.trim(),
+      topK: this.recallForm.topK,
+      minScore: this.recallForm.minScore || undefined,
+    }).subscribe({
+      next: (res) => { this.recallRunning.set(false); this.recallResults.set(res.results); },
+      error: (err) => { this.recallRunning.set(false); this.recallError.set(err.error?.error ?? 'Search failed'); },
+    });
+  }
+
+  clearRecall(): void {
+    this.recallResults.set([]);
+    this.recallError.set('');
   }
 
   formatQueryDoc(doc: Record<string, unknown>): string {

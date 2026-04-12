@@ -31,6 +31,9 @@ Thumbs.db
 # Local-only docs
 docs/docker-build-protocol.md
 
+# Debug artifacts
+_diag_body*.json
+
 # Logs
 *.log
 npm-debug.log*

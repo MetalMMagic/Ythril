@@ -2980,7 +2980,7 @@ Authorization: Bearer <token>   # any valid token
 {
   "instanceId": "a1b2c3d4-...",
   "instanceLabel": "My Brain",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "uptime": "3d 14h 22m",
   "mongoVersion": "7.0.15",
   "diskInfo": { "total": 107374182400, "used": 53687091200, "available": 53687091200 }

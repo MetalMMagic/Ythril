@@ -327,4 +327,4 @@ Use conventional-commit-style prefixes:
 
 ## License
 
-Ythril is licensed under **AGPL-3.0-only**. By contributing, you agree that your contributions are licensed under the same terms. See [LICENSE](../LICENSE) for the full text.
+Ythril is licensed under the **PolyForm Small Business License 1.0.0**. By contributing, you agree that your contributions are licensed under the same terms. See [LICENSE](../LICENSE) for the full text.

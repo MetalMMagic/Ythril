@@ -82,7 +82,9 @@ aboutRouter.get('/logs/stream', requireAdmin, (req, res) => {
   res.write(':\n\n'); // initial comment to establish connection
 
   const unsubscribe = subscribeLogLines((line) => {
-    res.write(`data: ${line}\n\n`);
+    // Escape newlines to preserve SSE protocol framing
+    const escaped = line.replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+    res.write(`data: ${escaped}\n\n`);
   });
 
   req.on('close', () => { unsubscribe(); });

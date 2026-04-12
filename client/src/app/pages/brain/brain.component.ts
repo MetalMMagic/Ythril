@@ -1791,8 +1791,8 @@ export class BrainComponent implements OnInit {
       title: entry.title,
       kind: entry.kind,
       status: entry.status,
-      startsAt: entry.startsAt ? entry.startsAt.slice(0, 16) : '',
-      endsAt: entry.endsAt ? entry.endsAt.slice(0, 16) : '',
+      startsAt: entry.startsAt ? this.toLocalDatetime(entry.startsAt) : '',
+      endsAt: entry.endsAt ? this.toLocalDatetime(entry.endsAt) : '',
       description: entry.description ?? '',
       tags: (entry.tags ?? []).join(', '),
       entityIds: (entry.entityIds ?? []).join(', '),
@@ -1810,7 +1810,7 @@ export class BrainComponent implements OnInit {
     let props: Record<string, string | number | boolean> | undefined;
     if (this.editMemory.properties.trim()) {
       try { props = JSON.parse(this.editMemory.properties.trim()); }
-      catch { this.editSaving.set(false); this.editError.set('Properties must be valid JSON'); return; }
+      catch (e) { this.editSaving.set(false); this.editError.set(`Properties: ${e instanceof Error ? e.message : 'invalid JSON'}`); return; }
     }
     this.api.updateMemory(this.activeSpaceId(), id, {
       fact: this.editMemory.fact.trim(),
@@ -1834,7 +1834,7 @@ export class BrainComponent implements OnInit {
     let props: Record<string, string | number | boolean> | undefined;
     if (this.editEntity.properties.trim()) {
       try { props = JSON.parse(this.editEntity.properties.trim()); }
-      catch { this.editSaving.set(false); this.editError.set('Properties must be valid JSON'); return; }
+      catch (e) { this.editSaving.set(false); this.editError.set(`Properties: ${e instanceof Error ? e.message : 'invalid JSON'}`); return; }
     }
     this.api.updateEntity(this.activeSpaceId(), id, {
       name: this.editEntity.name.trim(),
@@ -1858,7 +1858,7 @@ export class BrainComponent implements OnInit {
     let props: Record<string, string | number | boolean> | undefined;
     if (this.editEdge.properties.trim()) {
       try { props = JSON.parse(this.editEdge.properties.trim()); }
-      catch { this.editSaving.set(false); this.editError.set('Properties must be valid JSON'); return; }
+      catch (e) { this.editSaving.set(false); this.editError.set(`Properties: ${e instanceof Error ? e.message : 'invalid JSON'}`); return; }
     }
     this.api.updateEdge(this.activeSpaceId(), id, {
       label: this.editEdge.label.trim(),
@@ -2061,6 +2061,14 @@ export class BrainComponent implements OnInit {
   formatProps(props?: Record<string, string | number | boolean>): string {
     if (!props || Object.keys(props).length === 0) return '—';
     return Object.entries(props).map(([k, v]) => `${k}: ${v}`).join(', ');
+  }
+
+  /** Convert an ISO date string to the YYYY-MM-DDTHH:mm format required by datetime-local inputs */
+  private toLocalDatetime(iso: string): string {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
   runQuery(): void {

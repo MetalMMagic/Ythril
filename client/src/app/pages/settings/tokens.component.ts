@@ -293,9 +293,9 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
                     <thead>
                       <tr>
                         <th style="width:40px; text-align:center;">
-                          <input type="checkbox" [checked]="newSelectedSpaces.length === 0" (change)="selectAllSpaces()" title="All spaces" />
+                          <input type="checkbox" [checked]="newSelectedSpaces.length === 0" (change)="selectAllSpaces()" title="Grant access to all spaces (deselect all)" />
                         </th>
-                        <th>Space</th>
+                        <th>Space <span style="font-size:10px; color:var(--text-muted); font-weight:400;">— check none for full access</span></th>
                         <th>ID</th>
                       </tr>
                     </thead>

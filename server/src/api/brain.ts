@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { requireSpaceAuth, denyReadOnly } from '../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../rate-limit/middleware.js';
 import { NotFoundError } from '../util/errors.js';
-import { listMemories, deleteMemory, countMemories, bulkDeleteMemories, remember, updateMemory, queryBrain, findSimilar, type RecallKnowledgeType } from '../brain/memory.js';
+import { listMemories, deleteMemory, countMemories, bulkDeleteMemories, remember, updateMemory, queryBrain, findSimilar, recall, type RecallKnowledgeType } from '../brain/memory.js';
 import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityById, bulkDeleteEntities, findEntitiesByName } from '../brain/entities.js';
 import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges, traverseGraph } from '../brain/edges.js';
 /** Regex that matches a UUID v4 (case-insensitive). */
@@ -1141,6 +1141,37 @@ brainRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, as
       ),
     )).flat();
     res.json({ results: docs, collection, count: docs.length });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(400).json({ error: msg });
+  }
+});
+
+// POST /api/brain/spaces/:spaceId/recall — semantic vector search by natural language query
+brainRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  const { query, topK, types, minScore } = req.body ?? {};
+  if (!query || typeof query !== 'string' || !query.trim()) {
+    res.status(400).json({ error: 'query must be a non-empty string' });
+    return;
+  }
+  const safeTopK = typeof topK === 'number' ? Math.min(Math.max(topK, 1), 100) : 10;
+  const safeTypes = Array.isArray(types) ? types.filter((t: unknown): t is RecallKnowledgeType => typeof t === 'string') : undefined;
+  const safeMinScore = typeof minScore === 'number' ? minScore : undefined;
+
+  try {
+    const memberIds = resolveMemberSpaces(spaceId);
+    const all = (await Promise.all(
+      memberIds.map(mid => recall(mid, query.trim(), safeTopK, undefined, safeTypes, undefined, safeMinScore)),
+    )).flat();
+    all.sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
+    const results = all.slice(0, safeTopK);
+    res.json({ results, count: results.length });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).json({ error: msg });

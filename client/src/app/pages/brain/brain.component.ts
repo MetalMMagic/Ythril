@@ -2,9 +2,9 @@ import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult } from '../../core/api.service';
+import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallResponse, RecallKnowledgeType, SpaceMeta, SpaceMetaResponse, ValidationMode, KnowledgeType } from '../../core/api.service';
 
-type BrainTab = 'memories' | 'entities' | 'edges' | 'chrono' | 'query';
+type BrainTab = 'query' | 'settings' | 'entities' | 'edges' | 'memories' | 'chrono';
 
 interface SpaceView {
   space: Space;
@@ -345,6 +345,31 @@ interface SpaceView {
       color: var(--text-muted);
       font-size: 14px;
     }
+    .dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .dialog {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .dialog-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
   `],
   template: `
     @if (loadingSpaces()) {
@@ -368,7 +393,7 @@ interface SpaceView {
             <span class="space-chip-label">{{ sv.space.label }}</span>
             <span class="space-chip-id">{{ sv.space.id }}</span>
             @if (sv.stats) {
-              <span class="space-chip-count">{{ spaceTotal(sv.stats) }} entries</span>
+              <span class="space-chip-count">{{ spaceTotal(sv.stats) }} records</span>
             }
           </button>
         }
@@ -505,42 +530,90 @@ interface SpaceView {
             >Wipe all</button>
           </div>
 
-          @for (mem of memories(); track mem._id) {
-            <div class="memory-item">
-              <div class="memory-content">{{ mem.fact }}</div>
-              @if (mem.description) { <div class="memory-description">{{ mem.description }}</div> }
-              <div class="memory-meta">
-                @for (tag of (mem.tags ?? []); track tag) {
-                  <span class="tag tag-clickable" (click)="applyFilter('tag', tag)">{{ tag }}</span>
+          <div class="table-wrapper">
+            <table>
+              <thead>
+                <tr>
+                  <th>Fact</th><th>Description</th><th>Tags</th><th>Properties</th><th>Created</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (mem of memories(); track mem._id) {
+                  @if (editingId() === mem._id) {
+                    <tr>
+                      <td colspan="6">
+                        <div class="create-form" style="border:none; padding:8px 0;">
+                          <div class="field" style="flex:2; min-width:200px; margin-bottom:0;">
+                            <label>Fact</label>
+                            <textarea [(ngModel)]="editMemory.fact" name="editFact" rows="2" style="width:100%;"></textarea>
+                          </div>
+                          <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
+                            <label>Description</label>
+                            <input type="text" [(ngModel)]="editMemory.description" name="editDesc" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+                            <label>Tags (comma-separated)</label>
+                            <input type="text" [(ngModel)]="editMemory.tags" name="editTags" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+                            <label>Properties (JSON)</label>
+                            <input type="text" [(ngModel)]="editMemory.properties" name="editProps" />
+                          </div>
+                          <div style="display:flex; gap:6px; align-items:flex-end;">
+                            <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditMemory(mem._id)">
+                              @if (editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } Save
+                            </button>
+                            <button class="btn btn-sm btn-secondary" (click)="cancelEdit()">Cancel</button>
+                          </div>
+                          @if (editError()) { <div style="font-size:12px; color:var(--error);">{{ editError() }}</div> }
+                        </div>
+                      </td>
+                    </tr>
+                  } @else {
+                    <tr>
+                      <td style="max-width:300px; white-space:normal; word-break:break-word;">{{ mem.fact }}</td>
+                      <td style="font-size:12px; color:var(--text-muted); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="mem.description ?? ''">
+                        {{ mem.description || '—' }}
+                      </td>
+                      <td style="font-size:11px;">
+                        @for (tag of (mem.tags ?? []); track tag) { <span class="tag tag-clickable" (click)="applyFilter('tag', tag)">{{ tag }}</span> }
+                        @if (!(mem.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
+                      </td>
+                      <td style="font-size:12px; color:var(--text-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="formatProps(mem.properties)">
+                        {{ formatProps(mem.properties) }}
+                      </td>
+                      <td style="color:var(--text-muted)">{{ mem.createdAt | date:'MMM d, y' }}</td>
+                      <td style="white-space:nowrap;">
+                        <button class="icon-btn" title="Edit memory" aria-label="Edit memory" (click)="startEditMemory(mem)">✎</button>
+                        @if (confirmDeleteId() === mem._id) {
+                          <span class="inline-confirm">
+                            Delete?
+                            <button class="btn btn-sm btn-danger" (click)="deleteMemory(mem._id)">Yes</button>
+                            <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
+                          </span>
+                        } @else {
+                          <button class="icon-btn danger" title="Delete memory" aria-label="Delete memory" (click)="requestDelete(mem._id)">✕</button>
+                        }
+                      </td>
+                    </tr>
+                  }
+                } @empty {
+                  <tr><td colspan="6">
+                    <div class="empty-state" style="padding:32px">
+                      <div class="empty-state-icon">🧠</div>
+                      <h3>No memories</h3>
+                      <p>Memories will appear here once written by an MCP client.</p>
+                    </div>
+                  </td></tr>
                 }
-                @for (eid of (mem.entityIds ?? []); track eid) {
-                  <span class="badge badge-purple entity-clickable" (click)="applyFilter('entity', eid)">{{ eid }}</span>
-                }
-                @if (mem.properties && formatProps(mem.properties) !== '—') {
-                  <span style="font-size:11px; color:var(--text-muted); font-family:monospace;" [title]="formatProps(mem.properties)">{{ formatProps(mem.properties) }}</span>
-                }
-                <span style="flex:1"></span>
-                <time>{{ mem.createdAt | date:'MMM d, y HH:mm' }}</time>
-                @if (confirmDeleteId() === mem._id) {
-                  <span class="inline-confirm">
-                    Delete?
-                    <button class="btn btn-sm btn-danger" (click)="deleteMemory(mem._id)">Yes</button>
-                    <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
-                  </span>
-                } @else {
-                  <button class="icon-btn danger" title="Delete memory" aria-label="Delete memory" (click)="requestDelete(mem._id)">✕</button>
-                }
-              </div>
-            </div>
-          }
-
-          @if (memories().length === 0) {
-            <div class="empty-state">
-              <div class="empty-state-icon">🧠</div>
-              <h3>No memories</h3>
-              <p>Memories will appear here once written by an MCP client.</p>
-            </div>
-          }
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination">
+            <button class="btn btn-sm btn-secondary" [disabled]="skip() === 0" (click)="prevPage()">← Prev</button>
+            <span class="pager-info">{{ skip() + 1 }}–{{ skip() + memories().length }}</span>
+            <button class="btn btn-sm btn-secondary" [disabled]="memories().length < pageSize" (click)="nextPage()">Next →</button>
+          </div>
         }
 
         <!-- Entities -->
@@ -595,37 +668,78 @@ interface SpaceView {
             <table>
               <thead>
                 <tr>
-                  <th>Name</th><th>Type</th><th>Description</th><th>Properties</th><th>Created</th><th></th>
+                  <th>Name</th><th>Type</th><th>Description</th><th>Tags</th><th>Properties</th><th>Created</th><th></th>
                 </tr>
               </thead>
               <tbody>
                 @for (ent of entities(); track ent._id) {
-                  <tr>
-                    <td>{{ ent.name }}</td>
-                    <td>
-                      @if (ent.type) { <span class="badge badge-purple">{{ ent.type }}</span> }
-                    </td>
-                    <td style="font-size:12px; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="ent.description ?? ''">
-                      {{ ent.description || '—' }}
-                    </td>
-                    <td style="font-size:12px; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="formatProps(ent.properties)">
-                      {{ formatProps(ent.properties) }}
-                    </td>
-                    <td style="color:var(--text-muted)">{{ ent.createdAt | date:'MMM d, y' }}</td>
-                    <td>
-                      @if (confirmDeleteId() === ent._id) {
-                        <span class="inline-confirm">
-                          Delete?
-                          <button class="btn btn-sm btn-danger" (click)="deleteEntity(ent._id)">Yes</button>
-                          <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
-                        </span>
-                      } @else {
-                        <button class="icon-btn danger" aria-label="Delete entity" (click)="requestDelete(ent._id)">✕</button>
-                      }
-                    </td>
-                  </tr>
+                  @if (editingId() === ent._id) {
+                    <tr>
+                      <td colspan="7">
+                        <div class="create-form" style="border:none; padding:8px 0;">
+                          <div class="field" style="flex:1; min-width:120px; margin-bottom:0;">
+                            <label>Name</label>
+                            <input type="text" [(ngModel)]="editEntity.name" name="editEntName" />
+                          </div>
+                          <div class="field" style="width:120px; margin-bottom:0;">
+                            <label>Type</label>
+                            <input type="text" [(ngModel)]="editEntity.type" name="editEntType" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
+                            <label>Description</label>
+                            <input type="text" [(ngModel)]="editEntity.description" name="editEntDesc" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+                            <label>Tags (comma-separated)</label>
+                            <input type="text" [(ngModel)]="editEntity.tags" name="editEntTags" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+                            <label>Properties (JSON)</label>
+                            <input type="text" [(ngModel)]="editEntity.properties" name="editEntProps" />
+                          </div>
+                          <div style="display:flex; gap:6px; align-items:flex-end;">
+                            <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditEntity(ent._id)">
+                              @if (editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } Save
+                            </button>
+                            <button class="btn btn-sm btn-secondary" (click)="cancelEdit()">Cancel</button>
+                          </div>
+                          @if (editError()) { <div style="font-size:12px; color:var(--error);">{{ editError() }}</div> }
+                        </div>
+                      </td>
+                    </tr>
+                  } @else {
+                    <tr>
+                      <td>{{ ent.name }}</td>
+                      <td>
+                        @if (ent.type) { <span class="badge badge-purple">{{ ent.type }}</span> }
+                      </td>
+                      <td style="font-size:12px; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="ent.description ?? ''">
+                        {{ ent.description || '—' }}
+                      </td>
+                      <td style="font-size:11px;">
+                        @for (tag of (ent.tags ?? []); track tag) { <span class="tag">{{ tag }}</span> }
+                        @if (!(ent.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
+                      </td>
+                      <td style="font-size:12px; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="formatProps(ent.properties)">
+                        {{ formatProps(ent.properties) }}
+                      </td>
+                      <td style="color:var(--text-muted)">{{ ent.createdAt | date:'MMM d, y' }}</td>
+                      <td style="white-space:nowrap;">
+                        <button class="icon-btn" title="Edit entity" aria-label="Edit entity" (click)="startEditEntity(ent)">✎</button>
+                        @if (confirmDeleteId() === ent._id) {
+                          <span class="inline-confirm">
+                            Delete?
+                            <button class="btn btn-sm btn-danger" (click)="deleteEntity(ent._id)">Yes</button>
+                            <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
+                          </span>
+                        } @else {
+                          <button class="icon-btn danger" aria-label="Delete entity" (click)="requestDelete(ent._id)">✕</button>
+                        }
+                      </td>
+                    </tr>
+                  }
                 } @empty {
-                  <tr><td colspan="6">
+                  <tr><td colspan="7">
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon">🏷️</div>
                       <h3>No entities</h3>
@@ -698,41 +812,80 @@ interface SpaceView {
             <table>
               <thead>
                 <tr>
-                  <th>From</th><th>Relation</th><th>Type</th><th>To</th><th>Tags</th><th>Weight</th><th>Created</th><th></th>
+                  <th>From</th><th>Relation</th><th>Type</th><th>To</th><th>Description</th><th>Tags</th><th>Weight</th><th>Created</th><th></th>
                 </tr>
               </thead>
               <tbody>
                 @for (edge of edges(); track edge._id) {
-                  <tr>
-                    <td class="mono" style="font-size:12px">{{ edge.from }}</td>
-                    <td>
-                      <span class="badge badge-blue">{{ edge.label }}</span>
-                      @if (edge.description) {
-                        <div style="font-size:11px; color:var(--text-muted); margin-top:2px;" [title]="edge.description">{{ edge.description }}</div>
-                      }
-                    </td>
-                    <td style="color:var(--text-muted); font-size:12px">{{ edge.type ?? '—' }}</td>
-                    <td class="mono" style="font-size:12px">{{ edge.to }}</td>
-                    <td style="font-size:11px;">
-                      @for (tag of (edge.tags ?? []); track tag) { <span class="tag">{{ tag }}</span> }
-                      @if (!(edge.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
-                    </td>
-                    <td style="color:var(--text-muted)">{{ edge.weight ?? '—' }}</td>
-                    <td style="color:var(--text-muted)">{{ edge.createdAt | date:'MMM d, y' }}</td>
-                    <td>
-                      @if (confirmDeleteId() === edge._id) {
-                        <span class="inline-confirm">
-                          Delete?
-                          <button class="btn btn-sm btn-danger" (click)="deleteEdge(edge._id)">Yes</button>
-                          <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
-                        </span>
-                      } @else {
-                        <button class="icon-btn danger" aria-label="Delete edge" (click)="requestDelete(edge._id)">✕</button>
-                      }
-                    </td>
-                  </tr>
+                  @if (editingId() === edge._id) {
+                    <tr>
+                      <td colspan="9">
+                        <div class="create-form" style="border:none; padding:8px 0;">
+                          <div class="field" style="flex:1; min-width:120px; margin-bottom:0;">
+                            <label>Label (relation)</label>
+                            <input type="text" [(ngModel)]="editEdge.label" name="editEdgeLabel" />
+                          </div>
+                          <div class="field" style="width:100px; margin-bottom:0;">
+                            <label>Type</label>
+                            <input type="text" [(ngModel)]="editEdge.type" name="editEdgeType" />
+                          </div>
+                          <div class="field" style="width:80px; margin-bottom:0;">
+                            <label>Weight</label>
+                            <input type="number" [(ngModel)]="editEdge.weight" name="editEdgeWeight" step="0.1" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
+                            <label>Description</label>
+                            <input type="text" [(ngModel)]="editEdge.description" name="editEdgeDesc" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+                            <label>Tags (comma-separated)</label>
+                            <input type="text" [(ngModel)]="editEdge.tags" name="editEdgeTags" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+                            <label>Properties (JSON)</label>
+                            <input type="text" [(ngModel)]="editEdge.properties" name="editEdgeProps" />
+                          </div>
+                          <div style="display:flex; gap:6px; align-items:flex-end;">
+                            <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditEdge(edge._id)">
+                              @if (editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } Save
+                            </button>
+                            <button class="btn btn-sm btn-secondary" (click)="cancelEdit()">Cancel</button>
+                          </div>
+                          @if (editError()) { <div style="font-size:12px; color:var(--error);">{{ editError() }}</div> }
+                        </div>
+                      </td>
+                    </tr>
+                  } @else {
+                    <tr>
+                      <td class="mono" style="font-size:12px">{{ edge.from }}</td>
+                      <td><span class="badge badge-blue">{{ edge.label }}</span></td>
+                      <td style="color:var(--text-muted); font-size:12px">{{ edge.type ?? '—' }}</td>
+                      <td class="mono" style="font-size:12px">{{ edge.to }}</td>
+                      <td style="font-size:12px; color:var(--text-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="edge.description ?? ''">
+                        {{ edge.description || '—' }}
+                      </td>
+                      <td style="font-size:11px;">
+                        @for (tag of (edge.tags ?? []); track tag) { <span class="tag">{{ tag }}</span> }
+                        @if (!(edge.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
+                      </td>
+                      <td style="color:var(--text-muted)">{{ edge.weight ?? '—' }}</td>
+                      <td style="color:var(--text-muted)">{{ edge.createdAt | date:'MMM d, y' }}</td>
+                      <td style="white-space:nowrap;">
+                        <button class="icon-btn" title="Edit edge" aria-label="Edit edge" (click)="startEditEdge(edge)">✎</button>
+                        @if (confirmDeleteId() === edge._id) {
+                          <span class="inline-confirm">
+                            Delete?
+                            <button class="btn btn-sm btn-danger" (click)="deleteEdge(edge._id)">Yes</button>
+                            <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
+                          </span>
+                        } @else {
+                          <button class="icon-btn danger" aria-label="Delete edge" (click)="requestDelete(edge._id)">✕</button>
+                        }
+                      </td>
+                    </tr>
+                  }
                 } @empty {
-                  <tr><td colspan="8">
+                  <tr><td colspan="9">
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon">🕸️</div>
                       <h3>No edges</h3>
@@ -824,44 +977,95 @@ interface SpaceView {
             <table>
               <thead>
                 <tr>
-                  <th>Title</th><th>Kind</th><th>Status</th><th>Starts</th><th>Ends</th><th>Tags</th><th>Entities</th><th></th>
+                  <th>Title</th><th>Description</th><th>Kind</th><th>Status</th><th>Starts</th><th>Ends</th><th>Tags</th><th>Entities</th><th></th>
                 </tr>
               </thead>
               <tbody>
                 @for (entry of chrono(); track entry._id) {
-                  <tr>
-                    <td>
-                      {{ entry.title }}
-                      @if (entry.description) {
-                        <div class="chrono-desc-preview" [title]="entry.description">{{ entry.description }}</div>
-                      }
-                    </td>
-                    <td><span class="badge badge-blue">{{ entry.kind }}</span></td>
-                    <td><span class="badge" [class.badge-purple]="entry.status === 'upcoming'" [class.badge-blue]="entry.status === 'active'" style="font-size:11px">{{ entry.status }}</span></td>
-                    <td style="color:var(--text-muted); font-size:12px">{{ entry.startsAt | date:'MMM d, y HH:mm' }}</td>
-                    <td style="color:var(--text-muted); font-size:12px">{{ entry.endsAt ? (entry.endsAt | date:'MMM d, y HH:mm') : '—' }}</td>
-                    <td>
-                      @for (tag of entry.tags; track tag) { <span class="tag">{{ tag }}</span> }
-                    </td>
-                    <td style="font-size:11px; color:var(--text-muted);">
-                      @if (entry.entityIds.length) {
-                        {{ entry.entityIds.length }} linked
-                      } @else { — }
-                    </td>
-                    <td>
-                      @if (confirmDeleteId() === entry._id) {
-                        <span class="inline-confirm">
-                          Delete?
-                          <button class="btn btn-sm btn-danger" (click)="deleteChrono(entry._id)">Yes</button>
-                          <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
-                        </span>
-                      } @else {
-                        <button class="icon-btn danger" aria-label="Delete chrono entry" (click)="requestDelete(entry._id)">✕</button>
-                      }
-                    </td>
-                  </tr>
+                  @if (editingId() === entry._id) {
+                    <tr>
+                      <td colspan="9">
+                        <div class="create-form" style="border:none; padding:8px 0;">
+                          <div class="field" style="flex:2; min-width:180px; margin-bottom:0;">
+                            <label>Title</label>
+                            <input type="text" [(ngModel)]="editChrono.title" name="editChronoTitle" />
+                          </div>
+                          <div class="field" style="width:130px; margin-bottom:0;">
+                            <label>Kind</label>
+                            <select [(ngModel)]="editChrono.kind" name="editChronoKind">
+                              @for (k of chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
+                            </select>
+                          </div>
+                          <div class="field" style="width:130px; margin-bottom:0;">
+                            <label>Status</label>
+                            <select [(ngModel)]="editChrono.status" name="editChronoStatus">
+                              @for (s of chronoStatusOptions; track s) { <option [value]="s">{{ s }}</option> }
+                            </select>
+                          </div>
+                          <div class="field" style="width:190px; margin-bottom:0;">
+                            <label>Starts at</label>
+                            <input type="datetime-local" [(ngModel)]="editChrono.startsAt" name="editChronoStarts" />
+                          </div>
+                          <div class="field" style="width:190px; margin-bottom:0;">
+                            <label>Ends at</label>
+                            <input type="datetime-local" [(ngModel)]="editChrono.endsAt" name="editChronoEnds" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
+                            <label>Description</label>
+                            <textarea [(ngModel)]="editChrono.description" name="editChronoDesc" rows="2" style="resize:vertical;"></textarea>
+                          </div>
+                          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+                            <label>Tags (comma-separated)</label>
+                            <input type="text" [(ngModel)]="editChrono.tags" name="editChronoTags" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+                            <label>Entity IDs (comma-separated)</label>
+                            <input type="text" [(ngModel)]="editChrono.entityIds" name="editChronoEntIds" />
+                          </div>
+                          <div style="display:flex; gap:6px; align-items:flex-end;">
+                            <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditChrono(entry._id)">
+                              @if (editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } Save
+                            </button>
+                            <button class="btn btn-sm btn-secondary" (click)="cancelEdit()">Cancel</button>
+                          </div>
+                          @if (editError()) { <div style="font-size:12px; color:var(--error);">{{ editError() }}</div> }
+                        </div>
+                      </td>
+                    </tr>
+                  } @else {
+                    <tr>
+                      <td>{{ entry.title }}</td>
+                      <td style="font-size:12px; color:var(--text-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="entry.description ?? ''">
+                        {{ entry.description || '—' }}
+                      </td>
+                      <td><span class="badge badge-blue">{{ entry.kind }}</span></td>
+                      <td><span class="badge" [class.badge-purple]="entry.status === 'upcoming'" [class.badge-blue]="entry.status === 'active'" style="font-size:11px">{{ entry.status }}</span></td>
+                      <td style="color:var(--text-muted); font-size:12px">{{ entry.startsAt | date:'MMM d, y HH:mm' }}</td>
+                      <td style="color:var(--text-muted); font-size:12px">{{ entry.endsAt ? (entry.endsAt | date:'MMM d, y HH:mm') : '—' }}</td>
+                      <td>
+                        @for (tag of entry.tags; track tag) { <span class="tag">{{ tag }}</span> }
+                      </td>
+                      <td style="font-size:11px; color:var(--text-muted);">
+                        @if (entry.entityIds.length) {
+                          {{ entry.entityIds.length }} linked
+                        } @else { — }
+                      </td>
+                      <td style="white-space:nowrap;">
+                        <button class="icon-btn" title="Edit chrono entry" aria-label="Edit chrono entry" (click)="startEditChrono(entry)">✎</button>
+                        @if (confirmDeleteId() === entry._id) {
+                          <span class="inline-confirm">
+                            Delete?
+                            <button class="btn btn-sm btn-danger" (click)="deleteChrono(entry._id)">Yes</button>
+                            <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
+                          </span>
+                        } @else {
+                          <button class="icon-btn danger" aria-label="Delete chrono entry" (click)="requestDelete(entry._id)">✕</button>
+                        }
+                      </td>
+                    </tr>
+                  }
                 } @empty {
-                  <tr><td colspan="8">
+                  <tr><td colspan="9">
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon">⏱️</div>
                       <h3>No chrono entries</h3>
@@ -881,76 +1085,357 @@ interface SpaceView {
         <!-- Query -->
         @if (activeTab() === 'query') {
           <div class="query-panel">
-            <div class="query-form">
-              <div class="query-form-row">
-                <div class="field" style="min-width:160px;">
-                  <label>Collection</label>
-                  <select [(ngModel)]="queryForm.collection" name="queryCollection" aria-label="Collection">
-                    @for (c of queryCollections; track c) { <option [value]="c">{{ c }}</option> }
-                  </select>
-                </div>
-                <div class="field" style="min-width:80px;">
-                  <label>Limit</label>
-                  <input type="number" [(ngModel)]="queryForm.limit" name="queryLimit" min="1" max="100" style="width:80px;" />
-                </div>
-                <div class="field" style="min-width:100px;">
-                  <label>maxTimeMS</label>
-                  <input type="number" [(ngModel)]="queryForm.maxTimeMS" name="queryMaxTimeMS" min="100" max="30000" style="width:100px;" />
-                </div>
-              </div>
-              <div class="field">
-                <label>Filter <span style="color:var(--text-muted);font-size:11px;">(JSON — supports $eq $in $regex $and $or $elemMatch etc.)</span></label>
-                <textarea
-                  class="query-textarea"
-                  [class.error]="queryFilterError()"
-                  [(ngModel)]="queryForm.filter"
-                  name="queryFilter"
-                  rows="3"
-                  placeholder='{"tags": {"$in": ["my-tag"]}} or {"name": {"$regex": "auth", "$options": "i"}}'
-                ></textarea>
-                @if (queryFilterError()) {
-                  <div style="font-size:11px; color:var(--error); margin-top:3px;">{{ queryFilterError() }}</div>
-                }
-              </div>
-              <div class="field">
-                <label>Projection <span style="color:var(--text-muted);font-size:11px;">(optional JSON — e.g. {{ '{' }}"fact":1,"tags":1{{ '}' }})</span></label>
-                <textarea
-                  class="query-textarea"
-                  [class.error]="queryProjectionError()"
-                  [(ngModel)]="queryForm.projection"
-                  name="queryProjection"
-                  rows="2"
-                  placeholder='{"fact": 1, "tags": 1}'
-                ></textarea>
-                @if (queryProjectionError()) {
-                  <div style="font-size:11px; color:var(--error); margin-top:3px;">{{ queryProjectionError() }}</div>
-                }
-              </div>
-              <div style="display:flex; align-items:center; gap:10px;">
-                <button class="btn btn-sm btn-primary" [disabled]="queryRunning()" (click)="runQuery()">
-                  @if (queryRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
-                  Run Query
-                </button>
-                @if (queryResult()) {
-                  <button class="btn btn-sm btn-secondary" (click)="clearQuery()">Clear results</button>
-                }
-                @if (queryError()) {
-                  <span style="font-size:12px; color:var(--error);">{{ queryError() }}</span>
-                }
-              </div>
+            <!-- Mode switcher -->
+            <div style="display:flex; gap:8px; margin-bottom:12px;">
+              <button class="btn btn-sm" [class.btn-primary]="queryMode() === 'search'" [class.btn-secondary]="queryMode() !== 'search'" (click)="queryMode.set('search')">Semantic Search</button>
+              <button class="btn btn-sm" [class.btn-primary]="queryMode() === 'advanced'" [class.btn-secondary]="queryMode() !== 'advanced'" (click)="queryMode.set('advanced')">Advanced Query</button>
             </div>
 
-            @if (queryResult(); as res) {
-              <div class="query-results-header">
-                <strong>{{ res.count }}</strong> result{{ res.count === 1 ? '' : 's' }} from <code>{{ res.collection }}</code>
+            <!-- Semantic Search mode -->
+            @if (queryMode() === 'search') {
+              <div class="query-form">
+                <div class="field" style="margin-bottom:0;">
+                  <label>Search your knowledge base</label>
+                  <input
+                    type="text"
+                    [(ngModel)]="recallForm.query"
+                    name="recallQuery"
+                    placeholder="What do you want to find?"
+                    style="width:100%; font-size:14px; padding:8px 12px;"
+                    (keydown.enter)="runRecall()"
+                    aria-label="Semantic search query"
+                  />
+                </div>
+                <div class="query-form-row" style="margin-top:8px;">
+                  <div class="field" style="min-width:100px; margin:0;">
+                    <label>Top K <span style="color:var(--text-muted);font-size:11px;" title="Maximum number of results to return">ⓘ</span></label>
+                    <input type="number" [(ngModel)]="recallForm.topK" name="recallTopK" min="1" max="100" style="width:80px;" />
+                  </div>
+                  <div class="field" style="min-width:120px; margin:0;">
+                    <label>Min score <span style="color:var(--text-muted);font-size:11px;" title="Minimum similarity score (0–1). Higher = more relevant.">ⓘ</span></label>
+                    <input type="number" [(ngModel)]="recallForm.minScore" name="recallMinScore" min="0" max="1" step="0.05" style="width:80px;" />
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
+                  <button class="btn btn-sm btn-primary" [disabled]="recallRunning() || !recallForm.query.trim()" (click)="runRecall()">
+                    @if (recallRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                    Search
+                  </button>
+                  @if (recallResults().length) {
+                    <button class="btn btn-sm btn-secondary" (click)="clearRecall()">Clear results</button>
+                  }
+                  @if (recallError()) {
+                    <span style="font-size:12px; color:var(--error);">{{ recallError() }}</span>
+                  }
+                </div>
               </div>
-              @if (res.results.length === 0) {
-                <div class="query-empty">No documents matched the filter.</div>
-              } @else {
-                @for (doc of res.results; track $index) {
-                  <div class="query-result-card">{{ formatQueryDoc(doc) }}</div>
+
+              @if (recallResults().length) {
+                <div class="query-results-header" style="margin-top:12px;">
+                  <strong>{{ recallResults().length }}</strong> result{{ recallResults().length === 1 ? '' : 's' }}
+                </div>
+                @for (r of recallResults(); track $index) {
+                  <div class="query-result-card" style="margin-top:6px;">
+                    <div style="display:flex; gap:8px; margin-bottom:4px; align-items:center;">
+                      <span class="badge badge-purple" style="font-size:10px;">{{ r.type }}</span>
+                      @if (r.score != null) {
+                        <span style="font-size:11px; color:var(--text-muted);">score: {{ r.score.toFixed(3) }}</span>
+                      }
+                    </div>
+                    <div style="white-space:pre-wrap; word-break:break-all;">{{ formatQueryDoc(r) }}</div>
+                  </div>
                 }
               }
+            }
+
+            <!-- Advanced Query mode -->
+            @if (queryMode() === 'advanced') {
+              <div class="query-form">
+                <div class="query-form-row">
+                  <div class="field" style="min-width:160px;">
+                    <label>Collection</label>
+                    <select [(ngModel)]="queryForm.collection" name="queryCollection" aria-label="Collection">
+                      @for (c of queryCollections; track c) { <option [value]="c">{{ c }}</option> }
+                    </select>
+                  </div>
+                  <div class="field" style="min-width:80px;">
+                    <label>Limit</label>
+                    <input type="number" [(ngModel)]="queryForm.limit" name="queryLimit" min="1" max="100" style="width:80px;" />
+                  </div>
+                  <div class="field" style="min-width:100px;">
+                    <label>maxTimeMS</label>
+                    <input type="number" [(ngModel)]="queryForm.maxTimeMS" name="queryMaxTimeMS" min="100" max="30000" style="width:100px;" />
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Filter <span style="color:var(--text-muted);font-size:11px;">(JSON — supports $eq $in $regex $and $or $elemMatch etc.)</span></label>
+                  <textarea
+                    class="query-textarea"
+                    [class.error]="queryFilterError()"
+                    [(ngModel)]="queryForm.filter"
+                    name="queryFilter"
+                    rows="3"
+                    placeholder='{"tags": {"$in": ["my-tag"]}} or {"name": {"$regex": "auth", "$options": "i"}}'
+                  ></textarea>
+                  @if (queryFilterError()) {
+                    <div style="font-size:11px; color:var(--error); margin-top:3px;">{{ queryFilterError() }}</div>
+                  }
+                </div>
+                <div class="field">
+                  <label>Projection <span style="color:var(--text-muted);font-size:11px;">(optional JSON — e.g. {{ '{' }}"fact":1,"tags":1{{ '}' }})</span></label>
+                  <textarea
+                    class="query-textarea"
+                    [class.error]="queryProjectionError()"
+                    [(ngModel)]="queryForm.projection"
+                    name="queryProjection"
+                    rows="2"
+                    placeholder='{"fact": 1, "tags": 1}'
+                  ></textarea>
+                  @if (queryProjectionError()) {
+                    <div style="font-size:11px; color:var(--error); margin-top:3px;">{{ queryProjectionError() }}</div>
+                  }
+                </div>
+                <div style="display:flex; align-items:center; gap:10px;">
+                  <button class="btn btn-sm btn-primary" [disabled]="queryRunning()" (click)="runQuery()">
+                    @if (queryRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                    Run Query
+                  </button>
+                  @if (queryResult()) {
+                    <button class="btn btn-sm btn-secondary" (click)="clearQuery()">Clear results</button>
+                  }
+                  @if (queryError()) {
+                    <span style="font-size:12px; color:var(--error);">{{ queryError() }}</span>
+                  }
+                </div>
+              </div>
+
+              @if (queryResult(); as res) {
+                <div class="query-results-header">
+                  <strong>{{ res.count }}</strong> result{{ res.count === 1 ? '' : 's' }} from <code>{{ res.collection }}</code>
+                </div>
+                @if (res.results.length === 0) {
+                  <div class="query-empty">No documents matched the filter.</div>
+                } @else {
+                  @for (doc of res.results; track $index) {
+                    <div class="query-result-card">{{ formatQueryDoc(doc) }}</div>
+                  }
+                }
+              }
+            }
+          </div>
+        }
+
+        <!-- Settings tab -->
+        @if (activeTab() === 'settings') {
+          <div style="padding:8px 0;">
+            @if (settingsLoading()) {
+              <div class="loading-overlay" style="padding:24px;"><span class="spinner"></span></div>
+            } @else if (spaceMeta()) {
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                <!-- Left column: Space info -->
+                <div class="card" style="margin-bottom:0;">
+                  <div class="card-header">
+                    <div class="card-title" style="font-size:14px;">Space configuration</div>
+                  </div>
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Label</label>
+                    <input type="text" [(ngModel)]="settingsForm.label" name="settingsLabel" maxlength="200" />
+                  </div>
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Description</label>
+                    <textarea [(ngModel)]="settingsForm.description" name="settingsDescription" maxlength="4000" rows="3" style="resize:vertical;"></textarea>
+                  </div>
+                  <div style="display:flex; gap:8px; margin-top:8px;">
+                    <button class="btn btn-sm btn-primary" [disabled]="settingsSaving()" (click)="saveSpaceSettings()">
+                      @if (settingsSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                      Save
+                    </button>
+                    @if (settingsSaved()) { <span style="color:var(--success); font-size:12px;">✓ Saved</span> }
+                    @if (settingsError()) { <span style="color:var(--error); font-size:12px;">{{ settingsError() }}</span> }
+                  </div>
+                </div>
+
+                <!-- Right column: Schema meta -->
+                <div class="card" style="margin-bottom:0;">
+                  <div class="card-header">
+                    <div class="card-title" style="font-size:14px;">Schema definition</div>
+                    @if (spaceMeta()!.version) {
+                      <span class="badge badge-gray" style="font-size:11px;">v{{ spaceMeta()!.version }}</span>
+                    }
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Validation mode</label>
+                    <select [(ngModel)]="metaForm.validationMode" name="metaValidationMode" style="width:140px;">
+                      <option value="off">Off</option>
+                      <option value="warn">Warn</option>
+                      <option value="strict">Strict</option>
+                    </select>
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Purpose</label>
+                    <textarea [(ngModel)]="metaForm.purpose" name="metaPurpose" maxlength="4000" rows="2" style="resize:vertical;" placeholder="Short directive injected into MCP instructions"></textarea>
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Entity types <span style="color:var(--text-muted);font-size:11px;" title="Allowlist of valid entity type values. Leave empty for unrestricted.">ⓘ</span></label>
+                    <input type="text" [(ngModel)]="metaForm.entityTypesStr" name="metaEntityTypes" placeholder="person, project, topic (comma-separated)" />
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Edge labels <span style="color:var(--text-muted);font-size:11px;" title="Allowlist of valid edge label values. Leave empty for unrestricted.">ⓘ</span></label>
+                    <input type="text" [(ngModel)]="metaForm.edgeLabelsStr" name="metaEdgeLabels" placeholder="knows, depends_on, part_of (comma-separated)" />
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Tag suggestions <span style="color:var(--text-muted);font-size:11px;" title="Non-enforced tag hints for UI autocomplete.">ⓘ</span></label>
+                    <input type="text" [(ngModel)]="metaForm.tagSuggestionsStr" name="metaTags" placeholder="important, review, draft (comma-separated)" />
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Usage notes</label>
+                    <textarea [(ngModel)]="metaForm.usageNotes" name="metaUsageNotes" rows="2" style="resize:vertical;" placeholder="Naming conventions, examples, links (Markdown)"></textarea>
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Naming patterns <span style="color:var(--text-muted);font-size:11px;" title="JSON object mapping knowledge types to naming conventions.">ⓘ</span></label>
+                    <textarea
+                      [(ngModel)]="metaForm.namingPatternsJson"
+                      name="metaNamingPatterns"
+                      rows="3"
+                      style="resize:vertical; font-family:var(--font-mono); font-size:12px;"
+                      placeholder='{{ "{" }}"entity": "PascalCase", "memory": "lowercase"{{ "}" }}'
+                    ></textarea>
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Required properties <span style="color:var(--text-muted);font-size:11px;" title="JSON object mapping knowledge types to required property name arrays.">ⓘ</span></label>
+                    <textarea
+                      [(ngModel)]="metaForm.requiredPropertiesJson"
+                      name="metaRequiredProps"
+                      rows="3"
+                      style="resize:vertical; font-family:var(--font-mono); font-size:12px;"
+                      placeholder='{{ "{" }}"entity": ["type", "description"]{{ "}" }}'
+                    ></textarea>
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Property schemas <span style="color:var(--text-muted);font-size:11px;" title="JSON object mapping knowledge types to property name → schema definitions.">ⓘ</span></label>
+                    <textarea
+                      [(ngModel)]="metaForm.propertySchemasJson"
+                      name="metaPropSchemas"
+                      rows="4"
+                      style="resize:vertical; font-family:var(--font-mono); font-size:12px;"
+                      placeholder='{{ "{" }}"entity": {{ "{" }}"status": {{ "{" }}"type":"string","enum":["active","archived"]{{ "}" }}{{ "}" }}{{ "}" }}'
+                    ></textarea>
+                  </div>
+
+                  <div style="display:flex; gap:8px; margin-top:8px;">
+                    <button class="btn btn-sm btn-primary" [disabled]="metaSaving()" (click)="saveMetaSettings()">
+                      @if (metaSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                      Save schema
+                    </button>
+                    @if (metaSaved()) { <span style="color:var(--success); font-size:12px;">✓ Saved</span> }
+                    @if (metaError()) { <span style="color:var(--error); font-size:12px;">{{ metaError() }}</span> }
+                  </div>
+                </div>
+              </div>
+
+              <!-- Space admin actions -->
+              <div class="card" style="margin-top:16px;">
+                <div class="card-header">
+                  <div class="card-title" style="font-size:14px;">Space administration</div>
+                </div>
+                <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+                  <button class="btn btn-sm btn-secondary" (click)="showCreateSpaceDialog.set(true)">+ Create new space</button>
+                  <button class="btn btn-sm btn-danger" [disabled]="isActiveBuiltIn()" (click)="showDeleteSpaceConfirm.set(true)" title="Delete this space and all its data permanently">Delete space</button>
+                  <button class="btn btn-sm btn-danger" (click)="showWipeSpaceConfirm.set(true)" title="Wipe all data from this space (keeps configuration)">Wipe all data</button>
+                </div>
+                @if (isActiveBuiltIn()) {
+                  <div style="font-size:11px; color:var(--text-muted); margin-top:8px;">Built-in spaces cannot be deleted.</div>
+                }
+                @if (spaceAdminError()) {
+                  <div class="alert alert-error" style="margin-top:8px;">{{ spaceAdminError() }}</div>
+                }
+              </div>
+
+              <!-- Create space dialog -->
+              @if (showCreateSpaceDialog()) {
+                <div class="dialog-backdrop" (click)="showCreateSpaceDialog.set(false)">
+                  <div class="dialog" (click)="$event.stopPropagation()" style="max-width:500px;">
+                    <div class="dialog-header">
+                      <div class="card-title">Create space</div>
+                      <button class="icon-btn" aria-label="Close dialog" (click)="showCreateSpaceDialog.set(false)">✕</button>
+                    </div>
+                    <form (ngSubmit)="adminCreateSpace()" style="display:flex; flex-direction:column; gap:12px;">
+                      <div class="field" style="margin-bottom:0;">
+                        <label>Display Name</label>
+                        <input type="text" [(ngModel)]="newSpaceForm.label" name="newSpaceLabel" placeholder="My Space" maxlength="200" required />
+                      </div>
+                      <div class="field" style="margin-bottom:0;">
+                        <label>ID (optional)</label>
+                        <input type="text" [(ngModel)]="newSpaceForm.id" name="newSpaceId" placeholder="my-space" pattern="[a-z0-9-]+" />
+                      </div>
+                      <div class="field" style="margin-bottom:0;">
+                        <label>Description (optional)</label>
+                        <textarea [(ngModel)]="newSpaceForm.description" name="newSpaceDesc" placeholder="Purpose of this space" maxlength="4000" rows="3" style="resize:vertical;"></textarea>
+                      </div>
+                      <div style="display:flex; gap:8px; justify-content:flex-end;">
+                        <button class="btn btn-secondary" type="button" (click)="showCreateSpaceDialog.set(false)">Cancel</button>
+                        <button class="btn btn-primary" type="submit" [disabled]="creatingNewSpace() || !newSpaceForm.label.trim()">
+                          @if (creatingNewSpace()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                          Create
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              }
+
+              <!-- Wipe space confirmation -->
+              @if (showWipeSpaceConfirm()) {
+                <div class="dialog-backdrop" (click)="showWipeSpaceConfirm.set(false)">
+                  <div class="dialog" (click)="$event.stopPropagation()" style="max-width:450px;">
+                    <div class="dialog-header">
+                      <div class="card-title" style="color:var(--danger);">⚠ Wipe all data</div>
+                      <button class="icon-btn" (click)="showWipeSpaceConfirm.set(false)">✕</button>
+                    </div>
+                    <p>This will permanently delete all data from <strong>{{ activeSpaceId() }}</strong>. The space configuration will be preserved.</p>
+                    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+                      <button class="btn btn-secondary" (click)="showWipeSpaceConfirm.set(false)" [disabled]="wipingSpace()">Cancel</button>
+                      <button class="btn btn-danger" (click)="adminWipeSpace()" [disabled]="wipingSpace()">
+                        @if (wipingSpace()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                        Wipe all data
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              }
+
+              <!-- Delete space confirmation -->
+              @if (showDeleteSpaceConfirm()) {
+                <div class="dialog-backdrop" (click)="showDeleteSpaceConfirm.set(false)">
+                  <div class="dialog" (click)="$event.stopPropagation()" style="max-width:450px;">
+                    <div class="dialog-header">
+                      <div class="card-title" style="color:var(--danger);">⚠ Delete space</div>
+                      <button class="icon-btn" (click)="showDeleteSpaceConfirm.set(false)">✕</button>
+                    </div>
+                    <p>This will permanently delete the space <strong>{{ activeSpaceId() }}</strong> and <strong>all data</strong> within it. This cannot be undone.</p>
+                    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+                      <button class="btn btn-secondary" (click)="showDeleteSpaceConfirm.set(false)" [disabled]="deletingSpace()">Cancel</button>
+                      <button class="btn btn-danger" (click)="adminDeleteSpace()" [disabled]="deletingSpace()">
+                        @if (deletingSpace()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                        Delete space
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              }
+            } @else {
+              <div style="padding:24px; text-align:center; color:var(--text-muted);">
+                Could not load space settings. <button class="btn btn-sm btn-secondary" (click)="loadSettings()">Retry</button>
+              </div>
             }
           </div>
         }
@@ -963,18 +1448,19 @@ export class BrainComponent implements OnInit {
   private api = inject(ApiService);
 
   tabs: { key: BrainTab; label: string; statsKey?: keyof SpaceStats }[] = [
-    { key: 'memories', label: 'Memories', statsKey: 'memories' },
+    { key: 'query', label: '🔍 Query' },
+    { key: 'settings', label: '⚙ Settings' },
     { key: 'entities', label: 'Entities', statsKey: 'entities' },
     { key: 'edges', label: 'Edges', statsKey: 'edges' },
+    { key: 'memories', label: 'Memories', statsKey: 'memories' },
     { key: 'chrono', label: 'Chrono', statsKey: 'chrono' },
-    { key: 'query', label: '🔍 Query' },
   ];
 
   readonly pageSize = 20;
 
   spaces = signal<SpaceView[]>([]);
   activeSpaceId = signal('');
-  activeTab = signal<BrainTab>('memories');
+  activeTab = signal<BrainTab>('query');
   loading = signal(false);
   loadingSpaces = signal(true);
 
@@ -1011,6 +1497,15 @@ export class BrainComponent implements OnInit {
   // Inline delete confirmation (stores the ID pending confirmation)
   confirmDeleteId = signal('');
 
+  // Inline edit state
+  editingId = signal('');
+  editSaving = signal(false);
+  editError = signal('');
+  editMemory = { fact: '', tags: '', entityIds: '', description: '', properties: '' };
+  editEntity = { name: '', type: '', tags: '', description: '', properties: '' };
+  editEdge = { label: '', type: '', weight: null as number | null, tags: '', description: '', properties: '' };
+  editChrono = { title: '', kind: '' as string, status: '' as string, startsAt: '', endsAt: '', description: '', tags: '', entityIds: '' };
+
   // Create memory form
   showMemoryForm = signal(false);
   creatingMemory = signal(false);
@@ -1038,6 +1533,7 @@ export class BrainComponent implements OnInit {
   chronoForm = { title: '', kind: 'event' as ChronoKind | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: '', entityIds: '' };
 
   // Query panel
+  queryMode = signal<'search' | 'advanced'>('search');
   queryCollections: QueryCollection[] = ['memories', 'entities', 'edges', 'chrono', 'files'];
   queryForm = { collection: 'memories' as QueryCollection, filter: '', projection: '', limit: 20, maxTimeMS: 5000 };
   queryRunning = signal(false);
@@ -1045,6 +1541,45 @@ export class BrainComponent implements OnInit {
   queryError = signal('');
   queryFilterError = signal('');
   queryProjectionError = signal('');
+
+  // Semantic search
+  recallKnowledgeTypes: RecallKnowledgeType[] = ['memory', 'entity', 'edge', 'chrono', 'file'];
+  recallForm = { query: '', topK: 10, minScore: 0 };
+  recallRunning = signal(false);
+  recallResults = signal<RecallResult[]>([]);
+  recallError = signal('');
+
+  // Settings tab
+  spaceMeta = signal<SpaceMetaResponse | null>(null);
+  settingsLoading = signal(false);
+  settingsForm = { label: '', description: '' };
+  settingsSaving = signal(false);
+  settingsSaved = signal(false);
+  settingsError = signal('');
+  metaForm = {
+    validationMode: 'off' as ValidationMode,
+    purpose: '',
+    usageNotes: '',
+    entityTypesStr: '',
+    edgeLabelsStr: '',
+    tagSuggestionsStr: '',
+    namingPatternsJson: '',
+    requiredPropertiesJson: '',
+    propertySchemasJson: '',
+  };
+  metaSaving = signal(false);
+  metaSaved = signal(false);
+  metaError = signal('');
+
+  // Space admin (from Settings tab)
+  showCreateSpaceDialog = signal(false);
+  showWipeSpaceConfirm = signal(false);
+  showDeleteSpaceConfirm = signal(false);
+  newSpaceForm = { label: '', id: '', description: '' };
+  creatingNewSpace = signal(false);
+  wipingSpace = signal(false);
+  deletingSpace = signal(false);
+  spaceAdminError = signal('');
 
   activeStats = computed(() =>
     this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.stats,
@@ -1169,6 +1704,10 @@ export class BrainComponent implements OnInit {
         // Query tab manages its own loading state; just clear the global overlay
         this.loading.set(false);
         break;
+      case 'settings':
+        this.loading.set(false);
+        this.loadSettings();
+        break;
     }
   }
 
@@ -1205,6 +1744,160 @@ export class BrainComponent implements OnInit {
 
   requestDelete(id: string): void { this.confirmDeleteId.set(id); }
   cancelDelete(): void { this.confirmDeleteId.set(''); }
+
+  // ── Inline edit methods ────────────────────────────────────────────────
+
+  startEditMemory(mem: Memory): void {
+    this.editingId.set(mem._id);
+    this.editError.set('');
+    this.editMemory = {
+      fact: mem.fact,
+      tags: (mem.tags ?? []).join(', '),
+      entityIds: (mem.entityIds ?? []).join(', '),
+      description: mem.description ?? '',
+      properties: mem.properties && Object.keys(mem.properties).length ? JSON.stringify(mem.properties) : '',
+    };
+  }
+
+  startEditEntity(ent: Entity): void {
+    this.editingId.set(ent._id);
+    this.editError.set('');
+    this.editEntity = {
+      name: ent.name,
+      type: ent.type ?? '',
+      tags: (ent.tags ?? []).join(', '),
+      description: ent.description ?? '',
+      properties: ent.properties && Object.keys(ent.properties).length ? JSON.stringify(ent.properties) : '',
+    };
+  }
+
+  startEditEdge(edge: Edge): void {
+    this.editingId.set(edge._id);
+    this.editError.set('');
+    this.editEdge = {
+      label: edge.label,
+      type: edge.type ?? '',
+      weight: edge.weight ?? null,
+      tags: (edge.tags ?? []).join(', '),
+      description: edge.description ?? '',
+      properties: edge.properties && Object.keys(edge.properties).length ? JSON.stringify(edge.properties) : '',
+    };
+  }
+
+  startEditChrono(entry: ChronoEntry): void {
+    this.editingId.set(entry._id);
+    this.editError.set('');
+    this.editChrono = {
+      title: entry.title,
+      kind: entry.kind,
+      status: entry.status,
+      startsAt: entry.startsAt ? this.toLocalDatetime(entry.startsAt) : '',
+      endsAt: entry.endsAt ? this.toLocalDatetime(entry.endsAt) : '',
+      description: entry.description ?? '',
+      tags: (entry.tags ?? []).join(', '),
+      entityIds: (entry.entityIds ?? []).join(', '),
+    };
+  }
+
+  cancelEdit(): void {
+    this.editingId.set('');
+    this.editError.set('');
+  }
+
+  saveEditMemory(id: string): void {
+    this.editSaving.set(true);
+    this.editError.set('');
+    let props: Record<string, string | number | boolean> | undefined;
+    if (this.editMemory.properties.trim()) {
+      try { props = JSON.parse(this.editMemory.properties.trim()); }
+      catch (e) { this.editSaving.set(false); this.editError.set(`Properties: ${e instanceof Error ? e.message : 'invalid JSON'}`); return; }
+    }
+    this.api.updateMemory(this.activeSpaceId(), id, {
+      fact: this.editMemory.fact.trim(),
+      tags: this.editMemory.tags.split(',').map(s => s.trim()).filter(Boolean),
+      entityIds: this.editMemory.entityIds.split(',').map(s => s.trim()).filter(Boolean),
+      description: this.editMemory.description.trim(),
+      ...(props ? { properties: props } : {}),
+    }).subscribe({
+      next: (updated) => {
+        this.editSaving.set(false);
+        this.editingId.set('');
+        this.memories.update(list => list.map(m => m._id === id ? updated : m));
+      },
+      error: (err) => { this.editSaving.set(false); this.editError.set(err.error?.error ?? 'Failed to save'); },
+    });
+  }
+
+  saveEditEntity(id: string): void {
+    this.editSaving.set(true);
+    this.editError.set('');
+    let props: Record<string, string | number | boolean> | undefined;
+    if (this.editEntity.properties.trim()) {
+      try { props = JSON.parse(this.editEntity.properties.trim()); }
+      catch (e) { this.editSaving.set(false); this.editError.set(`Properties: ${e instanceof Error ? e.message : 'invalid JSON'}`); return; }
+    }
+    this.api.updateEntity(this.activeSpaceId(), id, {
+      name: this.editEntity.name.trim(),
+      type: this.editEntity.type.trim(),
+      tags: this.editEntity.tags.split(',').map(s => s.trim()).filter(Boolean),
+      description: this.editEntity.description.trim(),
+      ...(props ? { properties: props } : {}),
+    }).subscribe({
+      next: (updated) => {
+        this.editSaving.set(false);
+        this.editingId.set('');
+        this.entities.update(list => list.map(e => e._id === id ? updated : e));
+      },
+      error: (err) => { this.editSaving.set(false); this.editError.set(err.error?.error ?? 'Failed to save'); },
+    });
+  }
+
+  saveEditEdge(id: string): void {
+    this.editSaving.set(true);
+    this.editError.set('');
+    let props: Record<string, string | number | boolean> | undefined;
+    if (this.editEdge.properties.trim()) {
+      try { props = JSON.parse(this.editEdge.properties.trim()); }
+      catch (e) { this.editSaving.set(false); this.editError.set(`Properties: ${e instanceof Error ? e.message : 'invalid JSON'}`); return; }
+    }
+    this.api.updateEdge(this.activeSpaceId(), id, {
+      label: this.editEdge.label.trim(),
+      type: this.editEdge.type.trim(),
+      tags: this.editEdge.tags.split(',').map(s => s.trim()).filter(Boolean),
+      description: this.editEdge.description.trim(),
+      ...(this.editEdge.weight != null ? { weight: this.editEdge.weight } : {}),
+      ...(props ? { properties: props } : {}),
+    }).subscribe({
+      next: (updated) => {
+        this.editSaving.set(false);
+        this.editingId.set('');
+        this.edges.update(list => list.map(e => e._id === id ? updated : e));
+      },
+      error: (err) => { this.editSaving.set(false); this.editError.set(err.error?.error ?? 'Failed to save'); },
+    });
+  }
+
+  saveEditChrono(id: string): void {
+    this.editSaving.set(true);
+    this.editError.set('');
+    this.api.updateChrono(this.activeSpaceId(), id, {
+      title: this.editChrono.title.trim(),
+      kind: this.editChrono.kind as ChronoKind,
+      status: this.editChrono.status as ChronoStatus,
+      ...(this.editChrono.startsAt ? { startsAt: new Date(this.editChrono.startsAt).toISOString() } : {}),
+      ...(this.editChrono.endsAt ? { endsAt: new Date(this.editChrono.endsAt).toISOString() } : {}),
+      description: this.editChrono.description.trim(),
+      tags: this.editChrono.tags.split(',').map(s => s.trim()).filter(Boolean),
+      entityIds: this.editChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean),
+    }).subscribe({
+      next: (updated) => {
+        this.editSaving.set(false);
+        this.editingId.set('');
+        this.chrono.update(list => list.map(c => c._id === id ? updated : c));
+      },
+      error: (err) => { this.editSaving.set(false); this.editError.set(err.error?.error ?? 'Failed to save'); },
+    });
+  }
 
   deleteMemory(id: string): void {
     this.confirmDeleteId.set('');
@@ -1370,6 +2063,14 @@ export class BrainComponent implements OnInit {
     return Object.entries(props).map(([k, v]) => `${k}: ${v}`).join(', ');
   }
 
+  /** Convert an ISO date string to the YYYY-MM-DDTHH:mm format required by datetime-local inputs */
+  private toLocalDatetime(iso: string): string {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+
   runQuery(): void {
     this.queryFilterError.set('');
     this.queryProjectionError.set('');
@@ -1408,7 +2109,210 @@ export class BrainComponent implements OnInit {
     this.queryError.set('');
   }
 
+  runRecall(): void {
+    if (!this.recallForm.query.trim()) return;
+    this.recallRunning.set(true);
+    this.recallError.set('');
+    this.recallResults.set([]);
+    this.api.recallBrain(this.activeSpaceId(), {
+      query: this.recallForm.query.trim(),
+      topK: this.recallForm.topK,
+      minScore: this.recallForm.minScore || undefined,
+    }).subscribe({
+      next: (res) => { this.recallRunning.set(false); this.recallResults.set(res.results); },
+      error: (err) => { this.recallRunning.set(false); this.recallError.set(err.error?.error ?? 'Search failed'); },
+    });
+  }
+
+  clearRecall(): void {
+    this.recallResults.set([]);
+    this.recallError.set('');
+  }
+
   formatQueryDoc(doc: Record<string, unknown>): string {
     return JSON.stringify(doc, null, 2);
+  }
+
+  // ── Settings tab methods ────────────────────────────────────────────────
+
+  loadSettings(): void {
+    const spaceId = this.activeSpaceId();
+    if (!spaceId) return;
+    this.settingsLoading.set(true);
+    this.settingsError.set('');
+    this.metaError.set('');
+    this.settingsSaved.set(false);
+    this.metaSaved.set(false);
+
+    const sv = this.spaces().find(s => s.space.id === spaceId);
+    if (sv) {
+      this.settingsForm.label = sv.space.label;
+      this.settingsForm.description = sv.space.description ?? '';
+    }
+
+    this.api.getSpaceMeta(spaceId).subscribe({
+      next: (meta) => {
+        this.spaceMeta.set(meta);
+        this.metaForm.validationMode = meta.validationMode ?? 'off';
+        this.metaForm.purpose = meta.purpose ?? '';
+        this.metaForm.usageNotes = meta.usageNotes ?? '';
+        this.metaForm.entityTypesStr = (meta.entityTypes ?? []).join(', ');
+        this.metaForm.edgeLabelsStr = (meta.edgeLabels ?? []).join(', ');
+        this.metaForm.tagSuggestionsStr = (meta.tagSuggestions ?? []).join(', ');
+        this.metaForm.namingPatternsJson = meta.namingPatterns && Object.keys(meta.namingPatterns).length
+          ? JSON.stringify(meta.namingPatterns, null, 2) : '';
+        this.metaForm.requiredPropertiesJson = meta.requiredProperties && Object.keys(meta.requiredProperties).length
+          ? JSON.stringify(meta.requiredProperties, null, 2) : '';
+        this.metaForm.propertySchemasJson = meta.propertySchemas && Object.keys(meta.propertySchemas).length
+          ? JSON.stringify(meta.propertySchemas, null, 2) : '';
+        this.settingsLoading.set(false);
+      },
+      error: () => {
+        this.spaceMeta.set(null);
+        this.settingsLoading.set(false);
+      },
+    });
+  }
+
+  saveSpaceSettings(): void {
+    const spaceId = this.activeSpaceId();
+    if (!spaceId) return;
+    this.settingsSaving.set(true);
+    this.settingsError.set('');
+    this.settingsSaved.set(false);
+    this.api.updateSpace(spaceId, {
+      label: this.settingsForm.label.trim(),
+      description: this.settingsForm.description.trim(),
+    }).subscribe({
+      next: ({ space }) => {
+        this.settingsSaving.set(false);
+        this.settingsSaved.set(true);
+        // Update the local space list to reflect changes
+        this.spaces.update(list =>
+          list.map(sv => sv.space.id === spaceId ? { ...sv, space: { ...sv.space, label: space.label, description: space.description } } : sv),
+        );
+        setTimeout(() => this.settingsSaved.set(false), 3000);
+      },
+      error: (err) => {
+        this.settingsSaving.set(false);
+        this.settingsError.set(err.error?.error ?? 'Failed to save');
+      },
+    });
+  }
+
+  saveMetaSettings(): void {
+    const spaceId = this.activeSpaceId();
+    if (!spaceId) return;
+    this.metaSaving.set(true);
+    this.metaError.set('');
+    this.metaSaved.set(false);
+
+    const parseList = (s: string): string[] => s.split(',').map(v => v.trim()).filter(Boolean);
+
+    const meta: Partial<SpaceMeta> = {
+      validationMode: this.metaForm.validationMode,
+      purpose: this.metaForm.purpose.trim() || undefined,
+      usageNotes: this.metaForm.usageNotes.trim() || undefined,
+      entityTypes: parseList(this.metaForm.entityTypesStr),
+      edgeLabels: parseList(this.metaForm.edgeLabelsStr),
+      tagSuggestions: parseList(this.metaForm.tagSuggestionsStr),
+    };
+
+    // Parse optional JSON fields
+    if (this.metaForm.namingPatternsJson.trim()) {
+      try { meta.namingPatterns = JSON.parse(this.metaForm.namingPatternsJson.trim()); }
+      catch { this.metaSaving.set(false); this.metaError.set('Naming patterns must be valid JSON'); return; }
+    }
+    if (this.metaForm.requiredPropertiesJson.trim()) {
+      try { meta.requiredProperties = JSON.parse(this.metaForm.requiredPropertiesJson.trim()); }
+      catch { this.metaSaving.set(false); this.metaError.set('Required properties must be valid JSON'); return; }
+    }
+    if (this.metaForm.propertySchemasJson.trim()) {
+      try { meta.propertySchemas = JSON.parse(this.metaForm.propertySchemasJson.trim()); }
+      catch { this.metaSaving.set(false); this.metaError.set('Property schemas must be valid JSON'); return; }
+    }
+
+    this.api.updateSpace(spaceId, { meta }).subscribe({
+      next: () => {
+        this.metaSaving.set(false);
+        this.metaSaved.set(true);
+        setTimeout(() => this.metaSaved.set(false), 3000);
+      },
+      error: (err) => {
+        this.metaSaving.set(false);
+        const errMsg = err.error?.error ?? err.error?.message ?? 'Failed to save schema';
+        this.metaError.set(errMsg);
+      },
+    });
+  }
+
+  // ── Space admin methods (Settings tab) ──────────────────────────────────
+
+  isActiveBuiltIn(): boolean {
+    const sv = this.spaces().find(s => s.space.id === this.activeSpaceId());
+    return !!sv?.space.builtIn;
+  }
+
+  adminCreateSpace(): void {
+    if (!this.newSpaceForm.label.trim()) return;
+    this.creatingNewSpace.set(true);
+    this.spaceAdminError.set('');
+    const body: { label: string; id?: string; description?: string } = { label: this.newSpaceForm.label.trim() };
+    if (this.newSpaceForm.id.trim()) body.id = this.newSpaceForm.id.trim();
+    if (this.newSpaceForm.description.trim()) body.description = this.newSpaceForm.description.trim();
+    this.api.createSpace(body).subscribe({
+      next: ({ space }) => {
+        this.creatingNewSpace.set(false);
+        this.showCreateSpaceDialog.set(false);
+        this.newSpaceForm = { label: '', id: '', description: '' };
+        this.spaces.update(list => [...list, { space }]);
+        this.selectSpace(space.id);
+      },
+      error: (err) => {
+        this.creatingNewSpace.set(false);
+        this.spaceAdminError.set(err.error?.error ?? 'Failed to create space');
+      },
+    });
+  }
+
+  adminWipeSpace(): void {
+    const spaceId = this.activeSpaceId();
+    this.wipingSpace.set(true);
+    this.spaceAdminError.set('');
+    this.api.wipeSpace(spaceId).subscribe({
+      next: () => {
+        this.wipingSpace.set(false);
+        this.showWipeSpaceConfirm.set(false);
+        this.loadStats(spaceId);
+        this.loadCurrentTab(spaceId);
+      },
+      error: (err) => {
+        this.wipingSpace.set(false);
+        this.spaceAdminError.set(err.error?.error ?? 'Failed to wipe space');
+      },
+    });
+  }
+
+  adminDeleteSpace(): void {
+    const spaceId = this.activeSpaceId();
+    this.deletingSpace.set(true);
+    this.spaceAdminError.set('');
+    this.api.deleteSpace(spaceId).subscribe({
+      next: () => {
+        this.deletingSpace.set(false);
+        this.showDeleteSpaceConfirm.set(false);
+        this.spaces.update(list => list.filter(sv => sv.space.id !== spaceId));
+        const remaining = this.spaces();
+        if (remaining.length > 0) {
+          this.selectSpace(remaining[0].space.id);
+        } else {
+          this.activeSpaceId.set('');
+        }
+      },
+      error: (err) => {
+        this.deletingSpace.set(false);
+        this.spaceAdminError.set(err.error?.error ?? 'Failed to delete space');
+      },
+    });
   }
 }

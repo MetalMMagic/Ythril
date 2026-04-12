@@ -62,7 +62,7 @@ export interface SpaceConfig {
   label: string;
   builtIn: boolean;
   folders: string[];
-  minGiB?: number;
+  maxGiB?: number;
   flex?: number;
   description?: string; // shown to MCP clients as space-level instructions
   proxyFor?: string[];  // virtual proxy space — aggregates reads, routes writes to member spaces

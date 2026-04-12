@@ -9,9 +9,41 @@ export interface Space {
   label: string;
   builtIn?: boolean;
   folders?: string[];
-  minGiB?: number;
+  maxGiB?: number;
   description?: string;
   proxyFor?: string[];
+  meta?: SpaceMeta;
+}
+
+export type ValidationMode = 'off' | 'warn' | 'strict';
+export type KnowledgeType = 'entity' | 'memory' | 'edge' | 'chrono';
+
+export interface PropertySchema {
+  type?: 'string' | 'number' | 'boolean';
+  enum?: (string | number | boolean)[];
+  minimum?: number;
+  maximum?: number;
+  pattern?: string;
+}
+
+export interface SpaceMeta {
+  version?: number;
+  purpose?: string;
+  usageNotes?: string;
+  validationMode?: ValidationMode;
+  entityTypes?: string[];
+  edgeLabels?: string[];
+  namingPatterns?: Record<string, string>;
+  requiredProperties?: Partial<Record<KnowledgeType, string[]>>;
+  propertySchemas?: Partial<Record<KnowledgeType, Record<string, PropertySchema>>>;
+  tagSuggestions?: string[];
+  updatedAt?: string;
+}
+
+export interface SpaceMetaResponse extends SpaceMeta {
+  spaceId: string;
+  spaceName: string;
+  stats: SpaceStats;
 }
 
 export interface SpacesResponse {
@@ -115,6 +147,19 @@ export interface QueryResult {
 }
 
 export type WipeCollectionType = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
+
+export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
+
+export interface RecallResult {
+  type: RecallKnowledgeType;
+  score?: number;
+  [key: string]: unknown;
+}
+
+export interface RecallResponse {
+  results: RecallResult[];
+  count: number;
+}
 
 export interface WipeResult {
   memories: number;
@@ -278,12 +323,16 @@ export class ApiService {
     return this.http.get<SpacesResponse>('/api/spaces');
   }
 
-  createSpace(body: { label: string; id?: string; minGiB?: number; description?: string; proxyFor?: string[] }): Observable<{ space: Space }> {
+  createSpace(body: { label: string; id?: string; maxGiB?: number; description?: string; proxyFor?: string[] }): Observable<{ space: Space }> {
     return this.http.post<{ space: Space }>('/api/spaces', body);
   }
 
-  updateSpace(id: string, body: { label?: string; description?: string }): Observable<{ space: Space }> {
+  updateSpace(id: string, body: { label?: string; description?: string; meta?: Partial<SpaceMeta> }): Observable<{ space: Space }> {
     return this.http.patch<{ space: Space }>(`/api/spaces/${id}`, body);
+  }
+
+  getSpaceMeta(id: string): Observable<SpaceMetaResponse> {
+    return this.http.get<SpaceMetaResponse>(`/api/spaces/${id}/meta`);
   }
 
   deleteSpace(id: string): Observable<void> {
@@ -364,6 +413,18 @@ export class ApiService {
     return this.http.post<QueryResult>(`/api/brain/spaces/${spaceId}/query`, body);
   }
 
+  recallBrain(
+    spaceId: string,
+    body: {
+      query: string;
+      topK?: number;
+      types?: RecallKnowledgeType[];
+      minScore?: number;
+    },
+  ): Observable<RecallResponse> {
+    return this.http.post<RecallResponse>(`/api/brain/spaces/${spaceId}/recall`, body);
+  }
+
   // ── Brain — memories ──────────────────────────────────────────────────────
 
   listMemories(spaceId: string, limit = 20, skip = 0, filters?: { tag?: string; entity?: string }): Observable<{ memories: Memory[]; limit: number; skip: number }> {
@@ -379,6 +440,10 @@ export class ApiService {
 
   createMemory(spaceId: string, body: { fact: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean> }): Observable<Memory> {
     return this.http.post<Memory>(`/api/brain/${spaceId}/memories`, body);
+  }
+
+  updateMemory(spaceId: string, id: string, body: Partial<{ fact: string; tags: string[]; entityIds: string[]; description: string; properties: Record<string, string | number | boolean> }>): Observable<Memory> {
+    return this.http.patch<Memory>(`/api/brain/spaces/${spaceId}/memories/${id}`, body);
   }
 
   wipeMemories(spaceId: string): Observable<{ deleted: number }> {
@@ -403,6 +468,10 @@ export class ApiService {
     return this.http.post<Entity>(`/api/brain/spaces/${spaceId}/entities`, body);
   }
 
+  updateEntity(spaceId: string, id: string, body: Partial<{ name: string; type: string; description: string; tags: string[]; properties: Record<string, string | number | boolean> }>): Observable<Entity> {
+    return this.http.patch<Entity>(`/api/brain/spaces/${spaceId}/entities/${id}`, body);
+  }
+
   // ── Brain — edges ─────────────────────────────────────────────────────────
 
   listEdges(spaceId: string, limit = 50, skip = 0): Observable<{ edges: Edge[] }> {
@@ -416,6 +485,10 @@ export class ApiService {
 
   createEdge(spaceId: string, body: { from: string; to: string; label: string; weight?: number; type?: string; tags?: string[]; description?: string; properties?: Record<string, string | number | boolean> }): Observable<Edge> {
     return this.http.post<Edge>(`/api/brain/spaces/${spaceId}/edges`, body);
+  }
+
+  updateEdge(spaceId: string, id: string, body: Partial<{ label: string; description: string; tags: string[]; properties: Record<string, string | number | boolean>; weight: number; type: string }>): Observable<Edge> {
+    return this.http.patch<Edge>(`/api/brain/spaces/${spaceId}/edges/${id}`, body);
   }
 
   // ── Brain — chrono ──────────────────────────────────────────────────────

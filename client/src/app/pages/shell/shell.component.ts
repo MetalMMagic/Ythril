@@ -179,7 +179,7 @@ import { ApiService } from '../../core/api.service';
           <span class="nav-icon">📦</span>Spaces
         </a>
         <a class="nav-link" routerLink="/settings/storage" routerLinkActive="active">
-          <span class="nav-icon">💾</span>Storage
+          <span class="nav-icon">📊</span>Metrics
         </a>
         <a class="nav-link" routerLink="/settings/networks" routerLinkActive="active">
           <span class="nav-icon">🔗</span>Networks
@@ -188,7 +188,7 @@ import { ApiService } from '../../core/api.service';
           <span class="nav-icon">🔐</span>MFA
         </a>
         <a class="nav-link" routerLink="/settings/audit-log" routerLinkActive="active">
-          <span class="nav-icon">📋</span>Audit Log
+          <span class="nav-icon">📋</span>Logs
         </a>
         <a class="nav-link" routerLink="/settings/about" routerLinkActive="active">
           <span class="nav-icon">ℹ️</span>About

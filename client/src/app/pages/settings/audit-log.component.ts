@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, OnDestroy, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from '../../core/api.service';
@@ -148,7 +148,44 @@ import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from 
     .error-msg { color: var(--danger, #e53e3e); margin: 12px 0; }
   `],
   template: `
-    <h2>Audit Log</h2>
+    <h2>Logs</h2>
+
+    <!-- Sub-tabs -->
+    <div style="display:flex; gap:8px; margin-bottom:16px;">
+      <button class="btn btn-sm" [class.btn-primary]="activeLogTab() === 'audit'" [class.btn-secondary]="activeLogTab() !== 'audit'" (click)="activeLogTab.set('audit')">Audit Log</button>
+      <button class="btn btn-sm" [class.btn-primary]="activeLogTab() === 'server'" [class.btn-secondary]="activeLogTab() !== 'server'" (click)="activeLogTab.set('server')">Server Log</button>
+    </div>
+
+    @if (activeLogTab() === 'server') {
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
+        <button class="btn btn-sm" [class.btn-primary]="serverLogStreaming()" [class.btn-secondary]="!serverLogStreaming()" (click)="toggleServerLogStream()">
+          {{ serverLogStreaming() ? '⏸ Pause' : '▶ Stream' }}
+        </button>
+        <button class="btn btn-sm btn-secondary" (click)="loadServerLogs()">Refresh</button>
+        <span style="flex:1;"></span>
+        <span style="font-size:12px; color:var(--text-muted);">{{ serverLogLines().length }} lines</span>
+      </div>
+
+      @if (serverLogLoading()) {
+        <div class="empty" style="padding:24px;">
+          <span class="spinner"></span> Loading…
+        </div>
+      } @else if (serverLogLines().length === 0) {
+        <div class="empty" style="padding:40px;">
+          <div style="font-size:24px;">📋</div>
+          <h3>Server Log</h3>
+          <p style="color:var(--text-muted);">No log output yet.</p>
+        </div>
+      } @else {
+        <div style="background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--radius-sm); overflow:auto; max-height:70vh; font-family:var(--font-mono); font-size:12px; line-height:1.6; padding:12px; white-space:pre-wrap; word-break:break-all;" #serverLogContainer>
+          @for (line of serverLogLines(); track $index) {
+            <div [style.color]="serverLogColor(line)">{{ line }}</div>
+          }
+        </div>
+      }
+    }
+
+    @if (activeLogTab() === 'audit') {
 
     <!-- Filters -->
     <div class="audit-toolbar">
@@ -268,11 +305,14 @@ import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from 
         </div>
       </div>
     }
+
+    } <!-- end audit tab -->
   `,
 })
-export class AuditLogComponent implements OnInit {
+export class AuditLogComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
 
+  activeLogTab = signal<'audit' | 'server'>('audit');
   loading = signal(true);
   error = signal('');
   entries = signal<AuditLogEntry[]>([]);
@@ -290,6 +330,13 @@ export class AuditLogComponent implements OnInit {
   filterIp = '';
 
   readonly pageSize = 100;
+
+  // Server log state
+  serverLogLines = signal<string[]>([]);
+  serverLogLoading = signal(false);
+  serverLogStreaming = signal(false);
+  private serverLogEventSource: EventSource | null = null;
+
   readonly operations = [
     'memory.create', 'memory.update', 'memory.delete',
     'entity.create', 'entity.update', 'entity.delete',
@@ -403,5 +450,64 @@ export class AuditLogComponent implements OnInit {
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  // ── Server Log ─────────────────────────────────────────────────────────────
+
+  loadServerLogs(): void {
+    this.serverLogLoading.set(true);
+    this.api.getAboutLogs(500).subscribe({
+      next: ({ lines }) => {
+        this.serverLogLines.set(lines);
+        this.serverLogLoading.set(false);
+      },
+      error: () => this.serverLogLoading.set(false),
+    });
+  }
+
+  toggleServerLogStream(): void {
+    if (this.serverLogStreaming()) {
+      this.stopServerLogStream();
+    } else {
+      this.startServerLogStream();
+    }
+  }
+
+  private startServerLogStream(): void {
+    // First load existing lines, then start SSE stream
+    this.loadServerLogs();
+    const token = localStorage.getItem('ythril_token') ?? '';
+    const es = new EventSource(`/api/about/logs/stream?token=${encodeURIComponent(token)}`);
+    es.onmessage = (event) => {
+      this.serverLogLines.update(lines => {
+        const updated = [...lines, event.data];
+        return updated.length > 1000 ? updated.slice(-1000) : updated;
+      });
+    };
+    es.onerror = () => {
+      // SSE connection lost — stop streaming
+      this.stopServerLogStream();
+    };
+    this.serverLogEventSource = es;
+    this.serverLogStreaming.set(true);
+  }
+
+  private stopServerLogStream(): void {
+    if (this.serverLogEventSource) {
+      this.serverLogEventSource.close();
+      this.serverLogEventSource = null;
+    }
+    this.serverLogStreaming.set(false);
+  }
+
+  serverLogColor(line: string): string {
+    if (line.includes('[ERROR]')) return 'var(--danger, #e53e3e)';
+    if (line.includes('[WARN ')) return 'var(--warning, #d29922)';
+    if (line.includes('[DEBUG]')) return 'var(--text-muted)';
+    return 'var(--text-primary)';
+  }
+
+  ngOnDestroy(): void {
+    this.stopServerLogStream();
   }
 }

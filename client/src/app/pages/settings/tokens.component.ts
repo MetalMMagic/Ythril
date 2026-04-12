@@ -189,6 +189,40 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
     .dot-active { background: var(--success); }
     .dot-expired { background: var(--error); }
     .dot-never-used { background: var(--text-muted); }
+    .styled-input {
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      font-family: var(--font);
+    }
+    .dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .dialog {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .dialog-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
   `],
   template: `
     <!-- New token success banner -->
@@ -221,121 +255,107 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
       </div>
     }
 
-    <!-- Create token form -->
-    <div class="card" style="margin-bottom: 24px;">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Create token</div>
-          <div class="card-subtitle">API tokens grant programmatic access to this brain. Keep them secret.</div>
+    <!-- Create token form (dialog) -->
+    @if (showCreateDialog()) {
+      <div class="dialog-backdrop" (click)="showCreateDialog.set(false)">
+        <div class="dialog" (click)="$event.stopPropagation()">
+          <div class="dialog-header">
+            <div class="card-title">Create token</div>
+            <button class="icon-btn" aria-label="Close dialog" (click)="showCreateDialog.set(false)">✕</button>
+          </div>
+
+          @if (createError()) {
+            <div class="alert alert-error" style="margin-bottom:16px;">{{ createError() }}</div>
+          }
+
+          <form (ngSubmit)="createToken()" #f="ngForm">
+            <div class="form-grid">
+              <div class="field" style="margin-bottom:0;">
+                <label>Label</label>
+                <input type="text" [(ngModel)]="newName" name="name" placeholder="My CLI token" maxlength="200" required />
+              </div>
+              <div class="field" style="margin-bottom:0;">
+                <label>Expires (optional)</label>
+                <input type="date" class="styled-input" [(ngModel)]="newExpiry" name="expiry" />
+              </div>
+            </div>
+
+            <div class="field" style="margin-top:12px; margin-bottom:0;">
+              <label>Spaces (optional)</label>
+              @if (spacesLoadFailed()) {
+                <div class="alert alert-error" style="margin-bottom:6px; font-size:12px;">⚠️ Could not load spaces — enter IDs manually.</div>
+                <input type="text" [(ngModel)]="newSpacesFallback" name="spaces" placeholder="Comma-separated space IDs, e.g. general, project-x" />
+              } @else if (availableSpaces().length === 0) {
+                <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Loading spaces…</div>
+              } @else {
+                <div class="table-wrapper" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                  <table style="margin:0;">
+                    <thead>
+                      <tr>
+                        <th style="width:40px; text-align:center;">
+                          <input type="checkbox" [checked]="newSelectedSpaces.length === 0" (change)="selectAllSpaces()" title="Grant access to all spaces (deselect all)" />
+                        </th>
+                        <th>Space <span style="font-size:10px; color:var(--text-muted); font-weight:400;">— check none for full access</span></th>
+                        <th>ID</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (s of availableSpaces(); track s.id) {
+                        <tr style="cursor:pointer;" (click)="toggleSpace(s.id)">
+                          <td style="text-align:center;">
+                            <input type="checkbox" [checked]="isSpaceSelected(s.id)" (click)="$event.stopPropagation()" (change)="toggleSpace(s.id)" />
+                          </td>
+                          <td>{{ s.label }}</td>
+                          <td><span class="badge badge-gray mono" style="font-size:11px;">{{ s.id }}</span></td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+              <div class="scope-hint">Leave blank / deselect all to grant access to all spaces.</div>
+            </div>
+
+            <div class="field" style="margin-top:12px; margin-bottom:0;">
+              <label>Permission level</label>
+              <div class="permission-radio-group">
+                <label class="permission-radio-item">
+                  <input type="radio" name="permission" value="readOnly" [(ngModel)]="newPermission" />
+                  Read-only
+                </label>
+                <label class="permission-radio-item">
+                  <input type="radio" name="permission" value="standard" [(ngModel)]="newPermission" />
+                  Standard
+                </label>
+                @if (selfToken()?.admin) {
+                  <label class="permission-radio-item">
+                    <input type="radio" name="permission" value="admin" [(ngModel)]="newPermission" />
+                    Admin
+                  </label>
+                }
+              </div>
+            </div>
+
+            <div class="form-grid-bottom" style="margin-top:12px;">
+              <button class="btn-secondary btn" type="button" (click)="showCreateDialog.set(false)">Cancel</button>
+              <button class="btn-primary btn" type="submit" style="margin-left:auto;" [disabled]="creating() || !newName.trim()">
+                @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                Create token
+              </button>
+            </div>
+          </form>
         </div>
       </div>
-
-      @if (createError()) {
-        <div class="alert alert-error" style="margin-bottom:16px;">{{ createError() }}</div>
-      }
-
-      <form (ngSubmit)="createToken()" #f="ngForm">
-        <div class="form-grid">
-          <div class="field" style="margin-bottom:0;">
-            <label>Label</label>
-            <input type="text" [(ngModel)]="newName" name="name" placeholder="My CLI token" maxlength="200" required />
-          </div>
-          <div class="field" style="margin-bottom:0;">
-            <label>Expires (optional)</label>
-            <input type="date" [(ngModel)]="newExpiry" name="expiry" />
-          </div>
-        </div>
-
-        <div class="field" style="margin-top:12px; margin-bottom:0;">
-          <label>Spaces (optional)</label>
-          @if (spacesLoadFailed()) {
-            <div class="alert alert-error" style="margin-bottom:6px; font-size:12px;">⚠️ Could not load spaces — enter IDs manually.</div>
-            <input type="text" [(ngModel)]="newSpacesFallback" name="spaces" placeholder="Comma-separated space IDs, e.g. general, project-x" />
-          } @else if (availableSpaces().length === 0) {
-            <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Loading spaces…</div>
-          } @else {
-            <div class="spaces-toggle-list">
-              @for (s of availableSpaces(); track s.id) {
-                <label class="space-toggle-item">
-                  <input type="checkbox" [checked]="isSpaceSelected(s.id)" (change)="toggleSpace(s.id)" />
-                  <span>{{ s.label }}</span>
-                  <span class="space-id">{{ s.id }}</span>
-                </label>
-              }
-            </div>
-          }
-          <div class="scope-hint">Leave blank / deselect all to grant access to all spaces.</div>
-        </div>
-
-        <div class="field" style="margin-top:12px; margin-bottom:0;">
-          <label>Permission level</label>
-          <div class="permission-radio-group">
-            <label class="permission-radio-item">
-              <input type="radio" name="permission" value="readOnly" [(ngModel)]="newPermission" />
-              Read-only
-            </label>
-            <label class="permission-radio-item">
-              <input type="radio" name="permission" value="standard" [(ngModel)]="newPermission" />
-              Standard
-            </label>
-            @if (selfToken()?.admin) {
-              <label class="permission-radio-item">
-                <input type="radio" name="permission" value="admin" [(ngModel)]="newPermission" />
-                Admin
-              </label>
-            }
-          </div>
-          <table class="capability-table" aria-label="Permission level capabilities">
-            <thead>
-              <tr>
-                <th scope="col">Level</th>
-                <th scope="col">Read brain</th>
-                <th scope="col">Recall</th>
-                <th scope="col">Write brain</th>
-                <th scope="col">Write files</th>
-                <th scope="col">Sync</th>
-                <th scope="col">Manage tokens</th>
-                <th scope="col">Manage spaces &amp; networks</th>
-                <th scope="col">Reload config</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr [class.active-row]="newPermission === 'readOnly'">
-                <td>Read-only</td>
-                <td class="cap-yes">✅</td><td class="cap-yes">✅</td>
-                <td class="cap-no">❌</td><td class="cap-no">❌</td><td class="cap-no">❌</td>
-                <td class="cap-no">❌</td><td class="cap-no">❌</td><td class="cap-no">❌</td>
-              </tr>
-              <tr [class.active-row]="newPermission === 'standard'">
-                <td>Standard</td>
-                <td class="cap-yes">✅</td><td class="cap-yes">✅</td>
-                <td class="cap-yes">✅</td><td class="cap-yes">✅</td><td class="cap-yes">✅</td>
-                <td class="cap-no">❌</td><td class="cap-no">❌</td><td class="cap-no">❌</td>
-              </tr>
-              <tr [class.active-row]="newPermission === 'admin'">
-                <td>Admin</td>
-                <td class="cap-yes">✅</td><td class="cap-yes">✅</td>
-                <td class="cap-yes">✅</td><td class="cap-yes">✅</td><td class="cap-yes">✅</td>
-                <td class="cap-yes">✅</td><td class="cap-yes">✅</td><td class="cap-yes">✅</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="form-grid-bottom" style="margin-top:12px;">
-          <button class="btn-primary btn" type="submit" style="margin-left:auto;" [disabled]="creating() || !newName.trim()">
-            @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-            Create token
-          </button>
-        </div>
-      </form>
-    </div>
+    }
 
     <!-- Token list -->
     <div class="card">
       <div class="card-header">
         <div class="card-title">Active tokens</div>
-        <button class="btn-secondary btn btn-sm" (click)="load()">Refresh</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-primary btn btn-sm" (click)="showCreateDialog.set(true)">Create Token</button>
+          <button class="btn-secondary btn btn-sm" (click)="load()">Refresh</button>
+        </div>
       </div>
 
       @if (loading()) {
@@ -345,7 +365,7 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
           <table>
             <thead>
               <tr>
-                <th>Label</th><th>Created</th><th>Last used</th><th>Expires</th><th>Spaces</th><th></th>
+                <th>Label</th><th>Permission</th><th>Created</th><th>Last used</th><th>Expires</th><th>Spaces</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -354,9 +374,12 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
                   <td style="font-weight:500;">
                     <span class="token-status-dot" [class.dot-active]="!isExpired(t)" [class.dot-expired]="isExpired(t)"></span>
                     {{ t.name }}
-                    @if (t.admin) { <span class="badge-admin" style="margin-left:6px;">admin</span> }
-                    @if (t.readOnly) { <span class="badge-readonly" style="margin-left:6px;">read-only</span> }
                     @if (t.id === selfToken()?.id) { <span style="margin-left:6px;font-size:0.75rem;color:var(--text-muted);">(current session)</span> }
+                  </td>
+                  <td>
+                    @if (t.admin) { <span class="badge-admin">admin</span> }
+                    @else if (t.readOnly) { <span class="badge-readonly">read-only</span> }
+                    @else { <span class="badge badge-gray">standard</span> }
                   </td>
                   <td style="color:var(--text-muted)">{{ t.createdAt | date:'MMM d, y' }}</td>
                   <td style="color:var(--text-muted)">
@@ -388,7 +411,7 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
                   </td>
                 </tr>
               } @empty {
-                <tr><td colspan="6">
+                <tr><td colspan="7">
                   <div class="empty-state" style="padding:24px;">
                     <h3>No tokens yet</h3>
                   </div>
@@ -410,6 +433,7 @@ export class TokensComponent implements OnInit {
   loading = signal(true);
   creating = signal(false);
   createError = signal('');
+  showCreateDialog = signal(false);
   newName = '';
   newExpiry = '';
   newPermission: 'readOnly' | 'standard' | 'admin' = 'standard';
@@ -459,6 +483,7 @@ export class TokensComponent implements OnInit {
     this.api.createToken(body).subscribe({
       next: ({ token, plaintext }) => {
         this.creating.set(false);
+        this.showCreateDialog.set(false);
         this.tokens.update(list => [token, ...list]);
         this.newToken.set(plaintext);
         this.newName = '';
@@ -484,6 +509,10 @@ export class TokensComponent implements OnInit {
     } else {
       this.newSelectedSpaces = [...this.newSelectedSpaces, id];
     }
+  }
+
+  selectAllSpaces(): void {
+    this.newSelectedSpaces = [];
   }
 
   regenerate(t: TokenRecord): void {

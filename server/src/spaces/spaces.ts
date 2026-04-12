@@ -214,7 +214,7 @@ export async function createSpace(opts: {
   label: string;
   description?: string;
   folders?: string[];
-  minGiB?: number;
+  maxGiB?: number;
   proxyFor?: string[];
 }): Promise<SpaceConfig> {
   const cfg = getConfig();
@@ -226,7 +226,7 @@ export async function createSpace(opts: {
     label: opts.label,
     builtIn: false,
     folders: opts.folders ?? [],
-    minGiB: opts.minGiB,
+    maxGiB: opts.maxGiB,
     description: opts.description,
     ...(opts.proxyFor ? { proxyFor: opts.proxyFor } : {}),
   };

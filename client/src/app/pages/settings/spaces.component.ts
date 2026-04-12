@@ -30,66 +30,117 @@ import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
     .space-toggle-item:hover { background: var(--bg-elevated); }
     .space-toggle-item input[type=checkbox] { width: 13px; height: 13px; margin: 0; flex-shrink: 0; }
     .space-toggle-item .space-id { color: var(--text-muted); font-size: 11px; font-family: var(--font-mono); }
+    .dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .dialog {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      width: 90%;
+      max-width: 700px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .dialog-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
   `],
   template: `
-    <!-- Create space -->
-    <div class="card" style="margin-bottom: 24px;">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Create space</div>
-          <div class="card-subtitle">Spaces isolate brain and file storage.</div>
+    <!-- Create space dialog -->
+    @if (showCreateDialog()) {
+      <div class="dialog-backdrop" (click)="showCreateDialog.set(false)">
+        <div class="dialog" (click)="$event.stopPropagation()">
+          <div class="dialog-header">
+            <div class="card-title">Create space</div>
+            <button class="icon-btn" aria-label="Close dialog" (click)="showCreateDialog.set(false)">✕</button>
+          </div>
+
+          @if (createError()) {
+            <div class="alert alert-error">{{ createError() }}</div>
+          }
+
+          <form (ngSubmit)="createSpace()" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
+            <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+              <label>Display Name</label>
+              <input type="text" [(ngModel)]="form.label" name="label" placeholder="Display Name" maxlength="200" required />
+            </div>
+            <div class="field" style="width:140px; margin-bottom:0;">
+              <label>ID (optional)</label>
+              <input type="text" [(ngModel)]="form.id" name="id" placeholder="my-space" pattern="[a-z0-9-]+" />
+            </div>
+            <div class="field" style="width:120px; margin-bottom:0;">
+              <label>Max GiB</label>
+              <input type="number" [(ngModel)]="form.maxGiB" name="maxGiB" min="0" step="0.1" placeholder="—" />
+            </div>
+            <div style="display:flex; gap:12px; flex-basis:100%;">
+              <div class="field" style="flex:1; margin-bottom:0;">
+                <label>Description (optional)</label>
+                <textarea [(ngModel)]="form.description" name="description" placeholder="Purpose and instructions for this space" maxlength="4000" rows="5" style="resize:vertical;"></textarea>
+              </div>
+              <div class="field" style="flex:1; margin-bottom:0;">
+                <label>Proxy for (optional)</label>
+                @if (spaces().length > 0) {
+                  <div class="table-wrapper" style="max-height:180px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                    <table style="margin:0;">
+                      <thead>
+                        <tr>
+                          <th style="width:40px; text-align:center;">
+                            <input type="checkbox" [checked]="proxyForAll" (change)="toggleProxyForAll()" title="All spaces" />
+                          </th>
+                          <th>Space</th>
+                          <th>ID</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (s of spaces(); track s.id) {
+                          <tr style="cursor:pointer;" (click)="toggleProxyFor(s.id)">
+                            <td style="text-align:center;">
+                              <input type="checkbox" [checked]="isProxyForSelected(s.id)" (click)="$event.stopPropagation()" (change)="toggleProxyFor(s.id)" [disabled]="proxyForAll" />
+                            </td>
+                            <td>{{ s.label }}</td>
+                            <td><span class="badge badge-gray mono" style="font-size:11px;">{{ s.id }}</span></td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">Check "All" to proxy reads from all spaces.</div>
+                } @else {
+                  <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">No existing spaces to select.</div>
+                }
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; flex-basis:100%;">
+              <button class="btn-secondary btn" type="button" (click)="showCreateDialog.set(false)">Cancel</button>
+              <button class="btn-primary btn" type="submit" style="margin-left:auto;" [disabled]="creating() || !form.label.trim()">
+                @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                Create
+              </button>
+            </div>
+          </form>
         </div>
       </div>
-
-      @if (createError()) {
-        <div class="alert alert-error">{{ createError() }}</div>
-      }
-
-      <form (ngSubmit)="createSpace()" style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap;">
-        <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-          <label>Label</label>
-          <input type="text" [(ngModel)]="form.label" name="label" placeholder="Work" maxlength="200" required />
-        </div>
-        <div class="field" style="width:140px; margin-bottom:0;">
-          <label>ID (optional)</label>
-          <input type="text" [(ngModel)]="form.id" name="id" placeholder="work" pattern="[a-z0-9-]+" />
-        </div>
-        <div class="field" style="width:120px; margin-bottom:0;">
-          <label>Min GiB</label>
-          <input type="number" [(ngModel)]="form.minGiB" name="minGiB" min="0" step="0.1" placeholder="—" />
-        </div>
-        <div class="field" style="flex-basis:100%; margin-bottom:0;">
-          <label>MCP Description (optional)</label>
-          <textarea [(ngModel)]="form.description" name="description" placeholder="Instructions surfaced to MCP-connected AI clients for this space" maxlength="4000" rows="10" style="resize:vertical;"></textarea>
-        </div>
-        <div class="field" style="flex-basis:100%; margin-bottom:0;">
-          <label>Proxy for (optional)</label>
-          @if (spaces().length > 0) {
-            <div class="spaces-toggle-list">
-              @for (s of spaces(); track s.id) {
-                <label class="space-toggle-item">
-                  <input type="checkbox" [checked]="isProxyForSelected(s.id)" (change)="toggleProxyFor(s.id)" />
-                  <span>{{ s.label }}</span>
-                  <span class="space-id">{{ s.id }}</span>
-                </label>
-              }
-            </div>
-          } @else {
-            <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">No existing spaces to select.</div>
-          }
-        </div>
-        <button class="btn-primary btn" type="submit" [disabled]="creating() || !form.label.trim()">
-          @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-          Create
-        </button>
-      </form>
-    </div>
+    }
 
     <!-- Space list -->
     <div class="card">
       <div class="card-header">
         <div class="card-title">Spaces</div>
-        <button class="btn-secondary btn btn-sm" (click)="load()">Refresh</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-primary btn btn-sm" (click)="showCreateDialog.set(true)">Create New Space</button>
+          <button class="btn-secondary btn btn-sm" (click)="load()">Refresh</button>
+        </div>
       </div>
 
       @if (loading()) {
@@ -98,7 +149,7 @@ import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
         <div class="table-wrapper">
           <table>
             <thead>
-              <tr><th>Label</th><th>ID</th><th>MCP Description</th><th>Min storage</th><th>Networks</th><th>Proxy</th><th>Built-in</th><th></th></tr>
+              <tr><th>Label</th><th>ID</th><th>Description</th><th>Max storage</th><th>Networks</th><th>Proxy</th><th>Built-in</th><th></th></tr>
             </thead>
             <tbody>
               @for (s of spaces(); track s.id) {
@@ -106,7 +157,7 @@ import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
                   <td style="font-weight:500;">{{ s.label }}</td>
                   <td><span class="badge badge-gray mono">{{ s.id }}</span></td>
                   <td style="color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="s.description ?? ''">{{ s.description ?? '—' }}</td>
-                  <td style="color:var(--text-muted)">{{ s.minGiB ? s.minGiB + ' GiB' : '—' }}</td>
+                  <td style="color:var(--text-muted)">{{ s.maxGiB ? s.maxGiB + ' GiB' : '—' }}</td>
                   <td>
                     @if (networksForSpace(s.id).length) {
                       @for (n of networksForSpace(s.id); track n.id) {
@@ -237,6 +288,7 @@ export class SpacesComponent implements OnInit {
   loading = signal(true);
   creating = signal(false);
   createError = signal('');
+  showCreateDialog = signal(false);
   renaming = signal<string | null>(null);
   renameNewId = '';
   static readonly DEFAULT_MCP_DESC = [
@@ -273,8 +325,9 @@ export class SpacesComponent implements OnInit {
     '  sync_now(peerId?)           — trigger immediate sync cycle',
   ].join('\n');
 
-  form = { label: '', id: '', minGiB: null as number | null, description: SpacesComponent.DEFAULT_MCP_DESC };
+  form = { label: '', id: '', maxGiB: null as number | null, description: SpacesComponent.DEFAULT_MCP_DESC };
   proxyForSelected: string[] = [];
+  proxyForAll = false;
 
   editTarget = signal<Space | null>(null);
   editForm = { label: '', description: '' };
@@ -310,10 +363,20 @@ export class SpacesComponent implements OnInit {
   }
 
   toggleProxyFor(id: string): void {
+    if (this.proxyForAll) return;
     if (this.proxyForSelected.includes(id)) {
       this.proxyForSelected = this.proxyForSelected.filter(s => s !== id);
     } else {
       this.proxyForSelected = [...this.proxyForSelected, id];
+    }
+  }
+
+  toggleProxyForAll(): void {
+    this.proxyForAll = !this.proxyForAll;
+    if (this.proxyForAll) {
+      this.proxyForSelected = this.spaces().map(s => s.id);
+    } else {
+      this.proxyForSelected = [];
     }
   }
 
@@ -322,17 +385,18 @@ export class SpacesComponent implements OnInit {
     this.creating.set(true);
     this.createError.set('');
 
-    const body: { label: string; id?: string; minGiB?: number; description?: string; proxyFor?: string[] } = { label: this.form.label.trim() };
+    const body: { label: string; id?: string; maxGiB?: number; description?: string; proxyFor?: string[] } = { label: this.form.label.trim() };
     if (this.form.id.trim()) body.id = this.form.id.trim();
-    if (this.form.minGiB) body.minGiB = this.form.minGiB;
+    if (this.form.maxGiB) body.maxGiB = this.form.maxGiB;
     if (this.form.description.trim()) body.description = this.form.description.trim();
     if (this.proxyForSelected.length) body.proxyFor = [...this.proxyForSelected];
 
     this.api.createSpace(body).subscribe({
       next: ({ space }) => {
         this.creating.set(false);
+        this.showCreateDialog.set(false);
         this.spaces.update(list => [...list, space]);
-        this.form = { label: '', id: '', minGiB: null, description: SpacesComponent.DEFAULT_MCP_DESC };
+        this.form = { label: '', id: '', maxGiB: null, description: SpacesComponent.DEFAULT_MCP_DESC };
         this.proxyForSelected = [];
       },
       error: (err) => {

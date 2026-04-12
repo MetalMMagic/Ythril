@@ -108,147 +108,41 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
     .space-toggle-item:hover { background: var(--bg-elevated); }
     .space-toggle-item input[type=checkbox] { width: 13px; height: 13px; margin: 0; flex-shrink: 0; }
     .space-toggle-item .space-id { color: var(--text-muted); font-size: 11px; font-family: var(--font-mono); }
+    .dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .dialog {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .dialog-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
   `],
   template: `
-    <div class="create-join-row">
-    <!-- Create network -->
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Create network</div>
-          <div class="card-subtitle">A network syncs selected spaces between brain instances.</div>
-        </div>
+    <!-- Network list (shown first) -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <div class="card-title">Networks</div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn-primary btn btn-sm" (click)="showCreateDialog.set(true)">Create Network</button>
+        <button class="btn-secondary btn btn-sm" (click)="showJoinDialog.set(true)">Join Network</button>
       </div>
-
-      @if (createError()) { <div class="alert alert-error">{{ createError() }}</div> }
-
-      <form (ngSubmit)="createNetwork()" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:end;">
-        <div class="field" style="margin-bottom:0;">
-          <label>Network label</label>
-          <input type="text" [(ngModel)]="form.label" name="label" placeholder="Team Brain" required />
-        </div>
-        <div class="field" style="margin-bottom:0;">
-          <label>Type</label>
-          <select [(ngModel)]="form.type" name="type">
-            <option value="closed">Closed (invite only)</option>
-            <option value="democratic">Democratic (majority vote)</option>
-            <option value="club">Club (supermajority)</option>
-            <option value="braintree">Braintree (hierarchical)</option>
-            <option value="pubsub">Pub/Sub (publisher → subscribers)</option>
-          </select>
-        </div>
-        <div class="field" style="margin-bottom:0;">
-          <label>Spaces</label>
-          @if (spacesLoadFailed()) {
-            <div class="alert alert-error" style="margin-bottom:6px; font-size:12px;">⚠️ Could not load spaces — enter IDs manually.</div>
-            <input type="text" [(ngModel)]="networkSpacesFallback" name="spaces" placeholder="general" />
-          } @else if (availableSpaces().length === 0) {
-            <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Loading spaces…</div>
-          } @else {
-            <div class="spaces-toggle-list">
-              @for (s of availableSpaces(); track s.id) {
-                <label class="space-toggle-item">
-                  <input type="checkbox" [checked]="isNetworkSpaceSelected(s.id)" (change)="toggleNetworkSpace(s.id)" />
-                  <span>{{ s.label }}</span>
-                  <span class="space-id">{{ s.id }}</span>
-                </label>
-              }
-            </div>
-          }
-        </div>
-        @if (form.type !== 'pubsub') {
-          <div class="field" style="margin-bottom:0;">
-            <label>Voting deadline (hours)</label>
-            <input type="number" [(ngModel)]="form.votingDeadlineHours" name="deadline" min="1" max="72" />
-          </div>
-        }
-        <button
-          class="btn-primary btn"
-          type="submit"
-          style="grid-column:span 2;"
-          [disabled]="creating() || !form.label.trim()"
-        >
-          @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-          Create network
-        </button>
-      </form>
     </div>
-
-    <!-- Join existing network -->
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">Join an existing network</div>
-          <div class="card-subtitle">
-            Paste the invite bundle from another brain to sync spaces with it.
-          </div>
-        </div>
-      </div>
-
-      @if (joinError()) { <div class="alert alert-error">{{ joinError() }}</div> }
-      @if (joinSuccess()) { <div class="alert alert-success">{{ joinSuccess() }}</div> }
-
-      <div class="field">
-        <label>Invite bundle (JSON)</label>
-        <textarea
-          [(ngModel)]="joinBundle"
-          name="joinBundle"
-          rows="5"
-          placeholder='Paste the invite bundle generated by the other brain here...'
-          aria-label="Invite bundle JSON"
-          style="font-family:var(--font-mono); font-size:12px; resize:vertical;"
-        ></textarea>
-      </div>
-
-      @if (joinCollisionSpaces().length > 0) {
-        <div style="margin:0 0 12px; padding:12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-elevated);">
-          <div style="font-weight:600; font-size:13px; margin-bottom:8px;">⚠ Space name collisions</div>
-          <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px;">
-            The remote network includes spaces that already exist locally.
-            Choose to merge into the existing space or create a new local alias.
-          </p>
-          @for (remoteId of joinCollisionSpaces(); track remoteId) {
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-              <span class="badge badge-gray mono" style="min-width:80px;">{{ remoteId }}</span>
-              <select
-                [ngModel]="joinSpaceActions[remoteId]"
-                (ngModelChange)="onCollisionActionChange(remoteId, $event)"
-                [name]="'collision-' + remoteId"
-                style="width:140px;"
-              >
-                <option value="merge">Merge into existing</option>
-                <option value="alias">Create alias</option>
-              </select>
-              @if (joinSpaceActions[remoteId] === 'alias') {
-                <input
-                  type="text"
-                  [(ngModel)]="joinSpaceAliases[remoteId]"
-                  [name]="'alias-' + remoteId"
-                  placeholder="local-id"
-                  pattern="[a-z0-9-]+"
-                  maxlength="40"
-                  style="width:140px; padding:4px 8px; font-size:12px;"
-                  required
-                />
-              }
-            </div>
-          }
-        </div>
-      }
-
-      <button
-        class="btn-primary btn"
-        (click)="joinCollisionSpaces().length > 0 ? confirmJoin() : joinNetwork()"
-        [disabled]="joining() || !joinBundle.trim() || !joinMyUrl.trim()"
-      >
-        @if (joining()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-        {{ joinCollisionSpaces().length > 0 ? 'Confirm and join' : 'Join network' }}
-      </button>
-    </div>
-    </div>
-
-    <!-- Network list -->
-    <div class="card-title" style="margin-bottom:12px;">Networks</div>
 
     @if (loading()) {
       <div class="loading-overlay"><span class="spinner"></span></div>
@@ -256,7 +150,7 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
       <div class="empty-state">
         <div class="empty-state-icon">🔗</div>
         <h3>No networks</h3>
-        <p>Create a network to start syncing with peers.</p>
+        <p>Create a network or join an existing one to start syncing with peers.</p>
       </div>
     } @else {
       @for (net of networks(); track net.id) {
@@ -403,6 +297,159 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
         </div>
       }
     }
+
+    <!-- Create Network dialog -->
+    @if (showCreateDialog()) {
+      <div class="dialog-backdrop" (click)="showCreateDialog.set(false)">
+        <div class="dialog" (click)="$event.stopPropagation()">
+          <div class="dialog-header">
+            <div class="card-title">Create network</div>
+            <button class="icon-btn" aria-label="Close dialog" (click)="showCreateDialog.set(false)">✕</button>
+          </div>
+
+          @if (createError()) { <div class="alert alert-error">{{ createError() }}</div> }
+
+          <form (ngSubmit)="createNetwork()" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:end;">
+            <div class="field" style="margin-bottom:0;">
+              <label>Network label</label>
+              <input type="text" [(ngModel)]="form.label" name="label" placeholder="Team Brain" required />
+            </div>
+            <div class="field" style="margin-bottom:0;">
+              <label>Type</label>
+              <select [(ngModel)]="form.type" name="type">
+                <option value="closed">Closed (invite only)</option>
+                <option value="democratic">Democratic (majority vote)</option>
+                <option value="club">Club (supermajority)</option>
+                <option value="braintree">Braintree (hierarchical)</option>
+                <option value="pubsub">Pub/Sub (publisher → subscribers)</option>
+              </select>
+            </div>
+            <div class="field" style="margin-bottom:0; grid-column:span 2;">
+              <label>Spaces</label>
+              @if (spacesLoadFailed()) {
+                <div class="alert alert-error" style="margin-bottom:6px; font-size:12px;">⚠️ Could not load spaces — enter IDs manually.</div>
+                <input type="text" [(ngModel)]="networkSpacesFallback" name="spaces" placeholder="general" />
+              } @else if (availableSpaces().length === 0) {
+                <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Loading spaces…</div>
+              } @else {
+                <div class="table-wrapper" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                  <table style="margin:0;">
+                    <thead>
+                      <tr>
+                        <th style="width:40px; text-align:center;">
+                          <input type="checkbox" [checked]="networkSelectAll" (change)="toggleNetworkSelectAll()" title="All spaces" />
+                        </th>
+                        <th>Space</th>
+                        <th>ID</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (s of availableSpaces(); track s.id) {
+                        <tr style="cursor:pointer;" (click)="toggleNetworkSpace(s.id)">
+                          <td style="text-align:center;">
+                            <input type="checkbox" [checked]="isNetworkSpaceSelected(s.id)" (click)="$event.stopPropagation()" (change)="toggleNetworkSpace(s.id)" />
+                          </td>
+                          <td>{{ s.label }}</td>
+                          <td><span class="badge badge-gray mono" style="font-size:11px;">{{ s.id }}</span></td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </div>
+            @if (form.type !== 'pubsub') {
+              <div class="field" style="margin-bottom:0; grid-column:span 2;">
+                <label>Voting deadline (hours)</label>
+                <input type="number" [(ngModel)]="form.votingDeadlineHours" name="deadline" min="1" max="72" />
+              </div>
+            }
+            <div style="grid-column:span 2; display:flex; gap:8px; justify-content:flex-end;">
+              <button class="btn-secondary btn" type="button" (click)="showCreateDialog.set(false)">Cancel</button>
+              <button class="btn-primary btn" type="submit" [disabled]="creating() || !form.label.trim()">
+                @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                Create network
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    }
+
+    <!-- Join Network dialog -->
+    @if (showJoinDialog()) {
+      <div class="dialog-backdrop" (click)="showJoinDialog.set(false)">
+        <div class="dialog" (click)="$event.stopPropagation()">
+          <div class="dialog-header">
+            <div class="card-title">Join an existing network</div>
+            <button class="icon-btn" aria-label="Close dialog" (click)="showJoinDialog.set(false)">✕</button>
+          </div>
+
+          @if (joinError()) { <div class="alert alert-error">{{ joinError() }}</div> }
+          @if (joinSuccess()) { <div class="alert alert-success">{{ joinSuccess() }}</div> }
+
+          <div class="field">
+            <label>Invite bundle (JSON)</label>
+            <textarea
+              [(ngModel)]="joinBundle"
+              name="joinBundle"
+              rows="5"
+              placeholder='Paste the invite bundle generated by the other brain here...'
+              aria-label="Invite bundle JSON"
+              style="font-family:var(--font-mono); font-size:12px; resize:vertical;"
+            ></textarea>
+          </div>
+
+          @if (joinCollisionSpaces().length > 0) {
+            <div style="margin:0 0 12px; padding:12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-elevated);">
+              <div style="font-weight:600; font-size:13px; margin-bottom:8px;">⚠ Space name collisions</div>
+              <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px;">
+                The remote network includes spaces that already exist locally.
+                Choose to merge into the existing space or create a new local alias.
+              </p>
+              @for (remoteId of joinCollisionSpaces(); track remoteId) {
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                  <span class="badge badge-gray mono" style="min-width:80px;">{{ remoteId }}</span>
+                  <select
+                    [ngModel]="joinSpaceActions[remoteId]"
+                    (ngModelChange)="onCollisionActionChange(remoteId, $event)"
+                    [name]="'collision-' + remoteId"
+                    style="width:140px;"
+                  >
+                    <option value="merge">Merge into existing</option>
+                    <option value="alias">Create alias</option>
+                  </select>
+                  @if (joinSpaceActions[remoteId] === 'alias') {
+                    <input
+                      type="text"
+                      [(ngModel)]="joinSpaceAliases[remoteId]"
+                      [name]="'alias-' + remoteId"
+                      placeholder="local-id"
+                      pattern="[a-z0-9-]+"
+                      maxlength="40"
+                      style="width:140px; padding:4px 8px; font-size:12px;"
+                      required
+                    />
+                  }
+                </div>
+              }
+            </div>
+          }
+
+          <div style="display:flex; gap:8px; justify-content:flex-end;">
+            <button class="btn-secondary btn" type="button" (click)="showJoinDialog.set(false)">Cancel</button>
+            <button
+              class="btn-primary btn"
+              (click)="joinCollisionSpaces().length > 0 ? confirmJoin() : joinNetwork()"
+              [disabled]="joining() || !joinBundle.trim() || !joinMyUrl.trim()"
+            >
+              @if (joining()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+              {{ joinCollisionSpaces().length > 0 ? 'Confirm and join' : 'Join network' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
   `,
 })
 export class NetworksComponent implements OnInit {
@@ -412,6 +459,8 @@ export class NetworksComponent implements OnInit {
   loading = signal(true);
   creating = signal(false);
   createError = signal('');
+  showCreateDialog = signal(false);
+  showJoinDialog = signal(false);
   expanded = signal('');
 
   form = { label: '', type: 'closed', votingDeadlineHours: 48 };
@@ -421,6 +470,7 @@ export class NetworksComponent implements OnInit {
   spacesLoadFailed = signal(false);
   networkSelectedSpaces: string[] = [];
   networkSpacesFallback = '';
+  networkSelectAll = false;
 
   private inviteBundles: Record<string, InviteBundle> = {};
   private syncResults: Record<string, { ok: boolean }> = {};
@@ -515,6 +565,7 @@ export class NetworksComponent implements OnInit {
     }).subscribe({
       next: (net) => {
         this.creating.set(false);
+        this.showCreateDialog.set(false);
         this.networks.update(list => [...list, net]);
         this.form = { label: '', type: 'closed', votingDeadlineHours: 48 };
         this.networkSelectedSpaces = [];
@@ -536,6 +587,16 @@ export class NetworksComponent implements OnInit {
       this.networkSelectedSpaces = this.networkSelectedSpaces.filter(s => s !== id);
     } else {
       this.networkSelectedSpaces = [...this.networkSelectedSpaces, id];
+    }
+    this.networkSelectAll = this.networkSelectedSpaces.length === this.availableSpaces().length;
+  }
+
+  toggleNetworkSelectAll(): void {
+    this.networkSelectAll = !this.networkSelectAll;
+    if (this.networkSelectAll) {
+      this.networkSelectedSpaces = this.availableSpaces().map(s => s.id);
+    } else {
+      this.networkSelectedSpaces = [];
     }
   }
 

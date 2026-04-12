@@ -4,6 +4,28 @@ All notable changes to Ythril are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] — 2026-04-12
+
+### Security
+
+- **Fork depth chain bypass**: The fork-depth check in the sync protocol counted only direct siblings (`countDocuments({ forkOf })`) instead of walking the chain upward. An attacker could create an unbounded A→B→C→… chain by targeting each new fork's `_id`. Replaced with `forkChainDepth()` — walks the `forkOf` chain upward with a visited-set cycle guard and hard cap at `MAX_FORK_DEPTH`. Fixed at both single-doc and batch-upsert sites.
+- **Rate-limit IP isolation**: Added `app.set('trust proxy', 1)` so `req.ip` reflects the real client address behind reverse proxies (Traefik, nginx). Without this, all clients behind Docker/K8s shared a single rate-limit bucket.
+- **Webhook secrets encrypted at rest**: Webhook secret strings are now AES-256-GCM encrypted before storage and decrypted on read. Requires `webhookEncryptionKey` in the secrets file.
+
+### Fixed
+
+- **Dynamic `import()` in sync handlers**: Replaced 4 dynamic `await import()` calls inside request handlers (`uuid`, `manifest.js`, `merkle.js`, `loader.js`) with top-level static imports. Eliminates per-request module-resolution latency.
+- **Webhook retry queue**: Replaced in-memory `setTimeout` retry chains with a MongoDB-backed retry queue (`_webhook_retry_queue` collection with `scheduledAt` index). Retries survive process restarts.
+- **Webhook auto-disable**: Webhooks that reach the maximum retry count are automatically set to `status: 'failing'` and excluded from future dispatch until re-enabled.
+- **Webhook delivery TTL**: Delivery history records are TTL-indexed (`_expireAt` + `expireAfterSeconds: 0`) for automatic purge.
+- **Typed error routing**: Introduced `NotFoundError` and `ValidationError` classes. Brain memory lookups throw typed errors; the API layer catches and routes to 404/400 without string matching.
+- **Audit middleware method grouping**: Route rules refactored into `RULES_BY_METHOD: ReadonlyMap` — O(1) method lookup instead of scanning all rules. Added `bulk.write` and `brain.traverse` operation names.
+- **Audit TTL index**: Switched from `createIndex({ timestamp }, { expireAfterSeconds })` to `collMod` with a bare `{ timestamp: -1 }` performance index and a dedicated `_expireAt` BSON Date field for the TTL daemon.
+
+### Changed
+
+- **Contribution guide**: Added comprehensive **Engineering Principles** section covering six non-negotiable standards: Security, Scalability, Stability, State-of-the-Art, Cleverness (simplicity), and Legal — with concrete, enforceable rules drawn from the codebase.
+
 ## [0.9.0] — 2026-04-11
 
 ### Added

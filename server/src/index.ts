@@ -98,6 +98,12 @@ async function main(): Promise<void> {
     const { initAuditCollection } = await import('./audit/audit.js');
     await initAuditCollection();
 
+    // Initialise webhook delivery indexes and start retry worker
+    const { initWebhookDeliveryIndexes } = await import('./webhooks/store.js');
+    await initWebhookDeliveryIndexes();
+    const { startRetryWorker } = await import('./webhooks/dispatcher.js');
+    startRetryWorker();
+
     await resetStaleWatermarksIfNeeded();
     startSyncScheduler();
     cleanupStaleChunks().catch(err => log.error(`Stale chunk cleanup failed: ${err}`));
@@ -131,6 +137,8 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     log.debug(`${signal} received — shutting down`);
     stopSyncScheduler();
+    const { stopRetryWorker } = await import('./webhooks/dispatcher.js');
+    stopRetryWorker();
     server.close(() => log.debug('HTTP server closed'));
     await closeMongo();
     process.exit(0);

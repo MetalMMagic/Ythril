@@ -13,10 +13,11 @@
 5. [Testing](#testing)
 6. [Container Images](#container-images)
 7. [Releasing a New Version](#releasing-a-new-version)
-8. [Code Style](#code-style)
-9. [Commit Conventions](#commit-conventions)
-10. [Pull Request Checklist](#pull-request-checklist)
-11. [License](#license)
+8. [Engineering Principles](#engineering-principles)
+9. [Code Style](#code-style)
+10. [Commit Conventions](#commit-conventions)
+11. [Pull Request Checklist](#pull-request-checklist)
+12. [License](#license)
 
 ---
 
@@ -284,6 +285,74 @@ After the first image push to GHCR, set the package to **Public** at:
 ```
 https://github.com/orgs/ythril-network/packages/container/ythril/settings
 ```
+
+---
+
+## Engineering Principles
+
+Every line of code in this repository is held to six non-negotiable standards. No shortcut is justified by team size, current scale, or deadline pressure.
+
+### 1. Security
+
+Ythril is designed for ISO 27001-class environments. Security is not a phase — it is a property of every commit.
+
+- **Validate at the boundary, trust internally.** Every public endpoint validates input with Zod schemas before any logic runs. Internal function calls between modules do not re-validate.
+- **Defence in depth.** A single control is never the only thing standing between an attacker and a breach. Input validation, SSRF checks, path-traversal guards, rate limits, and audit logging each operate independently.
+- **Cryptographic choices are non-negotiable.** AES-256-GCM for secrets at rest. RSA-4096-OAEP for invite payloads. bcrypt cost-12 for token hashes. HMAC-SHA256 for webhook signatures. `crypto.timingSafeEqual` for all constant-time comparisons. No weaker alternatives.
+- **No dynamic evaluation.** No `eval()`, no `Function()` constructors, no template-string code generation. User input never reaches a code path that interprets it as executable.
+- **Secrets never appear in logs.** The log-redaction layer strips tokens, passwords, and keys before they reach stdout. Red-team tests verify this.
+- **SSRF protection is mandatory** for any feature that makes outbound HTTP requests using user-supplied URLs. Resolve the hostname, reject private/link-local/loopback ranges, reject non-HTTP(S) schemes. The `validateUrl()` utility exists for this — use it.
+- **Every security-adjacent change must pass red-team tests.** A failing red-team test is treated as a security regression, not a flaky test.
+
+### 2. Scalability
+
+The codebase targets production deployments with large datasets and high concurrency. Single-instance convenience must never create a scalability ceiling.
+
+- **No unbounded queries.** Every database query that could return an arbitrary number of documents uses a `limit`. Pagination is the default; fetching "all" is the exception and must be explicitly justified.
+- **No unbounded recursion or chain walks.** Any traversal (graphs, fork chains, nested structures) must have a hard depth cap with a visited-set cycle guard. The `forkChainDepth()` pattern in `sync.ts` is the reference implementation.
+- **Indexes exist for every query pattern.** When adding a new `find()` or `countDocuments()` call, ensure a supporting index exists or create one. Queries that scan entire collections are rejected in review.
+- **Streaming over buffering.** File transfers use streams. Large response sets are paginated. No endpoint loads an entire collection into memory.
+- **Rate limits protect every public surface.** The rate-limit middleware is applied to all route groups. Limits are tuned per-endpoint based on expected traffic, not a global catch-all.
+- **Background work uses bounded workers.** Retry queues, webhook delivery, and cleanup jobs use capped concurrency and MongoDB-backed scheduling — not in-memory timers or `setTimeout` chains.
+
+### 3. Stability
+
+A production Ythril instance must survive ungraceful conditions without operator intervention.
+
+- **Never crash on transient failures.** Database disconnects, upstream timeouts, and malformed peer messages are handled with retries or structured error responses — never `process.exit()`. The HTTP server binds unconditionally at startup; it does not wait for database readiness.
+- **Typed errors, not string matching.** Error routing uses typed error classes (`NotFoundError`, `ValidationError`) caught by the Express error handler. String-based error detection (`err.message.includes(...)`) is not permitted.
+- **TTL indexes for all time-series data.** Audit logs, webhook delivery records, and any other append-only collection must use MongoDB TTL indexes with configurable retention. Documents carry an `_expireAt` field set at write time; the TTL index uses `expireAfterSeconds: 0`.
+- **Graceful shutdown.** The process handles `SIGTERM` by stopping new request acceptance, draining in-flight requests, flushing pending writes, and then exiting. Background workers (retry loops, sync timers) have explicit `stop()` methods wired into the shutdown sequence.
+- **Static imports only in request handlers.** Top-level `import` statements are resolved at startup. Dynamic `await import()` inside request handlers adds latency on every call and creates non-deterministic module-resolution failures — it is not permitted.
+
+### 4. State-of-the-Art
+
+Dependencies, language features, and architectural patterns stay current. "It works" is not sufficient — it must be the modern way to do it.
+
+- **Current Node.js LTS, current framework versions.** The project tracks Node.js 22+, Express 5, Angular 21, TypeScript 5.9 strict mode, MongoDB driver 7+. When a major version ships, migration happens proactively — not when forced by deprecation.
+- **Use platform APIs before reaching for libraries.** Node.js `crypto`, `fs/promises`, `node:test`, `node:assert` are preferred over third-party equivalents. A new dependency must justify itself against what the platform already provides.
+- **TypeScript strict mode is mandatory.** `strict: true`, `noUncheckedIndexedAccess: true`, `noUnusedLocals: true`. No `// @ts-ignore`. `as never` casts are acceptable only for the MongoDB driver's generic limitations and must be commented.
+- **No deprecated APIs.** If a library marks an API as deprecated, migrate immediately — do not add a TODO.
+- **Zod for runtime validation.** No hand-written validators, no `joi`, no `class-validator`. Zod schemas are the single source of truth for request shapes.
+
+### 5. Cleverness (Simplicity Over Cleverness)
+
+Code should be boring to read. Clever tricks create maintenance debt.
+
+- **Explicit over implicit.** No metaprogramming, no runtime prototype manipulation, no dynamic property injection. If a module needs a function, it imports it by name.
+- **Flat over nested.** Guard-clause early returns instead of deeply nested `if/else` trees. Each handler reads top-to-bottom: validate → authorize → execute → respond.
+- **No abstractions for one-time operations.** A helper function earns its existence by being called from at least two sites. Single-use wrappers add indirection without value.
+- **Error messages are for operators.** Every error response includes enough context to diagnose the issue without reading source code. `"spaceId 'x' not found"` over `"not found"`.
+- **Comments explain why, not what.** The code should be self-documenting for *what* it does. Comments are reserved for non-obvious constraints, security rationale, and performance justifications.
+
+### 6. Legal
+
+Ythril ships under the PolyForm Small Business License 1.0.0. Every contribution must respect this.
+
+- **No copyleft-contaminated dependencies.** GPL, AGPL, and SSPL dependencies are not permitted. MIT, Apache-2.0, BSD-2/3-Clause, and ISC are acceptable. Any other license requires explicit approval.
+- **License header awareness.** Third-party code snippets adapted into the codebase must have their original license noted in the `NOTICE` file.
+- **No proprietary service lock-in.** Features must work with self-hosted infrastructure. Cloud-managed services (Atlas, S3, etc.) may be supported as optional backends but never as the only path.
+- **NOTICE file stays accurate.** When adding or removing a dependency that requires attribution, update `NOTICE` in the same commit.
 
 ---
 

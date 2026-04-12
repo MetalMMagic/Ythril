@@ -6,13 +6,43 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { col } from '../db/mongo.js';
+import type { Filter, UpdateFilter, Sort } from 'mongodb';
+import { col, getDb } from '../db/mongo.js';
 import { log } from '../util/log.js';
+import { encryptSecret, decryptSecret, isEncrypted } from '../util/crypto.js';
 import type { WebhookSubscription, WebhookDelivery, WebhookEventType } from './types.js';
 
 const COLLECTION = '_webhooks';
 const DELIVERIES_COLLECTION = '_webhook_deliveries';
-const MAX_DELIVERIES_PER_WEBHOOK = 100;
+
+/** Delivery records are retained for 30 days via TTL index. */
+const DELIVERY_RETENTION_SECONDS = 30 * 24 * 60 * 60;
+
+// ── Delivery TTL index ──────────────────────────────────────────────────────
+
+/**
+ * Ensure the delivery collection has a TTL index on `_expireAt`.
+ * Called once during startup from index.ts.
+ */
+export async function initWebhookDeliveryIndexes(): Promise<void> {
+  const dc = col<WebhookDelivery>(DELIVERIES_COLLECTION);
+  try {
+    await dc.createIndex(
+      { _expireAt: 1 },
+      { expireAfterSeconds: 0, name: 'ttl_delivery_expireAt' },
+    );
+  } catch {
+    try {
+      await getDb().command({
+        collMod: DELIVERIES_COLLECTION,
+        index: { name: 'ttl_delivery_expireAt', expireAfterSeconds: 0 },
+      });
+    } catch (err) {
+      log.warn(`Could not update delivery TTL index: ${err}`);
+    }
+  }
+  await dc.createIndex({ webhookId: 1, timestamp: -1 });
+}
 
 // ── In-memory cache ─────────────────────────────────────────────────────────
 
@@ -26,6 +56,17 @@ async function ensureCache(): Promise<WebhookSubscription[]> {
 
 function invalidateCache(): void {
   _cache = null;
+}
+
+// ── Secret helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Decrypt a webhook secret, handling migration from plaintext transparently.
+ * Existing plaintext secrets (created before encryption was added) are
+ * returned as-is; new (encrypted) secrets are decrypted.
+ */
+function getPlaintextSecret(stored: string): string {
+  return isEncrypted(stored) ? decryptSecret(stored) : stored;
 }
 
 // ── Safe projection (strip secret) ─────────────────────────────────────────
@@ -51,13 +92,15 @@ export async function getWebhook(id: string): Promise<SafeWebhook | null> {
   return stripSecret(sub);
 }
 
-/** Internal — returns the full record including secret (for HMAC signing). */
+/** Internal — returns the full record with **decrypted** secret (for HMAC signing). */
 export async function getWebhookFull(id: string): Promise<WebhookSubscription | null> {
   const subs = await ensureCache();
-  return subs.find(s => s.id === id) ?? null;
+  const sub = subs.find(s => s.id === id);
+  if (!sub) return null;
+  return { ...sub, secret: getPlaintextSecret(sub.secret) };
 }
 
-/** Returns all enabled subscriptions that match a given event+space. */
+/** Returns all enabled, non-failing subscriptions that match a given event+space. */
 export async function getMatchingWebhooks(
   event: WebhookEventType,
   spaceId: string,
@@ -65,7 +108,7 @@ export async function getMatchingWebhooks(
   const subs = await ensureCache();
   return subs.filter(s => {
     if (!s.enabled) return false;
-    if (s.status === 'disabled') return false;
+    if (s.status === 'disabled' || s.status === 'failing') return false;
     if (s.spaces.length > 0 && !s.spaces.includes(spaceId)) return false;
     if (s.events.length > 0 && !s.events.includes(event)) return false;
     return true;
@@ -87,7 +130,7 @@ export async function createWebhook(input: CreateWebhookInput): Promise<{ subscr
   const sub: WebhookSubscription = {
     id,
     url: input.url,
-    secret: input.secret,
+    secret: encryptSecret(input.secret),
     spaces: input.spaces ?? [],
     events: input.events ?? [],
     enabled: input.enabled ?? true,
@@ -97,7 +140,8 @@ export async function createWebhook(input: CreateWebhookInput): Promise<{ subscr
     consecutiveFailures: 0,
   };
 
-  await col<WebhookSubscription>(COLLECTION).insertOne(sub as never);
+  // `as any` — MongoDB driver's OptionalUnlessRequiredId<T> doesn't match T directly
+  await col<WebhookSubscription>(COLLECTION).insertOne(sub as any);
   invalidateCache();
   log.info(`Webhook created: ${id} → ${input.url}`);
 
@@ -122,7 +166,7 @@ export async function updateWebhook(
 
   const $set: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (input.url !== undefined) $set['url'] = input.url;
-  if (input.secret !== undefined) $set['secret'] = input.secret;
+  if (input.secret !== undefined) $set['secret'] = encryptSecret(input.secret);
   if (input.spaces !== undefined) $set['spaces'] = input.spaces;
   if (input.events !== undefined) $set['events'] = input.events;
   if (input.enabled !== undefined) {
@@ -131,16 +175,23 @@ export async function updateWebhook(
     if (input.enabled) $set['consecutiveFailures'] = 0;
   }
 
-  await col<WebhookSubscription>(COLLECTION).updateOne({ id } as never, { $set } as never);
+  await col<WebhookSubscription>(COLLECTION).updateOne(
+    { id } as Filter<WebhookSubscription>,
+    { $set } as UpdateFilter<WebhookSubscription>,
+  );
   invalidateCache();
 
   return getWebhook(id);
 }
 
 export async function deleteWebhook(id: string): Promise<boolean> {
-  const result = await col<WebhookSubscription>(COLLECTION).deleteOne({ id } as never);
+  const result = await col<WebhookSubscription>(COLLECTION).deleteOne(
+    { id } as Filter<WebhookSubscription>,
+  );
   // Also remove delivery logs
-  await col<WebhookDelivery>(DELIVERIES_COLLECTION).deleteMany({ webhookId: id } as never);
+  await col<WebhookDelivery>(DELIVERIES_COLLECTION).deleteMany(
+    { webhookId: id } as Filter<WebhookDelivery>,
+  );
   invalidateCache();
   return (result.deletedCount ?? 0) > 0;
 }
@@ -148,27 +199,17 @@ export async function deleteWebhook(id: string): Promise<boolean> {
 // ── Delivery logging ────────────────────────────────────────────────────────
 
 export async function recordDelivery(delivery: WebhookDelivery): Promise<void> {
-  await col<WebhookDelivery>(DELIVERIES_COLLECTION).insertOne(delivery as never);
-
-  // Trim old deliveries to keep at most MAX_DELIVERIES_PER_WEBHOOK per webhook
-  const count = await col<WebhookDelivery>(DELIVERIES_COLLECTION).countDocuments({ webhookId: delivery.webhookId } as never);
-  if (count > MAX_DELIVERIES_PER_WEBHOOK) {
-    const oldest = await col<WebhookDelivery>(DELIVERIES_COLLECTION)
-      .find({ webhookId: delivery.webhookId } as never)
-      .sort({ timestamp: 1 } as never)
-      .limit(count - MAX_DELIVERIES_PER_WEBHOOK)
-      .toArray() as WebhookDelivery[];
-    if (oldest.length > 0) {
-      const ids = oldest.map(d => d.id);
-      await col<WebhookDelivery>(DELIVERIES_COLLECTION).deleteMany({ id: { $in: ids } } as never);
-    }
-  }
+  const doc = {
+    ...delivery,
+    _expireAt: new Date(Date.now() + DELIVERY_RETENTION_SECONDS * 1000),
+  };
+  await col<WebhookDelivery>(DELIVERIES_COLLECTION).insertOne(doc as any);
 }
 
 export async function listDeliveries(webhookId: string, limit = 100): Promise<WebhookDelivery[]> {
   return (await col<WebhookDelivery>(DELIVERIES_COLLECTION)
-    .find({ webhookId } as never)
-    .sort({ timestamp: -1 } as never)
+    .find({ webhookId } as Filter<WebhookDelivery>)
+    .sort({ timestamp: -1 } as Sort)
     .limit(Math.min(limit, 100))
     .toArray()) as WebhookDelivery[];
 }
@@ -177,8 +218,8 @@ export async function listDeliveries(webhookId: string, limit = 100): Promise<We
 
 export async function markWebhookSuccess(id: string): Promise<void> {
   await col<WebhookSubscription>(COLLECTION).updateOne(
-    { id } as never,
-    { $set: { status: 'active', consecutiveFailures: 0 } } as never,
+    { id } as Filter<WebhookSubscription>,
+    { $set: { status: 'active', consecutiveFailures: 0 } } as UpdateFilter<WebhookSubscription>,
   );
   invalidateCache();
 }
@@ -192,8 +233,8 @@ export async function markWebhookFailure(id: string): Promise<void> {
   const status = failures >= 6 ? 'failing' : sub.status;
 
   await col<WebhookSubscription>(COLLECTION).updateOne(
-    { id } as never,
-    { $set: { status, consecutiveFailures: failures } } as never,
+    { id } as Filter<WebhookSubscription>,
+    { $set: { status, consecutiveFailures: failures } } as UpdateFilter<WebhookSubscription>,
   );
   invalidateCache();
 }

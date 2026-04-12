@@ -13,7 +13,7 @@ import { getDb } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { AuditLogEntry } from '../config/types.js';
-import type { Collection, Filter } from 'mongodb';
+import type { Collection, Filter, Sort } from 'mongodb';
 
 const COLLECTION = 'audit_log';
 const DEFAULT_RETENTION_DAYS = 90;
@@ -35,28 +35,31 @@ export async function initAuditCollection(): Promise<void> {
 
   const c = col();
 
-  // TTL index — entries expire automatically.
-  // Uses a dedicated _expireAt BSON Date field because `timestamp` is stored
-  // as an ISO-8601 string for display/query simplicity, but MongoDB requires
-  // a BSON Date for its TTL daemon to work.
-  const retentionDays = getConfig().audit?.retentionDays ?? DEFAULT_RETENTION_DAYS;
-  const expireAfterSeconds = retentionDays * 24 * 60 * 60;
+  // TTL index — entries expire at the exact _expireAt BSON Date.
+  // _expireAt is computed per entry at write time (now + retentionDays) so
+  // each entry carries its own absolute expiry.  expireAfterSeconds: 0 means
+  // "expire at the Date stored in the field" — no additional offset.
+  // This also makes retention config changes forward-only: lowering retention
+  // won't retroactively shorten existing entries' lifetimes.
 
   // Drop legacy string-based TTL index if present (it had no effect).
   try { await c.dropIndex('ttl_timestamp'); } catch { /* not present */ }
 
+  // Ensure TTL index with expireAfterSeconds: 0.  Use collMod to update
+  // the value in-place if the index already exists with a different value,
+  // avoiding the noisy drop-and-recreate pattern.
   try {
     await c.createIndex(
       { _expireAt: 1 },
-      { expireAfterSeconds, name: 'ttl_expireAt' },
+      { expireAfterSeconds: 0, name: 'ttl_expireAt' },
     );
   } catch {
+    // Index already exists with a different expireAfterSeconds — update in-place.
     try {
-      await c.dropIndex('ttl_expireAt');
-      await c.createIndex(
-        { _expireAt: 1 },
-        { expireAfterSeconds, name: 'ttl_expireAt' },
-      );
+      await db.command({
+        collMod: COLLECTION,
+        index: { name: 'ttl_expireAt', expireAfterSeconds: 0 },
+      });
     } catch (err) {
       log.warn(`Could not update audit TTL index: ${err}`);
     }
@@ -69,6 +72,10 @@ export async function initAuditCollection(): Promise<void> {
   await c.createIndex({ operation: 1, timestamp: -1 });
   await c.createIndex({ status: 1, timestamp: -1 });
   await c.createIndex({ ip: 1, timestamp: -1 });
+
+  // Bare timestamp descending index — covers the most common admin query
+  // ("show latest N entries" without any field filter).
+  await c.createIndex({ timestamp: -1 });
 }
 
 // ── Write ──────────────────────────────────────────────────────────────────
@@ -90,10 +97,13 @@ export interface AuditEntryInput {
 
 /** Insert an audit log entry. Fire-and-forget — never throws. */
 export function logAuditEntry(input: AuditEntryInput): void {
+  let retentionDays = DEFAULT_RETENTION_DAYS;
+  try { retentionDays = getConfig().audit?.retentionDays ?? DEFAULT_RETENTION_DAYS; } catch { /* pre-setup */ }
+
   const entry: AuditLogEntry = {
     _id: uuidv4(),
     timestamp: new Date().toISOString(),
-    _expireAt: new Date(),
+    _expireAt: new Date(Date.now() + retentionDays * 86_400_000),
     tokenId: input.tokenId ?? null,
     tokenLabel: input.tokenLabel ?? null,
     authMethod: input.authMethod ?? null,
@@ -108,7 +118,7 @@ export function logAuditEntry(input: AuditEntryInput): void {
     durationMs: input.durationMs,
   };
 
-  col().insertOne(entry as never).catch(err => {
+  col().insertOne(entry as any).catch((err: unknown) => {
     log.warn(`Audit log write failed: ${err}`);
   });
 }
@@ -141,7 +151,7 @@ export async function queryAuditLog(params: AuditQueryParams): Promise<AuditQuer
     const ts: Record<string, string> = {};
     if (params.after) ts['$gte'] = params.after;
     if (params.before) ts['$lte'] = params.before;
-    filter.timestamp = ts as never;
+    filter.timestamp = ts as Filter<AuditLogEntry>['timestamp'];
   }
 
   if (params.tokenId) filter.tokenId = params.tokenId;
@@ -155,7 +165,7 @@ export async function queryAuditLog(params: AuditQueryParams): Promise<AuditQuer
     if (ops.length === 1) {
       filter.operation = ops[0];
     } else if (ops.length > 1) {
-      filter.operation = { $in: ops } as never;
+      filter.operation = { $in: ops } as Filter<AuditLogEntry>['operation'];
     }
   }
 
@@ -164,12 +174,12 @@ export async function queryAuditLog(params: AuditQueryParams): Promise<AuditQuer
 
   const [entries, total] = await Promise.all([
     col()
-      .find(filter as never)
-      .sort({ timestamp: -1 })
+      .find(filter)
+      .sort({ timestamp: -1 } as Sort)
       .skip(offset)
       .limit(limit)
       .toArray(),
-    col().countDocuments(filter as never),
+    col().countDocuments(filter),
   ]);
 
   return {

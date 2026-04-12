@@ -14,12 +14,13 @@ import { isSsrfSafeUrl } from '../util/ssrf.js';
 import {
   listWebhooks,
   getWebhook,
+  getWebhookFull,
   createWebhook,
   updateWebhook,
   deleteWebhook,
   listDeliveries,
 } from '../webhooks/store.js';
-import { emitWebhookEvent } from '../webhooks/dispatcher.js';
+import { deliverToWebhook } from '../webhooks/dispatcher.js';
 import { ALL_WEBHOOK_EVENTS } from '../webhooks/types.js';
 import type { WebhookEventType } from '../webhooks/types.js';
 import { log } from '../util/log.js';
@@ -152,18 +153,25 @@ webhooksRouter.delete('/:id', async (req, res) => {
 
 webhooksRouter.post('/:id/test', async (req, res) => {
   try {
-    const webhook = await getWebhook(req.params['id'] as string);
-    if (!webhook) {
+    const full = await getWebhookFull(req.params['id'] as string);
+    if (!full) {
       res.status(404).json({ error: 'Webhook not found' });
       return;
     }
 
-    emitWebhookEvent({
-      event: 'test.ping',
+    const payload = {
+      event: 'test.ping' as const,
+      timestamp: new Date().toISOString(),
       spaceId: '_test',
+      spaceName: '_test',
       entry: { message: 'Test webhook delivery from Ythril' },
-      tokenId: req.authToken && 'id' in req.authToken ? req.authToken.id : undefined,
-      tokenLabel: req.authToken?.name,
+      ...(req.authToken && 'id' in req.authToken ? { tokenId: req.authToken.id } : {}),
+      ...(req.authToken?.name ? { tokenLabel: req.authToken.name } : {}),
+    };
+
+    // Deliver directly to THIS webhook only — not broadcast via emitWebhookEvent
+    deliverToWebhook(full, JSON.stringify(payload), 'test.ping', '_test').catch(err => {
+      log.warn(`Test webhook delivery error for ${full.id}: ${err}`);
     });
 
     res.json({ ok: true, message: 'Test event queued for delivery' });

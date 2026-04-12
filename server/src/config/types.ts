@@ -257,7 +257,8 @@ export interface Config {
 
 export interface SecretsFile {
   peerTokens: Record<string, string>;
-  totpSecret?: string;  // base32 TOTP secret; absent = MFA disabled
+  totpSecret?: string;              // base32 TOTP secret; absent = MFA disabled
+  webhookEncryptionKey?: string;    // hex-encoded AES-256 key for webhook secret encryption
 }
 
 // ── MongoDB document shapes ────────────────────────────────────────────────

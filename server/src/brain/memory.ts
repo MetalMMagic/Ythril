@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { col, isVectorSearchAvailable } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
+import { NotFoundError } from '../util/errors.js';
 import { embed } from './embedding.js';
 import { getConfig, getEmbeddingConfig } from '../config/loader.js';
 import { needsReindex } from '../spaces/spaces.js';
@@ -366,7 +367,7 @@ export async function findSimilar(
   // Fetch the source entry's stored embedding
   const entry = await getEntryEmbedding(spaceId, entryId, entryType);
   if (!entry) {
-    throw new Error(`Entry '${entryId}' not found in space '${spaceId}' (type: ${entryType}), or has no embedding.`);
+    throw new NotFoundError(`Entry '${entryId}' not found in space '${spaceId}' (type: ${entryType}), or has no embedding.`);
   }
 
   const activeTypes: RecallKnowledgeType[] = (targetTypes && targetTypes.length > 0)

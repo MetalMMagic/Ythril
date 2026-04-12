@@ -3,6 +3,7 @@ import type express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireSpaceAuth, denyReadOnly } from '../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../rate-limit/middleware.js';
+import { NotFoundError } from '../util/errors.js';
 import { listMemories, deleteMemory, countMemories, bulkDeleteMemories, remember, updateMemory, queryBrain, findSimilar, type RecallKnowledgeType } from '../brain/memory.js';
 import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityById, bulkDeleteEntities, findEntitiesByName } from '../brain/entities.js';
 import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges, traverseGraph } from '../brain/edges.js';
@@ -1197,10 +1198,10 @@ brainRouter.post('/spaces/:spaceId/find-similar', globalRateLimit, requireSpaceA
     );
     res.json(result);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('not found')) {
-      res.status(404).json({ error: msg });
+    if (err instanceof NotFoundError) {
+      res.status(404).json({ error: err.message });
     } else {
+      const msg = err instanceof Error ? err.message : String(err);
       res.status(400).json({ error: msg });
     }
   }

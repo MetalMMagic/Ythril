@@ -88,15 +88,27 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/stats$/,      operation: 'brain.stats',          spaceGroup: 1, read: true },
 
   // ── Bulk write ───────────────────────────────────────────────────────────
-  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/bulk$/,       operation: 'memory.create',  spaceGroup: 1 },
+  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/bulk$/,       operation: 'bulk.write',     spaceGroup: 1 },
 
   // ── Traverse ─────────────────────────────────────────────────────────────
-  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/traverse$/,   operation: 'brain.query',    spaceGroup: 1, read: true },
+  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/traverse$/,   operation: 'brain.traverse', spaceGroup: 1, read: true },
 ];
 
-function resolveOperation(method: string, path: string): { operation: string; spaceId: string | null; entryId: string | null; read: boolean } | null {
+// Pre-group rules by HTTP method for O(1) method lookup instead of linear scan.
+const RULES_BY_METHOD: ReadonlyMap<string, readonly RouteRule[]> = (() => {
+  const map = new Map<string, RouteRule[]>();
   for (const rule of ROUTE_RULES) {
-    if (rule.method !== method) continue;
+    let bucket = map.get(rule.method);
+    if (!bucket) { bucket = []; map.set(rule.method, bucket); }
+    bucket.push(rule);
+  }
+  return map;
+})();
+
+function resolveOperation(method: string, path: string): { operation: string; spaceId: string | null; entryId: string | null; read: boolean } | null {
+  const rules = RULES_BY_METHOD.get(method);
+  if (!rules) return null;
+  for (const rule of rules) {
     const m = rule.pattern.exec(path);
     if (!m) continue;
     return {

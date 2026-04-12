@@ -52,6 +52,12 @@ const clientDist =
 export function createApp() {
   const app = express();
 
+  // ── Proxy trust ──────────────────────────────────────────────────────────
+  // Trust the first proxy hop (Traefik / nginx) so req.ip reflects the real
+  // client address.  Without this, rate-limit and audit log all share the
+  // Docker-gateway IP.
+  app.set('trust proxy', 1);
+
   // ── Request body parsers ─────────────────────────────────────────────────
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));

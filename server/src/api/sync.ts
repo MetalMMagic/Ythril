@@ -10,14 +10,17 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
+import { v4 as uuidv4 } from 'uuid';
 import { col } from '../db/mongo.js';
 import { syncRateLimit } from '../rate-limit/middleware.js';
-import { getConfig, getSecrets, getDataRoot } from '../config/loader.js';
+import { getConfig, getSecrets, getDataRoot, loadConfig, saveConfig } from '../config/loader.js';
 import { listTombstones, applyRemoteTombstone } from '../brain/tombstones.js';
 import { requireAuth } from '../auth/middleware.js';
 import { log } from '../util/log.js';
 import { nextSeq, bumpSeq } from '../util/seq.js';
 import { updateSpace } from '../spaces/spaces.js';
+import { buildFileManifest } from '../files/manifest.js';
+import { computeMerkleRoot } from '../brain/merkle.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type {
@@ -46,9 +49,13 @@ export const syncRouter = Router();
 const MAX_SYNC_SEQ = 2 ** 50; // 1_125_899_906_842_624
 
 /**
- * Maximum number of fork copies that can accumulate for a single memory _id.
- * Prevents a "forkOf bomb" where an attacker repeatedly sends equal-seq docs
- * with different content to create an unbounded chain of fork copies.
+ * Maximum chain depth for forkOf links.
+ * Prevents a "fork chain bomb" where an attacker creates A→B→C→...
+ * by repeatedly submitting equal-seq docs with different content.
+ *
+ * The check walks the forkOf chain upward from the parent document,
+ * counting the number of links to the root. A depth of 0 means the
+ * parent is an original (non-fork) document.
  */
 const MAX_FORK_DEPTH = 10;
 
@@ -143,6 +150,32 @@ function decodeCursor(token: string): number {
 }
 
 // â”€â”€ Space access guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+/**
+ * Walk the forkOf chain upward from a document to measure how deep
+ * this fork is in the chain.  Returns 0 for a root document.
+ *
+ * Uses a visited set to break any hypothetical cycle in O(depth) time.
+ * Hard-caps the walk at MAX_FORK_DEPTH + 1 to avoid slow queries on
+ * corrupted data.
+ */
+async function forkChainDepth(spaceId: string, docId: string | undefined): Promise<number> {
+  if (!docId) return 0;
+  const coll = col<MemoryDoc>(`${spaceId}_memories`);
+  const visited = new Set<string>();
+  let depth = 0;
+  let currentId: string | undefined = docId;
+
+  while (currentId && depth <= MAX_FORK_DEPTH) {
+    if (visited.has(currentId)) break; // cycle guard
+    visited.add(currentId);
+    const doc = await coll.findOne({ _id: currentId } as never) as MemoryDoc | null;
+    if (!doc?.forkOf) break;
+    depth++;
+    currentId = doc.forkOf;
+  }
+  return depth;
+}
 
 /**
  * Returns true if:
@@ -299,14 +332,13 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, async (req, res) => {
     }
 
     if (incoming.seq === existing.seq && incoming.fact !== existing.fact) {
-      // Concurrent independent edit â€” fork; but cap the chain length
-      const forkCount = await col<MemoryDoc>(`${spaceId}_memories`)
-        .countDocuments({ forkOf: incoming._id } as never);
-      if (forkCount >= MAX_FORK_DEPTH) {
+      // Concurrent independent edit — fork; but cap the chain depth.
+      // Walk the forkOf chain upward to measure actual depth (not just siblings).
+      const depth = await forkChainDepth(spaceId, incoming._id);
+      if (depth >= MAX_FORK_DEPTH) {
         res.status(400).json({ error: `Fork depth limit (${MAX_FORK_DEPTH}) exceeded for _id '${incoming._id}'` });
         return;
       }
-      const { v4: uuidv4 } = await import('uuid');
       const forkSeq = await nextSeq(spaceId);
       const fork: MemoryDoc = {
         ...incoming,
@@ -643,10 +675,9 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, async (req, res) =>
         memStats.updated++;
       } else if (incoming.seq === existing.seq && incoming.fact !== existing.fact) {
         // Cap fork chains to prevent unbounded growth
-        const forkCount = await col<MemoryDoc>(`${spaceId}_memories`)
-          .countDocuments({ forkOf: incoming._id } as never);
-        if (forkCount >= MAX_FORK_DEPTH) { memStats.skipped++; continue; }
-        const { v4: uuidv4 } = await import('uuid');
+        const depth = await forkChainDepth(spaceId, incoming._id);
+        if (depth >= MAX_FORK_DEPTH) { memStats.skipped++; continue; }
+
         const forkSeq = await nextSeq(spaceId);
         const fork: MemoryDoc = {
           ...incoming, _id: uuidv4(), forkOf: incoming._id, seq: forkSeq,
@@ -810,7 +841,6 @@ syncRouter.get('/manifest', syncRateLimit, requireAuth, async (req, res) => {
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
-    const { buildFileManifest } = await import('../files/manifest.js');
     const sinceDate = since ? new Date(since) : undefined;
     const manifest = await buildFileManifest(spaceId, sinceDate);
     res.json({ manifest });
@@ -926,7 +956,6 @@ syncRouter.get('/merkle', syncRateLimit, requireAuth, async (req, res) => {
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
-    const { computeMerkleRoot } = await import('../brain/merkle.js');
     const result = await computeMerkleRoot(spaceId);
     res.json({ ...result, networkId: networkId ?? null });
   } catch (err) {
@@ -1001,7 +1030,6 @@ syncRouter.post('/networks/:networkId/members', syncRateLimit, requireAuth, asyn
     // Only the declared instance may update its own record's URL/label/children/direction
     // We trust the caller if they can authenticate (which syncAuth already verified).
     // For simplicity in Phase 3 we apply without full cryptographic proof.
-    const { saveConfig, loadConfig } = await import('../config/loader.js');
     const fresh = loadConfig();
     const freshNet = fresh.networks.find(n => n.id === req.params['networkId']);
     if (freshNet) {
@@ -1068,7 +1096,6 @@ syncRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requireAut
       return;
     }
 
-    const { loadConfig, saveConfig } = await import('../config/loader.js');
     const cfg = loadConfig();
     const net = cfg.networks.find(n => n.id === req.params['networkId']);
     if (!net) { res.status(404).json({ error: 'Network not found' }); return; }

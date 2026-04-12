@@ -81,7 +81,7 @@ import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
             </div>
             <div class="field" style="width:120px; margin-bottom:0;">
               <label>Max GiB</label>
-              <input type="number" [(ngModel)]="form.minGiB" name="minGiB" min="0" step="0.1" placeholder="—" />
+              <input type="number" [(ngModel)]="form.maxGiB" name="maxGiB" min="0" step="0.1" placeholder="—" />
             </div>
             <div style="display:flex; gap:12px; flex-basis:100%;">
               <div class="field" style="flex:1; margin-bottom:0;">
@@ -141,7 +141,7 @@ import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
                   <td style="font-weight:500;">{{ s.label }}</td>
                   <td><span class="badge badge-gray mono">{{ s.id }}</span></td>
                   <td style="color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="s.description ?? ''">{{ s.description ?? '—' }}</td>
-                  <td style="color:var(--text-muted)">{{ s.minGiB ? s.minGiB + ' GiB' : '—' }}</td>
+                  <td style="color:var(--text-muted)">{{ s.maxGiB ? s.maxGiB + ' GiB' : '—' }}</td>
                   <td>
                     @if (networksForSpace(s.id).length) {
                       @for (n of networksForSpace(s.id); track n.id) {
@@ -309,7 +309,7 @@ export class SpacesComponent implements OnInit {
     '  sync_now(peerId?)           — trigger immediate sync cycle',
   ].join('\n');
 
-  form = { label: '', id: '', minGiB: null as number | null, description: SpacesComponent.DEFAULT_MCP_DESC };
+  form = { label: '', id: '', maxGiB: null as number | null, description: SpacesComponent.DEFAULT_MCP_DESC };
   proxyForSelected: string[] = [];
 
   editTarget = signal<Space | null>(null);
@@ -358,9 +358,9 @@ export class SpacesComponent implements OnInit {
     this.creating.set(true);
     this.createError.set('');
 
-    const body: { label: string; id?: string; minGiB?: number; description?: string; proxyFor?: string[] } = { label: this.form.label.trim() };
+    const body: { label: string; id?: string; maxGiB?: number; description?: string; proxyFor?: string[] } = { label: this.form.label.trim() };
     if (this.form.id.trim()) body.id = this.form.id.trim();
-    if (this.form.minGiB) body.minGiB = this.form.minGiB;
+    if (this.form.maxGiB) body.maxGiB = this.form.maxGiB;
     if (this.form.description.trim()) body.description = this.form.description.trim();
     if (this.proxyForSelected.length) body.proxyFor = [...this.proxyForSelected];
 
@@ -369,7 +369,7 @@ export class SpacesComponent implements OnInit {
         this.creating.set(false);
         this.showCreateDialog.set(false);
         this.spaces.update(list => [...list, space]);
-        this.form = { label: '', id: '', minGiB: null, description: SpacesComponent.DEFAULT_MCP_DESC };
+        this.form = { label: '', id: '', maxGiB: null, description: SpacesComponent.DEFAULT_MCP_DESC };
         this.proxyForSelected = [];
       },
       error: (err) => {

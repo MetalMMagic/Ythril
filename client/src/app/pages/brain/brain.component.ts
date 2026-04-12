@@ -2,9 +2,9 @@ import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallResponse, RecallKnowledgeType } from '../../core/api.service';
+import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallResponse, RecallKnowledgeType, SpaceMeta, SpaceMetaResponse, ValidationMode, KnowledgeType } from '../../core/api.service';
 
-type BrainTab = 'query' | 'entities' | 'edges' | 'memories' | 'chrono';
+type BrainTab = 'query' | 'settings' | 'entities' | 'edges' | 'memories' | 'chrono';
 
 interface SpaceView {
   space: Space;
@@ -1021,6 +1021,97 @@ interface SpaceView {
           </div>
         }
 
+        <!-- Settings tab -->
+        @if (activeTab() === 'settings') {
+          <div style="padding:8px 0;">
+            @if (settingsLoading()) {
+              <div class="loading-overlay" style="padding:24px;"><span class="spinner"></span></div>
+            } @else if (spaceMeta()) {
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+                <!-- Left column: Space info -->
+                <div class="card" style="margin-bottom:0;">
+                  <div class="card-header">
+                    <div class="card-title" style="font-size:14px;">Space configuration</div>
+                  </div>
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Label</label>
+                    <input type="text" [(ngModel)]="settingsForm.label" name="settingsLabel" maxlength="200" />
+                  </div>
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Description</label>
+                    <textarea [(ngModel)]="settingsForm.description" name="settingsDescription" maxlength="4000" rows="3" style="resize:vertical;"></textarea>
+                  </div>
+                  <div style="display:flex; gap:8px; margin-top:8px;">
+                    <button class="btn btn-sm btn-primary" [disabled]="settingsSaving()" (click)="saveSpaceSettings()">
+                      @if (settingsSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                      Save
+                    </button>
+                    @if (settingsSaved()) { <span style="color:var(--success); font-size:12px;">✓ Saved</span> }
+                    @if (settingsError()) { <span style="color:var(--error); font-size:12px;">{{ settingsError() }}</span> }
+                  </div>
+                </div>
+
+                <!-- Right column: Schema meta -->
+                <div class="card" style="margin-bottom:0;">
+                  <div class="card-header">
+                    <div class="card-title" style="font-size:14px;">Schema definition</div>
+                    @if (spaceMeta()!.version) {
+                      <span class="badge badge-gray" style="font-size:11px;">v{{ spaceMeta()!.version }}</span>
+                    }
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Validation mode</label>
+                    <select [(ngModel)]="metaForm.validationMode" name="metaValidationMode" style="width:140px;">
+                      <option value="off">Off</option>
+                      <option value="warn">Warn</option>
+                      <option value="strict">Strict</option>
+                    </select>
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Purpose</label>
+                    <textarea [(ngModel)]="metaForm.purpose" name="metaPurpose" maxlength="4000" rows="2" style="resize:vertical;" placeholder="Short directive injected into MCP instructions"></textarea>
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Entity types <span style="color:var(--text-muted);font-size:11px;" title="Allowlist of valid entity type values. Leave empty for unrestricted.">ⓘ</span></label>
+                    <input type="text" [(ngModel)]="metaForm.entityTypesStr" name="metaEntityTypes" placeholder="person, project, topic (comma-separated)" />
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Edge labels <span style="color:var(--text-muted);font-size:11px;" title="Allowlist of valid edge label values. Leave empty for unrestricted.">ⓘ</span></label>
+                    <input type="text" [(ngModel)]="metaForm.edgeLabelsStr" name="metaEdgeLabels" placeholder="knows, depends_on, part_of (comma-separated)" />
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Tag suggestions <span style="color:var(--text-muted);font-size:11px;" title="Non-enforced tag hints for UI autocomplete.">ⓘ</span></label>
+                    <input type="text" [(ngModel)]="metaForm.tagSuggestionsStr" name="metaTags" placeholder="important, review, draft (comma-separated)" />
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Usage notes</label>
+                    <textarea [(ngModel)]="metaForm.usageNotes" name="metaUsageNotes" rows="2" style="resize:vertical;" placeholder="Naming conventions, examples, links (Markdown)"></textarea>
+                  </div>
+
+                  <div style="display:flex; gap:8px; margin-top:8px;">
+                    <button class="btn btn-sm btn-primary" [disabled]="metaSaving()" (click)="saveMetaSettings()">
+                      @if (metaSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                      Save schema
+                    </button>
+                    @if (metaSaved()) { <span style="color:var(--success); font-size:12px;">✓ Saved</span> }
+                    @if (metaError()) { <span style="color:var(--error); font-size:12px;">{{ metaError() }}</span> }
+                  </div>
+                </div>
+              </div>
+            } @else {
+              <div style="padding:24px; text-align:center; color:var(--text-muted);">
+                Could not load space settings. <button class="btn btn-sm btn-secondary" (click)="loadSettings()">Retry</button>
+              </div>
+            }
+          </div>
+        }
+
       }
     }
   `,
@@ -1030,6 +1121,7 @@ export class BrainComponent implements OnInit {
 
   tabs: { key: BrainTab; label: string; statsKey?: keyof SpaceStats }[] = [
     { key: 'query', label: '🔍 Query' },
+    { key: 'settings', label: '⚙ Settings' },
     { key: 'entities', label: 'Entities', statsKey: 'entities' },
     { key: 'edges', label: 'Edges', statsKey: 'edges' },
     { key: 'memories', label: 'Memories', statsKey: 'memories' },
@@ -1119,6 +1211,25 @@ export class BrainComponent implements OnInit {
   recallRunning = signal(false);
   recallResults = signal<RecallResult[]>([]);
   recallError = signal('');
+
+  // Settings tab
+  spaceMeta = signal<SpaceMetaResponse | null>(null);
+  settingsLoading = signal(false);
+  settingsForm = { label: '', description: '' };
+  settingsSaving = signal(false);
+  settingsSaved = signal(false);
+  settingsError = signal('');
+  metaForm = {
+    validationMode: 'off' as ValidationMode,
+    purpose: '',
+    usageNotes: '',
+    entityTypesStr: '',
+    edgeLabelsStr: '',
+    tagSuggestionsStr: '',
+  };
+  metaSaving = signal(false);
+  metaSaved = signal(false);
+  metaError = signal('');
 
   activeStats = computed(() =>
     this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.stats,
@@ -1242,6 +1353,10 @@ export class BrainComponent implements OnInit {
       case 'query':
         // Query tab manages its own loading state; just clear the global overlay
         this.loading.set(false);
+        break;
+      case 'settings':
+        this.loading.set(false);
+        this.loadSettings();
         break;
     }
   }
@@ -1504,5 +1619,98 @@ export class BrainComponent implements OnInit {
 
   formatQueryDoc(doc: Record<string, unknown>): string {
     return JSON.stringify(doc, null, 2);
+  }
+
+  // ── Settings tab methods ────────────────────────────────────────────────
+
+  loadSettings(): void {
+    const spaceId = this.activeSpaceId();
+    if (!spaceId) return;
+    this.settingsLoading.set(true);
+    this.settingsError.set('');
+    this.metaError.set('');
+    this.settingsSaved.set(false);
+    this.metaSaved.set(false);
+
+    const sv = this.spaces().find(s => s.space.id === spaceId);
+    if (sv) {
+      this.settingsForm.label = sv.space.label;
+      this.settingsForm.description = sv.space.description ?? '';
+    }
+
+    this.api.getSpaceMeta(spaceId).subscribe({
+      next: (meta) => {
+        this.spaceMeta.set(meta);
+        this.metaForm.validationMode = meta.validationMode ?? 'off';
+        this.metaForm.purpose = meta.purpose ?? '';
+        this.metaForm.usageNotes = meta.usageNotes ?? '';
+        this.metaForm.entityTypesStr = (meta.entityTypes ?? []).join(', ');
+        this.metaForm.edgeLabelsStr = (meta.edgeLabels ?? []).join(', ');
+        this.metaForm.tagSuggestionsStr = (meta.tagSuggestions ?? []).join(', ');
+        this.settingsLoading.set(false);
+      },
+      error: () => {
+        this.spaceMeta.set(null);
+        this.settingsLoading.set(false);
+      },
+    });
+  }
+
+  saveSpaceSettings(): void {
+    const spaceId = this.activeSpaceId();
+    if (!spaceId) return;
+    this.settingsSaving.set(true);
+    this.settingsError.set('');
+    this.settingsSaved.set(false);
+    this.api.updateSpace(spaceId, {
+      label: this.settingsForm.label.trim(),
+      description: this.settingsForm.description.trim(),
+    }).subscribe({
+      next: ({ space }) => {
+        this.settingsSaving.set(false);
+        this.settingsSaved.set(true);
+        // Update the local space list to reflect changes
+        this.spaces.update(list =>
+          list.map(sv => sv.space.id === spaceId ? { ...sv, space: { ...sv.space, label: space.label, description: space.description } } : sv),
+        );
+        setTimeout(() => this.settingsSaved.set(false), 3000);
+      },
+      error: (err) => {
+        this.settingsSaving.set(false);
+        this.settingsError.set(err.error?.error ?? 'Failed to save');
+      },
+    });
+  }
+
+  saveMetaSettings(): void {
+    const spaceId = this.activeSpaceId();
+    if (!spaceId) return;
+    this.metaSaving.set(true);
+    this.metaError.set('');
+    this.metaSaved.set(false);
+
+    const parseList = (s: string): string[] => s.split(',').map(v => v.trim()).filter(Boolean);
+
+    const meta: Partial<SpaceMeta> = {
+      validationMode: this.metaForm.validationMode,
+      purpose: this.metaForm.purpose.trim() || undefined,
+      usageNotes: this.metaForm.usageNotes.trim() || undefined,
+      entityTypes: parseList(this.metaForm.entityTypesStr),
+      edgeLabels: parseList(this.metaForm.edgeLabelsStr),
+      tagSuggestions: parseList(this.metaForm.tagSuggestionsStr),
+    };
+
+    this.api.updateSpace(spaceId, { meta }).subscribe({
+      next: () => {
+        this.metaSaving.set(false);
+        this.metaSaved.set(true);
+        setTimeout(() => this.metaSaved.set(false), 3000);
+      },
+      error: (err) => {
+        this.metaSaving.set(false);
+        const errMsg = err.error?.error ?? err.error?.message ?? 'Failed to save schema';
+        this.metaError.set(errMsg);
+      },
+    });
   }
 }

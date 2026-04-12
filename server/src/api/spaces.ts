@@ -18,7 +18,7 @@ const CreateSpaceBody = z.object({
   label: z.string().min(1).max(200),
   description: z.string().max(4000).optional(),
   folders: z.array(z.string()).optional(),
-  minGiB: z.number().positive().optional(),
+  maxGiB: z.number().positive().optional(),
   proxyFor: z.array(z.string().min(1).max(40)).min(1).optional(),
 });
 
@@ -104,8 +104,8 @@ spacesRouter.patch('/:id/rename', globalRateLimit, requireAdminMfa, async (req, 
 // GET /api/spaces
 spacesRouter.get('/', globalRateLimit, requireAuth, async (_req, res) => {
   const cfg = getConfig();
-  const spaces = cfg.spaces.map(({ id, label, builtIn, folders, minGiB, flex, description, proxyFor, meta }) => ({
-    id, label, builtIn, folders, minGiB, flex, description,
+  const spaces = cfg.spaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta }) => ({
+    id, label, builtIn, folders, maxGiB, flex, description,
     ...(proxyFor ? { proxyFor } : {}),
     ...(meta ? { meta: { ...meta, previousVersions: undefined } } : {}),
   }));
@@ -129,7 +129,7 @@ spacesRouter.post('/', globalRateLimit, requireAdminMfa, async (req, res) => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { id: rawId, label, description, folders, minGiB, proxyFor } = parsed.data;
+  const { id: rawId, label, description, folders, maxGiB, proxyFor } = parsed.data;
   const id = rawId ?? slugify(label);
 
   // Validate proxy members exist and are not themselves proxies
@@ -149,7 +149,7 @@ spacesRouter.post('/', globalRateLimit, requireAdminMfa, async (req, res) => {
   }
 
   try {
-    const space = await createSpace({ id, label, description, folders, minGiB, proxyFor });
+    const space = await createSpace({ id, label, description, folders, maxGiB, proxyFor });
     res.status(201).json({ space });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

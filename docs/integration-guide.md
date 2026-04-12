@@ -1214,7 +1214,7 @@ POST /api/spaces
   "label": "Research Notes",
   "description": "Papers, notes, and findings from the AI research team.",
   "folders": ["papers", "notes"],
-  "minGiB": 2
+  "maxGiB": 2
 }
 ```
 
@@ -1224,7 +1224,7 @@ POST /api/spaces
 | `label` | yes | Human-readable display name, max 200 chars. |
 | `description` | no | Max 4000 chars. Surfaced to MCP clients as space-level instructions. |
 | `folders` | no | Pre-create these directories on disk at space creation time. |
-| `minGiB` | no | Reserve minimum storage (positive number in GiB). |
+| `maxGiB` | no | Maximum storage quota for the space (positive number in GiB). |
 
 **Response** `201`: the created space object.
 

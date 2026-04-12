@@ -9,9 +9,41 @@ export interface Space {
   label: string;
   builtIn?: boolean;
   folders?: string[];
-  minGiB?: number;
+  maxGiB?: number;
   description?: string;
   proxyFor?: string[];
+  meta?: SpaceMeta;
+}
+
+export type ValidationMode = 'off' | 'warn' | 'strict';
+export type KnowledgeType = 'entity' | 'memory' | 'edge' | 'chrono';
+
+export interface PropertySchema {
+  type?: 'string' | 'number' | 'boolean';
+  enum?: (string | number | boolean)[];
+  minimum?: number;
+  maximum?: number;
+  pattern?: string;
+}
+
+export interface SpaceMeta {
+  version?: number;
+  purpose?: string;
+  usageNotes?: string;
+  validationMode?: ValidationMode;
+  entityTypes?: string[];
+  edgeLabels?: string[];
+  namingPatterns?: Record<string, string>;
+  requiredProperties?: Partial<Record<KnowledgeType, string[]>>;
+  propertySchemas?: Partial<Record<KnowledgeType, Record<string, PropertySchema>>>;
+  tagSuggestions?: string[];
+  updatedAt?: string;
+}
+
+export interface SpaceMetaResponse extends SpaceMeta {
+  spaceId: string;
+  spaceName: string;
+  stats: SpaceStats;
 }
 
 export interface SpacesResponse {
@@ -291,12 +323,16 @@ export class ApiService {
     return this.http.get<SpacesResponse>('/api/spaces');
   }
 
-  createSpace(body: { label: string; id?: string; minGiB?: number; description?: string; proxyFor?: string[] }): Observable<{ space: Space }> {
+  createSpace(body: { label: string; id?: string; maxGiB?: number; description?: string; proxyFor?: string[] }): Observable<{ space: Space }> {
     return this.http.post<{ space: Space }>('/api/spaces', body);
   }
 
-  updateSpace(id: string, body: { label?: string; description?: string }): Observable<{ space: Space }> {
+  updateSpace(id: string, body: { label?: string; description?: string; meta?: Partial<SpaceMeta> }): Observable<{ space: Space }> {
     return this.http.patch<{ space: Space }>(`/api/spaces/${id}`, body);
+  }
+
+  getSpaceMeta(id: string): Observable<SpaceMetaResponse> {
+    return this.http.get<SpaceMetaResponse>(`/api/spaces/${id}/meta`);
   }
 
   deleteSpace(id: string): Observable<void> {

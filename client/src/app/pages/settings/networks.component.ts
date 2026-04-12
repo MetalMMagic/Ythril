@@ -332,14 +332,29 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
               } @else if (availableSpaces().length === 0) {
                 <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Loading spaces…</div>
               } @else {
-                <div class="spaces-toggle-list">
-                  @for (s of availableSpaces(); track s.id) {
-                    <label class="space-toggle-item">
-                      <input type="checkbox" [checked]="isNetworkSpaceSelected(s.id)" (change)="toggleNetworkSpace(s.id)" />
-                      <span>{{ s.label }}</span>
-                      <span class="space-id">{{ s.id }}</span>
-                    </label>
-                  }
+                <div class="table-wrapper" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                  <table style="margin:0;">
+                    <thead>
+                      <tr>
+                        <th style="width:40px; text-align:center;">
+                          <input type="checkbox" [checked]="networkSelectAll" (change)="toggleNetworkSelectAll()" title="All spaces" />
+                        </th>
+                        <th>Space</th>
+                        <th>ID</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (s of availableSpaces(); track s.id) {
+                        <tr style="cursor:pointer;" (click)="toggleNetworkSpace(s.id)">
+                          <td style="text-align:center;">
+                            <input type="checkbox" [checked]="isNetworkSpaceSelected(s.id)" (click)="$event.stopPropagation()" (change)="toggleNetworkSpace(s.id)" />
+                          </td>
+                          <td>{{ s.label }}</td>
+                          <td><span class="badge badge-gray mono" style="font-size:11px;">{{ s.id }}</span></td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
                 </div>
               }
             </div>
@@ -455,6 +470,7 @@ export class NetworksComponent implements OnInit {
   spacesLoadFailed = signal(false);
   networkSelectedSpaces: string[] = [];
   networkSpacesFallback = '';
+  networkSelectAll = false;
 
   private inviteBundles: Record<string, InviteBundle> = {};
   private syncResults: Record<string, { ok: boolean }> = {};
@@ -571,6 +587,16 @@ export class NetworksComponent implements OnInit {
       this.networkSelectedSpaces = this.networkSelectedSpaces.filter(s => s !== id);
     } else {
       this.networkSelectedSpaces = [...this.networkSelectedSpaces, id];
+    }
+    this.networkSelectAll = this.networkSelectedSpaces.length === this.availableSpaces().length;
+  }
+
+  toggleNetworkSelectAll(): void {
+    this.networkSelectAll = !this.networkSelectAll;
+    if (this.networkSelectAll) {
+      this.networkSelectedSpaces = this.availableSpaces().map(s => s.id);
+    } else {
+      this.networkSelectedSpaces = [];
     }
   }
 

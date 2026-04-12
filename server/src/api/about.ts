@@ -6,7 +6,7 @@ import { globalRateLimit } from '../rate-limit/middleware.js';
 import { requireAuth, requireAdmin } from '../auth/middleware.js';
 import { getConfig } from '../config/loader.js';
 import { getMongo } from '../db/mongo.js';
-import { getLogLines } from '../util/log.js';
+import { getLogLines, subscribeLogLines } from '../util/log.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkgPath = path.resolve(__dirname, '..', '..', 'package.json');
@@ -69,4 +69,21 @@ aboutRouter.get('/', async (_req, res) => {
 aboutRouter.get('/logs', requireAdmin, (_req, res) => {
   const lines = Math.min(Math.max(1, Number(_req.query['lines']) || 200), 1000);
   res.json({ lines: getLogLines(lines) });
+});
+
+// SSE stream for real-time log tailing. Admin-only.
+aboutRouter.get('/logs/stream', requireAdmin, (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write(':\n\n'); // initial comment to establish connection
+
+  const unsubscribe = subscribeLogLines((line) => {
+    res.write(`data: ${line}\n\n`);
+  });
+
+  req.on('close', () => { unsubscribe(); });
 });

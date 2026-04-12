@@ -64,8 +64,11 @@ export function denyReadOnly(req: Request, res: Response, next: NextFunction): v
 
 function extractBearer(req: Request): string | null {
   const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) return null;
-  return auth.slice('Bearer '.length).trim();
+  if (auth && auth.startsWith('Bearer ')) return auth.slice('Bearer '.length).trim();
+  // Fallback: query parameter (used by EventSource / SSE which cannot set headers)
+  const queryToken = req.query['token'];
+  if (typeof queryToken === 'string' && queryToken.trim()) return queryToken.trim();
+  return null;
 }
 
 /**

@@ -43,3 +43,4 @@ npm-debug.log*
 
 # TypeScript build info
 *.tsbuildinfo
+server/dist

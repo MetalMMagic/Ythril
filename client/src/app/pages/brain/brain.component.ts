@@ -345,6 +345,31 @@ interface SpaceView {
       color: var(--text-muted);
       font-size: 14px;
     }
+    .dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .dialog {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .dialog-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
   `],
   template: `
     @if (loadingSpaces()) {
@@ -1273,6 +1298,39 @@ interface SpaceView {
                     <textarea [(ngModel)]="metaForm.usageNotes" name="metaUsageNotes" rows="2" style="resize:vertical;" placeholder="Naming conventions, examples, links (Markdown)"></textarea>
                   </div>
 
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Naming patterns <span style="color:var(--text-muted);font-size:11px;" title="JSON object mapping knowledge types to naming conventions.">ⓘ</span></label>
+                    <textarea
+                      [(ngModel)]="metaForm.namingPatternsJson"
+                      name="metaNamingPatterns"
+                      rows="3"
+                      style="resize:vertical; font-family:var(--font-mono); font-size:12px;"
+                      placeholder='{{ "{" }}"entity": "PascalCase", "memory": "lowercase"{{ "}" }}'
+                    ></textarea>
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Required properties <span style="color:var(--text-muted);font-size:11px;" title="JSON object mapping knowledge types to required property name arrays.">ⓘ</span></label>
+                    <textarea
+                      [(ngModel)]="metaForm.requiredPropertiesJson"
+                      name="metaRequiredProps"
+                      rows="3"
+                      style="resize:vertical; font-family:var(--font-mono); font-size:12px;"
+                      placeholder='{{ "{" }}"entity": ["type", "description"]{{ "}" }}'
+                    ></textarea>
+                  </div>
+
+                  <div class="field" style="margin-bottom:8px;">
+                    <label>Property schemas <span style="color:var(--text-muted);font-size:11px;" title="JSON object mapping knowledge types to property name → schema definitions.">ⓘ</span></label>
+                    <textarea
+                      [(ngModel)]="metaForm.propertySchemasJson"
+                      name="metaPropSchemas"
+                      rows="4"
+                      style="resize:vertical; font-family:var(--font-mono); font-size:12px;"
+                      placeholder='{{ "{" }}"entity": {{ "{" }}"status": {{ "{" }}"type":"string","enum":["active","archived"]{{ "}" }}{{ "}" }}{{ "}" }}'
+                    ></textarea>
+                  </div>
+
                   <div style="display:flex; gap:8px; margin-top:8px;">
                     <button class="btn btn-sm btn-primary" [disabled]="metaSaving()" (click)="saveMetaSettings()">
                       @if (metaSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
@@ -1283,6 +1341,97 @@ interface SpaceView {
                   </div>
                 </div>
               </div>
+
+              <!-- Space admin actions -->
+              <div class="card" style="margin-top:16px;">
+                <div class="card-header">
+                  <div class="card-title" style="font-size:14px;">Space administration</div>
+                </div>
+                <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+                  <button class="btn btn-sm btn-secondary" (click)="showCreateSpaceDialog.set(true)">+ Create new space</button>
+                  <button class="btn btn-sm btn-danger" [disabled]="isActiveBuiltIn()" (click)="showDeleteSpaceConfirm.set(true)" title="Delete this space and all its data permanently">Delete space</button>
+                  <button class="btn btn-sm btn-danger" (click)="showWipeSpaceConfirm.set(true)" title="Wipe all data from this space (keeps configuration)">Wipe all data</button>
+                </div>
+                @if (isActiveBuiltIn()) {
+                  <div style="font-size:11px; color:var(--text-muted); margin-top:8px;">Built-in spaces cannot be deleted.</div>
+                }
+                @if (spaceAdminError()) {
+                  <div class="alert alert-error" style="margin-top:8px;">{{ spaceAdminError() }}</div>
+                }
+              </div>
+
+              <!-- Create space dialog -->
+              @if (showCreateSpaceDialog()) {
+                <div class="dialog-backdrop" (click)="showCreateSpaceDialog.set(false)">
+                  <div class="dialog" (click)="$event.stopPropagation()" style="max-width:500px;">
+                    <div class="dialog-header">
+                      <div class="card-title">Create space</div>
+                      <button class="icon-btn" aria-label="Close dialog" (click)="showCreateSpaceDialog.set(false)">✕</button>
+                    </div>
+                    <form (ngSubmit)="adminCreateSpace()" style="display:flex; flex-direction:column; gap:12px;">
+                      <div class="field" style="margin-bottom:0;">
+                        <label>Display Name</label>
+                        <input type="text" [(ngModel)]="newSpaceForm.label" name="newSpaceLabel" placeholder="My Space" maxlength="200" required />
+                      </div>
+                      <div class="field" style="margin-bottom:0;">
+                        <label>ID (optional)</label>
+                        <input type="text" [(ngModel)]="newSpaceForm.id" name="newSpaceId" placeholder="my-space" pattern="[a-z0-9-]+" />
+                      </div>
+                      <div class="field" style="margin-bottom:0;">
+                        <label>Description (optional)</label>
+                        <textarea [(ngModel)]="newSpaceForm.description" name="newSpaceDesc" placeholder="Purpose of this space" maxlength="4000" rows="3" style="resize:vertical;"></textarea>
+                      </div>
+                      <div style="display:flex; gap:8px; justify-content:flex-end;">
+                        <button class="btn btn-secondary" type="button" (click)="showCreateSpaceDialog.set(false)">Cancel</button>
+                        <button class="btn btn-primary" type="submit" [disabled]="creatingNewSpace() || !newSpaceForm.label.trim()">
+                          @if (creatingNewSpace()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                          Create
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              }
+
+              <!-- Wipe space confirmation -->
+              @if (showWipeSpaceConfirm()) {
+                <div class="dialog-backdrop" (click)="showWipeSpaceConfirm.set(false)">
+                  <div class="dialog" (click)="$event.stopPropagation()" style="max-width:450px;">
+                    <div class="dialog-header">
+                      <div class="card-title" style="color:var(--danger);">⚠ Wipe all data</div>
+                      <button class="icon-btn" (click)="showWipeSpaceConfirm.set(false)">✕</button>
+                    </div>
+                    <p>This will permanently delete all data from <strong>{{ activeSpaceId() }}</strong>. The space configuration will be preserved.</p>
+                    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+                      <button class="btn btn-secondary" (click)="showWipeSpaceConfirm.set(false)" [disabled]="wipingSpace()">Cancel</button>
+                      <button class="btn btn-danger" (click)="adminWipeSpace()" [disabled]="wipingSpace()">
+                        @if (wipingSpace()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                        Wipe all data
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              }
+
+              <!-- Delete space confirmation -->
+              @if (showDeleteSpaceConfirm()) {
+                <div class="dialog-backdrop" (click)="showDeleteSpaceConfirm.set(false)">
+                  <div class="dialog" (click)="$event.stopPropagation()" style="max-width:450px;">
+                    <div class="dialog-header">
+                      <div class="card-title" style="color:var(--danger);">⚠ Delete space</div>
+                      <button class="icon-btn" (click)="showDeleteSpaceConfirm.set(false)">✕</button>
+                    </div>
+                    <p>This will permanently delete the space <strong>{{ activeSpaceId() }}</strong> and <strong>all data</strong> within it. This cannot be undone.</p>
+                    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+                      <button class="btn btn-secondary" (click)="showDeleteSpaceConfirm.set(false)" [disabled]="deletingSpace()">Cancel</button>
+                      <button class="btn btn-danger" (click)="adminDeleteSpace()" [disabled]="deletingSpace()">
+                        @if (deletingSpace()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                        Delete space
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              }
             } @else {
               <div style="padding:24px; text-align:center; color:var(--text-muted);">
                 Could not load space settings. <button class="btn btn-sm btn-secondary" (click)="loadSettings()">Retry</button>
@@ -1414,10 +1563,23 @@ export class BrainComponent implements OnInit {
     entityTypesStr: '',
     edgeLabelsStr: '',
     tagSuggestionsStr: '',
+    namingPatternsJson: '',
+    requiredPropertiesJson: '',
+    propertySchemasJson: '',
   };
   metaSaving = signal(false);
   metaSaved = signal(false);
   metaError = signal('');
+
+  // Space admin (from Settings tab)
+  showCreateSpaceDialog = signal(false);
+  showWipeSpaceConfirm = signal(false);
+  showDeleteSpaceConfirm = signal(false);
+  newSpaceForm = { label: '', id: '', description: '' };
+  creatingNewSpace = signal(false);
+  wipingSpace = signal(false);
+  deletingSpace = signal(false);
+  spaceAdminError = signal('');
 
   activeStats = computed(() =>
     this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.stats,
@@ -1989,6 +2151,12 @@ export class BrainComponent implements OnInit {
         this.metaForm.entityTypesStr = (meta.entityTypes ?? []).join(', ');
         this.metaForm.edgeLabelsStr = (meta.edgeLabels ?? []).join(', ');
         this.metaForm.tagSuggestionsStr = (meta.tagSuggestions ?? []).join(', ');
+        this.metaForm.namingPatternsJson = meta.namingPatterns && Object.keys(meta.namingPatterns).length
+          ? JSON.stringify(meta.namingPatterns, null, 2) : '';
+        this.metaForm.requiredPropertiesJson = meta.requiredProperties && Object.keys(meta.requiredProperties).length
+          ? JSON.stringify(meta.requiredProperties, null, 2) : '';
+        this.metaForm.propertySchemasJson = meta.propertySchemas && Object.keys(meta.propertySchemas).length
+          ? JSON.stringify(meta.propertySchemas, null, 2) : '';
         this.settingsLoading.set(false);
       },
       error: () => {
@@ -2042,6 +2210,20 @@ export class BrainComponent implements OnInit {
       tagSuggestions: parseList(this.metaForm.tagSuggestionsStr),
     };
 
+    // Parse optional JSON fields
+    if (this.metaForm.namingPatternsJson.trim()) {
+      try { meta.namingPatterns = JSON.parse(this.metaForm.namingPatternsJson.trim()); }
+      catch { this.metaSaving.set(false); this.metaError.set('Naming patterns must be valid JSON'); return; }
+    }
+    if (this.metaForm.requiredPropertiesJson.trim()) {
+      try { meta.requiredProperties = JSON.parse(this.metaForm.requiredPropertiesJson.trim()); }
+      catch { this.metaSaving.set(false); this.metaError.set('Required properties must be valid JSON'); return; }
+    }
+    if (this.metaForm.propertySchemasJson.trim()) {
+      try { meta.propertySchemas = JSON.parse(this.metaForm.propertySchemasJson.trim()); }
+      catch { this.metaSaving.set(false); this.metaError.set('Property schemas must be valid JSON'); return; }
+    }
+
     this.api.updateSpace(spaceId, { meta }).subscribe({
       next: () => {
         this.metaSaving.set(false);
@@ -2052,6 +2234,76 @@ export class BrainComponent implements OnInit {
         this.metaSaving.set(false);
         const errMsg = err.error?.error ?? err.error?.message ?? 'Failed to save schema';
         this.metaError.set(errMsg);
+      },
+    });
+  }
+
+  // ── Space admin methods (Settings tab) ──────────────────────────────────
+
+  isActiveBuiltIn(): boolean {
+    const sv = this.spaces().find(s => s.space.id === this.activeSpaceId());
+    return !!sv?.space.builtIn;
+  }
+
+  adminCreateSpace(): void {
+    if (!this.newSpaceForm.label.trim()) return;
+    this.creatingNewSpace.set(true);
+    this.spaceAdminError.set('');
+    const body: { label: string; id?: string; description?: string } = { label: this.newSpaceForm.label.trim() };
+    if (this.newSpaceForm.id.trim()) body.id = this.newSpaceForm.id.trim();
+    if (this.newSpaceForm.description.trim()) body.description = this.newSpaceForm.description.trim();
+    this.api.createSpace(body).subscribe({
+      next: ({ space }) => {
+        this.creatingNewSpace.set(false);
+        this.showCreateSpaceDialog.set(false);
+        this.newSpaceForm = { label: '', id: '', description: '' };
+        this.spaces.update(list => [...list, { space }]);
+        this.selectSpace(space.id);
+      },
+      error: (err) => {
+        this.creatingNewSpace.set(false);
+        this.spaceAdminError.set(err.error?.error ?? 'Failed to create space');
+      },
+    });
+  }
+
+  adminWipeSpace(): void {
+    const spaceId = this.activeSpaceId();
+    this.wipingSpace.set(true);
+    this.spaceAdminError.set('');
+    this.api.wipeSpace(spaceId).subscribe({
+      next: () => {
+        this.wipingSpace.set(false);
+        this.showWipeSpaceConfirm.set(false);
+        this.loadStats(spaceId);
+        this.loadCurrentTab(spaceId);
+      },
+      error: (err) => {
+        this.wipingSpace.set(false);
+        this.spaceAdminError.set(err.error?.error ?? 'Failed to wipe space');
+      },
+    });
+  }
+
+  adminDeleteSpace(): void {
+    const spaceId = this.activeSpaceId();
+    this.deletingSpace.set(true);
+    this.spaceAdminError.set('');
+    this.api.deleteSpace(spaceId).subscribe({
+      next: () => {
+        this.deletingSpace.set(false);
+        this.showDeleteSpaceConfirm.set(false);
+        this.spaces.update(list => list.filter(sv => sv.space.id !== spaceId));
+        const remaining = this.spaces();
+        if (remaining.length > 0) {
+          this.selectSpace(remaining[0].space.id);
+        } else {
+          this.activeSpaceId.set('');
+        }
+      },
+      error: (err) => {
+        this.deletingSpace.set(false);
+        this.spaceAdminError.set(err.error?.error ?? 'Failed to delete space');
       },
     });
   }

@@ -91,15 +91,31 @@ import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
               <div class="field" style="flex:1; margin-bottom:0;">
                 <label>Proxy for (optional)</label>
                 @if (spaces().length > 0) {
-                  <div class="spaces-toggle-list">
-                    @for (s of spaces(); track s.id) {
-                      <label class="space-toggle-item">
-                        <input type="checkbox" [checked]="isProxyForSelected(s.id)" (change)="toggleProxyFor(s.id)" />
-                        <span>{{ s.label }}</span>
-                        <span class="space-id">{{ s.id }}</span>
-                      </label>
-                    }
+                  <div class="table-wrapper" style="max-height:180px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                    <table style="margin:0;">
+                      <thead>
+                        <tr>
+                          <th style="width:40px; text-align:center;">
+                            <input type="checkbox" [checked]="proxyForAll" (change)="toggleProxyForAll()" title="All spaces" />
+                          </th>
+                          <th>Space</th>
+                          <th>ID</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (s of spaces(); track s.id) {
+                          <tr style="cursor:pointer;" (click)="toggleProxyFor(s.id)">
+                            <td style="text-align:center;">
+                              <input type="checkbox" [checked]="isProxyForSelected(s.id)" (click)="$event.stopPropagation()" (change)="toggleProxyFor(s.id)" [disabled]="proxyForAll" />
+                            </td>
+                            <td>{{ s.label }}</td>
+                            <td><span class="badge badge-gray mono" style="font-size:11px;">{{ s.id }}</span></td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
                   </div>
+                  <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">Check "All" to proxy reads from all spaces.</div>
                 } @else {
                   <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">No existing spaces to select.</div>
                 }
@@ -311,6 +327,7 @@ export class SpacesComponent implements OnInit {
 
   form = { label: '', id: '', maxGiB: null as number | null, description: SpacesComponent.DEFAULT_MCP_DESC };
   proxyForSelected: string[] = [];
+  proxyForAll = false;
 
   editTarget = signal<Space | null>(null);
   editForm = { label: '', description: '' };
@@ -346,10 +363,20 @@ export class SpacesComponent implements OnInit {
   }
 
   toggleProxyFor(id: string): void {
+    if (this.proxyForAll) return;
     if (this.proxyForSelected.includes(id)) {
       this.proxyForSelected = this.proxyForSelected.filter(s => s !== id);
     } else {
       this.proxyForSelected = [...this.proxyForSelected, id];
+    }
+  }
+
+  toggleProxyForAll(): void {
+    this.proxyForAll = !this.proxyForAll;
+    if (this.proxyForAll) {
+      this.proxyForSelected = this.spaces().map(s => s.id);
+    } else {
+      this.proxyForSelected = [];
     }
   }
 

@@ -288,14 +288,29 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
               } @else if (availableSpaces().length === 0) {
                 <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Loading spaces…</div>
               } @else {
-                <div class="spaces-toggle-list">
-                  @for (s of availableSpaces(); track s.id) {
-                    <label class="space-toggle-item">
-                      <input type="checkbox" [checked]="isSpaceSelected(s.id)" (change)="toggleSpace(s.id)" />
-                      <span>{{ s.label }}</span>
-                      <span class="space-id">{{ s.id }}</span>
-                    </label>
-                  }
+                <div class="table-wrapper" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                  <table style="margin:0;">
+                    <thead>
+                      <tr>
+                        <th style="width:40px; text-align:center;">
+                          <input type="checkbox" [checked]="newSelectedSpaces.length === 0" (change)="selectAllSpaces()" title="All spaces" />
+                        </th>
+                        <th>Space</th>
+                        <th>ID</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (s of availableSpaces(); track s.id) {
+                        <tr style="cursor:pointer;" (click)="toggleSpace(s.id)">
+                          <td style="text-align:center;">
+                            <input type="checkbox" [checked]="isSpaceSelected(s.id)" (click)="$event.stopPropagation()" (change)="toggleSpace(s.id)" />
+                          </td>
+                          <td>{{ s.label }}</td>
+                          <td><span class="badge badge-gray mono" style="font-size:11px;">{{ s.id }}</span></td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
                 </div>
               }
               <div class="scope-hint">Leave blank / deselect all to grant access to all spaces.</div>
@@ -494,6 +509,10 @@ export class TokensComponent implements OnInit {
     } else {
       this.newSelectedSpaces = [...this.newSelectedSpaces, id];
     }
+  }
+
+  selectAllSpaces(): void {
+    this.newSelectedSpaces = [];
   }
 
   regenerate(t: TokenRecord): void {

@@ -222,3 +222,65 @@ describe('entityIds and memoryIds must be UUIDs', () => {
     assert.deepEqual(validateIds([]), []);
   });
 });
+
+// ── Per-space strictLinkage setting ─────────────────────────────────────────
+
+describe('strictLinkage is a per-space opt-in setting', () => {
+  /**
+   * Simulate the enforcement gating pattern used in the API.
+   * When strictLinkage is false/undefined, validation is skipped.
+   */
+  function validateEdgeRef(meta, from, to) {
+    const errors = [];
+    if (meta?.strictLinkage === true) {
+      if (!UUID_V4_RE.test(from)) errors.push({ field: 'from', reason: 'not a UUID v4' });
+      if (!UUID_V4_RE.test(to)) errors.push({ field: 'to', reason: 'not a UUID v4' });
+    }
+    return errors;
+  }
+
+  function shouldBlockDelete(meta, backlinks) {
+    if (meta?.strictLinkage !== true) return false;
+    return backlinks.length > 0;
+  }
+
+  it('strictLinkage=true → name-based from/to rejected', () => {
+    const meta = { strictLinkage: true };
+    const errors = validateEdgeRef(meta, 'kubernetes', 'docker');
+    assert.equal(errors.length, 2);
+  });
+
+  it('strictLinkage=false → name-based from/to allowed', () => {
+    const meta = { strictLinkage: false };
+    const errors = validateEdgeRef(meta, 'kubernetes', 'docker');
+    assert.equal(errors.length, 0);
+  });
+
+  it('strictLinkage=undefined → name-based from/to allowed', () => {
+    const meta = {};
+    const errors = validateEdgeRef(meta, 'kubernetes', 'docker');
+    assert.equal(errors.length, 0);
+  });
+
+  it('no meta → name-based from/to allowed', () => {
+    const errors = validateEdgeRef(undefined, 'kubernetes', 'docker');
+    assert.equal(errors.length, 0);
+  });
+
+  it('strictLinkage=true → delete blocked when backlinks exist', () => {
+    const meta = { strictLinkage: true };
+    const backlinks = [{ type: 'edge', _id: 'e1' }];
+    assert.ok(shouldBlockDelete(meta, backlinks));
+  });
+
+  it('strictLinkage=false → delete allowed even with backlinks', () => {
+    const meta = { strictLinkage: false };
+    const backlinks = [{ type: 'edge', _id: 'e1' }];
+    assert.ok(!shouldBlockDelete(meta, backlinks));
+  });
+
+  it('strictLinkage=true + no backlinks → delete allowed', () => {
+    const meta = { strictLinkage: true };
+    assert.ok(!shouldBlockDelete(meta, []));
+  });
+});

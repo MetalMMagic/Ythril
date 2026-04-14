@@ -470,7 +470,7 @@ POST /api/brain/:spaceId/memories
 }
 ```
 
-**Constraints**: `fact` max 50 000 chars. `tags` must be an array of strings. `description` optional string. `properties` optional object where each value must be a string, number, or boolean. `entityIds` must contain valid UUID v4 values (entity IDs); passing names instead of IDs returns `400`.
+**Constraints**: `fact` max 50 000 chars. `tags` must be an array of strings. `description` optional string. `properties` optional object where each value must be a string, number, or boolean. When the space has `strictLinkage` enabled, `entityIds` must contain valid UUID v4 values (entity IDs); passing names instead of IDs returns `400`.
 
 ---
 
@@ -711,9 +711,9 @@ Default limit: 50, max: 200.
 DELETE /api/brain/spaces/:spaceId/entities/:id
 ```
 
-**Response** `204` when no inbound references exist.
+**Response** `204` when no inbound references exist (or `strictLinkage` is not enabled).
 
-**Response** `409 Conflict` when the entity still has inbound backlinks (edges, memories, or chrono entries that reference it). The caller must first delete or relink the backlinked items before the deletion is permitted. Response body:
+**Response** `409 Conflict` when the space has `strictLinkage` enabled in its meta and the entity still has inbound backlinks (edges, memories, or chrono entries that reference it). The caller must first delete or relink the backlinked items before the deletion is permitted. Response body:
 
 ```json
 {
@@ -750,8 +750,8 @@ POST /api/brain/spaces/:spaceId/edges
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `from` | yes | Source entity UUID v4 (not a name). Returns `400` if not a valid UUID. |
-| `to` | yes | Target entity UUID v4 (not a name). Returns `400` if not a valid UUID. |
+| `from` | yes | Source entity UUID v4 (not a name when `strictLinkage` is enabled). Returns `400` if not a valid UUID and `strictLinkage` is on. |
+| `to` | yes | Target entity UUID v4 (not a name when `strictLinkage` is enabled). Returns `400` if not a valid UUID and `strictLinkage` is on. |
 | `label` | yes | Relationship label (e.g. `depends_on`, `related_to`) |
 | `weight` | no | Numeric weight (0–1). Defaults to none. |
 | `type` | no | Free-form edge type string (e.g. `causal`, `hierarchical`). |
@@ -867,8 +867,8 @@ POST /api/brain/spaces/:spaceId/chrono
 - `kind` — `event`, `deadline`, `plan`, `prediction`, `milestone`
 - `status` — `upcoming` (default), `active`, `completed`, `overdue`, `cancelled`
 - `confidence` — `0`–`1` (optional, useful for predictions)
-- `entityIds` — array of UUID v4 entity IDs (not names); returns `400` if any value is not a valid UUID
-- `memoryIds` — array of UUID v4 memory IDs (not names); returns `400` if any value is not a valid UUID
+- `entityIds` — array of UUID v4 entity IDs (not names); returns `400` if any value is not a valid UUID and `strictLinkage` is enabled
+- `memoryIds` — array of UUID v4 memory IDs (not names); returns `400` if any value is not a valid UUID and `strictLinkage` is enabled
 
 **Response** `201` — the created `ChronoEntry`.
 
@@ -1342,7 +1342,8 @@ Update space properties. Requires an admin token (+ TOTP if MFA is enabled). At 
         "status": { "type": "string", "enum": ["active", "deprecated", "planned"] }
       }
     },
-    "tagSuggestions": ["backend", "frontend", "infra"]
+    "tagSuggestions": ["backend", "frontend", "infra"],
+    "strictLinkage": true
   }
 }
 ```
@@ -1463,6 +1464,7 @@ Each space can define a schema in its `meta` block that governs what data is acc
 | `requiredProperties` | entity, memory, edge, chrono | Array of required property keys per knowledge type. |
 | `propertySchemas` | entity, memory, edge, chrono | Property value constraints per knowledge type — `type` (string/number/boolean), `enum`, `minimum`/`maximum`, `pattern` (regex, ReDoS-protected). |
 | `tagSuggestions` | all | Non-enforced tag hints shown in the UI (max 200). |
+| `strictLinkage` | edges, memories, chrono, entity delete | When `true`, all reference fields (`from`/`to`, `entityIds`, `memoryIds`) must be valid UUID v4 values, and entity deletion is blocked while inbound backlinks exist. Default: `false` (off). |
 
 Schema validation runs on:
 - Individual writes: `POST /entities`, `POST /edges`, `POST /memories`, `POST /chrono`

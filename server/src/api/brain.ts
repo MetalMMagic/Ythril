@@ -45,6 +45,11 @@ function getSpaceMeta(spaceId: string): SpaceMeta | undefined {
   return cfg.spaces.find(s => s.id === spaceId)?.meta;
 }
 
+/** Check whether strict linkage enforcement is enabled for a space. */
+function isStrictLinkage(spaceId: string): boolean {
+  return getSpaceMeta(spaceId)?.strictLinkage === true;
+}
+
 /**
  * Apply schema validation to a write operation.
  * Returns { blocked: true, violations } when strict mode rejects the write.
@@ -110,11 +115,13 @@ brainRouter.post('/:spaceId/memories', globalRateLimit, requireSpaceAuth, denyRe
       ? (properties as Record<string, string | number | boolean>)
       : undefined;
   const safeEntityIds: string[] = Array.isArray(entityIds) ? entityIds : [];
-  // Validate that all entityIds are valid UUID v4 (not names)
-  const invalidEntityIds = safeEntityIds.filter((id: string) => !UUID_V4_RE.test(id));
-  if (invalidEntityIds.length > 0) {
-    res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidEntityIds });
-    return;
+  // Validate that all entityIds are valid UUID v4 (not names) — only when strictLinkage is on
+  if (isStrictLinkage(wt.target)) {
+    const invalidEntityIds = safeEntityIds.filter((id: string) => !UUID_V4_RE.test(id));
+    if (invalidEntityIds.length > 0) {
+      res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidEntityIds });
+      return;
+    }
   }
   const safeTags: string[] = Array.isArray(tags) ? tags : [];
 
@@ -265,8 +272,10 @@ brainRouter.patch('/:spaceId/memories/:id', globalRateLimit, requireSpaceAuth, d
   }
   if (entityIds !== undefined) {
     if (!Array.isArray(entityIds) || entityIds.some((t: unknown) => typeof t !== 'string')) { res.status(400).json({ error: '`entityIds` must be an array of strings' }); return; }
-    const invalidIds = entityIds.filter((id: string) => !UUID_V4_RE.test(id));
-    if (invalidIds.length > 0) { res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidIds }); return; }
+    if (isStrictLinkage(wt.target)) {
+      const invalidIds = entityIds.filter((id: string) => !UUID_V4_RE.test(id));
+      if (invalidIds.length > 0) { res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidIds }); return; }
+    }
     updates.entityIds = entityIds;
   }
   if (description !== undefined) {
@@ -388,8 +397,10 @@ brainRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSpace
   }
   if (entityIds !== undefined) {
     if (!Array.isArray(entityIds) || entityIds.some((t: unknown) => typeof t !== 'string')) { res.status(400).json({ error: '`entityIds` must be an array of strings' }); return; }
-    const invalidIds = entityIds.filter((id: string) => !UUID_V4_RE.test(id));
-    if (invalidIds.length > 0) { res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidIds }); return; }
+    if (isStrictLinkage(wt.target)) {
+      const invalidIds = entityIds.filter((id: string) => !UUID_V4_RE.test(id));
+      if (invalidIds.length > 0) { res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidIds }); return; }
+    }
     updates.entityIds = entityIds;
   }
   if (description !== undefined) {
@@ -511,7 +522,7 @@ brainRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
     res.status(400).json({ error: '`from` string required' });
     return;
   }
-  if (!UUID_V4_RE.test(from)) {
+  if (isStrictLinkage(wt.target) && !UUID_V4_RE.test(from)) {
     res.status(400).json({ error: '`from` must be a valid UUID v4 (entity ID), not a name' });
     return;
   }
@@ -519,7 +530,7 @@ brainRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
     res.status(400).json({ error: '`to` string required' });
     return;
   }
-  if (!UUID_V4_RE.test(to)) {
+  if (isStrictLinkage(wt.target) && !UUID_V4_RE.test(to)) {
     res.status(400).json({ error: '`to` must be a valid UUID v4 (entity ID), not a name' });
     return;
   }
@@ -625,11 +636,13 @@ brainRouter.delete('/spaces/:spaceId/entities/:id', globalRateLimit, requireSpac
   for (const mid of memberIds) {
     const entity = await getEntityById(mid, id);
     if (!entity) continue;
-    // Check for inbound references before allowing deletion
-    const backlinks = await findEntityBacklinks(mid, id);
-    if (backlinks.length > 0) {
-      res.status(409).json({ error: 'Cannot delete: entity has inbound references', backlinks });
-      return;
+    // Check for inbound references before allowing deletion (only when strictLinkage is on)
+    if (isStrictLinkage(mid)) {
+      const backlinks = await findEntityBacklinks(mid, id);
+      if (backlinks.length > 0) {
+        res.status(409).json({ error: 'Cannot delete: entity has inbound references', backlinks });
+        return;
+      }
     }
     if (await deleteEntity(mid, id)) {
       emitWebhookEvent({ event: 'entity.deleted', spaceId: mid, entry: { _id: id }, ...webhookToken(req) });
@@ -900,15 +913,19 @@ brainRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, d
     res.status(400).json({ error: '`entityIds` must be an array of strings' }); return;
   }
   if (entityIds !== undefined) {
-    const invalidEIds = (entityIds as string[]).filter((id: string) => !UUID_V4_RE.test(id));
-    if (invalidEIds.length > 0) { res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidEIds }); return; }
+    if (isStrictLinkage(wt.target)) {
+      const invalidEIds = (entityIds as string[]).filter((id: string) => !UUID_V4_RE.test(id));
+      if (invalidEIds.length > 0) { res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidEIds }); return; }
+    }
   }
   if (memoryIds !== undefined && (!Array.isArray(memoryIds) || memoryIds.some((t: unknown) => typeof t !== 'string'))) {
     res.status(400).json({ error: '`memoryIds` must be an array of strings' }); return;
   }
   if (memoryIds !== undefined) {
-    const invalidMIds = (memoryIds as string[]).filter((id: string) => !UUID_V4_RE.test(id));
-    if (invalidMIds.length > 0) { res.status(400).json({ error: '`memoryIds` must contain valid UUID v4 values (memory IDs), not names', invalid: invalidMIds }); return; }
+    if (isStrictLinkage(wt.target)) {
+      const invalidMIds = (memoryIds as string[]).filter((id: string) => !UUID_V4_RE.test(id));
+      if (invalidMIds.length > 0) { res.status(400).json({ error: '`memoryIds` must contain valid UUID v4 values (memory IDs), not names', invalid: invalidMIds }); return; }
+    }
   }
   if (description !== undefined && typeof description !== 'string') {
     res.status(400).json({ error: '`description` must be a string' }); return;
@@ -962,11 +979,11 @@ brainRouter.post('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAut
   if (confidence !== undefined && (typeof confidence !== 'number' || confidence < 0 || confidence > 1)) {
     res.status(400).json({ error: '`confidence` must be a number between 0 and 1' }); return;
   }
-  if (entityIds !== undefined && Array.isArray(entityIds)) {
+  if (entityIds !== undefined && Array.isArray(entityIds) && isStrictLinkage(wt.target)) {
     const invalidEIds = entityIds.filter((id: string) => !UUID_V4_RE.test(id));
     if (invalidEIds.length > 0) { res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidEIds }); return; }
   }
-  if (memoryIds !== undefined && Array.isArray(memoryIds)) {
+  if (memoryIds !== undefined && Array.isArray(memoryIds) && isStrictLinkage(wt.target)) {
     const invalidMIds = memoryIds.filter((id: string) => !UUID_V4_RE.test(id));
     if (invalidMIds.length > 0) { res.status(400).json({ error: '`memoryIds` must contain valid UUID v4 values (memory IDs), not names', invalid: invalidMIds }); return; }
   }
@@ -1009,11 +1026,11 @@ brainRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAu
   if (confidence !== undefined && (typeof confidence !== 'number' || confidence < 0 || confidence > 1)) {
     res.status(400).json({ error: '`confidence` must be a number between 0 and 1' }); return;
   }
-  if (entityIds !== undefined && Array.isArray(entityIds)) {
+  if (entityIds !== undefined && Array.isArray(entityIds) && isStrictLinkage(wt.target)) {
     const invalidEIds = entityIds.filter((id: string) => !UUID_V4_RE.test(id));
     if (invalidEIds.length > 0) { res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidEIds }); return; }
   }
-  if (memoryIds !== undefined && Array.isArray(memoryIds)) {
+  if (memoryIds !== undefined && Array.isArray(memoryIds) && isStrictLinkage(wt.target)) {
     const invalidMIds = memoryIds.filter((id: string) => !UUID_V4_RE.test(id));
     if (invalidMIds.length > 0) { res.status(400).json({ error: '`memoryIds` must contain valid UUID v4 values (memory IDs), not names', invalid: invalidMIds }); return; }
   }
@@ -1621,9 +1638,9 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
     const to    = typeof item['to']    === 'string' ? item['to'].trim()    : '';
     const label = typeof item['label'] === 'string' ? item['label'].trim() : '';
     if (!from)  { errors.push({ type: 'edge', index: i, reason: 'missing required field: from' });  continue; }
-    if (!UUID_V4_RE.test(from)) { errors.push({ type: 'edge', index: i, reason: '`from` must be a valid UUID v4 (entity ID), not a name' }); continue; }
+    if (isStrictLinkage(targetSpace) && !UUID_V4_RE.test(from)) { errors.push({ type: 'edge', index: i, reason: '`from` must be a valid UUID v4 (entity ID), not a name' }); continue; }
     if (!to)    { errors.push({ type: 'edge', index: i, reason: 'missing required field: to' });    continue; }
-    if (!UUID_V4_RE.test(to)) { errors.push({ type: 'edge', index: i, reason: '`to` must be a valid UUID v4 (entity ID), not a name' }); continue; }
+    if (isStrictLinkage(targetSpace) && !UUID_V4_RE.test(to)) { errors.push({ type: 'edge', index: i, reason: '`to` must be a valid UUID v4 (entity ID), not a name' }); continue; }
     if (!label) { errors.push({ type: 'edge', index: i, reason: 'missing required field: label' }); continue; }
     const weight:      number | undefined = typeof item['weight'] === 'number' ? item['weight'] : undefined;
     const edgeType:    string | undefined = typeof item['type']   === 'string' ? item['type']   : undefined;
@@ -1669,11 +1686,11 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
     const tags: string[] | undefined = Array.isArray(item['tags']) ? (item['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
     const entityIds: string[] | undefined = Array.isArray(item['entityIds']) ? (item['entityIds'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
     const memoryIds: string[] | undefined = Array.isArray(item['memoryIds']) ? (item['memoryIds'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
-    if (entityIds) {
+    if (entityIds && isStrictLinkage(targetSpace)) {
       const invalidEIds = entityIds.filter(id => !UUID_V4_RE.test(id));
       if (invalidEIds.length > 0) { errors.push({ type: 'chrono', index: i, reason: '`entityIds` must contain valid UUID v4 values (entity IDs), not names' }); continue; }
     }
-    if (memoryIds) {
+    if (memoryIds && isStrictLinkage(targetSpace)) {
       const invalidMIds = memoryIds.filter(id => !UUID_V4_RE.test(id));
       if (invalidMIds.length > 0) { errors.push({ type: 'chrono', index: i, reason: '`memoryIds` must contain valid UUID v4 values (memory IDs), not names' }); continue; }
     }

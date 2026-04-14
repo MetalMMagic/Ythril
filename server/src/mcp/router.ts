@@ -21,6 +21,11 @@ import { upsertEdge, listEdges, traverseGraph, updateEdgeById } from '../brain/e
 
 /** Regex that matches a UUID v4 (case-insensitive). */
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/** Check whether strict linkage enforcement is enabled for a space. */
+function isStrictLinkage(spaceId: string): boolean {
+  return getConfig().spaces.find(s => s.id === spaceId)?.meta?.strictLinkage === true;
+}
 import { createChrono, updateChrono, listChrono, ChronoFilter } from '../brain/chrono.js';
 // File tools
 import {
@@ -1087,9 +1092,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           const to = String(a['to'] ?? '');
           const label = String(a['label'] ?? '');
           if (!from) throw new Error('from must not be empty');
-          if (!UUID_V4_RE.test(from)) throw new Error('from must be a valid UUID v4 (entity ID), not a name');
           if (!to) throw new Error('to must not be empty');
-          if (!UUID_V4_RE.test(to)) throw new Error('to must be a valid UUID v4 (entity ID), not a name');
           if (!label) throw new Error('label must not be empty');
           const weight = typeof a['weight'] === 'number' ? a['weight'] : undefined;
           const edgeType = typeof a['type'] === 'string' ? a['type'] : undefined;
@@ -1100,6 +1103,10 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             : undefined;
           const wt = resolveWriteTarget(spaceId, a['targetSpace'] as string | undefined);
           if (!wt.ok) throw new Error(wt.error);
+          if (isStrictLinkage(wt.target)) {
+            if (!UUID_V4_RE.test(from)) throw new Error('from must be a valid UUID v4 (entity ID), not a name');
+            if (!UUID_V4_RE.test(to)) throw new Error('to must be a valid UUID v4 (entity ID), not a name');
+          }
 
           // Schema validation (single pass)
           const edgeMeta = getConfig().spaces.find(s => s.id === wt.target)?.meta;
@@ -1220,16 +1227,18 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
 
           const remQuota = await checkQuota('brain');
 
-          // Validate entityIds and memoryIds are UUIDs
+          // Validate entityIds and memoryIds are UUIDs (when strictLinkage is on)
           const chronoEntityIds = Array.isArray(a['entityIds']) ? (a['entityIds'] as string[]) : undefined;
           const chronoMemoryIds = Array.isArray(a['memoryIds']) ? (a['memoryIds'] as string[]) : undefined;
-          if (chronoEntityIds) {
-            const invalidEIds = chronoEntityIds.filter(id => !UUID_V4_RE.test(id));
-            if (invalidEIds.length > 0) throw new Error(`entityIds must contain valid UUID v4 values (entity IDs), not names: ${invalidEIds.join(', ')}`);
-          }
-          if (chronoMemoryIds) {
-            const invalidMIds = chronoMemoryIds.filter(id => !UUID_V4_RE.test(id));
-            if (invalidMIds.length > 0) throw new Error(`memoryIds must contain valid UUID v4 values (memory IDs), not names: ${invalidMIds.join(', ')}`);
+          if (isStrictLinkage(wt.target)) {
+            if (chronoEntityIds) {
+              const invalidEIds = chronoEntityIds.filter(id => !UUID_V4_RE.test(id));
+              if (invalidEIds.length > 0) throw new Error(`entityIds must contain valid UUID v4 values (entity IDs), not names: ${invalidEIds.join(', ')}`);
+            }
+            if (chronoMemoryIds) {
+              const invalidMIds = chronoMemoryIds.filter(id => !UUID_V4_RE.test(id));
+              if (invalidMIds.length > 0) throw new Error(`memoryIds must contain valid UUID v4 values (memory IDs), not names: ${invalidMIds.join(', ')}`);
+            }
           }
 
           const entry = await createChrono(wt.target, {
@@ -1270,14 +1279,18 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           if (Array.isArray(a['tags'])) updates['tags'] = a['tags'];
           if (Array.isArray(a['entityIds'])) {
             const eIds = a['entityIds'] as string[];
-            const invalidEIds = eIds.filter(id => !UUID_V4_RE.test(id));
-            if (invalidEIds.length > 0) throw new Error(`entityIds must contain valid UUID v4 values (entity IDs), not names: ${invalidEIds.join(', ')}`);
+            if (isStrictLinkage(wt.target)) {
+              const invalidEIds = eIds.filter(id => !UUID_V4_RE.test(id));
+              if (invalidEIds.length > 0) throw new Error(`entityIds must contain valid UUID v4 values (entity IDs), not names: ${invalidEIds.join(', ')}`);
+            }
             updates['entityIds'] = eIds;
           }
           if (Array.isArray(a['memoryIds'])) {
             const mIds = a['memoryIds'] as string[];
-            const invalidMIds = mIds.filter(id => !UUID_V4_RE.test(id));
-            if (invalidMIds.length > 0) throw new Error(`memoryIds must contain valid UUID v4 values (memory IDs), not names: ${invalidMIds.join(', ')}`);
+            if (isStrictLinkage(wt.target)) {
+              const invalidMIds = mIds.filter(id => !UUID_V4_RE.test(id));
+              if (invalidMIds.length > 0) throw new Error(`memoryIds must contain valid UUID v4 values (memory IDs), not names: ${invalidMIds.join(', ')}`);
+            }
             updates['memoryIds'] = mIds;
           }
           if (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties'])) {
@@ -1622,9 +1635,9 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             const to    = typeof item['to']    === 'string' ? item['to'].trim()    : '';
             const label = typeof item['label'] === 'string' ? item['label'].trim() : '';
             if (!from)  { errors.push({ type: 'edge', index: i, reason: 'missing required field: from' });  continue; }
-            if (!UUID_V4_RE.test(from)) { errors.push({ type: 'edge', index: i, reason: '`from` must be a valid UUID v4 (entity ID), not a name' }); continue; }
+            if (isStrictLinkage(ts) && !UUID_V4_RE.test(from)) { errors.push({ type: 'edge', index: i, reason: '`from` must be a valid UUID v4 (entity ID), not a name' }); continue; }
             if (!to)    { errors.push({ type: 'edge', index: i, reason: 'missing required field: to' });    continue; }
-            if (!UUID_V4_RE.test(to)) { errors.push({ type: 'edge', index: i, reason: '`to` must be a valid UUID v4 (entity ID), not a name' }); continue; }
+            if (isStrictLinkage(ts) && !UUID_V4_RE.test(to)) { errors.push({ type: 'edge', index: i, reason: '`to` must be a valid UUID v4 (entity ID), not a name' }); continue; }
             if (!label) { errors.push({ type: 'edge', index: i, reason: 'missing required field: label' }); continue; }
             const weight      = typeof item['weight'] === 'number' ? item['weight'] : undefined;
             const edgeType    = typeof item['type']   === 'string' ? item['type']   : undefined;
@@ -1666,11 +1679,11 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             const tags        = Array.isArray(item['tags'])       ? (item['tags']       as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
             const entityIds   = Array.isArray(item['entityIds'])  ? (item['entityIds']  as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
             const memoryIds   = Array.isArray(item['memoryIds'])  ? (item['memoryIds']  as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
-            if (entityIds) {
+            if (entityIds && isStrictLinkage(ts)) {
               const invalidEIds = entityIds.filter(id => !UUID_V4_RE.test(id));
               if (invalidEIds.length > 0) { errors.push({ type: 'chrono', index: i, reason: '`entityIds` must contain valid UUID v4 values (entity IDs), not names' }); continue; }
             }
-            if (memoryIds) {
+            if (memoryIds && isStrictLinkage(ts)) {
               const invalidMIds = memoryIds.filter(id => !UUID_V4_RE.test(id));
               if (invalidMIds.length > 0) { errors.push({ type: 'chrono', index: i, reason: '`memoryIds` must contain valid UUID v4 values (memory IDs), not names' }); continue; }
             }

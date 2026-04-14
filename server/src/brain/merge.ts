@@ -14,6 +14,7 @@ import { nextSeq } from '../util/seq.js';
 import { embed } from './embedding.js';
 import { getEntityById, deleteEntity } from './entities.js';
 import { getConfig } from '../config/loader.js';
+import { log } from '../util/log.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, SpaceMeta, PropertySchema } from '../config/types.js';
 
 // ── Public types ───────────────────────────────────────────────────────────
@@ -280,8 +281,8 @@ export function applyResolutions(
       } else if (c.type === 'boolean' && BOOLEAN_FNS[fnName]) {
         result[c.key] = BOOLEAN_FNS[fnName](c.survivorValue as boolean, c.absorbedValue as boolean);
       } else {
-        // Fallback: keep survivor value if fn is not applicable
-        // This shouldn't happen if validation is correct
+        // Validation should prevent reaching this branch — log a warning so mismatches are diagnosable.
+        log.warn(`merge: fn '${fnName}' not applicable for type '${c.type}' on property '${c.key}' — keeping survivor value`);
       }
     }
   }

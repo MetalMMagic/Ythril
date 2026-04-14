@@ -24,8 +24,6 @@ const NUMERIC_FNS = {
   min:   (a, b) => Math.min(a, b),
   max:   (a, b) => Math.max(a, b),
   sum:   (a, b) => a + b,
-  first: (a, _b) => a,
-  last:  (_a, b) => b,
 };
 
 const BOOLEAN_FNS = {
@@ -34,7 +32,7 @@ const BOOLEAN_FNS = {
   xor: (a, b) => a !== b,
 };
 
-const VALID_NUMERIC_FNS = new Set(['avg', 'min', 'max', 'sum', 'first', 'last']);
+const VALID_NUMERIC_FNS = new Set(['avg', 'min', 'max', 'sum']);
 const VALID_BOOLEAN_FNS = new Set(['and', 'or', 'xor']);
 
 function validateResolution(resolution, type, hasCustomValue) {
@@ -223,7 +221,7 @@ describe('Entity merge — resolution validation', () => {
   });
 
   it('accepts numeric fn for number type', () => {
-    for (const fn of ['avg', 'min', 'max', 'sum', 'first', 'last']) {
+    for (const fn of ['avg', 'min', 'max', 'sum']) {
       assert.equal(validateResolution(`fn:${fn}`, 'number', false), null, `fn:${fn} should be valid for number`);
     }
   });
@@ -305,18 +303,6 @@ describe('Entity merge — resolution application', () => {
     assert.equal(result.count, 8);
   });
 
-  it('applies fn:first correctly', () => {
-    const conflicts = [{ key: 'count', type: 'number', survivorValue: 5, absorbedValue: 3, resolved: true, resolution: 'fn:first' }];
-    const result = applyResolutions({ count: 5 }, { count: 3 }, conflicts, []);
-    assert.equal(result.count, 5);
-  });
-
-  it('applies fn:last correctly', () => {
-    const conflicts = [{ key: 'count', type: 'number', survivorValue: 5, absorbedValue: 3, resolved: true, resolution: 'fn:last' }];
-    const result = applyResolutions({ count: 5 }, { count: 3 }, conflicts, []);
-    assert.equal(result.count, 3);
-  });
-
   it('applies fn:and correctly', () => {
     const conflicts = [{ key: 'active', type: 'boolean', survivorValue: true, absorbedValue: false, resolved: true, resolution: 'fn:and' }];
     const result = applyResolutions({ active: true }, { active: false }, conflicts, []);
@@ -359,7 +345,7 @@ describe('Entity merge — resolution application', () => {
 
 describe('Entity merge — mergeFn compatibility', () => {
   it('number type accepts numeric fns', () => {
-    const numericFns = ['avg', 'min', 'max', 'sum', 'first', 'last'];
+    const numericFns = ['avg', 'min', 'max', 'sum'];
     for (const fn of numericFns) {
       assert.equal(validateResolution(`fn:${fn}`, 'number', false), null);
     }
@@ -379,13 +365,13 @@ describe('Entity merge — mergeFn compatibility', () => {
   });
 
   it('boolean type rejects numeric fns', () => {
-    for (const fn of ['avg', 'min', 'max', 'sum', 'first', 'last']) {
+    for (const fn of ['avg', 'min', 'max', 'sum']) {
       assert.ok(validateResolution(`fn:${fn}`, 'boolean', false), `fn:${fn} should be rejected for boolean`);
     }
   });
 
   it('string type rejects all fns', () => {
-    for (const fn of ['avg', 'min', 'max', 'sum', 'first', 'last', 'and', 'or', 'xor']) {
+    for (const fn of ['avg', 'min', 'max', 'sum', 'and', 'or', 'xor']) {
       assert.ok(validateResolution(`fn:${fn}`, 'string', false), `fn:${fn} should be rejected for string`);
     }
   });

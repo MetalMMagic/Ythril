@@ -15,7 +15,7 @@ export interface TokenRecord {
 // ── Space meta / schema types ──────────────────────────────────────────────
 
 /** Numeric merge functions available for `type: "number"` properties. */
-export type NumericMergeFn = 'avg' | 'min' | 'max' | 'sum' | 'first' | 'last';
+export type NumericMergeFn = 'avg' | 'min' | 'max' | 'sum';
 
 /** Boolean merge functions available for `type: "boolean"` properties. */
 export type BooleanMergeFn = 'and' | 'or' | 'xor';
@@ -31,7 +31,7 @@ export interface PropertySchema {
   maximum?: number;
   pattern?: string;
   /** Merge function applied when two entities are merged and both have this property.
-   *  Numeric: avg, min, max, sum, first, last. Boolean: and, or, xor.
+   *  Numeric: avg, min, max, sum. Boolean: and, or, xor.
    *  Must be compatible with the declared `type`. */
   mergeFn?: MergeFn;
 }

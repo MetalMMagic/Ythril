@@ -25,10 +25,10 @@ const PropertySchemaZ = z.object({
   minimum: z.number().optional(),
   maximum: z.number().optional(),
   pattern: z.string().max(500).optional(),
-  mergeFn: z.enum(['avg', 'min', 'max', 'sum', 'first', 'last', 'and', 'or', 'xor']).optional(),
+  mergeFn: z.enum(['avg', 'min', 'max', 'sum', 'and', 'or', 'xor']).optional(),
 }).strict().refine(data => {
   if (!data.mergeFn) return true;
-  const numericFns = new Set(['avg', 'min', 'max', 'sum', 'first', 'last']);
+  const numericFns = new Set(['avg', 'min', 'max', 'sum']);
   const booleanFns = new Set(['and', 'or', 'xor']);
   if (data.type === 'number') return numericFns.has(data.mergeFn);
   if (data.type === 'boolean') return booleanFns.has(data.mergeFn);
@@ -42,7 +42,7 @@ const PropertySchemaZ = z.object({
 
 describe('PropertySchema Zod — mergeFn validation', () => {
   it('accepts number type with numeric mergeFns', () => {
-    for (const fn of ['avg', 'min', 'max', 'sum', 'first', 'last']) {
+    for (const fn of ['avg', 'min', 'max', 'sum']) {
       const result = PropertySchemaZ.safeParse({ type: 'number', mergeFn: fn });
       assert.ok(result.success, `type: number + mergeFn: ${fn} should be valid`);
     }
@@ -56,7 +56,7 @@ describe('PropertySchema Zod — mergeFn validation', () => {
   });
 
   it('rejects numeric mergeFns on boolean type', () => {
-    for (const fn of ['avg', 'min', 'max', 'sum', 'first', 'last']) {
+    for (const fn of ['avg', 'min', 'max', 'sum']) {
       const result = PropertySchemaZ.safeParse({ type: 'boolean', mergeFn: fn });
       assert.ok(!result.success, `type: boolean + mergeFn: ${fn} should be rejected`);
     }

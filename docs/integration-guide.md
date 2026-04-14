@@ -804,7 +804,7 @@ Merge two entities into one. The **survivor** keeps its identity (ID, name, type
 
 | Property type | Valid resolutions |
 |---------------|-------------------|
-| `number` | `"survivor"`, `"absorbed"`, `"fn:avg"`, `"fn:min"`, `"fn:max"`, `"fn:sum"`, `"fn:first"`, `"fn:last"` |
+| `number` | `"survivor"`, `"absorbed"`, `"fn:avg"`, `"fn:min"`, `"fn:max"`, `"fn:sum"` |
 | `boolean` | `"survivor"`, `"absorbed"`, `"fn:and"`, `"fn:or"`, `"fn:xor"` |
 | `string` / other | `"survivor"`, `"absorbed"`, `"custom"` (with `customValue`) |
 
@@ -1568,7 +1568,7 @@ Schema validation runs on:
 
 | Type | Valid `mergeFn` values |
 |------|----------------------|
-| `number` | `avg`, `min`, `max`, `sum`, `first`, `last` |
+| `number` | `avg`, `min`, `max`, `sum` |
 | `boolean` | `and`, `or`, `xor` |
 | `string` | *(not supported — merge resolution is always explicit)* |
 

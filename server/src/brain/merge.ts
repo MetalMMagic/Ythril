@@ -71,8 +71,6 @@ const NUMERIC_FNS: Record<string, (a: number, b: number) => number> = {
   min:   (a, b) => Math.min(a, b),
   max:   (a, b) => Math.max(a, b),
   sum:   (a, b) => a + b,
-  first: (a, _b) => a,
-  last:  (_a, b) => b,
 };
 
 const BOOLEAN_FNS: Record<string, (a: boolean, b: boolean) => boolean> = {
@@ -400,7 +398,7 @@ export async function executeMerge(
 
 // ── Validation helpers ─────────────────────────────────────────────────────
 
-const VALID_NUMERIC_FNS = new Set(['avg', 'min', 'max', 'sum', 'first', 'last']);
+const VALID_NUMERIC_FNS = new Set(['avg', 'min', 'max', 'sum']);
 const VALID_BOOLEAN_FNS = new Set(['and', 'or', 'xor']);
 
 /**

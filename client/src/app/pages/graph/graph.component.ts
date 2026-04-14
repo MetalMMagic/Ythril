@@ -558,7 +558,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   private api = inject(ApiService);
   private location = inject(Location);
   private route = inject(ActivatedRoute);
-  private destroyRef = inject(DestroyRef);
 
   // ── Element refs ────────────────────────────────────────────────────────────
   cyContainer = viewChild<ElementRef<HTMLDivElement>>('cyContainer');

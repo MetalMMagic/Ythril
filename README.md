@@ -2,7 +2,7 @@
 
 **Self-hosted brain server for AI assistants.** Persistent memory, knowledge graphs, semantic search, file storage, and multi-brain sync — all behind a standard MCP interface, fully under your control.
 
-Ythril gives every MCP-compatible client (Claude, Cursor, Windsurf, VS Code Copilot, or anything that speaks the [Model Context Protocol](https://modelcontextprotocol.io)) a persistent, structured knowledge backend. Data is organised into **spaces** — isolated containers with their own memories, entities, edges, timelines, files, and schemas. Each space exposes its own MCP endpoint with 29 tools, a full REST API, and a web UI. Spaces can be synced across multiple brains through policy-driven networks with fine-grained governance. Run it with `docker compose up -d` and you are ready in under a minute.
+Ythril gives every MCP-compatible client (Claude, Cursor, Windsurf, VS Code Copilot, or anything that speaks the [Model Context Protocol](https://modelcontextprotocol.io)) a persistent, structured knowledge backend. Data is organised into **spaces** — isolated containers with their own memories, entities, edges, timelines, files, and schemas. Each space exposes its own MCP endpoint with 30 tools, a full REST API, and a web UI. Spaces can be synced across multiple brains through policy-driven networks with fine-grained governance. Run it with `docker compose up -d` and complete setup in minutes (first pull/build can take longer on a clean machine).
 
 ---
 
@@ -52,14 +52,14 @@ Append-only, immutable access log of every authenticated API operation. The audi
 
 Subscribe external systems to real-time HTTP POST notifications when write events occur. Supports 15 event types across memories, entities, edges, chrono, and files. Payloads are signed with HMAC-SHA256, delivered with at-least-once guarantees (6 retries with exponential backoff), and SSRF-protected to block private/reserved IP targets. Manage subscriptions through the REST API or the **Settings → Webhooks** UI.
 
-### 29 MCP Tools
+### 30 MCP Tools
 
 Every capability is exposed as an MCP tool that any LLM client can call:
 
 | Category | Tools |
 |----------|-------|
 | Memory | `remember`, `recall`, `recall_global`, `update_memory`, `delete_memory`, `find_similar` |
-| Knowledge graph | `upsert_entity`, `update_entity`, `find_entities_by_name`, `upsert_edge`, `update_edge`, `traverse`, `query` |
+| Knowledge graph | `upsert_entity`, `update_entity`, `merge_entities`, `find_entities_by_name`, `upsert_edge`, `update_edge`, `traverse`, `query` |
 | Timeline | `create_chrono`, `update_chrono`, `list_chrono` |
 | Files | `read_file`, `write_file`, `list_dir`, `delete_file`, `create_dir`, `move_file` |
 | Batch & admin | `bulk_write`, `get_stats`, `get_space_meta`, `update_space`, `wipe_space` |
@@ -104,13 +104,11 @@ docker compose up -d
 # → open http://localhost:3200
 ```
 
-| Doc | Description |
-|-----|-------------|
-| [User Guide](docs/userguide.md) | Web UI walkthrough — brain, files, settings, connecting MCP clients |
-| [Integration Guide](docs/integration-guide.md) | Hosting, configuration, full REST API and MCP tool reference |
-| [Use Case Examples](docs/usecase-examples.md) | 26 practical deployment scenarios |
-
-For development setup, testing, and building from source see the [Contribution Guide](docs/contribution-guide.md).
+| I am... | Start here | Then read |
+|---------|------------|-----------|
+| User / operator | [User Guide](docs/userguide.md) | [Use Case Examples](docs/usecase-examples.md) |
+| Integrator (API/MCP) | [Integration Guide](docs/integration-guide.md) | [Network Types](docs/network-types.md), [Sync Protocol](docs/sync-protocol.md) |
+| Developer / contributor | [Contribution Guide](docs/contribution-guide.md) | [Docker Build Protocol](docs/docker-build-protocol.md), [Dependencies](docs/dependencies.md) |
 
 ### Connecting an MCP Client
 

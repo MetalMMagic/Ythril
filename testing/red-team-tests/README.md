@@ -11,36 +11,36 @@ default one — the test stack starts three independent instances each with its 
 MongoDB):
 
 ```sh
-docker compose -f docker-compose.test.yml up --build -d
+docker compose -p ythril-test -f testing/docker-compose.test.yml up --build -d
 # or
 docker ps   # verify ythril-a, ythril-b, ythril-c are Up
 ```
 
-Token files must exist (from `tests/sync/setup.js`):
+Token files must exist (from `testing/sync/setup.js`):
 
 ```
-tests/sync/configs/a/token.txt
-tests/sync/configs/b/token.txt
-tests/sync/configs/c/token.txt
+testing/sync/configs/a/token.txt
+testing/sync/configs/b/token.txt
+testing/sync/configs/c/token.txt
 ```
 
 ## Running the tests
 
 ```sh
 # Run all red-team tests
-node --test tests/red-team-tests/*.test.js
+npm run test:redteam
 
 # Run a specific attack category
-node --test tests/red-team-tests/auth-bypass.test.js
-node --test tests/red-team-tests/path-traversal.test.js
-node --test tests/red-team-tests/space-boundary.test.js
-node --test tests/red-team-tests/mongodb-injection.test.js
-node --test tests/red-team-tests/oversized-payload.test.js
-node --test tests/red-team-tests/invite-replay.test.js
-node --test tests/red-team-tests/token-brute-force.test.js
-node --test tests/red-team-tests/ssrf-network-member.test.js
-node --test tests/red-team-tests/sync-scope-bypass.test.js
-node --test tests/red-team-tests/mass-assignment.test.js
+node --test testing/red-team-tests/auth-bypass.test.js
+node --test testing/red-team-tests/path-traversal.test.js
+node --test testing/red-team-tests/space-boundary.test.js
+node --test testing/red-team-tests/mongodb-injection.test.js
+node --test testing/red-team-tests/oversized-payload.test.js
+node --test testing/red-team-tests/invite-replay.test.js
+node --test testing/red-team-tests/token-brute-force.test.js
+node --test testing/red-team-tests/ssrf-network-member.test.js
+node --test testing/red-team-tests/sync-scope-bypass.test.js
+node --test testing/red-team-tests/mass-assignment.test.js
 ```
 
 > **Note:** `token-brute-force.test.js` exhausts the `authRateLimit` window on instance B. Run it in isolation or after other tests complete.

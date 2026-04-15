@@ -1,7 +1,7 @@
 # Dependencies and Licensing Notes
 
 This document explains how Ythril uses its runtime dependencies, the licensing
-status of each, and why Ythril's AGPL-3.0 obligations are not affected by them.
+status of each, and why Ythril's PolyForm Small Business License obligations are not affected by them.
 
 ---
 
@@ -54,7 +54,7 @@ MongoDB source code. The `docker-compose.yml` file contains only a reference to
 the image name on Docker Hub. Docker pulls the image separately when a user runs
 `docker compose up`. Ythril is not the distributor.
 
-### AGPL-3.0 compliance
+### PolyForm compliance
 
 **No conflict.** Here is why:
 
@@ -62,7 +62,7 @@ the image name on Docker Hub. Docker pulls the image separately when a user runs
    TCP socket. GPL-family copyleft extends to works that are statically linked or
    form a combined work in the same process. A database server accessed over a
    network socket is not a combined work with the client. This is the same legal
-   relationship as any AGPL application using PostgreSQL, Redis, or any other
+   relationship as any application using PostgreSQL, Redis, or any other
    server-based database.
 
 2. **SSPL "Service Provision" clause does not apply.** SSPL's aggressive clause
@@ -75,7 +75,7 @@ the image name on Docker Hub. Docker pulls the image separately when a user runs
    runs as a separate process inside a separate container that Ythril never ships.
    No proprietary binary is incorporated into Ythril's source or distribution.
 
-**Summary:** Ythril's AGPL-3.0 source obligations apply only to Ythril's own code.
+**Summary:** Ythril's PolyForm source obligations apply only to Ythril's own code.
 They do not extend to `mongod`, `mongot`, or the `mongodb/mongodb-atlas-local` image.
 
 ### Honest disclosure

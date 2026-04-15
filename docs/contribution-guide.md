@@ -2,6 +2,8 @@
 
 > How to set up a development environment, run tests, and ship releases.
 
+Audience: developers and maintainers working on Ythril source code.
+
 ---
 
 ## Table of Contents
@@ -178,6 +180,12 @@ Attack simulations: auth bypass, path traversal, MongoDB injection ($options inj
 npm run test:all
 ```
 
+`test:all` now enforces cleanup automatically (`test:down:clean`) even if a suite fails. If you need containers and volumes left intact for debugging, use:
+
+```bash
+npm run test:all:keep
+```
+
 **Rule:** All tests must pass before merging. A failing red-team test is treated as a security regression.
 
 ---
@@ -349,7 +357,7 @@ Code should be boring to read. Clever tricks create maintenance debt.
 
 Ythril ships under the PolyForm Small Business License 1.0.0. Every contribution must respect this.
 
-- **No copyleft-contaminated dependencies.** GPL, AGPL, and SSPL dependencies are not permitted. MIT, Apache-2.0, BSD-2/3-Clause, and ISC are acceptable. Any other license requires explicit approval.
+- **No copyleft-contaminated code dependencies in shipped Node packages.** GPL and AGPL dependencies are not permitted in the application dependency tree. Runtime infrastructure (for example MongoDB deployment options) must be documented explicitly in [Dependencies](dependencies.md), with licensing impact explained.
 - **License header awareness.** Third-party code snippets adapted into the codebase must have their original license noted in the `NOTICE` file.
 - **No proprietary service lock-in.** Features must work with self-hosted infrastructure. Cloud-managed services (Atlas, S3, etc.) may be supported as optional backends but never as the only path.
 - **NOTICE file stays accurate.** When adding or removing a dependency that requires attribution, update `NOTICE` in the same commit.
@@ -386,6 +394,7 @@ Use conventional-commit-style prefixes:
 ## Pull Request Checklist
 
 - [ ] All existing tests pass (`npm run test:all`)
+- [ ] If debugging failures, use `npm run test:all:keep` and clean up afterwards
 - [ ] New features have corresponding tests
 - [ ] Red-team tests still pass after security-adjacent changes
 - [ ] `npm run build` succeeds cleanly (server + client)

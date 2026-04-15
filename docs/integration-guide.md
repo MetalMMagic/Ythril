@@ -2,6 +2,10 @@
 
 > API and MCP reference for developers building on Ythril.
 
+Audience: integrators building clients, automation, or multi-instance deployments on top of Ythril.
+
+If you are here for web UI usage, read [User Guide](userguide.md). If you are contributing to source code, read [Contribution Guide](contribution-guide.md).
+
 ---
 
 ## Table of Contents
@@ -554,7 +558,36 @@ Responses and query parameters are identical to the `/:spaceId/` versions. Note 
 
 ### Semantic Search (Recall)
 
-> **MCP-only.** This operation is exposed as the `recall` MCP tool, not as a REST endpoint. See the [MCP section](#mcp-model-context-protocol) for tool parameters.
+Available as both:
+- REST: `POST /api/brain/spaces/:spaceId/recall`
+- MCP tool: `recall`
+
+```json
+{
+  "query": "how does OAuth PKCE work?",
+  "topK": 10,
+  "types": ["memory", "entity"],
+  "minScore": 0.65
+}
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `query` | ✅ | — | Natural-language search text (non-empty string) |
+| `topK` | — | `10` | Max returned results (1-100) |
+| `types` | — | all types | Restrict result knowledge types |
+| `minScore` | — | none | Filter out low-similarity matches |
+
+**Response** `200`:
+
+```json
+{
+  "results": [
+    { "_id": "...", "type": "memory", "fact": "...", "score": 0.91 }
+  ],
+  "count": 1
+}
+```
 
 Searches **all knowledge types** (memories, entities, edges, chrono entries, and files) using the built-in embedding model and MongoDB Atlas `$vectorSearch`. Results are ranked by vector similarity across all types and include a `type` discriminator field. No extra configuration needed.
 
@@ -1125,6 +1158,71 @@ Entity items in the `entities` array accept an optional `id` field (UUID v4). If
 
 ---
 
+### Structured Query (Read-Only)
+
+```
+POST /api/brain/spaces/:spaceId/query
+```
+
+Run a constrained Mongo-style read query against one logical collection. Intended for advanced clients and MCP parity with the `query` tool.
+
+```json
+{
+  "collection": "entities",
+  "filter": { "type": "service", "tags": "backend" },
+  "projection": { "name": 1, "type": 1, "tags": 1 },
+  "limit": 20,
+  "maxTimeMS": 5000
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `collection` | ✅ | One of: `memories`, `entities`, `edges`, `chrono`, `files` |
+| `filter` | — | Query filter object (defaults to `{}`) |
+| `projection` | — | Projection object (`1` include / `0` exclude) |
+| `limit` | — | Max rows (default `20`) |
+| `maxTimeMS` | — | Query timeout in milliseconds (default `5000`) |
+
+**Response** `200`:
+
+```json
+{
+  "results": [ ... ],
+  "collection": "entities",
+  "count": 12
+}
+```
+
+---
+
+### List File Metadata Records
+
+```
+GET /api/brain/spaces/:spaceId/files?limit=50&skip=0&tag=design&path=docs/architecture.md
+```
+
+Returns metadata rows stored in the brain collection for files (`path`, tags, description, properties, size, author, timestamps).
+
+| Query param | Description |
+|-------------|-------------|
+| `limit` | Default `50`, max `200` |
+| `skip` | Offset for pagination |
+| `tag` | Exact tag filter |
+| `path` | Exact path filter |
+
+**Response** `200`:
+
+```json
+{
+  "files": [ ... ],
+  "limit": 50,
+  "skip": 0
+}
+```
+
+---
+
 ### Partial Update with deleteFields
 
 All `PATCH` update endpoints — entities, edges, and memories — accept an optional `deleteFields` array of dot-notation paths. This allows callers to remove specific fields from a document in the same atomic operation as normal property/tag updates.
@@ -1658,7 +1756,33 @@ If cleanup partially fails (e.g. a collection drop or file deletion errors), the
 
 ## Tokens API
 
-Base path: `/api/tokens` — requires `admin` token.
+Base path: `/api/tokens`.
+
+- `GET /api/tokens/me` requires any valid token.
+- All other token management routes require admin scope (and MFA where enabled).
+
+### Current Token Context
+
+```
+GET /api/tokens/me
+```
+
+Returns the effective identity and permissions of the caller token.
+
+**Response** `200`:
+
+```json
+{
+  "id": "tok_abc123",
+  "name": "MCP Agent",
+  "admin": false,
+  "readOnly": false,
+  "spaces": ["general", "research"],
+  "expiresAt": null
+}
+```
+
+---
 
 ### List Tokens
 
@@ -1779,6 +1903,18 @@ GET /api/networks
 
 ---
 
+### Get Network
+
+```
+GET /api/networks/:id
+```
+
+Returns one network object (same shape as entries in `GET /api/networks`).
+
+**Response** `200` on success, `404` when the network does not exist.
+
+---
+
 ### Create a Network
 
 ```
@@ -1878,27 +2014,52 @@ Accepted values: `yes`, `veto`.
 
 ---
 
-### Generate an Invite Key
+### List Open Vote Rounds
 
 ```
-POST /api/networks/:id/invite-key
+GET /api/networks/:id/votes
 ```
 
-**Response** `201`:
+**Response** `200`:
 
 ```json
-{ "inviteKey": "generated-key-string" }
+{
+  "rounds": [
+    {
+      "roundId": "round-uuid",
+      "type": "join",
+      "subjectInstanceId": "peer-uuid",
+      "deadline": "2026-04-12T12:00:00.000Z",
+      "votes": []
+    }
+  ]
+}
 ```
+
+Only non-concluded rounds are returned.
 
 ---
 
-### Revoke an Invite Key
+### Generate an Invite Key
 
 ```
-DELETE /api/networks/:id/invite-key
+POST /api/networks/:id/invite
 ```
 
-**Response** `204`.
+**Response** `200`:
+
+```json
+{
+  "inviteKey": "ythril_invite_...",
+  "networkId": "net-uuid",
+  "reusable": false,
+  "note": "Store this key securely — it is single-use and will not be shown again"
+}
+```
+
+For `pubsub` networks, `reusable` is `true` and the note explains the key can be shared publicly.
+
+To rotate/revoke the current key, call this endpoint again — the newly generated key replaces the previous hash.
 
 ---
 
@@ -2242,43 +2403,63 @@ Triggers an immediate sync cycle for the given network.
 
 Base path: `/api/sync` — used by the sync engine between peers. All endpoints require auth + sync rate limit.
 
-### GET /api/sync/memories
+### Route Overview
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/api/sync/memories` | GET | Page memory changes (`items`, `nextCursor`) |
+| `/api/sync/memories/:id` | GET | Fetch one full memory doc |
+| `/api/sync/memories` | POST | Upsert one remote memory |
+| `/api/sync/entities` | GET | Page entity changes |
+| `/api/sync/entities/:id` | GET | Fetch one full entity doc |
+| `/api/sync/entities` | POST | Upsert one remote entity |
+| `/api/sync/edges` | GET | Page edge changes |
+| `/api/sync/edges/:id` | GET | Fetch one full edge doc |
+| `/api/sync/edges` | POST | Upsert one remote edge |
+| `/api/sync/chrono` | GET | Page chrono changes |
+| `/api/sync/chrono/:id` | GET | Fetch one full chrono doc |
+| `/api/sync/chrono` | POST | Upsert one remote chrono doc |
+| `/api/sync/batch-upsert` | POST | Bulk upsert memories/entities/edges/chrono |
+| `/api/sync/tombstones` | GET | List tombstones by seq |
+| `/api/sync/tombstones` | POST | Apply remote tombstones |
+| `/api/sync/manifest` | GET | File manifest diff |
+| `/api/sync/file-tombstones` | GET | List file deletion tombstones |
+| `/api/sync/file-tombstones` | POST | Apply file deletion tombstones |
+| `/api/sync/merkle` | GET | Compute Merkle root |
+| `/api/sync/networks/:networkId/members` | GET | Pull gossip member view |
+| `/api/sync/networks/:networkId/members` | POST | Push gossip member updates |
+| `/api/sync/networks/:networkId/votes` | GET | Pull open governance rounds |
+| `/api/sync/networks/:networkId/votes/:roundId` | POST | Relay a yes/veto vote |
+| `/api/sync/warm` | POST | Pre-sync warm-up (auth/embedding/DB) |
+
+### Common Query Parameters
+
+| Parameter | Description |
+|---|---|
+| `spaceId` | Required on space-scoped sync routes |
+| `networkId` | Optional on many pulls, used for policy checks and directional sync |
+| `sinceSeq` | Start sequence for incremental pulls |
+| `cursor` | Encoded continuation cursor for paged pulls |
+| `limit` | Page size (typically max 500; endpoint-specific caps apply) |
+| `full=true` | Return full docs instead of `_id`/`seq` stubs on list routes |
+
+### Incremental Collection Pull Example
 
 ```
 GET /api/sync/memories?spaceId=general&sinceSeq=0&limit=200&full=true
 ```
 
-Cursor-based pagination. Returns `{ items, nextCursor }`. Pass `nextCursor` as `cursor` in the next request.
+Returns `{ items, nextCursor }`. Use `nextCursor` as `cursor` on the next request until `nextCursor` is `null`.
 
-### GET /api/sync/entities
-
-Same pattern as memories.
-
-### GET /api/sync/edges
-
-Same pattern as memories.
-
-### GET /api/sync/chrono
-
-Same pattern as memories.
-
-### GET /api/sync/tombstones
+### Single-Document Pull Example
 
 ```
-GET /api/sync/tombstones?spaceId=general&sinceSeq=0
+GET /api/sync/entities/:id?spaceId=general
 ```
 
-### POST /api/sync/tombstones
+Returns `404` when missing.
 
-Push tombstones to a peer.
-
-```json
-{ "tombstones": [ { "_id": "...", "type": "memory", "seq": 42, ... } ] }
-```
-
-### POST /api/sync/batch-upsert
-
-Push changes to a peer in bulk.
+### Bulk Push Example
 
 ```
 POST /api/sync/batch-upsert?spaceId=general&networkId=net-uuid
@@ -2288,57 +2469,68 @@ POST /api/sync/batch-upsert?spaceId=general&networkId=net-uuid
 {
   "memories": [ ... ],
   "entities": [ ... ],
-  "edges": [ ... ]
+  "edges": [ ... ],
+  "chrono": [ ... ]
 }
 ```
 
-### POST /api/sync/memory
+Each array is capped at 500 items. Response includes per-type counters.
 
-Push a single memory.
+### Tombstones
 
-### GET /api/sync/manifest
+- `GET /api/sync/tombstones?spaceId=general&sinceSeq=0` returns grouped `{ memories, entities, edges, chrono }` tombstones.
+- `POST /api/sync/tombstones` accepts `{ tombstones: [...] }` and applies deletions.
 
-File manifest for a space (used by file sync).
+### File Sync Artifacts
 
-```
-GET /api/sync/manifest?spaceId=general
-```
+- `GET /api/sync/manifest?spaceId=general` returns file digest metadata for delta detection.
+- `GET /api/sync/file-tombstones?spaceId=general&since=<ISO>` returns file delete tombstones.
+- `POST /api/sync/file-tombstones` applies file delete tombstones (`{ spaceId, tombstones: [...] }`).
 
-### GET /api/sync/file
-
-Download a specific file from a peer.
-
-```
-GET /api/sync/file?spaceId=general&path=docs/notes.md
-```
-
-### POST /api/sync/file
-
-Upload a file to a peer.
-
-### GET /api/sync/merkle
+### Merkle Consistency Check
 
 ```
-GET /api/sync/merkle?spaceId=general
+GET /api/sync/merkle?spaceId=general&networkId=net-uuid
 ```
 
 **Response** `200`:
 
 ```json
-{ "root": "sha256-hex-string", "counts": { "memories": 100, "entities": 20, "edges": 10 } }
+{
+  "spaceId": "general",
+  "root": "sha256-hex-string",
+  "leafCount": 123,
+  "computedAt": "2026-04-15T10:00:00.000Z",
+  "networkId": "net-uuid"
+}
 ```
 
-### GET /api/sync/gossip
+### Gossip Endpoints
 
-Network gossip exchange (vote round propagation).
+- `GET /api/sync/networks/:networkId/members` returns current member view (sensitive fields stripped).
+- `POST /api/sync/networks/:networkId/members` accepts member updates for gossip propagation.
+- `GET /api/sync/networks/:networkId/votes` returns open rounds.
+- `POST /api/sync/networks/:networkId/votes/:roundId` relays `{ vote: "yes" | "veto", instanceId }`.
 
-### POST /api/sync/file-tombstones
+If this instance has been ejected from a network, `/api/sync/networks/:networkId/*` returns `401` with `{ "error": "ejected" }`.
 
-Push file deletion tombstones to a peer.
+### Warm-Up Endpoint
 
-### GET /api/sync/file-tombstones
+```
+POST /api/sync/warm
+```
 
-Fetch file deletion tombstones from a peer.
+```json
+{ "networkId": "net-uuid", "spaces": ["general"] }
+```
+
+Preloads embedding model and collection handles before a full sync cycle.
+
+**Response** `200`:
+
+```json
+{ "status": "ready" }
+```
 
 ---
 
@@ -2500,6 +2692,89 @@ Removes the conflict record without touching any files.
 
 ---
 
+### List Link Violations
+
+```
+GET /api/conflicts/link-violations
+```
+
+Returns sync-ingested documents that violate strict linkage rules.
+
+**Response** `200`:
+
+```json
+{
+  "violations": [
+    {
+      "_id": "uuid",
+      "spaceId": "general",
+      "docId": "uuid",
+      "docType": "edge",
+      "field": "from",
+      "reason": "from must be UUID v4 when strictLinkage is enabled",
+      "peerInstanceId": "peer-uuid",
+      "detectedAt": "2026-04-12T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+### Dismiss a Link Violation
+
+```
+DELETE /api/conflicts/link-violations/:id
+```
+
+**Response** `204` when dismissed, `404` when not found.
+
+---
+
+### Dismiss All Link Violations
+
+```
+DELETE /api/conflicts/link-violations
+```
+
+**Response** `200`:
+
+```json
+{ "dismissed": 12 }
+```
+
+---
+
+### Seed a Conflict (Testing Utility)
+
+```
+POST /api/conflicts/seed
+```
+
+Creates a synthetic conflict record for test scenarios.
+
+```json
+{
+  "_id": "conflict-id",
+  "spaceId": "general",
+  "originalPath": "docs/file.md",
+  "conflictPath": "docs/file.conflict.md",
+  "peerInstanceId": "peer-uuid",
+  "peerInstanceLabel": "Peer Brain",
+  "detectedAt": "2026-04-15T10:00:00.000Z"
+}
+```
+
+**Response** `201`:
+
+```json
+{ "id": "conflict-id" }
+```
+
+If the authenticated token has no access to `spaceId`, response is `403`.
+
+---
+
 ## Setup API
 
 ### Health Check (unauthenticated)
@@ -2512,6 +2787,30 @@ GET /health
 
 ```json
 { "status": "ok", "ts": "2026-03-25T14:00:00.000Z" }
+```
+
+---
+
+### Readiness Check (unauthenticated)
+
+```
+GET /ready
+```
+
+Returns process readiness based on dependency checks (MongoDB + vector search availability).
+
+**Response** `200` when ready, `503` when not ready.
+
+Example:
+
+```json
+{
+  "ready": true,
+  "checks": {
+    "mongodb": { "status": "ok" },
+    "vectorSearch": { "status": "ok" }
+  }
+}
 ```
 
 ---
@@ -2592,6 +2891,31 @@ GET /api/setup/status
 ```json
 { "configured": false }
 ```
+
+---
+
+### Legacy First-Run HTML Setup
+
+These routes are primarily for non-SPA/manual first-run flows.
+
+```
+GET /setup
+POST /setup
+```
+
+Equivalent paths also exist under the API mount:
+
+```
+GET /api/setup
+POST /api/setup
+```
+
+Behaviour:
+- `GET` returns an HTML setup form when instance configuration does not exist.
+- `POST` accepts form data (`label`) and returns an HTML page containing the one-time initial admin token.
+- If already configured, both return `404`.
+
+For programmatic setup, prefer `POST /api/setup/json`.
 
 ---
 
@@ -3192,6 +3516,24 @@ Returns recent log lines from the in-memory ring buffer. **Requires an admin tok
 
 ---
 
+### Server Log Stream (SSE)
+
+```
+GET /api/about/logs/stream
+Authorization: Bearer <admin-token>
+Accept: text/event-stream
+```
+
+Real-time stream of log lines as Server-Sent Events.
+
+- Admin token required
+- Sends heartbeat comments periodically to keep the connection alive
+- Each event payload is a single escaped log line (`data: ...`)
+
+Close the HTTP connection to stop streaming.
+
+---
+
 ## Theme API
 
 Base path: `/api/theme` — unauthenticated (public).
@@ -3621,6 +3963,31 @@ Each rule has:
 | Anything else | JWT — JWKS signature + `iss`/`aud`/`exp` verification, then claim mapping |
 
 PATs continue to work without any changes when OIDC is enabled.
+
+### OIDC Discovery Endpoint
+
+```
+GET /api/auth/oidc-info
+```
+
+Used by the web client login flow to decide whether OIDC is enabled and which issuer/client settings to use.
+
+**When OIDC is disabled:**
+
+```json
+{ "enabled": false }
+```
+
+**When OIDC is enabled:**
+
+```json
+{
+  "enabled": true,
+  "issuerUrl": "https://keycloak.example.com/realms/my-realm",
+  "clientId": "ythril",
+  "scopes": ["openid", "profile", "email"]
+}
+```
 
 ### Login Flow (Browser)
 

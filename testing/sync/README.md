@@ -4,18 +4,18 @@
 
 1. Build and start the test stack:
    ```
-   docker compose -p ythril-test -f docker-compose.test.yml up --build -d
+   docker compose -p ythril-test -f testing/docker-compose.test.yml up --build -d
    ```
    Wait until all 6 containers are healthy (~30-45 seconds first run).
 
 2. For repeated local runs, start without rebuild to avoid unnecessary disk growth:
    ```
-   docker compose -p ythril-test -f docker-compose.test.yml up -d
+   docker compose -p ythril-test -f testing/docker-compose.test.yml up -d
    ```
 
-3. Run setup on each instance (one-time, creates configs in `tests/sync/configs/`):
+3. Run setup on each instance (one-time, creates configs in `testing/sync/configs/`):
    ```
-   node tests/sync/setup.js
+   node testing/sync/setup.js
    ```
    This will:
    - Complete the first-run setup on each instance
@@ -23,29 +23,29 @@
    - Create a `general` space on each
    - Write the peerTokens into each instance's secrets.json
 
-4. Run the integration tests:
+4. Run the sync integration tests:
    ```
-   node --test tests/sync/closed-network.test.js
-   node --test tests/sync/braintree.test.js
-   node --test tests/sync/braintree-governance.test.js
-   node --test tests/sync/democratic.test.js
-   node --test tests/sync/conflict.test.js
-   node --test tests/sync/fork.test.js
-   node --test tests/sync/gossip.test.js
-   node --test tests/sync/governance.test.js
-   node --test tests/sync/leave-removal.test.js
-   node --test tests/sync/merkle.test.js
-   node --test tests/sync/vote-propagation.test.js
+   node --test testing/sync/closed-network.test.js
+   node --test testing/sync/braintree.test.js
+   node --test testing/sync/braintree-governance.test.js
+   node --test testing/sync/democratic.test.js
+   node --test testing/sync/conflict.test.js
+   node --test testing/sync/fork.test.js
+   node --test testing/sync/gossip.test.js
+   node --test testing/sync/governance.test.js
+   node --test testing/sync/leave-removal.test.js
+   node --test testing/sync/merkle.test.js
+   node --test testing/sync/vote-propagation.test.js
    ```
    Or run all:
    ```
-   node --test tests/sync/*.test.js
+   npm run test:sync
    ```
 
 5. Mandatory cleanup after heavy or repeated runs:
    ```
-   docker compose -p ythril-test -f docker-compose.test.yml down -v --rmi local --remove-orphans
-   docker builder prune --keep-storage 3g --force
+   docker compose -p ythril-test -f testing/docker-compose.test.yml down -v --rmi local --remove-orphans
+   docker builder prune --reserved-space 3g --force
    docker image prune -f
    docker volume prune -f
    ```
@@ -155,7 +155,7 @@
 ## Directory layout
 
 ```
-tests/sync/
+testing/sync/
   README.md                      — this file
   setup.js                       — first-run setup helper (creates configs/)
   helpers.js                     — shared fetch helpers

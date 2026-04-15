@@ -66,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **README**: Rewritten with structured feature sections (semantic recall, knowledge graph, chrono timeline, file storage, schema validation, bulk operations, proxy spaces, export/import, find-similar, audit log, webhooks, 29 MCP tools, multi-brain sync, security) for better discoverability.
+- **README**: Rewritten with structured feature sections (semantic recall, knowledge graph, chrono timeline, file storage, schema validation, bulk operations, proxy spaces, export/import, find-similar, audit log, webhooks, 30 MCP tools, multi-brain sync, security) for better discoverability.
 - Documentation: `integration-guide.md` updated — schema validation section, space meta endpoint, validate-schema endpoint, export/import endpoints, find-similar endpoint, audit log API section, entity identity model clarification, $options validation, bulk write schema validation note. `userguide.md` updated — schema configuration, export/import, query panel, audit log and webhook settings pages, find_similar in MCP tools table. `contribution-guide.md` updated — test suite descriptions reflect current coverage.
 
 ## [0.8.0] — 2026-04-04

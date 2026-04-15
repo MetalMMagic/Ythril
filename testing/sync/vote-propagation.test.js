@@ -26,7 +26,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, reqJson, triggerSync, waitFor } from './helpers.js';
+import { INSTANCES, post, get, del, delWithBody, reqJson, triggerSync, waitFor } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
@@ -36,6 +36,7 @@ let peerTokenForA;   // B-issued token A uses to call B
 let peerTokenForB;   // A-issued token B uses to call A
 let networkId;
 let instanceIdA, instanceIdB;
+let testSpaceId;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,12 @@ describe('Vote propagation via gossip', () => {
     instanceIdA = getInstanceId('ythril-a');
     instanceIdB = getInstanceId('ythril-b');
 
+    testSpaceId = `vote-prop-${Date.now()}`;
+    const spA = await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'Vote Propagation Test Space' });
+    assert.equal(spA.status, 201, `Create space on A: ${JSON.stringify(spA.body)}`);
+    const spB = await post(INSTANCES.b, tokenB, '/api/spaces', { id: testSpaceId, label: 'Vote Propagation Test Space' });
+    assert.equal(spB.status, 201, `Create space on B: ${JSON.stringify(spB.body)}`);
+
     // Create peer PATs so the engine can authenticate cross-instance
     const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `vote-test-peer-a-${Date.now()}` });
     assert.equal(ptForA.status, 201);
@@ -95,7 +102,7 @@ describe('Vote propagation via gossip', () => {
     const netR = await post(INSTANCES.a, tokenA, '/api/networks', {
       label: `Vote Prop Test ${Date.now()}`,
       type: 'closed',
-      spaces: ['general'],
+      spaces: [testSpaceId],
       votingDeadlineHours: 1,
     });
     assert.equal(netR.status, 201, `Create network: ${JSON.stringify(netR.body)}`);
@@ -121,7 +128,7 @@ describe('Vote propagation via gossip', () => {
       id: networkId,
       label: `Vote Prop Test`,
       type: 'closed',
-      spaces: ['general'],
+      spaces: [testSpaceId],
       votingDeadlineHours: 1,
     });
     assert.ok(netOnB.status === 201 || netOnB.status === 409, `Create net on B: ${JSON.stringify(netOnB.body)}`);
@@ -142,12 +149,17 @@ describe('Vote propagation via gossip', () => {
     // Inject peer tokens into secrets.json so engines can authenticate
     injectPeerToken('ythril-a', instanceIdB, peerTokenForA);
     injectPeerToken('ythril-b', instanceIdA, peerTokenForB);
+
+    await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
+    await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
   });
 
   after(async () => {
     if (networkId) {
       await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
       await del(INSTANCES.b, tokenB, `/api/networks/${networkId}`).catch(() => {});
+      await delWithBody(INSTANCES.a, tokenA, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
+      await delWithBody(INSTANCES.b, tokenB, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
     }
   });
 
@@ -233,7 +245,7 @@ describe('Vote propagation via gossip', () => {
       const r = await get(INSTANCES.b, tokenB, `/api/sync/networks/${networkId}/votes`);
       if (r.status !== 200) return false;
       return r.body.rounds.some(rnd => rnd.roundId === roundId);
-    }, 15_000);
+    });
   });
 
   it('After B syncs with A, B also receives A\'s vote on the round', async () => {
@@ -252,7 +264,7 @@ describe('Vote propagation via gossip', () => {
       // Round may already be concluded (all remote voters voted) — that also proves the vote arrived
       if (!rnd) return true;
       return rnd.votes?.some(v => v.instanceId === instanceIdA && v.vote === 'yes');
-    }, 15_000);
+    });
   });
 
   it('After A syncs, A receives B\'s vote on a round both have', async () => {
@@ -264,7 +276,7 @@ describe('Vote propagation via gossip', () => {
     await waitFor(async () => {
       const r = await get(INSTANCES.b, tokenB, `/api/sync/networks/${networkId}/votes`);
       return r.status === 200 && r.body.rounds.some(rnd => rnd.roundId === roundId);
-    }, 15_000);
+    });
 
     // B casts a yes vote via B's user API
     const bVote = await post(INSTANCES.b, tokenB, `/api/networks/${networkId}/votes/${roundId}`, { vote: 'yes' });
@@ -280,7 +292,7 @@ describe('Vote propagation via gossip', () => {
       // Round may already be concluded (all remote voters voted) — that also proves the vote arrived
       if (!rnd) return true;
       return rnd.votes?.some(v => v.instanceId === instanceIdB && v.vote === 'yes');
-    }, 15_000);
+    });
   });
 
   it('A veto relayed via gossip concludes the round on B', async () => {
@@ -300,6 +312,6 @@ describe('Vote propagation via gossip', () => {
       const rnd = r.body.rounds.find(rn => rn.roundId === roundId);
       if (!rnd) return true;  // concluded and filtered out
       return rnd.votes?.some(v => v.instanceId === instanceIdA && v.vote === 'veto');
-    }, 15_000);
+    });
   });
 });

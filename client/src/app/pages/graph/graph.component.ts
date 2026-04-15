@@ -799,6 +799,13 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
     // Update overlays on viewport changes
     this.cy.on('render pan zoom resize', () => this.scheduleOverlayUpdate());
+
+    // Background tap → deselect node
+    this.cy.on('tap', (evt: any) => {
+      if (evt.target === this.cy) {
+        this.selectedNode.set(null);
+      }
+    });
   }
 
   // ── Toolbar handlers ────────────────────────────────────────────────────────
@@ -881,6 +888,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     const spaceId = this.activeSpaceId();
     if (!spaceId) return;
 
+    this.selectedNode.set(null);
     this.loading.set(true);
     this.api.traverseGraph(spaceId, { startId, direction, maxDepth, limit: 200 }).pipe(
       catchError(() => of({ nodes: [], edges: [], truncated: false } as TraverseResult)),
@@ -936,7 +944,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     // Run layout
-    this.cy.layout({
+    const layout = this.cy.layout({
       name: 'cose',
       animate: true,
       animationDuration: 400,
@@ -944,13 +952,14 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
       idealEdgeLength: () => 120,
       gravity: 0.3,
       padding: 40,
-    } as any).run();
+    } as any);
 
-    // Fit after layout finishes
-    setTimeout(() => {
+    layout.on('layoutstop', () => {
       this.fitGraph();
       this.scheduleOverlayUpdate();
-    }, 500);
+    });
+
+    layout.run();
   }
 
   // ── Overlay icon positioning ────────────────────────────────────────────────

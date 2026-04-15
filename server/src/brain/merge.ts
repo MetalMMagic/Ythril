@@ -9,13 +9,13 @@
  * IDs in the same space.  Candidate discovery is the caller's responsibility.
  */
 
-import { col } from '../db/mongo.js';
+import { col, getMongo } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { embed } from './embedding.js';
-import { getEntityById, deleteEntity } from './entities.js';
+import { getEntityById } from './entities.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
-import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, SpaceMeta, PropertySchema } from '../config/types.js';
+import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc, SpaceMeta, PropertySchema } from '../config/types.js';
 
 // ── Public types ───────────────────────────────────────────────────────────
 
@@ -291,8 +291,26 @@ export function applyResolutions(
 // ── Merge execution ────────────────────────────────────────────────────────
 
 /**
- * Execute the merge atomically: relink edges/memories/chronos, apply resolved
- * properties to survivor, delete absorbed entity.
+ * Compare two edge documents ignoring `_id`, `seq`, `updatedAt` — returns true
+ * when every other field is identical (i.e. one is a true duplicate of the other
+ * after relinking).
+ */
+function edgesIdentical(a: EdgeDoc, b: EdgeDoc): boolean {
+  return a.from === b.from
+    && a.to === b.to
+    && a.label === b.label
+    && a.spaceId === b.spaceId
+    && a.type === b.type
+    && a.weight === b.weight
+    && a.description === b.description
+    && JSON.stringify(a.properties ?? {}) === JSON.stringify(b.properties ?? {})
+    && JSON.stringify(a.tags ?? []) === JSON.stringify(b.tags ?? []);
+}
+
+/**
+ * Execute the merge inside a MongoDB transaction: relink edges/memories/chronos,
+ * auto-delete duplicate edges (when 100% identical except _id), apply resolved
+ * properties to survivor, delete absorbed entity + write tombstone.
  *
  * Precondition: all property conflicts must be resolved before calling this.
  */
@@ -301,98 +319,148 @@ export async function executeMerge(
   survivor: EntityDoc,
   absorbed: EntityDoc,
   mergedProperties: Record<string, string | number | boolean>,
-): Promise<EntityDoc> {
-  const now = new Date().toISOString();
-  const seq = await nextSeq(spaceId);
+): Promise<{ entity: EntityDoc; deletedDuplicateEdgeIds: string[] }> {
+  const session = getMongo().startSession();
+  const deletedDuplicateEdgeIds: string[] = [];
 
-  // ── 1. Relink edges ──────────────────────────────────────────────────
-  const edgeColl = col<EdgeDoc>(`${spaceId}_edges`);
-
-  // Update edges where absorbed is the `from`
-  const fromEdges = await edgeColl
-    .find({ spaceId, from: absorbed._id } as never)
-    .toArray() as EdgeDoc[];
-  for (const edge of fromEdges) {
-    const edgeSeq = await nextSeq(spaceId);
-    await edgeColl.updateOne(
-      { _id: edge._id } as never,
-      { $set: { from: survivor._id, updatedAt: now, seq: edgeSeq } } as never,
-    );
-  }
-
-  // Update edges where absorbed is the `to`
-  const toEdges = await edgeColl
-    .find({ spaceId, to: absorbed._id } as never)
-    .toArray() as EdgeDoc[];
-  for (const edge of toEdges) {
-    const edgeSeq = await nextSeq(spaceId);
-    await edgeColl.updateOne(
-      { _id: edge._id } as never,
-      { $set: { to: survivor._id, updatedAt: now, seq: edgeSeq } } as never,
-    );
-  }
-
-  // ── 2. Relink memories ───────────────────────────────────────────────
-  const memoryColl = col<MemoryDoc>(`${spaceId}_memories`);
-  const affectedMemories = await memoryColl
-    .find({ spaceId, entityIds: absorbed._id } as never)
-    .toArray() as MemoryDoc[];
-  for (const mem of affectedMemories) {
-    const newEntityIds = mem.entityIds.map(id => id === absorbed._id ? survivor._id : id);
-    // Deduplicate in case survivor was already referenced
-    const dedupedIds = [...new Set(newEntityIds)];
-    const memSeq = await nextSeq(spaceId);
-    await memoryColl.updateOne(
-      { _id: mem._id } as never,
-      { $set: { entityIds: dedupedIds, updatedAt: now, seq: memSeq } } as never,
-    );
-  }
-
-  // ── 3. Relink chrono entries ─────────────────────────────────────────
-  const chronoColl = col<ChronoEntry>(`${spaceId}_chrono`);
-  const affectedChronos = await chronoColl
-    .find({ spaceId, entityIds: absorbed._id } as never)
-    .toArray() as ChronoEntry[];
-  for (const ch of affectedChronos) {
-    const newEntityIds = ch.entityIds.map(id => id === absorbed._id ? survivor._id : id);
-    const dedupedIds = [...new Set(newEntityIds)];
-    const chSeq = await nextSeq(spaceId);
-    await chronoColl.updateOne(
-      { _id: ch._id } as never,
-      { $set: { entityIds: dedupedIds, updatedAt: now, seq: chSeq } } as never,
-    );
-  }
-
-  // ── 4. Update survivor entity ────────────────────────────────────────
-  // Merge tags (deduplicated union)
-  const mergedTags = Array.from(new Set([...(survivor.tags ?? []), ...(absorbed.tags ?? [])]));
-  // Keep survivor's name, type, description by default
-  const entityColl = col<EntityDoc>(`${spaceId}_entities`);
-
-  let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};
   try {
-    const embResult = await embed(entityEmbedText(
-      survivor.name, survivor.type, mergedTags, survivor.description, mergedProperties,
-    ));
-    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
-  } catch { /* embedding unavailable — keep existing embedding */ }
+    await session.withTransaction(async () => {
+      const now = new Date().toISOString();
+      const seq = await nextSeq(spaceId);
 
-  await entityColl.updateOne(
-    { _id: survivor._id } as never,
-    { $set: { properties: mergedProperties, tags: mergedTags, updatedAt: now, seq, ...embeddingFields } } as never,
-  );
+      const edgeColl = col<EdgeDoc>(`${spaceId}_edges`);
 
-  // ── 5. Delete absorbed entity ────────────────────────────────────────
-  await deleteEntity(spaceId, absorbed._id);
+      // ── 1. Relink edges ────────────────────────────────────────────────
+      // Unique compound index on (spaceId, from, to, label) means we must
+      // detect and delete absorbed edges that would collide BEFORE relinking.
+      // Handle self-loops: when absorbed has an edge A→A, both from and to
+      // need to become survivor.
 
-  // Return the updated survivor
+      // Collect all absorbed edges (from=absorbed OR to=absorbed).
+      const absorbedEdges = await edgeColl
+        .find({ spaceId, $or: [{ from: absorbed._id }, { to: absorbed._id }] } as never, { session })
+        .toArray() as EdgeDoc[];
+
+      // Build a set of existing survivor edge keys for collision detection.
+      const survivorEdges = await edgeColl
+        .find({ spaceId, $or: [{ from: survivor._id }, { to: survivor._id }] } as never, { session })
+        .toArray() as EdgeDoc[];
+      const survivorKeys = new Set(survivorEdges.map(e => `${e.from}|${e.to}|${e.label}`));
+
+      // Phase 1a: delete absorbed edges whose post-relink key collides with
+      // an existing survivor edge (would violate the unique index).
+      const edgesToRelink: EdgeDoc[] = [];
+      for (const edge of absorbedEdges) {
+        const newFrom = edge.from === absorbed._id ? survivor._id : edge.from;
+        const newTo = edge.to === absorbed._id ? survivor._id : edge.to;
+        const postKey = `${newFrom}|${newTo}|${edge.label}`;
+        if (survivorKeys.has(postKey)) {
+          // This absorbed edge would collide — delete it as a duplicate.
+          await edgeColl.deleteOne({ _id: edge._id } as never, { session });
+          const tombSeq = await nextSeq(spaceId);
+          await col<TombstoneDoc>(`${spaceId}_tombstones`).replaceOne(
+            { _id: edge._id } as never,
+            { _id: edge._id, type: 'edge', spaceId, deletedAt: now, instanceId: getConfig().instanceId, seq: tombSeq } as never,
+            { upsert: true, session },
+          );
+          deletedDuplicateEdgeIds.push(edge._id);
+        } else {
+          edgesToRelink.push(edge);
+          // Register the post-relink key so subsequent absorbed edges
+          // in the same batch don't collide with each other.
+          survivorKeys.add(postKey);
+        }
+      }
+
+      // Phase 1b: relink remaining absorbed edges (no collision risk).
+      for (const edge of edgesToRelink) {
+        const updates: Record<string, string> = { updatedAt: now };
+        if (edge.from === absorbed._id) updates['from'] = survivor._id;
+        if (edge.to === absorbed._id) updates['to'] = survivor._id;
+        const edgeSeq = await nextSeq(spaceId);
+        (updates as Record<string, unknown>)['seq'] = edgeSeq;
+        await edgeColl.updateOne(
+          { _id: edge._id } as never,
+          { $set: updates } as never,
+          { session },
+        );
+      }
+
+      // ── 2. Relink memories ─────────────────────────────────────────────
+      const memoryColl = col<MemoryDoc>(`${spaceId}_memories`);
+      const affectedMemories = await memoryColl
+        .find({ spaceId, entityIds: absorbed._id } as never, { session })
+        .toArray() as MemoryDoc[];
+      for (const mem of affectedMemories) {
+        const newEntityIds = mem.entityIds.map(id => id === absorbed._id ? survivor._id : id);
+        const dedupedIds = [...new Set(newEntityIds)];
+        const memSeq = await nextSeq(spaceId);
+        await memoryColl.updateOne(
+          { _id: mem._id } as never,
+          { $set: { entityIds: dedupedIds, updatedAt: now, seq: memSeq } } as never,
+          { session },
+        );
+      }
+
+      // ── 3. Relink chrono entries ───────────────────────────────────────
+      const chronoColl = col<ChronoEntry>(`${spaceId}_chrono`);
+      const affectedChronos = await chronoColl
+        .find({ spaceId, entityIds: absorbed._id } as never, { session })
+        .toArray() as ChronoEntry[];
+      for (const ch of affectedChronos) {
+        const newEntityIds = ch.entityIds.map(id => id === absorbed._id ? survivor._id : id);
+        const dedupedIds = [...new Set(newEntityIds)];
+        const chSeq = await nextSeq(spaceId);
+        await chronoColl.updateOne(
+          { _id: ch._id } as never,
+          { $set: { entityIds: dedupedIds, updatedAt: now, seq: chSeq } } as never,
+          { session },
+        );
+      }
+
+      // ── 4. Update survivor entity ──────────────────────────────────────
+      const mergedTags = Array.from(new Set([...(survivor.tags ?? []), ...(absorbed.tags ?? [])]));
+      const entityColl = col<EntityDoc>(`${spaceId}_entities`);
+
+      let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};
+      try {
+        const embResult = await embed(entityEmbedText(
+          survivor.name, survivor.type, mergedTags, survivor.description, mergedProperties,
+        ));
+        embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
+      } catch { /* embedding unavailable — keep existing embedding */ }
+
+      await entityColl.updateOne(
+        { _id: survivor._id } as never,
+        { $set: { properties: mergedProperties, tags: mergedTags, updatedAt: now, seq, ...embeddingFields } } as never,
+        { session },
+      );
+
+      // ── 5. Delete absorbed entity + write tombstone ────────────────────
+      const absorbedSeq = await nextSeq(spaceId);
+      await entityColl.deleteOne({ _id: absorbed._id, spaceId } as never, { session });
+      await col<TombstoneDoc>(`${spaceId}_tombstones`).replaceOne(
+        { _id: absorbed._id } as never,
+        { _id: absorbed._id, type: 'entity', spaceId, deletedAt: now, instanceId: getConfig().instanceId, seq: absorbedSeq } as never,
+        { upsert: true, session },
+      );
+
+      // Store result on survivor for return
+      Object.assign(survivor, {
+        properties: mergedProperties,
+        tags: mergedTags,
+        updatedAt: now,
+        seq,
+        ...embeddingFields,
+      });
+    });
+  } finally {
+    await session.endSession();
+  }
+
   return {
-    ...survivor,
-    properties: mergedProperties,
-    tags: mergedTags,
-    updatedAt: now,
-    seq,
-    ...embeddingFields,
+    entity: survivor,
+    deletedDuplicateEdgeIds,
   };
 }
 

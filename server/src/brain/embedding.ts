@@ -81,6 +81,17 @@ async function embedViaHttp(
   return { vector, model: cfg.model, dimensions: vector.length };
 }
 
+/**
+ * Pre-load the local ONNX embedding pipeline without running an actual embed.
+ * Returns immediately if the model is already loaded.
+ * No-op when an external HTTP embedding endpoint is configured.
+ */
+export async function warmEmbeddingModel(): Promise<void> {
+  const cfg = getEmbeddingConfig();
+  if (cfg.baseUrl) return; // External endpoint — nothing local to warm
+  await getLocalPipeline(cfg.model);
+}
+
 // ── Public API ─────────────────────────────────────────────────────────────
 /**
  * Generate an embedding vector for the given text.

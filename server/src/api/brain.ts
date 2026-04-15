@@ -26,6 +26,7 @@ import { reindexInProgress } from '../metrics/registry.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 
 export const brainRouter = Router();
+let reindexJobRunning = false;
 
 // ── Webhook helper ────────────────────────────────────────────────────────
 
@@ -631,7 +632,7 @@ brainRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAuth, 
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const limit = Math.min(Number(req.query['limit'] ?? 50), 200);
+  const limit = Math.min(Number(req.query['limit'] ?? 50), 500);
   const skip = Number(req.query['skip'] ?? 0);
   const filter: Record<string, unknown> = {};
   if (typeof req.query['name'] === 'string') filter['name'] = req.query['name'];
@@ -853,17 +854,23 @@ brainRouter.post('/spaces/:spaceId/entities/:survivorId/merge/:absorbedId', glob
     plan.absorbedOnlyProperties,
   );
 
-  const mergedEntity = await executeMerge(spaceId, survivor, absorbed, mergedProperties);
+  const mergeResult = await executeMerge(spaceId, survivor, absorbed, mergedProperties);
+  const mergedEntity = mergeResult.entity;
 
   // Emit webhook events
+  emitWebhookEvent({ event: 'entity.merged', spaceId, entry: { survivor: { ...mergedEntity, embedding: undefined }, absorbedId: absorbed._id }, ...webhookToken(req) });
   emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...mergedEntity, embedding: undefined }, ...webhookToken(req) });
   emitWebhookEvent({ event: 'entity.deleted', spaceId, entry: { _id: absorbed._id }, ...webhookToken(req) });
+  for (const dupId of mergeResult.deletedDuplicateEdgeIds) {
+    emitWebhookEvent({ event: 'edge.deleted', spaceId, entry: { _id: dupId }, ...webhookToken(req) });
+  }
 
   res.json({
     merged: { ...mergedEntity, embedding: undefined },
     absorbedId: absorbed._id,
     relinked: true,
     duplicateEdgeWarnings: plan.duplicateEdgeWarnings,
+    deletedDuplicateEdgeIds: mergeResult.deletedDuplicateEdgeIds,
   });
 });
 brainRouter.delete('/spaces/:spaceId/entities', bulkWipeRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
@@ -1516,188 +1523,206 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
     return;
   }
 
+  if (reindexJobRunning) {
+    res.status(409).json({ error: 'Reindex already in progress' });
+    return;
+  }
+
   const memberIds = resolveMemberSpaces(spaceId);
-  let reindexed = 0;
-  let errors = 0;
-
+  reindexJobRunning = true;
   reindexInProgress.set(1);
-  try {
-  for (const mid of memberIds) {
-    const BATCH = 50;
+  res.json({ spaceId, reindexed: 0, errors: 0, status: 'started' });
 
-    // Re-embed memories
-    {
-      let skip = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const batch = await col<MemoryDoc>(`${mid}_memories`)
-          .find({}, { projection: { _id: 1, fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1 } })
-          .skip(skip)
-          .limit(BATCH)
-          .toArray();
-        if (batch.length === 0) break;
-        for (const doc of batch) {
-          try {
-            // Resolve entity IDs to names for richer embedding
-            const entityIds: string[] = Array.isArray(doc.entityIds) ? doc.entityIds : [];
-            const entityDocs = entityIds.length > 0
-              ? await col<EntityDoc>(`${mid}_entities`)
-                  .find({ _id: { $in: entityIds } } as never, { projection: { name: 1 } })
-                  .toArray() as Array<{ name: string }>
-              : [];
-            const entityNames = entityDocs.map(e => e.name);
-            const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
-            const parts: string[] = [];
-            if (tags.length > 0) parts.push(tags.join(' '));
-            if (entityNames.length > 0) parts.push(entityNames.join(' '));
-            parts.push(doc.fact);
-            if (doc.description?.trim()) parts.push(doc.description.trim());
-            if (doc.properties) {
-              const propEntries = Object.entries(doc.properties);
-              if (propEntries.length > 0) parts.push(propEntries.map(([k, v]) => `${k} ${String(v)}`).join(' '));
+  // Start heavy work on the next turn so HTTP headers flush immediately.
+  setImmediate(() => {
+    void (async () => {
+      let reindexed = 0;
+      let errors = 0;
+      try {
+        for (const mid of memberIds) {
+        const BATCH = 50;
+
+        // Re-embed memories
+        {
+          let cursor: string | null = null;
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
+            const batch: MemoryDoc[] = await col<MemoryDoc>(`${mid}_memories`)
+              .find(q as never, { projection: { _id: 1, fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1 } })
+              .sort({ _id: 1 })
+              .limit(BATCH)
+              .toArray() as MemoryDoc[];
+            if (batch.length === 0) break;
+            for (const doc of batch) {
+              try {
+                const entityIds: string[] = Array.isArray(doc.entityIds) ? doc.entityIds : [];
+                const entityDocs = entityIds.length > 0
+                  ? await col<EntityDoc>(`${mid}_entities`)
+                      .find({ _id: { $in: entityIds } } as never, { projection: { name: 1 } })
+                      .toArray() as Array<{ name: string }>
+                  : [];
+                const entityNames = entityDocs.map(e => e.name);
+                const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
+                const parts: string[] = [];
+                if (tags.length > 0) parts.push(tags.join(' '));
+                if (entityNames.length > 0) parts.push(entityNames.join(' '));
+                parts.push(doc.fact);
+                if (doc.description?.trim()) parts.push(doc.description.trim());
+                if (doc.properties) {
+                  const propEntries = Object.entries(doc.properties);
+                  if (propEntries.length > 0) parts.push(propEntries.map(([k, v]) => `${k} ${String(v)}`).join(' '));
+                }
+                const text = parts.join(' ');
+                const result = await embed(text);
+                await col<MemoryDoc>(`${mid}_memories`).updateOne(
+                  { _id: doc._id },
+                  { $set: { embedding: result.vector, embeddingModel: result.model } },
+                );
+                reindexed++;
+              } catch { errors++; }
             }
-            const text = parts.join(' ');
-            const result = await embed(text);
-            await col<MemoryDoc>(`${mid}_memories`).updateOne(
-              { _id: doc._id },
-              { $set: { embedding: result.vector, embeddingModel: result.model } },
-            );
-            reindexed++;
-          } catch { errors++; }
+            cursor = batch[batch.length - 1]?._id ?? null;
+          }
         }
-        skip += batch.length;
-      }
-    }
 
-    // Re-embed entities (name + type + tags + description + properties)
-    {
-      let skip = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const batch = await col<EntityDoc>(`${mid}_entities`)
-          .find({}, { projection: { _id: 1, name: 1, type: 1, tags: 1, description: 1, properties: 1 } })
-          .skip(skip)
-          .limit(BATCH)
-          .toArray();
-        if (batch.length === 0) break;
-        for (const doc of batch) {
-          try {
-            const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
-            const parts: string[] = [doc.name, doc.type];
-            if (tags.length > 0) parts.push(tags.join(' '));
-            if (doc.description?.trim()) parts.push(doc.description.trim());
-            if (doc.properties) {
-              const propEntries = Object.entries(doc.properties);
-              if (propEntries.length > 0) parts.push(propEntries.map(([k, v]) => `${k} ${String(v)}`).join(' '));
+        // Re-embed entities (name + type + tags + description + properties)
+        {
+          let cursor: string | null = null;
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
+            const batch: EntityDoc[] = await col<EntityDoc>(`${mid}_entities`)
+              .find(q as never, { projection: { _id: 1, name: 1, type: 1, tags: 1, description: 1, properties: 1 } })
+              .sort({ _id: 1 })
+              .limit(BATCH)
+              .toArray() as EntityDoc[];
+            if (batch.length === 0) break;
+            for (const doc of batch) {
+              try {
+                const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
+                const parts: string[] = [doc.name, doc.type];
+                if (tags.length > 0) parts.push(tags.join(' '));
+                if (doc.description?.trim()) parts.push(doc.description.trim());
+                if (doc.properties) {
+                  const propEntries = Object.entries(doc.properties);
+                  if (propEntries.length > 0) parts.push(propEntries.map(([k, v]) => `${k} ${String(v)}`).join(' '));
+                }
+                const result = await embed(parts.join(' '));
+                await col<EntityDoc>(`${mid}_entities`).updateOne(
+                  { _id: doc._id },
+                  { $set: { embedding: result.vector, embeddingModel: result.model } },
+                );
+                reindexed++;
+              } catch { errors++; }
             }
-            const result = await embed(parts.join(' '));
-            await col<EntityDoc>(`${mid}_entities`).updateOne(
-              { _id: doc._id },
-              { $set: { embedding: result.vector, embeddingModel: result.model } },
-            );
-            reindexed++;
-          } catch { errors++; }
+            cursor = batch[batch.length - 1]?._id ?? null;
+          }
         }
-        skip += batch.length;
-      }
-    }
 
-    // Re-embed edges (tags + from + label + to + type + description)
-    {
-      let skip = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const batch = await col<EdgeDoc>(`${mid}_edges`)
-          .find({}, { projection: { _id: 1, from: 1, label: 1, to: 1, type: 1, tags: 1, description: 1 } })
-          .skip(skip)
-          .limit(BATCH)
-          .toArray();
-        if (batch.length === 0) break;
-        for (const doc of batch) {
-          try {
-            const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
-            const parts: string[] = [];
-            if (tags.length > 0) parts.push(tags.join(' '));
-            parts.push(doc.from, doc.label, doc.to);
-            if (doc.type?.trim()) parts.push(doc.type.trim());
-            if (doc.description?.trim()) parts.push(doc.description.trim());
-            const result = await embed(parts.join(' '));
-            await col<EdgeDoc>(`${mid}_edges`).updateOne(
-              { _id: doc._id },
-              { $set: { embedding: result.vector, embeddingModel: result.model } },
-            );
-            reindexed++;
-          } catch { errors++; }
+        // Re-embed edges (tags + from + label + to + type + description)
+        {
+          let cursor: string | null = null;
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
+            const batch: EdgeDoc[] = await col<EdgeDoc>(`${mid}_edges`)
+              .find(q as never, { projection: { _id: 1, from: 1, label: 1, to: 1, type: 1, tags: 1, description: 1 } })
+              .sort({ _id: 1 })
+              .limit(BATCH)
+              .toArray() as EdgeDoc[];
+            if (batch.length === 0) break;
+            for (const doc of batch) {
+              try {
+                const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
+                const parts: string[] = [];
+                if (tags.length > 0) parts.push(tags.join(' '));
+                parts.push(doc.from, doc.label, doc.to);
+                if (doc.type?.trim()) parts.push(doc.type.trim());
+                if (doc.description?.trim()) parts.push(doc.description.trim());
+                const result = await embed(parts.join(' '));
+                await col<EdgeDoc>(`${mid}_edges`).updateOne(
+                  { _id: doc._id },
+                  { $set: { embedding: result.vector, embeddingModel: result.model } },
+                );
+                reindexed++;
+              } catch { errors++; }
+            }
+            cursor = batch[batch.length - 1]?._id ?? null;
+          }
         }
-        skip += batch.length;
-      }
-    }
 
-    // Re-embed chrono (kind + status + title + description + tags)
-    {
-      let skip = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const batch = await col<ChronoEntry>(`${mid}_chrono`)
-          .find({}, { projection: { _id: 1, title: 1, kind: 1, status: 1, description: 1, tags: 1 } })
-          .skip(skip)
-          .limit(BATCH)
-          .toArray();
-        if (batch.length === 0) break;
-        for (const doc of batch) {
-          try {
-            const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
-            const parts: string[] = [doc.kind, doc.status, doc.title];
-            if (tags.length > 0) parts.push(tags.join(' '));
-            if (doc.description?.trim()) parts.push(doc.description.trim());
-            const result = await embed(parts.join(' '));
-            await col<ChronoEntry>(`${mid}_chrono`).updateOne(
-              { _id: doc._id },
-              { $set: { embedding: result.vector, embeddingModel: result.model } },
-            );
-            reindexed++;
-          } catch { errors++; }
+        // Re-embed chrono (kind + status + title + description + tags)
+        {
+          let cursor: string | null = null;
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
+            const batch: ChronoEntry[] = await col<ChronoEntry>(`${mid}_chrono`)
+              .find(q as never, { projection: { _id: 1, title: 1, kind: 1, status: 1, description: 1, tags: 1 } })
+              .sort({ _id: 1 })
+              .limit(BATCH)
+              .toArray() as ChronoEntry[];
+            if (batch.length === 0) break;
+            for (const doc of batch) {
+              try {
+                const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
+                const parts: string[] = [doc.kind, doc.status, doc.title];
+                if (tags.length > 0) parts.push(tags.join(' '));
+                if (doc.description?.trim()) parts.push(doc.description.trim());
+                const result = await embed(parts.join(' '));
+                await col<ChronoEntry>(`${mid}_chrono`).updateOne(
+                  { _id: doc._id },
+                  { $set: { embedding: result.vector, embeddingModel: result.model } },
+                );
+                reindexed++;
+              } catch { errors++; }
+            }
+            cursor = batch[batch.length - 1]?._id ?? null;
+          }
         }
-        skip += batch.length;
-      }
-    }
 
-    // Re-embed files (path + tags + description)
-    {
-      let skip = 0;
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const batch = await col<FileMetaDoc>(`${mid}_files`)
-          .find({}, { projection: { _id: 1, path: 1, tags: 1, description: 1 } })
-          .skip(skip)
-          .limit(BATCH)
-          .toArray();
-        if (batch.length === 0) break;
-        for (const doc of batch) {
-          try {
-            const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
-            const parts: string[] = [doc.path];
-            if (tags.length > 0) parts.push(tags.join(' '));
-            if (doc.description?.trim()) parts.push(doc.description.trim());
-            const result = await embed(parts.join(' '));
-            await col<FileMetaDoc>(`${mid}_files`).updateOne(
-              { _id: doc._id },
-              { $set: { embedding: result.vector, embeddingModel: result.model } },
-            );
-            reindexed++;
-          } catch { errors++; }
+        // Re-embed files (path + tags + description)
+        {
+          let cursor: string | null = null;
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
+            const batch: FileMetaDoc[] = await col<FileMetaDoc>(`${mid}_files`)
+              .find(q as never, { projection: { _id: 1, path: 1, tags: 1, description: 1 } })
+              .sort({ _id: 1 })
+              .limit(BATCH)
+              .toArray() as FileMetaDoc[];
+            if (batch.length === 0) break;
+            for (const doc of batch) {
+              try {
+                const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
+                const parts: string[] = [doc.path];
+                if (tags.length > 0) parts.push(tags.join(' '));
+                if (doc.description?.trim()) parts.push(doc.description.trim());
+                const result = await embed(parts.join(' '));
+                await col<FileMetaDoc>(`${mid}_files`).updateOne(
+                  { _id: doc._id },
+                  { $set: { embedding: result.vector, embeddingModel: result.model } },
+                );
+                reindexed++;
+              } catch { errors++; }
+            }
+            cursor = batch[batch.length - 1]?._id ?? null;
+          }
         }
-        skip += batch.length;
+
+          clearReindexFlag(mid);
+        }
+        log.info(`Reindex completed for space '${spaceId}': reindexed=${reindexed}, errors=${errors}`);
+      } catch (err) {
+        log.error(`Reindex job failed for space '${spaceId}': ${String(err)}`);
+      } finally {
+        reindexJobRunning = false;
+        reindexInProgress.set(0);
       }
-    }
-
-    clearReindexFlag(mid);
-  }
-  } finally {
-    reindexInProgress.set(0);
-  }
-
-  res.json({ spaceId, reindexed, errors });
+    })();
+  });
 });
 
 // ── Bulk write ────────────────────────────────────────────────────────────────

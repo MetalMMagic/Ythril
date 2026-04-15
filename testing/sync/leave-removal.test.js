@@ -126,6 +126,11 @@ async function setupClubNetwork() {
   injectPeerToken('ythril-a', instanceIdB, peerTokenForA);
   injectPeerToken('ythril-b', instanceIdA, peerTokenForB);
 
+  // Reload in-memory config+secrets on both instances so they see the injected peer tokens
+  // and the peerInstanceId tags set during the before() hook.
+  await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
+  await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
+
   return nid;
 }
 
@@ -183,6 +188,9 @@ async function setupDemocraticNetwork() {
   injectPeerToken('ythril-a', instanceIdB, peerTokenForA);
   injectPeerToken('ythril-b', instanceIdA, peerTokenForB);
 
+  await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
+  await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
+
   return nid;
 }
 
@@ -196,27 +204,23 @@ describe('Leave and removal flows', () => {
     instanceIdA = getInstanceId('ythril-a');
     instanceIdB = getInstanceId('ythril-b');
 
-    // Create peer PATs (persistent across all tests in this suite)
-    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `leave-test-peer-a-${Date.now()}` });
-    assert.equal(ptForA.status, 201);
+    // Create peer PATs with peerInstanceId so the notify handler's identity
+    // verification passes (in production the invite handshake sets this).
+    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: `leave-test-peer-a-${Date.now()}`,
+      peerInstanceId: instanceIdA,
+    });
+    assert.equal(ptForA.status, 201, `Create peer token for A on B: ${JSON.stringify(ptForA.body)}`);
     peerTokenForA = ptForA.body.plaintext;
     peerTokenForAId = ptForA.body.token?.id;
 
-    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `leave-test-peer-b-${Date.now()}` });
-    assert.equal(ptForB.status, 201);
+    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', {
+      name: `leave-test-peer-b-${Date.now()}`,
+      peerInstanceId: instanceIdB,
+    });
+    assert.equal(ptForB.status, 201, `Create peer token for B on A: ${JSON.stringify(ptForB.body)}`);
     peerTokenForB = ptForB.body.plaintext;
     peerTokenForBId = ptForB.body.token?.id;
-
-    // Tag the token records with peerInstanceId so the notify handler's
-    // identity verification passes (in production the invite handshake does this).
-    // Use token id (UUID) to find the record — avoids prefix collisions when stale
-    // tokens from prior runs accumulate (many tokens share the same 8-char prefix).
-    tagPeerToken('ythril-b', peerTokenForAId, instanceIdA);  // B's token for A
-    tagPeerToken('ythril-a', peerTokenForBId, instanceIdB);  // A's token for B
-
-    // Reload config on both instances so the in-memory token records pick up peerInstanceId.
-    await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
-    await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
   });
 
   after(async () => {
@@ -279,7 +283,7 @@ describe('Leave and removal flows', () => {
           return events.body.events.some(
             e => e.event === 'member_departed' && e.instanceId === instanceIdA && e.networkId === nid,
           );
-        }, 20_000);
+        });
       } finally {
         await del(INSTANCES.b, tokenB, `/api/networks/${nid}`).catch(() => {});
       }
@@ -297,7 +301,7 @@ describe('Leave and removal flows', () => {
           const netB = cfgB.networks?.find(n => n.id === nid);
           if (!netB) return false; // B still has the network but may have removed A
           return !netB.members.some(m => m.instanceId === instanceIdA);
-        }, 10_000);
+        });
       } finally {
         await del(INSTANCES.b, tokenB, `/api/networks/${nid}`).catch(() => {});
       }
@@ -360,7 +364,7 @@ describe('Leave and removal flows', () => {
       await waitFor(async () => {
         const cfgB = readContainerConfig('ythril-b');
         return cfgB.ejectedFromNetworks?.includes(removalNetworkId);
-      }, 15_000);
+      });
     });
 
     after(async () => {

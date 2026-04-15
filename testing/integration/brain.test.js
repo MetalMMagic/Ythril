@@ -293,6 +293,7 @@ describe('Brain — edge type field', () => {
     const edgeId = `typed-edge-${RUN}`;
     const entFrom = `typed-from-${RUN}`;
     const entTo = `typed-to-${RUN}`;
+    const edgeLabel = `causes-${RUN}`;
 
     // Seed entities
     await syncPost(INSTANCES.a, token(), '/api/sync/entities?spaceId=general', {
@@ -308,19 +309,18 @@ describe('Brain — edge type field', () => {
 
     // Seed edge with type via sync endpoint
     await syncPost(INSTANCES.a, token(), '/api/sync/edges?spaceId=general', {
-      _id: edgeId, spaceId: 'general', from: entFrom, to: entTo, label: 'causes',
+      _id: edgeId, spaceId: 'general', from: entFrom, to: entTo, label: edgeLabel,
       type: 'causal', weight: 0.9,
       seq: Date.now() + 2, author: { instanceId: 'test', instanceLabel: 'Test' },
       createdAt: new Date().toISOString(),
     });
 
-    // Verify it appears in listing with type field
-    const r = await get(INSTANCES.a, token(), '/api/brain/spaces/general/edges?limit=500');
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/edges?from=${entFrom}&to=${entTo}&label=${encodeURIComponent(edgeLabel)}&limit=500`);
     assert.equal(r.status, 200);
     const edge = r.body.edges.find(e => e._id === edgeId);
     assert.ok(edge, 'Typed edge should appear in listing');
     assert.equal(edge.type, 'causal', 'type field should be preserved');
-    assert.equal(edge.label, 'causes');
+    assert.equal(edge.label, edgeLabel);
     assert.equal(edge.weight, 0.9);
   });
 
@@ -329,6 +329,7 @@ describe('Brain — edge type field', () => {
     const edgeId = `untyped-edge-${RUN}`;
     const entFrom = `untyped-from-${RUN}`;
     const entTo = `untyped-to-${RUN}`;
+    const edgeLabel = `related-${RUN}`;
 
     await syncPost(INSTANCES.a, token(), '/api/sync/entities?spaceId=general', {
       _id: entFrom, spaceId: 'general', name: `UntypedFrom-${RUN}`, type: 'concept', tags: [],
@@ -342,17 +343,17 @@ describe('Brain — edge type field', () => {
     });
 
     await syncPost(INSTANCES.a, token(), '/api/sync/edges?spaceId=general', {
-      _id: edgeId, spaceId: 'general', from: entFrom, to: entTo, label: 'related',
+      _id: edgeId, spaceId: 'general', from: entFrom, to: entTo, label: edgeLabel,
       seq: Date.now() + 12, author: { instanceId: 'test', instanceLabel: 'Test' },
       createdAt: new Date().toISOString(),
     });
 
-    const r = await get(INSTANCES.a, token(), '/api/brain/spaces/general/edges?limit=500');
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/edges?from=${entFrom}&to=${entTo}&label=${encodeURIComponent(edgeLabel)}&limit=500`);
     assert.equal(r.status, 200);
     const edge = r.body.edges.find(e => e._id === edgeId);
     assert.ok(edge, 'Untyped edge should appear in listing');
     assert.equal(edge.type, undefined, 'type should be absent when not set');
-    assert.equal(edge.label, 'related');
+    assert.equal(edge.label, edgeLabel);
   });
 });
 
@@ -506,14 +507,19 @@ describe('Brain â€” reindex-status endpoint', () => {
 
 describe('Brain — POST /api/brain/spaces/:spaceId/reindex', () => {
   const RUN = Date.now();
+  const testSpaceId = `reindex-test-${RUN}`;
 
   before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    const createSpace = await post(INSTANCES.a, token(), '/api/spaces', { id: testSpaceId, label: 'Reindex Test Space' });
+    assert.equal(createSpace.status, 201, `Create test space: ${JSON.stringify(createSpace.body)}`);
+
     // Seed one of each type with rich fields so the reindex formulas exercise the new fieldsets
     const { post: syncPost } = await import('../sync/helpers.js');
 
-    await syncPost(INSTANCES.a, token(), '/api/sync/memories?spaceId=general', {
+    await syncPost(INSTANCES.a, token(), `/api/sync/memories?spaceId=${testSpaceId}`, {
       _id: `reindex-mem-${RUN}`,
-      spaceId: 'general',
+      spaceId: testSpaceId,
       fact: `Reindex memory fact ${RUN}`,
       embedding: [],
       embeddingModel: '__stale__',   // mark as stale so needsReindex triggers
@@ -527,9 +533,9 @@ describe('Brain — POST /api/brain/spaces/:spaceId/reindex', () => {
       updatedAt: new Date().toISOString(),
     });
 
-    await syncPost(INSTANCES.a, token(), '/api/sync/entities?spaceId=general', {
+    await syncPost(INSTANCES.a, token(), `/api/sync/entities?spaceId=${testSpaceId}`, {
       _id: `reindex-ent-${RUN}`,
-      spaceId: 'general',
+      spaceId: testSpaceId,
       name: `ReindexEnt-${RUN}`,
       type: 'concept',
       tags: ['reindex-test'],
@@ -541,9 +547,9 @@ describe('Brain — POST /api/brain/spaces/:spaceId/reindex', () => {
       updatedAt: new Date().toISOString(),
     });
 
-    await syncPost(INSTANCES.a, token(), '/api/sync/edges?spaceId=general', {
+    await syncPost(INSTANCES.a, token(), `/api/sync/edges?spaceId=${testSpaceId}`, {
       _id: `reindex-edge-${RUN}`,
-      spaceId: 'general',
+      spaceId: testSpaceId,
       from: `reindex-ent-${RUN}`,
       to: `reindex-ent-${RUN}`,
       label: 'self_ref',
@@ -556,8 +562,12 @@ describe('Brain — POST /api/brain/spaces/:spaceId/reindex', () => {
     });
   });
 
+  after(async () => {
+    await delWithBody(INSTANCES.a, token(), `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
+  });
+
   it('POST /reindex returns 200 with count summary', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/reindex', {});
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${testSpaceId}/reindex`, {});
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.ok(typeof r.body === 'object', 'response must be an object');
     // The reindex response includes count fields for each collection type
@@ -682,22 +692,27 @@ describe('Brain — bulk memory wipe', () => {
   });
 
   it('Tombstones were written for wiped memories', async () => {
-    // Query tombstones created after our seq watermark; paginate if needed
-    let tombIds = [];
+    // Query tombstones created after our seq watermark; page until all IDs are found
+    const tombIds = new Set();
+    const pending = new Set(seededIds);
     let sinceSeq = seqBefore;
-    for (let page = 0; page < 10; page++) {
-      const r = await get(INSTANCES.a, tokenA, `/api/sync/tombstones?spaceId=${WIPE_SPACE}&sinceSeq=${sinceSeq}`);
+    for (let page = 0; page < 200; page++) {
+      const r = await get(INSTANCES.a, tokenA, `/api/sync/tombstones?spaceId=${WIPE_SPACE}&sinceSeq=${sinceSeq}&limit=5000`);
       assert.equal(r.status, 200, JSON.stringify(r.body));
       const batch = r.body.memories ?? [];
       if (batch.length === 0) break;
-      tombIds.push(...batch.map(t => t._id));
-      // Advance past this page's highest seq
+      for (const t of batch) {
+        tombIds.add(t._id);
+        pending.delete(t._id);
+      }
+      if (pending.size === 0) break;
+      // Advance past this page's highest seq; if no progress, stop to avoid loops
       const maxSeq = Math.max(...batch.map(t => t.seq ?? 0));
-      if (maxSeq <= sinceSeq) break; // no progress
+      if (maxSeq <= sinceSeq) break;
       sinceSeq = maxSeq;
     }
     for (const id of seededIds) {
-      assert.ok(tombIds.includes(id), `Tombstone for ${id} should exist (got ${tombIds.length} tombstones since seq ${seqBefore})`);
+      assert.ok(tombIds.has(id), `Tombstone for ${id} should exist (got ${tombIds.size} tombstones since seq ${seqBefore})`);
     }
   });
 
@@ -2211,9 +2226,16 @@ describe('Brain — read-only token blocked on REST write endpoints', () => {
 
 describe('Brain — bulk write caps at 500 items per type', () => {
   const RUN = Date.now();
+  const testSpaceId = `bulk-cap-${RUN}`;
 
-  before(() => {
+  before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    const createSpace = await post(INSTANCES.a, token(), '/api/spaces', { id: testSpaceId, label: 'Bulk Cap Test Space' });
+    assert.equal(createSpace.status, 201, `Create test space: ${JSON.stringify(createSpace.body)}`);
+  });
+
+  after(async () => {
+    await delWithBody(INSTANCES.a, token(), `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
   });
 
   it('Items beyond 500 are silently dropped', async () => {
@@ -2221,7 +2243,7 @@ describe('Brain — bulk write caps at 500 items per type', () => {
     for (let i = 0; i < 502; i++) {
       memories.push({ fact: `BulkCap-${RUN}-${i}` });
     }
-    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/bulk', { memories });
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${testSpaceId}/bulk`, { memories });
     assert.equal(r.status, 207, JSON.stringify(r.body));
     const total = r.body.inserted.memories + r.body.errors.length;
     assert.ok(total <= 500, `Total processed must be <= 500, got ${total}`);

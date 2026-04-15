@@ -12,6 +12,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { col } from '../db/mongo.js';
+import { warmEmbeddingModel } from '../brain/embedding.js';
 import { syncRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, getSecrets, getDataRoot, loadConfig, saveConfig } from '../config/loader.js';
 import { listTombstones, applyRemoteTombstone } from '../brain/tombstones.js';
@@ -21,6 +22,7 @@ import { nextSeq, bumpSeq } from '../util/seq.js';
 import { updateSpace } from '../spaces/spaces.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { computeMerkleRoot } from '../brain/merkle.js';
+import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type {
@@ -31,9 +33,104 @@ import type {
   TombstoneDoc,
   FileTombstoneDoc,
   NetworkMember,
+  LinkViolationDoc,
 } from '../config/types.js';
 
 export const syncRouter = Router();
+
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Check whether strict linkage is enabled for a space.
+ * Duplicated from brain.ts to avoid circular imports — both read from config.
+ */
+function isStrictLinkage(spaceId: string): boolean {
+  const cfg = getConfig();
+  const space = cfg.spaces.find(s => s.id === spaceId);
+  return space?.meta?.strictLinkage === true;
+}
+
+/**
+ * Record a link violation detected during sync ingest.
+ * Fire-and-forget: violations are informational, never block sync.
+ */
+async function recordLinkViolation(
+  spaceId: string,
+  docId: string,
+  docType: LinkViolationDoc['docType'],
+  field: string,
+  reason: string,
+  peerInstanceId: string,
+): Promise<void> {
+  try {
+    const doc: LinkViolationDoc = {
+      _id: uuidv4(),
+      spaceId,
+      docId,
+      docType,
+      field,
+      reason,
+      peerInstanceId,
+      detectedAt: new Date().toISOString(),
+    };
+    await col<LinkViolationDoc>(`${spaceId}_link_violations`).insertOne(doc as never);
+    emitWebhookEvent({ event: 'link_violation.created', spaceId, entry: doc as unknown as Record<string, unknown> });
+  } catch (err) {
+    log.error(`Failed to record link violation for ${docType} ${docId}: ${err}`);
+  }
+}
+
+/**
+ * Validate an edge's from/to references against strict linkage rules.
+ * Records violations but never blocks the ingest.
+ */
+async function checkEdgeLinkViolations(
+  spaceId: string,
+  edge: EdgeDoc,
+  peerInstanceId: string,
+): Promise<void> {
+  if (!isStrictLinkage(spaceId)) return;
+
+  for (const field of ['from', 'to'] as const) {
+    const val = edge[field];
+    if (!UUID_V4_RE.test(val)) {
+      await recordLinkViolation(spaceId, edge._id, 'edge', field,
+        `${field} '${val}' is not a valid UUID v4`, peerInstanceId);
+    } else {
+      const exists = await col<EntityDoc>(`${spaceId}_entities`).findOne({ _id: val } as never);
+      if (!exists) {
+        await recordLinkViolation(spaceId, edge._id, 'edge', field,
+          `${field} references non-existent entity '${val}'`, peerInstanceId);
+      }
+    }
+  }
+}
+
+/**
+ * Validate a memory/chrono document's entityIds against strict linkage rules.
+ */
+async function checkEntityIdLinkViolations(
+  spaceId: string,
+  docId: string,
+  docType: 'memory' | 'chrono',
+  entityIds: string[] | undefined,
+  peerInstanceId: string,
+): Promise<void> {
+  if (!isStrictLinkage(spaceId) || !entityIds?.length) return;
+
+  for (const eid of entityIds) {
+    if (!UUID_V4_RE.test(eid)) {
+      await recordLinkViolation(spaceId, docId, docType, 'entityIds',
+        `entityIds contains non-UUID value '${eid}'`, peerInstanceId);
+    } else {
+      const exists = await col<EntityDoc>(`${spaceId}_entities`).findOne({ _id: eid } as never);
+      if (!exists) {
+        await recordLinkViolation(spaceId, docId, docType, 'entityIds',
+          `entityIds references non-existent entity '${eid}'`, peerInstanceId);
+      }
+    }
+  }
+}
 
 // â”€â”€ Safety limits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
@@ -53,9 +150,10 @@ const MAX_SYNC_SEQ = 2 ** 50; // 1_125_899_906_842_624
  * Prevents a "fork chain bomb" where an attacker creates A→B→C→...
  * by repeatedly submitting equal-seq docs with different content.
  *
- * The check walks the forkOf chain upward from the parent document,
- * counting the number of links to the root. A depth of 0 means the
- * parent is an original (non-fork) document.
+ * Two independent checks enforce this:
+ *  1. Chain depth: walk forkOf pointers upward — caps nested chains.
+ *  2. Sibling fan-out: count existing forks of the same parent — caps
+ *     repeated same-seq attacks against one document.
  */
 const MAX_FORK_DEPTH = 10;
 
@@ -320,6 +418,8 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, async (req, res) => {
     if (!existing) {
       // No local copy â€” insert directly
       await col<MemoryDoc>(`${spaceId}_memories`).insertOne(incoming as never);
+      const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
+      checkEntityIdLinkViolations(spaceId, incoming._id, 'memory', incoming.entityIds, peerInst).catch(() => {});
       res.status(200).json({ status: 'inserted' });
       return;
     }
@@ -327,15 +427,23 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, async (req, res) => {
     if (incoming.seq > existing.seq) {
       // Remote is newer â€” overwrite
       await col<MemoryDoc>(`${spaceId}_memories`).replaceOne({ _id: incoming._id } as never, incoming as never);
+      const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
+      checkEntityIdLinkViolations(spaceId, incoming._id, 'memory', incoming.entityIds, peerInst).catch(() => {});
       res.status(200).json({ status: 'updated' });
       return;
     }
 
     if (incoming.seq === existing.seq && incoming.fact !== existing.fact) {
-      // Concurrent independent edit — fork; but cap the chain depth.
-      // Walk the forkOf chain upward to measure actual depth (not just siblings).
+      // Concurrent independent edit — fork; but cap both chain depth and fan-out.
       const depth = await forkChainDepth(spaceId, incoming._id);
       if (depth >= MAX_FORK_DEPTH) {
+        res.status(400).json({ error: `Fork depth limit (${MAX_FORK_DEPTH}) exceeded for _id '${incoming._id}'` });
+        return;
+      }
+      // Also cap fan-out: count how many forks already point to this document.
+      const siblingCount = await col<MemoryDoc>(`${spaceId}_memories`)
+        .countDocuments({ forkOf: incoming._id } as never, { limit: MAX_FORK_DEPTH + 1 });
+      if (siblingCount >= MAX_FORK_DEPTH) {
         res.status(400).json({ error: `Fork depth limit (${MAX_FORK_DEPTH}) exceeded for _id '${incoming._id}'` });
         return;
       }
@@ -534,6 +642,10 @@ syncRouter.post('/edges', syncRateLimit, requireAuth, async (req, res) => {
       );
     }
 
+    // Fire-and-forget: check strict linkage violations after ingest
+    const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
+    checkEdgeLinkViolations(spaceId, incoming, peerInst).catch(() => {});
+
     res.status(200).json({ status: 'ok' });
   } catch (err) {
     log.error(`sync POST edges: ${err}`);
@@ -622,6 +734,10 @@ syncRouter.post('/chrono', syncRateLimit, requireAuth, async (req, res) => {
         { upsert: true },
       );
     }
+
+    // Fire-and-forget: check strict linkage violations after ingest
+    const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
+    checkEntityIdLinkViolations(spaceId, incoming._id, 'chrono', incoming.entityIds, peerInst).catch(() => {});
 
     res.status(200).json({ status: 'ok' });
   } catch (err) {
@@ -778,17 +894,21 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, async (req, res) =>
  */
 syncRouter.get('/tombstones', syncRateLimit, requireAuth, async (req, res) => {
   try {
-    const { spaceId, networkId, sinceSeq = '0' } = req.query as Record<string, string>;
+    const { spaceId, networkId, sinceSeq = '0', limit = '1000' } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const since = parseInt(sinceSeq, 10);
-    const all = await listTombstones(spaceId, since, 1000);
+    const pageSize = Math.min(parseInt(limit, 10) || 1000, 5000);
+    const memories = await listTombstones(spaceId, since, pageSize, 'memory');
+    const entities = await listTombstones(spaceId, since, pageSize, 'entity');
+    const edges = await listTombstones(spaceId, since, pageSize, 'edge');
+    const chrono = await listTombstones(spaceId, since, pageSize, 'chrono');
     res.json({
-      memories: all.filter(t => t.type === 'memory'),
-      entities: all.filter(t => t.type === 'entity'),
-      edges: all.filter(t => t.type === 'edge'),
-      chrono: all.filter(t => t.type === 'chrono'),
+      memories,
+      entities,
+      edges,
+      chrono,
     });
   } catch (err) {
     log.error(`sync GET tombstones: ${err}`);
@@ -1243,6 +1363,49 @@ export function sendMemberRemovedNotify(
     signal: AbortSignal.timeout(10_000),
   }).catch(err => log.warn(`member_removed notify to ${subjectInstanceId}: ${err}`));
 }
+
+// ── Presync warm-up ─────────────────────────────────────────────────────────
+/**
+ * POST /api/sync/warm
+ * Called by a peer before the real sync cycle begins.  Eagerly warms:
+ *  1. Auth middleware bcrypt cache (happens automatically via requireAuth)
+ *  2. Local ONNX embedding pipeline (model load / cache hit)
+ *  3. MongoDB collection handles + first-query per space collection
+ *
+ * Body: { networkId, spaces: string[] }
+ * Returns 200 { status: 'ready' } once all warm-up work completes.
+ */
+syncRouter.post('/warm', syncRateLimit, requireAuth, async (req, res) => {
+  try {
+    const body = req.body as { networkId?: string; spaces?: string[] };
+    if (!body?.networkId || !Array.isArray(body.spaces) || body.spaces.length === 0) {
+      res.status(400).json({ error: 'networkId and spaces[] required' });
+      return;
+    }
+
+    const cfg = getConfig();
+    const net = cfg.networks.find(n => n.id === body.networkId);
+    if (!net) { res.status(404).json({ error: 'Network not found' }); return; }
+
+    // Warm embedding model and MongoDB collections in parallel
+    await Promise.all([
+      warmEmbeddingModel().catch(err =>
+        log.warn(`Warm: embedding model failed: ${err}`),
+      ),
+      ...body.spaces.flatMap(sid => [
+        col(`${sid}_memories`).findOne({} as never, { projection: { _id: 1 } }).catch(() => {}),
+        col(`${sid}_entities`).findOne({} as never, { projection: { _id: 1 } }).catch(() => {}),
+        col(`${sid}_edges`).findOne({} as never, { projection: { _id: 1 } }).catch(() => {}),
+        col(`${sid}_chrono`).findOne({} as never, { projection: { _id: 1 } }).catch(() => {}),
+      ]),
+    ]);
+
+    res.json({ status: 'ready' });
+  } catch (err) {
+    log.error(`sync POST warm: ${err}`);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
 
 // Re-export the helper for use by the network router and sync engine
 export { concludeRoundIfReady };

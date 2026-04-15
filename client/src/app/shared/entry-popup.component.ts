@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { throwError } from 'rxjs';
 import { ApiService } from '../core/api.service';
 
 type RecordType = 'entity' | 'edge' | 'memory' | 'chrono';
@@ -572,6 +573,10 @@ export class EntryPopupComponent {
         return this.api.updateMemory(this.spaceId, id, b);
       case 'chrono':
         return this.api.updateChrono(this.spaceId, id, b);
+      default: {
+        const _exhaustive: never = this.recordType;
+        return throwError(() => new Error(`Unknown record type: ${_exhaustive}`));
+      }
     }
   }
 

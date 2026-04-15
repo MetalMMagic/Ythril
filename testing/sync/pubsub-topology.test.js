@@ -5,7 +5,6 @@
  *  1. Publisher writes propagate down to subscribers
  *  2. Subscriber writes do NOT propagate up to the publisher
  *  3. Publisher tombstones only delete publisher-authored docs on subscriber
- *
  * Run: node --test testing/sync/pubsub-topology.test.js
  * Pre-requisite: docker compose -f docker-compose.test.yml up && node testing/sync/setup.js
  */
@@ -16,7 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  INSTANCES, post, postRetry429, get, del, triggerSync, createMemory, waitFor,
+  INSTANCES, post, postRetry429, get, del, delWithBody, triggerSync, waitFor,
 } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,17 +23,24 @@ const CONFIGS = path.join(__dirname, 'configs');
 
 let tokenA, tokenB;
 let networkId;
+let testSpaceId;
 
-describe('Pub/Sub topology (Publisher A -> Subscriber B)', () => {
+describe('Pub/Sub topology (A -> B subscriber)', () => {
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     tokenB = fs.readFileSync(path.join(CONFIGS, 'b', 'token.txt'), 'utf8').trim();
+
+    testSpaceId = `pubsub-topology-${Date.now()}`;
+    const spA = await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'PubSub Topology Test Space' });
+    assert.equal(spA.status, 201, `Create space on A: ${JSON.stringify(spA.body)}`);
+    const spB = await post(INSTANCES.b, tokenB, '/api/spaces', { id: testSpaceId, label: 'PubSub Topology Test Space' });
+    assert.equal(spB.status, 201, `Create space on B: ${JSON.stringify(spB.body)}`);
 
     // Create pubsub network on A (publisher)
     const r = await post(INSTANCES.a, tokenA, '/api/networks', {
       label: 'Test PubSub',
       type: 'pubsub',
-      spaces: ['general'],
+      spaces: [testSpaceId],
     });
     assert.equal(r.status, 201, `Create pubsub network: ${JSON.stringify(r.body)}`);
     networkId = r.body.id;
@@ -43,7 +49,6 @@ describe('Pub/Sub topology (Publisher A -> Subscriber B)', () => {
     const bPeer = await postRetry429(INSTANCES.b, tokenB, '/api/tokens', { name: 'pubsub-peer-a' });
     assert.equal(bPeer.status, 201, `Create peer token on B: ${JSON.stringify(bPeer.body)}`);
 
-    // Add B as subscriber on A (direction=push: A pushes to B)
     const addB = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/members`, {
       instanceId: 'instance-b',
       label: 'Instance B (Subscriber)',
@@ -58,7 +63,7 @@ describe('Pub/Sub topology (Publisher A -> Subscriber B)', () => {
       id: networkId,
       label: 'Test PubSub',
       type: 'pubsub',
-      spaces: ['general'],
+      spaces: [testSpaceId],
     });
     assert.equal(regB.status, 201, `Register pubsub network on B: ${JSON.stringify(regB.body)}`);
 
@@ -88,25 +93,33 @@ describe('Pub/Sub topology (Publisher A -> Subscriber B)', () => {
     if (networkId) {
       await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
       await del(INSTANCES.b, tokenB, `/api/networks/${networkId}`).catch(() => {});
+      await delWithBody(INSTANCES.a, tokenA, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
+      await delWithBody(INSTANCES.b, tokenB, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
     }
   });
 
   it('Publisher A: write propagates down to Subscriber B', async () => {
-    const write = await createMemory(INSTANCES.a, tokenA, 'Published fact from A', ['pubsub-test']);
+    const write = await post(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories`, {
+      fact: 'Published fact from A',
+      tags: ['pubsub-test'],
+    });
     assert.equal(write.status, 201);
     const memId = write.body._id ?? write.body.id;
 
     // A pushes to B
     await triggerSync(INSTANCES.a, tokenA, networkId);
     await waitFor(async () => {
-      const r = await get(INSTANCES.b, tokenB, `/api/brain/general/memories/${memId}`);
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories/${memId}`);
       return r.status === 200;
-    }, 15_000);
+    });
     console.log(`  Published fact appeared on B ✓`);
   });
 
   it('Subscriber B: write does NOT propagate to Publisher A', async () => {
-    const write = await createMemory(INSTANCES.b, tokenB, 'Subscriber-only fact from B', ['pubsub-sub-local']);
+    const write = await post(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories`, {
+      fact: 'Subscriber-only fact from B',
+      tags: ['pubsub-sub-local'],
+    });
     assert.equal(write.status, 201);
     const subMemId = write.body._id ?? write.body.id;
 
@@ -118,31 +131,37 @@ describe('Pub/Sub topology (Publisher A -> Subscriber B)', () => {
 
     // Wait and verify the subscriber-local fact is NOT on A
     await new Promise(r => setTimeout(r, 3_000));
-    const r = await get(INSTANCES.a, tokenA, `/api/brain/general/memories/${subMemId}`);
+    const r = await get(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories/${subMemId}`);
     assert.equal(r.status, 404, 'Subscriber fact should NOT appear on publisher');
     console.log(`  Subscriber fact correctly absent from A ✓`);
   });
 
   it('Subscriber-local content survives publisher tombstone', async () => {
     // B creates a local memory
-    const subWrite = await createMemory(INSTANCES.b, tokenB, 'Subscriber local fact for tombstone test', ['pubsub-survivor']);
+    const subWrite = await post(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories`, {
+      fact: 'Subscriber local fact for tombstone test',
+      tags: ['pubsub-survivor'],
+    });
     assert.equal(subWrite.status, 201);
     const subMemId = subWrite.body._id ?? subWrite.body.id;
 
     // A creates and then deletes a memory — tombstone should propagate to B
-    const pubWrite = await createMemory(INSTANCES.a, tokenA, 'Publisher fact to be deleted', ['pubsub-delete-test']);
+    const pubWrite = await post(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories`, {
+      fact: 'Publisher fact to be deleted',
+      tags: ['pubsub-delete-test'],
+    });
     assert.equal(pubWrite.status, 201);
     const pubMemId = pubWrite.body._id ?? pubWrite.body.id;
 
     // Push publisher memory to B first
     await triggerSync(INSTANCES.a, tokenA, networkId);
     await waitFor(async () => {
-      const r = await get(INSTANCES.b, tokenB, `/api/brain/general/memories/${pubMemId}`);
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories/${pubMemId}`);
       return r.status === 200;
-    }, 15_000);
+    });
 
     // Now delete on A
-    const delR = await del(INSTANCES.a, tokenA, `/api/brain/general/memories/${pubMemId}`);
+    const delR = await del(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories/${pubMemId}`);
     assert.equal(delR.status, 204, `Delete on A: expected 204, got ${delR.status}`);
 
     // Push tombstone to B
@@ -150,13 +169,13 @@ describe('Pub/Sub topology (Publisher A -> Subscriber B)', () => {
 
     // Wait for tombstone to propagate
     await waitFor(async () => {
-      const r = await get(INSTANCES.b, tokenB, `/api/brain/general/memories/${pubMemId}`);
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories/${pubMemId}`);
       return r.status === 404;
-    }, 15_000);
+    });
     console.log(`  Publisher's deleted fact removed from B ✓`);
 
     // Verify subscriber's own memory still exists
-    const subCheck = await get(INSTANCES.b, tokenB, `/api/brain/general/memories/${subMemId}`);
+    const subCheck = await get(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories/${subMemId}`);
     assert.equal(subCheck.status, 200, 'Subscriber local fact must survive publisher tombstone');
     console.log(`  Subscriber local fact survived publisher tombstone ✓`);
   });

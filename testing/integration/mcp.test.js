@@ -22,7 +22,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, del } from '../sync/helpers.js';
+import { INSTANCES, post, get, del } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -165,8 +165,16 @@ async function openMcpSession(spaceId, timeoutMs = 15_000) {
 // â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 describe('MCP tools', () => {
-  before(() => {
+  before(async () => {
     token = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    // Clean up stale networks left by previous test runs so sync_now doesn't
+    // spend minutes iterating unreachable peers from old test state.
+    const { body } = await get(INSTANCES.a, token, '/api/networks');
+    if (body?.networks) {
+      for (const net of body.networks) {
+        await del(INSTANCES.a, token, `/api/networks/${net.id}`).catch(() => {});
+      }
+    }
   });
 
   describe('tools/list includes sync_now and list_peers', () => {

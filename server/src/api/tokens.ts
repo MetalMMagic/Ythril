@@ -17,6 +17,7 @@ const CreateTokenBody = z.object({
   spaces: z.array(z.string().min(1)).max(1000).optional(),
   admin: z.boolean().optional(),
   readOnly: z.boolean().optional(),
+  peerInstanceId: z.string().uuid().optional(),
 });
 
 // GET /api/tokens — list tokens (hashes excluded) — admin only
@@ -32,12 +33,12 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { name, expiresAt, spaces, admin, readOnly } = parsed.data;
+  const { name, expiresAt, spaces, admin, readOnly, peerInstanceId } = parsed.data;
   if (admin && readOnly) {
     res.status(400).json({ error: 'A token cannot be both admin and readOnly' });
     return;
   }
-  const { record, plaintext } = await createToken({ name, expiresAt: expiresAt ?? null, spaces, admin, readOnly });
+  const { record, plaintext } = await createToken({ name, expiresAt: expiresAt ?? null, spaces, admin, readOnly, peerInstanceId });
   // Return plaintext only on creation — never retrievable again
   const { hash: _h, ...safeRecord } = record;
   res.status(201).json({ token: safeRecord, plaintext });

@@ -1158,15 +1158,18 @@ PATCH /api/brain/spaces/:spaceId/memories/:id
 | `"description"` | Deletes the top-level `description` field |
 | `"properties"` | Deletes the entire `properties` map (only if the space schema allows it) |
 | `"weight"` | Deletes the `weight` field (edges only) |
+| `"properties.items.*.stale"` | Wildcard: deletes `stale` from every object inside the `items` array |
 
 **Rules:**
 
 - `deleteFields` is applied **after** the normal merge — so you can add new properties and delete stale ones in the same request.
 - Paths targeting non-existent keys are silently ignored (no error).
 - System fields (`id`, `_id`, `name`, `type`, `spaceId`, `createdAt`, `updatedAt`) **cannot** be deleted. Attempting to do so returns `400`.
+- Paths with empty segments (e.g. `"properties..key"`) are rejected with `400`.
 - If the result after `deleteFields` + merge violates `requiredProperties` in the space schema (with `validationMode: "strict"`), the request is rejected with `422` listing the missing required keys. No partial mutation occurs.
 - `deleteFields` can be the **only** parameter in the request body (no other updates needed).
 - Omitting `deleteFields` retains the existing merge behaviour — no breaking change for existing clients.
+- **Re-embedding:** deleting any content field (`properties`, `description`, `tags`, `fact`, `entityIds`) triggers re-embedding of the affected document. Bulk `deleteFields` updates may incur embedding service latency.
 
 **Response** — same shape as a normal `PATCH` update (`200` with the updated document).
 

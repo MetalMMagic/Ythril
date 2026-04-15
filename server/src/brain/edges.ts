@@ -144,6 +144,7 @@ export async function listEdges(
   if (filter.label) q['label'] = filter.label;
   return col<EdgeDoc>(`${spaceId}_edges`)
     .find(q as never)
+    .sort({ seq: -1, createdAt: -1, _id: -1 })
     .skip(skip)
     .limit(limit)
     .toArray() as Promise<EdgeDoc[]>;

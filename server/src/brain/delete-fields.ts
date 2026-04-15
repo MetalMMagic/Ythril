@@ -37,6 +37,10 @@ export function validateDeleteFields(
       return { ok: false, error: '`deleteFields` entries must be non-empty strings' };
     }
     const segments = p.split('.');
+    // Reject empty segments from consecutive dots (e.g. "properties..key")
+    if (segments.some(s => s === '')) {
+      return { ok: false, error: `Invalid deleteFields path '${p}': contains empty segments` };
+    }
     // Reject any segment that could cause prototype pollution
     for (const seg of segments) {
       if (PROTO_KEYS.has(seg)) {
@@ -62,6 +66,8 @@ export function validateDeleteFields(
  * Each path is a dot-notation string (e.g. `"properties.oldKey"`).
  * - `"properties.oldKey"` deletes `obj.properties.oldKey`.
  * - `"description"` deletes `obj.description`.
+ * - `"properties.items.*.stale"` deletes `stale` from every object inside
+ *   the `items` array (wildcard `*` iterates over array elements).
  * - Paths targeting non-existent keys are silently ignored (no-op).
  *
  * Returns the set of top-level keys that were affected (useful for
@@ -80,35 +86,52 @@ export function applyDeleteFields(
     const firstSeg = segments[0] ?? '';
     affected.add(firstSeg);
 
-    if (segments.length === 1) {
-      // Top-level deletion — skip dangerous proto keys
-      if (firstSeg !== '__proto__' && firstSeg !== 'constructor' && firstSeg !== 'prototype') {
-        if (Object.prototype.hasOwnProperty.call(obj, firstSeg)) {
-          delete obj[firstSeg];
-        }
-      }
-    } else {
-      // Nested deletion — walk to the parent, then delete the leaf
-      let current: unknown = obj;
-      let safe = true;
-      for (let i = 0; i < segments.length - 1; i++) {
-        const seg = segments[i] ?? '';
-        if (seg === '__proto__' || seg === 'constructor' || seg === 'prototype') { safe = false; break; }
-        if (current == null || typeof current !== 'object' || Array.isArray(current)) {
-          current = undefined;
-          break;
-        }
-        current = (current as Record<string, unknown>)[seg];
-      }
-      const leafSeg = segments[segments.length - 1] ?? '';
-      if (safe && leafSeg !== '__proto__' && leafSeg !== 'constructor' && leafSeg !== 'prototype'
-          && current != null && typeof current === 'object' && !Array.isArray(current)) {
-        if (Object.prototype.hasOwnProperty.call(current, leafSeg)) {
-          delete (current as Record<string, unknown>)[leafSeg];
-        }
-      }
-    }
+    applyDeletePath(obj, segments, 0);
   }
 
   return affected;
+}
+
+/**
+ * Recursively apply a single deleteFields path starting at `depth`.
+ * Handles `*` wildcard segments by iterating over array elements.
+ */
+function applyDeletePath(
+  current: unknown,
+  segments: string[],
+  depth: number,
+): void {
+  if (current == null || typeof current !== 'object') return;
+
+  const seg = segments[depth] ?? '';
+  if (PROTO_KEYS.has(seg)) return;
+
+  const isLeaf = depth === segments.length - 1;
+
+  if (seg === '*') {
+    // Wildcard: current must be an array — apply remaining path to each element
+    if (!Array.isArray(current)) return;
+    if (isLeaf) return; // `*` as the final segment is a no-op (can't delete array elements by wildcard)
+    for (const item of current) {
+      applyDeletePath(item, segments, depth + 1);
+    }
+    return;
+  }
+
+  if (Array.isArray(current)) {
+    // Non-wildcard segment on an array — stop traversal
+    return;
+  }
+
+  const obj = current as Record<string, unknown>;
+
+  if (isLeaf) {
+    if (Object.prototype.hasOwnProperty.call(obj, seg)) {
+      delete obj[seg];
+    }
+    return;
+  }
+
+  // Continue traversal
+  applyDeletePath(obj[seg], segments, depth + 1);
 }

@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  INSTANCES, post, postRetry429, get, del, triggerSync, createMemory, waitFor,
+  INSTANCES, post, postRetry429, get, del, delWithBody, triggerSync, waitFor,
 } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -19,6 +19,7 @@ const CONFIGS = path.join(__dirname, 'configs');
 
 let tokenA, tokenB, tokenC;
 let networkId;
+let testSpaceId;
 
 describe('Braintree topology (A -> B -> C)', () => {
   before(async () => {
@@ -26,11 +27,19 @@ describe('Braintree topology (A -> B -> C)', () => {
     tokenB = fs.readFileSync(path.join(CONFIGS, 'b', 'token.txt'), 'utf8').trim();
     tokenC = fs.readFileSync(path.join(CONFIGS, 'c', 'token.txt'), 'utf8').trim();
 
+    testSpaceId = `bt-topology-${Date.now()}`;
+    const spA = await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'Braintree Topology Test Space' });
+    assert.equal(spA.status, 201, `Create space on A: ${JSON.stringify(spA.body)}`);
+    const spB = await post(INSTANCES.b, tokenB, '/api/spaces', { id: testSpaceId, label: 'Braintree Topology Test Space' });
+    assert.equal(spB.status, 201, `Create space on B: ${JSON.stringify(spB.body)}`);
+    const spC = await post(INSTANCES.c, tokenC, '/api/spaces', { id: testSpaceId, label: 'Braintree Topology Test Space' });
+    assert.equal(spC.status, 201, `Create space on C: ${JSON.stringify(spC.body)}`);
+
     // Create braintree network on A
     const r = await post(INSTANCES.a, tokenA, '/api/networks', {
       label: 'Test Braintree',
       type: 'braintree',
-      spaces: ['general'],
+      spaces: [testSpaceId],
       votingDeadlineHours: 24,
     });
     assert.equal(r.status, 201, `Create network: ${JSON.stringify(r.body)}`);
@@ -58,7 +67,7 @@ describe('Braintree topology (A -> B -> C)', () => {
       id: networkId,
       label: 'Test Braintree',
       type: 'braintree',
-      spaces: ['general'],
+      spaces: [testSpaceId],
       votingDeadlineHours: 24,
     });
     assert.equal(regB.status, 201, `Register network on B: ${JSON.stringify(regB.body)}`);
@@ -82,33 +91,42 @@ describe('Braintree topology (A -> B -> C)', () => {
       await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
       await del(INSTANCES.b, tokenB, `/api/networks/${networkId}`).catch(() => {});
       await del(INSTANCES.c, tokenC, `/api/networks/${networkId}`).catch(() => {});
+      await delWithBody(INSTANCES.a, tokenA, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
+      await delWithBody(INSTANCES.b, tokenB, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
+      await delWithBody(INSTANCES.c, tokenC, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
     }
   });
 
   it('Root A: write propagates down to B and then to C', async () => {
-    const write = await createMemory(INSTANCES.a, tokenA, 'Root fact from A', ['braintree-test']);
+    const write = await post(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories`, {
+      fact: 'Root fact from A',
+      tags: ['braintree-test'],
+    });
     assert.equal(write.status, 201);
     const memId = write.body._id ?? write.body.id;
 
     // A pushes to B
     await triggerSync(INSTANCES.a, tokenA, networkId);
     await waitFor(async () => {
-      const r = await get(INSTANCES.b, tokenB, `/api/brain/general/memories/${memId}`);
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories/${memId}`);
       return r.status === 200;
-    }, 15_000);
+    });
     console.log(`  Root fact appeared on B ✓`);
 
     // B pushes to C
     await triggerSync(INSTANCES.b, tokenB, networkId);
     await waitFor(async () => {
-      const r = await get(INSTANCES.c, tokenC, `/api/brain/general/memories/${memId}`);
+      const r = await get(INSTANCES.c, tokenC, `/api/brain/${testSpaceId}/memories/${memId}`);
       return r.status === 200;
-    }, 15_000);
+    });
     console.log(`  Root fact appeared on C ✓`);
   });
 
   it('Leaf C: write does NOT propagate up to B (push-only)', async () => {
-    const write = await createMemory(INSTANCES.c, tokenC, 'Leaf-only fact from C', ['braintree-leaf']);
+    const write = await post(INSTANCES.c, tokenC, `/api/brain/${testSpaceId}/memories`, {
+      fact: 'Leaf-only fact from C',
+      tags: ['braintree-leaf'],
+    });
     assert.equal(write.status, 201);
     const leafMemId = write.body._id ?? write.body.id;
 
@@ -118,13 +136,16 @@ describe('Braintree topology (A -> B -> C)', () => {
 
     // Wait a short time and verify this specific memory is NOT on B
     await new Promise(r => setTimeout(r, 3000));
-    const r = await get(INSTANCES.b, tokenB, `/api/brain/general/memories/${leafMemId}`);
+    const r = await get(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories/${leafMemId}`);
     assert.equal(r.status, 404, 'Leaf fact should NOT have propagated to B');
     console.log(`  Leaf fact correctly absent from B ✓`);
   });
 
   it('Node B: write does NOT propagate up to A', async () => {
-    const write = await createMemory(INSTANCES.b, tokenB, 'Node-only fact from B', ['braintree-node']);
+    const write = await post(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories`, {
+      fact: 'Node-only fact from B',
+      tags: ['braintree-node'],
+    });
     assert.equal(write.status, 201);
     const nodeMemId = write.body._id ?? write.body.id;
 
@@ -132,7 +153,7 @@ describe('Braintree topology (A -> B -> C)', () => {
     await triggerSync(INSTANCES.a, tokenA, networkId);
 
     await new Promise(r => setTimeout(r, 3000));
-    const r = await get(INSTANCES.a, tokenA, `/api/brain/general/memories/${nodeMemId}`);
+    const r = await get(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories/${nodeMemId}`);
     assert.equal(r.status, 404, 'Node fact should NOT have propagated to A');
     console.log(`  Node fact correctly absent from A ✓`);
   });

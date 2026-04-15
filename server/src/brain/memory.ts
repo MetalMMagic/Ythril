@@ -544,7 +544,12 @@ export async function countMemories(spaceId: string): Promise<number> {
 /** Bulk-delete all memories in a space, writing a tombstone per deleted doc. */
 export async function bulkDeleteMemories(spaceId: string): Promise<number> {
   const coll = col<MemoryDoc>(`${spaceId}_memories`);
-  const ids = await coll.find({}, { projection: { _id: 1 } }).toArray();
+  // Deterministic newest-first ordering keeps recently written docs near the
+  // front of the generated tombstone seq range even under very large datasets.
+  const ids = await coll
+    .find({}, { projection: { _id: 1, createdAt: 1 } })
+    .sort({ createdAt: -1, _id: -1 })
+    .toArray();
   if (ids.length === 0) return 0;
 
   const now = new Date().toISOString();
@@ -627,6 +632,9 @@ export async function queryBrain(
   let cursor = col(collName)
     .find(safeFilter)
     .maxTimeMS(safeMaxTime)
+    // Deterministic newest-first ordering keeps recent writes visible under
+    // the default limit even when historical datasets grow large.
+    .sort({ seq: -1, updatedAt: -1, createdAt: -1, _id: -1 })
     .limit(Math.min(limit, 100));
 
   if (projection) {

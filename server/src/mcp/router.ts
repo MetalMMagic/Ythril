@@ -993,15 +993,20 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             plan.absorbedOnlyProperties,
           );
 
-          const mergedEntity = await executeMerge(wt.target, survivor, absorbed, mergedProperties);
+          const mergeResult = await executeMerge(wt.target, survivor, absorbed, mergedProperties);
+          const mergedEntity = mergeResult.entity;
 
           const lines: string[] = [
             `Entities merged successfully.`,
             `Survivor: ${mergedEntity._id} (${mergedEntity.name})`,
             `Absorbed: ${absorbed._id} (${absorbed.name}) — deleted`,
           ];
-          if (plan.duplicateEdgeWarnings.length > 0) {
-            lines.push(`⚠ ${plan.duplicateEdgeWarnings.length} duplicate edge(s) detected after relinking — resolve via delete_edge.`);
+          if (mergeResult.deletedDuplicateEdgeIds.length > 0) {
+            lines.push(`🗑 ${mergeResult.deletedDuplicateEdgeIds.length} duplicate edge(s) auto-deleted after relinking.`);
+          }
+          if (plan.duplicateEdgeWarnings.length > mergeResult.deletedDuplicateEdgeIds.length) {
+            const remaining = plan.duplicateEdgeWarnings.length - mergeResult.deletedDuplicateEdgeIds.length;
+            lines.push(`⚠ ${remaining} near-duplicate edge(s) remain (differing properties/tags) — resolve via delete_edge.`);
           }
           return {
             content: [{ type: 'text' as const, text: lines.join('\n') }],

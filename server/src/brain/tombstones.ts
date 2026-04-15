@@ -6,9 +6,12 @@ export async function listTombstones(
   spaceId: string,
   sinceSeq: number,
   limit = 200,
+  type?: TombstoneDoc['type'],
 ): Promise<TombstoneDoc[]> {
+  const filter: Record<string, unknown> = { seq: { $gt: sinceSeq } };
+  if (type) filter['type'] = type;
   return col<TombstoneDoc>(`${spaceId}_tombstones`)
-    .find({ seq: { $gt: sinceSeq } } as never)
+    .find(filter as never)
     .sort({ seq: 1 })
     .limit(limit)
     .toArray() as Promise<TombstoneDoc[]>;

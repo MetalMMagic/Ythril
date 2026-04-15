@@ -169,8 +169,40 @@ function _persistFailureCount(networkId: string, instanceId: string, value: numb
   saveConfig(cfg);
 }
 
+// ── Per-network sync dedup lock ─────────────────────────────────────────────
+// Prevents concurrent sync cycles for the same network from competing for
+// bcrypt cache, MongoDB connections, and peer HTTP sockets.  When a trigger
+// arrives while a cycle is in-flight, we set a "rerun requested" flag so the
+// running cycle fires one more round after completion.
+const _syncRunning = new Map<string, Promise<{ synced: number; errors: number }>>();
+const _syncRerunRequested = new Set<string>();
+
 /** Run a full sync cycle for a network: iterate members and sync each space. */
 export async function runSyncForNetwork(networkId: string): Promise<{ synced: number; errors: number }> {
+  const inflight = _syncRunning.get(networkId);
+  if (inflight) {
+    // A cycle is already running — request a rerun instead of piling on.
+    _syncRerunRequested.add(networkId);
+    log.debug(`Sync cycle already running for network ${networkId} — queuing rerun`);
+    return inflight;
+  }
+
+  const run = _runSyncForNetworkImpl(networkId);
+  _syncRunning.set(networkId, run);
+  try {
+    const result = await run;
+    return result;
+  } finally {
+    _syncRunning.delete(networkId);
+    // If a trigger arrived while we were running, fire one more cycle.
+    if (_syncRerunRequested.delete(networkId)) {
+      log.debug(`Rerun requested for network ${networkId} — starting`);
+      void runSyncForNetwork(networkId);
+    }
+  }
+}
+
+async function _runSyncForNetworkImpl(networkId: string): Promise<{ synced: number; errors: number }> {
   const cfg = getConfig();
   const net = cfg.networks.find(n => n.id === networkId);
   if (!net) throw new Error(`Network ${networkId} not found`);
@@ -354,18 +386,51 @@ async function runSyncForMember(
     'Content-Type': 'application/json',
   };
 
-  const fetchOpts: RequestInit = {
+  // Build fresh RequestInit per call so each fetch gets its own AbortSignal.
+  // Sharing one AbortSignal.timeout() across sequential fetches starves later
+  // requests because the timer starts at creation time, not at fetch time.
+  const fetchOpts = (): RequestInit => ({
     headers,
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    // Node 18/22 fetch doesn't support skipTlsVerify natively.
-    // For skipTlsVerify, we use an undici dispatcher via env override only in non-prod.
-    // Production environments use trusted certs — skipTlsVerify is a dev-only escape hatch.
-  };
+  });
 
-  const batchFetchOpts: RequestInit = {
+  const batchFetchOpts = (): RequestInit => ({
     headers,
     signal: AbortSignal.timeout(BATCH_FETCH_TIMEOUT_MS),
-  };
+  });
+
+  // ── Presync warm-up ────────────────────────────────────────────────────
+  // Ask the peer to eagerly warm its embedding model, bcrypt token cache,
+  // and MongoDB collection handles BEFORE we start the real sync cycle.
+  // The peer's POST /api/sync/warm returns only once everything is ready.
+  // In parallel, warm our own local MongoDB collections.
+  {
+    const _tw = Date.now();
+    const peerWarm = fetch(`${member.url}/api/sync/warm`, {
+      ...fetchOpts(),
+      method: 'POST',
+      body: JSON.stringify({ networkId: net.id, spaces: net.spaces }),
+    }).then(r => r.body?.cancel()).catch(() => {});
+
+    const localWarm = Promise.all(
+      net.spaces.flatMap(sid => [
+        col<MemoryDoc>(`${sid}_memories`)
+          .findOne({} as never, { projection: { _id: 1 } })
+          .catch(() => {}),
+        col<EntityDoc>(`${sid}_entities`)
+          .findOne({} as never, { projection: { _id: 1 } })
+          .catch(() => {}),
+        col<EdgeDoc>(`${sid}_edges`)
+          .findOne({} as never, { projection: { _id: 1 } })
+          .catch(() => {}),
+        col<ChronoEntry>(`${sid}_chrono`)
+          .findOne({} as never, { projection: { _id: 1 } })
+          .catch(() => {}),
+      ]),
+    );
+
+    await Promise.all([peerWarm, localWarm]);
+  }
 
   for (const spaceId of net.spaces) {
     // Resolve remote space ID for this local space — peers reference spaces by
@@ -437,7 +502,7 @@ async function gossipWithPeer(
   net: NetworkConfig,
   member: NetworkMember,
   headers: Record<string, string>,
-  opts: RequestInit,
+  opts: () => RequestInit,
 ): Promise<void> {
   const cfg = getConfig();
   const base = `${member.url}/api/sync/networks/${encodeURIComponent(net.id)}`;
@@ -456,7 +521,7 @@ async function gossipWithPeer(
     };
     if (selfUrl) selfRecord['url'] = selfUrl;
     const resp = await fetch(`${base}/members`, {
-      ...opts,
+      ...opts(),
       method: 'POST',
       body: JSON.stringify(selfRecord),
     });
@@ -491,7 +556,7 @@ async function gossipWithPeer(
 
   // 2. Pull peer's member view and merge into our config
   try {
-    const resp = await fetch(`${base}/members`, opts);
+    const resp = await fetch(`${base}/members`, opts());
     if (!resp.ok) {
       log.warn(`Gossip pull from ${member.label}: HTTP ${resp.status}`);
       return;
@@ -549,7 +614,7 @@ async function propagateVotesWithPeer(
   net: NetworkConfig,
   member: NetworkMember,
   headers: Record<string, string>,
-  opts: RequestInit,
+  opts: () => RequestInit,
 ): Promise<void> {
   const base = `${member.url}/api/sync/networks/${encodeURIComponent(net.id)}`;
 
@@ -564,7 +629,7 @@ async function propagateVotesWithPeer(
     for (const round of roundsToPush) {
       for (const cast of round.votes) {
         await fetch(`${base}/votes/${encodeURIComponent(round.roundId)}`, {
-          ...opts,
+          ...opts(),
           method: 'POST',
           body: JSON.stringify({ vote: cast.vote, instanceId: cast.instanceId }),
         }).catch(err => log.warn(`Vote push (${round.roundId}) to ${member.label}: ${err}`));
@@ -576,7 +641,7 @@ async function propagateVotesWithPeer(
 
   // 2. Pull peer's open rounds; create new ones locally and merge vote casts
   try {
-    const resp = await fetch(`${base}/votes`, opts);
+    const resp = await fetch(`${base}/votes`, opts());
     if (!resp.ok) {
       log.warn(`Vote pull from ${member.label}: HTTP ${resp.status}`);
       return;
@@ -673,8 +738,8 @@ async function pullFromPeer(
   remoteSpaceId: string,
   networkId: string,
   headers: Record<string, string>,
-  opts: RequestInit,
-  batchOpts: RequestInit,
+  opts: () => RequestInit,
+  batchOpts: () => RequestInit,
 ): Promise<{ memories: number; entities: number; edges: number; chrono: number }> {
   let pulledMemories = 0, pulledEntities = 0, pulledEdges = 0, pulledChrono = 0;
   const cfg = getConfig();
@@ -685,7 +750,7 @@ async function pullFromPeer(
   // Pull tombstones first — so deletions apply before we potentially upsert deleted docs
   try {
     const tombsUrl = `${member.url}/api/sync/tombstones?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}&sinceSeq=${sinceSeq}`;
-    const resp = await fetch(tombsUrl, opts);
+    const resp = await fetch(tombsUrl, opts());
     if (resp.ok) {
       const data = await resp.json() as { memories?: TombstoneDoc[]; entities?: TombstoneDoc[]; edges?: TombstoneDoc[]; chrono?: TombstoneDoc[] };
       const all = [...(data.memories ?? []), ...(data.entities ?? []), ...(data.edges ?? []), ...(data.chrono ?? [])];
@@ -699,87 +764,52 @@ async function pullFromPeer(
   // eliminating the N per-document secondary fetches that would be brutal over WAN.
   let highestSeq = sinceSeq;
   let overallMaxSeq = 0; // Track the highest seq seen across ALL items (used to bump local counter)
-  let cursor: string | null = null;
-  let page = 0;
-  do {
-    const params = new URLSearchParams({
-      spaceId: remoteSpaceId, networkId, sinceSeq: String(sinceSeq), limit: '200', full: 'true',
-      ...(cursor ? { cursor } : {}),
-    });
-    const resp = await fetch(`${member.url}/api/sync/memories?${params}`, batchOpts);
-    if (!resp.ok) { log.warn(`Pull memories from ${member.label} returned ${resp.status}`); break; }
-    const { items, nextCursor } = await resp.json() as {
-      items: (MemoryDoc | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null;
-    };
 
-    for (const item of items) {
-      if ('deletedAt' in item && item.deletedAt) continue; // already handled via tombstones above
-      const doc = item as MemoryDoc;
-      await upsertMemory(spaceId, doc);
-      pulledMemories++;
-      if (doc.seq > overallMaxSeq) overallMaxSeq = doc.seq;
-      // Only advance the pull watermark for docs authored by the peer.
-      // Docs we pushed to the peer and are echoing back must not inflate our
-      // received-from-peer watermark — doing so would cause us to miss their
-      // lower-seq locally-written docs on subsequent pulls.
-      if (doc.seq > highestSeq && doc.author?.instanceId === member.instanceId) {
-        highestSeq = doc.seq;
+  type PullResult = { count: number; highSeq: number; maxSeq: number };
+  async function pullType<T extends MemoryDoc | EntityDoc | EdgeDoc | ChronoEntry>(
+    urlSuffix: string,
+    upsertFn: (sid: string, doc: T) => Promise<void>,
+  ): Promise<PullResult> {
+    let count = 0, highSeq = sinceSeq, maxSeq = 0;
+    let cur: string | null = null;
+    let pg = 0;
+    do {
+      const params = new URLSearchParams({
+        spaceId: remoteSpaceId, networkId, sinceSeq: String(sinceSeq), limit: '200', full: 'true',
+        ...(cur ? { cursor: cur } : {}),
+      });
+      const resp = await fetch(`${member.url}/api/sync/${urlSuffix}?${params}`, batchOpts());
+      if (!resp.ok) { log.warn(`Pull ${urlSuffix} from ${member.label} returned ${resp.status}`); break; }
+      const { items, nextCursor } = await resp.json() as {
+        items: (T | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null;
+      };
+      for (const item of items) {
+        if ('deletedAt' in item && (item as { deletedAt?: string }).deletedAt) continue;
+        const doc = item as T;
+        await upsertFn(spaceId, doc);
+        count++;
+        if ((doc as MemoryDoc).seq > maxSeq) maxSeq = (doc as MemoryDoc).seq;
+        if ((doc as MemoryDoc).seq > highSeq && (doc as MemoryDoc).author?.instanceId === member.instanceId) {
+          highSeq = (doc as MemoryDoc).seq;
+        }
       }
-    }
-    cursor = nextCursor;
-    page++;
-  } while (cursor && page < 50);
+      cur = nextCursor; pg++;
+    } while (cur && pg < 50);
+    return { count, highSeq, maxSeq };
+  }
 
-  // Pull entities
-  cursor = null; page = 0;
-  do {
-    const params = new URLSearchParams({ spaceId: remoteSpaceId, networkId, sinceSeq: String(sinceSeq), limit: '200', full: 'true', ...(cursor ? { cursor } : {}) });
-    const resp = await fetch(`${member.url}/api/sync/entities?${params}`, batchOpts);
-    if (!resp.ok) break;
-    const { items, nextCursor } = await resp.json() as { items: (EntityDoc | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null };
-    for (const item of items) {
-      if ('deletedAt' in item && item.deletedAt) continue;
-      const ent = item as EntityDoc;
-      await upsertEntity(spaceId, ent);
-      pulledEntities++;
-      if (ent.seq > overallMaxSeq) overallMaxSeq = ent.seq;
-    }
-    cursor = nextCursor; page++;
-  } while (cursor && page < 50);
+  const memR = await pullType<MemoryDoc>('memories', upsertMemory);
+  const entR = await pullType<EntityDoc>('entities', upsertEntity);
+  const edgeR = await pullType<EdgeDoc>('edges', upsertEdge);
+  const chronoR = await pullType<ChronoEntry>('chrono', upsertChrono);
 
-  // Pull edges
-  cursor = null; page = 0;
-  do {
-    const params = new URLSearchParams({ spaceId: remoteSpaceId, networkId, sinceSeq: String(sinceSeq), limit: '200', full: 'true', ...(cursor ? { cursor } : {}) });
-    const resp = await fetch(`${member.url}/api/sync/edges?${params}`, batchOpts);
-    if (!resp.ok) break;
-    const { items, nextCursor } = await resp.json() as { items: (EdgeDoc | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null };
-    for (const item of items) {
-      if ('deletedAt' in item && item.deletedAt) continue;
-      const edge = item as EdgeDoc;
-      await upsertEdge(spaceId, edge);
-      pulledEdges++;
-      if (edge.seq > overallMaxSeq) overallMaxSeq = edge.seq;
-    }
-    cursor = nextCursor; page++;
-  } while (cursor && page < 50);
+  pulledMemories = memR.count;
+  pulledEntities = entR.count;
+  pulledEdges = edgeR.count;
+  pulledChrono = chronoR.count;
 
-  // Pull chrono
-  cursor = null; page = 0;
-  do {
-    const params = new URLSearchParams({ spaceId: remoteSpaceId, networkId, sinceSeq: String(sinceSeq), limit: '200', full: 'true', ...(cursor ? { cursor } : {}) });
-    const resp = await fetch(`${member.url}/api/sync/chrono?${params}`, batchOpts);
-    if (!resp.ok) break;
-    const { items, nextCursor } = await resp.json() as { items: (ChronoEntry | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null };
-    for (const item of items) {
-      if ('deletedAt' in item && item.deletedAt) continue;
-      const chrono = item as ChronoEntry;
-      await upsertChrono(spaceId, chrono);
-      pulledChrono++;
-      if (chrono.seq > overallMaxSeq) overallMaxSeq = chrono.seq;
-    }
-    cursor = nextCursor; page++;
-  } while (cursor && page < 50);
+  highestSeq = Math.max(memR.highSeq, entR.highSeq, edgeR.highSeq, chronoR.highSeq);
+  overallMaxSeq = Math.max(memR.maxSeq, entR.maxSeq, edgeR.maxSeq, chronoR.maxSeq);
 
   // Bump the local seq counter so future local writes always get a seq higher
   // than any document received from this peer.  Without this, sync-upserted docs
@@ -813,8 +843,8 @@ async function pushToPeer(
   remoteSpaceId: string,
   networkId: string,
   headers: Record<string, string>,
-  opts: RequestInit,
-  batchOpts: RequestInit,
+  opts: () => RequestInit,
+  batchOpts: () => RequestInit,
 ): Promise<{ memories: number; entities: number; edges: number; chrono: number }> {
   let pushedMemories = 0, pushedEntities = 0, pushedEdges = 0, pushedChrono = 0;
   const cfg = getConfig();
@@ -832,7 +862,7 @@ async function pushToPeer(
       const page = await listTombstones(spaceId, tsCursor, 500);
       if (page.length === 0) break;
       const resp = await fetch(tsEndpoint, {
-        ...opts,
+        ...opts(),
         method: 'POST',
         body: JSON.stringify({ tombstones: page }),
       });
@@ -852,7 +882,6 @@ async function pushToPeer(
   const ownedFilter = isDirectionalType ? {} : { 'author.instanceId': cfg.instanceId };
 
   let maxSeqPushed = lastSeqPushed;
-  let pushFailed = false;
 
   // Send in PUSH_BATCH_SIZE slices; stop early on persistent failure
   const batchEndpoint = `${member.url}/api/sync/batch-upsert?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}`;
@@ -861,10 +890,11 @@ async function pushToPeer(
   async function pushCollection<T extends MemoryDoc | EntityDoc | EdgeDoc | ChronoEntry>(
     collName: string,
     payloadKey: 'memories' | 'entities' | 'edges' | 'chrono',
-  ): Promise<number> {
+  ): Promise<{ pushed: number; maxSeq: number }> {
     let pushed = 0;
+    let localMaxSeq = lastSeqPushed;
     let seqCursor = lastSeqPushed;
-    while (!pushFailed) {
+    while (true) {
       const batch = await col<T>(collName)
         .find({ seq: { $gt: seqCursor }, ...ownedFilter } as never)
         .sort({ seq: 1 })
@@ -872,32 +902,34 @@ async function pushToPeer(
         .toArray() as T[];
       if (batch.length === 0) break;
       const resp = await fetch(batchEndpoint, {
-        ...batchOpts, method: 'POST',
+        ...batchOpts(), method: 'POST',
         body: JSON.stringify({ [payloadKey]: batch }),
       });
       if (!resp.ok) {
         log.warn(`Batch push ${payloadKey} to ${member.label}: ${resp.status}`);
-        pushFailed = true;
         break;
       }
       pushed += batch.length;
-      // Only advance the push watermark for docs authored by this instance.
-      // Relayed docs (received from peers) must not inflate the watermark —
-      // doing so would prevent future pushes of this instance's own content.
       for (const doc of batch) {
         const d = doc as MemoryDoc;
-        if (d.author?.instanceId === cfg.instanceId && d.seq > maxSeqPushed) maxSeqPushed = d.seq;
+        if (d.author?.instanceId === cfg.instanceId && d.seq > localMaxSeq) localMaxSeq = d.seq;
       }
       seqCursor = (batch[batch.length - 1] as MemoryDoc).seq;
       if (batch.length < PUSH_BATCH_SIZE) break;
     }
-    return pushed;
+    return { pushed, maxSeq: localMaxSeq };
   }
 
-  pushedMemories = await pushCollection<MemoryDoc>(`${spaceId}_memories`, 'memories');
-  pushedEntities = await pushCollection<EntityDoc>(`${spaceId}_entities`, 'entities');
-  pushedEdges = await pushCollection<EdgeDoc>(`${spaceId}_edges`, 'edges');
-  pushedChrono = await pushCollection<ChronoEntry>(`${spaceId}_chrono`, 'chrono');
+  const memP = await pushCollection<MemoryDoc>(`${spaceId}_memories`, 'memories');
+  const entP = await pushCollection<EntityDoc>(`${spaceId}_entities`, 'entities');
+  const edgeP = await pushCollection<EdgeDoc>(`${spaceId}_edges`, 'edges');
+  const chronoP = await pushCollection<ChronoEntry>(`${spaceId}_chrono`, 'chrono');
+
+  pushedMemories = memP.pushed;
+  pushedEntities = entP.pushed;
+  pushedEdges = edgeP.pushed;
+  pushedChrono = chronoP.pushed;
+  maxSeqPushed = Math.max(memP.maxSeq, entP.maxSeq, edgeP.maxSeq, chronoP.maxSeq);
 
   // Persist the push high-water mark so next sync only sends new/changed docs
   if (maxSeqPushed > lastSeqPushed) {
@@ -922,7 +954,7 @@ async function syncFiles(
   remoteSpaceId: string,
   networkId: string,
   headers: Record<string, string>,
-  opts: RequestInit,
+  opts: () => RequestInit,
   doPull = true,
   doPush = true,
 ): Promise<{ pulledFiles: number; pushedFiles: number }> {
@@ -934,7 +966,7 @@ async function syncFiles(
     if (doPull) try {
       const tsResp = await fetch(
         `${member.url}/api/sync/file-tombstones?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}`,
-        opts,
+        opts(),
       );
       if (tsResp.ok) {
         const { tombstones } = await tsResp.json() as { tombstones: { path: string }[] };
@@ -967,7 +999,7 @@ async function syncFiles(
         await fetch(
           `${member.url}/api/sync/file-tombstones?networkId=${encodeURIComponent(networkId)}`,
           {
-            ...opts,
+            ...opts(),
             method: 'POST',
             body: JSON.stringify({ spaceId: remoteSpaceId, tombstones: ourTombstones }),
           },
@@ -982,7 +1014,7 @@ async function syncFiles(
     // Only fetch the peer manifest if we need to pull or push (manifest comparison
     // drives both directions). When neither direction needs manifest, skip entirely.
     if (!doPull && !doPush) return { pulledFiles, pushedFiles };
-    const resp = await fetch(`${member.url}/api/sync/manifest?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}`, opts);
+    const resp = await fetch(`${member.url}/api/sync/manifest?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}`, opts());
     if (!resp.ok) { log.warn(`File manifest from ${member.label}: ${resp.status}`); return { pulledFiles, pushedFiles }; }
     const { manifest } = await resp.json() as { manifest: { path: string; sha256: string; size: number; modifiedAt: string }[] };
 
@@ -1000,7 +1032,7 @@ async function syncFiles(
       try {
         const dl = await fetch(
           `${member.url}/api/files/${encodeURIComponent(remoteSpaceId)}?path=${encodeURIComponent(remote.path)}`,
-          opts,
+          opts(),
         );
         if (!dl.ok) { log.warn(`DL file ${remote.path} from ${member.label}: ${dl.status}`); continue; }
         const buf = Buffer.from(await dl.arrayBuffer());
@@ -1144,7 +1176,7 @@ async function checkMerkleWithPeer(
   member: NetworkMember,
   spaceId: string,
   remoteSpaceId: string,
-  opts: RequestInit,
+  opts: () => RequestInit,
 ): Promise<void> {
   try {
     const { computeMerkleRoot } = await import('../brain/merkle.js');
@@ -1152,7 +1184,7 @@ async function checkMerkleWithPeer(
       computeMerkleRoot(spaceId),
       fetch(
         `${member.url}/api/sync/merkle?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(net.id)}`,
-        opts,
+        opts(),
       ),
     ]);
 

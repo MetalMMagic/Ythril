@@ -407,6 +407,23 @@ export interface ConflictDoc {
   detectedAt: string;     // ISO8601
 }
 
+/**
+ * Recorded when a sync-ingested document violates strict linkage rules.
+ * The document is still accepted (sync must not be blocked), but the
+ * violation surfaces in the conflicts/warnings API so the user can
+ * remediate (fix the document, disable strictLinkage, or leave network).
+ */
+export interface LinkViolationDoc {
+  _id: string;            // UUID v4
+  spaceId: string;
+  docId: string;          // ID of the violating document (entity/edge/memory/chrono)
+  docType: 'entity' | 'edge' | 'memory' | 'chrono';
+  field: string;          // field name that violated (e.g. "from", "to", "entityIds")
+  reason: string;         // human-readable explanation
+  peerInstanceId: string; // which peer sent the document
+  detectedAt: string;     // ISO8601
+}
+
 export interface SpaceCounterDoc {
   _id: string;  // spaceId
   seq: number;

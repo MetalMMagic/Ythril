@@ -38,7 +38,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del } from '../sync/helpers.js';
+import { INSTANCES, post, get, del, delWithBody } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -400,12 +400,18 @@ describe('MCP brain tools — traverse', () => {
 describe('MCP file tools â€” write_file / read_file / list_dir / create_dir / move_file / delete_file', () => {
   let session;
   const dir = `mcp-test-${Date.now()}`;
+  const testSpaceId = `mcp-files-${Date.now()}`;
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    session = await openMcpSession('general', tokenA);
+    const createSpace = await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'MCP File Tools Test Space' });
+    assert.equal(createSpace.status, 201, `Create space: ${JSON.stringify(createSpace.body)}`);
+    session = await openMcpSession(testSpaceId, tokenA);
   });
-  after(() => session?.close());
+  after(async () => {
+    session?.close();
+    await delWithBody(INSTANCES.a, tokenA, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
+  });
 
   it('write_file creates a file and returns sha256', async () => {
     const result = await session.callTool('write_file', {
@@ -495,12 +501,18 @@ describe('MCP file tools â€” write_file / read_file / list_dir / create_dir
 describe('MCP file metadata — write_file persists metadata, query supports files collection', () => {
   let session;
   const dir = `mcp-meta-test-${Date.now()}`;
+  const testSpaceId = `mcp-meta-${Date.now()}`;
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    session = await openMcpSession('general', tokenA);
+    const createSpace = await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'MCP File Metadata Test Space' });
+    assert.equal(createSpace.status, 201, `Create space: ${JSON.stringify(createSpace.body)}`);
+    session = await openMcpSession(testSpaceId, tokenA);
   });
-  after(() => session?.close());
+  after(async () => {
+    session?.close();
+    await delWithBody(INSTANCES.a, tokenA, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
+  });
 
   it('write_file with description and tags stores metadata queryable via query tool', async () => {
     const filePath = `${dir}/documented.txt`;

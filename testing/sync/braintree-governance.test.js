@@ -21,7 +21,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, waitFor, triggerSync } from './helpers.js';
+import { INSTANCES, post, get, del, delWithBody, waitFor, triggerSync } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
@@ -32,6 +32,7 @@ let tokenA, tokenB;
 let instanceIdA, instanceIdB;
 let peerTokenForA; // token B issued → A uses to authenticate inbound calls TO B
 let peerTokenForB; // token A issued → B uses to authenticate inbound calls TO A
+let testSpaceId;
 
 // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,13 @@ describe('Braintree governance — ancestor-path voting', () => {
     instanceIdA = getInstanceId('ythril-a');
     instanceIdB = getInstanceId('ythril-b');
 
+    // Create dedicated space so we don't sync 9k+ stale docs from 'general'
+    testSpaceId = `bt-gov-${Date.now()}`;
+    const spA = await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'BT-Gov Test Space' });
+    assert.equal(spA.status, 201, `Create space on A: ${JSON.stringify(spA.body)}`);
+    const spB = await post(INSTANCES.b, tokenB, '/api/spaces', { id: testSpaceId, label: 'BT-Gov Test Space' });
+    assert.equal(spB.status, 201, `Create space on B: ${JSON.stringify(spB.body)}`);
+
     // Create peer PATs for cross-instance calls
     const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `bt-gov-peer-a-${Date.now()}` });
     assert.equal(ptForA.status, 201);
@@ -82,6 +90,11 @@ describe('Braintree governance — ancestor-path voting', () => {
     const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `bt-gov-peer-b-${Date.now()}` });
     assert.equal(ptForB.status, 201);
     peerTokenForB = ptForB.body.plaintext;
+  });
+
+  after(async () => {
+    await delWithBody(INSTANCES.a, tokenA, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
+    await delWithBody(INSTANCES.b, tokenB, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
   });
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -96,12 +109,13 @@ describe('Braintree governance — ancestor-path voting', () => {
       const r = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `BT-Gov Root ${Date.now()}`,
         type: 'braintree',
-        spaces: ['general'],
+        spaces: [testSpaceId],
         votingDeadlineHours: 1,
       });
       assert.equal(r.status, 201);
       networkId = r.body.id;
       injectPeerToken('ythril-a', instanceIdB, peerTokenForA);
+      await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
     });
 
     after(async () => {
@@ -168,7 +182,7 @@ describe('Braintree governance — ancestor-path voting', () => {
       const netR = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `BT-Gov Grandchild ${Date.now()}`,
         type: 'braintree',
-        spaces: ['general'],
+        spaces: [testSpaceId],
         votingDeadlineHours: 1,
       });
       assert.equal(netR.status, 201);
@@ -176,6 +190,7 @@ describe('Braintree governance — ancestor-path voting', () => {
 
       // A: add B as direct child → should be 201 (root, single voter, auto-pass)
       injectPeerToken('ythril-a', instanceIdB, peerTokenForA);
+      await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
       const addBR = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/members`, {
         instanceId: instanceIdB,
         label: 'Instance B',
@@ -188,11 +203,12 @@ describe('Braintree governance — ancestor-path voting', () => {
 
       // B: register the same network, declaring A as its parent in the tree
       injectPeerToken('ythril-b', instanceIdA, peerTokenForB);
+      await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
       const regBR = await post(INSTANCES.b, tokenB, '/api/networks', {
         id: networkId,
         label: 'BT-Gov Grandchild',
         type: 'braintree',
-        spaces: ['general'],
+        spaces: [testSpaceId],
         votingDeadlineHours: 1,
         myParentInstanceId: instanceIdA,  // B tells its own server: "my parent in this tree is A"
       });
@@ -261,7 +277,7 @@ describe('Braintree governance — ancestor-path voting', () => {
         const cfgA = readContainerConfig('ythril-a');
         const netA = cfgA.networks?.find(n => n.id === networkId);
         return netA?.pendingRounds?.some(r => r.roundId === roundId);
-      }, 15_000);
+      });
 
       // Step 3: A casts yes vote on their local copy of the round
       const voteR = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/votes/${roundId}`, {
@@ -295,13 +311,14 @@ describe('Braintree governance — ancestor-path voting', () => {
       const netR = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `BT-Gov Veto ${Date.now()}`,
         type: 'braintree',
-        spaces: ['general'],
+        spaces: [testSpaceId],
         votingDeadlineHours: 1,
       });
       assert.equal(netR.status, 201);
       networkId = netR.body.id;
 
       injectPeerToken('ythril-a', instanceIdB, peerTokenForA);
+      await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
       const addBR = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/members`, {
         instanceId: instanceIdB,
         label: 'Instance B',
@@ -313,11 +330,12 @@ describe('Braintree governance — ancestor-path voting', () => {
       assert.equal(addBR.status, 201);
 
       injectPeerToken('ythril-b', instanceIdA, peerTokenForB);
+      await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
       const regBR = await post(INSTANCES.b, tokenB, '/api/networks', {
         id: networkId,
         label: 'BT-Gov Veto',
         type: 'braintree',
-        spaces: ['general'],
+        spaces: [testSpaceId],
         votingDeadlineHours: 1,
         myParentInstanceId: instanceIdA,
       });
@@ -351,7 +369,7 @@ describe('Braintree governance — ancestor-path voting', () => {
         const cfgA = readContainerConfig('ythril-a');
         const netA = cfgA.networks?.find(n => n.id === networkId);
         return netA?.pendingRounds?.some(r => r.roundId === vetoRoundId);
-      }, 15_000);
+      });
 
       // A casts a veto
       const vetoR = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/votes/${vetoRoundId}`, {
@@ -370,7 +388,7 @@ describe('Braintree governance — ancestor-path voting', () => {
         const netB = cfgB.networks?.find(n => n.id === networkId);
         const r = netB?.pendingRounds?.find(r => r.roundId === vetoRoundId);
         return r?.concluded === true && r?.passed === false;
-      }, 15_000);
+      });
 
       // Grandchild must NOT be in B's member list
       const cfgB = readContainerConfig('ythril-b');
@@ -395,13 +413,14 @@ describe('Braintree governance — ancestor-path voting', () => {
       const netR = await post(INSTANCES.a, tokenA, '/api/networks', {
         label: `BT-Gov Removal ${Date.now()}`,
         type: 'braintree',
-        spaces: ['general'],
+        spaces: [testSpaceId],
         votingDeadlineHours: 1,
       });
       assert.equal(netR.status, 201);
       networkId = netR.body.id;
 
       injectPeerToken('ythril-a', instanceIdB, peerTokenForA);
+      await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
       const addBR = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/members`, {
         instanceId: instanceIdB,
         label: 'Instance B',

@@ -95,7 +95,7 @@ describe('Governed space deletion', () => {
     await waitFor(async () => {
       const r = await get(INSTANCES.a, tokenA, '/api/spaces');
       return !r.body?.spaces?.some(s => s.id === spaceId);
-    }, 5_000);
+    });
     console.log(`  Gov-VotePending space deleted after yes vote ✓`);
   });
 
@@ -130,7 +130,7 @@ describe('Governed space deletion', () => {
     await waitFor(async () => {
       const r = await get(INSTANCES.a, tokenA, '/api/spaces');
       return !r.body?.spaces?.some(s => s.id === spaceId);
-    }, 5_000);
+    });
     console.log(`  Gov-VoteYes space deleted after yes vote ✓`);
   });
 
@@ -166,7 +166,7 @@ describe('Governed space deletion', () => {
     await waitFor(async () => {
       const r = await get(INSTANCES.a, tokenA, '/api/spaces');
       return !r.body?.spaces?.some(s => s.id === spaceId);
-    }, 5_000);
+    });
   });
 
   it('Veto on space_deletion round dismisses deletion — space is kept', async () => {

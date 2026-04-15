@@ -4,11 +4,16 @@
 
 1. Build and start the test stack:
    ```
-   docker compose -f docker-compose.test.yml up --build -d
+   docker compose -p ythril-test -f docker-compose.test.yml up --build -d
    ```
    Wait until all 6 containers are healthy (~30-45 seconds first run).
 
-2. Run setup on each instance (one-time, creates configs in `tests/sync/configs/`):
+2. For repeated local runs, start without rebuild to avoid unnecessary disk growth:
+   ```
+   docker compose -p ythril-test -f docker-compose.test.yml up -d
+   ```
+
+3. Run setup on each instance (one-time, creates configs in `tests/sync/configs/`):
    ```
    node tests/sync/setup.js
    ```
@@ -18,7 +23,7 @@
    - Create a `general` space on each
    - Write the peerTokens into each instance's secrets.json
 
-3. Run the integration tests:
+4. Run the integration tests:
    ```
    node --test tests/sync/closed-network.test.js
    node --test tests/sync/braintree.test.js
@@ -36,6 +41,22 @@
    ```
    node --test tests/sync/*.test.js
    ```
+
+5. Mandatory cleanup after heavy or repeated runs:
+   ```
+   docker compose -p ythril-test -f docker-compose.test.yml down -v --rmi local --remove-orphans
+   docker builder prune --keep-storage 3g --force
+   docker image prune -f
+   docker volume prune -f
+   ```
+
+## QA policy for high-volume tests
+
+- High-volume tests are intentionally retained for regression and scalability coverage.
+- Every high-volume test must either:
+  - run in a disposable test space that is deleted in `after()`; or
+  - wipe created data in teardown with explicit API cleanup.
+- Shared long-lived spaces (such as `general`) should not be used for bulk seeding tests unless teardown is guaranteed in the same file.
 
 ## Instance URLs
 

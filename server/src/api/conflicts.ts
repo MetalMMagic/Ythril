@@ -7,7 +7,7 @@ import { col } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { resolveSafePath, spaceRoot } from '../files/sandbox.js';
-import type { ConflictDoc } from '../config/types.js';
+import type { ConflictDoc, LinkViolationDoc } from '../config/types.js';
 
 export const conflictsRouter = Router();
 
@@ -120,6 +120,66 @@ conflictsRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     });
   } catch (err) {
     log.error(`GET /api/conflicts: ${err}`);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LINK VIOLATIONS — sync-ingested documents that violate strict linkage
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET /api/conflicts/link-violations — list all link violations
+conflictsRouter.get('/link-violations', globalRateLimit, requireAuth, async (_req, res) => {
+  try {
+    const spaces = accessibleSpaces(_req.authToken?.spaces);
+    const results: LinkViolationDoc[] = [];
+    for (const spaceId of spaces) {
+      const docs = await col<LinkViolationDoc>(`${spaceId}_link_violations`)
+        .find({})
+        .sort({ detectedAt: -1 })
+        .limit(500)
+        .toArray() as LinkViolationDoc[];
+      results.push(...docs);
+    }
+    results.sort((a, b) => b.detectedAt.localeCompare(a.detectedAt));
+    res.json({ violations: results });
+  } catch (err) {
+    log.error(`GET /api/conflicts/link-violations: ${err}`);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// DELETE /api/conflicts/link-violations/:id — dismiss a single link violation
+conflictsRouter.delete('/link-violations/:id', globalRateLimit, requireAuth, async (req, res) => {
+  try {
+    const spaces = accessibleSpaces(req.authToken?.spaces);
+    for (const spaceId of spaces) {
+      const result = await col<LinkViolationDoc>(`${spaceId}_link_violations`)
+        .deleteOne({ _id: req.params['id'] } as never);
+      if (result.deletedCount > 0) {
+        res.status(204).end();
+        return;
+      }
+    }
+    res.status(404).json({ error: 'Link violation not found' });
+  } catch (err) {
+    log.error(`DELETE /api/conflicts/link-violations/:id: ${err}`);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// DELETE /api/conflicts/link-violations — dismiss all link violations for accessible spaces
+conflictsRouter.delete('/link-violations', globalRateLimit, requireAuth, async (_req, res) => {
+  try {
+    const spaces = accessibleSpaces(_req.authToken?.spaces);
+    let total = 0;
+    for (const spaceId of spaces) {
+      const result = await col<LinkViolationDoc>(`${spaceId}_link_violations`).deleteMany({});
+      total += result.deletedCount;
+    }
+    res.json({ dismissed: total });
+  } catch (err) {
+    log.error(`DELETE /api/conflicts/link-violations: ${err}`);
     res.status(500).json({ error: 'Internal error' });
   }
 });

@@ -209,6 +209,9 @@ describe('Merkle root', () => {
       injectPeerToken('ythril-a', instanceIdB, peerTokenForA);  // A uses peerTokenForA to call B
       injectPeerToken('ythril-b', instanceIdA, peerTokenForB);  // B uses peerTokenForB to call A
 
+      await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
+      await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
+
       const addBOnA = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/members`, {
         instanceId: instanceIdB,
         label: 'Instance B',

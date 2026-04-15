@@ -13,6 +13,7 @@ export type WebhookEventType =
   | 'edge.created'   | 'edge.updated'   | 'edge.deleted'
   | 'chrono.created'  | 'chrono.updated'  | 'chrono.deleted'
   | 'file.created'    | 'file.updated'    | 'file.deleted'
+  | 'link_violation.created'
   | 'test.ping';
 
 export const ALL_WEBHOOK_EVENTS: ReadonlySet<string> = new Set<WebhookEventType>([
@@ -21,6 +22,7 @@ export const ALL_WEBHOOK_EVENTS: ReadonlySet<string> = new Set<WebhookEventType>
   'edge.created',   'edge.updated',   'edge.deleted',
   'chrono.created',  'chrono.updated',  'chrono.deleted',
   'file.created',    'file.updated',    'file.deleted',
+  'link_violation.created',
   'test.ping',
 ]);
 

@@ -24,7 +24,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, reqJson, triggerSync, waitFor } from './helpers.js';
+import { INSTANCES, post, get, del, delWithBody, reqJson, triggerSync, waitFor } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
@@ -34,6 +34,7 @@ let tokenA, tokenB;
 let peerTokenForA;  // plaintext token B issues so A can call B
 let peerTokenForB;  // plaintext token A issues so B can call A
 let networkId;
+let testSpaceId;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -71,11 +72,18 @@ describe('Gossip: member list exchange', () => {
     instanceIdA = getInstanceId('ythril-a');
     instanceIdB = getInstanceId('ythril-b');
 
+    // Create dedicated space so we don't sync 9k+ stale docs from 'general'
+    testSpaceId = `gossip-test-${Date.now()}`;
+    const spA = await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'Gossip Test Space' });
+    assert.equal(spA.status, 201, `Create space on A: ${JSON.stringify(spA.body)}`);
+    const spB = await post(INSTANCES.b, tokenB, '/api/spaces', { id: testSpaceId, label: 'Gossip Test Space' });
+    assert.equal(spB.status, 201, `Create space on B: ${JSON.stringify(spB.body)}`);
+
     // Create a closed network on A
     const netR = await post(INSTANCES.a, tokenA, '/api/networks', {
       label: 'Gossip Test Network',
       type: 'closed',
-      spaces: ['general'],
+      spaces: [testSpaceId],
       votingDeadlineHours: 1,
     });
     assert.equal(netR.status, 201, `Create network: ${JSON.stringify(netR.body)}`);
@@ -110,12 +118,16 @@ describe('Gossip: member list exchange', () => {
     injectPeerToken('ythril-a', instanceIdB, peerTokenForA);
     injectPeerToken('ythril-b', instanceIdA, peerTokenForB);
 
+    // Reload in-memory secrets on both instances
+    await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
+    await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
+
     // Mirror the network on B: add A as a member so B's engine has something to call
     const netOnB = await post(INSTANCES.b, tokenB, '/api/networks', {
       id: networkId,
       label: 'Gossip Test Network',
       type: 'closed',
-      spaces: ['general'],
+      spaces: [testSpaceId],
       votingDeadlineHours: 1,
     });
     // Ignore 409 (already exists from a previous test run that wasn't cleaned up)
@@ -139,6 +151,10 @@ describe('Gossip: member list exchange', () => {
     if (networkId) {
       await del(INSTANCES.a, tokenA, `/api/networks/${networkId}`).catch(() => {});
       await del(INSTANCES.b, tokenB, `/api/networks/${networkId}`).catch(() => {});
+    }
+    if (testSpaceId) {
+      await delWithBody(INSTANCES.a, tokenA, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
+      await delWithBody(INSTANCES.b, tokenB, `/api/spaces/${testSpaceId}`, { confirm: true }).catch(() => {});
     }
   });
 
@@ -224,7 +240,7 @@ describe('Gossip: member list exchange', () => {
       if (r.status !== 200) return false;
       const bMember = r.body.members.find(m => m.instanceId === instanceIdB);
       return bMember?.label === realLabelB;
-    }, 15_000);
+    });
   });
 
   it('After sync trigger, B sees A\'s current label via gossip self-push', async () => {
@@ -249,7 +265,7 @@ describe('Gossip: member list exchange', () => {
       if (r.status !== 200) return false;
       const aMember = r.body.members.find(m => m.instanceId === instanceIdA);
       return aMember?.label === realLabelA;
-    }, 15_000);
+    });
   });
 
   it('Gossip poisoning: B cannot overwrite A\'s member record on A', async () => {

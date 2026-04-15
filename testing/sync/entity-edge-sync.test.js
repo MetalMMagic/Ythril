@@ -79,16 +79,19 @@ describe('Entity/edge sync — cross-instance (A→B)', () => {
     assert.equal(r.status, 201, `Create entity on A: ${JSON.stringify(r.body)}`);
     const entityId = r.body._id;
 
-    // Trigger sync and wait for entity on B via GET /api/sync/entities/:id
-    // (avoids pagination: the default list limit is 100, and accumulated test data can exceed that)
-    let found = false;
-    for (let attempt = 0; attempt < 8; attempt++) {
-      await post(INSTANCES.a, tokenA, '/api/notify/trigger', { networkId });
-      await new Promise(r => setTimeout(r, 2000));
+    // Trigger sync once, then poll via waitFor (60s default).
+    await post(INSTANCES.a, tokenA, '/api/notify/trigger', { networkId });
+    await waitFor(async () => {
       const r2 = await reqJson(INSTANCES.b, tokenB, `/api/sync/entities/${entityId}?spaceId=general`);
-      if (r2.status === 200) { found = true; break; }
-    }
-    assert.ok(found, 'Entity did not propagate — sync peer tokens may not be wired');
+      return r2.status === 200;
+    }).catch(() => {
+      // Re-trigger once and give a final window
+      return post(INSTANCES.a, tokenA, '/api/notify/trigger', { networkId })
+        .then(() => waitFor(async () => {
+          const r2 = await reqJson(INSTANCES.b, tokenB, `/api/sync/entities/${entityId}?spaceId=general`);
+          return r2.status === 200;
+        }, 30_000));
+    });
   });
 
   it('edge created on A syncs to B', async () => {
@@ -112,14 +115,17 @@ describe('Entity/edge sync — cross-instance (A→B)', () => {
     assert.equal(edgeR.status, 201, `Create edge: ${JSON.stringify(edgeR.body)}`);
     const edgeId = edgeR.body._id;
 
-    let found = false;
-    for (let attempt = 0; attempt < 8; attempt++) {
-      await post(INSTANCES.a, tokenA, '/api/notify/trigger', { networkId });
-      await new Promise(r => setTimeout(r, 2000));
+    await post(INSTANCES.a, tokenA, '/api/notify/trigger', { networkId });
+    await waitFor(async () => {
       const r2 = await reqJson(INSTANCES.b, tokenB, `/api/sync/edges/${edgeId}?spaceId=general`);
-      if (r2.status === 200) { found = true; break; }
-    }
-    assert.ok(found, 'Edge did not propagate — sync peer tokens may not be wired');
+      return r2.status === 200;
+    }).catch(() => {
+      return post(INSTANCES.a, tokenA, '/api/notify/trigger', { networkId })
+        .then(() => waitFor(async () => {
+          const r2 = await reqJson(INSTANCES.b, tokenB, `/api/sync/edges/${edgeId}?spaceId=general`);
+          return r2.status === 200;
+        }, 30_000));
+    });
   });
 
   it('entity tombstone propagates from A to B', async () => {

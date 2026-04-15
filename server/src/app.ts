@@ -23,7 +23,7 @@ import { mcpRouter } from './mcp/router.js';
 import { auditMiddleware } from './audit/middleware.js';
 import { webhooksRouter } from './api/webhooks.js';
 import { globalRateLimit } from './rate-limit/middleware.js';
-import { configExists, reloadConfig, getConfig, saveConfig } from './config/loader.js';
+import { configExists, reloadConfig, getConfig, saveConfig, loadSecrets } from './config/loader.js';
 import { requireAuth, requireAdminMfa } from './auth/middleware.js';
 import { clearTokenCache } from './auth/tokens.js';
 import { clearOidcCache } from './auth/oidc.js';
@@ -330,6 +330,7 @@ export function createApp() {
     try {
       const oldSpaceIds = new Set(getConfig().spaces.map(s => s.id));
       reloadConfig();
+      loadSecrets(); // Also reload secrets.json (peer tokens injected by tests/scripts)
       // Migration: strip prefix-less tokens (same as startup migration)
       {
         const cfg = getConfig();

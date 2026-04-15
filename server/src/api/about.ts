@@ -82,10 +82,21 @@ aboutRouter.get('/logs/stream', requireAdmin, (req, res) => {
   res.write(':\n\n'); // initial comment to establish connection
 
   const unsubscribe = subscribeLogLines((line) => {
+    if (res.destroyed) { unsubscribe(); return; }
     // Escape newlines to preserve SSE protocol framing
     const escaped = line.replace(/\n/g, '\\n').replace(/\r/g, '\\r');
     res.write(`data: ${escaped}\n\n`);
   });
 
-  req.on('close', () => { unsubscribe(); });
+  // Heartbeat: send SSE comment every 30s to keep the connection alive
+  // and detect dead clients early (write to destroyed socket triggers close).
+  const heartbeat = setInterval(() => {
+    if (res.destroyed) { clearInterval(heartbeat); unsubscribe(); return; }
+    res.write(':\n\n');
+  }, 30_000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
 });

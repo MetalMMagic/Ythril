@@ -4,6 +4,17 @@ All notable changes to Ythril are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] — 2026-04-15
+
+### Changed
+
+- **Documentation parity pass**: `docs/integration-guide.md` was reconciled against the current server implementation and commit history to ensure endpoint coverage reflects the actual code surface.
+- **Sync API reference expanded**: replaced partial/high-level endpoint notes with a full route overview including collection sync routes, gossip routes, warm-up endpoint, and updated request/response examples.
+- **Brain API reference corrected**: documented REST availability for recall, added structured query and file-metadata listing endpoints, and clarified behavior where MCP and REST parity exists.
+- **Auth/admin endpoint coverage improved**: added missing token self-introspection (`GET /api/tokens/me`), readiness probe (`GET /ready`), OIDC discovery (`GET /api/auth/oidc-info`), and admin log streaming (`GET /api/about/logs/stream`) documentation.
+- **Setup and conflict utilities documented**: added legacy first-run HTML setup routes and conflict/link-violation utility endpoints used by operations/testing.
+- **Version metadata alignment**: root, client, server package versions and lockfile metadata bumped to `0.9.2`.
+
 ## [0.9.1] — 2026-04-12
 
 ### Security

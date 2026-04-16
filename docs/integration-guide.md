@@ -61,6 +61,24 @@ docker compose up -d
 
 The included `docker-compose.yml` pulls the GHCR image and starts Ythril + MongoDB. On first run, open `http://localhost:3200` — you'll be redirected to the setup page.
 
+### Local Host Port Override
+
+By default, Docker Compose publishes Ythril on host port `3200`.
+
+If you want your personal/local instance on a different host port (for example `3210`) without changing tracked project files, set `YTHRIL_PORT` in a local `.env` file:
+
+```env
+YTHRIL_PORT=3210
+```
+
+Then start as usual:
+
+```bash
+docker compose up -d
+```
+
+Now Ythril is reachable at `http://localhost:3210` while the container still listens on internal port `3200`.
+
 Enter an instance label and complete setup:
 
 ```

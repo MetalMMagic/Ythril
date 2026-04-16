@@ -4,6 +4,27 @@ All notable changes to Ythril are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] — 2026-04-16
+
+### Added
+
+- **Proxy wildcard `['*']`**: Create Space now supports an "All" proxy-for option stored as the sentinel value `['*']`. The server resolves this at query time to all current non-proxy spaces, so spaces added after the proxy was created are automatically included without reconfiguration.
+- **Purpose field on space creation**: Create Space dialog now exposes a `Purpose` textarea (mapped to `meta.purpose`) with a rich default template listing all 29 available MCP tools, making space intent visible to LLM clients during the MCP handshake.
+- **Schema validation on space creation**: `validationMode` (off / warn / strict) and `strictLinkage` can now be set at creation time in the Admin → Spaces dialog instead of only through a post-creation patch.
+
+### Changed
+
+- **Create Space dialog wider**: max-width increased from 700 → 960 px and the purpose field uses a larger textarea (5 rows, 4000 char max) to accommodate detailed descriptions.
+- **Audit log consolidated**: Server Logs are now only in Logs → Server Log sub-tab. The duplicate section in the About page has been removed. The stream auto-starts when the tab is activated — no manual Stream button needed.
+- **Retention time displayed**: Audit Log tab now shows the configured retention period (days) next to the export buttons, read from the server config.
+- **Built-in column removed**: The redundant "Built-in" column has been removed from the Admin → Spaces table.
+
+### Fixed
+
+- **File manager directory detection**: `listFiles` now correctly maps the server's `type: 'file'|'dir'` and `modifiedAt` response fields to the client `FileEntry` shape (`isFile`, `isDirectory`, `modified`). Previously all entries appeared as files and folders could not be navigated.
+- **File download 401**: Download links now include the bearer token as a `?token=` query parameter, matching the server's existing fallback for contexts where `Authorization` headers cannot be set.
+- **File preview 401**: The preview fetch for text files now sends the `Authorization: Bearer` header so previewing files no longer returns `{"error":"Missing Authorization header"}`.
+
 ## [0.10.0] — 2026-04-15
 
 ### Added

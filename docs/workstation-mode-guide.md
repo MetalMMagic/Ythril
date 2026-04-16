@@ -274,7 +274,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Why: pulls latest images and recreates containers while keeping volumes.
+Why: pulls latest images and recreates containers while keeping volumes (data).
 
 ---
 
@@ -323,19 +323,27 @@ Prerequisites:
 - You can sign in as admin (and provide MFA code if enabled).
 - You have a Cloudflare account with a domain managed in Cloudflare DNS.
 
-Run this once:
+Preferred path (no console commands):
+
+- Open **Settings -> Networks -> Enable Networks** and run one-click setup.
+- The wizard bootstraps the local connector automatically.
+
+When you run one-click **Enable Networks** in the UI, the connector:
+
+- Installs `cloudflared` if missing.
+- Triggers Cloudflare login only if `~/.cloudflared/cert.pem` is missing.
+- Creates/updates tunnel and DNS mapping idempotently.
+
+Safety controls in the wizard:
+
+- You must explicitly acknowledge critical system changes before automatic execution starts.
+- DNS overwrite is a separate opt-in toggle (off by default). Enable it only when you intentionally want to replace an existing DNS record for the chosen hostname.
+
+Fallback only (if local bootstrap is blocked by policy on your machine):
 
 ```bash
 npm run enable-networks:setup
 ```
-
-This command automatically:
-
-- Installs `cloudflared` using your platform package manager if missing.
-- Runs Cloudflare login if not already authenticated.
-- Configures required local-agent env values for Docker Compose.
-- Starts the local helper in the background.
-- Restarts the `ythril` container so settings are active.
 
 About `127.0.0.1`:
 
@@ -346,3 +354,130 @@ About `127.0.0.1`:
 Server note:
 
 - On real servers, keep this disabled.
+
+---
+
+## Cloudflare Setup (Detailed)
+
+This section is a full walkthrough for the Cloudflare side of workstation networking.
+
+### Goal
+
+Expose only your Ythril HTTP service to the internet through Cloudflare Tunnel, not your full workstation.
+
+### Before you start
+
+1. You own a domain (or subdomain) you can manage in Cloudflare.
+2. Your Cloudflare zone status is **Active** (nameserver change completed).
+3. Local Ythril works first (for example `http://localhost:3200/health`).
+
+### Step A: Add your domain to Cloudflare (one-time)
+
+1. In Cloudflare dashboard, click **Add a domain**.
+2. Follow onboarding and copy the two Cloudflare nameservers.
+3. Update nameservers at your registrar.
+4. Wait until Cloudflare shows zone status **Active**.
+
+Why this matters: `cloudflared tunnel login` requires an active zone. If no active zone exists, login may not complete and no `cert.pem` is written.
+
+### Step B: Run one-click setup and complete login
+
+Open **Settings -> Networks -> Enable Networks** and run one-click setup.
+
+During first-time login, cloudflared prints a one-time URL. Open that exact URL and complete browser approval.
+
+Expected success signal:
+
+- `C:\Users\<you>\.cloudflared\cert.pem` exists
+- One-click setup completes and your public URL is set to `https://<your-hostname>`
+
+### Step C: Manual Cloudflare fallback only
+
+You normally do **not** need this section when one-click works.
+
+Use these steps only if one-click reports DNS/tunnel mapping errors.
+
+Manual path (Cloudflare dashboard):
+
+1. Open **Zero Trust -> Networks -> Tunnels**.
+2. Select your tunnel.
+3. Open **Public Hostnames** and click **Add a public hostname**.
+4. Set values:
+  - **Subdomain**: e.g. `ythril`
+  - **Domain**: your zone
+  - **Service type**: `HTTP`
+  - **URL**: `http://localhost:3200` (or your chosen local port)
+5. Save.
+
+This usually creates the DNS record for you.
+
+CLI fallback (only if needed):
+
+```bash
+cloudflared tunnel route dns --overwrite-dns ythril-local your-hostname.example.com
+```
+
+### Step D: DNS proxy mode
+
+Use **Proxied** (orange cloud ON) for the Ythril hostname.
+
+Why:
+
+- Public clients connect with HTTPS to Cloudflare edge.
+- Cloudflare forwards through the tunnel to your local Ythril service.
+- Your local origin can stay HTTP on localhost.
+
+### Step E: Set Ythril public URL
+
+In Ythril network settings, set your public URL to your Cloudflare hostname, for example:
+
+- `https://ythril.example.com`
+
+Do not use the one-time Cloudflare login callback URL as your service URL.
+
+### Security model
+
+With this setup, internet traffic reaches only what the tunnel hostname maps to.
+
+- Good: hostname mapped to Ythril only.
+- Good: local helper remains on `127.0.0.1`.
+- Avoid: adding extra ingress rules for unrelated local ports.
+
+### Validation checklist
+
+1. Local health works:
+
+```bash
+curl http://localhost:3200/health
+```
+
+2. Public health works (replace hostname):
+
+```bash
+curl https://ythril.example.com/health
+```
+
+3. Authenticated API works through public URL:
+
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" https://ythril.example.com/api/about
+```
+
+### Troubleshooting (Cloudflare-specific)
+
+1. Error: "Cloudflare login did not finish (cert.pem missing)"
+- Cause: browser flow not completed, wrong account/zone, or no active zone.
+- Fix: ensure zone is **Active**, rerun setup, open the exact newly printed URL, finish approval.
+
+2. "Waiting for login..." repeats for minutes
+- Cause: callback not completed.
+- Fix: use the exact URL from the current run, not an older one.
+
+3. Public hostname resolves but app does not load
+- Check tunnel public hostname maps to `http://localhost:3200` (or your actual port).
+- Verify Ythril container is healthy with `docker compose ps`.
+
+4. Connection works on localhost but not public hostname
+- Verify DNS record is proxied.
+- Verify tunnel is connected in Cloudflare dashboard.
+- Verify local firewall is not blocking local process binding unexpectedly.

@@ -643,6 +643,26 @@ brainRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAuth, 
   res.json({ entities: all, limit, skip });
 });
 
+// GET /api/brain/spaces/:spaceId/entities/by-ids?ids=id1,id2,... — batch fetch up to 100 entities by ID
+brainRouter.get('/spaces/:spaceId/entities/by-ids', globalRateLimit, requireSpaceAuth, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  const raw = req.query['ids'];
+  if (typeof raw !== 'string' || !raw.trim()) {
+    res.status(400).json({ error: '`ids` query parameter required (comma-separated)' });
+    return;
+  }
+  const ids = [...new Set(raw.split(',').map(s => s.trim()).filter(Boolean))].slice(0, 100);
+  if (!ids.length) { res.json({ entities: [] }); return; }
+  const memberIds = resolveMemberSpaces(spaceId);
+  const all = (await Promise.all(memberIds.map(mid => listEntities(mid, { _id: { $in: ids } } as never, 100)))).flat();
+  res.json({ entities: all });
+});
+
 // GET /api/brain/spaces/:spaceId/entities/by-name?name=... — find entities by name (no type constraint)
 brainRouter.get('/spaces/:spaceId/entities/by-name', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
@@ -657,7 +677,9 @@ brainRouter.get('/spaces/:spaceId/entities/by-name', globalRateLimit, requireSpa
     return;
   }
   const memberIds = resolveMemberSpaces(spaceId);
-  const all = (await Promise.all(memberIds.map(mid => findEntitiesByName(mid, name.trim())))).flat();
+  // Case-insensitive substring search — escape user input to prevent ReDoS
+  const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const all = (await Promise.all(memberIds.map(mid => listEntities(mid, { name: { $regex: escaped, $options: 'i' } }, 20)))).flat();
   res.json({ entities: all });
 });
 
@@ -908,7 +930,19 @@ brainRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
   if (typeof req.query['label'] === 'string') filter.label = req.query['label'];
   const memberIds = resolveMemberSpaces(spaceId);
   const all = (await Promise.all(memberIds.map(mid => listEdges(mid, filter, limit, skip)))).flat();
-  res.json({ edges: all, limit, skip });
+  // Batch-resolve entity names for from/to so the client can display names instead of raw UUIDs
+  const allEntityIds = [...new Set(all.flatMap(e => [e.from, e.to]))];
+  const nameMap = new Map<string, string>();
+  if (allEntityIds.length) {
+    await Promise.all(memberIds.map(async (mid) => {
+      const docs = await col<{ _id: string; name: string }>(`${mid}_entities`)
+        .find({ _id: { $in: allEntityIds } } as never, { projection: { _id: 1, name: 1 } })
+        .toArray();
+      for (const d of docs) nameMap.set(String(d._id), d.name);
+    }));
+  }
+  const enriched = all.map(e => ({ ...e, fromName: nameMap.get(e.from), toName: nameMap.get(e.to) }));
+  res.json({ edges: enriched, limit, skip });
 });
 
 // GET /api/brain/spaces/:spaceId/edges/:id

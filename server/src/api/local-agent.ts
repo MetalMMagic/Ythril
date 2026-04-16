@@ -2,17 +2,27 @@ import { Router } from 'express';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { requireAdminMfa } from '../auth/middleware.js';
 import { log } from '../util/log.js';
 
 export const localAgentRouter = Router();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+let runtimeLocalAgentEnabled = false;
+
+const BootstrapLocalAgentBody = z.object({
+  os: z.enum(['windows', 'linux']).optional(),
+});
 
 const ExecuteEnableNetworksBody = z.object({
   hostname: z.string().min(4).max(253),
   os: z.enum(['windows', 'linux']),
   autostart: z.boolean().default(true),
+  overwriteDns: z.boolean().default(false),
+  acknowledgeCriticalChanges: z.literal(true),
 });
 
 function envTrue(name: string): boolean {
@@ -20,8 +30,8 @@ function envTrue(name: string): boolean {
 }
 
 export function isLocalAgentFeatureEnabled(): boolean {
-  // Security default: OFF unless explicitly enabled.
-  return envTrue('YTHRIL_LOCAL_AGENT_ENABLED');
+  // Explicit env enable OR runtime bootstrap via admin wizard.
+  return envTrue('YTHRIL_LOCAL_AGENT_ENABLED') || runtimeLocalAgentEnabled;
 }
 
 function isLoopbackHost(host: string): boolean {
@@ -37,7 +47,7 @@ function getAgentConfig(): { baseUrl: string | null; token: string | null } {
     return { baseUrl: null, token: null };
   }
 
-  const raw = process.env['YTHRIL_LOCAL_AGENT_URL']?.trim() ?? '';
+  const raw = process.env['YTHRIL_LOCAL_AGENT_URL']?.trim() ?? 'http://127.0.0.1:38123';
   let token = process.env['YTHRIL_LOCAL_AGENT_TOKEN']?.trim() ?? null;
   if (!token) {
     const tokenFile = process.env['YTHRIL_LOCAL_AGENT_TOKEN_FILE']?.trim()
@@ -80,6 +90,66 @@ function getAgentConfig(): { baseUrl: string | null; token: string | null } {
   const baseUrl = raw.endsWith('/') ? raw.slice(0, -1) : raw;
   return { baseUrl, token };
 }
+
+async function waitForAgentReady(maxAttempts = 20, delayMs = 500): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const r = await callAgent('/v1/status', { method: 'GET' });
+      if (r.ok) return true;
+    } catch {
+      // ignore transient startup failures
+    }
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+  }
+  return false;
+}
+
+function tryStartLocalConnector(): void {
+  const entry = path.resolve(__dirname, '..', 'local-agent-connector', 'index.js');
+  const child = spawn(process.execPath, [entry], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  child.unref();
+}
+
+localAgentRouter.post('/bootstrap', globalRateLimit, requireAdminMfa, async (req, res) => {
+  const parsed = BootstrapLocalAgentBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  runtimeLocalAgentEnabled = true;
+
+  // If already reachable, return quickly.
+  try {
+    const ping = await callAgent('/v1/status', { method: 'GET' });
+    if (ping.ok) {
+      res.json({ ok: true, message: 'Local connector already running.' });
+      return;
+    }
+  } catch {
+    // continue with bootstrap
+  }
+
+  try {
+    tryStartLocalConnector();
+    const ready = await waitForAgentReady();
+    if (!ready) {
+      res.status(502).json({
+        error: 'Local connector did not become ready in time. Ensure server build includes dist/local-agent-connector/index.js.',
+      });
+      return;
+    }
+    res.json({ ok: true, message: 'Local connector bootstrapped and reachable.' });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.warn(`local-agent bootstrap failed: ${msg}`);
+    res.status(502).json({ error: `Local agent bootstrap failed: ${msg}` });
+  }
+});
 
 async function callAgent(path: string, init: RequestInit = {}): Promise<Response> {
   const cfg = getAgentConfig();

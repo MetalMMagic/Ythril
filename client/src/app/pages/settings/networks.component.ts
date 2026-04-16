@@ -531,6 +531,21 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
                 Enable cloudflared autostart service
               </label>
             </div>
+            <div class="field">
+              <label style="display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" [(ngModel)]="enableOverwriteDns" name="enableOverwriteDns" />
+                Allow overwriting an existing DNS record for this hostname
+              </label>
+              <div class="wizard-note" style="margin-top:6px;">
+                Keep this off to avoid unexpected DNS changes. Turn it on only if you intentionally want this wizard to replace an existing record.
+              </div>
+            </div>
+            <div class="field">
+              <label style="display:flex; align-items:flex-start; gap:8px;">
+                <input type="checkbox" [(ngModel)]="enableAcknowledgeCritical" name="enableAcknowledgeCritical" style="margin-top:2px;" />
+                <span>I understand this can install software, open Cloudflare login, create/update tunnel and DNS records, and start a background tunnel process/service on this machine.</span>
+              </label>
+            </div>
             <div style="display:flex; gap:8px; justify-content:flex-end;">
               <button class="btn-secondary btn" type="button" (click)="enableWizardStep.set(1)">Back</button>
               <button class="btn-primary btn" type="button" (click)="prepareEnableWizardCommands()">Continue</button>
@@ -538,25 +553,35 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
           }
 
           @if (enableWizardStep() === 3) {
-            <p class="wizard-note">Run the following commands on this host, then click "I finished setup".</p>
+            @if (localAgentCanExecute()) {
+              <p class="wizard-note">One-click mode is ready. Click <strong>Run automatically</strong>. Use manual commands only if automatic mode fails.</p>
+            } @else {
+              <p class="wizard-note">Automatic mode is unavailable. Use manual commands on this host, then click <strong>I finished setup</strong>.</p>
+            }
             @if (localAgentStatusMessage()) {
               <div class="wizard-status">{{ localAgentStatusMessage() }}</div>
             }
-            @if (enableOs === 'windows') {
-              <div class="code-block" style="white-space:pre-wrap; word-break:break-word; font-size:11px;">{{ enableWindowsCommand() }}</div>
-            } @else {
-              <div class="code-block" style="white-space:pre-wrap; word-break:break-word; font-size:11px;">{{ enableLinuxCommand() }}</div>
+            @if (!localAgentCanExecute()) {
+              @if (enableOs === 'windows') {
+                <div class="code-block" style="white-space:pre-wrap; word-break:break-word; font-size:11px;">{{ enableWindowsCommand() }}</div>
+              } @else {
+                <div class="code-block" style="white-space:pre-wrap; word-break:break-word; font-size:11px;">{{ enableLinuxCommand() }}</div>
+              }
             }
             <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
               @if (localAgentCanExecute()) {
-                <button class="btn-primary btn" type="button" [disabled]="enableAutoRunning()" (click)="runEnableNetworksAutomatically()">
+                <button class="btn-primary btn" type="button" [disabled]="enableAutoRunning() || !enableAcknowledgeCritical" (click)="runEnableNetworksAutomatically()">
                   @if (enableAutoRunning()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
                   Run automatically
                 </button>
               }
-              <button class="btn-ghost btn" type="button" (click)="copyEnableWizardCommands()">Copy commands</button>
+              @if (!localAgentCanExecute()) {
+                <button class="btn-ghost btn" type="button" (click)="copyEnableWizardCommands()">Copy commands</button>
+              }
               <button class="btn-secondary btn" type="button" (click)="enableWizardStep.set(2)">Back</button>
-              <button class="btn-primary btn" type="button" (click)="completeEnableWizard()">I finished setup</button>
+              @if (!localAgentCanExecute()) {
+                <button class="btn-primary btn" type="button" (click)="completeEnableWizard()">I finished setup</button>
+              }
             </div>
           }
         </div>
@@ -614,6 +639,8 @@ export class NetworksComponent implements OnInit {
   enableHostname = '';
   enableOs: 'windows' | 'linux' = 'windows';
   enableAutostart = true;
+  enableOverwriteDns = false;
+  enableAcknowledgeCritical = false;
   enableWindowsCommand = signal('');
   enableLinuxCommand = signal('');
   localAgentCanExecute = signal(false);
@@ -662,9 +689,11 @@ export class NetworksComponent implements OnInit {
     this.enableHostname = '';
     this.enableWindowsCommand.set('');
     this.enableLinuxCommand.set('');
+    this.enableOverwriteDns = false;
+    this.enableAcknowledgeCritical = false;
     this.localAgentCanExecute.set(false);
-    this.localAgentStatusMessage.set('Checking local connector...');
-    this.refreshLocalAgentStatus();
+    this.localAgentStatusMessage.set('Preparing local connector...');
+    this.bootstrapLocalAgent();
     this.showEnableNetworksWizard.set(true);
   }
 
@@ -690,6 +719,7 @@ export class NetworksComponent implements OnInit {
   completeEnableWizard(): void {
     const host = this.enableHostname.trim();
     if (!host) return;
+    if (!confirm(`Did you verify that https://${host}/health returns status ok from another machine/browser?`)) return;
     const url = `https://${host}`;
     this.joinMyUrl = url;
     this.joinMyUrlAutoFilled.set(true);
@@ -703,12 +733,34 @@ export class NetworksComponent implements OnInit {
       this.enableWizardError.set('Enter a public hostname first.');
       return;
     }
+    if (!this.enableAcknowledgeCritical) {
+      this.enableWizardError.set('Please acknowledge critical system changes before running automatically.');
+      return;
+    }
     this.enableWizardError.set('');
     this.enableAutoRunning.set(true);
+    if (!this.localAgentCanExecute()) {
+      this.localAgentStatusMessage.set('Bootstrapping local connector...');
+      this.api.bootstrapLocalAgent({ os: this.enableOs }).subscribe({
+        next: () => this.executeEnableNetworks(host),
+        error: (err) => {
+          this.enableAutoRunning.set(false);
+          this.enableWizardError.set(err.error?.error ?? 'Automatic bootstrap failed. Use manual commands as fallback.');
+        },
+      });
+      return;
+    }
+
+    this.executeEnableNetworks(host);
+  }
+
+  private executeEnableNetworks(host: string): void {
     this.api.executeEnableNetworksViaLocalAgent({
       hostname: host,
       os: this.enableOs,
       autostart: this.enableAutostart,
+      overwriteDns: this.enableOverwriteDns,
+      acknowledgeCriticalChanges: this.enableAcknowledgeCritical,
     }).subscribe({
       next: (result) => {
         this.enableAutoRunning.set(false);
@@ -721,6 +773,18 @@ export class NetworksComponent implements OnInit {
       error: (err) => {
         this.enableAutoRunning.set(false);
         this.enableWizardError.set(err.error?.error ?? 'Automatic setup failed. Use manual commands as fallback.');
+      },
+    });
+  }
+
+  private bootstrapLocalAgent(): void {
+    this.api.bootstrapLocalAgent({ os: this.enableOs }).subscribe({
+      next: (result) => {
+        this.localAgentStatusMessage.set(result.message ?? 'Local connector prepared.');
+        this.refreshLocalAgentStatus();
+      },
+      error: () => {
+        this.refreshLocalAgentStatus();
       },
     });
   }
@@ -742,11 +806,14 @@ export class NetworksComponent implements OnInit {
     const serviceBlock = this.enableAutostart
       ? "cloudflared service install\nStart-Service cloudflared"
       : "cloudflared tunnel run ythril-local";
+    const routeCmd = this.enableOverwriteDns
+      ? `cloudflared tunnel route dns --overwrite-dns ythril-local ${host}`
+      : `cloudflared tunnel route dns ythril-local ${host}`;
     return [
       'winget install --id Cloudflare.cloudflared -e',
       'cloudflared tunnel login',
       'cloudflared tunnel create ythril-local',
-      `cloudflared tunnel route dns ythril-local ${host}`,
+      routeCmd,
       '$env:USERPROFILE',
       '# create %USERPROFILE%\\.cloudflared\\config.yml with hostname and localhost:3200 origin',
       serviceBlock,
@@ -758,12 +825,15 @@ export class NetworksComponent implements OnInit {
     const serviceBlock = this.enableAutostart
       ? 'sudo cloudflared service install\nsudo systemctl enable --now cloudflared'
       : 'cloudflared tunnel run ythril-local';
+    const routeCmd = this.enableOverwriteDns
+      ? `cloudflared tunnel route dns --overwrite-dns ythril-local ${host}`
+      : `cloudflared tunnel route dns ythril-local ${host}`;
     return [
       'curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb -o /tmp/cloudflared.deb',
       'sudo dpkg -i /tmp/cloudflared.deb',
       'cloudflared tunnel login',
       'cloudflared tunnel create ythril-local',
-      `cloudflared tunnel route dns ythril-local ${host}`,
+      routeCmd,
       '# create ~/.cloudflared/config.yml with hostname and localhost:3200 origin',
       serviceBlock,
       `curl https://${host}/health`,

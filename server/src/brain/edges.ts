@@ -4,6 +4,7 @@ import { nextSeq } from '../util/seq.js';
 import { embed } from './embedding.js';
 import { getConfig } from '../config/loader.js';
 import { applyDeleteFields } from './delete-fields.js';
+import { getEntityById } from './entities.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
 
 export interface TraverseNode {
@@ -29,6 +30,15 @@ export interface TraverseResult {
 function authorRef() {
   const cfg = getConfig();
   return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
+}
+
+/** Resolve entity IDs to names for embedding. Falls back to the raw ID if the entity is not found. */
+async function resolveEdgeEntityNames(spaceId: string, fromId: string, toId: string): Promise<[string, string]> {
+  const [fromDoc, toDoc] = await Promise.all([
+    getEntityById(spaceId, fromId),
+    getEntityById(spaceId, toId),
+  ]);
+  return [fromDoc?.name ?? fromId, toDoc?.name ?? toId];
 }
 
 /** Derive the text to embed for an edge (tags + from + label + to + optional type + optional description). */
@@ -75,10 +85,11 @@ export async function upsertEdge(
     ? Array.from(new Set([...((existing as EdgeDoc | null)?.tags ?? []), ...tags]))
     : ((existing as EdgeDoc | null)?.tags ?? []);
 
-  // Embed the edge text (best-effort)
+  // Embed the edge text (best-effort) — resolve entity names so the vector captures semantics
   let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};
   try {
-    const embResult = await embed(edgeEmbedText(from, label, to, effectiveTags, effectiveType, effectiveDesc));
+    const [fromName, toName] = await resolveEdgeEntityNames(spaceId, from, to);
+    const embResult = await embed(edgeEmbedText(fromName, label, toName, effectiveTags, effectiveType, effectiveDesc));
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
   } catch { /* embedding unavailable — edge stored without vector */ }
 
@@ -250,9 +261,10 @@ export async function updateEdgeById(
   if (updates.type !== undefined) $set['type'] = newType;
   if (updates.weight !== undefined || (deleteFieldsPaths && !$unset['weight'])) $set['weight'] = newWeight;
 
-  // Re-embed whenever any content field changes
+  // Re-embed whenever any content field changes — resolve entity names for semantic signal
   try {
-    const embResult = await embed(edgeEmbedText(existing.from, newLabel, existing.to, newTags, newType, newDesc));
+    const [fromName, toName] = await resolveEdgeEntityNames(spaceId, existing.from, existing.to);
+    const embResult = await embed(edgeEmbedText(fromName, newLabel, toName, newTags, newType, newDesc));
     $set['embedding'] = embResult.vector;
     $set['embeddingModel'] = embResult.model;
   } catch { /* embedding unavailable — keep existing embedding */ }

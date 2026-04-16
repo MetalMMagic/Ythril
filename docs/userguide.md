@@ -78,14 +78,14 @@ If the embedding model has changed since the last embed run, an **⚠️ Needs r
 Click **+ Add memory** in the toolbar. Fill in the form:
 
 | Field | Required | Description |
-|-------|----------|-------------|
+|-------|----------|--------------|
 | Fact | Yes | The statement to remember. |
 | Tags | No | Comma-separated categorisation tags. |
-| Entity IDs | No | Comma-separated entity IDs to link. |
+| Entities | No | Click to open the entity picker flyout. Search by name and click an entity to link it. Linked entities appear as chips; click **✕** on a chip to unlink. |
 | Description | No | Free-text context or rationale behind the fact. |
-| Properties | No | JSON object of key-value metadata, e.g. `{"source": "docs", "confidence": 0.9}`. |
+| Properties | No | Click to open the JSON editor flyout. Enter an arbitrary key-value object (e.g. `{"source": "docs", "confidence": 0.9}`). Live validation and a **Format** button are provided. |
 
-Click **Save**. The memory is embedded and stored immediately. `description` and `properties` are also shown on each memory row in the list.
+Click **Save**. The memory is embedded and stored immediately. `description` and `properties` are also shown on each memory row in the list. The **Entities** column shows how many entities are linked.
 
 Memories can also be written by MCP clients (e.g. Claude, Cursor) using the `remember` tool, or via the REST API (`POST /api/brain/:spaceId/memories`).
 
@@ -113,7 +113,7 @@ To delete all memories in a space, click **Wipe all** in the toolbar. A confirma
 
 Entities are named concepts inside a space (e.g. "Kubernetes", "Team Alpha"). Each entity has a `name`, an optional `type` (e.g. `technology`, `person`), optional `tags`, an optional `description`, and optional `properties` — arbitrary key-value pairs where each value is a string, number, or boolean (e.g. `{"wheels": 4, "color": "red"}`).
 
-Click **+ Add entity** in the Entities tab to create one from the UI. Enter a name, optional type, optional comma-separated tags, an optional description, and optional properties as a JSON object, then click **Save**. Each save creates a new entity with a unique ID — multiple entities with the same name and type can coexist (e.g. several "Lisa" entries of type "person"). To update an existing entity, use the edit action on its row, or pass its `id` via the API/MCP tool. If entities with the same name and type already exist you will see a warning.
+Click **+ Add entity** in the Entities tab to create one from the UI. Enter a name, optional type, optional comma-separated tags, an optional description, and optional properties using the **JSON editor flyout** (click the button to open it; live validation and a **Format** button are provided), then click **Save**. Each save creates a new entity with a unique ID — multiple entities with the same name and type can coexist (e.g. several "Lisa" entries of type "person"). To update an existing entity, use the edit action on its row, or pass its `id` via the API/MCP tool. If entities with the same name and type already exist you will see a warning.
 
 A **search bar** above the entity table lets you filter by name in real time. Results are paginated (20 per page) — use the **← Prev** / **Next →** controls below the table.
 
@@ -126,19 +126,19 @@ Edges connect two entities. Each edge has a `from`, `to`, `label` (the relations
 Click **+ Add edge** in the Edges tab to create one from the UI. The form accepts:
 
 | Field | Required | Description |
-|-------|----------|-------------|
-| From | Yes | Source entity name or ID. |
+|-------|----------|--------------|
+| From | Yes | Search and select the source entity by name using the picker dropdown. |
 | Label | Yes | Relationship name, e.g. `depends_on`. |
-| To | Yes | Target entity name or ID. |
+| To | Yes | Search and select the target entity by name using the picker dropdown. |
 | Type | No | Classification, e.g. `causal`, `hierarchical`. |
 | Weight | No | Numeric strength (0–1 convention). |
 | Tags | No | Comma-separated tags. |
 | Description | No | Free-text rationale. |
-| Properties | No | JSON key-value metadata. |
+| Properties | No | Click to open the JSON editor flyout. Enter key-value metadata; live validation and **Format** are provided. |
 
 Click **Save**. If an edge with the same `(from, to, label)` already exists, tags are union-merged, properties are shallow-merged, and weight/type are updated.
 
-The edge table shows a **Tags** column and renders `description` as a subtitle below the relation label. Results are paginated (20 per page) with **← Prev** / **Next →** controls.
+The edge table shows entity **names** in the From/To columns (not raw IDs). When editing an edge, the form shows a read-only **From → To** context header so you always know which edge you are changing.
 
 Each edge row has an inline **✕ / Delete? / Yes / No** confirmation (no browser dialog).
 
@@ -165,7 +165,7 @@ The **Chrono** tab stores time-based entries: events, deadlines, plans, predicti
 
 ### Creating from the UI
 
-Click **+ Add entry** in the Chrono tab. Fill in the title, select a kind (or type a custom kind), pick a start date/time, and optionally add a description, tags, and linked entity IDs. Click **Save**.
+Click **+ Add entry** in the Chrono tab. Fill in the title, select a kind (or type a custom kind), pick a start date/time, and optionally add a description, tags, and linked entities using the **entity picker flyout** (search by name, click to link, chips show linked items). Click **Save**.
 
 ### Filtering
 

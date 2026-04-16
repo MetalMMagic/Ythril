@@ -637,8 +637,18 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   private search$ = new Subject<string>();
   private subs = new Subscription();
   private overlayRAF = 0;
+
+  // Currently rendered (depth-filtered) view
   private graphNodes: TraverseNode[] = [];
   private graphEdges: TraverseEdge[] = [];
+
+  // Full-depth traversal cache — avoids re-fetching shallower depths
+  private cacheStartId: string | null = null;
+  private cacheDirection: 'outbound' | 'inbound' | 'both' | null = null;
+  private cacheMaxDepth = 0;
+  private cacheNodes: TraverseNode[] = [];
+  private cacheEdges: TraverseEdge[] = [];
+  private cacheTruncated = false;
 
   // ── Lifecycle ───────────────────────────────────────────────────────────────
 
@@ -873,9 +883,17 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.nodeChrono.set([]);
     this.searchQuery.set('');
     this.searchResults.set([]);
+    this.searchFocused.set(false);
+    this.search$.next('');  // cancel any pending debounced search
     this.truncated.set(false);
     this.graphNodes = [];
     this.graphEdges = [];
+    this.cacheStartId = null;
+    this.cacheDirection = null;
+    this.cacheMaxDepth = 0;
+    this.cacheNodes = [];
+    this.cacheEdges = [];
+    this.cacheTruncated = false;
     this.overlays.set([]);
     if (this.cy) {
       this.cy.elements().remove();
@@ -889,21 +907,58 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!spaceId) return;
 
     this.selectedNode.set(null);
+
+    const sameRoot = this.cacheStartId === startId && this.cacheDirection === direction;
+
+    // Depth decrease (or same depth): serve from cache — no network request needed
+    if (sameRoot && maxDepth <= this.cacheMaxDepth) {
+      this.applyDepthFilter(startId, maxDepth);
+      return;
+    }
+
+    // Depth increase into an un-truncated cache: fetch only the new frontier and merge
+    const incremental = sameRoot && maxDepth > this.cacheMaxDepth && !this.cacheTruncated;
+
     this.loading.set(true);
     this.api.traverseGraph(spaceId, { startId, direction, maxDepth, limit: 200 }).pipe(
       catchError(() => of({ nodes: [], edges: [], truncated: false } as TraverseResult)),
     ).subscribe(result => {
       this.loading.set(false);
-      this.graphNodes = result.nodes;
-      this.graphEdges = result.edges;
+
+      if (incremental) {
+        // Merge only the new nodes/edges into the existing cache
+        const knownNodes = new Set(this.cacheNodes.map(n => n._id));
+        const knownEdges = new Set(this.cacheEdges.map(e => e._id));
+        for (const n of result.nodes) if (!knownNodes.has(n._id)) this.cacheNodes.push(n);
+        for (const e of result.edges) if (!knownEdges.has(e._id)) this.cacheEdges.push(e);
+      } else {
+        this.cacheNodes = result.nodes;
+        this.cacheEdges = result.edges;
+      }
+
+      this.cacheStartId = startId;
+      this.cacheDirection = direction;
+      this.cacheMaxDepth = maxDepth;
+      this.cacheTruncated = result.truncated;
+
       this.truncated.set(result.truncated);
-      this.renderGraph(startId);
+      this.applyDepthFilter(startId, maxDepth);
     });
+  }
+
+  // Filter the full cache down to the requested depth and re-render
+  private applyDepthFilter(startId: string, maxDepth: number): void {
+    this.graphNodes = this.cacheNodes.filter(n => n.depth <= maxDepth);
+    const visibleIds = new Set<string>(this.graphNodes.map(n => n._id));
+    visibleIds.add(startId);  // root node always included
+    this.graphEdges = this.cacheEdges.filter(e => visibleIds.has(e.from) && visibleIds.has(e.to));
+    this.renderGraph(startId);
   }
 
   private renderGraph(rootId: string): void {
     if (!this.cy) return;
 
+    this.cy.resize();  // ensure canvas matches current container dimensions
     this.cy.elements().remove();
 
     const elements: any[] = [];

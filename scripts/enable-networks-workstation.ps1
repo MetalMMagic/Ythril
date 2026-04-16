@@ -4,6 +4,41 @@ function Write-Step([string]$message) {
   Write-Host "[enable-networks] $message"
 }
 
+function Update-SessionPath {
+  # winget (and other installers) register new PATH entries in the registry but do not
+  # mutate the current process environment. Refresh from both registry scopes so that
+  # any newly installed binary is findable without opening a new shell.
+  $machine = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine')
+  $user    = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+  $combined = @($machine, $user) | Where-Object { $_ }
+  $env:PATH = $combined -join ';'
+}
+
+function Install-CloudflaredDirect {
+  # Direct download from the official Cloudflare GitHub release as a fallback.
+  $arch    = if ([System.Environment]::Is64BitOperatingSystem) { 'amd64' } else { '386' }
+  $destDir = Join-Path $env:LOCALAPPDATA 'Programs\cloudflared'
+  $destExe = Join-Path $destDir 'cloudflared.exe'
+
+  if (-not (Test-Path $destDir)) {
+    New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+  }
+
+  $url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-${arch}.exe"
+  Write-Step "Downloading cloudflared from $url ..."
+  Invoke-WebRequest -Uri $url -OutFile $destExe -UseBasicParsing
+
+  # Persist to user PATH so future sessions also find it.
+  $userPath = [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+  if (-not $userPath) { $userPath = '' }
+  if ($userPath -notlike "*$destDir*") {
+    [System.Environment]::SetEnvironmentVariable('PATH', "${userPath};${destDir}", 'User')
+  }
+
+  # Also update the current session immediately.
+  $env:PATH = "$env:PATH;$destDir"
+}
+
 function Initialize-Cloudflared {
   $cmd = Get-Command cloudflared -ErrorAction SilentlyContinue
   if ($cmd) {
@@ -11,20 +46,36 @@ function Initialize-Cloudflared {
     return
   }
 
-  Write-Step 'cloudflared not found; attempting install via winget...'
+  # --- attempt 1: winget ---
   $winget = Get-Command winget -ErrorAction SilentlyContinue
-  if (-not $winget) {
-    throw 'cloudflared is not installed and winget is unavailable. Install cloudflared manually, then rerun this command.'
+  if ($winget) {
+    Write-Step 'cloudflared not found; attempting install via winget...'
+    & winget install --id Cloudflare.cloudflared --exact --accept-package-agreements --accept-source-agreements | Out-Null
+    # winget adds a new PATH entry in the registry; refresh the current session to pick it up.
+    Update-SessionPath
+    $cmd = Get-Command cloudflared -ErrorAction SilentlyContinue
+    if ($cmd) {
+      Write-Step 'cloudflared installed via winget.'
+      return
+    }
+    Write-Step 'winget install reported success but cloudflared still not in PATH; falling back to direct download.'
+  } else {
+    Write-Step 'winget is unavailable; falling back to direct download.'
   }
 
-  & winget install --id Cloudflare.cloudflared --exact --accept-package-agreements --accept-source-agreements | Out-Null
+  # --- attempt 2: direct download from GitHub releases ---
+  try {
+    Install-CloudflaredDirect
+  } catch {
+    throw "cloudflared could not be installed automatically ($_). Install it manually from https://developers.cloudflare.com/cloudflared/get-started/ and rerun."
+  }
 
   $cmd = Get-Command cloudflared -ErrorAction SilentlyContinue
   if (-not $cmd) {
-    throw 'cloudflared installation did not complete successfully. Install it manually and rerun.'
+    throw 'cloudflared binary was downloaded but is still not reachable. Check antivirus/execution policy and rerun.'
   }
 
-  Write-Step 'cloudflared installed.'
+  Write-Step 'cloudflared installed via direct download.'
 }
 
 function Initialize-CloudflareLogin {
@@ -144,8 +195,9 @@ $envPath = Join-Path $repoRoot '.env'
 $tokenFile = Join-Path $HOME '.ythril-local-connector/token'
 
 Write-Step 'Preparing workstation for Enable Networks auto setup...'
-Initialize-Cloudflared
-Initialize-CloudflareLogin
+# Intentionally defer cloudflared install/login to the one-click local connector
+# action so first-run operator flow only requires confirming browser login there.
+Write-Step 'Cloudflare install/login will be handled by one-click execution when needed.'
 
 $token = Get-StableToken -envPath $envPath -tokenFile $tokenFile
 

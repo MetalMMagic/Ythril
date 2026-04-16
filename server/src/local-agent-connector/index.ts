@@ -11,6 +11,11 @@ const HOST = process.env['YTHRIL_CONNECTOR_BIND_HOST'] ?? '127.0.0.1';
 const TOKEN_FILE = process.env['YTHRIL_CONNECTOR_TOKEN_FILE'] ?? path.join(os.homedir(), '.ythril-local-connector', 'token');
 const ALLOW_SERVICE_INSTALL = (process.env['YTHRIL_CONNECTOR_ALLOW_SERVICE_INSTALL'] ?? '').trim().toLowerCase() === 'true';
 const DEFAULT_TUNNEL_NAME = process.env['YTHRIL_CONNECTOR_TUNNEL_NAME'] ?? 'ythril-local';
+const CLOUDFLARED_CERT_PATH = path.join(os.homedir(), '.cloudflared', 'cert.pem');
+const CONNECTOR_STATE_DIR = path.join(os.homedir(), '.ythril-local-connector');
+const TUNNEL_PID_FILE = path.join(CONNECTOR_STATE_DIR, 'cloudflared-tunnel-run.pid');
+
+let cloudflaredCmd = process.env['YTHRIL_CONNECTOR_CLOUDFLARED_BIN']?.trim() || 'cloudflared';
 
 function loadOrCreateToken(): string {
   const envToken = (process.env['YTHRIL_CONNECTOR_TOKEN'] ?? '').trim();
@@ -44,6 +49,8 @@ const EnableNetworksBody = z.object({
   hostname: z.string().min(4).max(253).regex(/^(?=.{4,253}$)(?!-)([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,63}$/),
   os: z.enum(['windows', 'linux']).optional(),
   autostart: z.boolean().default(true),
+  overwriteDns: z.boolean().default(false),
+  acknowledgeCriticalChanges: z.literal(true),
 });
 
 const app = express();
@@ -88,12 +95,69 @@ function runCommand(cmd: string, args: string[]): Promise<{ stdout: string; stde
   });
 }
 
+async function runCloudflared(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  return runCommand(cloudflaredCmd, args);
+}
+
+async function probeCloudflaredExecutable(cmd: string): Promise<boolean> {
+  try {
+    await runCommand(cmd, ['--version']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveCloudflaredCommand(): Promise<string | null> {
+  if (await probeCloudflaredExecutable(cloudflaredCmd)) return cloudflaredCmd;
+
+  const candidates = [
+    'cloudflared',
+    path.join(os.homedir(), 'AppData', 'Local', 'Microsoft', 'WinGet', 'Links', 'cloudflared.exe'),
+    path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'cloudflared', 'cloudflared.exe'),
+    path.join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'cloudflared', 'cloudflared.exe'),
+  ];
+
+  for (const cmd of candidates) {
+    if (await probeCloudflaredExecutable(cmd)) return cmd;
+  }
+  return null;
+}
+
 async function ensureCloudflaredAvailable(): Promise<void> {
-  await runCommand('cloudflared', ['--version']);
+  const resolved = await resolveCloudflaredCommand();
+  if (resolved) {
+    cloudflaredCmd = resolved;
+    return;
+  }
+
+  if (process.platform !== 'win32') {
+    throw new Error('cloudflared is not available. Install it first (https://developers.cloudflare.com/cloudflared/get-started/) and retry.');
+  }
+
+  const wingetOk = await probeCloudflaredExecutable('winget');
+  if (!wingetOk) {
+    throw new Error('cloudflared is not installed and winget is unavailable. Install cloudflared manually, then retry.');
+  }
+
+  await runCommand('winget', [
+    'install',
+    '--id',
+    'Cloudflare.cloudflared',
+    '--exact',
+    '--accept-package-agreements',
+    '--accept-source-agreements',
+  ]);
+
+  const resolvedAfterInstall = await resolveCloudflaredCommand();
+  if (!resolvedAfterInstall) {
+    throw new Error('cloudflared installation completed but binary is still not reachable. Open a new session or set YTHRIL_CONNECTOR_CLOUDFLARED_BIN to the full executable path.');
+  }
+  cloudflaredCmd = resolvedAfterInstall;
 }
 
 async function listTunnels(): Promise<Array<{ id: string; name: string }>> {
-  const out = await runCommand('cloudflared', ['tunnel', 'list', '--output', 'json']);
+  const out = await runCloudflared(['tunnel', 'list', '--output', 'json']);
   const parsed = JSON.parse(out.stdout) as Array<{ id: string; name: string }>;
   return Array.isArray(parsed) ? parsed : [];
 }
@@ -103,11 +167,34 @@ async function ensureTunnel(tunnelName: string): Promise<{ id: string; name: str
   const existing = tunnels.find(t => t.name === tunnelName);
   if (existing) return existing;
 
-  await runCommand('cloudflared', ['tunnel', 'create', tunnelName]);
+  await runCloudflared(['tunnel', 'create', tunnelName]);
   const after = await listTunnels();
   const created = after.find(t => t.name === tunnelName);
   if (!created) throw new Error(`Tunnel '${tunnelName}' was not found after creation`);
   return created;
+}
+
+async function ensureDnsRoute(tunnelName: string, hostname: string, overwriteDns: boolean): Promise<void> {
+  const args = overwriteDns
+    ? ['tunnel', 'route', 'dns', '--overwrite-dns', tunnelName, hostname]
+    : ['tunnel', 'route', 'dns', tunnelName, hostname];
+  try {
+    await runCloudflared(args);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!overwriteDns && msg.includes('code: 1003')) {
+      throw new Error('DNS record already exists for this hostname. Enable overwrite in the wizard or choose a different hostname.');
+    }
+    throw err;
+  }
+}
+
+async function ensureCloudflareLogin(): Promise<void> {
+  if (fs.existsSync(CLOUDFLARED_CERT_PATH)) return;
+  await runCloudflared(['tunnel', 'login']);
+  if (!fs.existsSync(CLOUDFLARED_CERT_PATH)) {
+    throw new Error(`Cloudflare login completed but ${CLOUDFLARED_CERT_PATH} is missing. If a cert was downloaded by browser, copy it there and retry.`);
+  }
 }
 
 function cloudflaredDir(): string {
@@ -149,7 +236,7 @@ async function maybeInstallService(targetOs: 'windows' | 'linux', autostart: boo
     return notes;
   }
 
-  await runCommand('cloudflared', ['service', 'install']);
+  await runCloudflared(['service', 'install']);
   notes.push('cloudflared service installed.');
 
   if (targetOs === 'windows') {
@@ -165,6 +252,41 @@ async function maybeInstallService(targetOs: 'windows' | 'linux', autostart: boo
   }
 
   return notes;
+}
+
+function pidLooksAlive(pid: number): boolean {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureUserModeTunnelRunning(tunnelName: string): Promise<string> {
+  try {
+    if (fs.existsSync(TUNNEL_PID_FILE)) {
+      const raw = fs.readFileSync(TUNNEL_PID_FILE, 'utf8').trim();
+      const pid = Number(raw);
+      if (pidLooksAlive(pid)) {
+        return `cloudflared user-mode tunnel is already running (pid ${pid}).`;
+      }
+    }
+  } catch {
+    // continue and attempt to start a fresh process
+  }
+
+  fs.mkdirSync(CONNECTOR_STATE_DIR, { recursive: true, mode: 0o700 });
+  const child = spawn(cloudflaredCmd, ['tunnel', 'run', tunnelName], {
+    shell: false,
+    windowsHide: true,
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+  fs.writeFileSync(TUNNEL_PID_FILE, String(child.pid), { encoding: 'utf8', mode: 0o600 });
+  return `Started cloudflared user-mode tunnel process (pid ${child.pid}).`;
 }
 
 app.get('/v1/status', requireConnectorAuth, (_req, res) => {
@@ -187,21 +309,28 @@ app.post('/v1/actions/enable-networks', requireConnectorAuth, async (req, res) =
   const targetOs = parsed.data.os ?? osFamily();
   const hostname = parsed.data.hostname;
   const autostart = parsed.data.autostart;
+  const overwriteDns = parsed.data.overwriteDns;
 
   const plannedSteps = [
-    `Ensure cloudflared is installed`,
+    'Ensure cloudflared is installed',
+    'Ensure Cloudflare login is completed',
     `Ensure tunnel '${DEFAULT_TUNNEL_NAME}' exists`,
-    `Route DNS hostname '${hostname}' to tunnel`,
+    `Route DNS hostname '${hostname}' to tunnel${overwriteDns ? ' (overwrite enabled)' : ''}`,
     'Write ~/.cloudflared/config.yml',
-    autostart ? 'Install/start cloudflared service (if allowed)' : 'Skip service install/start',
+    autostart ? 'Install/start cloudflared service (if allowed) or fall back to user-mode runtime' : 'Start cloudflared user-mode runtime',
   ];
 
   try {
     await ensureCloudflaredAvailable();
+    await ensureCloudflareLogin();
     const tunnel = await ensureTunnel(DEFAULT_TUNNEL_NAME);
-    await runCommand('cloudflared', ['tunnel', 'route', 'dns', DEFAULT_TUNNEL_NAME, hostname]);
+    await ensureDnsRoute(DEFAULT_TUNNEL_NAME, hostname, overwriteDns);
     const configPath = writeConfig(tunnel.id, hostname);
     const notes = await maybeInstallService(targetOs, autostart);
+    if (!(autostart && ALLOW_SERVICE_INSTALL)) {
+      notes.push(await ensureUserModeTunnelRunning(DEFAULT_TUNNEL_NAME));
+    }
+    notes.push('DNS propagation can take up to a minute. Validate with https://<hostname>/health.');
 
     res.json({
       ok: true,

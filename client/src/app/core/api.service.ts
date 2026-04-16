@@ -99,7 +99,9 @@ export interface Entity {
 export interface Edge {
   _id: string;
   from: string;
+  fromName?: string;
   to: string;
+  toName?: string;
   label: string;
   type?: string;
   weight?: number;
@@ -288,6 +290,11 @@ export interface LocalAgentEnableNetworksResult {
   publicUrl?: string;
   message?: string;
   steps?: string[];
+}
+
+export interface LocalAgentBootstrapResult {
+  ok: boolean;
+  message?: string;
 }
 
 // ── Audit log types ──────────────────────────────────────────────────────────
@@ -535,6 +542,12 @@ export class ApiService {
   searchEntitiesByName(spaceId: string, name: string): Observable<{ entities: Entity[] }> {
     const params = new HttpParams().set('name', name);
     return this.http.get<{ entities: Entity[] }>(`/api/brain/spaces/${spaceId}/entities/by-name`, { params });
+  }
+
+  getEntitiesByIds(spaceId: string, ids: string[]): Observable<{ entities: Entity[] }> {
+    if (!ids.length) return new Observable(o => { o.next({ entities: [] }); o.complete(); });
+    const params = new HttpParams().set('ids', ids.join(','));
+    return this.http.get<{ entities: Entity[] }>(`/api/brain/spaces/${spaceId}/entities/by-ids`, { params });
   }
 
   getEntity(spaceId: string, id: string): Observable<Entity> {
@@ -799,10 +812,18 @@ export class ApiService {
     return this.http.get<LocalAgentStatus>('/api/admin/local-agent/status');
   }
 
+  bootstrapLocalAgent(body: {
+    os: 'windows' | 'linux';
+  }): Observable<LocalAgentBootstrapResult> {
+    return this.http.post<LocalAgentBootstrapResult>('/api/admin/local-agent/bootstrap', body);
+  }
+
   executeEnableNetworksViaLocalAgent(body: {
     hostname: string;
     os: 'windows' | 'linux';
     autostart: boolean;
+    overwriteDns: boolean;
+    acknowledgeCriticalChanges: boolean;
   }): Observable<LocalAgentEnableNetworksResult> {
     return this.http.post<LocalAgentEnableNetworksResult>('/api/admin/local-agent/enable-networks/execute', body);
   }

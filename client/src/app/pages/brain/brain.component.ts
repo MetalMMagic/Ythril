@@ -408,6 +408,33 @@ interface SpaceView {
       font-family: var(--font-mono, monospace); margin-left: auto; flex-shrink: 0;
     }
     .tab-spacer { flex: 1; }
+
+    .flyout-backdrop { position: fixed; inset: 0; z-index: 55; }
+    .flyout-wrap { position: relative; display: block; width: 100%; }
+    .flyout-trigger {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      font-size: 12px; background: var(--bg-primary); color: var(--text-secondary);
+      cursor: pointer; width: 100%; text-align: left; transition: border-color var(--transition);
+    }
+    .flyout-trigger:hover { border-color: var(--accent); color: var(--text-primary); }
+    .flyout-trigger.has-value { color: var(--text-primary); }
+    .flyout-panel {
+      position: absolute; top: calc(100% + 4px); left: 0; min-width: 300px; z-index: 60;
+      background: var(--bg-primary); border: 1px solid var(--border);
+      border-radius: var(--radius-md); box-shadow: 0 4px 20px rgba(0,0,0,0.22); padding: 12px;
+    }
+    .chip-list { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; min-height: 24px; }
+    .chip {
+      display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px;
+      border-radius: 10px; background: var(--accent-dim); border: 1px solid var(--accent);
+      color: var(--accent); font-size: 11px; font-weight: 500; max-width: 200px;
+    }
+    .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chip-remove {
+      background: none; border: none; color: var(--accent); cursor: pointer;
+      font-size: 13px; line-height: 1; padding: 0 1px; flex-shrink: 0;
+    }
   `],
   template: `
     @if (loadingSpaces()) {
@@ -419,6 +446,8 @@ interface SpaceView {
         <p>Create a space in <a routerLink="/settings/spaces">Settings → Spaces</a>.</p>
       </div>
     } @else {
+
+      @if (flyoutField()) { <div class="flyout-backdrop" (click)="closeFlyout()"></div> }
 
       <!-- Space selector -->
       <div class="space-tabs">
@@ -487,41 +516,82 @@ interface SpaceView {
             <form class="create-form" (ngSubmit)="createMemory()">
               <div class="field" style="flex:2; min-width:200px;">
                 <label>Fact</label>
-                <textarea [(ngModel)]="memoryForm.fact" name="fact" rows="2" placeholder="Something to remember…" required style="width:100%;"></textarea>
+                <textarea [(ngModel)]="memoryForm.fact" name="fact" rows="2" required style="width:100%;"></textarea>
               </div>
               <div class="field" style="flex:1; min-width:140px;">
                 <label>Tags (comma-separated)</label>
-                <input type="text" [(ngModel)]="memoryForm.tags" name="tags" placeholder="tag1, tag2" />
+                <input type="text" [(ngModel)]="memoryForm.tags" name="tags" />
               </div>
               <div class="field" style="flex:1; min-width:140px;">
-                <label>Entity IDs (comma-separated)</label>
-                <div class="entity-picker-wrap">
-                  <input type="text" [(ngModel)]="memoryForm.entityIds" name="entityIds" placeholder="Search entities…"
-                    autocomplete="off"
-                    (focus)="onPickerFocus('create-memory-entityIds', memoryForm.entityIds)"
-                    (input)="onPickerInput('create-memory-entityIds', $event)"
-                    (blur)="schedulePkrClose()" />
-                  @if (pickerField() === 'create-memory-entityIds' && pickerResults().length) {
-                    <div class="entity-picker-dropdown">
-                      @for (ent of pickerResults(); track ent._id) {
-                        <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'create-memory-entityIds')">
-                          <span class="entity-picker-name">{{ ent.name }}</span>
-                          @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
-                          @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
-                          <span class="entity-picker-id">{{ ent._id }}</span>
-                        </div>
-                      }
+                <label>Entities</label>
+                <div class="flyout-wrap">
+                  <button type="button" class="flyout-trigger" [class.has-value]="memoryForm.entityIds.trim()" (click)="openFlyout('create-memory-entityIds')">
+                    @let chips = entityChips(memoryForm.entityIds);
+                    @if (chips.length) { {{ chips.length }} linked } @else { <span style="color:var(--text-muted)">+ Link entities…</span> }
+                  </button>
+                  @if (flyoutField() === 'create-memory-entityIds') {
+                    <div class="flyout-panel">
+                      <div class="chip-list">
+                        @let openChips0 = entityChips(memoryForm.entityIds);
+                        @for (chip of openChips0; track chip.id) {
+                          <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(memoryForm, chip.id)">✕</button></span>
+                        }
+                        @if (!openChips0.length) { <span style="font-size:11px; color:var(--text-muted)">No entities linked yet</span> }
+                      </div>
+                      <div class="entity-picker-wrap">
+                        <input type="text" placeholder="Search entities…" autocomplete="off" style="width:100%"
+                          (focus)="onPickerFocus('create-memory-entityIds', '')"
+                          (input)="onPickerInput('create-memory-entityIds', $event)"
+                          (blur)="schedulePkrClose()" />
+                        @if (pickerField() === 'create-memory-entityIds' && pickerResults().length) {
+                          <div class="entity-picker-dropdown">
+                            @for (ent of pickerResults(); track ent._id) {
+                              <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'create-memory-entityIds')">
+                                <span class="entity-picker-name">{{ ent.name }}</span>
+                                @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
+                                @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
+                                <span class="entity-picker-id">{{ ent._id }}</span>
+                              </div>
+                            }
+                          </div>
+                        }
+                      </div>
+                      <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                        <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                      </div>
                     </div>
                   }
                 </div>
               </div>
               <div class="field" style="flex:2; min-width:200px;">
                 <label>Description (optional)</label>
-                <input type="text" [(ngModel)]="memoryForm.description" name="description" placeholder="Context or rationale…" />
+                <input type="text" [(ngModel)]="memoryForm.description" name="description" />
               </div>
               <div class="field" style="flex:1; min-width:160px;">
-                <label>Properties (JSON, optional)</label>
-                <input type="text" [(ngModel)]="memoryForm.properties" name="properties" placeholder='{"key": "value"}' />
+                <label>Properties</label>
+                <div class="flyout-wrap">
+                  <button type="button" class="flyout-trigger" [class.has-value]="memoryForm.properties.trim()" (click)="openFlyout('create-memory-properties')">
+                    @if (memoryForm.properties.trim()) {
+                      @if (jsonError(memoryForm.properties)) { <span style="color:var(--error)">⚠ Invalid JSON</span> }
+                      @else { <span>{{ jsonKeyCount(memoryForm.properties) }} key{{ jsonKeyCount(memoryForm.properties) === 1 ? '' : 's' }}</span> }
+                    } @else { <span style="color:var(--text-muted)">Add JSON properties…</span> }
+                  </button>
+                  @if (flyoutField() === 'create-memory-properties') {
+                    <div class="flyout-panel" style="min-width:280px;">
+                      <textarea class="query-textarea" [(ngModel)]="memoryForm.properties" name="memCreatePropsEdit"
+                        rows="6" placeholder='{"key": "value"}'></textarea>
+                      @if (jsonError(memoryForm.properties); as err) {
+                        <div style="font-size:11px; color:var(--error); margin-top:4px;">⚠ {{ err }}</div>
+                      } @else if (memoryForm.properties.trim()) {
+                        <div style="font-size:11px; color:var(--success,#4caf50); margin-top:4px;">✓ Valid JSON</div>
+                      }
+                      <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:8px;">
+                        <button type="button" class="btn btn-sm btn-secondary" (click)="formatJson(memoryForm)">Format</button>
+                        <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                      </div>
+                    </div>
+                  }
+                </div>
               </div>
               <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingMemory() || !memoryForm.fact.trim()">
                 @if (creatingMemory()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
@@ -594,14 +664,14 @@ interface SpaceView {
             <table>
               <thead>
                 <tr>
-                  <th>Fact</th><th>Description</th><th>Tags</th><th>Properties</th><th>Created</th><th></th>
+                  <th>Fact</th><th>Description</th><th>Tags</th><th>Entities</th><th>Properties</th><th>Created</th><th></th>
                 </tr>
               </thead>
               <tbody>
                 @for (mem of memories(); track mem._id) {
                   @if (editingId() === mem._id) {
                     <tr>
-                      <td colspan="6">
+                      <td colspan="7">
                         <div class="create-form" style="border:none; padding:8px 0;">
                           <div class="field" style="flex:2; min-width:200px; margin-bottom:0;">
                             <label>Fact</label>
@@ -616,30 +686,71 @@ interface SpaceView {
                             <input type="text" [(ngModel)]="editMemory.tags" name="editTags" />
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-                            <label>Entity IDs (comma-separated)</label>
-                            <div class="entity-picker-wrap">
-                              <input type="text" [(ngModel)]="editMemory.entityIds" name="editEntityIds"
-                                autocomplete="off" placeholder="Search entities…"
-                                (focus)="onPickerFocus('edit-memory-entityIds', editMemory.entityIds)"
-                                (input)="onPickerInput('edit-memory-entityIds', $event)"
-                                (blur)="schedulePkrClose()" />
-                              @if (pickerField() === 'edit-memory-entityIds' && pickerResults().length) {
-                                <div class="entity-picker-dropdown">
-                                  @for (ent of pickerResults(); track ent._id) {
-                                    <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'edit-memory-entityIds')">
-                                      <span class="entity-picker-name">{{ ent.name }}</span>
-                                      @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
-                                      @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
-                                      <span class="entity-picker-id">{{ ent._id }}</span>
-                                    </div>
-                                  }
+                            <label>Entities</label>
+                            <div class="flyout-wrap">
+                              <button type="button" class="flyout-trigger" [class.has-value]="editMemory.entityIds.trim()" (click)="openFlyout('edit-memory-entityIds')">
+                                @let chips = entityChips(editMemory.entityIds);
+                                @if (chips.length) { {{ chips.length }} linked } @else { <span style="color:var(--text-muted)">+ Link entities…</span> }
+                              </button>
+                              @if (flyoutField() === 'edit-memory-entityIds') {
+                                <div class="flyout-panel">
+                                  <div class="chip-list">
+                                    @let openChips1 = entityChips(editMemory.entityIds);
+                                    @for (chip of openChips1; track chip.id) {
+                                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(editMemory, chip.id)">✕</button></span>
+                                    }
+                                    @if (!openChips1.length) { <span style="font-size:11px; color:var(--text-muted)">No entities linked yet</span> }
+                                  </div>
+                                  <div class="entity-picker-wrap">
+                                    <input type="text" placeholder="Search entities…" autocomplete="off" style="width:100%"
+                                      (focus)="onPickerFocus('edit-memory-entityIds', '')"
+                                      (input)="onPickerInput('edit-memory-entityIds', $event)"
+                                      (blur)="schedulePkrClose()" />
+                                    @if (pickerField() === 'edit-memory-entityIds' && pickerResults().length) {
+                                      <div class="entity-picker-dropdown">
+                                        @for (ent of pickerResults(); track ent._id) {
+                                          <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'edit-memory-entityIds')">
+                                            <span class="entity-picker-name">{{ ent.name }}</span>
+                                            @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
+                                            @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
+                                            <span class="entity-picker-id">{{ ent._id }}</span>
+                                          </div>
+                                        }
+                                      </div>
+                                    }
+                                  </div>
+                                  <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                                    <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                                  </div>
                                 </div>
                               }
                             </div>
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-                            <label>Properties (JSON)</label>
-                            <input type="text" [(ngModel)]="editMemory.properties" name="editProps" />
+                            <label>Properties</label>
+                            <div class="flyout-wrap">
+                              <button type="button" class="flyout-trigger" [class.has-value]="editMemory.properties.trim()" (click)="openFlyout('edit-memory-properties')">
+                                @if (editMemory.properties.trim()) {
+                                  @if (jsonError(editMemory.properties)) { <span style="color:var(--error)">⚠ Invalid JSON</span> }
+                                  @else { <span>{{ jsonKeyCount(editMemory.properties) }} key{{ jsonKeyCount(editMemory.properties) === 1 ? '' : 's' }}</span> }
+                                } @else { <span style="color:var(--text-muted)">Add JSON properties…</span> }
+                              </button>
+                              @if (flyoutField() === 'edit-memory-properties') {
+                                <div class="flyout-panel" style="min-width:280px;">
+                                  <textarea class="query-textarea" [(ngModel)]="editMemory.properties" name="memEditPropsEdit"
+                                    rows="6" placeholder='{"key": "value"}'></textarea>
+                                  @if (jsonError(editMemory.properties); as err) {
+                                    <div style="font-size:11px; color:var(--error); margin-top:4px;">⚠ {{ err }}</div>
+                                  } @else if (editMemory.properties.trim()) {
+                                    <div style="font-size:11px; color:var(--success,#4caf50); margin-top:4px;">✓ Valid JSON</div>
+                                  }
+                                  <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:8px;">
+                                    <button type="button" class="btn btn-sm btn-secondary" (click)="formatJson(editMemory)">Format</button>
+                                    <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                                  </div>
+                                </div>
+                              }
+                            </div>
                           </div>
                           <div style="display:flex; gap:6px; align-items:flex-end;">
                             <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditMemory(mem._id)">
@@ -661,6 +772,9 @@ interface SpaceView {
                         @for (tag of (mem.tags ?? []); track tag) { <span class="tag tag-clickable" (click)="applyFilter('tag', tag)">{{ tag }}</span> }
                         @if (!(mem.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
                       </td>
+                      <td style="font-size:11px; color:var(--text-muted);">
+                        @if (mem.entityIds?.length) { {{ mem.entityIds!.length }} linked } @else { <span style="color:var(--text-muted)">—</span> }
+                      </td>
                       <td style="font-size:12px; color:var(--text-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="formatProps(mem.properties)">
                         {{ formatProps(mem.properties) }}
                       </td>
@@ -680,7 +794,7 @@ interface SpaceView {
                     </tr>
                   }
                 } @empty {
-                  <tr><td colspan="6">
+                  <tr><td colspan="7">
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon">🧠</div>
                       <h3>No memories</h3>
@@ -709,23 +823,45 @@ interface SpaceView {
             <form class="create-form" (ngSubmit)="createEntity()">
               <div class="field" style="flex:1; min-width:140px;">
                 <label>Name</label>
-                <input type="text" [(ngModel)]="entityForm.name" name="name" placeholder="Kubernetes" required />
+                <input type="text" [(ngModel)]="entityForm.name" name="name" required />
               </div>
               <div class="field" style="width:140px;">
                 <label>Type (optional)</label>
-                <input type="text" [(ngModel)]="entityForm.type" name="type" placeholder="technology" />
+                <input type="text" [(ngModel)]="entityForm.type" name="type" />
               </div>
               <div class="field" style="flex:1; min-width:140px;">
                 <label>Tags (comma-separated)</label>
-                <input type="text" [(ngModel)]="entityForm.tags" name="tags" placeholder="infra, devops" />
+                <input type="text" [(ngModel)]="entityForm.tags" name="tags" />
               </div>
               <div class="field" style="flex:1; min-width:200px;">
                 <label>Description (optional)</label>
-                <input type="text" [(ngModel)]="entityForm.description" name="description" placeholder="Brief description…" />
+                <input type="text" [(ngModel)]="entityForm.description" name="description" />
               </div>
               <div class="field" style="flex:1; min-width:180px;">
-                <label>Properties (JSON)</label>
-                <input type="text" [(ngModel)]="entityForm.properties" name="properties" placeholder='{"wheels": 4, "color": "red"}' />
+                <label>Properties</label>
+                <div class="flyout-wrap">
+                  <button type="button" class="flyout-trigger" [class.has-value]="entityForm.properties.trim()" (click)="openFlyout('create-entity-properties')">
+                    @if (entityForm.properties.trim()) {
+                      @if (jsonError(entityForm.properties)) { <span style="color:var(--error)">⚠ Invalid JSON</span> }
+                      @else { <span>{{ jsonKeyCount(entityForm.properties) }} key{{ jsonKeyCount(entityForm.properties) === 1 ? '' : 's' }}</span> }
+                    } @else { <span style="color:var(--text-muted)">Add JSON properties…</span> }
+                  </button>
+                  @if (flyoutField() === 'create-entity-properties') {
+                    <div class="flyout-panel" style="min-width:280px;">
+                      <textarea class="query-textarea" [(ngModel)]="entityForm.properties" name="entCreatePropsEdit"
+                        rows="6" placeholder='{"key": "value"}'></textarea>
+                      @if (jsonError(entityForm.properties); as err) {
+                        <div style="font-size:11px; color:var(--error); margin-top:4px;">⚠ {{ err }}</div>
+                      } @else if (entityForm.properties.trim()) {
+                        <div style="font-size:11px; color:var(--success,#4caf50); margin-top:4px;">✓ Valid JSON</div>
+                      }
+                      <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:8px;">
+                        <button type="button" class="btn btn-sm btn-secondary" (click)="formatJson(entityForm)">Format</button>
+                        <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                      </div>
+                    </div>
+                  }
+                </div>
               </div>
               <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEntity() || !entityForm.name.trim()">
                 @if (creatingEntity()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
@@ -776,8 +912,30 @@ interface SpaceView {
                             <input type="text" [(ngModel)]="editEntity.tags" name="editEntTags" />
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-                            <label>Properties (JSON)</label>
-                            <input type="text" [(ngModel)]="editEntity.properties" name="editEntProps" />
+                            <label>Properties</label>
+                            <div class="flyout-wrap">
+                              <button type="button" class="flyout-trigger" [class.has-value]="editEntity.properties.trim()" (click)="openFlyout('edit-entity-properties')">
+                                @if (editEntity.properties.trim()) {
+                                  @if (jsonError(editEntity.properties)) { <span style="color:var(--error)">⚠ Invalid JSON</span> }
+                                  @else { <span>{{ jsonKeyCount(editEntity.properties) }} key{{ jsonKeyCount(editEntity.properties) === 1 ? '' : 's' }}</span> }
+                                } @else { <span style="color:var(--text-muted)">Add JSON properties…</span> }
+                              </button>
+                              @if (flyoutField() === 'edit-entity-properties') {
+                                <div class="flyout-panel" style="min-width:280px;">
+                                  <textarea class="query-textarea" [(ngModel)]="editEntity.properties" name="entEditPropsEdit"
+                                    rows="6" placeholder='{"key": "value"}'></textarea>
+                                  @if (jsonError(editEntity.properties); as err) {
+                                    <div style="font-size:11px; color:var(--error); margin-top:4px;">⚠ {{ err }}</div>
+                                  } @else if (editEntity.properties.trim()) {
+                                    <div style="font-size:11px; color:var(--success,#4caf50); margin-top:4px;">✓ Valid JSON</div>
+                                  }
+                                  <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:8px;">
+                                    <button type="button" class="btn btn-sm btn-secondary" (click)="formatJson(editEntity)">Format</button>
+                                    <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                                  </div>
+                                </div>
+                              }
+                            </div>
                           </div>
                           <div style="display:flex; gap:6px; align-items:flex-end;">
                             <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditEntity(ent._id)">
@@ -871,14 +1029,14 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:120px;">
                 <label>Label (relation)</label>
-                <input type="text" [(ngModel)]="edgeForm.label" name="label" placeholder="depends_on" required />
+                <input type="text" [(ngModel)]="edgeForm.label" name="label" required />
               </div>
               <div class="field" style="flex:1; min-width:120px;">
                 <label>To</label>
                 <div class="entity-picker-wrap">
-                  <input type="text" [(ngModel)]="edgeForm.to" name="to" placeholder="Search entity…"
+                  <input type="text" [(ngModel)]="edgeForm.toDisplay" name="to" placeholder="Search entity…"
                     autocomplete="off" required
-                    (focus)="onPickerFocus('create-edge-to', edgeForm.to)"
+                    (focus)="onPickerFocus('create-edge-to', edgeForm.toDisplay)"
                     (input)="onPickerInput('create-edge-to', $event)"
                     (blur)="schedulePkrClose()" />
                   @if (pickerField() === 'create-edge-to' && pickerResults().length) {
@@ -897,23 +1055,45 @@ interface SpaceView {
               </div>
               <div class="field" style="width:100px;">
                 <label>Type (optional)</label>
-                <input type="text" [(ngModel)]="edgeForm.type" name="type" placeholder="causal" />
+                <input type="text" [(ngModel)]="edgeForm.type" name="type" />
               </div>
               <div class="field" style="width:80px;">
                 <label>Weight</label>
-                <input type="number" [(ngModel)]="edgeForm.weight" name="weight" step="0.1" placeholder="—" />
+                <input type="number" [(ngModel)]="edgeForm.weight" name="weight" step="0.1" />
               </div>
               <div class="field" style="flex:1; min-width:140px;">
                 <label>Tags (comma-separated)</label>
-                <input type="text" [(ngModel)]="edgeForm.tags" name="tags" placeholder="tag1, tag2" />
+                <input type="text" [(ngModel)]="edgeForm.tags" name="tags" />
               </div>
               <div class="field" style="flex:2; min-width:200px;">
                 <label>Description (optional)</label>
-                <input type="text" [(ngModel)]="edgeForm.description" name="description" placeholder="Why does this relation exist?" />
+                <input type="text" [(ngModel)]="edgeForm.description" name="description" />
               </div>
               <div class="field" style="flex:1; min-width:160px;">
-                <label>Properties (JSON, optional)</label>
-                <input type="text" [(ngModel)]="edgeForm.properties" name="properties" placeholder='{"since": "2024"}' />
+                <label>Properties</label>
+                <div class="flyout-wrap">
+                  <button type="button" class="flyout-trigger" [class.has-value]="edgeForm.properties.trim()" (click)="openFlyout('create-edge-properties')">
+                    @if (edgeForm.properties.trim()) {
+                      @if (jsonError(edgeForm.properties)) { <span style="color:var(--error)">⚠ Invalid JSON</span> }
+                      @else { <span>{{ jsonKeyCount(edgeForm.properties) }} key{{ jsonKeyCount(edgeForm.properties) === 1 ? '' : 's' }}</span> }
+                    } @else { <span style="color:var(--text-muted)">Add JSON properties…</span> }
+                  </button>
+                  @if (flyoutField() === 'create-edge-properties') {
+                    <div class="flyout-panel" style="min-width:280px;">
+                      <textarea class="query-textarea" [(ngModel)]="edgeForm.properties" name="edgeCreatePropsEdit"
+                        rows="6" placeholder='{"key": "value"}'></textarea>
+                      @if (jsonError(edgeForm.properties); as err) {
+                        <div style="font-size:11px; color:var(--error); margin-top:4px;">⚠ {{ err }}</div>
+                      } @else if (edgeForm.properties.trim()) {
+                        <div style="font-size:11px; color:var(--success,#4caf50); margin-top:4px;">✓ Valid JSON</div>
+                      }
+                      <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:8px;">
+                        <button type="button" class="btn btn-sm btn-secondary" (click)="formatJson(edgeForm)">Format</button>
+                        <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                      </div>
+                    </div>
+                  }
+                </div>
               </div>
               <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEdge() || !edgeForm.from.trim() || !edgeForm.to.trim() || !edgeForm.label.trim()">
                 @if (creatingEdge()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
@@ -939,6 +1119,12 @@ interface SpaceView {
                     <tr>
                       <td colspan="9">
                         <div class="create-form" style="border:none; padding:8px 0;">
+                          <div class="field" style="min-width:200px; margin-bottom:0;">
+                            <label style="font-size:11px; color:var(--text-muted);">Editing edge</label>
+                            <div style="font-size:12px; padding:6px 8px; background:var(--bg-secondary); border-radius:4px; color:var(--text-muted);">
+                              {{ editEdge.fromName || editEdge.from }} → {{ editEdge.toName || editEdge.to }}
+                            </div>
+                          </div>
                           <div class="field" style="flex:1; min-width:120px; margin-bottom:0;">
                             <label>Label (relation)</label>
                             <input type="text" [(ngModel)]="editEdge.label" name="editEdgeLabel" />
@@ -960,8 +1146,30 @@ interface SpaceView {
                             <input type="text" [(ngModel)]="editEdge.tags" name="editEdgeTags" />
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-                            <label>Properties (JSON)</label>
-                            <input type="text" [(ngModel)]="editEdge.properties" name="editEdgeProps" />
+                            <label>Properties</label>
+                            <div class="flyout-wrap">
+                              <button type="button" class="flyout-trigger" [class.has-value]="editEdge.properties.trim()" (click)="openFlyout('edit-edge-properties')">
+                                @if (editEdge.properties.trim()) {
+                                  @if (jsonError(editEdge.properties)) { <span style="color:var(--error)">⚠ Invalid JSON</span> }
+                                  @else { <span>{{ jsonKeyCount(editEdge.properties) }} key{{ jsonKeyCount(editEdge.properties) === 1 ? '' : 's' }}</span> }
+                                } @else { <span style="color:var(--text-muted)">Add JSON properties…</span> }
+                              </button>
+                              @if (flyoutField() === 'edit-edge-properties') {
+                                <div class="flyout-panel" style="min-width:280px;">
+                                  <textarea class="query-textarea" [(ngModel)]="editEdge.properties" name="edgeEditPropsEdit"
+                                    rows="6" placeholder='{"key": "value"}'></textarea>
+                                  @if (jsonError(editEdge.properties); as err) {
+                                    <div style="font-size:11px; color:var(--error); margin-top:4px;">⚠ {{ err }}</div>
+                                  } @else if (editEdge.properties.trim()) {
+                                    <div style="font-size:11px; color:var(--success,#4caf50); margin-top:4px;">✓ Valid JSON</div>
+                                  }
+                                  <div style="display:flex; gap:6px; justify-content:flex-end; margin-top:8px;">
+                                    <button type="button" class="btn btn-sm btn-secondary" (click)="formatJson(editEdge)">Format</button>
+                                    <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                                  </div>
+                                </div>
+                              }
+                            </div>
                           </div>
                           <div style="display:flex; gap:6px; align-items:flex-end;">
                             <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditEdge(edge._id)">
@@ -975,10 +1183,10 @@ interface SpaceView {
                     </tr>
                   } @else {
                     <tr>
-                      <td class="mono" style="font-size:12px">{{ edge.from }}</td>
+                      <td style="font-size:12px">{{ edge.fromName || edge.from }}</td>
                       <td><span class="badge badge-blue">{{ edge.label }}</span></td>
                       <td style="color:var(--text-muted); font-size:12px">{{ edge.type ?? '—' }}</td>
-                      <td class="mono" style="font-size:12px">{{ edge.to }}</td>
+                      <td style="font-size:12px">{{ edge.toName || edge.to }}</td>
                       <td style="font-size:12px; color:var(--text-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="edge.description ?? ''">
                         {{ edge.description || '—' }}
                       </td>
@@ -1031,7 +1239,7 @@ interface SpaceView {
             <form class="create-form" (ngSubmit)="createChrono()">
               <div class="field" style="flex:2; min-width:200px;">
                 <label>Title</label>
-                <input type="text" [(ngModel)]="chronoForm.title" name="title" placeholder="Release v1.0" required />
+                <input type="text" [(ngModel)]="chronoForm.title" name="title" required />
               </div>
               <div class="field" style="width:160px;">
                 <label>Kind</label>
@@ -1042,7 +1250,7 @@ interface SpaceView {
                   </select>
                 } @else {
                   <div style="display:flex; gap:4px;">
-                    <input type="text" [(ngModel)]="chronoForm.customKind" name="customKind" placeholder="my-kind" style="flex:1;" />
+                    <input type="text" [(ngModel)]="chronoForm.customKind" name="customKind" style="flex:1;" />
                     <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="chronoForm.kind = 'event'; chronoForm.customKind = ''" title="Back to presets">✕</button>
                   </div>
                 }
@@ -1057,30 +1265,49 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:200px;">
                 <label>Description (optional)</label>
-                <textarea [(ngModel)]="chronoForm.description" name="description" placeholder="Add context or details…" rows="3" style="resize:vertical;"></textarea>
+                <textarea [(ngModel)]="chronoForm.description" name="description" rows="3" style="resize:vertical;"></textarea>
               </div>
               <div class="field" style="flex:1; min-width:140px;">
                 <label>Tags (comma-separated)</label>
-                <input type="text" [(ngModel)]="chronoForm.tags" name="tags" placeholder="release, infra" />
+                <input type="text" [(ngModel)]="chronoForm.tags" name="tags" />
               </div>
               <div class="field" style="flex:1; min-width:140px;">
-                <label>Entity IDs (comma-separated, optional)</label>
-                <div class="entity-picker-wrap">
-                  <input type="text" [(ngModel)]="chronoForm.entityIds" name="entityIds" placeholder="Search entities…"
-                    autocomplete="off"
-                    (focus)="onPickerFocus('create-chrono-entityIds', chronoForm.entityIds)"
-                    (input)="onPickerInput('create-chrono-entityIds', $event)"
-                    (blur)="schedulePkrClose()" />
-                  @if (pickerField() === 'create-chrono-entityIds' && pickerResults().length) {
-                    <div class="entity-picker-dropdown">
-                      @for (ent of pickerResults(); track ent._id) {
-                        <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'create-chrono-entityIds')">
-                          <span class="entity-picker-name">{{ ent.name }}</span>
-                          @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
-                          @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
-                          <span class="entity-picker-id">{{ ent._id }}</span>
-                        </div>
-                      }
+                <label>Entities</label>
+                <div class="flyout-wrap">
+                  <button type="button" class="flyout-trigger" [class.has-value]="chronoForm.entityIds.trim()" (click)="openFlyout('create-chrono-entityIds')">
+                    @let chips = entityChips(chronoForm.entityIds);
+                    @if (chips.length) { {{ chips.length }} linked } @else { <span style="color:var(--text-muted)">+ Link entities…</span> }
+                  </button>
+                  @if (flyoutField() === 'create-chrono-entityIds') {
+                    <div class="flyout-panel">
+                      <div class="chip-list">
+                        @let openChips2 = entityChips(chronoForm.entityIds);
+                        @for (chip of openChips2; track chip.id) {
+                          <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(chronoForm, chip.id)">✕</button></span>
+                        }
+                        @if (!openChips2.length) { <span style="font-size:11px; color:var(--text-muted)">No entities linked yet</span> }
+                      </div>
+                      <div class="entity-picker-wrap">
+                        <input type="text" placeholder="Search entities…" autocomplete="off" style="width:100%"
+                          (focus)="onPickerFocus('create-chrono-entityIds', '')"
+                          (input)="onPickerInput('create-chrono-entityIds', $event)"
+                          (blur)="schedulePkrClose()" />
+                        @if (pickerField() === 'create-chrono-entityIds' && pickerResults().length) {
+                          <div class="entity-picker-dropdown">
+                            @for (ent of pickerResults(); track ent._id) {
+                              <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'create-chrono-entityIds')">
+                                <span class="entity-picker-name">{{ ent.name }}</span>
+                                @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
+                                @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
+                                <span class="entity-picker-id">{{ ent._id }}</span>
+                              </div>
+                            }
+                          </div>
+                        }
+                      </div>
+                      <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                        <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                      </div>
                     </div>
                   }
                 </div>
@@ -1155,23 +1382,42 @@ interface SpaceView {
                             <input type="text" [(ngModel)]="editChrono.tags" name="editChronoTags" />
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-                            <label>Entity IDs (comma-separated)</label>
-                            <div class="entity-picker-wrap">
-                              <input type="text" [(ngModel)]="editChrono.entityIds" name="editChronoEntIds"
-                                autocomplete="off" placeholder="Search entities…"
-                                (focus)="onPickerFocus('edit-chrono-entityIds', editChrono.entityIds)"
-                                (input)="onPickerInput('edit-chrono-entityIds', $event)"
-                                (blur)="schedulePkrClose()" />
-                              @if (pickerField() === 'edit-chrono-entityIds' && pickerResults().length) {
-                                <div class="entity-picker-dropdown">
-                                  @for (ent of pickerResults(); track ent._id) {
-                                    <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'edit-chrono-entityIds')">
-                                      <span class="entity-picker-name">{{ ent.name }}</span>
-                                      @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
-                                      @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
-                                      <span class="entity-picker-id">{{ ent._id }}</span>
-                                    </div>
-                                  }
+                            <label>Entities</label>
+                            <div class="flyout-wrap">
+                              <button type="button" class="flyout-trigger" [class.has-value]="editChrono.entityIds.trim()" (click)="openFlyout('edit-chrono-entityIds')">
+                                @let chips = entityChips(editChrono.entityIds);
+                                @if (chips.length) { {{ chips.length }} linked } @else { <span style="color:var(--text-muted)">+ Link entities…</span> }
+                              </button>
+                              @if (flyoutField() === 'edit-chrono-entityIds') {
+                                <div class="flyout-panel">
+                                  <div class="chip-list">
+                                    @let openChips3 = entityChips(editChrono.entityIds);
+                                    @for (chip of openChips3; track chip.id) {
+                                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(editChrono, chip.id)">✕</button></span>
+                                    }
+                                    @if (!openChips3.length) { <span style="font-size:11px; color:var(--text-muted)">No entities linked yet</span> }
+                                  </div>
+                                  <div class="entity-picker-wrap">
+                                    <input type="text" placeholder="Search entities…" autocomplete="off" style="width:100%"
+                                      (focus)="onPickerFocus('edit-chrono-entityIds', '')"
+                                      (input)="onPickerInput('edit-chrono-entityIds', $event)"
+                                      (blur)="schedulePkrClose()" />
+                                    @if (pickerField() === 'edit-chrono-entityIds' && pickerResults().length) {
+                                      <div class="entity-picker-dropdown">
+                                        @for (ent of pickerResults(); track ent._id) {
+                                          <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'edit-chrono-entityIds')">
+                                            <span class="entity-picker-name">{{ ent.name }}</span>
+                                            @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
+                                            @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
+                                            <span class="entity-picker-id">{{ ent._id }}</span>
+                                          </div>
+                                        }
+                                      </div>
+                                    }
+                                  </div>
+                                  <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                                    <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                                  </div>
                                 </div>
                               }
                             </div>
@@ -1448,7 +1694,7 @@ export class BrainComponent implements OnInit {
   editError = signal('');
   editMemory = { fact: '', tags: '', entityIds: '', description: '', properties: '' };
   editEntity = { name: '', type: '', tags: '', description: '', properties: '' };
-  editEdge = { label: '', type: '', weight: null as number | null, tags: '', description: '', properties: '' };
+  editEdge = { from: '', to: '', fromName: undefined as string | undefined, toName: undefined as string | undefined, label: '', type: '', weight: null as number | null, tags: '', description: '', properties: '' };
   editChrono = { title: '', kind: '' as string, status: '' as string, startsAt: '', endsAt: '', description: '', tags: '', entityIds: '' };
 
   // Create memory form
@@ -1467,7 +1713,7 @@ export class BrainComponent implements OnInit {
   showEdgeForm = signal(false);
   creatingEdge = signal(false);
   createEdgeError = signal('');
-  edgeForm = { from: '', to: '', label: '', type: '', weight: null as number | null, tags: '', description: '', properties: '' };
+  edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: '', type: '', weight: null as number | null, tags: '', description: '', properties: '' };
 
   // Create chrono form
   showChronoForm = signal(false);
@@ -1694,6 +1940,10 @@ export class BrainComponent implements OnInit {
     this.editingId.set(edge._id);
     this.editError.set('');
     this.editEdge = {
+      from: edge.from,
+      to: edge.to,
+      fromName: edge.fromName,
+      toName: edge.toName,
       label: edge.label,
       type: edge.type ?? '',
       weight: edge.weight ?? null,
@@ -1899,7 +2149,7 @@ export class BrainComponent implements OnInit {
       next: () => {
         this.creatingEdge.set(false);
         this.showEdgeForm.set(false);
-        this.edgeForm = { from: '', to: '', label: '', type: '', weight: null, tags: '', description: '', properties: '' };
+        this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: '', type: '', weight: null, tags: '', description: '', properties: '' };
         this.loadStats(this.activeSpaceId());
         this.loadCurrentTab(this.activeSpaceId());
       },
@@ -2070,7 +2320,7 @@ export class BrainComponent implements OnInit {
   }
 
   openEdgeForm(): void {
-    this.edgeForm = { from: '', to: '', label: '', type: '', weight: null, tags: '', description: '', properties: this.buildPropertiesTemplate('edge') };
+    this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: '', type: '', weight: null, tags: '', description: '', properties: this.buildPropertiesTemplate('edge') };
     this.showEdgeForm.set(true);
   }
 
@@ -2097,18 +2347,96 @@ export class BrainComponent implements OnInit {
     return JSON.stringify(template, null, 2);
   }
 
-  // ── Entity picker ────────────────────────────────────────────────────────
+  // ── Entity picker & flyouts ─────────────────────────────────────────────
+
+  flyoutField = signal('');
+  entityNameCache = signal<Record<string, string>>({});
+
+  openFlyout(key: string): void {
+    this.flyoutField.set(key);
+    if (key.endsWith('entityIds')) this.resolveEntityNamesForFlyout(key);
+  }
+
+  closeFlyout(): void {
+    this.flyoutField.set('');
+    this.pickerField.set('');
+    this.pickerResults.set([]);
+  }
+
+  removeEntityId(target: { entityIds: string }, id: string): void {
+    const parts = target.entityIds.split(',').map(s => s.trim()).filter(s => s && s !== id);
+    target.entityIds = parts.join(', ');
+  }
+
+  entityChips(ids: string): Array<{ id: string; name: string }> {
+    const cache = this.entityNameCache();
+    return ids.split(',').map(s => s.trim()).filter(Boolean)
+      .map(id => ({ id, name: cache[id] ?? id }));
+  }
+
+  jsonError(val: string): string {
+    if (!val.trim()) return '';
+    try { JSON.parse(val); return ''; }
+    catch (e) { return e instanceof Error ? e.message : 'Invalid JSON'; }
+  }
+
+  jsonKeyCount(val: string): number {
+    if (!val.trim()) return 0;
+    try { return Object.keys(JSON.parse(val)).length; }
+    catch { return 0; }
+  }
+
+  formatJson(target: { properties: string }): void {
+    if (!target.properties.trim()) return;
+    try { target.properties = JSON.stringify(JSON.parse(target.properties.trim()), null, 2); }
+    catch { }
+  }
+
+  private resolveEntityNamesForFlyout(key: string): void {
+    let ids = '';
+    switch (key) {
+      case 'create-memory-entityIds': ids = this.memoryForm.entityIds; break;
+      case 'edit-memory-entityIds': ids = this.editMemory.entityIds; break;
+      case 'create-chrono-entityIds': ids = this.chronoForm.entityIds; break;
+      case 'edit-chrono-entityIds': ids = this.editChrono.entityIds; break;
+    }
+    const spaceId = this.activeSpaceId();
+    if (!spaceId) return;
+    const unknown = ids.split(',').map(s => s.trim())
+      .filter(s => s && !this.entityNameCache()[s]);
+    if (!unknown.length) return;
+    this.api.getEntitiesByIds(spaceId, unknown).subscribe({
+      next: ({ entities }) => {
+        const patch: Record<string, string> = {};
+        for (const e of entities) patch[e._id] = e.name;
+        this.entityNameCache.update(c => ({ ...c, ...patch }));
+      },
+      error: () => {},
+    });
+  }
 
   onPickerFocus(field: string, currentValue: string): void {
     this.pickerField.set(field);
-    this.doPkrSearch(currentValue.trim());
+    this.doPkrSearch(this.pickerQuery(field, currentValue));
   }
 
   onPickerInput(field: string, event: Event): void {
     this.pickerField.set(field);
-    const q = (event.target as HTMLInputElement).value.trim();
+    const raw = (event.target as HTMLInputElement).value;
+    // When user types in a single-entity picker, clear the stored ID until they pick again
+    if (field === 'create-edge-from') this.edgeForm.from = '';
+    if (field === 'create-edge-to') this.edgeForm.to = '';
+    const q = this.pickerQuery(field, raw);
     if (this.pickerTimer) clearTimeout(this.pickerTimer);
     this.pickerTimer = setTimeout(() => this.doPkrSearch(q), 200);
+  }
+
+  /** For multi-entity fields, extract only the text after the last comma as the search term. */
+  private pickerQuery(field: string, value: string): string {
+    if (field.endsWith('entityIds')) {
+      return value.split(',').pop()!.trim();
+    }
+    return value.trim();
   }
 
   schedulePkrClose(): void {
@@ -2131,12 +2459,20 @@ export class BrainComponent implements OnInit {
 
   pickEntity(ent: Entity, mode: 'single' | 'multi', field: string): void {
     switch (field) {
-      case 'create-edge-from':         this.edgeForm.from = ent._id; break;
-      case 'create-edge-to':           this.edgeForm.to = ent._id; break;
-      case 'create-memory-entityIds':  this.memoryForm.entityIds = this.appendEntityId(this.memoryForm.entityIds, ent._id); break;
-      case 'create-chrono-entityIds':  this.chronoForm.entityIds = this.appendEntityId(this.chronoForm.entityIds, ent._id); break;
-      case 'edit-memory-entityIds':    this.editMemory.entityIds = this.appendEntityId(this.editMemory.entityIds, ent._id); break;
-      case 'edit-chrono-entityIds':    this.editChrono.entityIds = this.appendEntityId(this.editChrono.entityIds, ent._id); break;
+      case 'create-edge-from':         this.edgeForm.from = ent._id; this.edgeForm.fromDisplay = ent.name; break;
+      case 'create-edge-to':           this.edgeForm.to = ent._id; this.edgeForm.toDisplay = ent.name; break;
+      case 'create-memory-entityIds':
+        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
+        this.memoryForm.entityIds = this.appendEntityId(this.memoryForm.entityIds, ent._id); break;
+      case 'create-chrono-entityIds':
+        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
+        this.chronoForm.entityIds = this.appendEntityId(this.chronoForm.entityIds, ent._id); break;
+      case 'edit-memory-entityIds':
+        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
+        this.editMemory.entityIds = this.appendEntityId(this.editMemory.entityIds, ent._id); break;
+      case 'edit-chrono-entityIds':
+        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
+        this.editChrono.entityIds = this.appendEntityId(this.editChrono.entityIds, ent._id); break;
     }
     this.pickerField.set('');
     this.pickerResults.set([]);

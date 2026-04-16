@@ -8,6 +8,7 @@ import { Router } from 'express';
 import { requireAdmin } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { queryAuditLog } from '../audit/audit.js';
+import { getConfig } from '../config/loader.js';
 
 export const auditRouter = Router();
 
@@ -32,7 +33,8 @@ auditRouter.get('/', globalRateLimit, requireAdmin, async (req, res) => {
     if (params.offset !== undefined && isNaN(params.offset)) params.offset = undefined;
 
     const result = await queryAuditLog(params);
-    res.json(result);
+    const retentionDays = getConfig().audit?.retentionDays ?? 90;
+    res.json({ ...result, retentionDays });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });

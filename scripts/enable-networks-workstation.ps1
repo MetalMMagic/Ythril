@@ -4,7 +4,7 @@ function Write-Step([string]$message) {
   Write-Host "[enable-networks] $message"
 }
 
-function Ensure-Cloudflared {
+function Initialize-Cloudflared {
   $cmd = Get-Command cloudflared -ErrorAction SilentlyContinue
   if ($cmd) {
     Write-Step 'cloudflared found.'
@@ -27,7 +27,7 @@ function Ensure-Cloudflared {
   Write-Step 'cloudflared installed.'
 }
 
-function Ensure-CloudflareLogin {
+function Initialize-CloudflareLogin {
   $certPath = Join-Path $HOME '.cloudflared/cert.pem'
   if (Test-Path $certPath) {
     Write-Step 'cloudflared login already present.'
@@ -50,7 +50,7 @@ function New-Token {
   return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 }
 
-function Get-DotEnvValue([string]$envPath, [string]$key): string {
+function Get-DotEnvValue([string]$envPath, [string]$key) {
   if (-not (Test-Path $envPath)) { return '' }
   $pattern = "^$([regex]::Escape($key))=(.*)$"
   $lines = Get-Content -Path $envPath
@@ -62,7 +62,7 @@ function Get-DotEnvValue([string]$envPath, [string]$key): string {
   return ''
 }
 
-function Upsert-DotEnvValue([string]$envPath, [string]$key, [string]$value) {
+function Set-DotEnvValue([string]$envPath, [string]$key, [string]$value) {
   $lines = @()
   if (Test-Path $envPath) {
     $lines = Get-Content -Path $envPath
@@ -84,7 +84,7 @@ function Upsert-DotEnvValue([string]$envPath, [string]$key, [string]$value) {
   Set-Content -Path $envPath -Value $lines -Encoding UTF8
 }
 
-function Get-StableToken([string]$envPath, [string]$tokenFile): string {
+function Get-StableToken([string]$envPath, [string]$tokenFile) {
   $existing = Get-DotEnvValue -envPath $envPath -key 'YTHRIL_LOCAL_AGENT_TOKEN'
   if ($existing) {
     return $existing
@@ -104,7 +104,7 @@ function Get-StableToken([string]$envPath, [string]$tokenFile): string {
   return New-Token
 }
 
-function Test-HelperAuth([string]$token): bool {
+function Test-HelperAuth([string]$token) {
   try {
     Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:38123/v1/status' -Headers @{ Authorization = "Bearer $token" } -TimeoutSec 3 | Out-Null
     return $true
@@ -113,7 +113,7 @@ function Test-HelperAuth([string]$token): bool {
   }
 }
 
-function Ensure-HelperRunning([string]$repoRoot, [string]$token) {
+function Initialize-HelperRunning([string]$repoRoot, [string]$token) {
   $isListening = $false
   try {
     $listen = Get-NetTCPConnection -LocalPort 38123 -State Listen -ErrorAction Stop
@@ -131,7 +131,9 @@ function Ensure-HelperRunning([string]$repoRoot, [string]$token) {
   }
 
   Write-Step 'Starting local helper service in background...'
-  $cmd = "`$env:YTHRIL_CONNECTOR_TOKEN='$token'; Set-Location '$repoRoot'; npm run local-connector:dev --workspace=server"
+  # Token is read from the token file by the connector; do not embed it in the command
+  # line where it would be visible to other local processes via Get-CimInstance / Task Manager.
+  $cmd = "Set-Location '$repoRoot'; npm run local-connector:dev --workspace=server"
   $psExe = if (Get-Command pwsh -ErrorAction SilentlyContinue) { 'pwsh' } else { 'powershell' }
   Start-Process -FilePath $psExe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmd) -WindowStyle Minimized | Out-Null
   Write-Step 'local helper started.'
@@ -142,16 +144,23 @@ $envPath = Join-Path $repoRoot '.env'
 $tokenFile = Join-Path $HOME '.ythril-local-connector/token'
 
 Write-Step 'Preparing workstation for Enable Networks auto setup...'
-Ensure-Cloudflared
-Ensure-CloudflareLogin
+Initialize-Cloudflared
+Initialize-CloudflareLogin
 
 $token = Get-StableToken -envPath $envPath -tokenFile $tokenFile
-Upsert-DotEnvValue -envPath $envPath -key 'YTHRIL_LOCAL_AGENT_ENABLED' -value 'true'
-Upsert-DotEnvValue -envPath $envPath -key 'YTHRIL_LOCAL_AGENT_URL' -value 'http://127.0.0.1:38123'
-Upsert-DotEnvValue -envPath $envPath -key 'YTHRIL_LOCAL_AGENT_TOKEN' -value $token
+
+# Persist the resolved token to the state file so the connector can discover it
+# without needing it injected on the command line.
+$tokenDir = Split-Path -Parent $tokenFile
+if (-not (Test-Path $tokenDir)) { New-Item -ItemType Directory -Path $tokenDir -Force | Out-Null }
+Set-Content -Path $tokenFile -Value $token -Encoding UTF8 -NoNewline
+
+Set-DotEnvValue -envPath $envPath -key 'YTHRIL_LOCAL_AGENT_ENABLED' -value 'true'
+Set-DotEnvValue -envPath $envPath -key 'YTHRIL_LOCAL_AGENT_URL' -value 'http://127.0.0.1:38123'
+Set-DotEnvValue -envPath $envPath -key 'YTHRIL_LOCAL_AGENT_TOKEN' -value $token
 Write-Step 'Wrote/updated .env values for local-agent integration.'
 
-Ensure-HelperRunning -repoRoot $repoRoot -token $token
+Initialize-HelperRunning -repoRoot $repoRoot -token $token
 
 Write-Step 'Restarting Ythril container to apply env changes...'
 Set-Location $repoRoot

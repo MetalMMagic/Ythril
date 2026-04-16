@@ -216,6 +216,7 @@ export async function createSpace(opts: {
   folders?: string[];
   maxGiB?: number;
   proxyFor?: string[];
+  meta?: SpaceMeta;
 }): Promise<SpaceConfig> {
   const cfg = getConfig();
   if (cfg.spaces.some(s => s.id === opts.id)) {
@@ -229,6 +230,7 @@ export async function createSpace(opts: {
     maxGiB: opts.maxGiB,
     description: opts.description,
     ...(opts.proxyFor ? { proxyFor: opts.proxyFor } : {}),
+    ...(opts.meta ? { meta: opts.meta } : {}),
   };
   cfg.spaces.push(space);
   saveConfig(cfg);

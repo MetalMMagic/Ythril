@@ -25,8 +25,11 @@ export function isLocalAgentFeatureEnabled(): boolean {
 }
 
 function isLoopbackHost(host: string): boolean {
+  // Only accept numeric loopback addresses. 'localhost' is intentionally excluded
+  // because it is resolved via DNS/hosts and could be remapped to a non-loopback
+  // address on a compromised system.
   const h = host.toLowerCase();
-  return h === '127.0.0.1' || h === 'localhost' || h === '::1';
+  return h === '127.0.0.1' || h === '::1';
 }
 
 function getAgentConfig(): { baseUrl: string | null; token: string | null } {

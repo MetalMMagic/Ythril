@@ -2,9 +2,9 @@ import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallResponse, RecallKnowledgeType, SpaceMeta, SpaceMetaResponse, ValidationMode, KnowledgeType } from '../../core/api.service';
+import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, SpaceMetaResponse, KnowledgeType } from '../../core/api.service';
 
-type BrainTab = 'query' | 'settings' | 'entities' | 'edges' | 'memories' | 'chrono';
+type BrainTab = 'query' | 'entities' | 'edges' | 'memories' | 'chrono';
 
 interface SpaceView {
   space: Space;
@@ -370,6 +370,44 @@ interface SpaceView {
       justify-content: space-between;
       margin-bottom: 16px;
     }
+
+    .entity-picker-wrap {
+      position: relative;
+    }
+    .entity-picker-dropdown {
+      position: absolute;
+      top: calc(100% + 2px);
+      left: 0;
+      min-width: 300px;
+      max-height: 240px;
+      overflow-y: auto;
+      z-index: 50;
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    }
+    .entity-picker-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      border-bottom: 1px solid var(--border-muted);
+    }
+    .entity-picker-item:last-child { border-bottom: none; }
+    .entity-picker-item:hover { background: var(--bg-surface); }
+    .entity-picker-name { font-weight: 500; color: var(--text-primary); white-space: nowrap; }
+    .entity-picker-desc {
+      font-size: 11px; color: var(--text-muted); flex: 1;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .entity-picker-id {
+      font-size: 10px; color: var(--text-muted);
+      font-family: var(--font-mono, monospace); margin-left: auto; flex-shrink: 0;
+    }
+    .tab-spacer { flex: 1; }
   `],
   template: `
     @if (loadingSpaces()) {
@@ -413,9 +451,13 @@ interface SpaceView {
         <div class="alert alert-success" style="margin-bottom:10px; font-size:13px;">✓ {{ reindexResult() }}</div>
       }
 
-      <!-- Sub-tabs with counts -->
+      <!-- Sub-tabs: Query on left, collections on right -->
       <div class="tabs">
-        @for (tab of tabs; track tab.key) {
+        <button class="tab" [class.active]="activeTab() === 'query'" (click)="setTab('query')">
+          🔍 Query
+        </button>
+        <span class="tab-spacer"></span>
+        @for (tab of collectionTabs; track tab.key) {
           <button class="tab" [class.active]="activeTab() === tab.key" (click)="setTab(tab.key)">
             {{ tab.label }}
             @if (activeStats(); as s) {
@@ -453,7 +495,25 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:140px;">
                 <label>Entity IDs (comma-separated)</label>
-                <input type="text" [(ngModel)]="memoryForm.entityIds" name="entityIds" placeholder="entity-id-1" />
+                <div class="entity-picker-wrap">
+                  <input type="text" [(ngModel)]="memoryForm.entityIds" name="entityIds" placeholder="Search entities…"
+                    autocomplete="off"
+                    (focus)="onPickerFocus('create-memory-entityIds', memoryForm.entityIds)"
+                    (input)="onPickerInput('create-memory-entityIds', $event)"
+                    (blur)="schedulePkrClose()" />
+                  @if (pickerField() === 'create-memory-entityIds' && pickerResults().length) {
+                    <div class="entity-picker-dropdown">
+                      @for (ent of pickerResults(); track ent._id) {
+                        <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'create-memory-entityIds')">
+                          <span class="entity-picker-name">{{ ent.name }}</span>
+                          @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
+                          @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
+                          <span class="entity-picker-id">{{ ent._id }}</span>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
               </div>
               <div class="field" style="flex:2; min-width:200px;">
                 <label>Description (optional)</label>
@@ -519,7 +579,7 @@ interface SpaceView {
             <button class="btn-secondary btn btn-sm" [disabled]="memories().length < pageSize" (click)="nextPage()">Next →</button>
             <button
               class="btn-primary btn btn-sm"
-              (click)="showMemoryForm.set(true)"
+              (click)="openMemoryForm()"
               [disabled]="showMemoryForm()"
             >+ Add memory</button>
             <button
@@ -554,6 +614,28 @@ interface SpaceView {
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                             <label>Tags (comma-separated)</label>
                             <input type="text" [(ngModel)]="editMemory.tags" name="editTags" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
+                            <label>Entity IDs (comma-separated)</label>
+                            <div class="entity-picker-wrap">
+                              <input type="text" [(ngModel)]="editMemory.entityIds" name="editEntityIds"
+                                autocomplete="off" placeholder="Search entities…"
+                                (focus)="onPickerFocus('edit-memory-entityIds', editMemory.entityIds)"
+                                (input)="onPickerInput('edit-memory-entityIds', $event)"
+                                (blur)="schedulePkrClose()" />
+                              @if (pickerField() === 'edit-memory-entityIds' && pickerResults().length) {
+                                <div class="entity-picker-dropdown">
+                                  @for (ent of pickerResults(); track ent._id) {
+                                    <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'edit-memory-entityIds')">
+                                      <span class="entity-picker-name">{{ ent.name }}</span>
+                                      @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
+                                      @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
+                                      <span class="entity-picker-id">{{ ent._id }}</span>
+                                    </div>
+                                  }
+                                </div>
+                              }
+                            </div>
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                             <label>Properties (JSON)</label>
@@ -620,7 +702,7 @@ interface SpaceView {
         @if (activeTab() === 'entities') {
 
           <div style="margin-bottom:12px; display:flex; gap:8px;">
-            <button class="btn-primary btn btn-sm" (click)="showEntityForm.set(true)" [disabled]="showEntityForm()">+ Add entity</button>
+            <button class="btn-primary btn btn-sm" (click)="openEntityForm()" [disabled]="showEntityForm()">+ Add entity</button>
           </div>
 
           @if (showEntityForm()) {
@@ -760,14 +842,32 @@ interface SpaceView {
         @if (activeTab() === 'edges') {
 
           <div style="margin-bottom:12px; display:flex; gap:8px;">
-            <button class="btn-primary btn btn-sm" (click)="showEdgeForm.set(true)" [disabled]="showEdgeForm()">+ Add edge</button>
+            <button class="btn-primary btn btn-sm" (click)="openEdgeForm()" [disabled]="showEdgeForm()">+ Add edge</button>
           </div>
 
           @if (showEdgeForm()) {
             <form class="create-form" (ngSubmit)="createEdge()">
               <div class="field" style="flex:1; min-width:120px;">
                 <label>From</label>
-                <input type="text" [(ngModel)]="edgeForm.from" name="from" placeholder="Entity A" required />
+                <div class="entity-picker-wrap">
+                  <input type="text" [(ngModel)]="edgeForm.from" name="from" placeholder="Search entity…"
+                    autocomplete="off" required
+                    (focus)="onPickerFocus('create-edge-from', edgeForm.from)"
+                    (input)="onPickerInput('create-edge-from', $event)"
+                    (blur)="schedulePkrClose()" />
+                  @if (pickerField() === 'create-edge-from' && pickerResults().length) {
+                    <div class="entity-picker-dropdown">
+                      @for (ent of pickerResults(); track ent._id) {
+                        <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'single', 'create-edge-from')">
+                          <span class="entity-picker-name">{{ ent.name }}</span>
+                          @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
+                          @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
+                          <span class="entity-picker-id">{{ ent._id }}</span>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
               </div>
               <div class="field" style="flex:1; min-width:120px;">
                 <label>Label (relation)</label>
@@ -775,7 +875,25 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:120px;">
                 <label>To</label>
-                <input type="text" [(ngModel)]="edgeForm.to" name="to" placeholder="Entity B" required />
+                <div class="entity-picker-wrap">
+                  <input type="text" [(ngModel)]="edgeForm.to" name="to" placeholder="Search entity…"
+                    autocomplete="off" required
+                    (focus)="onPickerFocus('create-edge-to', edgeForm.to)"
+                    (input)="onPickerInput('create-edge-to', $event)"
+                    (blur)="schedulePkrClose()" />
+                  @if (pickerField() === 'create-edge-to' && pickerResults().length) {
+                    <div class="entity-picker-dropdown">
+                      @for (ent of pickerResults(); track ent._id) {
+                        <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'single', 'create-edge-to')">
+                          <span class="entity-picker-name">{{ ent.name }}</span>
+                          @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
+                          @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
+                          <span class="entity-picker-id">{{ ent._id }}</span>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
               </div>
               <div class="field" style="width:100px;">
                 <label>Type (optional)</label>
@@ -947,7 +1065,25 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:140px;">
                 <label>Entity IDs (comma-separated, optional)</label>
-                <input type="text" [(ngModel)]="chronoForm.entityIds" name="entityIds" placeholder="entity-id-1, entity-id-2" />
+                <div class="entity-picker-wrap">
+                  <input type="text" [(ngModel)]="chronoForm.entityIds" name="entityIds" placeholder="Search entities…"
+                    autocomplete="off"
+                    (focus)="onPickerFocus('create-chrono-entityIds', chronoForm.entityIds)"
+                    (input)="onPickerInput('create-chrono-entityIds', $event)"
+                    (blur)="schedulePkrClose()" />
+                  @if (pickerField() === 'create-chrono-entityIds' && pickerResults().length) {
+                    <div class="entity-picker-dropdown">
+                      @for (ent of pickerResults(); track ent._id) {
+                        <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'create-chrono-entityIds')">
+                          <span class="entity-picker-name">{{ ent.name }}</span>
+                          @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
+                          @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
+                          <span class="entity-picker-id">{{ ent._id }}</span>
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
               </div>
               <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingChrono() || !chronoForm.title.trim() || !chronoForm.startsAt || (chronoForm.kind === '__custom__' && !chronoForm.customKind.trim())">
                 @if (creatingChrono()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
@@ -1020,7 +1156,25 @@ interface SpaceView {
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                             <label>Entity IDs (comma-separated)</label>
-                            <input type="text" [(ngModel)]="editChrono.entityIds" name="editChronoEntIds" />
+                            <div class="entity-picker-wrap">
+                              <input type="text" [(ngModel)]="editChrono.entityIds" name="editChronoEntIds"
+                                autocomplete="off" placeholder="Search entities…"
+                                (focus)="onPickerFocus('edit-chrono-entityIds', editChrono.entityIds)"
+                                (input)="onPickerInput('edit-chrono-entityIds', $event)"
+                                (blur)="schedulePkrClose()" />
+                              @if (pickerField() === 'edit-chrono-entityIds' && pickerResults().length) {
+                                <div class="entity-picker-dropdown">
+                                  @for (ent of pickerResults(); track ent._id) {
+                                    <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'edit-chrono-entityIds')">
+                                      <span class="entity-picker-name">{{ ent.name }}</span>
+                                      @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
+                                      @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
+                                      <span class="entity-picker-id">{{ ent._id }}</span>
+                                    </div>
+                                  }
+                                </div>
+                              }
+                            </div>
                           </div>
                           <div style="display:flex; gap:6px; align-items:flex-end;">
                             <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditChrono(entry._id)">
@@ -1225,229 +1379,6 @@ interface SpaceView {
           </div>
         }
 
-        <!-- Settings tab -->
-        @if (activeTab() === 'settings') {
-          <div style="padding:8px 0;">
-            @if (settingsLoading()) {
-              <div class="loading-overlay" style="padding:24px;"><span class="spinner"></span></div>
-            } @else if (spaceMeta()) {
-              <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-                <!-- Left column: Space info -->
-                <div class="card" style="margin-bottom:0;">
-                  <div class="card-header">
-                    <div class="card-title" style="font-size:14px;">Space configuration</div>
-                  </div>
-                  <div class="field" style="margin-bottom:8px;">
-                    <label>Label</label>
-                    <input type="text" [(ngModel)]="settingsForm.label" name="settingsLabel" maxlength="200" />
-                  </div>
-                  <div class="field" style="margin-bottom:8px;">
-                    <label>Description</label>
-                    <textarea [(ngModel)]="settingsForm.description" name="settingsDescription" maxlength="4000" rows="3" style="resize:vertical;"></textarea>
-                  </div>
-                  <div style="display:flex; gap:8px; margin-top:8px;">
-                    <button class="btn btn-sm btn-primary" [disabled]="settingsSaving()" (click)="saveSpaceSettings()">
-                      @if (settingsSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
-                      Save
-                    </button>
-                    @if (settingsSaved()) { <span style="color:var(--success); font-size:12px;">✓ Saved</span> }
-                    @if (settingsError()) { <span style="color:var(--error); font-size:12px;">{{ settingsError() }}</span> }
-                  </div>
-                </div>
-
-                <!-- Right column: Schema meta -->
-                <div class="card" style="margin-bottom:0;">
-                  <div class="card-header">
-                    <div class="card-title" style="font-size:14px;">Schema definition</div>
-                    @if (spaceMeta()!.version) {
-                      <span class="badge badge-gray" style="font-size:11px;">v{{ spaceMeta()!.version }}</span>
-                    }
-                  </div>
-
-                  <div class="field" style="margin-bottom:8px;">
-                    <label>Validation mode</label>
-                    <select [(ngModel)]="metaForm.validationMode" name="metaValidationMode" style="width:140px;">
-                      <option value="off">Off</option>
-                      <option value="warn">Warn</option>
-                      <option value="strict">Strict</option>
-                    </select>
-                  </div>
-
-                  <div class="field" style="margin-bottom:8px;">
-                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
-                      <input type="checkbox" [(ngModel)]="metaForm.strictLinkage" name="metaStrictLinkage" />
-                      Strict linkage
-                      <span style="color:var(--text-muted);font-size:11px;" title="When enabled, all reference fields (edge from/to, entityIds, memoryIds) must use UUID IDs, and entity deletion is blocked while inbound backlinks exist.">ⓘ</span>
-                    </label>
-                  </div>
-
-                  <div class="field" style="margin-bottom:8px;">
-                    <label>Purpose</label>
-                    <textarea [(ngModel)]="metaForm.purpose" name="metaPurpose" maxlength="4000" rows="2" style="resize:vertical;" placeholder="Short directive injected into MCP instructions"></textarea>
-                  </div>
-
-                  <div class="field" style="margin-bottom:8px;">
-                    <label>Entity types <span style="color:var(--text-muted);font-size:11px;" title="Allowlist of valid entity type values. Leave empty for unrestricted.">ⓘ</span></label>
-                    <input type="text" [(ngModel)]="metaForm.entityTypesStr" name="metaEntityTypes" placeholder="person, project, topic (comma-separated)" />
-                  </div>
-
-                  <div class="field" style="margin-bottom:8px;">
-                    <label>Edge labels <span style="color:var(--text-muted);font-size:11px;" title="Allowlist of valid edge label values. Leave empty for unrestricted.">ⓘ</span></label>
-                    <input type="text" [(ngModel)]="metaForm.edgeLabelsStr" name="metaEdgeLabels" placeholder="knows, depends_on, part_of (comma-separated)" />
-                  </div>
-
-                  <div class="field" style="margin-bottom:8px;">
-                    <label>Tag suggestions <span style="color:var(--text-muted);font-size:11px;" title="Non-enforced tag hints for UI autocomplete.">ⓘ</span></label>
-                    <input type="text" [(ngModel)]="metaForm.tagSuggestionsStr" name="metaTags" placeholder="important, review, draft (comma-separated)" />
-                  </div>
-
-                  <div class="field" style="margin-bottom:8px;">
-                    <label>Usage notes</label>
-                    <textarea [(ngModel)]="metaForm.usageNotes" name="metaUsageNotes" rows="2" style="resize:vertical;" placeholder="Naming conventions, examples, links (Markdown)"></textarea>
-                  </div>
-
-                  <div class="field" style="margin-bottom:8px;">
-                    <label>Naming patterns <span style="color:var(--text-muted);font-size:11px;" title="JSON object mapping knowledge types to naming conventions.">ⓘ</span></label>
-                    <textarea
-                      [(ngModel)]="metaForm.namingPatternsJson"
-                      name="metaNamingPatterns"
-                      rows="3"
-                      style="resize:vertical; font-family:var(--font-mono); font-size:12px;"
-                      placeholder='{{ "{" }}"entity": "PascalCase", "memory": "lowercase"{{ "}" }}'
-                    ></textarea>
-                  </div>
-
-                  <div class="field" style="margin-bottom:8px;">
-                    <label>Required properties <span style="color:var(--text-muted);font-size:11px;" title="JSON object mapping knowledge types to required property name arrays.">ⓘ</span></label>
-                    <textarea
-                      [(ngModel)]="metaForm.requiredPropertiesJson"
-                      name="metaRequiredProps"
-                      rows="3"
-                      style="resize:vertical; font-family:var(--font-mono); font-size:12px;"
-                      placeholder='{{ "{" }}"entity": ["type", "description"]{{ "}" }}'
-                    ></textarea>
-                  </div>
-
-                  <div class="field" style="margin-bottom:8px;">
-                    <label>Property schemas <span style="color:var(--text-muted);font-size:11px;" title="JSON object mapping knowledge types to property name → schema definitions.">ⓘ</span></label>
-                    <textarea
-                      [(ngModel)]="metaForm.propertySchemasJson"
-                      name="metaPropSchemas"
-                      rows="4"
-                      style="resize:vertical; font-family:var(--font-mono); font-size:12px;"
-                      placeholder='{{ "{" }}"entity": {{ "{" }}"status": {{ "{" }}"type":"string","enum":["active","archived"]{{ "}" }}{{ "}" }}{{ "}" }}'
-                    ></textarea>
-                  </div>
-
-                  <div style="display:flex; gap:8px; margin-top:8px;">
-                    <button class="btn btn-sm btn-primary" [disabled]="metaSaving()" (click)="saveMetaSettings()">
-                      @if (metaSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
-                      Save schema
-                    </button>
-                    @if (metaSaved()) { <span style="color:var(--success); font-size:12px;">✓ Saved</span> }
-                    @if (metaError()) { <span style="color:var(--error); font-size:12px;">{{ metaError() }}</span> }
-                  </div>
-                </div>
-              </div>
-
-              <!-- Space admin actions -->
-              <div class="card" style="margin-top:16px;">
-                <div class="card-header">
-                  <div class="card-title" style="font-size:14px;">Space administration</div>
-                </div>
-                <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
-                  <button class="btn btn-sm btn-secondary" (click)="showCreateSpaceDialog.set(true)">+ Create new space</button>
-                  <button class="btn btn-sm btn-danger" [disabled]="isActiveBuiltIn()" (click)="showDeleteSpaceConfirm.set(true)" title="Delete this space and all its data permanently">Delete space</button>
-                  <button class="btn btn-sm btn-danger" (click)="showWipeSpaceConfirm.set(true)" title="Wipe all data from this space (keeps configuration)">Wipe all data</button>
-                </div>
-                @if (isActiveBuiltIn()) {
-                  <div style="font-size:11px; color:var(--text-muted); margin-top:8px;">Built-in spaces cannot be deleted.</div>
-                }
-                @if (spaceAdminError()) {
-                  <div class="alert alert-error" style="margin-top:8px;">{{ spaceAdminError() }}</div>
-                }
-              </div>
-
-              <!-- Create space dialog -->
-              @if (showCreateSpaceDialog()) {
-                <div class="dialog-backdrop" (click)="showCreateSpaceDialog.set(false)">
-                  <div class="dialog" (click)="$event.stopPropagation()" style="max-width:500px;">
-                    <div class="dialog-header">
-                      <div class="card-title">Create space</div>
-                      <button class="icon-btn" aria-label="Close dialog" (click)="showCreateSpaceDialog.set(false)">✕</button>
-                    </div>
-                    <form (ngSubmit)="adminCreateSpace()" style="display:flex; flex-direction:column; gap:12px;">
-                      <div class="field" style="margin-bottom:0;">
-                        <label>Display Name</label>
-                        <input type="text" [(ngModel)]="newSpaceForm.label" name="newSpaceLabel" placeholder="My Space" maxlength="200" required />
-                      </div>
-                      <div class="field" style="margin-bottom:0;">
-                        <label>ID (optional)</label>
-                        <input type="text" [(ngModel)]="newSpaceForm.id" name="newSpaceId" placeholder="my-space" pattern="[a-z0-9-]+" />
-                      </div>
-                      <div class="field" style="margin-bottom:0;">
-                        <label>Description (optional)</label>
-                        <textarea [(ngModel)]="newSpaceForm.description" name="newSpaceDesc" placeholder="Purpose of this space" maxlength="4000" rows="3" style="resize:vertical;"></textarea>
-                      </div>
-                      <div style="display:flex; gap:8px; justify-content:flex-end;">
-                        <button class="btn btn-secondary" type="button" (click)="showCreateSpaceDialog.set(false)">Cancel</button>
-                        <button class="btn btn-primary" type="submit" [disabled]="creatingNewSpace() || !newSpaceForm.label.trim()">
-                          @if (creatingNewSpace()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
-                          Create
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              }
-
-              <!-- Wipe space confirmation -->
-              @if (showWipeSpaceConfirm()) {
-                <div class="dialog-backdrop" (click)="showWipeSpaceConfirm.set(false)">
-                  <div class="dialog" (click)="$event.stopPropagation()" style="max-width:450px;">
-                    <div class="dialog-header">
-                      <div class="card-title" style="color:var(--danger);">⚠ Wipe all data</div>
-                      <button class="icon-btn" (click)="showWipeSpaceConfirm.set(false)">✕</button>
-                    </div>
-                    <p>This will permanently delete all data from <strong>{{ activeSpaceId() }}</strong>. The space configuration will be preserved.</p>
-                    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
-                      <button class="btn btn-secondary" (click)="showWipeSpaceConfirm.set(false)" [disabled]="wipingSpace()">Cancel</button>
-                      <button class="btn btn-danger" (click)="adminWipeSpace()" [disabled]="wipingSpace()">
-                        @if (wipingSpace()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
-                        Wipe all data
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              }
-
-              <!-- Delete space confirmation -->
-              @if (showDeleteSpaceConfirm()) {
-                <div class="dialog-backdrop" (click)="showDeleteSpaceConfirm.set(false)">
-                  <div class="dialog" (click)="$event.stopPropagation()" style="max-width:450px;">
-                    <div class="dialog-header">
-                      <div class="card-title" style="color:var(--danger);">⚠ Delete space</div>
-                      <button class="icon-btn" (click)="showDeleteSpaceConfirm.set(false)">✕</button>
-                    </div>
-                    <p>This will permanently delete the space <strong>{{ activeSpaceId() }}</strong> and <strong>all data</strong> within it. This cannot be undone.</p>
-                    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
-                      <button class="btn btn-secondary" (click)="showDeleteSpaceConfirm.set(false)" [disabled]="deletingSpace()">Cancel</button>
-                      <button class="btn btn-danger" (click)="adminDeleteSpace()" [disabled]="deletingSpace()">
-                        @if (deletingSpace()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
-                        Delete space
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              }
-            } @else {
-              <div style="padding:24px; text-align:center; color:var(--text-muted);">
-                Could not load space settings. <button class="btn btn-sm btn-secondary" (click)="loadSettings()">Retry</button>
-              </div>
-            }
-          </div>
-        }
-
       }
     }
   `,
@@ -1457,7 +1388,13 @@ export class BrainComponent implements OnInit {
 
   tabs: { key: BrainTab; label: string; statsKey?: keyof SpaceStats }[] = [
     { key: 'query', label: '🔍 Query' },
-    { key: 'settings', label: '⚙ Settings' },
+    { key: 'entities', label: 'Entities', statsKey: 'entities' },
+    { key: 'edges', label: 'Edges', statsKey: 'edges' },
+    { key: 'memories', label: 'Memories', statsKey: 'memories' },
+    { key: 'chrono', label: 'Chrono', statsKey: 'chrono' },
+  ];
+
+  collectionTabs: { key: BrainTab; label: string; statsKey?: keyof SpaceStats }[] = [
     { key: 'entities', label: 'Entities', statsKey: 'entities' },
     { key: 'edges', label: 'Edges', statsKey: 'edges' },
     { key: 'memories', label: 'Memories', statsKey: 'memories' },
@@ -1557,38 +1494,14 @@ export class BrainComponent implements OnInit {
   recallResults = signal<RecallResult[]>([]);
   recallError = signal('');
 
-  // Settings tab
+  // Settings tab (schema only — UI lives in Admin → Spaces)
   spaceMeta = signal<SpaceMetaResponse | null>(null);
-  settingsLoading = signal(false);
-  settingsForm = { label: '', description: '' };
-  settingsSaving = signal(false);
-  settingsSaved = signal(false);
-  settingsError = signal('');
-  metaForm = {
-    validationMode: 'off' as ValidationMode,
-    strictLinkage: false,
-    purpose: '',
-    usageNotes: '',
-    entityTypesStr: '',
-    edgeLabelsStr: '',
-    tagSuggestionsStr: '',
-    namingPatternsJson: '',
-    requiredPropertiesJson: '',
-    propertySchemasJson: '',
-  };
-  metaSaving = signal(false);
-  metaSaved = signal(false);
-  metaError = signal('');
 
-  // Space admin (from Settings tab)
-  showCreateSpaceDialog = signal(false);
-  showWipeSpaceConfirm = signal(false);
-  showDeleteSpaceConfirm = signal(false);
-  newSpaceForm = { label: '', id: '', description: '' };
-  creatingNewSpace = signal(false);
-  wipingSpace = signal(false);
-  deletingSpace = signal(false);
-  spaceAdminError = signal('');
+  // Entity picker
+  pickerField = signal('');
+  pickerResults = signal<Entity[]>([]);
+  pickerLoading = signal(false);
+  private pickerTimer: ReturnType<typeof setTimeout> | null = null;
 
   activeStats = computed(() =>
     this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.stats,
@@ -1627,6 +1540,7 @@ export class BrainComponent implements OnInit {
     this.confirmDeleteId.set('');
     this.reindexResult.set('');
     this.loadStats(id);
+    this.loadSpaceMeta(id);
     this.loadCurrentTab(id);
   }
 
@@ -1712,10 +1626,6 @@ export class BrainComponent implements OnInit {
       case 'query':
         // Query tab manages its own loading state; just clear the global overlay
         this.loading.set(false);
-        break;
-      case 'settings':
-        this.loading.set(false);
-        this.loadSettings();
         break;
     }
   }
@@ -2142,188 +2052,99 @@ export class BrainComponent implements OnInit {
     return JSON.stringify(doc, null, 2);
   }
 
-  // ── Settings tab methods ────────────────────────────────────────────────
+  // ── Space meta (schema, loaded for property prefill) ────────────────────
 
-  loadSettings(): void {
-    const spaceId = this.activeSpaceId();
+  loadSpaceMeta(spaceId: string): void {
     if (!spaceId) return;
-    this.settingsLoading.set(true);
-    this.settingsError.set('');
-    this.metaError.set('');
-    this.settingsSaved.set(false);
-    this.metaSaved.set(false);
-
-    const sv = this.spaces().find(s => s.space.id === spaceId);
-    if (sv) {
-      this.settingsForm.label = sv.space.label;
-      this.settingsForm.description = sv.space.description ?? '';
-    }
-
     this.api.getSpaceMeta(spaceId).subscribe({
-      next: (meta) => {
-        this.spaceMeta.set(meta);
-        this.metaForm.validationMode = meta.validationMode ?? 'off';
-        this.metaForm.strictLinkage = meta.strictLinkage ?? false;
-        this.metaForm.purpose = meta.purpose ?? '';
-        this.metaForm.usageNotes = meta.usageNotes ?? '';
-        this.metaForm.entityTypesStr = (meta.entityTypes ?? []).join(', ');
-        this.metaForm.edgeLabelsStr = (meta.edgeLabels ?? []).join(', ');
-        this.metaForm.tagSuggestionsStr = (meta.tagSuggestions ?? []).join(', ');
-        this.metaForm.namingPatternsJson = meta.namingPatterns && Object.keys(meta.namingPatterns).length
-          ? JSON.stringify(meta.namingPatterns, null, 2) : '';
-        this.metaForm.requiredPropertiesJson = meta.requiredProperties && Object.keys(meta.requiredProperties).length
-          ? JSON.stringify(meta.requiredProperties, null, 2) : '';
-        this.metaForm.propertySchemasJson = meta.propertySchemas && Object.keys(meta.propertySchemas).length
-          ? JSON.stringify(meta.propertySchemas, null, 2) : '';
-        this.settingsLoading.set(false);
-      },
-      error: () => {
-        this.spaceMeta.set(null);
-        this.settingsLoading.set(false);
-      },
+      next: (meta) => this.spaceMeta.set(meta),
+      error: () => this.spaceMeta.set(null),
     });
   }
 
-  saveSpaceSettings(): void {
+  // ── Form openers with schema prefill ────────────────────────────────────
+
+  openEntityForm(): void {
+    this.entityForm = { name: '', type: '', tags: '', description: '', properties: this.buildPropertiesTemplate('entity') };
+    this.showEntityForm.set(true);
+  }
+
+  openEdgeForm(): void {
+    this.edgeForm = { from: '', to: '', label: '', type: '', weight: null, tags: '', description: '', properties: this.buildPropertiesTemplate('edge') };
+    this.showEdgeForm.set(true);
+  }
+
+  openMemoryForm(): void {
+    this.memoryForm = { fact: '', tags: '', entityIds: '', description: '', properties: this.buildPropertiesTemplate('memory') };
+    this.showMemoryForm.set(true);
+  }
+
+  private buildPropertiesTemplate(type: KnowledgeType): string {
+    const schemas = this.spaceMeta()?.propertySchemas?.[type];
+    if (!schemas || Object.keys(schemas).length === 0) return '';
+    const template: Record<string, string | number | boolean> = {};
+    for (const [key, schema] of Object.entries(schemas)) {
+      if (schema.enum?.length) {
+        template[key] = schema.enum[0] as string | number | boolean;
+      } else if (schema.type === 'number') {
+        template[key] = 0;
+      } else if (schema.type === 'boolean') {
+        template[key] = false;
+      } else {
+        template[key] = '';
+      }
+    }
+    return JSON.stringify(template, null, 2);
+  }
+
+  // ── Entity picker ────────────────────────────────────────────────────────
+
+  onPickerFocus(field: string, currentValue: string): void {
+    this.pickerField.set(field);
+    this.doPkrSearch(currentValue.trim());
+  }
+
+  onPickerInput(field: string, event: Event): void {
+    this.pickerField.set(field);
+    const q = (event.target as HTMLInputElement).value.trim();
+    if (this.pickerTimer) clearTimeout(this.pickerTimer);
+    this.pickerTimer = setTimeout(() => this.doPkrSearch(q), 200);
+  }
+
+  schedulePkrClose(): void {
+    if (this.pickerTimer) clearTimeout(this.pickerTimer);
+    this.pickerTimer = setTimeout(() => {
+      this.pickerField.set('');
+      this.pickerResults.set([]);
+    }, 200);
+  }
+
+  private doPkrSearch(q: string): void {
     const spaceId = this.activeSpaceId();
     if (!spaceId) return;
-    this.settingsSaving.set(true);
-    this.settingsError.set('');
-    this.settingsSaved.set(false);
-    this.api.updateSpace(spaceId, {
-      label: this.settingsForm.label.trim(),
-      description: this.settingsForm.description.trim(),
-    }).subscribe({
-      next: ({ space }) => {
-        this.settingsSaving.set(false);
-        this.settingsSaved.set(true);
-        // Update the local space list to reflect changes
-        this.spaces.update(list =>
-          list.map(sv => sv.space.id === spaceId ? { ...sv, space: { ...sv.space, label: space.label, description: space.description } } : sv),
-        );
-        setTimeout(() => this.settingsSaved.set(false), 3000);
-      },
-      error: (err) => {
-        this.settingsSaving.set(false);
-        this.settingsError.set(err.error?.error ?? 'Failed to save');
-      },
+    this.pickerLoading.set(true);
+    this.api.listEntities(spaceId, 8, 0, q || undefined).subscribe({
+      next: ({ entities }) => { this.pickerResults.set(entities); this.pickerLoading.set(false); },
+      error: () => this.pickerLoading.set(false),
     });
   }
 
-  saveMetaSettings(): void {
-    const spaceId = this.activeSpaceId();
-    if (!spaceId) return;
-    this.metaSaving.set(true);
-    this.metaError.set('');
-    this.metaSaved.set(false);
-
-    const parseList = (s: string): string[] => s.split(',').map(v => v.trim()).filter(Boolean);
-
-    const meta: Partial<SpaceMeta> = {
-      validationMode: this.metaForm.validationMode,
-      strictLinkage: this.metaForm.strictLinkage,
-      purpose: this.metaForm.purpose.trim() || undefined,
-      usageNotes: this.metaForm.usageNotes.trim() || undefined,
-      entityTypes: parseList(this.metaForm.entityTypesStr),
-      edgeLabels: parseList(this.metaForm.edgeLabelsStr),
-      tagSuggestions: parseList(this.metaForm.tagSuggestionsStr),
-    };
-
-    // Parse optional JSON fields
-    if (this.metaForm.namingPatternsJson.trim()) {
-      try { meta.namingPatterns = JSON.parse(this.metaForm.namingPatternsJson.trim()); }
-      catch { this.metaSaving.set(false); this.metaError.set('Naming patterns must be valid JSON'); return; }
+  pickEntity(ent: Entity, mode: 'single' | 'multi', field: string): void {
+    switch (field) {
+      case 'create-edge-from':         this.edgeForm.from = ent._id; break;
+      case 'create-edge-to':           this.edgeForm.to = ent._id; break;
+      case 'create-memory-entityIds':  this.memoryForm.entityIds = this.appendEntityId(this.memoryForm.entityIds, ent._id); break;
+      case 'create-chrono-entityIds':  this.chronoForm.entityIds = this.appendEntityId(this.chronoForm.entityIds, ent._id); break;
+      case 'edit-memory-entityIds':    this.editMemory.entityIds = this.appendEntityId(this.editMemory.entityIds, ent._id); break;
+      case 'edit-chrono-entityIds':    this.editChrono.entityIds = this.appendEntityId(this.editChrono.entityIds, ent._id); break;
     }
-    if (this.metaForm.requiredPropertiesJson.trim()) {
-      try { meta.requiredProperties = JSON.parse(this.metaForm.requiredPropertiesJson.trim()); }
-      catch { this.metaSaving.set(false); this.metaError.set('Required properties must be valid JSON'); return; }
-    }
-    if (this.metaForm.propertySchemasJson.trim()) {
-      try { meta.propertySchemas = JSON.parse(this.metaForm.propertySchemasJson.trim()); }
-      catch { this.metaSaving.set(false); this.metaError.set('Property schemas must be valid JSON'); return; }
-    }
-
-    this.api.updateSpace(spaceId, { meta }).subscribe({
-      next: () => {
-        this.metaSaving.set(false);
-        this.metaSaved.set(true);
-        setTimeout(() => this.metaSaved.set(false), 3000);
-      },
-      error: (err) => {
-        this.metaSaving.set(false);
-        const errMsg = err.error?.error ?? err.error?.message ?? 'Failed to save schema';
-        this.metaError.set(errMsg);
-      },
-    });
+    this.pickerField.set('');
+    this.pickerResults.set([]);
   }
 
-  // ── Space admin methods (Settings tab) ──────────────────────────────────
-
-  isActiveBuiltIn(): boolean {
-    const sv = this.spaces().find(s => s.space.id === this.activeSpaceId());
-    return !!sv?.space.builtIn;
-  }
-
-  adminCreateSpace(): void {
-    if (!this.newSpaceForm.label.trim()) return;
-    this.creatingNewSpace.set(true);
-    this.spaceAdminError.set('');
-    const body: { label: string; id?: string; description?: string } = { label: this.newSpaceForm.label.trim() };
-    if (this.newSpaceForm.id.trim()) body.id = this.newSpaceForm.id.trim();
-    if (this.newSpaceForm.description.trim()) body.description = this.newSpaceForm.description.trim();
-    this.api.createSpace(body).subscribe({
-      next: ({ space }) => {
-        this.creatingNewSpace.set(false);
-        this.showCreateSpaceDialog.set(false);
-        this.newSpaceForm = { label: '', id: '', description: '' };
-        this.spaces.update(list => [...list, { space }]);
-        this.selectSpace(space.id);
-      },
-      error: (err) => {
-        this.creatingNewSpace.set(false);
-        this.spaceAdminError.set(err.error?.error ?? 'Failed to create space');
-      },
-    });
-  }
-
-  adminWipeSpace(): void {
-    const spaceId = this.activeSpaceId();
-    this.wipingSpace.set(true);
-    this.spaceAdminError.set('');
-    this.api.wipeSpace(spaceId).subscribe({
-      next: () => {
-        this.wipingSpace.set(false);
-        this.showWipeSpaceConfirm.set(false);
-        this.loadStats(spaceId);
-        this.loadCurrentTab(spaceId);
-      },
-      error: (err) => {
-        this.wipingSpace.set(false);
-        this.spaceAdminError.set(err.error?.error ?? 'Failed to wipe space');
-      },
-    });
-  }
-
-  adminDeleteSpace(): void {
-    const spaceId = this.activeSpaceId();
-    this.deletingSpace.set(true);
-    this.spaceAdminError.set('');
-    this.api.deleteSpace(spaceId).subscribe({
-      next: () => {
-        this.deletingSpace.set(false);
-        this.showDeleteSpaceConfirm.set(false);
-        this.spaces.update(list => list.filter(sv => sv.space.id !== spaceId));
-        const remaining = this.spaces();
-        if (remaining.length > 0) {
-          this.selectSpace(remaining[0].space.id);
-        } else {
-          this.activeSpaceId.set('');
-        }
-      },
-      error: (err) => {
-        this.deletingSpace.set(false);
-        this.spaceAdminError.set(err.error?.error ?? 'Failed to delete space');
-      },
-    });
+  private appendEntityId(current: string, id: string): string {
+    const parts = current.split(',').map(s => s.trim()).filter(Boolean);
+    if (!parts.includes(id)) parts.push(id);
+    return parts.join(', ');
   }
 }

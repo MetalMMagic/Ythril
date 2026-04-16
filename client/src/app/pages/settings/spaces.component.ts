@@ -1,7 +1,7 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
+import { ApiService, Network, Space, SpaceMeta, SpaceStats } from '../../core/api.service';
 
 @Component({
   selector: 'app-spaces',
@@ -45,7 +45,8 @@ import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
       border-radius: var(--radius-lg);
       padding: 24px;
       width: 90%;
-      max-width: 700px;
+      height: 90%;
+      max-width: 960px;
       max-height: 90vh;
       overflow-y: auto;
     }
@@ -83,30 +84,33 @@ import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
               <label>Max GiB</label>
               <input type="number" [(ngModel)]="form.maxGiB" name="maxGiB" min="0" step="0.1" placeholder="—" />
             </div>
+            <!-- Row 2: Purpose + Proxy For -->
             <div style="display:flex; gap:12px; flex-basis:100%;">
               <div class="field" style="flex:1; margin-bottom:0;">
-                <label>Description (optional)</label>
-                <textarea [(ngModel)]="form.description" name="description" placeholder="Purpose and instructions for this space" maxlength="4000" rows="5" style="resize:vertical;"></textarea>
+                <label>Purpose (optional)</label>
+                <textarea [(ngModel)]="form.purpose" name="purpose"
+                  placeholder="Short directive surfaced to MCP clients at handshake. Describe what this space is for and how AI agents should use it."
+                  maxlength="4000" rows="5" style="resize:vertical;"></textarea>
               </div>
               <div class="field" style="flex:1; margin-bottom:0;">
                 <label>Proxy for (optional)</label>
                 @if (spaces().length > 0) {
                   <div class="table-wrapper" style="max-height:180px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
                     <table style="margin:0;">
-                      <thead>
-                        <tr>
-                          <th style="width:40px; text-align:center;">
-                            <input type="checkbox" [checked]="proxyForAll" (change)="toggleProxyForAll()" title="All spaces" />
-                          </th>
-                          <th>Space</th>
-                          <th>ID</th>
-                        </tr>
-                      </thead>
+                      <thead><tr><th style="width:40px; text-align:center;"></th><th>Space</th><th>ID</th></tr></thead>
                       <tbody>
+                        <!-- All row: wildcard sentinel that covers future spaces too -->
+                        <tr style="cursor:pointer; background:var(--bg-elevated);" (click)="toggleProxyForAll()">
+                          <td style="text-align:center;">
+                            <input type="checkbox" [checked]="proxyForAll" (click)="$event.stopPropagation()" (change)="toggleProxyForAll()" />
+                          </td>
+                          <td colspan="2" style="font-style:italic; color:var(--text-muted);">All (including spaces added later)</td>
+                        </tr>
                         @for (s of spaces(); track s.id) {
-                          <tr style="cursor:pointer;" (click)="toggleProxyFor(s.id)">
+                          <tr style="cursor:pointer;" [class.text-muted]="proxyForAll" (click)="!proxyForAll && toggleProxyFor(s.id)">
                             <td style="text-align:center;">
-                              <input type="checkbox" [checked]="isProxyForSelected(s.id)" (click)="$event.stopPropagation()" (change)="toggleProxyFor(s.id)" [disabled]="proxyForAll" />
+                              <input type="checkbox" [checked]="proxyForAll || isProxyForSelected(s.id)"
+                                     (click)="$event.stopPropagation()" (change)="!proxyForAll && toggleProxyFor(s.id)" [disabled]="proxyForAll" />
                             </td>
                             <td>{{ s.label }}</td>
                             <td><span class="badge badge-gray mono" style="font-size:11px;">{{ s.id }}</span></td>
@@ -115,10 +119,29 @@ import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
                       </tbody>
                     </table>
                   </div>
-                  <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">Check "All" to proxy reads from all spaces.</div>
+                  <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">Select specific spaces or "All" to include any space added in the future.</div>
                 } @else {
                   <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">No existing spaces to select.</div>
                 }
+              </div>
+            </div>
+            <!-- Row 3: Schema validation -->
+            <div style="display:flex; gap:12px; flex-basis:100%; align-items:flex-start;">
+              <div class="field" style="margin-bottom:0;">
+                <label>Validation mode</label>
+                <select [(ngModel)]="form.validationMode" name="validationMode" style="width:140px;">
+                  <option value="off">Off</option>
+                  <option value="warn">Warn</option>
+                  <option value="strict">Strict</option>
+                </select>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">off = unrestricted; warn = log only; strict = reject invalid writes</div>
+              </div>
+              <div class="field" style="margin-bottom:0; padding-top:22px;">
+                <label style="display:flex; align-items:center; gap:8px; font-weight:normal; cursor:pointer;">
+                  <input type="checkbox" [(ngModel)]="form.strictLinkage" name="strictLinkage" />
+                  Strict linkage
+                </label>
+                <div style="font-size:11px; color:var(--text-muted); margin-top:3px;">Require valid UUIDs in edge/entityId fields; block entity deletion while referenced</div>
               </div>
             </div>
             <div style="display:flex; gap:8px; flex-basis:100%;">
@@ -149,7 +172,7 @@ import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
         <div class="table-wrapper">
           <table>
             <thead>
-              <tr><th>Label</th><th>ID</th><th>Description</th><th>Max storage</th><th>Networks</th><th>Proxy</th><th>Built-in</th><th></th></tr>
+              <tr><th>Label</th><th>ID</th><th>Description</th><th>Max storage</th><th>Networks</th><th>Proxy</th><th></th></tr>
             </thead>
             <tbody>
               @for (s of spaces(); track s.id) {
@@ -171,9 +194,6 @@ import { ApiService, Network, Space, SpaceStats } from '../../core/api.service';
                         <span class="badge badge-blue" style="margin-right:4px;">{{ pid }}</span>
                       }
                     } @else { <span style="color:var(--text-muted)">—</span> }
-                  </td>
-                  <td>
-                    @if (s.builtIn) { <span class="badge badge-blue">built-in</span> }
                   </td>
                   <td style="display:flex; gap:6px;">
                     <button class="icon-btn" aria-label="Edit space" (click)="openEdit(s)" title="Edit label/description">✎</button>
@@ -291,25 +311,32 @@ export class SpacesComponent implements OnInit {
   showCreateDialog = signal(false);
   renaming = signal<string | null>(null);
   renameNewId = '';
-  static readonly DEFAULT_MCP_DESC = [
+  static readonly DEFAULT_PURPOSE = [
     'MCP endpoint for this space. Available tools:',
     '',
     'Knowledge Graph — Memory:',
-    '  remember(fact, entities?, tags?)        — store a fact with semantic embedding',
-    '  recall(query, topK?)                    — semantic search in this space',
-    '  recall_global(query, topK?)             — semantic search across all accessible spaces',
-    '  update_memory(id, fact?, tags?, entityIds?) — update memory (re-embeds on fact change)',
-    '  delete_memory(id)                       — delete memory (tombstone for sync)',
+    '  remember(fact, entities?, tags?)              — store a fact with semantic embedding',
+    '  recall(query, topK?)                          — semantic search in this space',
+    '  recall_global(query, topK?)                   — semantic search across all spaces',
+    '  find_similar(id, collection?, topK?)          — find semantically similar items',
+    '  update_memory(id, fact?, tags?, entityIds?)   — update memory (re-embeds on fact change)',
+    '  delete_memory(id)                             — delete memory',
     '  query(collection, filter, projection?, limit?) — structured MongoDB query',
+    '  bulk_write(ops)                               — batch create/update/delete',
     '',
     'Knowledge Graph — Entities & Edges:',
     '  upsert_entity(name, type, tags?, properties?) — create/update named entity',
+    '  update_entity(id, ...)                        — update entity fields',
+    '  merge_entities(sourceId, targetId)            — merge two entities',
+    '  find_entities_by_name(name)                   — find entities by name',
     '  upsert_edge(from, to, label, type?, weight?)  — create/update relationship edge',
+    '  update_edge(id, ...)                          — update edge fields',
+    '  traverse(entityId, depth?, direction?)        — traverse the knowledge graph',
     '',
     'Knowledge Graph — Chrono:',
-    '  create_chrono(title, kind, startsAt, ...)  — create event/deadline/plan/prediction/milestone',
-    '  update_chrono(id, ...)                     — update chronological entry',
-    '  list_chrono(status?, kind?, limit?)         — list chrono entries',
+    '  create_chrono(title, kind, startsAt, ...)     — create event/deadline/plan/milestone',
+    '  update_chrono(id, ...)                        — update chronological entry',
+    '  list_chrono(status?, kind?, limit?)           — list chrono entries',
     '',
     'Files:',
     '  read_file(path)             — read file contents',
@@ -319,13 +346,19 @@ export class SpacesComponent implements OnInit {
     '  create_dir(path)            — create directory tree',
     '  move_file(src, dst)         — move or rename file/directory',
     '',
-    'Stats & Sync:',
+    'Stats, Meta & Sync:',
     '  get_stats()                 — counts of memories, entities, edges, chrono',
+    '  get_space_meta()            — schema, purpose, validation mode, entry counts',
     '  list_peers()                — list connected peer instances',
     '  sync_now(peerId?)           — trigger immediate sync cycle',
   ].join('\n');
 
-  form = { label: '', id: '', maxGiB: null as number | null, description: SpacesComponent.DEFAULT_MCP_DESC };
+  form = {
+    label: '', id: '', maxGiB: null as number | null,
+    purpose: SpacesComponent.DEFAULT_PURPOSE,
+    validationMode: 'off' as 'off' | 'warn' | 'strict',
+    strictLinkage: false,
+  };
   proxyForSelected: string[] = [];
   proxyForAll = false;
 
@@ -374,8 +407,7 @@ export class SpacesComponent implements OnInit {
   toggleProxyForAll(): void {
     this.proxyForAll = !this.proxyForAll;
     if (this.proxyForAll) {
-      this.proxyForSelected = this.spaces().map(s => s.id);
-    } else {
+      // Wildcard: clear individual selections — server will store ['*']
       this.proxyForSelected = [];
     }
   }
@@ -385,19 +417,32 @@ export class SpacesComponent implements OnInit {
     this.creating.set(true);
     this.createError.set('');
 
-    const body: { label: string; id?: string; maxGiB?: number; description?: string; proxyFor?: string[] } = { label: this.form.label.trim() };
+    const body: Parameters<ApiService['createSpace']>[0] = { label: this.form.label.trim() };
     if (this.form.id.trim()) body.id = this.form.id.trim();
     if (this.form.maxGiB) body.maxGiB = this.form.maxGiB;
-    if (this.form.description.trim()) body.description = this.form.description.trim();
-    if (this.proxyForSelected.length) body.proxyFor = [...this.proxyForSelected];
+
+    // Proxy for: wildcard sentinel or specific list
+    if (this.proxyForAll) {
+      body.proxyFor = ['*'];
+    } else if (this.proxyForSelected.length) {
+      body.proxyFor = [...this.proxyForSelected];
+    }
+
+    // Meta: purpose + validation schema
+    const meta: Partial<SpaceMeta> = {};
+    if (this.form.purpose.trim()) meta.purpose = this.form.purpose.trim();
+    if (this.form.validationMode !== 'off') meta.validationMode = this.form.validationMode;
+    if (this.form.strictLinkage) meta.strictLinkage = true;
+    if (Object.keys(meta).length) body.meta = meta;
 
     this.api.createSpace(body).subscribe({
       next: ({ space }) => {
         this.creating.set(false);
         this.showCreateDialog.set(false);
         this.spaces.update(list => [...list, space]);
-        this.form = { label: '', id: '', maxGiB: null, description: SpacesComponent.DEFAULT_MCP_DESC };
+        this.form = { label: '', id: '', maxGiB: null, purpose: SpacesComponent.DEFAULT_PURPOSE, validationMode: 'off', strictLinkage: false };
         this.proxyForSelected = [];
+        this.proxyForAll = false;
       },
       error: (err) => {
         this.creating.set(false);

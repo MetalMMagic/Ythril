@@ -50,10 +50,12 @@ const app = express();
 app.use(express.json({ limit: '128kb' }));
 
 function safeEqual(a: string, b: string): boolean {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ab, bb);
+  // Hash both values with HMAC-SHA256 before comparing so the buffers are always
+  // the same length and no timing information about the token's byte length leaks.
+  const key = Buffer.alloc(32);
+  const ha = crypto.createHmac('sha256', key).update(a).digest();
+  const hb = crypto.createHmac('sha256', key).update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
 }
 
 function requireConnectorAuth(req: Request, res: Response, next: NextFunction): void {

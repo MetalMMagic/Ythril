@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit, OnDestroy, ElementRef, viewChild } from '@angular/core';
+import { Component, inject, signal, OnInit } from '@angular/core';
 import { ApiService, type AboutInfo } from '../../core/api.service';
 
 @Component({
@@ -41,37 +41,6 @@ import { ApiService, type AboutInfo } from '../../core/api.service';
       color: #fff;
     }
 
-    .log-viewer {
-      background: var(--bg-muted, #1e1e1e);
-      border: 1px solid var(--border-color, #444);
-      border-radius: 6px;
-      padding: 12px;
-      font-family: var(--font-mono, monospace);
-      font-size: 0.8em;
-      line-height: 1.5;
-      max-height: 400px;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-    .log-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 8px;
-    }
-    .log-header h3 { margin: 0; }
-    .refresh-btn {
-      background: none;
-      border: 1px solid var(--border-color, #555);
-      color: var(--text-color);
-      padding: 4px 10px;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 0.85em;
-    }
-    .refresh-btn:hover { background: var(--bg-hover, #333); }
-
     .error-msg { color: var(--color-error, #f44336); margin-top: 12px; }
   `,
   template: `
@@ -110,35 +79,18 @@ import { ApiService, type AboutInfo } from '../../core/api.service';
           </div>
         </span>
       </div>
-
-      <div class="log-header">
-        <h3>Server Log</h3>
-        <button class="refresh-btn" (click)="loadLogs()">Refresh</button>
-      </div>
-      <div class="log-viewer" #logViewer>{{ logText() }}</div>
     }
   `,
 })
-export class AboutComponent implements OnInit, OnDestroy {
+export class AboutComponent implements OnInit {
   private api = inject(ApiService);
-  private logViewerRef = viewChild<ElementRef<HTMLDivElement>>('logViewer');
 
   loading = signal(true);
   error = signal('');
   info = signal<AboutInfo | null>(null);
-  logText = signal('');
   diskPercent = signal(0);
 
-  private refreshInterval: ReturnType<typeof setInterval> | undefined;
-
-  ngOnInit(): void {
-    this.load();
-    this.refreshInterval = setInterval(() => this.loadLogs(), 15_000);
-  }
-
-  ngOnDestroy(): void {
-    if (this.refreshInterval) clearInterval(this.refreshInterval);
-  }
+  ngOnInit(): void { this.load(); }
 
   private load(): void {
     this.loading.set(true);
@@ -148,25 +100,11 @@ export class AboutComponent implements OnInit, OnDestroy {
         const d = data.diskInfo;
         this.diskPercent.set(d.total > 0 ? (d.used / d.total) * 100 : 0);
         this.loading.set(false);
-        this.loadLogs();
       },
       error: (err) => {
         this.error.set(err?.error?.error ?? 'Failed to load about info');
         this.loading.set(false);
       },
-    });
-  }
-
-  loadLogs(): void {
-    this.api.getAboutLogs(200).subscribe({
-      next: (data) => {
-        this.logText.set(data.lines.join('\n'));
-        setTimeout(() => {
-          const el = this.logViewerRef()?.nativeElement;
-          if (el) el.scrollTop = el.scrollHeight;
-        });
-      },
-      error: () => this.logText.set('Failed to load logs.'),
     });
   }
 

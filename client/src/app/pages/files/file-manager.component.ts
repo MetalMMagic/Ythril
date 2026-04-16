@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService, Space, FileEntry, UploadProgress } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import hljs from 'highlight.js/lib/core';
 import javascript from 'highlight.js/lib/languages/javascript';
 import typescript from 'highlight.js/lib/languages/typescript';
@@ -459,6 +460,7 @@ function previewKind(name: string): PreviewKind {
 })
 export class FileManagerComponent implements OnInit, OnDestroy {
   private api = inject(ApiService);
+  private auth = inject(AuthService);
   private sanitizer = inject(DomSanitizer);
   private route = inject(ActivatedRoute);
   private previewOverlayRef = viewChild<ElementRef<HTMLDivElement>>('previewOverlay');
@@ -665,7 +667,9 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   downloadUrl(entry: FileEntry): string {
     const path = this.join(this.currentPath(), entry.name);
-    return this.api.getFileDownloadUrl(this.activeSpaceId(), path);
+    const base = this.api.getFileDownloadUrl(this.activeSpaceId(), path);
+    const token = this.auth.token();
+    return token ? `${base}&token=${encodeURIComponent(token)}` : base;
   }
 
   formatSize(bytes: number): string {
@@ -762,7 +766,9 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
     if (kind === 'text') {
       this.previewLoading.set(true);
-      fetch(url).then(r => r.text()).then(text => {
+      const token = this.auth.token();
+      const fetchHeaders: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+      fetch(url, { headers: fetchHeaders }).then(r => r.text()).then(text => {
         const ext = extOf(entry.name);
         const lang = EXT_LANG[ext];
         let highlighted: string;

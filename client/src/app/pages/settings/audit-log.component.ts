@@ -158,12 +158,9 @@ import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from 
 
     @if (activeLogTab() === 'server') {
       <div style="display:flex; gap:8px; align-items:center; margin-bottom:12px;">
-        <button class="btn btn-sm" [class.btn-primary]="serverLogStreaming()" [class.btn-secondary]="!serverLogStreaming()" (click)="toggleServerLogStream()">
-          {{ serverLogStreaming() ? '⏸ Pause' : '▶ Stream' }}
-        </button>
         <button class="btn btn-sm btn-secondary" (click)="loadServerLogs()">Refresh</button>
         <span style="flex:1;"></span>
-        <span style="font-size:12px; color:var(--text-muted);">{{ serverLogLines().length }} lines</span>
+        <span style="font-size:12px; color:var(--text-muted);">{{ serverLogLines().length }} lines@if (serverLogStreaming()) { &nbsp;· live }</span>
       </div>
 
       @if (serverLogLoading()) {
@@ -238,9 +235,14 @@ import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from 
     </div>
 
     <!-- Export -->
-    <div class="export-btns">
-      <button (click)="exportJson()">Export JSON</button>
-      <button (click)="exportCsv()">Export CSV</button>
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+      <div class="export-btns">
+        <button (click)="exportJson()">Export JSON</button>
+        <button (click)="exportCsv()">Export CSV</button>
+      </div>
+      @if (retentionDays() > 0) {
+        <span style="font-size:12px; color:var(--text-muted);">Retention: {{ retentionDays() }} days</span>
+      }
     </div>
 
     @if (error()) {
@@ -321,6 +323,7 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   offset = signal(0);
   spaces = signal<Space[]>([]);
   selectedEntry = signal<AuditLogEntry | null>(null);
+  retentionDays = signal(90);
 
   filterAfter = '';
   filterBefore = '';
@@ -336,6 +339,18 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   serverLogLoading = signal(false);
   serverLogStreaming = signal(false);
   private serverLogEventSource: EventSource | null = null;
+
+  constructor() {
+    effect(() => {
+      if (this.activeLogTab() === 'server') {
+        if (!this.serverLogStreaming()) {
+          this.startServerLogStream();
+        }
+      } else {
+        this.stopServerLogStream();
+      }
+    });
+  }
 
   readonly operations = [
     'memory.create', 'memory.update', 'memory.delete',
@@ -410,6 +425,7 @@ export class AuditLogComponent implements OnInit, OnDestroy {
         this.entries.set(data.entries);
         this.total.set(data.total);
         this.hasMore.set(data.hasMore);
+        if (data.retentionDays !== undefined) this.retentionDays.set(data.retentionDays);
         this.loading.set(false);
       },
       error: (err) => {

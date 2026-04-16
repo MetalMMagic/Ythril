@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams, HttpHeaders } from '@angular/common/http';
 import { Observable, Subject } from 'rxjs';
+import { map } from 'rxjs/operators';
 
 // ── Shared types ─────────────────────────────────────────────────────────────
 
@@ -311,6 +312,7 @@ export interface AuditLogResponse {
   entries: AuditLogEntry[];
   total: number;
   hasMore: boolean;
+  retentionDays?: number;
 }
 
 export interface AuditLogParams {
@@ -359,7 +361,7 @@ export class ApiService {
     return this.http.get<SpacesResponse>('/api/spaces');
   }
 
-  createSpace(body: { label: string; id?: string; maxGiB?: number; description?: string; proxyFor?: string[] }): Observable<{ space: Space }> {
+  createSpace(body: { label: string; id?: string; maxGiB?: number; description?: string; proxyFor?: string[]; meta?: Partial<SpaceMeta> }): Observable<{ space: Space }> {
     return this.http.post<{ space: Space }>('/api/spaces', body);
   }
 
@@ -584,7 +586,17 @@ export class ApiService {
 
   listFiles(spaceId: string, path = '/'): Observable<{ entries: FileEntry[] }> {
     const params = new HttpParams().set('path', path);
-    return this.http.get<any>(`/api/files/${spaceId}`, { params });
+    return this.http.get<any>(`/api/files/${spaceId}`, { params }).pipe(
+      map(res => ({
+        entries: (res.entries ?? []).map((e: any) => ({
+          name: e.name,
+          size: e.size ?? 0,
+          isFile: e.type === 'file',
+          isDirectory: e.type === 'dir',
+          modified: e.modifiedAt ?? '',
+        } as FileEntry)),
+      })),
+    );
   }
 
   deleteFile(spaceId: string, path: string): Observable<void> {

@@ -15,13 +15,20 @@ export function findSpace(spaceId: string): SpaceConfig | undefined {
 
 /**
  * Resolve the member space IDs for a given space.
- * - Regular space → [spaceId]
- * - Proxy space   → proxyFor array (validated that all members exist)
+ * - Regular space  → [spaceId]
+ * - Proxy space with specific IDs → those IDs
+ * - Proxy space with ['*'] wildcard → all current non-proxy space IDs
  */
 export function resolveMemberSpaces(spaceId: string): string[] {
   const space = findSpace(spaceId);
   if (!space) return [];
   if (space.proxyFor && space.proxyFor.length > 0) {
+    if (space.proxyFor.length === 1 && space.proxyFor[0] === '*') {
+      // Wildcard: proxy for all non-proxy spaces at query time
+      return getConfig().spaces
+        .filter(s => !s.proxyFor || s.proxyFor.length === 0)
+        .map(s => s.id);
+    }
     return space.proxyFor;
   }
   return [spaceId];
@@ -45,10 +52,21 @@ export function resolveWriteTarget(
 
   // Proxy space — targetSpace is required
   if (!targetSpace) {
+    const members = resolveMemberSpaces(spaceId);
     return {
       ok: false,
-      error: `This is a proxy space. Specify targetSpace (one of: ${space.proxyFor.join(', ')})`,
+      error: `This is a proxy space. Specify targetSpace (one of: ${members.join(', ')})`,
     };
+  }
+
+  // Wildcard proxy — any non-proxy space is a valid target
+  if (space.proxyFor.length === 1 && space.proxyFor[0] === '*') {
+    const target = findSpace(targetSpace);
+    if (!target) return { ok: false, error: `Target space '${targetSpace}' not found` };
+    if (target.proxyFor && target.proxyFor.length > 0) {
+      return { ok: false, error: `'${targetSpace}' is itself a proxy space and cannot be a write target` };
+    }
+    return { ok: true, target: targetSpace };
   }
 
   if (!space.proxyFor.includes(targetSpace)) {

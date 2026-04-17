@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, SpaceMetaResponse, KnowledgeType } from '../../core/api.service';
 import { GraphComponent } from '../graph/graph.component';
+import { EntitySearchComponent } from '../../shared/entity-search.component';
 
 type BrainTab = 'query' | 'graph' | 'entities' | 'edges' | 'memories' | 'chrono';
 
@@ -15,7 +16,7 @@ interface SpaceView {
 @Component({
   selector: 'app-brain',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, GraphComponent],
+  imports: [CommonModule, FormsModule, RouterLink, GraphComponent, EntitySearchComponent],
   styles: [`
     .space-tabs {
       display: flex;
@@ -547,24 +548,13 @@ interface SpaceView {
                         }
                         @if (!openChips0.length) { <span style="font-size:11px; color:var(--text-muted)">No entities linked yet</span> }
                       </div>
-                      <div class="entity-picker-wrap">
-                        <input type="text" placeholder="Search entities…" autocomplete="off" style="width:100%"
-                          (focus)="onPickerFocus('create-memory-entityIds', '')"
-                          (input)="onPickerInput('create-memory-entityIds', $event)"
-                          (blur)="schedulePkrClose()" />
-                        @if (pickerField() === 'create-memory-entityIds' && pickerResults().length) {
-                          <div class="entity-picker-dropdown">
-                            @for (ent of pickerResults(); track ent._id) {
-                              <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'create-memory-entityIds')">
-                                <span class="entity-picker-name">{{ ent.name }}</span>
-                                @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
-                                @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
-                                <span class="entity-picker-id">{{ ent._id }}</span>
-                              </div>
-                            }
-                          </div>
-                        }
-                      </div>
+                      <app-entity-search
+                        mode="picker"
+                        [spaceId]="activeSpaceId()"
+                        placeholder="Search entities…"
+                        defaultMode="semantic"
+                        (selected)="pickEntity($event, 'multi', 'create-memory-entityIds')"
+                      />
                       <div style="display:flex; justify-content:flex-end; margin-top:8px;">
                         <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
                       </div>
@@ -710,24 +700,13 @@ interface SpaceView {
                                     }
                                     @if (!openChips1.length) { <span style="font-size:11px; color:var(--text-muted)">No entities linked yet</span> }
                                   </div>
-                                  <div class="entity-picker-wrap">
-                                    <input type="text" placeholder="Search entities…" autocomplete="off" style="width:100%"
-                                      (focus)="onPickerFocus('edit-memory-entityIds', '')"
-                                      (input)="onPickerInput('edit-memory-entityIds', $event)"
-                                      (blur)="schedulePkrClose()" />
-                                    @if (pickerField() === 'edit-memory-entityIds' && pickerResults().length) {
-                                      <div class="entity-picker-dropdown">
-                                        @for (ent of pickerResults(); track ent._id) {
-                                          <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'edit-memory-entityIds')">
-                                            <span class="entity-picker-name">{{ ent.name }}</span>
-                                            @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
-                                            @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
-                                            <span class="entity-picker-id">{{ ent._id }}</span>
-                                          </div>
-                                        }
-                                      </div>
-                                    }
-                                  </div>
+                                  <app-entity-search
+                                    mode="picker"
+                                    [spaceId]="activeSpaceId()"
+                                    placeholder="Search entities…"
+                                    defaultMode="semantic"
+                                    (selected)="pickEntity($event, 'multi', 'edit-memory-entityIds')"
+                                  />
                                   <div style="display:flex; justify-content:flex-end; margin-top:8px;">
                                     <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
                                   </div>
@@ -885,10 +864,15 @@ interface SpaceView {
           }
 
           <div class="search-bar">
-            <input type="search" placeholder="Search by name…" [(ngModel)]="entitySearch" (input)="searchEntities()" aria-label="Search entities" />
-            @if (entitySearch()) {
-              <button class="btn btn-sm btn-secondary" (click)="entitySearch.set(''); searchEntities()">Clear</button>
-            }
+            <app-entity-search
+              mode="bar"
+              [spaceId]="activeSpaceId()"
+              placeholder="Search entities…"
+              defaultMode="semantic"
+              (queryChange)="onEntitySearchChange($event)"
+              (cleared)="onEntitySearchClear()"
+              (selected)="onEntitySearchPick($event)"
+            />
           </div>
 
           <div class="table-wrapper">
@@ -1016,25 +1000,14 @@ interface SpaceView {
             <form class="create-form" (ngSubmit)="createEdge()">
               <div class="field" style="flex:1; min-width:120px;">
                 <label>From</label>
-                <div class="entity-picker-wrap">
-                  <input type="text" [(ngModel)]="edgeForm.from" name="from" placeholder="Search entity…"
-                    autocomplete="off" required
-                    (focus)="onPickerFocus('create-edge-from', edgeForm.from)"
-                    (input)="onPickerInput('create-edge-from', $event)"
-                    (blur)="schedulePkrClose()" />
-                  @if (pickerField() === 'create-edge-from' && pickerResults().length) {
-                    <div class="entity-picker-dropdown">
-                      @for (ent of pickerResults(); track ent._id) {
-                        <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'single', 'create-edge-from')">
-                          <span class="entity-picker-name">{{ ent.name }}</span>
-                          @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
-                          @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
-                          <span class="entity-picker-id">{{ ent._id }}</span>
-                        </div>
-                      }
-                    </div>
-                  }
-                </div>
+                <app-entity-search
+                  mode="picker"
+                  [spaceId]="activeSpaceId()"
+                  placeholder="Search entity…"
+                  defaultMode="semantic"
+                  [value]="edgeForm.fromDisplay"
+                  (selected)="pickEntity($event, 'single', 'create-edge-from')"
+                />
               </div>
               <div class="field" style="flex:1; min-width:120px;">
                 <label>Label (relation)</label>
@@ -1042,25 +1015,14 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:120px;">
                 <label>To</label>
-                <div class="entity-picker-wrap">
-                  <input type="text" [(ngModel)]="edgeForm.toDisplay" name="to" placeholder="Search entity…"
-                    autocomplete="off" required
-                    (focus)="onPickerFocus('create-edge-to', edgeForm.toDisplay)"
-                    (input)="onPickerInput('create-edge-to', $event)"
-                    (blur)="schedulePkrClose()" />
-                  @if (pickerField() === 'create-edge-to' && pickerResults().length) {
-                    <div class="entity-picker-dropdown">
-                      @for (ent of pickerResults(); track ent._id) {
-                        <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'single', 'create-edge-to')">
-                          <span class="entity-picker-name">{{ ent.name }}</span>
-                          @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
-                          @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
-                          <span class="entity-picker-id">{{ ent._id }}</span>
-                        </div>
-                      }
-                    </div>
-                  }
-                </div>
+                <app-entity-search
+                  mode="picker"
+                  [spaceId]="activeSpaceId()"
+                  placeholder="Search entity…"
+                  defaultMode="semantic"
+                  [value]="edgeForm.toDisplay"
+                  (selected)="pickEntity($event, 'single', 'create-edge-to')"
+                />
               </div>
               <div class="field" style="width:100px;">
                 <label>Type (optional)</label>
@@ -1296,24 +1258,13 @@ interface SpaceView {
                         }
                         @if (!openChips2.length) { <span style="font-size:11px; color:var(--text-muted)">No entities linked yet</span> }
                       </div>
-                      <div class="entity-picker-wrap">
-                        <input type="text" placeholder="Search entities…" autocomplete="off" style="width:100%"
-                          (focus)="onPickerFocus('create-chrono-entityIds', '')"
-                          (input)="onPickerInput('create-chrono-entityIds', $event)"
-                          (blur)="schedulePkrClose()" />
-                        @if (pickerField() === 'create-chrono-entityIds' && pickerResults().length) {
-                          <div class="entity-picker-dropdown">
-                            @for (ent of pickerResults(); track ent._id) {
-                              <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'create-chrono-entityIds')">
-                                <span class="entity-picker-name">{{ ent.name }}</span>
-                                @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
-                                @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
-                                <span class="entity-picker-id">{{ ent._id }}</span>
-                              </div>
-                            }
-                          </div>
-                        }
-                      </div>
+                      <app-entity-search
+                        mode="picker"
+                        [spaceId]="activeSpaceId()"
+                        placeholder="Search entities…"
+                        defaultMode="semantic"
+                        (selected)="pickEntity($event, 'multi', 'create-chrono-entityIds')"
+                      />
                       <div style="display:flex; justify-content:flex-end; margin-top:8px;">
                         <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
                       </div>
@@ -1406,24 +1357,13 @@ interface SpaceView {
                                     }
                                     @if (!openChips3.length) { <span style="font-size:11px; color:var(--text-muted)">No entities linked yet</span> }
                                   </div>
-                                  <div class="entity-picker-wrap">
-                                    <input type="text" placeholder="Search entities…" autocomplete="off" style="width:100%"
-                                      (focus)="onPickerFocus('edit-chrono-entityIds', '')"
-                                      (input)="onPickerInput('edit-chrono-entityIds', $event)"
-                                      (blur)="schedulePkrClose()" />
-                                    @if (pickerField() === 'edit-chrono-entityIds' && pickerResults().length) {
-                                      <div class="entity-picker-dropdown">
-                                        @for (ent of pickerResults(); track ent._id) {
-                                          <div class="entity-picker-item" (mousedown)="pickEntity(ent, 'multi', 'edit-chrono-entityIds')">
-                                            <span class="entity-picker-name">{{ ent.name }}</span>
-                                            @if (ent.type) { <span class="badge badge-purple" style="font-size:10px;">{{ ent.type }}</span> }
-                                            @if (ent.description) { <span class="entity-picker-desc">{{ ent.description }}</span> }
-                                            <span class="entity-picker-id">{{ ent._id }}</span>
-                                          </div>
-                                        }
-                                      </div>
-                                    }
-                                  </div>
+                                  <app-entity-search
+                                    mode="picker"
+                                    [spaceId]="activeSpaceId()"
+                                    placeholder="Search entities…"
+                                    defaultMode="semantic"
+                                    (selected)="pickEntity($event, 'multi', 'edit-chrono-entityIds')"
+                                  />
                                   <div style="display:flex; justify-content:flex-end; margin-top:8px;">
                                     <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
                                   </div>
@@ -1753,10 +1693,6 @@ export class BrainComponent implements OnInit {
   spaceMeta = signal<SpaceMetaResponse | null>(null);
 
   // Entity picker
-  pickerField = signal('');
-  pickerResults = signal<Entity[]>([]);
-  pickerLoading = signal(false);
-  private pickerTimer: ReturnType<typeof setTimeout> | null = null;
 
   activeStats = computed(() =>
     this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.stats,
@@ -1824,6 +1760,22 @@ export class BrainComponent implements OnInit {
   nextChronoPage(): void { this.chronoSkip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
 
   searchEntities(): void { this.entitySkip.set(0); this.loadCurrentTab(this.activeSpaceId()); }
+
+  // ── Entity search bar handlers (brain entities tab) ──────────────────────
+  onEntitySearchChange(q: string): void {
+    this.entitySearch.set(q);
+    this.searchEntities();
+  }
+  onEntitySearchClear(): void {
+    this.entitySearch.set('');
+    this.searchEntities();
+  }
+  onEntitySearchPick(ent: Entity): void {
+    // Semantic pick: filter list to show the picked entity by name
+    this.entitySearch.set(ent.name);
+    this.searchEntities();
+  }
+
   applyChronoFilter(): void { this.chronoSkip.set(0); this.loadCurrentTab(this.activeSpaceId()); }
 
   private loadStats(spaceId: string): void {
@@ -2372,8 +2324,6 @@ export class BrainComponent implements OnInit {
 
   closeFlyout(): void {
     this.flyoutField.set('');
-    this.pickerField.set('');
-    this.pickerResults.set([]);
   }
 
   removeEntityId(target: { entityIds: string }, id: string): void {
@@ -2428,48 +2378,6 @@ export class BrainComponent implements OnInit {
     });
   }
 
-  onPickerFocus(field: string, currentValue: string): void {
-    this.pickerField.set(field);
-    this.doPkrSearch(this.pickerQuery(field, currentValue));
-  }
-
-  onPickerInput(field: string, event: Event): void {
-    this.pickerField.set(field);
-    const raw = (event.target as HTMLInputElement).value;
-    // When user types in a single-entity picker, clear the stored ID until they pick again
-    if (field === 'create-edge-from') this.edgeForm.from = '';
-    if (field === 'create-edge-to') this.edgeForm.to = '';
-    const q = this.pickerQuery(field, raw);
-    if (this.pickerTimer) clearTimeout(this.pickerTimer);
-    this.pickerTimer = setTimeout(() => this.doPkrSearch(q), 200);
-  }
-
-  /** For multi-entity fields, extract only the text after the last comma as the search term. */
-  private pickerQuery(field: string, value: string): string {
-    if (field.endsWith('entityIds')) {
-      return value.split(',').pop()!.trim();
-    }
-    return value.trim();
-  }
-
-  schedulePkrClose(): void {
-    if (this.pickerTimer) clearTimeout(this.pickerTimer);
-    this.pickerTimer = setTimeout(() => {
-      this.pickerField.set('');
-      this.pickerResults.set([]);
-    }, 200);
-  }
-
-  private doPkrSearch(q: string): void {
-    const spaceId = this.activeSpaceId();
-    if (!spaceId) return;
-    this.pickerLoading.set(true);
-    this.api.listEntities(spaceId, 8, 0, q || undefined).subscribe({
-      next: ({ entities }) => { this.pickerResults.set(entities); this.pickerLoading.set(false); },
-      error: () => this.pickerLoading.set(false),
-    });
-  }
-
   pickEntity(ent: Entity, mode: 'single' | 'multi', field: string): void {
     switch (field) {
       case 'create-edge-from':         this.edgeForm.from = ent._id; this.edgeForm.fromDisplay = ent.name; break;
@@ -2487,8 +2395,6 @@ export class BrainComponent implements OnInit {
         this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
         this.editChrono.entityIds = this.appendEntityId(this.editChrono.entityIds, ent._id); break;
     }
-    this.pickerField.set('');
-    this.pickerResults.set([]);
   }
 
   private appendEntityId(current: string, id: string): string {

@@ -13,8 +13,8 @@ import {
 import { CommonModule, Location } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
-import { Subject, Subscription, forkJoin, of } from 'rxjs';
-import { debounceTime, distinctUntilChanged, switchMap, catchError, map } from 'rxjs/operators';
+import { Subscription, forkJoin, of } from 'rxjs';
+import { catchError, map } from 'rxjs/operators';
 import cytoscape from 'cytoscape';
 import {
   ApiService,
@@ -26,9 +26,9 @@ import {
   TraverseNode,
   TraverseEdge,
   TraverseResult,
-  RecallResult,
 } from '../../core/api.service';
 import { EntryPopupComponent } from '../../shared/entry-popup.component';
+import { EntitySearchComponent } from '../../shared/entity-search.component';
 
 // ── Deterministic colour palette for node types ──────────────────────────────
 
@@ -65,7 +65,7 @@ interface DetailRow {
 @Component({
   selector: 'app-graph-view',
   standalone: true,
-  imports: [CommonModule, FormsModule, EntryPopupComponent],
+  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent],
   host: { '[class.embedded]': 'isEmbedded()' },
   styles: [`
     :host {
@@ -472,30 +472,14 @@ interface DetailRow {
     <!-- ═══ Toolbar ════════════════════════════════════════════════════════ -->
     <div class="graph-toolbar">
       <div class="search-wrapper">
-        <input
-          type="search"
+        <app-entity-search
+          mode="bar"
+          [spaceId]="activeSpaceId()"
           placeholder="🔍  Search entity…"
-          [ngModel]="searchQuery()"
-          (ngModelChange)="onSearchInput($event)"
-          (focus)="searchFocused.set(true)"
-          (blur)="onSearchBlur()"
-          (keyup.enter)="selectFirstResult()"
+          defaultMode="semantic"
+          (selected)="selectRoot($event)"
+          (queryChange)="onSearchQueryChange($event)"
         />
-        @if (searchResults().length > 0 && searchFocused()) {
-          <div class="autocomplete-dropdown">
-            @for (ent of searchResults(); track ent._id) {
-              <button (mousedown)="selectRoot(ent)">
-                {{ ent.name }}
-                <span class="ac-type">{{ ent.type ?? 'entity' }}</span>
-              </button>
-            }
-          </div>
-        }
-      </div>
-
-      <div class="pill-group" title="Search mode">
-        <button [class.active]="searchMode() === 'name'"     (click)="setSearchMode('name')">A–Z</button>
-        <button [class.active]="searchMode() === 'semantic'" (click)="setSearchMode('semantic')">✦ Semantic</button>
       </div>
 
       <div class="depth-control">
@@ -633,13 +617,10 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ── State signals ───────────────────────────────────────────────────────────
   isEmbedded = signal(false);
-  searchMode = signal<'name' | 'semantic'>('name');
 
   spaces = signal<Space[]>([]);
   activeSpaceId = signal('');
   searchQuery = signal('');
-  searchResults = signal<Entity[]>([]);
-  searchFocused = signal(false);
 
   rootEntity = signal<Entity | null>(null);
   depth = signal(3);
@@ -706,7 +687,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ── Private state ───────────────────────────────────────────────────────────
   private cy: any = null;
-  private search$ = new Subject<string>();
   private subs = new Subscription();
   private overlayRAF = 0;
 
@@ -747,44 +727,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.api.getMe().pipe(catchError(() => of(null))).subscribe(me => {
       this.canEdit.set(me ? !me.readOnly : false);
     });
-
-    // Debounced entity search — supports both name-contains and semantic modes
-    this.subs.add(
-      this.search$.pipe(
-        debounceTime(300),
-        distinctUntilChanged(),
-        switchMap(q => {
-          if (!q.trim() || !this.activeSpaceId()) return of({ entities: [] as Entity[] });
-          const spaceId = this.activeSpaceId();
-
-          if (this.searchMode() === 'semantic') {
-            return this.api.recallBrain(spaceId, { query: q, types: ['entity'], topK: 10 }).pipe(
-              catchError(() => of({ results: [] as RecallResult[], count: 0 })),
-              map(res => ({
-                entities: res.results
-                  .filter(r => r['type'] === 'entity')
-                  .map(r => ({
-                    _id: r['_id'] as string,
-                    spaceId,
-                    name: (r['name'] as string) || '',
-                    type: (r['entityType'] as string) || '',
-                    description: r['description'] as string | undefined,
-                    tags: (r['tags'] as string[]) ?? [],
-                    properties: (r['properties'] as Record<string, string | number | boolean>) ?? {},
-                    createdAt: r['createdAt'] as string,
-                    updatedAt: r['createdAt'] as string,
-                    seq: 0,
-                  } as Entity)),
-              })),
-            );
-          }
-
-          return this.api.searchEntitiesByName(spaceId, q).pipe(
-            catchError(() => of({ entities: [] as Entity[] })),
-          );
-        }),
-      ).subscribe(res => this.searchResults.set(res.entities)),
-    );
   }
 
   ngAfterViewInit(): void {
@@ -918,6 +860,10 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // ── Toolbar handlers ────────────────────────────────────────────────────────
 
+  onSearchQueryChange(q: string): void {
+    this.searchQuery.set(q);
+  }
+
   onSpaceChange(spaceId: string): void {
     this.activeSpaceId.set(spaceId);
     this.resetGraph();
@@ -925,12 +871,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
   onSearchInput(query: string): void {
     this.searchQuery.set(query);
-    this.search$.next(query);
-  }
-
-  onSearchBlur(): void {
-    // Delay to allow click on dropdown item
-    setTimeout(() => this.searchFocused.set(false), 200);
   }
 
   onDepthChange(val: number | string): void {
@@ -947,19 +887,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  setSearchMode(mode: 'name' | 'semantic'): void {
-    this.searchMode.set(mode);
-    // Re-trigger search with current query in new mode
-    const q = this.searchQuery();
-    if (q.trim()) this.search$.next(q);
-  }
-
-  /** Select the first autocomplete result on Enter key. */
-  selectFirstResult(): void {
-    const results = this.searchResults();
-    if (results.length > 0) this.selectRoot(results[0]);
-  }
-
   onHideLabelsChange(hide: boolean): void {
     this.hideLabels.set(hide);
     if (this.cy) {
@@ -974,8 +901,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   selectRoot(entity: Entity, pushHistory = false): void {
     this.rootEntity.set(entity);
     this.searchQuery.set(entity.name);
-    this.searchResults.set([]);
-    this.searchFocused.set(false);
     this.selectedNode.set(null);
     this.nodeMemories.set([]);
     this.nodeChrono.set([]);
@@ -993,9 +918,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.nodeMemories.set([]);
     this.nodeChrono.set([]);
     this.searchQuery.set('');
-    this.searchResults.set([]);
-    this.searchFocused.set(false);
-    this.search$.next('');  // cancel any pending debounced search
     this.truncated.set(false);
     this.graphNodes = [];
     this.graphEdges = [];

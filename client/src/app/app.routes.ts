@@ -39,11 +39,6 @@ export const routes: Routes = [
           import('./pages/brain/brain.component').then(m => m.BrainComponent),
       },
       {
-        path: 'graph',
-        loadComponent: () =>
-          import('./pages/graph/graph.component').then(m => m.GraphComponent),
-      },
-      {
         path: 'files',
         loadComponent: () =>
           import('./pages/files/file-manager.component').then(m => m.FileManagerComponent),

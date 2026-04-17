@@ -553,7 +553,9 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
           }
 
           @if (enableWizardStep() === 3) {
-            @if (localAgentCanExecute()) {
+            @if (localAgentChecking()) {
+              <p class="wizard-note">Checking local connector status...</p>
+            } @else if (localAgentCanExecute()) {
               <p class="wizard-note">One-click mode is ready. Click <strong>Run automatically</strong>. Use manual commands only if automatic mode fails.</p>
             } @else {
               <p class="wizard-note">Automatic mode is unavailable. Use manual commands on this host, then click <strong>I finished setup</strong>.</p>
@@ -561,7 +563,7 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
             @if (localAgentStatusMessage()) {
               <div class="wizard-status">{{ localAgentStatusMessage() }}</div>
             }
-            @if (!localAgentCanExecute()) {
+            @if (!localAgentCanExecute() && !localAgentChecking()) {
               @if (enableOs === 'windows') {
                 <div class="code-block" style="white-space:pre-wrap; word-break:break-word; font-size:11px;">{{ enableWindowsCommand() }}</div>
               } @else {
@@ -575,11 +577,11 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
                   Run automatically
                 </button>
               }
-              @if (!localAgentCanExecute()) {
+              @if (!localAgentCanExecute() && !localAgentChecking()) {
                 <button class="btn-ghost btn" type="button" (click)="copyEnableWizardCommands()">Copy commands</button>
               }
               <button class="btn-secondary btn" type="button" (click)="enableWizardStep.set(2)">Back</button>
-              @if (!localAgentCanExecute()) {
+              @if (!localAgentCanExecute() && !localAgentChecking()) {
                 <button class="btn-primary btn" type="button" (click)="completeEnableWizard()">I finished setup</button>
               }
             </div>
@@ -644,6 +646,7 @@ export class NetworksComponent implements OnInit {
   enableWindowsCommand = signal('');
   enableLinuxCommand = signal('');
   localAgentCanExecute = signal(false);
+  localAgentChecking = signal(false);
   localAgentStatusMessage = signal('');
   enableAutoRunning = signal(false);
 
@@ -692,8 +695,8 @@ export class NetworksComponent implements OnInit {
     this.enableOverwriteDns = false;
     this.enableAcknowledgeCritical = false;
     this.localAgentCanExecute.set(false);
-    this.localAgentStatusMessage.set('Preparing local connector...');
-    this.bootstrapLocalAgent();
+    this.localAgentChecking.set(false);
+    this.localAgentStatusMessage.set('');
     this.showEnableNetworksWizard.set(true);
   }
 
@@ -707,6 +710,9 @@ export class NetworksComponent implements OnInit {
 
     this.enableWindowsCommand.set(this.buildWindowsCloudflareCommands(host));
     this.enableLinuxCommand.set(this.buildLinuxCloudflareCommands(host));
+    this.localAgentStatusMessage.set('Checking local connector...');
+    this.localAgentChecking.set(true);
+    this.bootstrapLocalAgent();
     this.enableWizardStep.set(3);
   }
 
@@ -778,13 +784,35 @@ export class NetworksComponent implements OnInit {
   }
 
   private bootstrapLocalAgent(): void {
+    // Try status first — if the connector is already running (e.g. feature enabled via env var,
+    // or connector was started manually), automatic mode becomes available without bootstrap.
+    this.api.getLocalAgentStatus().subscribe({
+      next: (status) => {
+        if (status.canExecute) {
+          this.localAgentCanExecute.set(true);
+          this.localAgentChecking.set(false);
+          this.localAgentStatusMessage.set(status.message ?? 'Local connector is ready for one-click execution.');
+        } else {
+          // Connector not ready — try to spawn it via bootstrap.
+          this.triggerBootstrap();
+        }
+      },
+      error: () => this.triggerBootstrap(),
+    });
+  }
+
+  private triggerBootstrap(): void {
+    this.localAgentStatusMessage.set('Starting local connector...');
     this.api.bootstrapLocalAgent({ os: this.enableOs }).subscribe({
       next: (result) => {
-        this.localAgentStatusMessage.set(result.message ?? 'Local connector prepared.');
+        this.localAgentStatusMessage.set(result.message ?? 'Local connector started.');
         this.refreshLocalAgentStatus();
       },
-      error: () => {
-        this.refreshLocalAgentStatus();
+      error: (err) => {
+        this.localAgentCanExecute.set(false);
+        this.localAgentChecking.set(false);
+        const detail = err?.error?.error ?? err?.message ?? `HTTP ${err?.status ?? 'unknown'}`;
+        this.localAgentStatusMessage.set(`Could not start the local connector (${detail}). Manual commands are still available.`);
       },
     });
   }
@@ -793,11 +821,13 @@ export class NetworksComponent implements OnInit {
     this.api.getLocalAgentStatus().subscribe({
       next: (status) => {
         this.localAgentCanExecute.set(status.canExecute);
-        this.localAgentStatusMessage.set(status.message ?? (status.canExecute ? 'Local connector is ready for one-click execution.' : 'Local connector not ready.'));
+        this.localAgentChecking.set(false);
+        this.localAgentStatusMessage.set(status.message ?? (status.canExecute ? 'Local connector is ready for one-click execution.' : 'Manual commands are available below.'));
       },
       error: () => {
         this.localAgentCanExecute.set(false);
-        this.localAgentStatusMessage.set('Local connector status check failed. Manual commands are still available.');
+        this.localAgentChecking.set(false);
+        this.localAgentStatusMessage.set('Could not reach the local connector status endpoint. Manual commands are still available.');
       },
     });
   }

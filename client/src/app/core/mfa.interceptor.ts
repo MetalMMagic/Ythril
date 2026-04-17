@@ -9,13 +9,15 @@ const MFA_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 /**
  * MFA interceptor — functional style (Angular 17+ withInterceptors).
  *
- * When an admin-mutation request returns 403 with error MFA_REQUIRED or
- * MFA_INVALID:
+ * When an admin request returns 403 with error MFA_REQUIRED or MFA_INVALID:
  *   1. Prompt the user for a TOTP code (or use a cached one within the
  *      15-minute session window).
  *   2. Retry the original request with X-TOTP-Code header injected.
  *   3. On success, cache the code for the remainder of the window.
  *   4. On second failure (wrong code), invalidate cache and propagate the error.
+ *
+ * Applies to mutations (POST/PUT/PATCH/DELETE) AND to GET requests on admin
+ * paths (/api/admin/*) — some admin GET endpoints also require MFA.
  *
  * When MFA is disabled on the server, admin routes return 200 without
  * requiring this header — the interceptor is a no-op in that case.
@@ -23,8 +25,9 @@ const MFA_METHODS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
 export const mfaInterceptor: HttpInterceptorFn = (req: HttpRequest<unknown>, next: HttpHandlerFn) => {
   const mfa = inject(MfaService);
 
-  // Only ever inject TOTP headers on admin-mutation-style HTTP methods
-  if (!MFA_METHODS.has(req.method)) {
+  // Handle MFA for mutations and GET requests on admin paths.
+  const isAdminGet = req.method === 'GET' && req.url.includes('/api/admin/');
+  if (!MFA_METHODS.has(req.method) && !isAdminGet) {
     return next(req);
   }
 

@@ -5,6 +5,9 @@ node_modules/
 dist/
 .angular/
 
+# Local Docker data volumes - bind mounts, never committed
+local-data/
+
 # Runtime config - never committed; use config/config.example.json as template
 config/config.json
 config/secrets.json

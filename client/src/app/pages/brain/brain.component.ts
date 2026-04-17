@@ -3,8 +3,9 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, SpaceMetaResponse, KnowledgeType } from '../../core/api.service';
+import { GraphComponent } from '../graph/graph.component';
 
-type BrainTab = 'query' | 'entities' | 'edges' | 'memories' | 'chrono';
+type BrainTab = 'query' | 'graph' | 'entities' | 'edges' | 'memories' | 'chrono';
 
 interface SpaceView {
   space: Space;
@@ -14,7 +15,7 @@ interface SpaceView {
 @Component({
   selector: 'app-brain',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, GraphComponent],
   styles: [`
     .space-tabs {
       display: flex;
@@ -485,6 +486,9 @@ interface SpaceView {
         <button class="tab" [class.active]="activeTab() === 'query'" (click)="setTab('query')">
           🔍 Query
         </button>
+        <button class="tab" [class.active]="activeTab() === 'graph'" (click)="setTab('graph')">
+          🔭 Graph
+        </button>
         <span class="tab-spacer"></span>
         @for (tab of collectionTabs; track tab.key) {
           <button class="tab" [class.active]="activeTab() === tab.key" (click)="setTab(tab.key)">
@@ -507,6 +511,11 @@ interface SpaceView {
       @if (loading()) {
         <div class="loading-overlay"><span class="spinner"></span></div>
       } @else {
+
+        <!-- Graph tab -->
+        @if (activeTab() === 'graph') {
+          <app-graph-view [embeddedSpaceId]="activeSpaceId()" />
+        }
 
         <!-- Memories -->
         @if (activeTab() === 'memories') {
@@ -1871,6 +1880,10 @@ export class BrainComponent implements OnInit {
       }
       case 'query':
         // Query tab manages its own loading state; just clear the global overlay
+        this.loading.set(false);
+        break;
+      case 'graph':
+        // Graph tab is self-contained; no data pre-fetch needed
         this.loading.set(false);
         break;
     }

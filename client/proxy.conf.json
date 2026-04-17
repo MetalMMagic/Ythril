@@ -1,7 +1,7 @@
 {
-  "/api": { "target": "http://localhost:3200", "secure": false, "changeOrigin": true },
-  "/mcp": { "target": "http://localhost:3200", "secure": false, "changeOrigin": true },
-  "/setup": { "target": "http://localhost:3200", "secure": false, "changeOrigin": true },
-  "/health": { "target": "http://localhost:3200", "secure": false, "changeOrigin": true },
-  "/ready": { "target": "http://localhost:3200", "secure": false, "changeOrigin": true }
+  "/api": { "target": "http://localhost:3210", "secure": false, "changeOrigin": true, "xfwd": true },
+  "/mcp": { "target": "http://localhost:3210", "secure": false, "changeOrigin": true, "xfwd": true },
+  "/setup": { "target": "http://localhost:3210", "secure": false, "changeOrigin": true, "xfwd": true },
+  "/health": { "target": "http://localhost:3210", "secure": false, "changeOrigin": true, "xfwd": true },
+  "/ready": { "target": "http://localhost:3210", "secure": false, "changeOrigin": true, "xfwd": true }
 }

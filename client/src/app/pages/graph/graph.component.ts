@@ -3,6 +3,7 @@ import {
   OnInit,
   AfterViewInit,
   OnDestroy,
+  Input,
   inject,
   signal,
   computed,
@@ -13,7 +14,7 @@ import { CommonModule, Location } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { Subject, Subscription, forkJoin, of } from 'rxjs';
-import { debounceTime, distinctUntilChanged, switchMap, catchError } from 'rxjs/operators';
+import { debounceTime, distinctUntilChanged, switchMap, catchError, map } from 'rxjs/operators';
 import cytoscape from 'cytoscape';
 import {
   ApiService,
@@ -25,6 +26,7 @@ import {
   TraverseNode,
   TraverseEdge,
   TraverseResult,
+  RecallResult,
 } from '../../core/api.service';
 import { EntryPopupComponent } from '../../shared/entry-popup.component';
 
@@ -64,6 +66,7 @@ interface DetailRow {
   selector: 'app-graph-view',
   standalone: true,
   imports: [CommonModule, FormsModule, EntryPopupComponent],
+  host: { '[class.embedded]': 'isEmbedded()' },
   styles: [`
     :host {
       display: flex;
@@ -71,6 +74,46 @@ interface DetailRow {
       height: calc(100vh - 56px - 56px);
       min-height: 0;
     }
+    :host.embedded {
+      height: 70vh;
+      min-height: 400px;
+    }
+
+    /* ── Space chips (matches brain style) ─────────────────────────────────── */
+    .space-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+      overflow-x: auto;
+      padding-bottom: 2px;
+      flex-shrink: 0;
+    }
+    .space-chip {
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all var(--transition);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+      min-width: 90px;
+      white-space: nowrap;
+    }
+    .space-chip:hover { border-color: var(--accent); color: var(--text-primary); }
+    .space-chip.active {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .space-chip-label { font-size: 12px; font-weight: 500; }
+    .space-chip-id { font-size: 10px; color: var(--text-muted); }
+    .space-chip.active .space-chip-id { color: var(--accent); opacity: 0.7; }
 
     /* ── Toolbar ───────────────────────────────────────────────────────────── */
 
@@ -410,14 +453,24 @@ interface DetailRow {
     .popup-wrapper { display: contents; }
   `],
   template: `
+    <!-- ═══ Space selector ══════════════════════════════════════════════════ -->
+    @if (!isEmbedded() && spaces().length > 0) {
+      <div class="space-tabs">
+        @for (s of spaces(); track s.id) {
+          <button
+            class="space-chip"
+            [class.active]="activeSpaceId() === s.id"
+            (click)="onSpaceChange(s.id)"
+          >
+            <span class="space-chip-label">{{ s.label }}</span>
+            <span class="space-chip-id">{{ s.id }}</span>
+          </button>
+        }
+      </div>
+    }
+
     <!-- ═══ Toolbar ════════════════════════════════════════════════════════ -->
     <div class="graph-toolbar">
-      <select [ngModel]="activeSpaceId()" (ngModelChange)="onSpaceChange($event)">
-        @for (s of spaces(); track s.id) {
-          <option [value]="s.id">{{ s.label }}</option>
-        }
-      </select>
-
       <div class="search-wrapper">
         <input
           type="search"
@@ -426,6 +479,7 @@ interface DetailRow {
           (ngModelChange)="onSearchInput($event)"
           (focus)="searchFocused.set(true)"
           (blur)="onSearchBlur()"
+          (keyup.enter)="selectFirstResult()"
         />
         @if (searchResults().length > 0 && searchFocused()) {
           <div class="autocomplete-dropdown">
@@ -437,6 +491,11 @@ interface DetailRow {
             }
           </div>
         }
+      </div>
+
+      <div class="pill-group" title="Search mode">
+        <button [class.active]="searchMode() === 'name'"     (click)="setSearchMode('name')">A–Z</button>
+        <button [class.active]="searchMode() === 'semantic'" (click)="setSearchMode('semantic')">✦ Semantic</button>
       </div>
 
       <div class="depth-control">
@@ -562,7 +621,20 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   // ── Element refs ────────────────────────────────────────────────────────────
   cyContainer = viewChild<ElementRef<HTMLDivElement>>('cyContainer');
 
+  // ── Embedded input ──────────────────────────────────────────────────────────
+  @Input() set embeddedSpaceId(v: string | undefined) {
+    if (v !== undefined) {
+      this.isEmbedded.set(true);
+      const changed = this.activeSpaceId() !== v;
+      this.activeSpaceId.set(v);
+      if (changed && this.cy) this.resetGraph();
+    }
+  }
+
   // ── State signals ───────────────────────────────────────────────────────────
+  isEmbedded = signal(false);
+  searchMode = signal<'name' | 'semantic'>('name');
+
   spaces = signal<Space[]>([]);
   activeSpaceId = signal('');
   searchQuery = signal('');
@@ -653,35 +725,61 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   // ── Lifecycle ───────────────────────────────────────────────────────────────
 
   ngOnInit(): void {
-    // Load spaces + current user
-    this.api.listSpaces().subscribe(res => {
-      this.spaces.set(res.spaces);
-      const qp = this.route.snapshot.queryParams;
-      const initial = qp['space'] || (res.spaces.length ? res.spaces[0].id : '');
-      this.activeSpaceId.set(initial);
+    // Load spaces only in standalone mode; in embedded mode the space is injected via @Input
+    if (!this.isEmbedded()) {
+      this.api.listSpaces().subscribe(res => {
+        this.spaces.set(res.spaces);
+        const qp = this.route.snapshot.queryParams;
+        const initial = qp['space'] || (res.spaces.length ? res.spaces[0].id : '');
+        this.activeSpaceId.set(initial);
 
-      // If entity query-param present, load it as root
-      if (qp['entity'] && initial) {
-        this.api.getEntity(initial, qp['entity']).pipe(
-          catchError(() => of(null)),
-        ).subscribe(ent => {
-          if (ent) this.selectRoot(ent);
-        });
-      }
-    });
+        // If entity query-param present, load it as root
+        if (qp['entity'] && initial) {
+          this.api.getEntity(initial, qp['entity']).pipe(
+            catchError(() => of(null)),
+          ).subscribe(ent => {
+            if (ent) this.selectRoot(ent);
+          });
+        }
+      });
+    }
 
     this.api.getMe().pipe(catchError(() => of(null))).subscribe(me => {
       this.canEdit.set(me ? !me.readOnly : false);
     });
 
-    // Debounced entity search
+    // Debounced entity search — supports both name-contains and semantic modes
     this.subs.add(
       this.search$.pipe(
         debounceTime(300),
         distinctUntilChanged(),
         switchMap(q => {
           if (!q.trim() || !this.activeSpaceId()) return of({ entities: [] as Entity[] });
-          return this.api.searchEntitiesByName(this.activeSpaceId(), q).pipe(
+          const spaceId = this.activeSpaceId();
+
+          if (this.searchMode() === 'semantic') {
+            return this.api.recallBrain(spaceId, { query: q, types: ['entity'], topK: 10 }).pipe(
+              catchError(() => of({ results: [] as RecallResult[], count: 0 })),
+              map(res => ({
+                entities: res.results
+                  .filter(r => r['type'] === 'entity')
+                  .map(r => ({
+                    _id: r['_id'] as string,
+                    spaceId,
+                    name: (r['name'] as string) || '',
+                    type: (r['entityType'] as string) || '',
+                    description: r['description'] as string | undefined,
+                    tags: (r['tags'] as string[]) ?? [],
+                    properties: (r['properties'] as Record<string, string | number | boolean>) ?? {},
+                    createdAt: r['createdAt'] as string,
+                    updatedAt: r['createdAt'] as string,
+                    seq: 0,
+                  } as Entity)),
+              })),
+            );
+          }
+
+          return this.api.searchEntitiesByName(spaceId, q).pipe(
             catchError(() => of({ entities: [] as Entity[] })),
           );
         }),
@@ -849,6 +947,19 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  setSearchMode(mode: 'name' | 'semantic'): void {
+    this.searchMode.set(mode);
+    // Re-trigger search with current query in new mode
+    const q = this.searchQuery();
+    if (q.trim()) this.search$.next(q);
+  }
+
+  /** Select the first autocomplete result on Enter key. */
+  selectFirstResult(): void {
+    const results = this.searchResults();
+    if (results.length > 0) this.selectRoot(results[0]);
+  }
+
   onHideLabelsChange(hide: boolean): void {
     this.hideLabels.set(hide);
     if (this.cy) {
@@ -868,7 +979,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.selectedNode.set(null);
     this.nodeMemories.set([]);
     this.nodeChrono.set([]);
-    this.updateUrl(entity._id, pushHistory);
+    if (!this.isEmbedded()) this.updateUrl(entity._id, pushHistory);
     this.traverse(entity._id, this.depth(), this.direction());
   }
 

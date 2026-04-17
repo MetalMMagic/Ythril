@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { z } from 'zod';
 
 const PORT = Number(process.env['YTHRIL_CONNECTOR_PORT'] ?? 38123);
-const HOST = process.env['YTHRIL_CONNECTOR_BIND_HOST'] ?? '127.0.0.1';
+const HOST = process.env['YTHRIL_CONNECTOR_BIND_HOST'] ?? '0.0.0.0';
 const TOKEN_FILE = process.env['YTHRIL_CONNECTOR_TOKEN_FILE'] ?? path.join(os.homedir(), '.ythril-local-connector', 'token');
 const ALLOW_SERVICE_INSTALL = (process.env['YTHRIL_CONNECTOR_ALLOW_SERVICE_INSTALL'] ?? '').trim().toLowerCase() === 'true';
 const DEFAULT_TUNNEL_NAME = process.env['YTHRIL_CONNECTOR_TUNNEL_NAME'] ?? 'ythril-local';
@@ -51,6 +51,9 @@ const EnableNetworksBody = z.object({
   autostart: z.boolean().default(true),
   overwriteDns: z.boolean().default(false),
   acknowledgeCriticalChanges: z.literal(true),
+  // The local origin the cloudflared tunnel should forward to. The Ythril server
+  // injects this automatically from its own PORT env var.
+  localOrigin: z.string().url().default('http://localhost:3200'),
 });
 
 const app = express();
@@ -191,17 +194,25 @@ async function ensureDnsRoute(tunnelName: string, hostname: string, overwriteDns
 
 async function ensureCloudflareLogin(): Promise<void> {
   if (fs.existsSync(CLOUDFLARED_CERT_PATH)) return;
-  await runCloudflared(['tunnel', 'login']);
-  if (!fs.existsSync(CLOUDFLARED_CERT_PATH)) {
-    throw new Error(`Cloudflare login completed but ${CLOUDFLARED_CERT_PATH} is missing. If a cert was downloaded by browser, copy it there and retry.`);
-  }
+  // cert.pem is absent — Cloudflare login is required. Rather than silently blocking
+  // while cloudflared opens a browser (which would hold the HTTP request for minutes
+  // and look like a hang), we return a structured error that the wizard surfaces as an
+  // actionable instruction. The user runs `cloudflared tunnel login` once in a terminal,
+  // then retries one-click setup.
+  throw Object.assign(
+    new Error(
+      'Cloudflare login required. Open a terminal on this machine and run: cloudflared tunnel login\n' +
+      'A browser window will open — authorise the connection, then click "Run automatically" again.',
+    ),
+    { code: 'CLOUDFLARE_LOGIN_REQUIRED' },
+  );
 }
 
 function cloudflaredDir(): string {
   return path.join(os.homedir(), '.cloudflared');
 }
 
-function writeConfig(tunnelId: string, hostname: string): string {
+function writeConfig(tunnelId: string, hostname: string, localOrigin: string): string {
   const dir = cloudflaredDir();
   const credPath = path.join(dir, `${tunnelId}.json`);
   if (!fs.existsSync(credPath)) {
@@ -216,7 +227,7 @@ function writeConfig(tunnelId: string, hostname: string): string {
     '',
     'ingress:',
     `  - hostname: ${hostname}`,
-    '    service: http://localhost:3200',
+    `    service: ${localOrigin}`,
     '  - service: http_status:404',
     '',
   ].join('\n');
@@ -310,6 +321,7 @@ app.post('/v1/actions/enable-networks', requireConnectorAuth, async (req, res) =
   const hostname = parsed.data.hostname;
   const autostart = parsed.data.autostart;
   const overwriteDns = parsed.data.overwriteDns;
+  const localOrigin = parsed.data.localOrigin;
 
   const plannedSteps = [
     'Ensure cloudflared is installed',
@@ -325,7 +337,7 @@ app.post('/v1/actions/enable-networks', requireConnectorAuth, async (req, res) =
     await ensureCloudflareLogin();
     const tunnel = await ensureTunnel(DEFAULT_TUNNEL_NAME);
     await ensureDnsRoute(DEFAULT_TUNNEL_NAME, hostname, overwriteDns);
-    const configPath = writeConfig(tunnel.id, hostname);
+    const configPath = writeConfig(tunnel.id, hostname, localOrigin);
     const notes = await maybeInstallService(targetOs, autostart);
     if (!(autostart && ALLOW_SERVICE_INSTALL)) {
       notes.push(await ensureUserModeTunnelRunning(DEFAULT_TUNNEL_NAME));

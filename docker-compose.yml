@@ -1,8 +1,6 @@
 ﻿services:
   ythril:
     image: ghcr.io/ythril-network/ythril:latest
-    # To build locally instead of pulling, uncomment the next line:
-    # build: .
     container_name: ythril
     restart: unless-stopped
     ports:
@@ -10,7 +8,7 @@
     volumes:
       # Config and secrets — keep outside image, mode 0600 enforced at startup
       - ./config:/config
-      # Persistent data: files + MongoDB brain
+      # Persistent data: uploaded files, etc.
       - ythril-data:/data
     environment:
       CONFIG_PATH: /config/config.json
@@ -18,7 +16,7 @@
       MONGO_URI: mongodb://ythril-mongo:27017/?directConnection=true
       NODE_ENV: production
       YTHRIL_LOCAL_AGENT_ENABLED: ${YTHRIL_LOCAL_AGENT_ENABLED:-}
-      YTHRIL_LOCAL_AGENT_URL: ${YTHRIL_LOCAL_AGENT_URL:-}
+      YTHRIL_LOCAL_AGENT_URL: ${YTHRIL_LOCAL_AGENT_URL:-http://localhost:38123}
       YTHRIL_LOCAL_AGENT_TOKEN: ${YTHRIL_LOCAL_AGENT_TOKEN:-}
       # Pass DEBUG=1 from the host shell to enable verbose logging:
       #   DEBUG=1 docker compose up
@@ -39,15 +37,15 @@
     # mongodb/mongodb-atlas-local includes mongot — required for $vectorSearch
     image: mongodb/mongodb-atlas-local:latest
     container_name: ythril-mongo
+    # Pin hostname so the replica-set config remains valid across container restarts.
+    # Without this, each `docker compose down && up` gets a new random hostname,
+    # causing "Our replica set config is invalid or we are not a member of it".
+    hostname: ythril-mongo
     restart: unless-stopped
-    # Suppress MongoDB's internal logs — they are not useful during normal
-    # operation. Set DEBUG=1 on the host and use `docker compose logs ythril-mongo`
-    # if you need to inspect MongoDB internals.
     logging:
       driver: "none"
     volumes:
       - ythril-mongo-data:/data/db
-      # Persist /data/configdb so the replica-set keyfile survives container restarts
       - ythril-mongo-configdb:/data/configdb
     healthcheck:
       # Wait for the replica set to elect a primary (not just mongod accepting connections)

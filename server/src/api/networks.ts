@@ -142,6 +142,20 @@ networksRouter.get('/:id/sync-history', globalRateLimit, requireAdmin, async (re
   }
 });
 
+// ── POST /api/networks/:id/sync — manually trigger a sync run ──────────────
+
+networksRouter.post('/:id/sync', globalRateLimit, requireAdmin, (req, res) => {
+  const cfg = getConfig();
+  const net = cfg.networks.find(n => n.id === req.params['id']);
+  if (!net) { res.status(404).json({ error: 'Network not found' }); return; }
+
+  import('../sync/engine.js').then(({ runSyncForNetwork }) => {
+    void runSyncForNetwork(net!.id);
+  }).catch(err => log.error(`POST /api/networks/:id/sync import: ${err}`));
+
+  res.json({ ok: true });
+});
+
 networksRouter.post('/', globalRateLimit, requireAdmin, async (req, res) => {
   try {
     const parsed = CreateNetworkBody.safeParse(req.body);

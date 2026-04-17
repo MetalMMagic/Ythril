@@ -194,18 +194,17 @@ async function ensureDnsRoute(tunnelName: string, hostname: string, overwriteDns
 
 async function ensureCloudflareLogin(): Promise<void> {
   if (fs.existsSync(CLOUDFLARED_CERT_PATH)) return;
-  // cert.pem is absent — Cloudflare login is required. Rather than silently blocking
-  // while cloudflared opens a browser (which would hold the HTTP request for minutes
-  // and look like a hang), we return a structured error that the wizard surfaces as an
-  // actionable instruction. The user runs `cloudflared tunnel login` once in a terminal,
-  // then retries one-click setup.
-  throw Object.assign(
-    new Error(
-      'Cloudflare login required. Open a terminal on this machine and run: cloudflared tunnel login\n' +
-      'A browser window will open — authorise the connection, then click "Run automatically" again.',
-    ),
-    { code: 'CLOUDFLARE_LOGIN_REQUIRED' },
-  );
+  // cert.pem is absent — run `cloudflared tunnel login`.
+  // On workstation systems this opens the default browser for the OAuth flow and blocks
+  // until the user completes authorisation. The caller (the Enable Networks action) has
+  // a 5-minute HTTP timeout, which is ample for a human to click "Authorize" in a browser.
+  await runCloudflared(['tunnel', 'login']);
+  if (!fs.existsSync(CLOUDFLARED_CERT_PATH)) {
+    throw new Error(
+      'Cloudflare login did not complete (cert.pem still missing). ' +
+      'Run `cloudflared tunnel login` in a terminal to authorise, then click "Run automatically" again.',
+    );
+  }
 }
 
 function cloudflaredDir(): string {

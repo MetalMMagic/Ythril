@@ -7,7 +7,7 @@
  *    (push is symmetric — we push to peers; peers pull from us)
  *
  * The engine is triggered either by a cron schedule (per network) or
- * explicitly via POST /api/sync/trigger (manual).
+ * explicitly via POST /api/networks/:id/sync (manual trigger from admin UI).
  *
  * Braintree topology:
  * - Nodes with direction='push' only receive from their parent; never push up.

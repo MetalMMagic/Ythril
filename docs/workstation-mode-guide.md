@@ -314,8 +314,8 @@ Use the UI wizard in **Settings -> Networks -> Enable Networks**.
 
 What this does:
 
-- It helps your workstation become reachable from other Ythril instances.
-- Other machines connect to your Ythril URL (public hostname/tunnel).
+- Makes your workstation reachable from other Ythril instances via a public hostname.
+- Installs and configures a Cloudflare Tunnel so traffic reaches your local Ythril securely.
 
 Prerequisites:
 
@@ -323,37 +323,80 @@ Prerequisites:
 - You can sign in as admin (and provide MFA code if enabled).
 - You have a Cloudflare account with a domain managed in Cloudflare DNS.
 
-Preferred path (no console commands):
+### Workstation (Docker) setup — one-time
 
-- Open **Settings -> Networks -> Enable Networks** and run one-click setup.
-- The wizard bootstraps the local connector automatically.
+The `docker-compose.override.yml` file is gitignored and not included in the repo. Create it once in the project root with the following content, then commit it nowhere (it stays local):
 
-When you run one-click **Enable Networks** in the UI, the connector:
+```yaml
+# docker-compose.override.yml — local workstation overrides, not committed
+services:
+  ythril:
+    build: .
+    image: ythril-local
+    extra_hosts:
+      - "host-gateway:host-gateway"
+    volumes:
+      - ./local-data/ythril:/data
+      - ${USERPROFILE}/.ythril-local-connector:/home/node/.ythril-local-connector:ro
+    environment:
+      YTHRIL_LOCAL_AGENT_URL: http://host-gateway:38123
+      YTHRIL_LOCAL_AGENT_ALLOW_REMOTE: "true"
+      YTHRIL_LOCAL_AGENT_ALLOW_INSECURE: "true"
+      # cloudflared runs on Windows and must forward to the host-exposed port,
+      # not the internal container port 3200. Set YTHRIL_PORT in .env if you use a
+      # non-default host port (e.g. YTHRIL_PORT=3210).
+      YTHRIL_LOCAL_AGENT_ORIGIN: http://localhost:${YTHRIL_PORT:-3200}
 
-- Installs `cloudflared` if missing.
-- Triggers Cloudflare login only if `~/.cloudflared/cert.pem` is missing.
-- Creates/updates tunnel and DNS mapping idempotently.
-
-Safety controls in the wizard:
-
-- You must explicitly acknowledge critical system changes before automatic execution starts.
-- DNS overwrite is a separate opt-in toggle (off by default). Enable it only when you intentionally want to replace an existing DNS record for the chosen hostname.
-
-Fallback only (if local bootstrap is blocked by policy on your machine):
-
-```bash
-npm run enable-networks:setup
+  ythril-mongo:
+    volumes:
+      - ./local-data/mongo/db:/data/db
+      - ./local-data/mongo/configdb:/data/configdb
 ```
 
-About `127.0.0.1`:
+After creating this file, rebuild and restart the stack:
 
-- It means "only this workstation".
-- This protects the helper service.
-- It does NOT block brain-to-brain networking. Other machines still connect through your normal Ythril URL.
+```powershell
+docker compose build
+docker compose up -d
+```
+
+### Start the local connector
+
+The Ythril container cannot spawn processes on your Windows host, so the local connector must be started separately. Run this in a terminal in the project root:
+
+```powershell
+npm run local-connector:start
+```
+
+Keep this terminal open (or set it up as a startup item) — the connector must be running before you use the wizard.
+
+Why: the wizard communicates with a small HTTP helper process (`local-agent-connector`) that runs on Windows and executes cloudflared on your behalf. This process cannot be started from inside the Docker container.
+
+### Run the wizard
+
+Once the connector is running:
+
+1. Open **Settings -> Networks -> Enable Networks**.
+2. Enter your public hostname (e.g. `ythril.example.com`).
+3. Check "I understand this can install software, open Cloudflare login, create/update tunnel and DNS records, and start a background tunnel process/service on this machine."
+4. Click **Run automatically**.
+
+What happens on a fresh machine:
+
+- `cloudflared` is installed automatically via winget (Windows) if not present.
+- If you have never logged into Cloudflare from this machine (`~/.cloudflared/cert.pem` absent), the wizard opens the system browser for a one-time OAuth flow. Complete the authorization — the wizard waits and then continues automatically.
+- The tunnel is created (or reused if it already exists), DNS is routed, `~/.cloudflared/config.yml` is written, and the tunnel process is started.
+- Your public URL is set in the wizard automatically.
+
+The acknowledgement checkbox is required precisely because these are real, persistent changes on your machine. DNS overwrite is a separate opt-in toggle (off by default) — enable it only if you intentionally want to replace an existing DNS record.
+
+### Subsequent runs
+
+On machines where `cert.pem` already exists and the tunnel is already created, the wizard is idempotent — clicking "Run automatically" again is safe and just re-validates/restarts the tunnel.
 
 Server note:
 
-- On real servers, keep this disabled.
+- On real servers, keep the local connector disabled. `YTHRIL_LOCAL_AGENT_ENABLED` is unset by default.
 
 ---
 
@@ -380,13 +423,15 @@ Expose only your Ythril HTTP service to the internet through Cloudflare Tunnel, 
 
 Why this matters: `cloudflared tunnel login` requires an active zone. If no active zone exists, login may not complete and no `cert.pem` is written.
 
-### Step B: Run one-click setup and complete login
+### Step B: Run one-click setup
 
 Open **Settings -> Networks -> Enable Networks** and run one-click setup.
 
-During first-time login, cloudflared prints a one-time URL. Open that exact URL and complete browser approval.
+Start the local connector first (`npm run local-connector:start`), then click **Run automatically**.
 
-Expected success signal:
+On first run (no `cert.pem` yet), the wizard automatically runs `cloudflared tunnel login`, which opens your system browser for a one-time authorization. Complete it — the wizard waits and continues automatically.
+
+Expected success signals:
 
 - `C:\Users\<you>\.cloudflared\cert.pem` exists
 - One-click setup completes and your public URL is set to `https://<your-hostname>`
@@ -406,7 +451,7 @@ Manual path (Cloudflare dashboard):
   - **Subdomain**: e.g. `ythril`
   - **Domain**: your zone
   - **Service type**: `HTTP`
-  - **URL**: `http://localhost:3200` (or your chosen local port)
+  - **URL**: `http://localhost:3200` (or the host port you set with `YTHRIL_PORT`)
 5. Save.
 
 This usually creates the DNS record for you.
@@ -465,13 +510,13 @@ curl -H "Authorization: Bearer YOUR_TOKEN" https://ythril.example.com/api/about
 
 ### Troubleshooting (Cloudflare-specific)
 
-1. Error: "Cloudflare login did not finish (cert.pem missing)"
-- Cause: browser flow not completed, wrong account/zone, or no active zone.
-- Fix: ensure zone is **Active**, rerun setup, open the exact newly printed URL, finish approval.
+1. Error: "Cloudflare login did not complete (cert.pem still missing)"
+- Cause: browser window was closed before authorizing, or the 5-minute wizard timeout expired before you clicked Authorize.
+- Fix: ensure zone is **Active**, run `cloudflared tunnel login` in a terminal to authorize manually, then click Run automatically again.
 
-2. "Waiting for login..." repeats for minutes
-- Cause: callback not completed.
-- Fix: use the exact URL from the current run, not an older one.
+2. Browser did not open during wizard
+- Cause: on headless or remote systems, `cloudflared tunnel login` cannot open a browser.
+- Fix: run `cloudflared tunnel login` in a terminal on the same machine — copy and visit the URL it prints — then click Run automatically again.
 
 3. Public hostname resolves but app does not load
 - Check tunnel public hostname maps to `http://localhost:3200` (or your actual port).

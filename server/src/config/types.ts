@@ -388,6 +388,9 @@ export interface FileMetaDoc {
   path: string;         // same as _id — carried as a queryable field
   description?: string; // human-readable summary (optional)
   tags: string[];       // tags for filtering and recall scoping
+  entityIds?: string[];  // linked entity IDs
+  chronoIds?: string[];  // linked chrono entry IDs
+  memoryIds?: string[];  // linked memory IDs
   properties?: Record<string, string | number | boolean>; // structured metadata (optional)
   createdAt: string;    // ISO8601 — first write timestamp
   updatedAt: string;    // ISO8601 — last write timestamp

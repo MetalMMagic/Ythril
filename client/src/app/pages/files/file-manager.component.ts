@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input } from '@angular/core';
+import { Component, inject, signal, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -429,6 +429,9 @@ function previewKind(name: string): PreviewKind {
           <div class="preview-header">
             <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
             <a class="btn-secondary btn btn-sm" [href]="downloadUrl(pf)" download>↓ Download</a>
+            @if (embeddedSpaceId) {
+              <button class="btn btn-sm btn-secondary" title="View Brain metadata for this file" (click)="viewFileMeta.emit(previewFilePath(pf))">🏷 Metadata</button>
+            }
             <button class="icon-btn" (click)="closePreview()" aria-label="Close preview">✕</button>
           </div>
           <div class="preview-body">
@@ -469,6 +472,16 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   /** When set (embedded in brain), skip space loading and use this space. */
   @Input() embeddedSpaceId = '';
+
+  /** Emits the file path when user clicks "View Brain Metadata" in the preview pane. */
+  @Output() viewFileMeta = new EventEmitter<string>();
+
+  /** Navigate to the given directory when changed from parent (used by Brain filemeta→Files link). */
+  @Input() set navigatePath(p: string) {
+    if (p && this.activeSpaceId()) {
+      this.navigate(p);
+    }
+  }
 
   spaces = signal<Space[]>([]);
   activeSpaceId = signal('');
@@ -681,6 +694,11 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     const base = this.api.getFileDownloadUrl(this.activeSpaceId(), path);
     const token = this.auth.token();
     return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+  }
+
+  /** Returns the space-relative path for a preview entry (used for brain metadata links). */
+  previewFilePath(entry: FileEntry): string {
+    return this.join(this.currentPath(), entry.name);
   }
 
   formatSize(bytes: number): string {

@@ -34,6 +34,9 @@ interface PropRow {
           } @else if (schema?.[row.key]?.type === 'number') {
             <input class="prop-val" type="number" [(ngModel)]="row.val"
               [name]="'propVal' + i" (ngModelChange)="emit()" />
+          } @else if (schema?.[row.key]?.type === 'date') {
+            <input class="prop-val" type="date" [(ngModel)]="row.val"
+              [name]="'propVal' + i" (ngModelChange)="emit()" />
           } @else {
             <input class="prop-val" type="text" [(ngModel)]="row.val"
               placeholder="value" [name]="'propVal' + i" (ngModelChange)="emit()" />

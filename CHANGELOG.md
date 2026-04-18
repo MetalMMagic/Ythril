@@ -4,6 +4,17 @@ All notable changes to Ythril are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] — 2026-04-18
+
+### Changed
+
+- **Entity type dropdown**: The entity type field is now a `<select>` when the space schema defines `entityTypes`, making it required and preventing free-text entry of unknown types. The first defined type is pre-selected when the create form opens.
+- **Entity type change rebuilds properties**: Selecting a different entity type in the create, inline-edit, or drawer-edit form rebuilds the properties object to match the schema for that type — existing values are preserved and new required fields are added with their defaults.
+- **Edge label dropdown**: The edge label field is now a `<select>` when the space schema defines `edgeLabels`, replacing the free-text input. The first defined label is pre-selected.
+- **Schema violation error messages**: API errors with `error: 'schema_violation'` are now formatted as human-readable messages listing each violated field and reason (e.g. `Schema violation — properties.status: required property 'status' is missing or empty`).
+- **Linked entities shown as name chips**: The "entities" column in the Memories and Chrono tables now displays entity name chips (resolved via the entity name cache) instead of a plain "X linked" count, consistent with the Files tab.
+- **Edit button removed from rows**: The ✎ inline-edit button has been removed from Memory, Entity, Edge, and Chrono table rows — the ⊙ view-details button (which opens the full editable drawer) is the single entry point for editing. The ✎ button is retained on File Metadata rows which have no drawer.
+
 ## [0.10.2] — 2026-04-16
 
 ### Changed

@@ -13,6 +13,7 @@ import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } fro
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 import { createChrono, updateChrono, getChronoById, listChrono, deleteChrono, bulkDeleteChrono, ChronoFilter } from '../brain/chrono.js';
 import { embed } from '../brain/embedding.js';
+import { updateFileMeta } from '../files/file-meta.js';
 import { getConfig } from '../config/loader.js';
 import { col } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
@@ -1395,6 +1396,37 @@ brainRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, asy
       .toArray(),
   ))).flat();
   res.json({ files: all, limit, skip });
+});
+
+// PATCH /api/brain/spaces/:spaceId/files — update file metadata by path (query param ?path=)
+brainRouter.patch('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` }); return;
+  }
+  const path = req.query['path'];
+  if (typeof path !== 'string' || !path.trim()) {
+    res.status(400).json({ error: '`path` query parameter required' }); return;
+  }
+  const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
+  if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
+
+  const { description, tags, entityIds, chronoIds, memoryIds, properties } = req.body ?? {};
+  if (tags !== undefined && !Array.isArray(tags)) { res.status(400).json({ error: '`tags` must be an array' }); return; }
+  if (entityIds !== undefined && !Array.isArray(entityIds)) { res.status(400).json({ error: '`entityIds` must be an array' }); return; }
+  if (chronoIds !== undefined && !Array.isArray(chronoIds)) { res.status(400).json({ error: '`chronoIds` must be an array' }); return; }
+  if (memoryIds !== undefined && !Array.isArray(memoryIds)) { res.status(400).json({ error: '`memoryIds` must be an array' }); return; }
+  if (properties !== undefined && (typeof properties !== 'object' || properties === null || Array.isArray(properties))) {
+    res.status(400).json({ error: '`properties` must be a plain object' }); return;
+  }
+
+  const memberIds = resolveMemberSpaces(wt.target);
+  for (const mid of memberIds) {
+    const updated = await updateFileMeta(mid, path, { description, tags, entityIds, chronoIds, memoryIds, properties });
+    if (updated) { res.json(updated); return; }
+  }
+  res.status(404).json({ error: 'File metadata record not found' });
 });
 
 // POST /api/brain/spaces/:spaceId/query — structured query with filter/projection

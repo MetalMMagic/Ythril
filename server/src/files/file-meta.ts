@@ -22,9 +22,9 @@ function authorRef(): AuthorRef {
   return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
 }
 
-/** Normalise a path to forward-slash convention (used as _id). */
+/** Normalise a path to forward-slash convention and strip leading slashes (used as _id). */
 function normPath(p: string): string {
-  return p.replace(/\\/g, '/');
+  return p.replace(/\\/g, '/').replace(/^\/+/, '');
 }
 
 /** Derive the text to embed for a file (path + tags + description). */
@@ -87,6 +87,52 @@ export async function upsertFileMeta(
     };
     await col<FileMetaDoc>(`${spaceId}_files`).insertOne(doc as never);
   }
+}
+
+/**
+ * Partially update the metadata record for a file (tags, description,
+ * entity/chrono/memory linkage, properties).  Re-embeds the record on
+ * every successful update.  Returns the updated document, or null if the
+ * record does not exist.
+ */
+export async function updateFileMeta(
+  spaceId: string,
+  filePath: string,
+  opts: {
+    description?: string;
+    tags?: string[];
+    entityIds?: string[];
+    chronoIds?: string[];
+    memoryIds?: string[];
+    properties?: Record<string, string | number | boolean>;
+  },
+): Promise<FileMetaDoc | null> {
+  const normalised = normPath(filePath);
+  const existing = await col<FileMetaDoc>(`${spaceId}_files`).findOne({ _id: normalised } as never) as FileMetaDoc | null;
+  if (!existing) return null;
+
+  const now = new Date().toISOString();
+  const descForEmbed = opts.description !== undefined ? opts.description : existing.description;
+  const tagsForEmbed = opts.tags !== undefined ? opts.tags : existing.tags;
+  let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};
+  try {
+    const embResult = await embed(fileEmbedText(normalised, tagsForEmbed, descForEmbed));
+    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
+  } catch { /* best-effort */ }
+
+  const $set: Record<string, unknown> = { updatedAt: now, ...embeddingFields };
+  if (opts.description !== undefined) $set['description'] = opts.description;
+  if (opts.tags !== undefined) $set['tags'] = opts.tags;
+  if (opts.entityIds !== undefined) $set['entityIds'] = opts.entityIds;
+  if (opts.chronoIds !== undefined) $set['chronoIds'] = opts.chronoIds;
+  if (opts.memoryIds !== undefined) $set['memoryIds'] = opts.memoryIds;
+  if (opts.properties !== undefined) $set['properties'] = opts.properties;
+
+  await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
+    { _id: normalised } as never,
+    { $set } as never,
+  );
+  return col<FileMetaDoc>(`${spaceId}_files`).findOne({ _id: normalised } as never) as Promise<FileMetaDoc | null>;
 }
 
 /** Remove the metadata record when a file is deleted. */

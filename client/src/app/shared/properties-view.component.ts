@@ -1,5 +1,6 @@
 import { Component, Input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { PropertySchema } from '../core/api.service';
 
 @Component({
   selector: 'app-properties-view',
@@ -76,7 +77,7 @@ import { CommonModule } from '@angular/common';
             @for (kv of entries(); track kv.key) {
               <tr>
                 <td class="props-key">{{ kv.key }}</td>
-                <td class="props-val">{{ kv.value }}</td>
+                <td class="props-val">{{ formatValue(kv.key, kv.value) }}</td>
               </tr>
             }
           </table>
@@ -89,6 +90,7 @@ import { CommonModule } from '@angular/common';
 })
 export class PropertiesViewComponent {
   @Input() properties: Record<string, unknown> | null | undefined;
+  @Input() schema?: Record<string, PropertySchema>;
 
   mode = signal<'table' | 'json'>('table');
 
@@ -99,6 +101,14 @@ export class PropertiesViewComponent {
   entries(): Array<{ key: string; value: unknown }> {
     if (!this.properties) return [];
     return Object.entries(this.properties).map(([key, value]) => ({ key, value }));
+  }
+
+  formatValue(key: string, val: unknown): string {
+    if (this.schema?.[key]?.type === 'date' && typeof val === 'string' && val) {
+      const d = new Date(val.length === 10 ? val + 'T12:00:00Z' : val);
+      if (!isNaN(d.getTime())) return d.toLocaleDateString(navigator.language);
+    }
+    return String(val ?? '');
   }
 
   jsonStr(): string {

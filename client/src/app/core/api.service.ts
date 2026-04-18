@@ -21,7 +21,7 @@ export type ValidationMode = 'off' | 'warn' | 'strict';
 export type KnowledgeType = 'entity' | 'memory' | 'edge' | 'chrono';
 
 export interface PropertySchema {
-  type?: 'string' | 'number' | 'boolean';
+  type?: 'string' | 'number' | 'boolean' | 'date';
   enum?: (string | number | boolean)[];
   minimum?: number;
   maximum?: number;
@@ -201,6 +201,21 @@ export interface FileEntry {
   isFile: boolean;
   isDirectory: boolean;
   modified: string;
+}
+
+export interface FileMeta {
+  _id: string;
+  spaceId: string;
+  path: string;
+  description?: string;
+  tags: string[];
+  entityIds?: string[];
+  chronoIds?: string[];
+  memoryIds?: string[];
+  properties?: Record<string, string | number | boolean>;
+  sizeBytes: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UploadProgress {
@@ -709,6 +724,19 @@ export class ApiService {
 
   getFileDownloadUrl(spaceId: string, path: string): string {
     return `/api/files/${spaceId}?path=${encodeURIComponent(path)}`;
+  }
+
+  // ── File metadata (brain) ─────────────────────────────────────────────────
+
+  listFileMeta(spaceId: string, limit = 50, skip = 0, search?: string): Observable<{ files: FileMeta[]; limit: number; skip: number }> {
+    let params = new HttpParams().set('limit', limit).set('skip', skip);
+    if (search) params = params.set('path', search);
+    return this.http.get<{ files: FileMeta[]; limit: number; skip: number }>(`/api/brain/spaces/${spaceId}/files`, { params });
+  }
+
+  updateFileMeta(spaceId: string, path: string, body: Partial<{ description: string; tags: string[]; entityIds: string[]; chronoIds: string[]; memoryIds: string[]; properties: Record<string, string | number | boolean> }>): Observable<FileMeta> {
+    const params = new HttpParams().set('path', path);
+    return this.http.patch<FileMeta>(`/api/brain/spaces/${spaceId}/files`, body, { params });
   }
 
   // ── File conflicts ────────────────────────────────────────────────────────

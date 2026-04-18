@@ -47,6 +47,7 @@ import fs from 'node:fs/promises';
 import { getDataRoot } from '../config/loader.js';
 import { createHash } from 'node:crypto';
 import { resolveSafePath } from '../files/sandbox.js';
+import { deleteFileMeta, upsertFileMeta } from '../files/file-meta.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // Timeout for every outbound fetch to a peer.
@@ -979,6 +980,7 @@ async function syncFiles(
             const abs = path.join(spaceFiles, rel);
             if (!abs.startsWith(spaceFiles + path.sep) && abs !== spaceFiles) continue;
             await fs.unlink(abs).catch(() => { /* already gone — ignore */ });
+            await deleteFileMeta(spaceId, rel).catch(() => { /* best-effort */ });
           } catch { /* ignore per-file errors */ }
         }
       } else {
@@ -1045,6 +1047,7 @@ async function syncFiles(
           const absPath = path.join(spaceRoot, remote.path);
           await fs.mkdir(path.dirname(absPath), { recursive: true });
           await fs.writeFile(absPath, buf);
+          await upsertFileMeta(spaceId, remote.path, buf.length).catch(() => { /* best-effort */ });
         } else {
           // File exists locally with a different hash — keep local, save incoming
           // under a conflict-copy name so the user can decide which version to keep.

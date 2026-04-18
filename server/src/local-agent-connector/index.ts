@@ -364,4 +364,25 @@ app.listen(PORT, HOST, () => {
   console.log('[ythril-local-connector] execute-enabled=true');
   console.log(`[ythril-local-connector] service-install-enabled=${ALLOW_SERVICE_INSTALL}`);
   console.log('');
+
+  // Auto-resume user-mode tunnel on startup if already configured.
+  // This handles container restarts and host reboots without requiring the user to
+  // re-run Enable Networks. Skip when ALLOW_SERVICE_INSTALL is true — the OS service
+  // manager owns the cloudflared lifecycle in that case.
+  if (!ALLOW_SERVICE_INSTALL) {
+    const configYml = path.join(cloudflaredDir(), 'config.yml');
+    if (fs.existsSync(CLOUDFLARED_CERT_PATH) && fs.existsSync(configYml)) {
+      resolveCloudflaredCommand()
+        .then(cmd => {
+          if (!cmd) {
+            console.log('[ythril-local-connector] auto-resume: cloudflared not found, skipping.');
+            return null;
+          }
+          cloudflaredCmd = cmd;
+          return ensureUserModeTunnelRunning(DEFAULT_TUNNEL_NAME);
+        })
+        .then(msg => { if (msg) console.log(`[ythril-local-connector] auto-resume: ${msg}`); })
+        .catch(err => { console.error(`[ythril-local-connector] auto-resume error: ${err}`); });
+    }
+  }
 });

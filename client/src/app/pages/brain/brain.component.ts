@@ -5,6 +5,7 @@ import { RouterLink } from '@angular/router';
 import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, SpaceMetaResponse, KnowledgeType } from '../../core/api.service';
 import { GraphComponent } from '../graph/graph.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
+import { PropertiesViewComponent } from '../../shared/properties-view.component';
 
 type BrainTab = 'query' | 'graph' | 'entities' | 'edges' | 'memories' | 'chrono';
 
@@ -16,7 +17,7 @@ interface SpaceView {
 @Component({
   selector: 'app-brain',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, GraphComponent, EntitySearchComponent],
+  imports: [CommonModule, FormsModule, RouterLink, GraphComponent, EntitySearchComponent, PropertiesViewComponent],
   styles: [`
     .space-tabs {
       display: flex;
@@ -763,9 +764,7 @@ interface SpaceView {
                       <td style="font-size:11px; color:var(--text-muted);">
                         @if (mem.entityIds?.length) { {{ mem.entityIds!.length }} linked } @else { <span style="color:var(--text-muted)">—</span> }
                       </td>
-                      <td style="font-size:12px; color:var(--text-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="formatProps(mem.properties)">
-                        {{ formatProps(mem.properties) }}
-                      </td>
+                      <td><app-properties-view [properties]="mem.properties" /></td>
                       <td style="color:var(--text-muted)">{{ mem.createdAt | date:'MMM d, y' }}</td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" title="Edit memory" aria-label="Edit memory" (click)="startEditMemory(mem)">✎</button>
@@ -953,9 +952,7 @@ interface SpaceView {
                         @for (tag of (ent.tags ?? []); track tag) { <span class="tag">{{ tag }}</span> }
                         @if (!(ent.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
                       </td>
-                      <td style="font-size:12px; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="formatProps(ent.properties)">
-                        {{ formatProps(ent.properties) }}
-                      </td>
+                      <td><app-properties-view [properties]="ent.properties" /></td>
                       <td style="color:var(--text-muted)">{{ ent.createdAt | date:'MMM d, y' }}</td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" title="Edit entity" aria-label="Edit entity" (click)="startEditEntity(ent)">✎</button>
@@ -1024,10 +1021,6 @@ interface SpaceView {
                   (selected)="pickEntity($event, 'single', 'create-edge-to')"
                 />
               </div>
-              <div class="field" style="width:100px;">
-                <label>Type (optional)</label>
-                <input type="text" [(ngModel)]="edgeForm.type" name="type" />
-              </div>
               <div class="field" style="width:80px;">
                 <label>Weight</label>
                 <input type="number" [(ngModel)]="edgeForm.weight" name="weight" step="0.1" />
@@ -1081,7 +1074,7 @@ interface SpaceView {
             <table>
               <thead>
                 <tr>
-                  <th>From</th><th>Relation</th><th>Type</th><th>To</th><th>Description</th><th>Tags</th><th>Weight</th><th>Created</th><th></th>
+                  <th>From</th><th>Relation</th><th>To</th><th>Weight</th><th>Tags</th><th>Description</th><th>Properties</th><th>Created</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -1099,10 +1092,6 @@ interface SpaceView {
                           <div class="field" style="flex:1; min-width:120px; margin-bottom:0;">
                             <label>Label (relation)</label>
                             <input type="text" [(ngModel)]="editEdge.label" name="editEdgeLabel" />
-                          </div>
-                          <div class="field" style="width:100px; margin-bottom:0;">
-                            <label>Type</label>
-                            <input type="text" [(ngModel)]="editEdge.type" name="editEdgeType" />
                           </div>
                           <div class="field" style="width:80px; margin-bottom:0;">
                             <label>Weight</label>
@@ -1153,20 +1142,20 @@ interface SpaceView {
                       </td>
                     </tr>
                   } @else {
-                    <tr>
-                      <td style="font-size:12px">{{ edge.fromName || edge.from }}</td>
+                    <tr style="vertical-align:top;">
+                      <td style="font-size:12px; white-space:nowrap;">{{ edge.fromName || edge.from }}</td>
                       <td><span class="badge badge-blue">{{ edge.label }}</span></td>
-                      <td style="color:var(--text-muted); font-size:12px">{{ edge.type ?? '—' }}</td>
-                      <td style="font-size:12px">{{ edge.toName || edge.to }}</td>
-                      <td style="font-size:12px; color:var(--text-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="edge.description ?? ''">
-                        {{ edge.description || '—' }}
-                      </td>
+                      <td style="font-size:12px; white-space:nowrap;">{{ edge.toName || edge.to }}</td>
+                      <td style="color:var(--text-muted);">{{ edge.weight ?? '—' }}</td>
                       <td style="font-size:11px;">
                         @for (tag of (edge.tags ?? []); track tag) { <span class="tag">{{ tag }}</span> }
                         @if (!(edge.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
                       </td>
-                      <td style="color:var(--text-muted)">{{ edge.weight ?? '—' }}</td>
-                      <td style="color:var(--text-muted)">{{ edge.createdAt | date:'MMM d, y' }}</td>
+                      <td style="font-size:12px; color:var(--text-muted); white-space:normal; word-break:break-word; min-width:140px; min-height:4.2em;">
+                        {{ edge.description || '—' }}
+                      </td>
+                      <td><app-properties-view [properties]="edge.properties" /></td>
+                      <td style="color:var(--text-muted); white-space:nowrap;">{{ edge.createdAt | date:'MMM d, y' }}</td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" title="Edit edge" aria-label="Edit edge" (click)="startEditEdge(edge)">✎</button>
                         @if (confirmDeleteId() === edge._id) {
@@ -1643,7 +1632,7 @@ export class BrainComponent implements OnInit {
   editError = signal('');
   editMemory = { fact: '', tags: '', entityIds: '', description: '', properties: '' };
   editEntity = { name: '', type: '', tags: '', description: '', properties: '' };
-  editEdge = { from: '', to: '', fromName: undefined as string | undefined, toName: undefined as string | undefined, label: '', type: '', weight: null as number | null, tags: '', description: '', properties: '' };
+  editEdge = { from: '', to: '', fromName: undefined as string | undefined, toName: undefined as string | undefined, label: '', weight: null as number | null, tags: '', description: '', properties: '' };
   editChrono = { title: '', kind: '' as string, status: '' as string, startsAt: '', endsAt: '', description: '', tags: '', entityIds: '' };
 
   // Create memory form
@@ -1662,7 +1651,7 @@ export class BrainComponent implements OnInit {
   showEdgeForm = signal(false);
   creatingEdge = signal(false);
   createEdgeError = signal('');
-  edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: '', type: '', weight: null as number | null, tags: '', description: '', properties: '' };
+  edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: '', weight: null as number | null, tags: '', description: '', properties: '' };
 
   // Create chrono form
   showChronoForm = signal(false);
@@ -1910,7 +1899,6 @@ export class BrainComponent implements OnInit {
       fromName: edge.fromName,
       toName: edge.toName,
       label: edge.label,
-      type: edge.type ?? '',
       weight: edge.weight ?? null,
       tags: (edge.tags ?? []).join(', '),
       description: edge.description ?? '',
@@ -1996,7 +1984,6 @@ export class BrainComponent implements OnInit {
     }
     this.api.updateEdge(this.activeSpaceId(), id, {
       label: this.editEdge.label.trim(),
-      type: this.editEdge.type.trim(),
       tags: this.editEdge.tags.split(',').map(s => s.trim()).filter(Boolean),
       description: this.editEdge.description.trim(),
       ...(this.editEdge.weight != null ? { weight: this.editEdge.weight } : {}),
@@ -2102,7 +2089,6 @@ export class BrainComponent implements OnInit {
       to: this.edgeForm.to.trim(),
       label: this.edgeForm.label.trim(),
     };
-    if (this.edgeForm.type.trim()) body.type = this.edgeForm.type.trim();
     if (this.edgeForm.weight != null) body.weight = this.edgeForm.weight;
     if (tags.length) body.tags = tags;
     if (this.edgeForm.description.trim()) body.description = this.edgeForm.description.trim();
@@ -2114,7 +2100,7 @@ export class BrainComponent implements OnInit {
       next: () => {
         this.creatingEdge.set(false);
         this.showEdgeForm.set(false);
-        this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: '', type: '', weight: null, tags: '', description: '', properties: '' };
+        this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: '', weight: null, tags: '', description: '', properties: '' };
         this.loadStats(this.activeSpaceId());
         this.loadCurrentTab(this.activeSpaceId());
       },
@@ -2285,7 +2271,7 @@ export class BrainComponent implements OnInit {
   }
 
   openEdgeForm(): void {
-    this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: '', type: '', weight: null, tags: '', description: '', properties: this.buildPropertiesTemplate('edge') };
+    this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: '', weight: null, tags: '', description: '', properties: this.buildPropertiesTemplate('edge') };
     this.showEdgeForm.set(true);
   }
 

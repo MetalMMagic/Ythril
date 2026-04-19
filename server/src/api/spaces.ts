@@ -16,12 +16,14 @@ export const spacesRouter = Router();
 
 // ── Zod schema for PropertySchema ──────────────────────────────────────────
 const PropertySchemaZ = z.object({
-  type: z.enum(['string', 'number', 'boolean']).optional(),
+  type: z.enum(['string', 'number', 'boolean', 'date']).optional(),
   enum: z.array(z.union([z.string(), z.number(), z.boolean()])).optional(),
   minimum: z.number().optional(),
   maximum: z.number().optional(),
   pattern: z.string().max(500).optional(),
   mergeFn: z.enum(['avg', 'min', 'max', 'sum', 'and', 'or', 'xor']).optional(),
+  required: z.boolean().optional(),
+  default: z.union([z.string(), z.number(), z.boolean()]).optional(),
 }).strict().refine(data => {
   if (!data.mergeFn) return true;
   const numericFns = new Set(['avg', 'min', 'max', 'sum']);
@@ -29,38 +31,31 @@ const PropertySchemaZ = z.object({
   if (data.type === 'number') return numericFns.has(data.mergeFn);
   if (data.type === 'boolean') return booleanFns.has(data.mergeFn);
   // mergeFn requires a compatible type declaration
-  if (data.type === 'string') return false;
+  if (data.type === 'string' || data.type === 'date') return false;
   // No type declared but mergeFn given — allow if the fn could be valid for some type
   return numericFns.has(data.mergeFn) || booleanFns.has(data.mergeFn);
 }, {
   message: 'mergeFn is incompatible with the declared type (numeric fns require type "number", boolean fns require type "boolean")',
 });
 
-const RequiredPropertiesZ = z.object({
-  entity: z.array(z.string().min(1).max(200)).optional(),
-  memory: z.array(z.string().min(1).max(200)).optional(),
-  edge: z.array(z.string().min(1).max(200)).optional(),
-  chrono: z.array(z.string().min(1).max(200)).optional(),
+const TypeSchemaZ = z.object({
+  namingPattern: z.string().max(500).optional(),
+  tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
+  propertySchemas: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
 }).strict();
 
-const PropertySchemasZ = z.object({
-  entity: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
-  memory: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
-  edge: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
-  chrono: z.record(z.string().min(1).max(200), PropertySchemaZ).optional(),
+const TypeSchemasZ = z.object({
+  entity: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
+  memory: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
+  edge:   z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
+  chrono: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
 }).strict();
-
-const KnowledgeTypeKey = z.enum(['entity', 'memory', 'edge', 'chrono']);
 
 const SpaceMetaBody = z.object({
   purpose: z.string().max(4000).optional(),
   usageNotes: z.string().max(50_000).optional(),
   validationMode: z.enum(['off', 'warn', 'strict']).optional(),
-  entityTypes: z.array(z.string().min(1).max(200)).max(200).optional(),
-  edgeLabels: z.array(z.string().min(1).max(200)).max(200).optional(),
-  namingPatterns: z.record(z.string().min(1).max(200), z.string().min(1).max(500)).optional(),
-  requiredProperties: RequiredPropertiesZ.optional(),
-  propertySchemas: PropertySchemasZ.optional(),
+  typeSchemas: TypeSchemasZ.optional(),
   tagSuggestions: z.array(z.string().min(1).max(200)).max(200).optional(),
   strictLinkage: z.boolean().optional(),
 }).strict();

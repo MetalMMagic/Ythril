@@ -1,9 +1,10 @@
 /**
  * Schema validation engine for space meta definitions.
  *
- * Validates write operations against a space's `meta` block —
- * entity types, edge labels, naming patterns, required properties,
- * and property value constraints.
+ * Validates write operations against a space's `meta` block using the
+ * per-type `typeSchemas` structure — each entity type / edge label /
+ * memory type / chrono type owns its own property schemas, naming pattern,
+ * required flags, and tag suggestions.
  *
  * Validation is driven by `validationMode`:
  *   - "off"    → no validation (default)
@@ -11,7 +12,7 @@
  *   - "strict" → validation runs, violations cause 400 rejection
  */
 
-import type { SpaceMeta, KnowledgeType, PropertySchema } from '../config/types.js';
+import type { SpaceMeta, PropertySchema, TypeSchema } from '../config/types.js';
 
 // ── Violation type ─────────────────────────────────────────────────────────
 
@@ -33,31 +34,35 @@ export function validateEntity(
   const violations: SchemaViolation[] = [];
   if (!meta) return violations;
 
-  // Entity type allowlist
-  if (entity.type && meta.entityTypes?.length) {
-    if (!meta.entityTypes.includes(entity.type)) {
+  const entitySchemas = meta.typeSchemas?.entity;
+
+  // Entity type allowlist (if any types are defined, entity.type must be one of them)
+  if (entity.type && entitySchemas && Object.keys(entitySchemas).length > 0) {
+    if (!Object.prototype.hasOwnProperty.call(entitySchemas, entity.type)) {
       violations.push({
         field: 'type',
         value: entity.type,
-        reason: `not in entityTypes allowlist: ${meta.entityTypes.join(', ')}`,
+        reason: `not in entityTypes allowlist: ${Object.keys(entitySchemas).join(', ')}`,
       });
     }
   }
 
+  // Per-type schema (naming pattern + required + property schemas)
+  const typeSchema = entity.type ? entitySchemas?.[entity.type] : undefined;
+
   // Naming pattern for the entity's type
-  if (entity.name && entity.type && meta.namingPatterns?.[entity.type]) {
-    const pattern = meta.namingPatterns[entity.type]!;
-    if (!safeRegexTest(pattern, entity.name)) {
+  if (entity.name && entity.type && typeSchema?.namingPattern) {
+    if (!safeRegexTest(typeSchema.namingPattern, entity.name)) {
       violations.push({
         field: 'name',
         value: entity.name,
-        reason: `does not match naming pattern for type '${entity.type}': ${pattern}`,
+        reason: `does not match naming pattern for type '${entity.type}': ${typeSchema.namingPattern}`,
       });
     }
   }
 
-  // Required properties + property schemas for 'entity'
-  violations.push(...validateProperties(meta, 'entity', entity.properties));
+  // Required properties + property schemas
+  violations.push(...validatePropertiesAgainstSchema(typeSchema, entity.properties));
 
   return violations;
 }
@@ -72,19 +77,21 @@ export function validateEdge(
   const violations: SchemaViolation[] = [];
   if (!meta) return violations;
 
+  const edgeSchemas = meta.typeSchemas?.edge;
+
   // Edge label allowlist
-  if (edge.label && meta.edgeLabels?.length) {
-    if (!meta.edgeLabels.includes(edge.label)) {
+  if (edge.label && edgeSchemas && Object.keys(edgeSchemas).length > 0) {
+    if (!Object.prototype.hasOwnProperty.call(edgeSchemas, edge.label)) {
       violations.push({
         field: 'label',
         value: edge.label,
-        reason: `not in edgeLabels allowlist: ${meta.edgeLabels.join(', ')}`,
+        reason: `not in edgeLabels allowlist: ${Object.keys(edgeSchemas).join(', ')}`,
       });
     }
   }
 
-  // Required properties + property schemas for 'edge'
-  violations.push(...validateProperties(meta, 'edge', edge.properties));
+  const typeSchema = edge.label ? edgeSchemas?.[edge.label] : undefined;
+  violations.push(...validatePropertiesAgainstSchema(typeSchema, edge.properties));
 
   return violations;
 }
@@ -94,10 +101,11 @@ export function validateEdge(
  */
 export function validateMemory(
   meta: SpaceMeta,
-  memory: { properties?: Record<string, unknown>; tags?: string[] },
+  memory: { type?: string; properties?: Record<string, unknown>; tags?: string[] },
 ): SchemaViolation[] {
   if (!meta) return [];
-  return validateProperties(meta, 'memory', memory.properties);
+  const typeSchema = memory.type ? meta.typeSchemas?.memory?.[memory.type] : undefined;
+  return validatePropertiesAgainstSchema(typeSchema, memory.properties);
 }
 
 /**
@@ -105,10 +113,11 @@ export function validateMemory(
  */
 export function validateChrono(
   meta: SpaceMeta,
-  chrono: { properties?: Record<string, unknown>; tags?: string[] },
+  chrono: { type?: string; properties?: Record<string, unknown>; tags?: string[] },
 ): SchemaViolation[] {
   if (!meta) return [];
-  return validateProperties(meta, 'chrono', chrono.properties);
+  const typeSchema = chrono.type ? meta.typeSchemas?.chrono?.[chrono.type] : undefined;
+  return validatePropertiesAgainstSchema(typeSchema, chrono.properties);
 }
 
 /**
@@ -116,18 +125,18 @@ export function validateChrono(
  */
 export function buildSchemaSummary(meta: SpaceMeta): string {
   const parts: string[] = [];
-  if (meta.entityTypes?.length) {
-    parts.push(`Entity types: ${meta.entityTypes.join(', ')}`);
+  const ts = meta.typeSchemas;
+  if (ts?.entity && Object.keys(ts.entity).length > 0) {
+    parts.push(`Entity types: ${Object.keys(ts.entity).join(', ')}`);
   }
-  if (meta.edgeLabels?.length) {
-    parts.push(`Edge labels: ${meta.edgeLabels.join(', ')}`);
+  if (ts?.edge && Object.keys(ts.edge).length > 0) {
+    parts.push(`Edge labels: ${Object.keys(ts.edge).join(', ')}`);
   }
-  if (meta.requiredProperties) {
-    for (const [kt, props] of Object.entries(meta.requiredProperties)) {
-      if (props && props.length > 0) {
-        parts.push(`Required properties (${kt}): ${props.join(', ')}`);
-      }
-    }
+  if (ts?.memory && Object.keys(ts.memory).length > 0) {
+    parts.push(`Memory types: ${Object.keys(ts.memory).join(', ')}`);
+  }
+  if (ts?.chrono && Object.keys(ts.chrono).length > 0) {
+    parts.push(`Chrono types: ${Object.keys(ts.chrono).join(', ')}`);
   }
   if (meta.tagSuggestions?.length) {
     parts.push(`Suggested tags: ${meta.tagSuggestions.join(', ')}`);
@@ -141,39 +150,35 @@ export function buildSchemaSummary(meta: SpaceMeta): string {
 // ── Internal helpers ───────────────────────────────────────────────────────
 
 /**
- * Validate required properties and property value schemas for a knowledge type.
+ * Validate required properties and property value schemas against a TypeSchema.
+ * Returns an empty array when typeSchema is undefined (no constraints).
  */
-function validateProperties(
-  meta: SpaceMeta,
-  knowledgeType: KnowledgeType,
+function validatePropertiesAgainstSchema(
+  typeSchema: TypeSchema | undefined,
   properties?: Record<string, unknown>,
 ): SchemaViolation[] {
+  if (!typeSchema?.propertySchemas) return [];
   const violations: SchemaViolation[] = [];
   const props = properties ?? {};
 
-  // Required properties
-  const required = meta.requiredProperties?.[knowledgeType];
-  if (required) {
-    for (const key of required) {
-      const val = props[key];
+  for (const [key, schema] of Object.entries(typeSchema.propertySchemas)) {
+    const val = props[key];
+
+    // Required check (inline flag on PropertySchema)
+    if (schema.required) {
       if (val === undefined || val === null || val === '') {
         violations.push({
           field: `properties.${key}`,
           value: val ?? null,
           reason: `required property '${key}' is missing or empty`,
         });
+        continue; // skip further checks for missing required field
       }
     }
-  }
 
-  // Property value schemas
-  const schemas = meta.propertySchemas?.[knowledgeType];
-  if (schemas) {
-    for (const [key, schema] of Object.entries(schemas)) {
-      const val = props[key];
-      if (val === undefined || val === null) continue; // not present — only required check catches missing
-      violations.push(...validateValue(`properties.${key}`, val, schema));
-    }
+    if (val === undefined || val === null) continue; // not present, no further checks
+
+    violations.push(...validateValue(`properties.${key}`, val, schema));
   }
 
   return violations;
@@ -185,9 +190,10 @@ function validateProperties(
 function validateValue(field: string, value: unknown, schema: PropertySchema): SchemaViolation[] {
   const violations: SchemaViolation[] = [];
 
-  // Type check
+  // Type check — 'date' is stored as ISO string, so validate as string
   if (schema.type) {
-    if (typeof value !== schema.type) {
+    const expectedJsType = schema.type === 'date' ? 'string' : schema.type;
+    if (typeof value !== expectedJsType) {
       violations.push({ field, value, reason: `expected type '${schema.type}', got '${typeof value}'` });
       return violations; // no point checking further if type is wrong
     }
@@ -210,7 +216,7 @@ function validateValue(field: string, value: unknown, schema: PropertySchema): S
     }
   }
 
-  // String pattern
+  // String pattern (also applies to 'date' values stored as strings)
   if (typeof value === 'string' && schema.pattern) {
     if (!safeRegexTest(schema.pattern, value)) {
       violations.push({ field, value, reason: `does not match pattern: ${schema.pattern}` });

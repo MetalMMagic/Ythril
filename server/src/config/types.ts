@@ -25,7 +25,8 @@ export type MergeFn = NumericMergeFn | BooleanMergeFn;
 
 /** Subset of JSON Schema used for property value validation. */
 export interface PropertySchema {
-  type?: 'string' | 'number' | 'boolean';
+  /** Declared value type. 'date' is stored as ISO string; UI renders a date picker. */
+  type?: 'string' | 'number' | 'boolean' | 'date';
   enum?: (string | number | boolean)[];
   minimum?: number;
   maximum?: number;
@@ -34,12 +35,26 @@ export interface PropertySchema {
    *  Numeric: avg, min, max, sum. Boolean: and, or, xor.
    *  Must be compatible with the declared `type`. */
   mergeFn?: MergeFn;
+  /** When true, writes that omit this property are flagged as a schema violation. */
+  required?: boolean;
+  /** Default value applied on write when the property is absent. */
+  default?: string | number | boolean;
+}
+
+/** Schema definition for a single entity type, edge label, memory type, or chrono type. */
+export interface TypeSchema {
+  /** Regex pattern for entity.name validation (entity collection only). */
+  namingPattern?: string;
+  /** Non-enforced tag hints surfaced in UI autocomplete for items of this type. */
+  tagSuggestions?: string[];
+  /** Property key → JSON Schema subset for value validation and merge hints. */
+  propertySchemas?: Record<string, PropertySchema>;
 }
 
 /** Validation mode for write operations against a space's schema. */
 export type ValidationMode = 'off' | 'warn' | 'strict';
 
-/** Knowledge type keys used in requiredProperties / propertySchemas. */
+/** Knowledge type keys used in typeSchemas. */
 export type KnowledgeType = 'entity' | 'memory' | 'edge' | 'chrono';
 
 /** Structured schema and metadata for a space — all fields optional. */
@@ -52,17 +67,15 @@ export interface SpaceMeta {
   usageNotes?: string;
   /** Validation enforcement level. Default: 'off'. */
   validationMode?: ValidationMode;
-  /** Allowlist of valid entity `type` values. Empty = unrestricted. */
-  entityTypes?: string[];
-  /** Allowlist of valid edge `label` values. Empty = unrestricted. */
-  edgeLabels?: string[];
-  /** Per entity-type regex pattern for `name` validation. */
-  namingPatterns?: Record<string, string>;
-  /** Per knowledge type: array of property key names that must be present. */
-  requiredProperties?: Partial<Record<KnowledgeType, string[]>>;
-  /** Per knowledge type: map of property key → JSON Schema subset for value validation. */
-  propertySchemas?: Partial<Record<KnowledgeType, Record<string, PropertySchema>>>;
-  /** Non-enforced tag hints — surfaced in UI autocomplete and get_space_meta. */
+  /**
+   * Per-type schemas for each knowledge collection.
+   * Keys of typeSchemas.entity are the allowed entity type values (allowlist).
+   * Keys of typeSchemas.edge are the allowed edge label values (allowlist).
+   * Keys of typeSchemas.memory / .chrono are the allowed type values.
+   * When a collection's map is empty, all type/label values are accepted.
+   */
+  typeSchemas?: Partial<Record<KnowledgeType, Record<string, TypeSchema>>>;
+  /** Non-enforced global tag hints — fallback when no per-type tagSuggestions match. */
   tagSuggestions?: string[];
   /** When true, all reference fields (edge from/to, entityIds, memoryIds) must be
    *  valid UUID v4 values, and entity deletion is blocked while inbound backlinks exist. */
@@ -288,6 +301,8 @@ export interface MemoryDoc {
   _id: string;
   spaceId: string;
   fact: string;
+  /** Optional memory type — used to look up typeSchemas.memory for schema validation. */
+  type?: string;
   embedding: number[];
   tags: string[];
   entityIds: string[];
@@ -336,7 +351,9 @@ export interface EdgeDoc {
   embeddingModel?: string;
 }
 
-export type ChronoKind = 'event' | 'deadline' | 'plan' | 'prediction' | 'milestone';
+export type ChronoType = 'event' | 'deadline' | 'plan' | 'prediction' | 'milestone';
+/** @deprecated Use ChronoType */
+export type ChronoKind = ChronoType;
 export type ChronoStatus = 'upcoming' | 'active' | 'completed' | 'overdue' | 'cancelled';
 
 export interface ChronoEntry {
@@ -344,7 +361,7 @@ export interface ChronoEntry {
   spaceId: string;
   title: string;
   description?: string;
-  kind: ChronoKind;
+  type: ChronoType;
   startsAt: string;
   endsAt?: string;
   status: ChronoStatus;

@@ -53,6 +53,7 @@ export async function remember(
   description?: string,
   properties?: Record<string, string | number | boolean>,
   entityNames?: string[],
+  type?: string,
 ): Promise<MemoryDoc> {
   const names = entityNames ?? await resolveEntityNames(spaceId, entityIds);
   const embResult = await embed(memoryEmbedText(fact, tags, names, description, properties));
@@ -71,6 +72,7 @@ export async function remember(
     seq,
     embeddingModel: embResult.model,
   };
+  if (type !== undefined) doc.type = type;
   if (description !== undefined) doc.description = description;
   if (properties !== undefined) doc.properties = properties;
   await col<MemoryDoc>(`${spaceId}_memories`).insertOne(doc as never);
@@ -106,7 +108,9 @@ export interface RecallResult {
   weight?: number;
   // chrono-specific
   title?: string;
-  kind?: string;
+  /** Chrono entry type (event/deadline/plan/prediction/milestone). Named `chronoType` to
+   *  avoid conflict with the `type` discriminator field. */
+  chronoType?: string;
   startsAt?: string;
   // file-specific
   path?: string;
@@ -235,7 +239,7 @@ async function recallByType(
   } else if (knowledgeType === 'edge') {
     typeProject = { from: 1, to: 1, label: 1, weight: 1, tags: 1, description: 1, properties: 1 };
   } else if (knowledgeType === 'chrono') {
-    typeProject = { title: 1, description: 1, kind: 1, startsAt: 1, tags: 1, entityIds: 1, properties: 1 };
+    typeProject = { title: 1, description: 1, type: 1, startsAt: 1, tags: 1, entityIds: 1, properties: 1 };
   } else if (knowledgeType === 'file') {
     typeProject = { path: 1, description: 1, tags: 1, sizeBytes: 1, properties: 1 };
   }
@@ -283,7 +287,7 @@ function mapToRecallResult(doc: Record<string, unknown>, knowledgeType: RecallKn
   } else if (knowledgeType === 'chrono') {
     base.title = doc['title'] as string | undefined;
     base.description = doc['description'] as string | undefined;
-    base.kind = doc['kind'] as string | undefined;
+    base.chronoType = doc['type'] as string | undefined;
     base.startsAt = doc['startsAt'] as string | undefined;
     base.tags = doc['tags'] as string[] | undefined;
     base.entityIds = doc['entityIds'] as string[] | undefined;
@@ -413,7 +417,7 @@ export async function findSimilar(
 export async function updateMemory(
   spaceId: string,
   memoryId: string,
-  updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean> },
+  updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; type?: string },
   deleteFieldsPaths?: string[],
 ): Promise<MemoryDoc | null> {
   const existing = await col<MemoryDoc>(`${spaceId}_memories`).findOne({ _id: memoryId, spaceId } as never) as MemoryDoc | null;
@@ -429,6 +433,7 @@ export async function updateMemory(
   if (updates.entityIds !== undefined) $set['entityIds'] = updates.entityIds;
   if (updates.description !== undefined) $set['description'] = updates.description;
   if (updates.properties !== undefined) $set['properties'] = updates.properties;
+  if (updates.type !== undefined) $set['type'] = updates.type;
 
   // Apply deleteFields after merge
   if (deleteFieldsPaths && deleteFieldsPaths.length > 0) {

@@ -3,22 +3,22 @@ import { col } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { embed } from './embedding.js';
 import { getConfig } from '../config/loader.js';
-import type { ChronoEntry, ChronoKind, ChronoStatus, TombstoneDoc } from '../config/types.js';
+import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
 
 function authorRef() {
   const cfg = getConfig();
   return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
 }
 
-/** Derive the text to embed for a chrono entry (kind + status + title + description + tags). */
+/** Derive the text to embed for a chrono entry (type + status + title + description + tags). */
 function chronoEmbedText(
   title: string,
-  kind: string,
+  type: string,
   status: string,
   description?: string,
   tags: string[] = [],
 ): string {
-  const parts: string[] = [kind, status, title];
+  const parts: string[] = [type, status, title];
   if (tags.length > 0) parts.push(tags.join(' '));
   if (description?.trim()) parts.push(description.trim());
   return parts.join(' ');
@@ -28,7 +28,7 @@ export async function createChrono(
   spaceId: string,
   fields: {
     title: string;
-    kind: ChronoKind;
+    type: ChronoType;
     startsAt: string;
     description?: string;
     endsAt?: string;
@@ -49,7 +49,7 @@ export async function createChrono(
   // Embed kind + status + title + description + tags (best-effort)
   let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};
   try {
-    const embResult = await embed(chronoEmbedText(fields.title, fields.kind, status, fields.description, tags));
+    const embResult = await embed(chronoEmbedText(fields.title, fields.type, status, fields.description, tags));
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
   } catch { /* embedding unavailable — chrono stored without vector */ }
 
@@ -57,7 +57,7 @@ export async function createChrono(
     _id: uuidv4(),
     spaceId,
     title: fields.title,
-    kind: fields.kind,
+    type: fields.type,
     startsAt: fields.startsAt,
     status,
     tags,
@@ -82,7 +82,7 @@ export async function createChrono(
 export async function updateChrono(
   spaceId: string,
   id: string,
-  updates: Partial<Pick<ChronoEntry, 'title' | 'description' | 'kind' | 'startsAt' | 'endsAt' | 'status' | 'confidence' | 'tags' | 'entityIds' | 'memoryIds' | 'properties' | 'recurrence'>>,
+  updates: Partial<Pick<ChronoEntry, 'title' | 'description' | 'type' | 'startsAt' | 'endsAt' | 'status' | 'confidence' | 'tags' | 'entityIds' | 'memoryIds' | 'properties' | 'recurrence'>>,
 ): Promise<ChronoEntry | null> {
   const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne({ _id: id, spaceId } as never) as ChronoEntry | null;
   if (!existing) return null;
@@ -98,12 +98,12 @@ export async function updateChrono(
   if (
     updates.title !== undefined ||
     updates.description !== undefined ||
-    updates.kind !== undefined ||
+    updates.type !== undefined ||
     updates.status !== undefined ||
     updates.tags !== undefined
   ) {
     const newTitle = updates.title ?? existing.title;
-    const newKind = updates.kind ?? existing.kind;
+    const newKind = updates.type ?? existing.type;
     const newStatus = updates.status ?? existing.status;
     const newDesc = updates.description !== undefined ? updates.description : existing.description;
     const newTags = updates.tags ?? existing.tags;
@@ -127,7 +127,7 @@ export async function getChronoById(spaceId: string, id: string): Promise<Chrono
 
 export interface ChronoFilter {
   status?: string;
-  kind?: string;
+  type?: string;
   /** ALL of these tags must be present (AND semantics). */
   tags?: string[];
   /** ANY of these tags must be present (OR semantics). */
@@ -149,7 +149,7 @@ export async function listChrono(
   const query: Record<string, unknown> = { spaceId };
 
   if (filter.status !== undefined) query['status'] = filter.status;
-  if (filter.kind !== undefined) query['kind'] = filter.kind;
+  if (filter.type !== undefined) query['type'] = filter.type;
 
   // tags ALL (AND): every tag in the array must be present
   if (filter.tags && filter.tags.length > 0) {

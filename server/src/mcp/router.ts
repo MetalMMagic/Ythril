@@ -444,7 +444,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           type: 'object',
           properties: {
             title: { type: 'string', description: 'Entry title.' },
-            kind: { type: 'string', enum: ['event', 'deadline', 'plan', 'prediction', 'milestone'], description: 'Entry kind.' },
+            type: { type: 'string', enum: ['event', 'deadline', 'plan', 'prediction', 'milestone'], description: 'Entry type.' },
             startsAt: { type: 'string', description: 'ISO 8601 start date/time.' },
             endsAt: { type: 'string', description: 'Optional ISO 8601 end date/time.' },
             status: { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], description: 'Status (default: upcoming).' },
@@ -460,7 +460,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
-          required: ['title', 'kind', 'startsAt'],
+          required: ['title', 'type', 'startsAt'],
         },
       },
       {
@@ -471,7 +471,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           properties: {
             id: { type: 'string', description: 'Chrono entry ID.' },
             title: { type: 'string', description: 'New title.' },
-            kind: { type: 'string', enum: ['event', 'deadline', 'plan', 'prediction', 'milestone'] },
+            type: { type: 'string', enum: ['event', 'deadline', 'plan', 'prediction', 'milestone'] },
             startsAt: { type: 'string', description: 'New ISO 8601 start date/time.' },
             endsAt: { type: 'string', description: 'New ISO 8601 end date/time.' },
             status: { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'] },
@@ -492,12 +492,12 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
       },
       {
         name: 'list_chrono',
-        description: 'List chronological entries, optionally filtered by status, kind, tags, date range, or a text search.',
+        description: 'List chronological entries, optionally filtered by status, type, tags, date range, or a text search.',
         inputSchema: {
           type: 'object',
           properties: {
             status: { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], description: 'Filter by status.' },
-            kind: { type: 'string', enum: ['event', 'deadline', 'plan', 'prediction', 'milestone'], description: 'Filter by kind.' },
+            type: { type: 'string', enum: ['event', 'deadline', 'plan', 'prediction', 'milestone'], description: 'Filter by type.' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Return entries containing ALL of these tags (AND semantics).' },
             tagsAny: { type: 'array', items: { type: 'string' }, description: 'Return entries containing ANY of these tags (OR semantics).' },
             after: { type: 'string', description: 'ISO 8601 timestamp — return entries created after this point in time.' },
@@ -673,14 +673,14 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
                 required: ['from', 'to', 'label'],
               },
             },
-            chrono: {
+              chrono: {
               type: 'array',
               description: 'Chrono entries to insert. Same fields as the `create_chrono` tool.',
               items: {
                 type: 'object',
                 properties: {
                   title:       { type: 'string' },
-                  kind:        { type: 'string', enum: ['event', 'deadline', 'plan', 'prediction', 'milestone'] },
+                  type:        { type: 'string', enum: ['event', 'deadline', 'plan', 'prediction', 'milestone'] },
                   startsAt:    { type: 'string', description: 'ISO 8601 start date/time.' },
                   endsAt:      { type: 'string' },
                   status:      { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'] },
@@ -691,7 +691,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
                   memoryIds:   { type: 'array', items: { type: 'string' } },
                   properties:  { type: 'object', additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] } },
                 },
-                required: ['title', 'kind', 'startsAt'],
+                required: ['title', 'type', 'startsAt'],
               },
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
@@ -1339,10 +1339,10 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
         // ── Chrono ─────────────────────────────────────────────────────────
         case 'create_chrono': {
           const title = String(a['title'] ?? '').trim();
-          const kind = String(a['kind'] ?? '') as import('../config/types.js').ChronoKind;
+          const chronoType = String(a['type'] ?? '') as import('../config/types.js').ChronoType;
           const startsAt = String(a['startsAt'] ?? '');
           if (!title) throw new Error('title must not be empty');
-          if (!['event', 'deadline', 'plan', 'prediction', 'milestone'].includes(kind)) throw new Error('kind must be event, deadline, plan, prediction, or milestone');
+          if (!['event', 'deadline', 'plan', 'prediction', 'milestone'].includes(chronoType)) throw new Error('type must be event, deadline, plan, prediction, or milestone');
           if (!startsAt) throw new Error('startsAt must not be empty');
 
           const chronoProps = (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties']))
@@ -1354,7 +1354,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
 
           // Schema validation (single pass)
           const chronoMeta = getConfig().spaces.find(s => s.id === wt.target)?.meta;
-          const chronoSchemaViolations = chronoMeta ? validateChrono(chronoMeta, { properties: chronoProps }) : [];
+          const chronoSchemaViolations = chronoMeta ? validateChrono(chronoMeta, { type: chronoType, properties: chronoProps }) : [];
           if (chronoSchemaViolations.length > 0 && chronoMeta?.validationMode === 'strict') {
             return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(chronoSchemaViolations, null, 2)}` }], isError: true };
           }
@@ -1377,7 +1377,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
 
           const entry = await createChrono(wt.target, {
             title,
-            kind,
+            type: chronoType,
             startsAt,
             description: typeof a['description'] === 'string' ? a['description'] : undefined,
             endsAt: typeof a['endsAt'] === 'string' ? a['endsAt'] : undefined,
@@ -1388,7 +1388,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             memoryIds: chronoMemoryIds,
             properties: chronoProps,
           });
-          let text = `Chrono entry '${entry.title}' (${entry.kind}) created (ID ${entry._id}, seq ${entry.seq}).`
+          let text = `Chrono entry '${entry.title}' (${entry.type}) created (ID ${entry._id}, seq ${entry.seq}).`
             + (remQuota.softBreached ? `\n⚠️ Storage warning: ${remQuota.warning}` : '');
           if (chronoMeta?.validationMode === 'warn') {
             for (const v of chronoSchemaViolations) text += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
@@ -1404,7 +1404,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
 
           const updates: Record<string, unknown> = {};
           if (typeof a['title'] === 'string') updates['title'] = a['title'];
-          if (typeof a['kind'] === 'string') updates['kind'] = a['kind'];
+          if (typeof a['type'] === 'string') updates['type'] = a['type'];
           if (typeof a['startsAt'] === 'string') updates['startsAt'] = a['startsAt'];
           if (typeof a['endsAt'] === 'string') updates['endsAt'] = a['endsAt'];
           if (typeof a['status'] === 'string') updates['status'] = a['status'];
@@ -1439,7 +1439,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
         case 'list_chrono': {
           const filter: ChronoFilter = {};
           if (typeof a['status'] === 'string') filter.status = a['status'];
-          if (typeof a['kind'] === 'string') filter.kind = a['kind'];
+          if (typeof a['type'] === 'string') filter.type = a['type'];
           if (Array.isArray(a['tags']) && (a['tags'] as unknown[]).length > 0) {
             filter.tags = a['tags'] as string[];
           }
@@ -1464,7 +1464,7 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
               type: 'text' as const,
               text: results.length === 0
                 ? 'No chrono entries found.'
-                : results.map((e, i) => `[${i + 1}] ${e.kind} | ${e.status} | ${e.startsAt} | ${e.title} (ID ${e._id})`).join('\n'),
+                : results.map((e, i) => `[${i + 1}] ${e.type} | ${e.status} | ${e.startsAt} | ${e.title} (ID ${e._id})`).join('\n'),
             }],
           };
         }
@@ -1801,10 +1801,10 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
           for (let i = 0; i < rawChrono.length; i++) {
             const item = rawChrono[i] as Record<string, unknown>;
             const title    = typeof item['title']    === 'string' ? item['title'].trim() : '';
-            const kind     = typeof item['kind']     === 'string' ? item['kind']         : '';
+            const bwType   = typeof item['type']     === 'string' ? item['type']         : '';
             const startsAt = typeof item['startsAt'] === 'string' ? item['startsAt']     : '';
             if (!title)   { errors.push({ type: 'chrono', index: i, reason: 'missing required field: title' });   continue; }
-            if (!CHRONO_KINDS_BW.has(kind)) { errors.push({ type: 'chrono', index: i, reason: '`kind` must be one of: event, deadline, plan, prediction, milestone' }); continue; }
+            if (!CHRONO_KINDS_BW.has(bwType)) { errors.push({ type: 'chrono', index: i, reason: '`type` must be one of: event, deadline, plan, prediction, milestone' }); continue; }
             if (!startsAt) { errors.push({ type: 'chrono', index: i, reason: 'missing required field: startsAt' }); continue; }
             const endsAt      = typeof item['endsAt']      === 'string' ? item['endsAt']      : undefined;
             const status      = typeof item['status']      === 'string' ? item['status']      : undefined;
@@ -1826,14 +1826,14 @@ function createMcpServer(spaceId: string, tokenSpaces?: string[], readOnly?: boo
             try {
               // Schema validation per chrono
               if (bwValidation !== 'off' && bwMeta) {
-                const sv = validateChrono(bwMeta, { properties: props });
+                const sv = validateChrono(bwMeta, { type: bwType, properties: props });
                 if (sv.length > 0) {
                   if (bwValidation === 'strict') { errors.push({ type: 'chrono', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
                   for (const v of sv) errors.push({ type: 'chrono', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
                 }
               }
               await createChrono(ts, {
-                title, kind: kind as import('../config/types.js').ChronoKind, startsAt, endsAt,
+                title, type: bwType as import('../config/types.js').ChronoType, startsAt, endsAt,
                 status: status as import('../config/types.js').ChronoStatus | undefined,
                 confidence, description, tags, entityIds, memoryIds, properties: props,
               });

@@ -142,7 +142,7 @@ export async function computeMergePlan(
   if (!absorbed) return { error: `Absorbed entity '${absorbedId}' not found`, status: 404 };
 
   const meta = getConfig().spaces.find(s => s.id === spaceId)?.meta;
-  const entitySchemas = meta?.propertySchemas?.entity;
+  const entitySchemas = meta?.typeSchemas?.entity?.[survivor.type ?? '']?.propertySchemas;
 
   const resolutionMap = new Map(resolutions.map(r => [r.key, r]));
 

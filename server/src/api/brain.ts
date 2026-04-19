@@ -22,7 +22,7 @@ import { log } from '../util/log.js';
 import { checkQuota, QuotaError } from '../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget, findSpace, isProxySpace } from '../spaces/proxy.js';
 import { validateEntity, validateEdge, validateMemory, validateChrono, type SchemaViolation } from '../spaces/schema-validation.js';
-import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc, ChronoKind, ChronoStatus, SpaceMeta } from '../config/types.js';
+import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc, ChronoType, ChronoStatus, SpaceMeta } from '../config/types.js';
 import { reindexInProgress } from '../metrics/registry.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 
@@ -1103,7 +1103,7 @@ brainRouter.post('/spaces/:spaceId/traverse', globalRateLimit, requireSpaceAuth,
 
 // ── Chrono CRUD ───────────────────────────────────────────────────────────────
 
-const CHRONO_KINDS = new Set<ChronoKind>(['event', 'deadline', 'plan', 'prediction', 'milestone']);
+const CHRONO_TYPES = new Set<ChronoType>(['event', 'deadline', 'plan', 'prediction', 'milestone']);
 const CHRONO_STATUSES = new Set<ChronoStatus>(['upcoming', 'active', 'completed', 'overdue', 'cancelled']);
 
 // POST /api/brain/spaces/:spaceId/chrono — create a chrono entry
@@ -1117,12 +1117,12 @@ brainRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, d
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
 
-  const { title, kind, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
+  const { title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
   if (!title || typeof title !== 'string') {
     res.status(400).json({ error: '`title` string required' }); return;
   }
-  if (!kind || !CHRONO_KINDS.has(kind)) {
-    res.status(400).json({ error: '`kind` must be one of: event, deadline, plan, prediction, milestone' }); return;
+  if (!type || !CHRONO_TYPES.has(type)) {
+    res.status(400).json({ error: '`type` must be one of: event, deadline, plan, prediction, milestone' }); return;
   }
   if (!startsAt || typeof startsAt !== 'string') {
     res.status(400).json({ error: '`startsAt` ISO8601 string required' }); return;
@@ -1170,7 +1170,7 @@ brainRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, d
 
   // Schema validation
   const meta = getSpaceMeta(wt.target);
-  const violations = validateChrono(meta ?? {}, { properties: safeProps });
+  const violations = validateChrono(meta ?? {}, { type, properties: safeProps });
   const validation = applyValidation(meta, violations);
   if (validation.blocked) {
     res.status(400).json({ error: 'schema_violation', violations: validation.warnings });
@@ -1178,7 +1178,7 @@ brainRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, d
   }
 
   const entry = await createChrono(wt.target, {
-    title: title.trim(), kind, startsAt, endsAt, status, confidence,
+    title: title.trim(), type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence,
   });
   emitWebhookEvent({ event: 'chrono.created', spaceId: wt.target, entry: { ...entry, embedding: undefined }, ...webhookToken(req) });
@@ -1199,12 +1199,12 @@ brainRouter.post('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAut
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
 
-  const { title, kind, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
+  const { title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
   if (status !== undefined && !CHRONO_STATUSES.has(status)) {
     res.status(400).json({ error: '`status` must be one of: upcoming, active, completed, overdue, cancelled' }); return;
   }
-  if (kind !== undefined && !CHRONO_KINDS.has(kind)) {
-    res.status(400).json({ error: '`kind` must be one of: event, deadline, plan, prediction, milestone' }); return;
+  if (type !== undefined && !CHRONO_TYPES.has(type)) {
+    res.status(400).json({ error: '`type` must be one of: event, deadline, plan, prediction, milestone' }); return;
   }
   if (confidence !== undefined && (typeof confidence !== 'number' || confidence < 0 || confidence > 1)) {
     res.status(400).json({ error: '`confidence` must be a number between 0 and 1' }); return;
@@ -1226,7 +1226,7 @@ brainRouter.post('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAut
       : undefined;
 
   const updated = await updateChrono(wt.target, id, {
-    title, kind, startsAt, endsAt, status, confidence,
+    title, type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence,
   });
   if (!updated) { res.status(404).json({ error: 'Chrono entry not found' }); return; }
@@ -1246,12 +1246,12 @@ brainRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAu
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
 
-  const { title, kind, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
+  const { title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
   if (status !== undefined && !CHRONO_STATUSES.has(status)) {
     res.status(400).json({ error: '`status` must be one of: upcoming, active, completed, overdue, cancelled' }); return;
   }
-  if (kind !== undefined && !CHRONO_KINDS.has(kind)) {
-    res.status(400).json({ error: '`kind` must be one of: event, deadline, plan, prediction, milestone' }); return;
+  if (type !== undefined && !CHRONO_TYPES.has(type)) {
+    res.status(400).json({ error: '`type` must be one of: event, deadline, plan, prediction, milestone' }); return;
   }
   if (confidence !== undefined && (typeof confidence !== 'number' || confidence < 0 || confidence > 1)) {
     res.status(400).json({ error: '`confidence` must be a number between 0 and 1' }); return;
@@ -1275,7 +1275,7 @@ brainRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAu
   const memberIds = resolveMemberSpaces(wt.target);
   for (const mid of memberIds) {
     const updated = await updateChrono(mid, id, {
-      title, kind, startsAt, endsAt, status, confidence,
+      title, type, startsAt, endsAt, status, confidence,
       tags, entityIds, memoryIds, description, properties: safeProps, recurrence,
     });
     if (updated) {
@@ -1311,7 +1311,7 @@ brainRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, as
   const skip = Number(req.query['skip'] ?? 0);
   const filter: ChronoFilter = {};
   if (typeof req.query['status'] === 'string') filter.status = req.query['status'];
-  if (typeof req.query['kind'] === 'string') filter.kind = req.query['kind'];
+  if (typeof req.query['type'] === 'string') filter.type = req.query['type'];
 
   // tags — comma-separated or repeated — AND semantics
   if (Array.isArray(req.query['tags'])) {
@@ -1745,7 +1745,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
           while (true) {
             const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
             const batch: ChronoEntry[] = await col<ChronoEntry>(`${mid}_chrono`)
-              .find(q as never, { projection: { _id: 1, title: 1, kind: 1, status: 1, description: 1, tags: 1 } })
+              .find(q as never, { projection: { _id: 1, title: 1, type: 1, status: 1, description: 1, tags: 1 } })
               .sort({ _id: 1 })
               .limit(BATCH)
               .toArray() as ChronoEntry[];
@@ -1753,7 +1753,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
             for (const doc of batch) {
               try {
                 const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
-                const parts: string[] = [doc.kind, doc.status, doc.title];
+                const parts: string[] = [doc.type, doc.status, doc.title];
                 if (tags.length > 0) parts.push(tags.join(' '));
                 if (doc.description?.trim()) parts.push(doc.description.trim());
                 const result = await embed(parts.join(' '));
@@ -1970,11 +1970,11 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
   for (let i = 0; i < rawChrono.length; i++) {
     const item = rawChrono[i] as Record<string, unknown>;
     const title   = typeof item['title']   === 'string' ? item['title'].trim()   : '';
-    const kind    = typeof item['kind']    === 'string' ? item['kind']           : '';
+    const type    = typeof item['type']    === 'string' ? item['type']           : '';
     const startsAt = typeof item['startsAt'] === 'string' ? item['startsAt']     : '';
     if (!title)   { errors.push({ type: 'chrono', index: i, reason: 'missing required field: title' });   continue; }
-    if (!CHRONO_KINDS.has(kind as ChronoKind)) {
-      errors.push({ type: 'chrono', index: i, reason: '`kind` must be one of: event, deadline, plan, prediction, milestone' });
+    if (!CHRONO_TYPES.has(type as ChronoType)) {
+      errors.push({ type: 'chrono', index: i, reason: '`type` must be one of: event, deadline, plan, prediction, milestone' });
       continue;
     }
     if (!startsAt) { errors.push({ type: 'chrono', index: i, reason: 'missing required field: startsAt' }); continue; }
@@ -2000,14 +2000,14 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
     try {
       // Schema validation per chrono
       if (bulkValidation !== 'off' && bulkMeta) {
-        const sv = validateChrono(bulkMeta, { properties });
+        const sv = validateChrono(bulkMeta, { type, properties });
         if (sv.length > 0) {
           if (bulkValidation === 'strict') { errors.push({ type: 'chrono', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
           for (const v of sv) errors.push({ type: 'chrono', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
         }
       }
       await createChrono(targetSpace, {
-        title, kind: kind as ChronoKind, startsAt, endsAt, status, confidence,
+        title, type: type as ChronoType, startsAt, endsAt, status, confidence,
         description, tags, entityIds, memoryIds, properties,
       });
       inserted.chrono++;

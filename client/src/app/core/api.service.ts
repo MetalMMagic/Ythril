@@ -27,6 +27,14 @@ export interface PropertySchema {
   maximum?: number;
   pattern?: string;
   mergeFn?: 'avg' | 'min' | 'max' | 'sum' | 'and' | 'or' | 'xor';
+  required?: boolean;
+  default?: string | number | boolean;
+}
+
+export interface TypeSchema {
+  namingPattern?: string;
+  tagSuggestions?: string[];
+  propertySchemas?: Record<string, PropertySchema>;
 }
 
 export interface SpaceMeta {
@@ -34,11 +42,7 @@ export interface SpaceMeta {
   purpose?: string;
   usageNotes?: string;
   validationMode?: ValidationMode;
-  entityTypes?: string[];
-  edgeLabels?: string[];
-  namingPatterns?: Record<string, string>;
-  requiredProperties?: Partial<Record<KnowledgeType, string[]>>;
-  propertySchemas?: Partial<Record<KnowledgeType, Record<string, PropertySchema>>>;
+  typeSchemas?: Partial<Record<KnowledgeType, Record<string, TypeSchema>>>;
   tagSuggestions?: string[];
   strictLinkage?: boolean;
   updatedAt?: string;
@@ -77,6 +81,7 @@ export interface TokenRecord {
 export interface Memory {
   _id: string;
   fact: string;
+  type?: string;
   tags?: string[];
   entityIds?: string[];
   description?: string;
@@ -111,7 +116,9 @@ export interface Edge {
   createdAt: string;
 }
 
-export type ChronoKind = 'event' | 'deadline' | 'plan' | 'prediction' | 'milestone';
+export type ChronoType = 'event' | 'deadline' | 'plan' | 'prediction' | 'milestone';
+/** @deprecated Use ChronoType */
+export type ChronoKind = ChronoType;
 export type ChronoStatus = 'upcoming' | 'active' | 'completed' | 'overdue' | 'cancelled';
 
 export interface ChronoEntry {
@@ -119,7 +126,7 @@ export interface ChronoEntry {
   spaceId: string;
   title: string;
   description?: string;
-  kind: ChronoKind;
+  type: ChronoType;
   startsAt: string;
   endsAt?: string;
   status: ChronoStatus;
@@ -599,11 +606,11 @@ export class ApiService {
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/chrono`, { params });
   }
 
-  createChrono(spaceId: string, body: { title: string; kind: ChronoKind; startsAt: string; endsAt?: string; status?: ChronoStatus; confidence?: number; tags?: string[]; entityIds?: string[]; memoryIds?: string[]; description?: string }): Observable<ChronoEntry> {
+  createChrono(spaceId: string, body: { title: string; type: ChronoType; startsAt: string; endsAt?: string; status?: ChronoStatus; confidence?: number; tags?: string[]; entityIds?: string[]; memoryIds?: string[]; description?: string }): Observable<ChronoEntry> {
     return this.http.post<ChronoEntry>(`/api/brain/spaces/${spaceId}/chrono`, body);
   }
 
-  updateChrono(spaceId: string, id: string, body: Partial<{ title: string; kind: ChronoKind; startsAt: string; endsAt: string; status: ChronoStatus; confidence: number; tags: string[]; entityIds: string[]; memoryIds: string[]; description: string }>): Observable<ChronoEntry> {
+  updateChrono(spaceId: string, id: string, body: Partial<{ title: string; type: ChronoType; startsAt: string; endsAt: string; status: ChronoStatus; confidence: number; tags: string[]; entityIds: string[]; memoryIds: string[]; description: string }>): Observable<ChronoEntry> {
     return this.http.post<ChronoEntry>(`/api/brain/spaces/${spaceId}/chrono/${id}`, body);
   }
 

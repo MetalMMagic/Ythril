@@ -2,7 +2,7 @@ import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoKind, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, SpaceMetaResponse, KnowledgeType, FileMeta } from '../../core/api.service';
+import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, SpaceMetaResponse, KnowledgeType, PropertySchema, FileMeta } from '../../core/api.service';
 import { GraphComponent } from '../graph/graph.component';
 import { FileManagerComponent } from '../files/file-manager.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
@@ -2045,6 +2045,30 @@ export class BrainComponent implements OnInit {
     ...this.chrono().flatMap(c => c.tags ?? []),
   ])]);
 
+  entityTypeNames(): string[] {
+    return Object.keys(this.spaceMeta()?.typeSchemas?.entity ?? {});
+  }
+  edgeLabelNames(): string[] {
+    return Object.keys(this.spaceMeta()?.typeSchemas?.edge ?? {});
+  }
+  entitySchema(typeName: string | undefined): Record<string, PropertySchema> | undefined {
+    if (!typeName) return undefined;
+    return this.spaceMeta()?.typeSchemas?.entity?.[typeName]?.propertySchemas;
+  }
+  edgeSchema(labelName: string | undefined): Record<string, PropertySchema> | undefined {
+    if (!labelName) return undefined;
+    return this.spaceMeta()?.typeSchemas?.edge?.[labelName]?.propertySchemas;
+  }
+  memorySchema(): Record<string, PropertySchema> | undefined {
+    const ts = this.spaceMeta()?.typeSchemas?.memory;
+    if (!ts) return undefined;
+    return Object.values(ts)[0]?.propertySchemas;
+  }
+  requiredProps(schema: Record<string, PropertySchema> | undefined): string[] {
+    if (!schema) return [];
+    return Object.entries(schema).filter(([, s]) => s.required).map(([k]) => k);
+  }
+
   filteredMemories = computed(() => {
     if (this.memorySearchMode() === 'semantic') return this.memories();
     const q = this.memorySearch().toLowerCase().trim();
@@ -2059,7 +2083,7 @@ export class BrainComponent implements OnInit {
     return this.chrono().filter(e =>
       e.title.toLowerCase().includes(q) ||
       (e.description ?? '').toLowerCase().includes(q) ||
-      e.kind.toLowerCase().includes(q) ||
+      e.type.toLowerCase().includes(q) ||
       e.tags.some(t => t.toLowerCase().includes(q)),
     );
   });
@@ -2148,9 +2172,9 @@ export class BrainComponent implements OnInit {
   showChronoForm = signal(false);
   creatingChrono = signal(false);
   createChronoError = signal('');
-  chronoKinds: ChronoKind[] = ['event', 'deadline', 'plan', 'prediction', 'milestone'];
+  chronoKinds: ChronoType[] = ['event', 'deadline', 'plan', 'prediction', 'milestone'];
   chronoStatusOptions: ChronoStatus[] = ['upcoming', 'active', 'completed', 'overdue', 'cancelled'];
-  chronoForm = { title: '', kind: 'event' as ChronoKind | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '' };
+  chronoForm = { title: '', kind: 'event' as ChronoType | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '' };
 
   // Query panel
   queryMode = signal<'search' | 'advanced'>('search');
@@ -2390,7 +2414,7 @@ export class BrainComponent implements OnInit {
         spaceId: (r['spaceId'] as string) ?? spaceId,
         title: (r['title'] as string) ?? '',
         description: r['description'] as string | undefined,
-        kind: ((r['kind'] as string) ?? 'event') as ChronoKind,
+        type: ((r['type'] as string) ?? 'event') as ChronoType,
         startsAt: (r['startsAt'] as string) ?? '',
         endsAt: r['endsAt'] as string | undefined,
         status: 'upcoming' as ChronoStatus,
@@ -2554,7 +2578,7 @@ export class BrainComponent implements OnInit {
     this.editError.set('');
     this.editChrono = {
       title: entry.title,
-      kind: entry.kind,
+      kind: entry.type,
       status: entry.status,
       startsAt: entry.startsAt ? this.toLocalDatetime(entry.startsAt) : '',
       endsAt: entry.endsAt ? this.toLocalDatetime(entry.endsAt) : '',
@@ -2634,7 +2658,7 @@ export class BrainComponent implements OnInit {
     this.editError.set('');
     this.api.updateChrono(this.activeSpaceId(), id, {
       title: this.editChrono.title.trim(),
-      kind: this.editChrono.kind as ChronoKind,
+      type: this.editChrono.kind as ChronoType,
       status: this.editChrono.status as ChronoStatus,
       ...(this.editChrono.startsAt ? { startsAt: new Date(this.editChrono.startsAt).toISOString() } : {}),
       ...(this.editChrono.endsAt ? { endsAt: new Date(this.editChrono.endsAt).toISOString() } : {}),
@@ -2903,15 +2927,15 @@ export class BrainComponent implements OnInit {
     if (!this.chronoForm.title.trim() || !this.chronoForm.startsAt) return;
     const resolvedKind = this.chronoForm.kind === '__custom__'
       // Custom kind: the server accepts free-text values beyond the predefined enum.
-      ? (this.chronoForm.customKind.trim() as ChronoKind)
-      : this.chronoForm.kind as ChronoKind;
+      ? (this.chronoForm.customKind.trim() as ChronoType)
+      : this.chronoForm.kind as ChronoType;
     if (!resolvedKind) return;
     this.creatingChrono.set(true);
     this.createChronoError.set('');
     const entityIds = this.chronoForm.entityIds.split(',').map(s => s.trim()).filter(Boolean);
     const body: Parameters<ApiService['createChrono']>[1] = {
       title: this.chronoForm.title.trim(),
-      kind: resolvedKind,
+      type: resolvedKind,
       startsAt: new Date(this.chronoForm.startsAt).toISOString(),
     };
     if (this.chronoForm.endsAt) body.endsAt = new Date(this.chronoForm.endsAt).toISOString();
@@ -3047,7 +3071,7 @@ export class BrainComponent implements OnInit {
   }
 
   openEntityForm(): void {
-    const firstType = this.spaceMeta()?.entityTypes?.[0] ?? '';
+    const firstType = Object.keys(this.spaceMeta()?.typeSchemas?.entity ?? {})[0] ?? '';
     this.entityForm = { name: '', type: firstType, tags: [], description: '', properties: this.buildPropertiesObject('entity') };
     this.showEntityForm.set(true);
   }
@@ -3064,7 +3088,7 @@ export class BrainComponent implements OnInit {
   }
 
   openEdgeForm(): void {
-    const firstLabel = this.spaceMeta()?.edgeLabels?.[0] ?? '';
+    const firstLabel = Object.keys(this.spaceMeta()?.typeSchemas?.edge ?? {})[0] ?? '';
     this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: firstLabel, weight: null, tags: [], description: '', properties: this.buildPropertiesObject('edge') };
     this.showEdgeForm.set(true);
   }
@@ -3080,10 +3104,14 @@ export class BrainComponent implements OnInit {
   }
 
   private buildPropertiesObject(type: KnowledgeType, existing: Record<string, string | number | boolean> = {}): Record<string, string | number | boolean> {
-    const schemas = this.spaceMeta()?.propertySchemas?.[type];
-    if (!schemas || Object.keys(schemas).length === 0) return existing;
+    const meta = this.spaceMeta();
+    const typeSchemas = meta?.typeSchemas?.[type];
+    if (!typeSchemas || Object.keys(typeSchemas).length === 0) return existing;
+    // Use the first type's property schemas as fallback defaults
+    const firstTypeSchemas = Object.values(typeSchemas)[0]?.propertySchemas ?? {};
+    if (Object.keys(firstTypeSchemas).length === 0) return existing;
     const result = { ...existing };
-    for (const [key, schema] of Object.entries(schemas)) {
+    for (const [key, schema] of Object.entries(firstTypeSchemas)) {
       if (key in result) continue;
       if (schema.enum?.length) {
         result[key] = schema.enum[0] as string | number | boolean;
@@ -3141,11 +3169,11 @@ export class BrainComponent implements OnInit {
         properties: this.buildPropertiesObject('edge', record.properties ?? {}),
       };
     } else if (kind === 'chrono') {
-      const isPredefined = this.chronoKinds.includes(record.kind);
+      const isPredefined = this.chronoKinds.includes(record.type as ChronoType);
       this.drawerEditChrono = {
         title: record.title,
-        kind: isPredefined ? record.kind : '__custom__',
-        customKind: isPredefined ? '' : record.kind,
+        kind: isPredefined ? record.type : '__custom__',
+        customKind: isPredefined ? '' : record.type,
         status: record.status,
         startsAt: record.startsAt ? this.toLocalDatetime(record.startsAt) : '',
         endsAt: record.endsAt ? this.toLocalDatetime(record.endsAt) : '',
@@ -3222,11 +3250,11 @@ export class BrainComponent implements OnInit {
       });
     } else if (dr.kind === 'chrono') {
       const resolvedKind = this.drawerEditChrono.kind === '__custom__'
-        ? (this.drawerEditChrono.customKind.trim() as ChronoKind)
-        : this.drawerEditChrono.kind as ChronoKind;
+        ? (this.drawerEditChrono.customKind.trim() as ChronoType)
+        : this.drawerEditChrono.kind as ChronoType;
       this.api.updateChrono(spaceId, id, {
         title: this.drawerEditChrono.title.trim(),
-        kind: resolvedKind,
+        type: resolvedKind,
         status: this.drawerEditChrono.status as ChronoStatus,
         ...(this.drawerEditChrono.startsAt ? { startsAt: new Date(this.drawerEditChrono.startsAt).toISOString() } : {}),
         ...(this.drawerEditChrono.endsAt ? { endsAt: new Date(this.drawerEditChrono.endsAt).toISOString() } : {}),

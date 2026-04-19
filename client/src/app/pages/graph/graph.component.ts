@@ -1022,7 +1022,7 @@ interface DetailRow {
                   <input type="text" [(ngModel)]="drawerEditChrono.title" name="drwChronoTitle" />
                 </div>
                 <div class="bdrawer-field">
-                  <div class="bdrawer-label">kind <span style="color:var(--error)">*</span></div>
+                  <div class="bdrawer-label">type <span style="color:var(--error)">*</span></div>
                   @if (drawerEditChrono.kind !== '__custom__') {
                     <select [(ngModel)]="drawerEditChrono.kind" name="drwChronoKind">
                       @for (k of chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
@@ -1048,10 +1048,6 @@ interface DetailRow {
                 <div class="bdrawer-field">
                   <div class="bdrawer-label">endsAt</div>
                   <input type="datetime-local" [(ngModel)]="drawerEditChrono.endsAt" name="drwChronoEnds" />
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">confidence <span class="bdrawer-muted">(0–1)</span></div>
-                  <input type="number" [(ngModel)]="drawerEditChrono.confidence" name="drwChronoConf" min="0" max="1" step="0.01" />
                 </div>
                 <div class="bdrawer-field">
                   <div class="bdrawer-label">description</div>
@@ -1169,7 +1165,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   drawerSaving = signal(false);
   drawerError = signal('');
   drawerEditMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
-  drawerEditChrono = { title: '', kind: 'event' as string, customKind: '', status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', confidence: null as number | null, memoryIds: '' };
+  drawerEditChrono = { title: '', kind: 'event' as string, customKind: '', status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', memoryIds: '' };
   entityNameCache = signal<Record<string, string>>({});
   flyoutField = signal('');
   readonly chronoKinds: ChronoType[] = ['event', 'deadline', 'plan', 'prediction', 'milestone'];
@@ -1683,16 +1679,15 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
       name: 'cose',
       animate: true,
       animationDuration: 400,
-      nodeRepulsion: () => 8000,
-      idealEdgeLength: () => 120,
-      gravity: 0.3,
+      nodeRepulsion: () => 12000,
+      idealEdgeLength: () => 200,
+      gravity: 0.15,
       padding: 40,
     } as any);
 
     layout.on('layoutstop', () => {
-      this.fitGraph();
-      // Zoom out a bit more so graph breathes
-      if (this.cy) this.cy.zoom(this.cy.zoom() * 0.78);
+      // Fit with large padding so graph is centered AND zoomed out
+      if (this.cy) this.cy.fit(undefined, 100);
       // Auto-select root node on first render
       const root = this.rootEntity();
       if (root && !this.selectedNode() && !this.selectedEdge()) {
@@ -1836,7 +1831,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
         description: record.description ?? '',
         tags: [...(record.tags ?? [])],
         entityIds: (record.entityIds ?? []).join(', '),
-        confidence: record.confidence ?? null,
         memoryIds: (record.memoryIds ?? []).join(', '),
       };
     }
@@ -1886,7 +1880,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
         tags: this.drawerEditChrono.tags,
         entityIds: this.drawerEditChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean),
         ...(this.drawerEditChrono.memoryIds.trim() ? { memoryIds: this.drawerEditChrono.memoryIds.split(',').map(s => s.trim()).filter(Boolean) } : {}),
-        ...(this.drawerEditChrono.confidence != null ? { confidence: this.drawerEditChrono.confidence } : {}),
       }).subscribe({
         next: (updated) => {
           this.drawerSaving.set(false);

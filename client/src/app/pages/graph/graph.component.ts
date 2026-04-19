@@ -22,6 +22,8 @@ import {
   Entity,
   Memory,
   ChronoEntry,
+  ChronoType,
+  ChronoStatus,
   Edge,
   TraverseNode,
   TraverseEdge,
@@ -30,6 +32,8 @@ import {
 import { EntryPopupComponent } from '../../shared/entry-popup.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PropertiesViewComponent } from '../../shared/properties-view.component';
+import { TagInputComponent } from '../../shared/tag-input.component';
+import { PropertiesEditorComponent } from '../../shared/properties-editor.component';
 
 // ── Deterministic colour palette for node types ──────────────────────────────
 
@@ -59,7 +63,7 @@ interface DetailRow {
 @Component({
   selector: 'app-graph-view',
   standalone: true,
-  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent],
+  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, TagInputComponent, PropertiesEditorComponent],
   host: { '[class.embedded]': 'isEmbedded()' },
   styles: [`
     :host {
@@ -540,6 +544,84 @@ interface DetailRow {
       border: 1px solid var(--border);
       margin-right: 3px;
     }
+
+    /* ── Brain-style record drawer modal ───────────────────────────────────── */
+    .bdrawer-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.55);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1100;
+    }
+    .bdrawer-modal {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      width: 100%; max-width: 640px;
+      max-height: 88vh; overflow: hidden;
+      display: flex; flex-direction: column;
+    }
+    .bdrawer-header {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      padding: 16px 20px; border-bottom: 1px solid var(--border); gap: 12px; flex-shrink: 0;
+    }
+    .bdrawer-title { font-size: 15px; font-weight: 600; color: var(--text-primary); word-break: break-word; }
+    .bdrawer-body { overflow-y: auto; flex: 1; padding: 20px; }
+    .bdrawer-footer {
+      display: flex; align-items: center; justify-content: flex-end;
+      gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border); flex-shrink: 0;
+    }
+    .bdrawer-field { margin-bottom: 16px; }
+    .bdrawer-label {
+      font-size: 10px; font-weight: 600; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px;
+    }
+    .bdrawer-readonly {
+      font-size: 12px; color: var(--text-muted); padding: 5px 8px;
+      border: 1px solid var(--border-muted, var(--border)); border-radius: var(--radius-sm);
+      background: var(--bg-elevated); word-break: break-all; line-height: 1.4;
+      font-family: var(--font-mono);
+    }
+    .bdrawer-muted { color: var(--text-muted); font-size: 11px; }
+    .bdrawer-hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
+    .bdrawer-modal input[type=text], .bdrawer-modal input[type=number],
+    .bdrawer-modal input[type=datetime-local], .bdrawer-modal textarea, .bdrawer-modal select {
+      width: 100%; padding: 6px 9px;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      font-size: 13px; background: var(--bg-primary); color: var(--text-primary);
+      box-sizing: border-box; font-family: var(--font);
+    }
+    .bdrawer-modal textarea { resize: vertical; }
+    .bdrawer-modal input:focus, .bdrawer-modal select:focus, .bdrawer-modal textarea:focus {
+      outline: none; border-color: var(--accent);
+    }
+    /* entity chips */
+    .entity-multi {
+      display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+      padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      background: var(--bg-primary); min-height: 34px;
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 2px 8px; border-radius: 10px;
+      background: var(--accent-dim); border: 1px solid var(--accent);
+      font-size: 11px; color: var(--text-primary);
+    }
+    .chip-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chip-remove {
+      background: none; border: none; color: var(--text-muted); cursor: pointer;
+      padding: 0 1px; font-size: 12px; line-height: 1;
+    }
+    .chip-add {
+      background: none; border: none; color: var(--accent); cursor: pointer;
+      font-size: 12px; padding: 2px 4px;
+    }
+    .flyout-wrap { position: relative; }
+    .flyout-panel {
+      position: absolute; top: 100%; left: 0; right: 0; z-index: 200;
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: 10px; margin-top: 4px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.3);
+    }
   `],
   template: `
     <!-- ═══ Space selector ══════════════════════════════════════════════════ -->
@@ -838,7 +920,7 @@ interface DetailRow {
 
     </div><!-- /canvas-row -->
 
-    <!-- ═══ Entry popup ══════════════════════════════════════════════════ -->
+    <!-- ═══ Entry popup (entity / edge) ═══════════════════════════════════ -->
     @if (popupRecord()) {
       <app-entry-popup
         [record]="popupRecord()"
@@ -848,6 +930,186 @@ interface DetailRow {
         (closed)="closePopup()"
         (saved)="onPopupSaved($event)"
       />
+    }
+
+    <!-- ═══ Brain-style drawer modal (memory / chrono) ════════════════════ -->
+    @if (drawerRecord(); as dr) {
+      <div class="bdrawer-overlay" (click)="closeBrainDrawer()">
+        <div class="bdrawer-modal" (click)="$event.stopPropagation()" role="dialog">
+          <div class="bdrawer-header">
+            <div style="flex:1; min-width:0;">
+              @if (dr.kind === 'memory') { <span class="badge badge-blue" style="margin-bottom:6px; display:inline-block;">memory</span> }
+              @if (dr.kind === 'chrono') { <span class="badge" style="margin-bottom:6px; display:inline-block;">chrono</span> }
+              <div class="bdrawer-title">
+                @if (dr.kind === 'memory') { {{ drawerEditMemory.fact.length > 80 ? (drawerEditMemory.fact | slice:0:80) + '…' : drawerEditMemory.fact }} }
+                @if (dr.kind === 'chrono') { {{ drawerEditChrono.title || dr.record.title }} }
+              </div>
+            </div>
+            <div style="display:flex; gap:8px; flex-shrink:0; align-items:flex-start; padding-top:2px;">
+              <button class="btn btn-sm btn-primary" [disabled]="drawerSaving()" (click)="saveBrainDrawer()">
+                @if (drawerSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } Save
+              </button>
+              <button class="icon-btn" title="Close" (click)="closeBrainDrawer()">✕</button>
+            </div>
+          </div>
+
+          <div class="bdrawer-body">
+            @if (drawerError()) {
+              <div class="alert alert-error" style="margin-bottom:16px; font-size:13px;">{{ drawerError() }}</div>
+            }
+            <form>
+
+              <!-- ── MEMORY ── -->
+              @if (dr.kind === 'memory') {
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">fact <span style="color:var(--error)">*</span></div>
+                  <textarea [(ngModel)]="drawerEditMemory.fact" name="drwMemFact" rows="4"></textarea>
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">description</div>
+                  <input type="text" [(ngModel)]="drawerEditMemory.description" name="drwMemDesc" />
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">tags</div>
+                  <app-tag-input [(value)]="drawerEditMemory.tags" [suggestions]="[]" inputName="drwMemTags" />
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">entityIds</div>
+                  <div class="flyout-wrap">
+                    <div class="entity-multi">
+                      @for (chip of entityChips(drawerEditMemory.entityIds); track chip.id) {
+                        <span class="chip" [title]="chip.id">
+                          <span class="chip-name">{{ chip.name }}</span>
+                          <button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditMemory, chip.id)">✕</button>
+                        </span>
+                      }
+                      <button type="button" class="chip-add" (click)="openFlyout('drawer-memory-entityIds')">+ Add…</button>
+                    </div>
+                    @if (flyoutField() === 'drawer-memory-entityIds') {
+                      <div class="flyout-panel">
+                        <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="Search entities…" defaultMode="semantic"
+                          (selected)="pickDrawerEntity($event, 'drawer-memory-entityIds')" />
+                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                          <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">properties</div>
+                  <app-properties-editor [(value)]="drawerEditMemory.properties" />
+                </div>
+                <hr class="bdrawer-hr">
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">_id</div>
+                  <div class="bdrawer-readonly">{{ dr.record._id }}</div>
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">seq</div>
+                  <div class="bdrawer-readonly">{{ dr.record.seq }}</div>
+                </div>
+                <div class="bdrawer-field" style="margin-bottom:0;">
+                  <div class="bdrawer-label">createdAt</div>
+                  <div class="bdrawer-readonly">{{ dr.record.createdAt | date:'yyyy-MM-dd HH:mm:ss' }}</div>
+                </div>
+              }
+
+              <!-- ── CHRONO ── -->
+              @if (dr.kind === 'chrono') {
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">title <span style="color:var(--error)">*</span></div>
+                  <input type="text" [(ngModel)]="drawerEditChrono.title" name="drwChronoTitle" />
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">kind <span style="color:var(--error)">*</span></div>
+                  @if (drawerEditChrono.kind !== '__custom__') {
+                    <select [(ngModel)]="drawerEditChrono.kind" name="drwChronoKind">
+                      @for (k of chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
+                      <option value="__custom__">Custom…</option>
+                    </select>
+                  } @else {
+                    <div style="display:flex; gap:4px;">
+                      <input type="text" [(ngModel)]="drawerEditChrono.customKind" name="drwChronoCustomKind" style="flex:1;" />
+                      <button type="button" class="btn btn-sm btn-secondary" style="padding:4px 8px;" (click)="drawerEditChrono.kind = 'event'; drawerEditChrono.customKind = ''">✕</button>
+                    </div>
+                  }
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">status</div>
+                  <select [(ngModel)]="drawerEditChrono.status" name="drwChronoStatus">
+                    @for (s of chronoStatusOptions; track s) { <option [value]="s">{{ s }}</option> }
+                  </select>
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">startsAt <span style="color:var(--error)">*</span></div>
+                  <input type="datetime-local" [(ngModel)]="drawerEditChrono.startsAt" name="drwChronoStarts" />
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">endsAt</div>
+                  <input type="datetime-local" [(ngModel)]="drawerEditChrono.endsAt" name="drwChronoEnds" />
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">confidence <span class="bdrawer-muted">(0–1)</span></div>
+                  <input type="number" [(ngModel)]="drawerEditChrono.confidence" name="drwChronoConf" min="0" max="1" step="0.01" />
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">description</div>
+                  <textarea [(ngModel)]="drawerEditChrono.description" name="drwChronoDesc" rows="3"></textarea>
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">tags</div>
+                  <app-tag-input [(value)]="drawerEditChrono.tags" [suggestions]="[]" inputName="drwChronoTags" />
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">entityIds</div>
+                  <div class="flyout-wrap">
+                    <div class="entity-multi">
+                      @for (chip of entityChips(drawerEditChrono.entityIds); track chip.id) {
+                        <span class="chip" [title]="chip.id">
+                          <span class="chip-name">{{ chip.name }}</span>
+                          <button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditChrono, chip.id)">✕</button>
+                        </span>
+                      }
+                      <button type="button" class="chip-add" (click)="openFlyout('drawer-chrono-entityIds')">+ Add…</button>
+                    </div>
+                    @if (flyoutField() === 'drawer-chrono-entityIds') {
+                      <div class="flyout-panel">
+                        <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="Search entities…" defaultMode="semantic"
+                          (selected)="pickDrawerEntity($event, 'drawer-chrono-entityIds')" />
+                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                          <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">Done</button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">memoryIds <span class="bdrawer-muted">(comma-separated IDs)</span></div>
+                  <textarea [(ngModel)]="drawerEditChrono.memoryIds" name="drwChronoMemIds" rows="2" style="font-family:var(--font-mono,monospace); font-size:11px;"></textarea>
+                </div>
+                <hr class="bdrawer-hr">
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">_id</div>
+                  <div class="bdrawer-readonly">{{ dr.record._id }}</div>
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">seq</div>
+                  <div class="bdrawer-readonly">{{ dr.record.seq }}</div>
+                </div>
+                <div class="bdrawer-field">
+                  <div class="bdrawer-label">createdAt</div>
+                  <div class="bdrawer-readonly">{{ dr.record.createdAt | date:'yyyy-MM-dd HH:mm:ss' }}</div>
+                </div>
+                <div class="bdrawer-field" style="margin-bottom:0;">
+                  <div class="bdrawer-label">updatedAt</div>
+                  <div class="bdrawer-readonly">{{ dr.record.updatedAt | date:'yyyy-MM-dd HH:mm:ss' }}</div>
+                </div>
+              }
+            </form>
+          </div>
+        </div>
+      </div>
     }
   `,
 })
@@ -901,6 +1163,17 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   popupRecord = signal<Record<string, unknown> | null>(null);
   popupType = signal<'entity' | 'edge' | 'memory' | 'chrono'>('entity');
   canEdit = signal(false);
+
+  // ── Brain-style drawer for memory / chrono ──────────────────────────────
+  drawerRecord = signal<{ kind: 'memory' | 'chrono'; record: any } | null>(null);
+  drawerSaving = signal(false);
+  drawerError = signal('');
+  drawerEditMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
+  drawerEditChrono = { title: '', kind: 'event' as string, customKind: '', status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', confidence: null as number | null, memoryIds: '' };
+  entityNameCache = signal<Record<string, string>>({});
+  flyoutField = signal('');
+  readonly chronoKinds: ChronoType[] = ['event', 'deadline', 'plan', 'prediction', 'milestone'];
+  readonly chronoStatusOptions: ChronoStatus[] = ['upcoming', 'active', 'completed', 'overdue', 'cancelled'];
 
   loading = signal(false);
 
@@ -1528,13 +1801,159 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!spaceId) return;
     if (row.kind === 'memory') {
       this.api.getMemory(spaceId, row.id).pipe(catchError(() => of(null))).subscribe(m => {
-        if (m) { this.popupRecord.set(m as unknown as Record<string, unknown>); this.popupType.set('memory'); }
+        if (m) this.openBrainDrawer('memory', m);
       });
     } else {
       this.api.getChrono(spaceId, row.id).pipe(catchError(() => of(null))).subscribe(c => {
-        if (c) { this.popupRecord.set(c as unknown as Record<string, unknown>); this.popupType.set('chrono'); }
+        if (c) this.openBrainDrawer('chrono', c);
       });
     }
+  }
+
+  openBrainDrawer(kind: 'memory' | 'chrono', record: any): void {
+    this.drawerError.set('');
+    this.drawerSaving.set(false);
+    this.flyoutField.set('');
+    const ids: string[] = record.entityIds ?? [];
+    if (ids.length) this.resolveEntityNamesById(ids);
+    if (kind === 'memory') {
+      this.drawerEditMemory = {
+        fact: record.fact ?? '',
+        tags: [...(record.tags ?? [])],
+        entityIds: (record.entityIds ?? []).join(', '),
+        description: record.description ?? '',
+        properties: { ...(record.properties ?? {}) },
+      };
+    } else {
+      const isPredefined = this.chronoKinds.includes(record.type as ChronoType);
+      this.drawerEditChrono = {
+        title: record.title ?? '',
+        kind: isPredefined ? record.type : '__custom__',
+        customKind: isPredefined ? '' : (record.type ?? ''),
+        status: record.status ?? 'upcoming',
+        startsAt: record.startsAt ? this.toLocalDatetime(record.startsAt) : '',
+        endsAt: record.endsAt ? this.toLocalDatetime(record.endsAt) : '',
+        description: record.description ?? '',
+        tags: [...(record.tags ?? [])],
+        entityIds: (record.entityIds ?? []).join(', '),
+        confidence: record.confidence ?? null,
+        memoryIds: (record.memoryIds ?? []).join(', '),
+      };
+    }
+    this.drawerRecord.set({ kind, record });
+  }
+
+  closeBrainDrawer(): void {
+    this.drawerRecord.set(null);
+    this.drawerError.set('');
+    this.flyoutField.set('');
+  }
+
+  saveBrainDrawer(): void {
+    const dr = this.drawerRecord();
+    if (!dr) return;
+    const spaceId = this.activeSpaceId();
+    const id = dr.record._id;
+    this.drawerSaving.set(true);
+    this.drawerError.set('');
+    if (dr.kind === 'memory') {
+      const props = this.drawerEditMemory.properties;
+      this.api.updateMemory(spaceId, id, {
+        fact: this.drawerEditMemory.fact.trim(),
+        tags: this.drawerEditMemory.tags,
+        entityIds: this.drawerEditMemory.entityIds.split(',').map(s => s.trim()).filter(Boolean),
+        description: this.drawerEditMemory.description.trim(),
+        ...(Object.keys(props).length ? { properties: props } : {}),
+      }).subscribe({
+        next: (updated) => {
+          this.drawerSaving.set(false);
+          this.drawerRecord.set({ kind: 'memory', record: updated });
+          this.nodeMemories.update(list => list.map(m => m._id === id ? updated : m));
+        },
+        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(err?.error?.error ?? err?.message ?? 'Save failed'); },
+      });
+    } else {
+      const resolvedKind = this.drawerEditChrono.kind === '__custom__'
+        ? (this.drawerEditChrono.customKind.trim() as ChronoType)
+        : this.drawerEditChrono.kind as ChronoType;
+      this.api.updateChrono(spaceId, id, {
+        title: this.drawerEditChrono.title.trim(),
+        type: resolvedKind,
+        status: this.drawerEditChrono.status as ChronoStatus,
+        ...(this.drawerEditChrono.startsAt ? { startsAt: new Date(this.drawerEditChrono.startsAt).toISOString() } : {}),
+        ...(this.drawerEditChrono.endsAt ? { endsAt: new Date(this.drawerEditChrono.endsAt).toISOString() } : {}),
+        description: this.drawerEditChrono.description.trim(),
+        tags: this.drawerEditChrono.tags,
+        entityIds: this.drawerEditChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean),
+        ...(this.drawerEditChrono.memoryIds.trim() ? { memoryIds: this.drawerEditChrono.memoryIds.split(',').map(s => s.trim()).filter(Boolean) } : {}),
+        ...(this.drawerEditChrono.confidence != null ? { confidence: this.drawerEditChrono.confidence } : {}),
+      }).subscribe({
+        next: (updated) => {
+          this.drawerSaving.set(false);
+          this.drawerRecord.set({ kind: 'chrono', record: updated });
+          this.nodeChrono.update(list => list.map(c => c._id === id ? updated : c));
+        },
+        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(err?.error?.error ?? err?.message ?? 'Save failed'); },
+      });
+    }
+  }
+
+  entityChips(ids: string): Array<{ id: string; name: string }> {
+    const cache = this.entityNameCache();
+    return ids.split(',').map(s => s.trim()).filter(Boolean).map(id => ({ id, name: cache[id] ?? id }));
+  }
+
+  removeEntityId(target: { entityIds: string }, id: string): void {
+    target.entityIds = target.entityIds.split(',').map(s => s.trim()).filter(s => s && s !== id).join(', ');
+  }
+
+  openFlyout(key: string): void {
+    this.flyoutField.set(key);
+    let ids = '';
+    if (key === 'drawer-memory-entityIds') ids = this.drawerEditMemory.entityIds;
+    if (key === 'drawer-chrono-entityIds') ids = this.drawerEditChrono.entityIds;
+    const spaceId = this.activeSpaceId();
+    if (spaceId && ids) {
+      const unknown = ids.split(',').map(s => s.trim()).filter(s => s && !this.entityNameCache()[s]);
+      if (unknown.length) this.resolveEntityNamesById(unknown);
+    }
+  }
+
+  closeFlyout(): void { this.flyoutField.set(''); }
+
+  pickDrawerEntity(ent: Entity, field: string): void {
+    this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
+    if (field === 'drawer-memory-entityIds') {
+      const parts = this.drawerEditMemory.entityIds.split(',').map(s => s.trim()).filter(Boolean);
+      if (!parts.includes(ent._id)) parts.push(ent._id);
+      this.drawerEditMemory.entityIds = parts.join(', ');
+    } else if (field === 'drawer-chrono-entityIds') {
+      const parts = this.drawerEditChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean);
+      if (!parts.includes(ent._id)) parts.push(ent._id);
+      this.drawerEditChrono.entityIds = parts.join(', ');
+    }
+  }
+
+  private resolveEntityNamesById(ids: string[]): void {
+    const spaceId = this.activeSpaceId();
+    if (!spaceId || !ids.length) return;
+    const unknown = ids.filter(id => !this.entityNameCache()[id]);
+    if (!unknown.length) return;
+    this.api.getEntitiesByIds(spaceId, unknown).subscribe({
+      next: ({ entities }) => {
+        const patch: Record<string, string> = {};
+        for (const e of entities) patch[e._id] = e.name;
+        this.entityNameCache.update(c => ({ ...c, ...patch }));
+      },
+      error: () => {},
+    });
+  }
+
+  private toLocalDatetime(iso: string): string {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
   asRecord(obj: unknown): Record<string, unknown> {

@@ -706,7 +706,7 @@ interface DetailRow {
                 </div>
                 <div class="list-body">
                   @for (c of nodeChrono(); track c._id) {
-                    <div class="list-row" (click)="openDetailPopup({ id: c._id, kind: 'chrono', description: c.title || c.description || '', tags: c.tags ?? [], properties: {}, createdAt: c.createdAt, raw: asRecord(c) })">
+                    <div class="list-row" (click)="openDetailPopup({ id: c._id, kind: 'chrono', description: c.title || c.description || '', tags: c.tags, properties: {}, createdAt: c.createdAt, raw: asRecord(c) })">
                       <span class="list-row-text" [title]="c.title || c.description">{{ c.title || c.description || '—' }}</span>
                       <span class="list-row-date">{{ c.startsAt | date:'dd.MM.yy' }}</span>
                     </div>
@@ -821,7 +821,7 @@ interface DetailRow {
                 </div>
                 <div class="list-body">
                   @for (c of nodeChrono(); track c._id) {
-                    <div class="list-row" (click)="openDetailPopup({ id: c._id, kind: 'chrono', description: c.title || c.description || '', tags: c.tags ?? [], properties: {}, createdAt: c.createdAt, raw: asRecord(c) })">
+                    <div class="list-row" (click)="openDetailPopup({ id: c._id, kind: 'chrono', description: c.title || c.description || '', tags: c.tags, properties: {}, createdAt: c.createdAt, raw: asRecord(c) })">
                       <span class="list-row-text" [title]="c.title || c.description">{{ c.title || c.description || '—' }}</span>
                       <span class="list-row-date">{{ c.startsAt | date:'dd.MM.yy' }}</span>
                     </div>
@@ -919,7 +919,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
       id: c._id,
       kind: 'chrono' as const,
       description: c.title || c.description || '',
-      tags: c.tags ?? [],
+      tags: c.tags,
       properties: {} as Record<string, unknown>,
       createdAt: c.createdAt,
       raw: c as unknown as Record<string, unknown>,
@@ -1517,7 +1517,20 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.popupRecord.set(null);
   }
 
+  onPopupSaved(_evt: Record<string, unknown>): void {
+    this.popupRecord.set(null);
+    const root = this.rootEntity();
+    if (root) {
+      this.traverse(root._id, this.depth(), this.direction());
+      const sel = this.selectedNode();
+      if (sel) this.loadNodeDetails(sel._id);
+      const edge = this.selectedEdge();
+      if (edge) this.loadEdgeDetails(edge);
+    }
+  }
+
   // ── URL management ──────────────────────────────────────────────────────────
+  private updateUrl(entityId: string, push = false): void {
     const spaceId = this.activeSpaceId();
     const path = this.location.path().split('?')[0];
     const qs = `space=${spaceId}&entity=${entityId}`;

@@ -3,23 +3,24 @@ import { DatePipe, SlicePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService, ConflictRecord } from '../../core/api.service';
 import { RouterLink } from '@angular/router';
+import { PhIconComponent } from '../../shared/ph-icon.component';
 
 type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-space';
 
 @Component({
   selector: 'app-conflicts',
   standalone: true,
-  imports: [DatePipe, SlicePipe, RouterLink, FormsModule],
+  imports: [DatePipe, SlicePipe, RouterLink, FormsModule, PhIconComponent],
   template: `
     <div style="display:flex; justify-content:flex-end; margin-bottom:12px;">
-      <a routerLink="/files" class="btn-secondary btn btn-sm">← Back to Files</a>
+      <a routerLink="/files" class="btn-secondary btn btn-sm"><ph-icon name="arrow-left" [size]="14"/> Back to Files</a>
     </div>
 
     @if (loading()) {
       <div class="loading-overlay"><span class="spinner"></span></div>
     } @else if (conflicts().length === 0) {
       <div class="empty-state">
-        <div class="empty-state-icon">✅</div>
+        <div class="empty-state-icon"><ph-icon name="check-circle" [size]="48"/></div>
         <h3>No conflicts</h3>
         <p>All synced files are in agreement.</p>
       </div>
@@ -110,7 +111,7 @@ type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-spa
                   </button>
                   <button class="btn-secondary btn btn-sm" style="margin-left:4px"
                           (click)="dismiss(c)" [disabled]="resolving() === c.id"
-                          title="Dismiss without file changes" aria-label="Dismiss conflict">✕</button>
+                          title="Dismiss without file changes" aria-label="Dismiss conflict"><ph-icon name="x" [size]="16"/></button>
                 </td>
               </tr>
             }

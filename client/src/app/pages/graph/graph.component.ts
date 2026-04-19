@@ -16,6 +16,7 @@ import { ActivatedRoute } from '@angular/router';
 import { Subscription, forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import cytoscape from 'cytoscape';
+import { PhIconComponent } from '../../shared/ph-icon.component';
 import {
   ApiService,
   Space,
@@ -63,7 +64,7 @@ interface DetailRow {
 @Component({
   selector: 'app-graph-view',
   standalone: true,
-  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, TagInputComponent, PropertiesEditorComponent],
+  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, TagInputComponent, PropertiesEditorComponent, PhIconComponent],
   host: { '[class.embedded]': 'isEmbedded()' },
   styles: [`
     :host {
@@ -639,7 +640,7 @@ interface DetailRow {
         <app-entity-search
           mode="bar"
           [spaceId]="activeSpaceId()"
-          placeholder="🔍  Search entity…"
+          placeholder="Search entity…"
           defaultMode="semantic"
           (selected)="selectRoot($event)"
           (queryChange)="onSearchQueryChange($event)"
@@ -669,8 +670,8 @@ interface DetailRow {
       @if (rootEntity()) {
         <span class="graph-stats">{{ nodeCount() }} nodes · {{ edgeCount() }} edges</span>
       }
-      <button class="toolbar-btn" title="Fit to viewport" (click)="fitGraph()">⛶</button>
-      <button class="toolbar-btn" title="Reset graph"     (click)="resetGraph()">↺</button>
+      <button class="toolbar-btn" title="Fit to viewport" (click)="fitGraph()"><ph-icon name="corners-out" [size]="16"/></button>
+      <button class="toolbar-btn" title="Reset graph"     (click)="resetGraph()"><ph-icon name="arrows-clockwise" [size]="16"/></button>
     </div>
 
     <!-- ═══ Canvas row (canvas + optional side panel) ══════════════════════ -->
@@ -681,7 +682,7 @@ interface DetailRow {
         @if (truncated()) {
           <div class="truncation-banner">
             ⚠ Result truncated — reduce depth or node limit to see full graph
-            <button (click)="truncated.set(false)">✕</button>
+            <button (click)="truncated.set(false)"><ph-icon name="x" [size]="14"/></button>
           </div>
         }
 
@@ -691,7 +692,7 @@ interface DetailRow {
 
         @if (!rootEntity() && !loading()) {
           <div class="canvas-empty">
-            <div class="empty-icon">◎</div>
+            <div class="empty-icon"><ph-icon name="circle-dashed" [size]="52"/></div>
             <h3>Search for an entity to start exploring</h3>
             <p>Tap nodes to inspect · double-tap to re-root</p>
           </div>
@@ -710,8 +711,8 @@ interface DetailRow {
               <span class="badge">{{ selectedNode()!.type || 'entity' }}</span>
             </div>
             <div class="side-panel-header-actions">
-              <button class="btn btn-sm btn-ghost" (click)="openEntityPopup(selectedNode()!)">👁</button>
-              <button class="icon-btn" title="Close" (click)="selectedNode.set(null)">✕</button>
+              <button class="btn btn-sm btn-ghost" style="display:inline-flex;align-items:center" (click)="openEntityPopup(selectedNode()!)"><ph-icon name="eye" [size]="14"/></button>
+              <button class="icon-btn" title="Close" (click)="selectedNode.set(null)"><ph-icon name="x" [size]="16"/></button>
             </div>
           </div>
           <div class="side-panel-body">
@@ -814,9 +815,9 @@ interface DetailRow {
             </div>
             <div class="side-panel-header-actions">
               @if (selectedEdgeRecord()) {
-                <button class="btn btn-sm btn-ghost" (click)="popupRecord.set(asRecord(selectedEdgeRecord()!)); popupType.set('edge')">👁</button>
+                <button class="btn btn-sm btn-ghost" style="display:inline-flex;align-items:center" (click)="popupRecord.set(asRecord(selectedEdgeRecord()!)); popupType.set('edge')"><ph-icon name="eye" [size]="14"/></button>
               }
-              <button class="icon-btn" title="Close" (click)="selectedEdge.set(null); selectedEdgeRecord.set(null)">✕</button>
+              <button class="icon-btn" title="Close" (click)="selectedEdge.set(null); selectedEdgeRecord.set(null)"><ph-icon name="x" [size]="16"/></button>
             </div>
           </div>
           <div class="side-panel-body">
@@ -949,7 +950,7 @@ interface DetailRow {
               <button class="btn btn-sm btn-primary" [disabled]="drawerSaving()" (click)="saveBrainDrawer()">
                 @if (drawerSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } Save
               </button>
-              <button class="icon-btn" title="Close" (click)="closeBrainDrawer()">✕</button>
+              <button class="icon-btn" title="Close" (click)="closeBrainDrawer()"><ph-icon name="x" [size]="16"/></button>
             </div>
           </div>
 
@@ -980,7 +981,7 @@ interface DetailRow {
                       @for (chip of entityChips(drawerEditMemory.entityIds); track chip.id) {
                         <span class="chip" [title]="chip.id">
                           <span class="chip-name">{{ chip.name }}</span>
-                          <button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditMemory, chip.id)">✕</button>
+                          <button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditMemory, chip.id)"><ph-icon name="x" [size]="12"/></button>
                         </span>
                       }
                       <button type="button" class="chip-add" (click)="openFlyout('drawer-memory-entityIds')">+ Add…</button>
@@ -1031,7 +1032,7 @@ interface DetailRow {
                   } @else {
                     <div style="display:flex; gap:4px;">
                       <input type="text" [(ngModel)]="drawerEditChrono.customKind" name="drwChronoCustomKind" style="flex:1;" />
-                      <button type="button" class="btn btn-sm btn-secondary" style="padding:4px 8px;" (click)="drawerEditChrono.kind = 'event'; drawerEditChrono.customKind = ''">✕</button>
+                      <button type="button" class="btn btn-sm btn-secondary" style="padding:4px 8px;" (click)="drawerEditChrono.kind = 'event'; drawerEditChrono.customKind = ''"><ph-icon name="x" [size]="14"/></button>
                     </div>
                   }
                 </div>
@@ -1064,7 +1065,7 @@ interface DetailRow {
                       @for (chip of entityChips(drawerEditChrono.entityIds); track chip.id) {
                         <span class="chip" [title]="chip.id">
                           <span class="chip-name">{{ chip.name }}</span>
-                          <button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditChrono, chip.id)">✕</button>
+                          <button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditChrono, chip.id)"><ph-icon name="x" [size]="12"/></button>
                         </span>
                       }
                       <button type="button" class="chip-add" (click)="openFlyout('drawer-chrono-entityIds')">+ Add…</button>
@@ -1136,7 +1137,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   searchQuery = signal('');
 
   rootEntity = signal<Entity | null>(null);
-  depth = signal(3);
+  depth = signal(2);
   direction = signal<'outbound' | 'inbound' | 'both'>('both');
   hideLabels = signal(false);
   truncated = signal(false);

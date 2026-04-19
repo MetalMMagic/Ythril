@@ -9,6 +9,7 @@ import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PropertiesViewComponent } from '../../shared/properties-view.component';
 import { PropertiesEditorComponent } from '../../shared/properties-editor.component';
 import { TagInputComponent } from '../../shared/tag-input.component';
+import { PhIconComponent } from '../../shared/ph-icon.component';
 import { catchError, of } from 'rxjs';
 
 type BrainTab = 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono' | 'filemeta';
@@ -21,7 +22,7 @@ interface SpaceView {
 @Component({
   selector: 'app-brain',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent],
+  imports: [CommonModule, FormsModule, RouterLink, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent],
   styles: [`
     .space-tabs {
       display: flex;
@@ -480,7 +481,7 @@ interface SpaceView {
       <div class="loading-overlay"><span class="spinner"></span> Loading spaces…</div>
     } @else if (spaces().length === 0) {
       <div class="empty-state">
-        <div class="empty-state-icon">📦</div>
+        <div class="empty-state-icon"><ph-icon name="package" [size]="48"/></div>
         <h3>No spaces yet</h3>
         <p>Create a space in <a routerLink="/settings/spaces">Settings → Spaces</a>.</p>
       </div>
@@ -507,7 +508,7 @@ interface SpaceView {
 
       @if (needsReindex()) {
         <div class="reindex-banner">
-          <span>⚠️ Embeddings are stale — the embedding model has changed and this space needs reindexing.</span>
+          <span><ph-icon name="warning" [size]="16" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> Embeddings are stale — the embedding model has changed and this space needs reindexing.</span>
           <button class="btn btn-sm btn-primary" [disabled]="reindexing()" (click)="runReindex()">
             @if (reindexing()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
             Reindex now
@@ -516,19 +517,19 @@ interface SpaceView {
         </div>
       }
       @if (!needsReindex() && reindexResult()) {
-        <div class="alert alert-success" style="margin-bottom:10px; font-size:13px;">✓ {{ reindexResult() }}</div>
+        <div class="alert alert-success" style="margin-bottom:10px; font-size:13px;"><ph-icon name="check" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ reindexResult() }}</div>
       }
 
       <!-- Sub-tabs: Query on left, collections on right -->
       <div class="tabs">
         <button class="tab" [class.active]="activeTab() === 'query'" (click)="setTab('query')">
-          🔍 Query
+          <ph-icon name="magnifying-glass" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> Query
         </button>
         <button class="tab" [class.active]="activeTab() === 'graph'" (click)="setTab('graph')">
-          🔭 Graph
+          <ph-icon name="binoculars" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> Graph
         </button>
         <button class="tab" [class.active]="activeTab() === 'files'" (click)="setTab('files')">
-          📁 Files
+          <ph-icon name="folder" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> Files
           @if (activeStats(); as s) {
             <span class="tab-count">{{ s.files }}</span>
           }
@@ -571,7 +572,7 @@ interface SpaceView {
               aria-label="Search memories" />
             <div class="pill-group" title="Search mode">
               <button [class.active]="memorySearchMode() === 'text'" (click)="setMemorySearchMode('text')">A–Z</button>
-              <button [class.active]="memorySearchMode() === 'semantic'" (click)="setMemorySearchMode('semantic')">✦ Semantic</button>
+              <button [class.active]="memorySearchMode() === 'semantic'" (click)="setMemorySearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> Semantic</button>
             </div>
             <button class="btn-primary btn btn-sm" (click)="openMemoryForm()" [disabled]="showMemoryForm()">+ Add memory</button>
           </div>
@@ -592,7 +593,7 @@ interface SpaceView {
                 <div class="flyout-wrap">
                   <div class="entity-multi">
                     @for (chip of entityChips(memoryForm.entityIds); track chip.id) {
-                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(memoryForm, chip.id)">✕</button></span>
+                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(memoryForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                     }
                     <button type="button" class="chip-add" (click)="openFlyout('create-memory-entityIds')">+ Add…</button>
                   </div>
@@ -636,10 +637,10 @@ interface SpaceView {
             <div class="filter-bar">
               <span class="filter-bar-label">Filters</span>
               @if (filterTag(); as tag) {
-                <span class="filter-chip">tag: {{ tag }} <button aria-label="Clear tag filter" (click)="clearFilter('tag')">✕</button></span>
+                <span class="filter-chip">tag: {{ tag }} <button aria-label="Clear tag filter" (click)="clearFilter('tag')"><ph-icon name="x" [size]="12"/></button></span>
               }
               @if (filterEntity(); as ent) {
-                <span class="filter-chip">entity: {{ ent }} <button aria-label="Clear entity filter" (click)="clearFilter('entity')">✕</button></span>
+                <span class="filter-chip">entity: {{ ent }} <button aria-label="Clear entity filter" (click)="clearFilter('entity')"><ph-icon name="x" [size]="12"/></button></span>
               }
               <button class="btn-secondary btn btn-sm" (click)="clearFilter('all')">Clear all</button>
             </div>
@@ -675,7 +676,7 @@ interface SpaceView {
                             <div class="flyout-wrap">
                               <div class="entity-multi">
                                 @for (chip of entityChips(editMemory.entityIds); track chip.id) {
-                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(editMemory, chip.id)">✕</button></span>
+                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(editMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                                 }
                                 <button type="button" class="chip-add" (click)="openFlyout('edit-memory-entityIds')">+ Add…</button>
                               </div>
@@ -735,7 +736,7 @@ interface SpaceView {
                       <td><app-properties-view [properties]="mem.properties" [schema]="memorySchema()" /></td>
                       <td style="color:var(--text-muted)">{{ mem.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
-                        <button class="icon-btn" title="View details" aria-label="View details" (click)="openDrawer('memory', mem)">⊙</button>
+                        <button class="icon-btn" title="View details" aria-label="View details" (click)="openDrawer('memory', mem)"><ph-icon name="eye" [size]="16"/></button>
                         @if (confirmDeleteId() === mem._id) {
                           <span class="inline-confirm">
                             Delete?
@@ -743,7 +744,7 @@ interface SpaceView {
                             <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
                           </span>
                         } @else {
-                          <button class="icon-btn danger" title="Delete memory" aria-label="Delete memory" (click)="requestDelete(mem._id)">✕</button>
+                          <button class="icon-btn danger" title="Delete memory" aria-label="Delete memory" (click)="requestDelete(mem._id)"><ph-icon name="x" [size]="16"/></button>
                         }
                       </td>
                     </tr>
@@ -751,7 +752,7 @@ interface SpaceView {
                 } @empty {
                   <tr><td colspan="7">
                     <div class="empty-state" style="padding:32px">
-                      <div class="empty-state-icon">🧠</div>
+                      <div class="empty-state-icon"><ph-icon name="brain" [size]="48"/></div>
                       @if (memorySearch() && memories().length) {
                         <h3>No matches</h3>
                         <p>No memories on this page match &ldquo;{{ memorySearch() }}&rdquo;.</p>
@@ -767,9 +768,9 @@ interface SpaceView {
           </div>
           @if (memorySearchMode() !== 'semantic') {
             <div class="pagination">
-              <button class="btn btn-sm btn-secondary" [disabled]="skip() === 0" (click)="prevPage()">← Prev</button>
+              <button class="btn btn-sm btn-secondary" [disabled]="skip() === 0" (click)="prevPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> Prev</button>
               <span class="pager-info">{{ filteredMemories().length ? (skip() + 1) + '–' + (skip() + filteredMemories().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="memories().length < pageSize" (click)="nextPage()">Next →</button>
+              <button class="btn btn-sm btn-secondary" [disabled]="memories().length < pageSize" (click)="nextPage()">Next <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
         }
@@ -907,7 +908,7 @@ interface SpaceView {
                       <td><app-properties-view [properties]="ent.properties" [schema]="entitySchema(ent.type)" /></td>
                       <td style="color:var(--text-muted)">{{ ent.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
-                        <button class="icon-btn" title="View details" aria-label="View details" (click)="openDrawer('entity', ent)">⊙</button>
+                        <button class="icon-btn" title="View details" aria-label="View details" (click)="openDrawer('entity', ent)"><ph-icon name="eye" [size]="16"/></button>
                         @if (confirmDeleteId() === ent._id) {
                           <span class="inline-confirm">
                             Delete?
@@ -915,7 +916,7 @@ interface SpaceView {
                             <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
                           </span>
                         } @else {
-                          <button class="icon-btn danger" aria-label="Delete entity" (click)="requestDelete(ent._id)">✕</button>
+                          <button class="icon-btn danger" aria-label="Delete entity" (click)="requestDelete(ent._id)"><ph-icon name="x" [size]="16"/></button>
                         }
                       </td>
                     </tr>
@@ -923,7 +924,7 @@ interface SpaceView {
                 } @empty {
                   <tr><td colspan="7">
                     <div class="empty-state" style="padding:32px">
-                      <div class="empty-state-icon">🏷️</div>
+                      <div class="empty-state-icon"><ph-icon name="tag" [size]="48"/></div>
                       <h3>No entities</h3>
                     </div>
                   </td></tr>
@@ -932,9 +933,9 @@ interface SpaceView {
             </table>
           </div>
           <div class="pagination">
-            <button class="btn btn-sm btn-secondary" [disabled]="entitySkip() === 0" (click)="prevEntityPage()">← Prev</button>
+            <button class="btn btn-sm btn-secondary" [disabled]="entitySkip() === 0" (click)="prevEntityPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> Prev</button>
             <span class="pager-info">{{ entities().length ? (entitySkip() + 1) + '–' + (entitySkip() + entities().length) : '–' }}</span>
-            <button class="btn btn-sm btn-secondary" [disabled]="entities().length < pageSize" (click)="nextEntityPage()">Next →</button>
+            <button class="btn btn-sm btn-secondary" [disabled]="entities().length < pageSize" (click)="nextEntityPage()">Next <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
           </div>
         }
 
@@ -948,7 +949,7 @@ interface SpaceView {
               aria-label="Search edges" />
             <div class="pill-group" title="Search mode">
               <button [class.active]="edgeSearchMode() === 'text'" (click)="setEdgeSearchMode('text')">A–Z</button>
-              <button [class.active]="edgeSearchMode() === 'semantic'" (click)="setEdgeSearchMode('semantic')">✦ Semantic</button>
+              <button [class.active]="edgeSearchMode() === 'semantic'" (click)="setEdgeSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> Semantic</button>
             </div>
             <button class="btn-primary btn btn-sm" (click)="openEdgeForm()" [disabled]="showEdgeForm()">+ Add edge</button>
           </div>
@@ -1097,7 +1098,7 @@ interface SpaceView {
                       <td><app-properties-view [properties]="edge.properties" [schema]="edgeSchema(edge.label)" /></td>
                       <td style="color:var(--text-muted); white-space:nowrap;">{{ edge.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
-                        <button class="icon-btn" title="View details" aria-label="View details" (click)="openDrawer('edge', edge)">⊙</button>
+                        <button class="icon-btn" title="View details" aria-label="View details" (click)="openDrawer('edge', edge)"><ph-icon name="eye" [size]="16"/></button>
                         @if (confirmDeleteId() === edge._id) {
                           <span class="inline-confirm">
                             Delete?
@@ -1105,7 +1106,7 @@ interface SpaceView {
                             <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
                           </span>
                         } @else {
-                          <button class="icon-btn danger" aria-label="Delete edge" (click)="requestDelete(edge._id)">✕</button>
+                          <button class="icon-btn danger" aria-label="Delete edge" (click)="requestDelete(edge._id)"><ph-icon name="x" [size]="16"/></button>
                         }
                       </td>
                     </tr>
@@ -1113,7 +1114,7 @@ interface SpaceView {
                 } @empty {
                   <tr><td colspan="9">
                     <div class="empty-state" style="padding:32px">
-                      <div class="empty-state-icon">🕸️</div>
+                      <div class="empty-state-icon"><ph-icon name="graph" [size]="48"/></div>
                       @if (edgeSearch() && edges().length) {
                         <h3>No matches</h3>
                         <p>No edges on this page match &ldquo;{{ edgeSearch() }}&rdquo;.</p>
@@ -1128,9 +1129,9 @@ interface SpaceView {
           </div>
           @if (edgeSearchMode() !== 'semantic') {
             <div class="pagination">
-              <button class="btn btn-sm btn-secondary" [disabled]="edgeSkip() === 0" (click)="prevEdgePage()">← Prev</button>
+              <button class="btn btn-sm btn-secondary" [disabled]="edgeSkip() === 0" (click)="prevEdgePage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> Prev</button>
               <span class="pager-info">{{ filteredEdges().length ? (edgeSkip() + 1) + '–' + (edgeSkip() + filteredEdges().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="edges().length < pageSize" (click)="nextEdgePage()">Next →</button>
+              <button class="btn btn-sm btn-secondary" [disabled]="edges().length < pageSize" (click)="nextEdgePage()">Next <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
         }
@@ -1145,7 +1146,7 @@ interface SpaceView {
               aria-label="Search timeline" />
             <div class="pill-group" title="Search mode">
               <button [class.active]="chronoSearchMode() === 'text'" (click)="setChronoSearchMode('text')">A–Z</button>
-              <button [class.active]="chronoSearchMode() === 'semantic'" (click)="setChronoSearchMode('semantic')">✦ Semantic</button>
+              <button [class.active]="chronoSearchMode() === 'semantic'" (click)="setChronoSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> Semantic</button>
             </div>
             <button class="btn-primary btn btn-sm" (click)="openChronoForm()" [disabled]="showChronoForm()">+ Add entry</button>
           </div>
@@ -1166,7 +1167,7 @@ interface SpaceView {
                 } @else {
                   <div style="display:flex; gap:4px;">
                     <input type="text" [(ngModel)]="chronoForm.customKind" name="customKind" style="flex:1;" />
-                    <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="chronoForm.kind = 'event'; chronoForm.customKind = ''" title="Back to presets">✕</button>
+                    <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="chronoForm.kind = 'event'; chronoForm.customKind = ''" title="Back to presets"><ph-icon name="x" [size]="14"/></button>
                   </div>
                 }
               </div>
@@ -1191,7 +1192,7 @@ interface SpaceView {
                 <div class="flyout-wrap">
                   <div class="entity-multi">
                     @for (chip of entityChips(chronoForm.entityIds); track chip.id) {
-                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(chronoForm, chip.id)">✕</button></span>
+                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(chronoForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                     }
                     <button type="button" class="chip-add" (click)="openFlyout('create-chrono-entityIds')">+ Add…</button>
                   </div>
@@ -1275,7 +1276,7 @@ interface SpaceView {
                             <div class="flyout-wrap">
                               <div class="entity-multi">
                                 @for (chip of entityChips(editChrono.entityIds); track chip.id) {
-                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(editChrono, chip.id)">✕</button></span>
+                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(editChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                                 }
                                 <button type="button" class="chip-add" (click)="openFlyout('edit-chrono-entityIds')">+ Add…</button>
                               </div>
@@ -1328,7 +1329,7 @@ interface SpaceView {
                         } @else { <span style="color:var(--text-muted)">—</span> }
                       </td>
                       <td style="white-space:nowrap;">
-                        <button class="icon-btn" title="View details" aria-label="View details" (click)="openDrawer('chrono', entry)">⊙</button>
+                        <button class="icon-btn" title="View details" aria-label="View details" (click)="openDrawer('chrono', entry)"><ph-icon name="eye" [size]="16"/></button>
                         @if (confirmDeleteId() === entry._id) {
                           <span class="inline-confirm">
                             Delete?
@@ -1336,7 +1337,7 @@ interface SpaceView {
                             <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">No</button>
                           </span>
                         } @else {
-                          <button class="icon-btn danger" aria-label="Delete chrono entry" (click)="requestDelete(entry._id)">✕</button>
+                          <button class="icon-btn danger" aria-label="Delete chrono entry" (click)="requestDelete(entry._id)"><ph-icon name="x" [size]="16"/></button>
                         }
                       </td>
                     </tr>
@@ -1344,7 +1345,7 @@ interface SpaceView {
                 } @empty {
                   <tr><td colspan="9">
                     <div class="empty-state" style="padding:32px">
-                      <div class="empty-state-icon">⏱️</div>
+                      <div class="empty-state-icon"><ph-icon name="timer" [size]="48"/></div>
                       @if (chronoSearch()) {
                         <h3>No matches</h3>
                         <p>No timeline entries match &ldquo;{{ chronoSearch() }}&rdquo;.</p>
@@ -1359,9 +1360,9 @@ interface SpaceView {
           </div>
           @if (chronoSearchMode() !== 'semantic') {
             <div class="pagination">
-              <button class="btn btn-sm btn-secondary" [disabled]="chronoSkip() === 0" (click)="prevChronoPage()">← Prev</button>
+              <button class="btn btn-sm btn-secondary" [disabled]="chronoSkip() === 0" (click)="prevChronoPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> Prev</button>
               <span class="pager-info">{{ chrono().length ? (chronoSkip() + 1) + '–' + (chronoSkip() + chrono().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="chrono().length < pageSize" (click)="nextChronoPage()">Next →</button>
+              <button class="btn btn-sm btn-secondary" [disabled]="chrono().length < pageSize" (click)="nextChronoPage()">Next <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
         }
@@ -1410,7 +1411,7 @@ interface SpaceView {
                               <div class="flyout-wrap">
                                 <div class="entity-multi">
                                   @for (chip of entityChips(editFileMeta.entityIds); track chip.id) {
-                                    <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(editFileMeta, chip.id)">✕</button></span>
+                                    <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(editFileMeta, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                                   }
                                   <button type="button" class="chip-add" (click)="openFlyout('edit-filemeta-entityIds')">+ Add…</button>
                                 </div>
@@ -1429,7 +1430,7 @@ interface SpaceView {
                               <div class="flyout-wrap">
                                 <div class="entity-multi">
                                   @for (id of editFileMeta.memoryIds; track id) {
-                                    <span class="chip" [title]="id"><span class="chip-name">{{ fmMemoryTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="removeFmMemoryId(editFileMeta, id)">✕</button></span>
+                                    <span class="chip" [title]="id"><span class="chip-name">{{ fmMemoryTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="removeFmMemoryId(editFileMeta, id)"><ph-icon name="x" [size]="12"/></button></span>
                                   }
                                   <button type="button" class="chip-add" (click)="openFlyout('edit-filemeta-memoryIds')">+ Add…</button>
                                 </div>
@@ -1453,7 +1454,7 @@ interface SpaceView {
                               <div class="flyout-wrap">
                                 <div class="entity-multi">
                                   @for (id of editFileMeta.chronoIds; track id) {
-                                    <span class="chip" [title]="id"><span class="chip-name">{{ fmChronoTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="removeFmChronoId(editFileMeta, id)">✕</button></span>
+                                    <span class="chip" [title]="id"><span class="chip-name">{{ fmChronoTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="removeFmChronoId(editFileMeta, id)"><ph-icon name="x" [size]="12"/></button></span>
                                   }
                                   <button type="button" class="chip-add" (click)="openFlyout('edit-filemeta-chronoIds')">+ Add…</button>
                                 </div>
@@ -1528,8 +1529,8 @@ interface SpaceView {
                               <button class="btn btn-xs btn-secondary" (click)="cancelDelete()">Cancel</button>
                             </span>
                           } @else {
-                            <button class="icon-btn" title="Edit file metadata" aria-label="Edit file metadata" (click)="startEditFileMeta(fm)">✎</button>
-                            <button class="icon-btn icon-btn-danger" title="Remove metadata record" aria-label="Remove metadata record" (click)="requestDelete(fm._id)">🗑</button>
+                            <button class="icon-btn" title="Edit file metadata" aria-label="Edit file metadata" (click)="startEditFileMeta(fm)"><ph-icon name="pencil-simple" [size]="16"/></button>
+                            <button class="icon-btn icon-btn-danger" title="Remove metadata record" aria-label="Remove metadata record" (click)="requestDelete(fm._id)"><ph-icon name="trash" [size]="16"/></button>
                           }
                         </td>
                       </tr>
@@ -1539,9 +1540,9 @@ interface SpaceView {
               </table>
             </div>
             <div class="pagination">
-              <button class="btn btn-sm btn-secondary" [disabled]="fileMetaSkip() === 0" (click)="prevFileMetaPage()">← Prev</button>
+              <button class="btn btn-sm btn-secondary" [disabled]="fileMetaSkip() === 0" (click)="prevFileMetaPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> Prev</button>
               <span class="pager-info">{{ fileMetas().length ? (fileMetaSkip() + 1) + '–' + (fileMetaSkip() + fileMetas().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="fileMetas().length < pageSize" (click)="nextFileMetaPage()">Next →</button>
+              <button class="btn btn-sm btn-secondary" [disabled]="fileMetas().length < pageSize" (click)="nextFileMetaPage()">Next <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
         }
@@ -1572,11 +1573,11 @@ interface SpaceView {
                 </div>
                 <div class="query-form-row" style="margin-top:8px;">
                   <div class="field" style="min-width:100px; margin:0;">
-                    <label>Top K <span style="color:var(--text-muted);font-size:11px;" title="Maximum number of results to return">ⓘ</span></label>
+                    <label>Top K <span style="color:var(--text-muted);font-size:11px;" title="Maximum number of results to return"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span></label>
                     <input type="number" [(ngModel)]="recallForm.topK" name="recallTopK" min="1" max="100" style="width:80px;" />
                   </div>
                   <div class="field" style="min-width:120px; margin:0;">
-                    <label>Min score <span style="color:var(--text-muted);font-size:11px;" title="Minimum similarity score (0–1). Higher = more relevant.">ⓘ</span></label>
+                    <label>Min score <span style="color:var(--text-muted);font-size:11px;" title="Minimum similarity score (0–1). Higher = more relevant."><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span></label>
                     <input type="number" [(ngModel)]="recallForm.minScore" name="recallMinScore" min="0" max="1" step="0.05" style="width:80px;" />
                   </div>
                 </div>
@@ -1712,7 +1713,7 @@ interface SpaceView {
                 <button class="btn btn-sm btn-primary" [disabled]="drawerSaving()" (click)="saveDrawer()">
                   @if (drawerSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } Save
                 </button>
-                <button class="icon-btn" title="Close" aria-label="Close details" (click)="closeDrawer()">✕</button>
+                <button class="icon-btn" title="Close" aria-label="Close details" (click)="closeDrawer()"><ph-icon name="x" [size]="16"/></button>
               </div>
             </div>
             @if (drawerError()) {
@@ -1739,7 +1740,7 @@ interface SpaceView {
                   <div class="flyout-wrap">
                     <div class="entity-multi">
                       @for (chip of entityChips(drawerEditMemory.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditMemory, chip.id)">✕</button></span>
+                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                       }
                       <button type="button" class="chip-add" (click)="openFlyout('drawer-memory-entityIds')">+ Add…</button>
                     </div>
@@ -1888,7 +1889,7 @@ interface SpaceView {
                   } @else {
                     <div style="display:flex; gap:4px;">
                       <input type="text" [(ngModel)]="drawerEditChrono.customKind" name="drwChronoCustomKind" style="flex:1;" />
-                      <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="drawerEditChrono.kind = 'event'; drawerEditChrono.customKind = ''" title="Back to presets">✕</button>
+                      <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="drawerEditChrono.kind = 'event'; drawerEditChrono.customKind = ''" title="Back to presets"><ph-icon name="x" [size]="14"/></button>
                     </div>
                   }
                 </div>
@@ -1923,7 +1924,7 @@ interface SpaceView {
                   <div class="flyout-wrap">
                     <div class="entity-multi">
                       @for (chip of entityChips(drawerEditChrono.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditChrono, chip.id)">✕</button></span>
+                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                       }
                       <button type="button" class="chip-add" (click)="openFlyout('drawer-chrono-entityIds')">+ Add…</button>
                     </div>

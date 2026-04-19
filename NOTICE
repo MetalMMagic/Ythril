@@ -1,4 +1,4 @@
-# Ythril — Third-Party Notices
+﻿# Ythril â€” Third-Party Notices
 
 Ythril includes the following open-source packages. Their license terms and
 copyright notices are reproduced below as required by each license.
@@ -384,21 +384,90 @@ PERFORMANCE OF THIS SOFTWARE.
 
 ---
 
+## cytoscape
+
+License: MIT
+Copyright (c) 2016-2026 The Cytoscape Consortium
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## jose
+
+License: MIT
+Copyright (c) 2018 Filip Skokan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## prom-client
+
+License: Apache License 2.0
+Copyright (c) 2015 Simon Nyberg
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+---
+
 ## Runtime Dependency: mongodb/mongodb-atlas-local (Docker image)
 
 Ythril's `docker-compose.yml` references the `mongodb/mongodb-atlas-local` container
 image published by MongoDB, Inc. This image is **not bundled with or distributed by
-Ythril** — it is pulled independently by Docker from Docker Hub at deployment time.
+Ythril** â€” it is pulled independently by Docker from Docker Hub at deployment time.
 
 ### What the image contains
 
 The image packages two components:
 
-- **MongoDB Community Edition** — the `mongod` server process.
+- **MongoDB Community Edition** â€” the `mongod` server process.
   License: Server Side Public License v1 (SSPL).
   Source: https://github.com/mongodb/mongo
 
-- **mongot** — a proprietary search-and-vector-index sidecar process developed
+- **mongot** â€” a proprietary search-and-vector-index sidecar process developed
   by MongoDB, Inc. `mongot` is required by Ythril to execute `$vectorSearch`
   aggregation stages (semantic recall). Its source code is not publicly available.
   MongoDB, Inc. distributes `mongot` free of charge for use with MongoDB Community
@@ -432,3 +501,28 @@ feature (`query`, `recall`, `recall_global` MCP tools) cannot currently be
 provided by a fully open-source stack. This is acknowledged as a known constraint.
 A future version of Ythril may introduce an optional vector-search backend allowing
 deployment without `mongot`.
+
+---
+
+## @phosphor-icons/core
+
+License: MIT
+Copyright (c) 2021 Phosphor Icons contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

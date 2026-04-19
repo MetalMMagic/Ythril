@@ -2,11 +2,12 @@ import { Component, inject, OnInit, signal } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { ApiService } from '../../core/api.service';
+import { PhIconComponent } from '../../shared/ph-icon.component';
 
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, PhIconComponent],
   styles: [`
     :host { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
@@ -158,36 +159,36 @@ import { ApiService } from '../../core/api.service';
       <nav class="sidebar">
         <span class="nav-section-label">Workspace</span>
         <a class="nav-link" routerLink="/brain" routerLinkActive="active">
-          <span class="nav-icon">🧠</span>Brain
+          <span class="nav-icon"><ph-icon name="brain" [size]="16"/></span>Brain
         </a>
         @if (conflictCount() > 0) {
           <a class="nav-link" routerLink="/files/conflicts" routerLinkActive="active">
-            <span class="nav-icon">⚠️</span>Conflicts
+            <span class="nav-icon"><ph-icon name="warning" [size]="16"/></span>Conflicts
             <span class="nav-badge">{{ conflictCount() }}</span>
           </a>
         }
 
         <span class="nav-section-label">Admin</span>
         <a class="nav-link" routerLink="/settings/tokens" routerLinkActive="active">
-          <span class="nav-icon">🔑</span>Tokens
+          <span class="nav-icon"><ph-icon name="key" [size]="16"/></span>Tokens
         </a>
         <a class="nav-link" routerLink="/settings/spaces" routerLinkActive="active">
-          <span class="nav-icon">📦</span>Spaces
+          <span class="nav-icon"><ph-icon name="package" [size]="16"/></span>Spaces
         </a>
         <a class="nav-link" routerLink="/settings/storage" routerLinkActive="active">
-          <span class="nav-icon">📊</span>Metrics
+          <span class="nav-icon"><ph-icon name="chart-bar" [size]="16"/></span>Metrics
         </a>
         <a class="nav-link" routerLink="/settings/networks" routerLinkActive="active">
-          <span class="nav-icon">🔗</span>Networks
+          <span class="nav-icon"><ph-icon name="link" [size]="16"/></span>Networks
         </a>
         <a class="nav-link" routerLink="/settings/mfa" routerLinkActive="active">
-          <span class="nav-icon">🔐</span>MFA
+          <span class="nav-icon"><ph-icon name="lock" [size]="16"/></span>MFA
         </a>
         <a class="nav-link" routerLink="/settings/audit-log" routerLinkActive="active">
-          <span class="nav-icon">📋</span>Logs
+          <span class="nav-icon"><ph-icon name="list-bullets" [size]="16"/></span>Logs
         </a>
         <a class="nav-link" routerLink="/settings/about" routerLinkActive="active">
-          <span class="nav-icon">ℹ️</span>About
+          <span class="nav-icon"><ph-icon name="info" [size]="16"/></span>About
         </a>
       </nav>
 

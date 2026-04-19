@@ -5,6 +5,7 @@ import { ActivatedRoute } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService, Space, FileEntry, UploadProgress } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
+import { PhIconComponent } from '../../shared/ph-icon.component';
 import hljs from 'highlight.js/lib/core';
 import javascript from 'highlight.js/lib/languages/javascript';
 import typescript from 'highlight.js/lib/languages/typescript';
@@ -70,7 +71,7 @@ function previewKind(name: string): PreviewKind {
 @Component({
   selector: 'app-file-manager',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, PhIconComponent],
   styles: [`
     .toolbar {
       display: flex;
@@ -299,13 +300,14 @@ function previewKind(name: string): PreviewKind {
           }
 
           <!-- Upload -->
-          <label class="btn-secondary btn btn-sm" style="cursor:pointer">
-            ↑ Upload
+          <label class="btn-secondary btn btn-sm" style="cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+            <ph-icon name="upload" [size]="14"/> Upload
             <input type="file" multiple hidden (change)="onFileInput($event)" />
           </label>
 
           <button class="sidebar-toggle" (click)="toggleSidebar()">
-            {{ sidebarOpen() ? '◀ Hide tree' : '▶ Show tree' }}
+            @if (sidebarOpen()) { <ph-icon name="caret-left" [size]="12"/> Hide tree }
+            @else { <ph-icon name="caret-right" [size]="12"/> Show tree }
           </button>
         </div>
 
@@ -350,7 +352,7 @@ function previewKind(name: string): PreviewKind {
               <tbody>
                 @for (entry of entries(); track entry.name) {
                   <tr>
-                    <td><span class="file-icon">{{ entry.isDirectory ? '📁' : '📄' }}</span></td>
+                    <td><span class="file-icon">@if (entry.isDirectory) { <ph-icon name="folder" [size]="16"/> } @else { <ph-icon name="file" [size]="16"/> }</span></td>
                     <td>
                       @if (renamingEntry() === entry.name) {
                         <form class="rename-form" (ngSubmit)="confirmRename(entry)">
@@ -372,22 +374,22 @@ function previewKind(name: string): PreviewKind {
                     <td style="color:var(--text-muted)">{{ entry.modified | date:'dd.MM.yyyy HH:mm' }}</td>
                     <td style="display:flex; gap:6px; align-items:center;">
                       @if (entry.isFile) {
-                        <button class="btn-ghost btn btn-sm" (click)="openPreview(entry)" aria-label="Preview file" title="Preview">👁</button>
+                        <button class="btn-ghost btn btn-sm" (click)="openPreview(entry)" aria-label="Preview file" title="Preview"><ph-icon name="eye" [size]="16"/></button>
                         <a
                           class="btn-ghost btn btn-sm"
                           [href]="downloadUrl(entry)"
                           download
                           aria-label="Download file"
-                        >↓</a>
+                        ><ph-icon name="download-simple" [size]="16"/></a>
                       }
                       <button class="btn-ghost btn btn-sm" (click)="startRename(entry)">Rename</button>
-                      <button class="icon-btn danger" (click)="deleteEntry(entry)" aria-label="Delete entry">✕</button>
+                      <button class="icon-btn danger" (click)="deleteEntry(entry)" aria-label="Delete entry"><ph-icon name="x" [size]="16"/></button>
                     </td>
                   </tr>
                 } @empty {
                   <tr><td colspan="5">
                     <div class="empty-state" style="padding:32px">
-                      <div class="empty-state-icon">📂</div>
+                      <div class="empty-state-icon"><ph-icon name="folder-open" [size]="48"/></div>
                       <h3>Empty folder</h3>
                       <p>Upload files or create a folder.</p>
                     </div>
@@ -408,8 +410,8 @@ function previewKind(name: string): PreviewKind {
         <div class="tree-node"
              [class.active]="currentPath() === node.path"
              (click)="onTreeClick(node)">
-          <span class="tree-caret" [class.expanded]="node.expanded">▶</span>
-          <span>📁 {{ node.name }}</span>
+          <span class="tree-caret" [class.expanded]="node.expanded"><ph-icon name="caret-right" [size]="10"/></span>
+          <span><ph-icon name="folder" [size]="14"/> {{ node.name }}</span>
         </div>
         @if (node.loading) {
           <div class="tree-spinner">Loading…</div>
@@ -428,11 +430,11 @@ function previewKind(name: string): PreviewKind {
         <div class="preview-pane" (click)="$event.stopPropagation()">
           <div class="preview-header">
             <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
-            <a class="btn-secondary btn btn-sm" [href]="downloadUrl(pf)" download>↓ Download</a>
+            <a class="btn-secondary btn btn-sm" [href]="downloadUrl(pf)" download style="display:inline-flex;align-items:center;gap:4px"><ph-icon name="download-simple" [size]="14"/> Download</a>
             @if (embeddedSpaceId) {
-              <button class="btn btn-sm btn-secondary" title="View Brain metadata for this file" (click)="viewFileMeta.emit(previewFilePath(pf))">🏷 Metadata</button>
+              <button class="btn btn-sm btn-secondary" title="View Brain metadata for this file" (click)="viewFileMeta.emit(previewFilePath(pf))" style="display:inline-flex;align-items:center;gap:4px"><ph-icon name="tag" [size]="14"/> Metadata</button>
             }
-            <button class="icon-btn" (click)="closePreview()" aria-label="Close preview">✕</button>
+            <button class="icon-btn" (click)="closePreview()" aria-label="Close preview"><ph-icon name="x" [size]="16"/></button>
           </div>
           <div class="preview-body">
             @switch (previewKind()) {

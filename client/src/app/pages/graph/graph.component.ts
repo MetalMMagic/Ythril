@@ -1690,10 +1690,6 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
         // Fit all nodes then zoom out so the full graph breathes
         this.cy.fit(undefined, 60);
         this.cy.zoom(this.cy.zoom() * 0.55);
-        // Pan so root node sits at viewport centre
-        const root = this.rootEntity();
-        const rootNode = root ? this.cy.getElementById(root._id) : null;
-        if (rootNode && rootNode.length) this.cy.center(rootNode);
       }
       // Auto-select root node on first render
       const root = this.rootEntity();
@@ -1701,6 +1697,14 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
         const rootTn: TraverseNode = { _id: root._id, name: root.name, type: root.type || 'default', depth: 0, description: root.description, tags: root.tags };
         this.selectedNode.set(rootTn);
         this.loadNodeDetails(root._id);
+        // After the side panel opens (DOM update), resize cy and re-center root
+        setTimeout(() => {
+          if (this.cy) {
+            this.cy.resize();
+            const rootNode = this.cy.getElementById(root._id);
+            if (rootNode?.length) this.cy.center(rootNode);
+          }
+        }, 50);
       }
     });
     layout.run();

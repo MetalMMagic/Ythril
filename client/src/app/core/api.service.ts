@@ -179,6 +179,8 @@ export interface TraverseNode {
   name: string;
   type: string;
   depth: number;
+  description?: string;
+  tags?: string[];
 }
 
 export interface TraverseEdge {

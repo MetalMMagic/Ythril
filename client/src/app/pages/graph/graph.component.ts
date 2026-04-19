@@ -29,6 +29,7 @@ import {
 } from '../../core/api.service';
 import { EntryPopupComponent } from '../../shared/entry-popup.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
+import { PropertiesViewComponent } from '../../shared/properties-view.component';
 
 // ── Deterministic colour palette for node types ──────────────────────────────
 
@@ -58,7 +59,7 @@ interface DetailRow {
 @Component({
   selector: 'app-graph-view',
   standalone: true,
-  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent],
+  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent],
   host: { '[class.embedded]': 'isEmbedded()' },
   styles: [`
     :host {
@@ -245,6 +246,13 @@ interface DetailRow {
 
     /* ── Canvas zone ──────────────────────────────────────────────────────── */
 
+    .canvas-row {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      gap: 8px;
+    }
+
     .canvas-zone {
       position: relative;
       flex: 1;
@@ -337,69 +345,144 @@ interface DetailRow {
     }
     @keyframes graph-spin { to { transform: rotate(360deg); } }
 
-    /* ── Overlay icons ────────────────────────────────────────────────────── */
+    /* ── Side panel (shown when node or edge selected) ───────────────────── */
 
-    /* ── Detail panel (overlaid at canvas bottom) ───────────────────────── */
-
-    .detail-panel {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      max-height: 46%;
-      min-height: 140px;
-      z-index: 15;
-      border-top: 1px solid var(--border);
-      border-radius: 0 0 var(--radius-md) var(--radius-md);
-      background: var(--bg-surface);
+    .side-panel {
+      width: 560px;
+      flex-shrink: 0;
       display: flex;
       flex-direction: column;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: var(--bg-surface);
       overflow: hidden;
-      box-shadow: 0 -4px 24px rgba(0,0,0,0.35);
+      min-height: 0;
     }
-    .detail-header {
+
+    .side-panel-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px 16px;
+      padding: 10px 14px;
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
+      gap: 8px;
     }
-    .detail-title {
+    .side-panel-title {
       display: flex;
       align-items: center;
       gap: 8px;
+      min-width: 0;
     }
-    .detail-node-badge {
+    .side-dot {
       width: 10px;
       height: 10px;
       border-radius: 50%;
       flex-shrink: 0;
     }
-    .detail-header h3 {
+    .side-panel-title h3 {
       margin: 0;
       font-size: 14px;
       font-weight: 600;
       color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-    .detail-header-actions {
+    .side-panel-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    /* Side panel body: two columns */
+    .side-panel-body {
+      display: flex;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    /* Left column: record card */
+    .record-card {
+      flex: 0 0 50%;
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 12px 14px;
+    }
+
+    /* Drawer fields (same pattern as brain component) */
+    .drawer-field { margin-bottom: 14px; }
+    .drawer-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+    .drawer-value {
+      font-size: 12px;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.5;
+    }
+    .drawer-muted { color: var(--text-muted); }
+    .drawer-hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+    .drawer-readonly-value {
+      font-size: 12px;
+      color: var(--text-muted);
+      padding: 4px 8px;
+      border: 1px solid var(--border-muted, var(--border));
+      border-radius: var(--radius-sm);
+      background: var(--bg-elevated);
+      word-break: break-all;
+      line-height: 1.4;
+    }
+    .drawer-tag {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-size: 11px;
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+      margin: 2px 3px 2px 0;
+    }
+
+    /* Right column: memory + chrono lists */
+    .lists-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .list-section {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      border-bottom: 1px solid var(--border);
+    }
+    .list-section:last-child { border-bottom: none; }
+    .list-section-header {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 8px 12px 6px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
       display: flex;
       align-items: center;
       gap: 6px;
     }
-    .detail-filters {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 16px;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-    .detail-filters .pill-group button {
-      padding: 4px 10px;
-      font-size: 11px;
-    }
-    .count-chip {
+    .list-section-header .count-chip {
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -410,70 +493,43 @@ interface DetailRow {
       border-radius: 8px;
       font-size: 10px;
       color: var(--text-muted);
-      margin-left: 4px;
     }
-    .pill-group button.active .count-chip {
-      background: var(--accent-dim);
-      color: var(--accent);
+    .list-body { overflow-y: auto; flex: 1; }
+    .list-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 12px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background var(--transition);
     }
-    .detail-filters input[type="search"] {
-      margin-left: auto;
-      background: var(--bg-elevated);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      color: var(--text-primary);
+    .list-row:last-child { border-bottom: none; }
+    .list-row:hover { background: var(--bg-elevated); }
+    .list-row-text {
+      flex: 1;
       font-size: 12px;
-      padding: 4px 10px;
-      outline: none;
-      min-width: 150px;
-    }
-    .detail-filters input[type="search"]:focus { border-color: var(--accent); }
-
-    .table-wrapper { overflow-y: auto; flex: 1; }
-    table { width: 100%; border-collapse: collapse; }
-    th {
-      text-align: left;
-      font-size: 11px;
-      color: var(--text-muted);
-      padding: 8px 12px;
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
-      user-select: none;
-      position: sticky;
-      top: 0;
-      background: var(--bg-surface);
-      z-index: 1;
-    }
-    th.sortable { cursor: pointer; }
-    th.sortable:hover { color: var(--text-secondary); }
-    td {
-      font-size: 13px;
       color: var(--text-primary);
-      padding: 6px 12px;
-      border-bottom: 1px solid var(--border);
-      vertical-align: middle;
-    }
-    tr:last-child td { border-bottom: none; }
-    tr:hover td { background: var(--bg-elevated); }
-    .desc-cell {
-      max-width: 300px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .date-cell {
+    .list-row-date {
+      font-size: 10px;
+      color: var(--text-muted);
       font-family: var(--font-mono);
-      font-size: 11px;
-      color: var(--text-muted);
       white-space: nowrap;
+      flex-shrink: 0;
     }
-    .tags-cell { white-space: nowrap; }
-    .empty-row {
-      text-align: center;
+    .list-empty {
+      font-size: 12px;
       color: var(--text-muted);
-      padding: 20px 12px !important;
       font-style: italic;
+      text-align: center;
+      padding: 16px 12px;
     }
+
+    /* ── Shared badge, button helpers ──────────────────────────────────────── */
     .tag {
       display: inline-block;
       padding: 1px 7px;
@@ -484,14 +540,6 @@ interface DetailRow {
       border: 1px solid var(--border);
       margin-right: 3px;
     }
-    .tag-more {
-      color: var(--text-muted);
-      background: transparent;
-      border-color: transparent;
-    }
-
-    /* ── Popup wrapper: only render when we have a record ─────────────────── */
-    .popup-wrapper { display: contents; }
   `],
   template: `
     <!-- ═══ Space selector ══════════════════════════════════════════════════ -->
@@ -543,88 +591,252 @@ interface DetailRow {
       <button class="toolbar-btn" title="Reset graph"     (click)="resetGraph()">↺</button>
     </div>
 
-    <!-- ═══ Canvas zone ═══════════════════════════════════════════════════ -->
-    <div class="canvas-zone">
-      @if (truncated()) {
-        <div class="truncation-banner">
-          ⚠ Result truncated — reduce depth or node limit to see full graph
-          <button (click)="truncated.set(false)">✕</button>
-        </div>
-      }
+    <!-- ═══ Canvas row (canvas + optional side panel) ══════════════════════ -->
+    <div class="canvas-row">
 
-      @if (loading()) {
-        <div class="loading-overlay"><div class="loading-spinner"></div></div>
-      }
+      <!-- ── Canvas zone ────────────────────────────────────────────────── -->
+      <div class="canvas-zone">
+        @if (truncated()) {
+          <div class="truncation-banner">
+            ⚠ Result truncated — reduce depth or node limit to see full graph
+            <button (click)="truncated.set(false)">✕</button>
+          </div>
+        }
 
-      @if (!rootEntity() && !loading()) {
-        <div class="canvas-empty">
-          <div class="empty-icon">◎</div>
-          <h3>Search for an entity to start exploring</h3>
-          <p>Tap nodes to inspect · double-tap to re-root</p>
-        </div>
-      }
+        @if (loading()) {
+          <div class="loading-overlay"><div class="loading-spinner"></div></div>
+        }
 
-      <div #cyContainer class="cy-container" [style.visibility]="rootEntity() ? 'visible' : 'hidden'"></div>
+        @if (!rootEntity() && !loading()) {
+          <div class="canvas-empty">
+            <div class="empty-icon">◎</div>
+            <h3>Search for an entity to start exploring</h3>
+            <p>Tap nodes to inspect · double-tap to re-root</p>
+          </div>
+        }
 
+        <div #cyContainer class="cy-container" [style.visibility]="rootEntity() ? 'visible' : 'hidden'"></div>
+      </div>
 
-    <!-- ═══ Detail panel ═════════════════════════════════════════════════ -->
-      <!-- ── Detail panel (slides over canvas bottom) ──────────────────── -->
+      <!-- ── Side panel (node selected) ────────────────────────────────── -->
       @if (selectedNode()) {
-        <div class="detail-panel">
-          <div class="detail-header">
-            <div class="detail-title">
-              <span class="detail-node-badge" [style.background]="nodeColor()"></span>
+        <div class="side-panel">
+          <div class="side-panel-header">
+            <div class="side-panel-title">
+              <span class="side-dot" [style.background]="panelColor()"></span>
               <h3>{{ selectedNode()!.name }}</h3>
               <span class="badge">{{ selectedNode()!.type || 'entity' }}</span>
             </div>
-            <div class="detail-header-actions">
-              <button class="btn btn-sm btn-ghost" (click)="openEntityPopup(selectedNode()!)">👁 View</button>
-              <button class="icon-btn" title="Close panel" (click)="selectedNode.set(null)">✕</button>
+            <div class="side-panel-header-actions">
+              <button class="btn btn-sm btn-ghost" (click)="openEntityPopup(selectedNode()!)">👁</button>
+              <button class="icon-btn" title="Close" (click)="selectedNode.set(null)">✕</button>
             </div>
           </div>
+          <div class="side-panel-body">
 
-          <div class="detail-filters">
-            <div class="pill-group">
-              <button [class.active]="detailTypeFilter() === 'all'"    (click)="detailTypeFilter.set('all')">All <span class="count-chip">{{ allDetails().length }}</span></button>
-              <button [class.active]="detailTypeFilter() === 'memory'" (click)="detailTypeFilter.set('memory')">Memory <span class="count-chip">{{ nodeMemories().length }}</span></button>
-              <button [class.active]="detailTypeFilter() === 'chrono'" (click)="detailTypeFilter.set('chrono')">Chrono <span class="count-chip">{{ nodeChrono().length }}</span></button>
-            </div>
-            <input type="search" placeholder="Filter…"
-                   [ngModel]="detailDescFilter()" (ngModelChange)="detailDescFilter.set($event)" />
-          </div>
-
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Type</th>
-                  <th class="sortable" (click)="toggleSort('description')">Description {{ sortArrow('description') }}</th>
-                  <th>Tags</th>
-                  <th class="sortable" (click)="toggleSort('createdAt')">Created {{ sortArrow('createdAt') }}</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (row of filteredDetails(); track row.id) {
-                  <tr>
-                    <td><span class="badge" [class.badge-blue]="row.kind === 'memory'" [class.badge-purple]="row.kind === 'chrono'">{{ row.kind }}</span></td>
-                    <td class="desc-cell" [title]="row.description">{{ row.description }}</td>
-                    <td class="tags-cell">
-                      @for (t of row.tags.slice(0, 3); track t) { <span class="tag">{{ t }}</span> }
-                      @if (row.tags.length > 3) { <span class="tag tag-more">+{{ row.tags.length - 3 }}</span> }
-                    </td>
-                    <td class="date-cell">{{ row.createdAt | date:'dd.MM.yyyy' }}</td>
-                    <td><button class="icon-btn" (click)="openDetailPopup(row)" title="View record">👁</button></td>
-                  </tr>
-                } @empty {
-                  <tr><td colspan="5" class="empty-row">No records for this node</td></tr>
+            <!-- Record card -->
+            <div class="record-card">
+              @if (selectedEntityRecord()) {
+                <div class="drawer-field">
+                  <div class="drawer-label">name</div>
+                  <div class="drawer-value">{{ selectedEntityRecord()!.name }}</div>
+                </div>
+                @if (selectedEntityRecord()!.type) {
+                  <div class="drawer-field">
+                    <div class="drawer-label">type</div>
+                    <div class="drawer-value">{{ selectedEntityRecord()!.type }}</div>
+                  </div>
                 }
-              </tbody>
-            </table>
+                @if (selectedEntityRecord()!.description) {
+                  <div class="drawer-field">
+                    <div class="drawer-label">description</div>
+                    <div class="drawer-value">{{ selectedEntityRecord()!.description }}</div>
+                  </div>
+                }
+                @if (selectedEntityRecord()!.tags?.length) {
+                  <div class="drawer-field">
+                    <div class="drawer-label">tags</div>
+                    <div>
+                      @for (t of selectedEntityRecord()!.tags!; track t) {
+                        <span class="drawer-tag">{{ t }}</span>
+                      }
+                    </div>
+                  </div>
+                }
+                @if (selectedEntityRecord()!.properties && objectKeys(selectedEntityRecord()!.properties!).length) {
+                  <div class="drawer-field">
+                    <div class="drawer-label">properties</div>
+                    <app-properties-view [properties]="selectedEntityRecord()!.properties!" />
+                  </div>
+                }
+                <hr class="drawer-hr">
+                <div class="drawer-field">
+                  <div class="drawer-label">_id</div>
+                  <div class="drawer-readonly-value" style="font-family:var(--font-mono,monospace);font-size:10px;">{{ selectedEntityRecord()!._id }}</div>
+                </div>
+                <div class="drawer-field" style="margin-bottom:0;">
+                  <div class="drawer-label">createdAt</div>
+                  <div class="drawer-readonly-value">{{ selectedEntityRecord()!.createdAt | date:'dd.MM.yyyy HH:mm' }}</div>
+                </div>
+              } @else {
+                <div style="font-size:12px;color:var(--text-muted);padding:8px 0;">Loading…</div>
+              }
+            </div>
+
+            <!-- Lists pane: memories + chrono -->
+            <div class="lists-pane">
+              <div class="list-section">
+                <div class="list-section-header">
+                  Memories <span class="count-chip">{{ nodeMemories().length }}</span>
+                </div>
+                <div class="list-body">
+                  @for (m of nodeMemories(); track m._id) {
+                    <div class="list-row" (click)="openDetailPopup({ id: m._id, kind: 'memory', description: m.fact || m.description || '', tags: m.tags ?? [], properties: {}, createdAt: m.createdAt, raw: asRecord(m) })">
+                      <span class="list-row-text" [title]="m.fact || m.description">{{ m.fact || m.description || '—' }}</span>
+                      <span class="list-row-date">{{ m.createdAt | date:'dd.MM.yy' }}</span>
+                    </div>
+                  } @empty {
+                    <div class="list-empty">No memories</div>
+                  }
+                </div>
+              </div>
+              <div class="list-section">
+                <div class="list-section-header">
+                  Chrono <span class="count-chip">{{ nodeChrono().length }}</span>
+                </div>
+                <div class="list-body">
+                  @for (c of nodeChrono(); track c._id) {
+                    <div class="list-row" (click)="openDetailPopup({ id: c._id, kind: 'chrono', description: c.title || c.description || '', tags: c.tags ?? [], properties: {}, createdAt: c.createdAt, raw: asRecord(c) })">
+                      <span class="list-row-text" [title]="c.title || c.description">{{ c.title || c.description || '—' }}</span>
+                      <span class="list-row-date">{{ c.startsAt | date:'dd.MM.yy' }}</span>
+                    </div>
+                  } @empty {
+                    <div class="list-empty">No chrono entries</div>
+                  }
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       }
-    </div>
+
+      <!-- ── Side panel (edge selected) ────────────────────────────────── -->
+      @if (selectedEdge()) {
+        <div class="side-panel">
+          <div class="side-panel-header">
+            <div class="side-panel-title">
+              <span class="side-dot" [style.background]="panelColor()"></span>
+              <h3>{{ selectedEdge()!.label || 'edge' }}</h3>
+              <span class="badge">edge</span>
+            </div>
+            <div class="side-panel-header-actions">
+              @if (selectedEdgeRecord()) {
+                <button class="btn btn-sm btn-ghost" (click)="popupRecord.set(asRecord(selectedEdgeRecord()!)); popupType.set('edge')">👁</button>
+              }
+              <button class="icon-btn" title="Close" (click)="selectedEdge.set(null); selectedEdgeRecord.set(null)">✕</button>
+            </div>
+          </div>
+          <div class="side-panel-body">
+
+            <!-- Edge record card -->
+            <div class="record-card">
+              @if (selectedEdgeRecord()) {
+                <div class="drawer-field">
+                  <div class="drawer-label">label</div>
+                  <div class="drawer-value">{{ selectedEdgeRecord()!.label }}</div>
+                </div>
+                @if (selectedEdgeRecord()!.type) {
+                  <div class="drawer-field">
+                    <div class="drawer-label">type</div>
+                    <div class="drawer-value">{{ selectedEdgeRecord()!.type }}</div>
+                  </div>
+                }
+                @if (selectedEdgeRecord()!.description) {
+                  <div class="drawer-field">
+                    <div class="drawer-label">description</div>
+                    <div class="drawer-value">{{ selectedEdgeRecord()!.description }}</div>
+                  </div>
+                }
+                @if (selectedEdgeRecord()!.weight !== undefined && selectedEdgeRecord()!.weight !== null) {
+                  <div class="drawer-field">
+                    <div class="drawer-label">weight</div>
+                    <div class="drawer-value">{{ selectedEdgeRecord()!.weight }}</div>
+                  </div>
+                }
+                @if (selectedEdgeRecord()!.tags?.length) {
+                  <div class="drawer-field">
+                    <div class="drawer-label">tags</div>
+                    <div>
+                      @for (t of selectedEdgeRecord()!.tags!; track t) {
+                        <span class="drawer-tag">{{ t }}</span>
+                      }
+                    </div>
+                  </div>
+                }
+                @if (selectedEdgeRecord()!.properties && objectKeys(selectedEdgeRecord()!.properties!).length) {
+                  <div class="drawer-field">
+                    <div class="drawer-label">properties</div>
+                    <app-properties-view [properties]="selectedEdgeRecord()!.properties!" />
+                  </div>
+                }
+                <hr class="drawer-hr">
+                <div class="drawer-field">
+                  <div class="drawer-label">from</div>
+                  <div class="drawer-readonly-value">{{ selectedEdgeRecord()!.fromName || selectedEdge()!.from }}</div>
+                </div>
+                <div class="drawer-field">
+                  <div class="drawer-label">to</div>
+                  <div class="drawer-readonly-value">{{ selectedEdgeRecord()!.toName || selectedEdge()!.to }}</div>
+                </div>
+                <div class="drawer-field" style="margin-bottom:0;">
+                  <div class="drawer-label">_id</div>
+                  <div class="drawer-readonly-value" style="font-family:var(--font-mono,monospace);font-size:10px;">{{ selectedEdgeRecord()!._id }}</div>
+                </div>
+              } @else {
+                <div style="font-size:12px;color:var(--text-muted);padding:8px 0;">Loading…</div>
+              }
+            </div>
+
+            <!-- Lists pane: memories + chrono for both endpoints -->
+            <div class="lists-pane">
+              <div class="list-section">
+                <div class="list-section-header">
+                  Memories <span class="count-chip">{{ nodeMemories().length }}</span>
+                </div>
+                <div class="list-body">
+                  @for (m of nodeMemories(); track m._id) {
+                    <div class="list-row" (click)="openDetailPopup({ id: m._id, kind: 'memory', description: m.fact || m.description || '', tags: m.tags ?? [], properties: {}, createdAt: m.createdAt, raw: asRecord(m) })">
+                      <span class="list-row-text" [title]="m.fact || m.description">{{ m.fact || m.description || '—' }}</span>
+                      <span class="list-row-date">{{ m.createdAt | date:'dd.MM.yy' }}</span>
+                    </div>
+                  } @empty {
+                    <div class="list-empty">No linked memories</div>
+                  }
+                </div>
+              </div>
+              <div class="list-section">
+                <div class="list-section-header">
+                  Chrono <span class="count-chip">{{ nodeChrono().length }}</span>
+                </div>
+                <div class="list-body">
+                  @for (c of nodeChrono(); track c._id) {
+                    <div class="list-row" (click)="openDetailPopup({ id: c._id, kind: 'chrono', description: c.title || c.description || '', tags: c.tags ?? [], properties: {}, createdAt: c.createdAt, raw: asRecord(c) })">
+                      <span class="list-row-text" [title]="c.title || c.description">{{ c.title || c.description || '—' }}</span>
+                      <span class="list-row-date">{{ c.startsAt | date:'dd.MM.yy' }}</span>
+                    </div>
+                  } @empty {
+                    <div class="list-empty">No linked chrono</div>
+                  }
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      }
+
+    </div><!-- /canvas-row -->
 
     <!-- ═══ Entry popup ══════════════════════════════════════════════════ -->
     @if (popupRecord()) {
@@ -672,6 +884,9 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   truncated = signal(false);
 
   selectedNode = signal<TraverseNode | null>(null);
+  selectedEntityRecord = signal<Entity | null>(null);
+  selectedEdge = signal<TraverseEdge | null>(null);
+  selectedEdgeRecord = signal<Edge | null>(null);
   nodeMemories = signal<Memory[]>([]);
   nodeChrono = signal<ChronoEntry[]>([]);
 
@@ -732,6 +947,22 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   nodeColor = computed(() => {
     const n = this.selectedNode();
     return n ? typeColor(n.type || 'default') : '#8b949e';
+  });
+
+  panelTitle = computed(() => {
+    const n = this.selectedNode();
+    if (n) return n.name;
+    const e = this.selectedEdge();
+    if (e) return e.label || 'edge';
+    return '';
+  });
+
+  panelColor = computed(() => {
+    const n = this.selectedNode();
+    if (n) return typeColor(n.type || 'default');
+    const e = this.selectedEdgeRecord();
+    if (e) return typeColor(e.label || 'edge');
+    return '#8b949e';
   });
 
   // ── Private state ───────────────────────────────────────────────────────────
@@ -800,6 +1031,12 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     const container = this.cyContainer()?.nativeElement;
     if (!container) return;
 
+    // Glass shine SVG — radial highlight in upper-left quadrant
+    const glassShineSvg = (color: string) => {
+      const c = encodeURIComponent(color);
+      return `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='100' height='100'><defs><radialGradient id='base' cx='50%25' cy='50%25' r='50%25'><stop offset='0%25' stop-color='${c}' stop-opacity='0.28'/><stop offset='100%25' stop-color='${c}' stop-opacity='0.06'/></radialGradient><radialGradient id='shine' cx='30%25' cy='22%25' r='50%25'><stop offset='0%25' stop-color='white' stop-opacity='0.55'/><stop offset='45%25' stop-color='white' stop-opacity='0.12'/><stop offset='100%25' stop-color='white' stop-opacity='0'/></radialGradient><radialGradient id='rim' cx='50%25' cy='50%25' r='50%25'><stop offset='68%25' stop-color='${c}' stop-opacity='0'/><stop offset='100%25' stop-color='${c}' stop-opacity='0.7'/></radialGradient><radialGradient id='bot' cx='58%25' cy='80%25' r='38%25'><stop offset='0%25' stop-color='${c}' stop-opacity='0.18'/><stop offset='100%25' stop-color='${c}' stop-opacity='0'/></radialGradient></defs><circle cx='50' cy='50' r='49' fill='url(%23base)'/><circle cx='50' cy='50' r='49' fill='url(%23rim)'/><circle cx='50' cy='50' r='49' fill='url(%23bot)'/><circle cx='50' cy='50' r='49' fill='url(%23shine)'/></svg>`;
+    };
+
     this.cy = cytoscape({
       container,
       elements: [],
@@ -807,11 +1044,15 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
         {
           selector: 'node',
           style: {
-            'width': (ele: any) => { const d = +ele.data('depth'); return d === 0 ? 64 : Math.max(34, 48 - d * 3); },
-            'height': (ele: any) => { const d = +ele.data('depth'); return d === 0 ? 64 : Math.max(34, 48 - d * 3); },
-            'background-color': '#161b22',
-            'border-width': (ele: any) => +ele.data('depth') === 0 ? 4 : 3,
+            'width': (ele: any) => { const d = +ele.data('depth'); return d === 0 ? 68 : Math.max(36, 52 - d * 3); },
+            'height': (ele: any) => { const d = +ele.data('depth'); return d === 0 ? 68 : Math.max(36, 52 - d * 3); },
+            'background-color': '#0d1117',
+            'background-image': (ele: any) => glassShineSvg(typeColor(ele.data('type') || 'default')),
+            'background-fit': 'cover',
+            'background-clip': 'node',
+            'border-width': (ele: any) => +ele.data('depth') === 0 ? 2.5 : 1.5,
             'border-color': (ele: any) => typeColor(ele.data('type') || 'default'),
+            'border-opacity': 0.75,
             'label': 'data(label)',
             'font-size': (ele: any) => +ele.data('depth') === 0 ? 13 : 11,
             'font-weight': (ele: any) => +ele.data('depth') === 0 ? '600' : '400',
@@ -819,33 +1060,45 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
             'text-outline-color': '#0d1117',
             'text-outline-width': 2,
             'text-valign': 'bottom',
-            'text-margin-y': 7,
+            'text-margin-y': 8,
             'text-max-width': '110px',
             'text-wrap': 'ellipsis',
             'opacity': (ele: any) => { const d = +ele.data('depth'); return d === 0 ? 1 : Math.max(0.55, 1 - d * 0.1); },
+            'shadow-blur': (ele: any) => +ele.data('depth') === 0 ? 28 : 14,
+            'shadow-color': (ele: any) => typeColor(ele.data('type') || 'default'),
+            'shadow-opacity': (ele: any) => +ele.data('depth') === 0 ? 0.6 : 0.35,
+            'shadow-offset-x': 0,
+            'shadow-offset-y': 0,
           } as any,
         },
         {
           selector: 'node.root',
           style: {
             'border-color': '#7c6af7',
-            'border-width': 5,
+            'border-width': 3,
+            'border-opacity': 1,
           } as any,
         },
         {
           selector: 'node.hovered',
           style: {
-            'border-color': '#58a6ff',
-            'border-width': 4,
+            'border-width': 2.5,
+            'border-opacity': 1,
             'opacity': 1,
+            'shadow-blur': 30,
+            'shadow-opacity': 0.8,
           } as any,
         },
         {
           selector: 'node:selected',
           style: {
             'border-color': '#58a6ff',
-            'border-width': 4,
+            'border-width': 3,
+            'border-opacity': 1,
             'opacity': 1,
+            'shadow-blur': 36,
+            'shadow-color': '#58a6ff',
+            'shadow-opacity': 0.9,
           } as any,
         },
         {
@@ -901,17 +1154,32 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.cy.on('tap', 'node', (evt: any) => {
       const node = evt.target;
       const id = node.data('id');
-      const tn = this.graphNodes.find(n => n._id === id);
+      // graphNodes does NOT include the root node (added separately in renderGraph)
+      let tn = this.graphNodes.find(n => n._id === id);
+      if (!tn) {
+        const root = this.rootEntity();
+        if (root && root._id === id) {
+          tn = { _id: root._id, name: root.name, type: root.type || 'default', depth: 0, description: root.description, tags: root.tags };
+        }
+      }
       if (tn) {
+        this.selectedEdge.set(null);
+        this.selectedEdgeRecord.set(null);
+        this.selectedEntityRecord.set(null);
         this.selectedNode.set(tn);
         this.loadNodeDetails(id);
       }
     });
 
-    // Edge tap → open edge popup
+    // Edge tap → show edge side panel
     this.cy.on('tap', 'edge', (evt: any) => {
       const edgeId = evt.target.data('id');
-      this.openEdgePopup(edgeId);
+      const te = this.graphEdges.find(e => e._id === edgeId);
+      if (te) {
+        this.selectedNode.set(null);
+        this.selectedEdge.set(te);
+        this.loadEdgeDetails(te);
+      }
     });
 
     // Double-tap node → re-root
@@ -932,10 +1200,12 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.cy.on('mouseover', 'edge', (evt: any) => { evt.target.addClass('hovered'); });
     this.cy.on('mouseout',  'edge', (evt: any) => { evt.target.removeClass('hovered'); });
 
-    // Background tap → deselect node
+    // Background tap → deselect
     this.cy.on('tap', (evt: any) => {
       if (evt.target === this.cy) {
         this.selectedNode.set(null);
+        this.selectedEdge.set(null);
+        this.selectedEdgeRecord.set(null);
       }
     });
   }
@@ -984,6 +1254,9 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.rootEntity.set(entity);
     this.searchQuery.set(entity.name);
     this.selectedNode.set(null);
+    this.selectedEntityRecord.set(null);
+    this.selectedEdge.set(null);
+    this.selectedEdgeRecord.set(null);
     this.nodeMemories.set([]);
     this.nodeChrono.set([]);
     if (!this.isEmbedded()) this.updateUrl(entity._id, pushHistory);
@@ -997,6 +1270,9 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   resetGraph(): void {
     this.rootEntity.set(null);
     this.selectedNode.set(null);
+    this.selectedEntityRecord.set(null);
+    this.selectedEdge.set(null);
+    this.selectedEdgeRecord.set(null);
     this.nodeMemories.set([]);
     this.nodeChrono.set([]);
     this.searchQuery.set('');
@@ -1021,6 +1297,9 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!spaceId) return;
 
     this.selectedNode.set(null);
+    this.selectedEntityRecord.set(null);
+    this.selectedEdge.set(null);
+    this.selectedEdgeRecord.set(null);
 
     const sameRoot = this.cacheStartId === startId && this.cacheDirection === direction;
 
@@ -1135,6 +1414,11 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     const spaceId = this.activeSpaceId();
     if (!spaceId) return;
 
+    // Fetch full entity record for the record card
+    this.api.getEntity(spaceId, entityId).pipe(
+      catchError(() => of(null)),
+    ).subscribe(ent => { if (ent) this.selectedEntityRecord.set(ent); });
+
     forkJoin({
       mems: this.api.listMemories(spaceId, 100, 0, { entity: entityId }).pipe(
         catchError(() => of({ memories: [] as Memory[] })),
@@ -1178,16 +1462,41 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     });
   }
 
-  private openEdgePopup(edgeId: string): void {
+  private loadEdgeDetails(te: TraverseEdge): void {
     const spaceId = this.activeSpaceId();
     if (!spaceId) return;
-    this.api.getEdge(spaceId, edgeId).pipe(
+    this.nodeMemories.set([]);
+    this.nodeChrono.set([]);
+
+    // Load the full edge record
+    this.api.getEdge(spaceId, te._id).pipe(
       catchError(() => of(null)),
     ).subscribe(edge => {
-      if (edge) {
-        this.popupRecord.set(edge as unknown as Record<string, unknown>);
-        this.popupType.set('edge');
-      }
+      if (edge) this.selectedEdgeRecord.set(edge);
+    });
+
+    // Load memories/chronos linked to BOTH endpoints
+    forkJoin({
+      mems: this.api.listMemories(spaceId, 100, 0, { entity: te.from }).pipe(
+        catchError(() => of({ memories: [] as Memory[] })),
+      ),
+      chrono: this.api.queryBrain(spaceId, {
+        collection: 'chrono',
+        filter: { entityIds: te.from },
+        limit: 100,
+      }).pipe(
+        catchError(() => of({ results: [] as Record<string, unknown>[], collection: 'chrono' as const, count: 0 })),
+      ),
+    }).subscribe(({ mems, chrono }) => {
+      // filter to those also referencing te.to
+      const filteredMems = mems.memories.filter(m =>
+        Array.isArray((m as any).entityIds) && (m as any).entityIds.includes(te.to)
+      );
+      const filteredChrono = (chrono.results as unknown as ChronoEntry[]).filter(c =>
+        Array.isArray(c.entityIds) && c.entityIds.includes(te.from) && c.entityIds.includes(te.to)
+      );
+      this.nodeMemories.set(filteredMems);
+      this.nodeChrono.set(filteredChrono);
     });
   }
 
@@ -1196,24 +1505,19 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.popupType.set(row.kind);
   }
 
+  asRecord(obj: unknown): Record<string, unknown> {
+    return obj as Record<string, unknown>;
+  }
+
+  objectKeys(obj: Record<string, unknown>): string[] {
+    return Object.keys(obj);
+  }
+
   closePopup(): void {
     this.popupRecord.set(null);
   }
 
-  onPopupSaved(_evt: Record<string, unknown>): void {
-    this.popupRecord.set(null);
-    // Re-traverse to refresh
-    const root = this.rootEntity();
-    if (root) {
-      this.traverse(root._id, this.depth(), this.direction());
-      const sel = this.selectedNode();
-      if (sel) this.loadNodeDetails(sel._id);
-    }
-  }
-
   // ── URL management ──────────────────────────────────────────────────────────
-
-  private updateUrl(entityId: string, push = false): void {
     const spaceId = this.activeSpaceId();
     const path = this.location.path().split('?')[0];
     const qs = `space=${spaceId}&entity=${entityId}`;

@@ -1692,7 +1692,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
       if (this.cy) {
         // Fit all nodes then zoom out so the full graph breathes
         this.cy.fit(undefined, 60);
-        this.cy.zoom(this.cy.zoom() * 0.55);
+        this.cy.zoom(this.cy.zoom() * 0.75);
       }
       // Auto-select root node on first render
       const root = this.rootEntity();

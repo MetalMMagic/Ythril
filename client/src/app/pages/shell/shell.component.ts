@@ -109,9 +109,10 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
     .nav-link:hover { color: var(--text-primary); background: var(--bg-elevated); }
 
     .nav-link.active {
-      color: var(--text-primary);
-      background: var(--bg-elevated);
+      color: var(--nav-active);
+      background: var(--nav-active-dim);
     }
+    .nav-link.active .nav-icon { opacity: 1; }
 
     .nav-link .nav-icon {
       width: 16px;

@@ -19,18 +19,18 @@ import { ApiService, type AboutInfo } from '../../core/api.service';
       width: 100%;
       max-width: 400px;
       height: 20px;
-      background: var(--bg-muted, #333);
+      background: var(--bg-muted);
       border-radius: 4px;
       overflow: hidden;
       position: relative;
     }
     .disk-bar-fill {
       height: 100%;
-      background: var(--color-accent, #4fc3f7);
+      background: var(--accent);
       transition: width 0.3s;
     }
-    .disk-bar-fill.warn { background: #ff9800; }
-    .disk-bar-fill.critical { background: #f44336; }
+    .disk-bar-fill.warn { background: var(--warning); }
+    .disk-bar-fill.critical { background: var(--error); }
     .disk-bar-text {
       position: absolute;
       top: 0; left: 8px; right: 0; bottom: 0;
@@ -38,10 +38,10 @@ import { ApiService, type AboutInfo } from '../../core/api.service';
       align-items: center;
       font-size: 0.75em;
       font-weight: 600;
-      color: #fff;
+      color: var(--text-on-accent);
     }
 
-    .error-msg { color: var(--color-error, #f44336); margin-top: 12px; }
+    .error-msg { color: var(--error); margin-top: 12px; }
   `,
   template: `
     @if (loading()) {

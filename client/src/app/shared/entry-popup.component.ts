@@ -204,7 +204,7 @@ interface FieldEntry {
       }
 
       .status-msg.success {
-        background: rgba(63, 185, 80, 0.12);
+        background: var(--success-dim);
         color: var(--success);
       }
 

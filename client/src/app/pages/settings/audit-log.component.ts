@@ -74,9 +74,9 @@ import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from 
       font-size: 11px;
       font-weight: 600;
     }
-    .badge-2xx { background: rgba(63, 185, 80, 0.15); color: var(--success); }
-    .badge-4xx { background: rgba(210, 153, 34, 0.15); color: var(--warning); }
-    .badge-5xx { background: rgba(229, 62, 62, 0.15); color: var(--danger, #e53e3e); }
+    .badge-2xx { background: var(--success-bg);  color: var(--success); }
+    .badge-4xx { background: var(--warning-bg);  color: var(--warning); }
+    .badge-5xx { background: var(--error-bg);    color: var(--error); }
 
     .mono { font-family: var(--font-mono, monospace); font-size: 12px; }
 
@@ -106,7 +106,7 @@ import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from 
 
     .detail-overlay {
       position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.5);
+      background: var(--bg-scrim);
       display: flex; align-items: center; justify-content: center;
       z-index: 100;
     }
@@ -145,7 +145,7 @@ import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from 
     .export-btns { display: flex; gap: 8px; }
     .export-btns button { font-size: 12px; padding: 4px 10px; }
 
-    .error-msg { color: var(--danger, #e53e3e); margin: 12px 0; }
+    .error-msg { color: var(--error); margin: 12px 0; }
   `],
   template: `
     <h2>Logs</h2>
@@ -517,8 +517,8 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   }
 
   serverLogColor(line: string): string {
-    if (line.includes('[ERROR]')) return 'var(--danger, #e53e3e)';
-    if (line.includes('[WARN ')) return 'var(--warning, #d29922)';
+    if (line.includes('[ERROR]')) return 'var(--error)';
+    if (line.includes('[WARN ')) return 'var(--warning)';
     if (line.includes('[DEBUG]')) return 'var(--text-muted)';
     return 'var(--text-primary)';
   }

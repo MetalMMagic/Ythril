@@ -59,7 +59,7 @@ interface PropRow {
     .prop-val { flex: 1; font-size: 12px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-secondary); color: var(--text); min-width: 0; }
     select.prop-val { background: var(--bg-secondary); }
     .prop-remove { width: 20px; height: 22px; padding: 0; border: none; background: none; color: var(--text-muted); cursor: pointer; font-size: 15px; line-height: 1; flex-shrink: 0; }
-    .prop-remove:hover { color: var(--error, #e57373); }
+    .prop-remove:hover { color: var(--error); }
     .prop-req { width: 28px; font-size: 10px; color: var(--text-muted); text-align: center; flex-shrink: 0; }
     .prop-add { align-self: flex-start; margin-top: 2px; font-size: 11px; padding: 2px 8px; }
   `]

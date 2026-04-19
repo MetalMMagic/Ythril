@@ -148,7 +148,7 @@ function previewKind(name: string): PreviewKind {
     .preview-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.5);
+      background: var(--bg-scrim);
       z-index: 1000;
       display: flex;
       justify-content: flex-end;
@@ -156,11 +156,11 @@ function previewKind(name: string): PreviewKind {
     .preview-pane {
       width: min(700px, 90vw);
       height: 100vh;
-      background: var(--bg-surface, #1e1e1e);
+      background: var(--bg-surface);
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      box-shadow: -4px 0 16px rgba(0,0,0,0.3);
+      box-shadow: var(--shadow-drawer);
     }
     .preview-header {
       display: flex;
@@ -187,7 +187,7 @@ function previewKind(name: string): PreviewKind {
       border: none;
     }
     .preview-code {
-      background: var(--bg-muted, #111);
+      background: var(--bg-muted);
       border-radius: 6px;
       padding: 16px;
       overflow: auto;
@@ -226,7 +226,7 @@ function previewKind(name: string): PreviewKind {
       font-size: 12px;
       margin-left: auto;
     }
-    .sidebar-toggle:hover { background: var(--bg-hover, #333); }
+    .sidebar-toggle:hover { background: var(--bg-hover); }
 
     .tree-node {
       display: flex;
@@ -241,8 +241,8 @@ function previewKind(name: string): PreviewKind {
       border-radius: 4px;
       margin: 0 4px;
     }
-    .tree-node:hover { background: var(--bg-hover, #2a2a2a); }
-    .tree-node.active { background: var(--accent-bg, rgba(79,195,247,0.15)); color: var(--accent); font-weight: 500; }
+    .tree-node:hover { background: var(--bg-hover); }
+    .tree-node.active { background: var(--accent-dim); color: var(--accent); font-weight: 500; }
     .tree-caret {
       width: 16px;
       text-align: center;

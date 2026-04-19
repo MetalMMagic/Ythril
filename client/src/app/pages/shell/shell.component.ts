@@ -122,8 +122,8 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 
     .nav-badge {
       margin-left: auto;
-      background: var(--danger, #e53e3e);
-      color: #fff;
+      background: var(--error);
+      color: var(--text-on-accent);
       font-size: 10px;
       font-weight: 700;
       border-radius: 999px;

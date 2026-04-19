@@ -428,17 +428,17 @@ interface SpaceView {
       text-decoration: underline; padding: 0; font-size: inherit; text-align: left;
     }
     .link-btn:hover { color: var(--accent-light, var(--accent)); }
-    .icon-btn-danger { color: var(--error, #e57373); }
-    .icon-btn-danger:hover { color: #ff5252; }
+    .icon-btn-danger { color: var(--error); }
+    .icon-btn-danger:hover { color: var(--error); }
     .flyout-result:hover { background: var(--bg-secondary); }
     .drawer-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,.45);
+      position: fixed; inset: 0; background: var(--bg-scrim);
       z-index: 200; display: flex; justify-content: flex-end;
     }
     .drawer {
       width: min(480px, 100vw); background: var(--bg-primary); height: 100%;
       overflow-y: auto; padding: 20px 24px;
-      box-shadow: -4px 0 24px rgba(0,0,0,.25);
+      box-shadow: var(--shadow-drawer);
       display: flex; flex-direction: column;
       animation: drawer-in .18s ease;
     }

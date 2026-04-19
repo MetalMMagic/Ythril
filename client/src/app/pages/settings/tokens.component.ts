@@ -9,8 +9,8 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
   imports: [CommonModule, FormsModule],
   styles: [`
     .new-token-banner {
-      background: rgba(63, 185, 80, 0.08);
-      border: 2px solid rgba(63, 185, 80, 0.5);
+      background: var(--success-dim);
+      border: 2px solid color-mix(in srgb, var(--success) 50%, transparent);
       border-radius: var(--radius-md);
       padding: 20px;
       margin-bottom: 20px;
@@ -44,7 +44,7 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
     }
     .btn-copy-prominent {
       background: var(--success);
-      color: #fff;
+      color: var(--text-on-accent);
       border: none;
       border-radius: var(--radius-sm);
       padding: 8px 18px;
@@ -64,9 +64,9 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
       margin-top: 3px;
     }
     .badge-admin {
-      background: rgba(63, 185, 80, 0.15);
+      background: var(--success-bg);
       color: var(--success);
-      border: 1px solid rgba(63, 185, 80, 0.3);
+      border: 1px solid var(--success-border);
       border-radius: 4px;
       padding: 1px 7px;
       font-size: 0.73rem;
@@ -74,9 +74,9 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
       letter-spacing: 0.02em;
     }
     .badge-readonly {
-      background: rgba(210, 153, 34, 0.15);
+      background: var(--warning-bg);
       color: var(--warning);
-      border: 1px solid rgba(210, 153, 34, 0.3);
+      border: 1px solid var(--warning-border);
       border-radius: 4px;
       padding: 1px 7px;
       font-size: 0.73rem;
@@ -201,7 +201,7 @@ import { ApiService, Space, TokenRecord } from '../../core/api.service';
     .dialog-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.5);
+      background: var(--bg-scrim);
       display: flex;
       align-items: center;
       justify-content: center;

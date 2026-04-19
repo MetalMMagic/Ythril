@@ -80,9 +80,9 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
       font-weight: 600;
     }
 
-    .status-success { background: var(--green-bg, #e6f9e6); color: var(--green-fg, #1a7a1a); }
-    .status-partial { background: var(--yellow-bg, #fff8e1); color: var(--yellow-fg, #b5850a); }
-    .status-failed  { background: var(--red-bg, #fde8e8); color: var(--red-fg, #b91c1c); }
+    .status-success { background: var(--status-success-bg); color: var(--status-success-fg); }
+    .status-partial { background: var(--status-warning-bg); color: var(--status-warning-fg); }
+    .status-failed  { background: var(--status-error-bg);   color: var(--status-error-fg); }
     .create-join-row { display: flex; gap: 24px; margin-bottom: 24px; }
     .create-join-row > .card { flex: 1; min-width: 0; margin-bottom: 0; }
     @media (max-width: 900px) { .create-join-row { flex-direction: column; } }
@@ -111,7 +111,7 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
     .dialog-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.5);
+      background: var(--bg-scrim);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -268,7 +268,7 @@ import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound 
                         }
                       </div>
                       @if (expandedError() === rec._id && rec.errors) {
-                        <div style="padding:4px 0 8px 8px; font-size:11px; color:var(--red-fg, #b91c1c);">
+                        <div style="padding:4px 0 8px 8px; font-size:11px; color:var(--error);">
                           @for (e of rec.errors; track e) {
                             <div>{{ e }}</div>
                           }

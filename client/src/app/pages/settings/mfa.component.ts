@@ -25,7 +25,7 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
       font-size: 1.3rem; letter-spacing: 0.25em; text-align: center;
       font-family: var(--font-mono);
     }
-    .code-input:focus { outline: none; border-color: #6060f0; }
+    .code-input:focus { outline: none; border-color: var(--accent); }
     .status-row { display: flex; align-items: center; gap: 12px; }
     img { border-radius: 8px; background: #fff; padding: 8px; }
   `],

@@ -24,6 +24,64 @@
   --error-dim:    rgba(248, 81, 73, 0.1);
   --info:         #58a6ff;
 
+  /* ── Semantic aliases ─────────────────────────────────────────────── */
+  --danger:             var(--error);
+  --danger-dim:         var(--error-dim);
+  --text-on-accent:     #ffffff;
+  --text:               var(--text-primary);     /* compat alias */
+
+  /* ── Extended backgrounds ─────────────────────────────────────────── */
+  --bg-secondary: var(--bg-elevated);            /* compat alias */
+  --bg-muted:     var(--bg-elevated);
+  --bg-card:      var(--bg-surface);
+  --bg-hover:     var(--bg-elevated);
+  --bg-scrim:     rgba(0, 0, 0, 0.5);
+
+  /* ── Elevation shadows ────────────────────────────────────────────── */
+  --shadow-sm:     0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-md:     0 4px 16px rgba(0, 0, 0, 0.3);
+  --shadow-lg:     0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-drawer: -4px 0 24px rgba(0, 0, 0, 0.25);
+
+  /* ── Derived status backgrounds (auto-follow their base colors) ───── */
+  --success-dim:    color-mix(in srgb, var(--success) 12%, transparent);
+  --success-bg:     color-mix(in srgb, var(--success) 15%, transparent);
+  --success-border: color-mix(in srgb, var(--success) 30%, transparent);
+  --warning-bg:     color-mix(in srgb, var(--warning) 15%, transparent);
+  --warning-border: color-mix(in srgb, var(--warning) 30%, transparent);
+  --error-bg:       color-mix(in srgb, var(--error)   15%, transparent);
+
+  /* ── Status badge pairs (dark-mode) ──────────────────────────────── */
+  --status-success-bg: color-mix(in srgb, var(--success) 12%, transparent);
+  --status-success-fg: var(--success);
+  --status-warning-bg: color-mix(in srgb, var(--warning) 12%, transparent);
+  --status-warning-fg: var(--warning);
+  --status-error-bg:   color-mix(in srgb, var(--error)   12%, transparent);
+  --status-error-fg:   var(--error);
+
+  /* ── Graph entity-type colour palette ────────────────────────────── */
+  --graph-type-1:  #7c6af7;
+  --graph-type-2:  #58a6ff;
+  --graph-type-3:  #3fb950;
+  --graph-type-4:  #00e5ff;
+  --graph-type-5:  #f85149;
+  --graph-type-6:  #e38625;
+  --graph-type-7:  #9580ff;
+  --graph-type-8:  #79c0ff;
+  --graph-type-9:  #56d364;
+  --graph-type-10: #ff6eb4;
+
+  /* ── Graph canvas colours (read by Cytoscape via getComputedStyle) ── */
+  --graph-node-bg:     #0d1117;
+  --graph-node-text:   #c9d1d9;
+  --graph-edge:        #3d444d;
+  --graph-edge-label:  #6e7681;
+  --graph-node-root:   #7c6af7;
+  --graph-node-select: #58a6ff;
+  --graph-edge-select: #7c6af7;
+  --graph-edge-hover:  #58a6ff;
+  --graph-fallback:    #8b949e;
+
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;

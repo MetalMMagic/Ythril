@@ -36,19 +36,6 @@ import { PropertiesViewComponent } from '../../shared/properties-view.component'
 import { TagInputComponent } from '../../shared/tag-input.component';
 import { PropertiesEditorComponent } from '../../shared/properties-editor.component';
 
-// ── Deterministic colour palette for node types ──────────────────────────────
-
-const TYPE_COLORS = [
-  '#7c6af7', '#58a6ff', '#3fb950', '#00e5ff', '#f85149',
-  '#e38625', '#9580ff', '#79c0ff', '#56d364', '#ff6eb4',
-];
-
-function typeColor(type: string): string {
-  let hash = 0;
-  for (let i = 0; i < type.length; i++) hash = (hash * 31 + type.charCodeAt(i)) | 0;
-  return TYPE_COLORS[Math.abs(hash) % TYPE_COLORS.length];
-}
-
 // ── Helper types ─────────────────────────────────────────────────────────────
 
 interface DetailRow {
@@ -343,8 +330,8 @@ interface DetailRow {
     .loading-spinner {
       width: 36px;
       height: 36px;
-      border: 3px solid rgba(124, 106, 247, 0.25);
-      border-top-color: #7c6af7;
+      border: 3px solid color-mix(in srgb, var(--accent) 25%, transparent);
+      border-top-color: var(--accent);
       border-radius: 50%;
       animation: graph-spin 0.75s linear infinite;
     }
@@ -549,7 +536,7 @@ interface DetailRow {
     /* ── Brain-style record drawer modal ───────────────────────────────────── */
     .bdrawer-overlay {
       position: fixed; inset: 0;
-      background: rgba(0,0,0,.55);
+      background: var(--bg-scrim);
       display: flex; align-items: center; justify-content: center;
       z-index: 1100;
     }
@@ -1216,7 +1203,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
   nodeColor = computed(() => {
     const n = this.selectedNode();
-    return n ? typeColor(n.type || 'default') : '#8b949e';
+    return n ? this.typeColor(n.type || 'default') : this.graphFallback;
   });
 
   panelTitle = computed(() => {
@@ -1229,15 +1216,52 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
   panelColor = computed(() => {
     const n = this.selectedNode();
-    if (n) return typeColor(n.type || 'default');
+    if (n) return this.typeColor(n.type || 'default');
     const e = this.selectedEdgeRecord();
-    if (e) return typeColor(e.label || 'edge');
-    return '#8b949e';
+    if (e) return this.typeColor(e.label || 'edge');
+    return this.graphFallback;
   });
 
   // ── Private state ───────────────────────────────────────────────────────────
   private cy: any = null;
   private subs = new Subscription();
+
+  // ── Graph theme (read from CSS vars at init — allows enterprise overrides) ───
+  private graphTypeColors: string[] = [];
+  private graphNodeBg    = '#0d1117';
+  private graphNodeText  = '#c9d1d9';
+  private graphEdge      = '#3d444d';
+  private graphEdgeLabel = '#6e7681';
+  private graphNodeRoot  = '#7c6af7';
+  private graphNodeSelect = '#58a6ff';
+  private graphEdgeSelect = '#7c6af7';
+  private graphEdgeHover  = '#58a6ff';
+  private graphFallback   = '#8b949e';
+
+  private readGraphTheme(): void {
+    const cs = getComputedStyle(document.documentElement);
+    const tv = (v: string, fb: string) => cs.getPropertyValue(v).trim() || fb;
+    const DEFAULT_COLORS = ['#7c6af7','#58a6ff','#3fb950','#00e5ff','#f85149','#e38625','#9580ff','#79c0ff','#56d364','#ff6eb4'];
+    this.graphTypeColors = Array.from({ length: 10 }, (_, i) =>
+      tv(`--graph-type-${i + 1}`, DEFAULT_COLORS[i])
+    );
+    this.graphNodeBg     = tv('--graph-node-bg',     '#0d1117');
+    this.graphNodeText   = tv('--graph-node-text',   '#c9d1d9');
+    this.graphEdge       = tv('--graph-edge',        '#3d444d');
+    this.graphEdgeLabel  = tv('--graph-edge-label',  '#6e7681');
+    this.graphNodeRoot   = tv('--graph-node-root',   '#7c6af7');
+    this.graphNodeSelect = tv('--graph-node-select', '#58a6ff');
+    this.graphEdgeSelect = tv('--graph-edge-select', '#7c6af7');
+    this.graphEdgeHover  = tv('--graph-edge-hover',  '#58a6ff');
+    this.graphFallback   = tv('--graph-fallback',    '#8b949e');
+  }
+
+  private typeColor(type: string): string {
+    if (!this.graphTypeColors.length) return '#7c6af7';
+    let hash = 0;
+    for (let i = 0; i < type.length; i++) hash = (hash * 31 + type.charCodeAt(i)) | 0;
+    return this.graphTypeColors[Math.abs(hash) % this.graphTypeColors.length];
+  }
 
   // Currently rendered (depth-filtered) view
   private graphNodes: TraverseNode[] = [];
@@ -1279,6 +1303,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   ngAfterViewInit(): void {
+    this.readGraphTheme();
     this.initCytoscape();
 
     // Watch direction / depth / hideLabels changes via effect
@@ -1316,18 +1341,18 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
           style: {
             'width': (ele: any) => { const d = +ele.data('depth'); return d === 0 ? 68 : Math.max(36, 52 - d * 3); },
             'height': (ele: any) => { const d = +ele.data('depth'); return d === 0 ? 68 : Math.max(36, 52 - d * 3); },
-            'background-color': '#0d1117',
-            'background-image': (ele: any) => glassShineSvg(typeColor(ele.data('type') || 'default')),
+            'background-color': this.graphNodeBg,
+            'background-image': (ele: any) => glassShineSvg(this.typeColor(ele.data('type') || 'default')),
             'background-fit': 'cover',
             'background-clip': 'node',
             'border-width': (ele: any) => +ele.data('depth') === 0 ? 2.5 : 1.5,
-            'border-color': (ele: any) => typeColor(ele.data('type') || 'default'),
+            'border-color': (ele: any) => this.typeColor(ele.data('type') || 'default'),
             'border-opacity': 0.75,
             'label': 'data(label)',
             'font-size': (ele: any) => +ele.data('depth') === 0 ? 13 : 11,
             'font-weight': (ele: any) => +ele.data('depth') === 0 ? '600' : '400',
-            'color': '#c9d1d9',
-            'text-outline-color': '#0d1117',
+            'color': this.graphNodeText,
+            'text-outline-color': this.graphNodeBg,
             'text-outline-width': 2,
             'text-valign': 'bottom',
             'text-margin-y': 8,
@@ -1335,7 +1360,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
             'text-wrap': 'ellipsis',
             'opacity': (ele: any) => { const d = +ele.data('depth'); return d === 0 ? 1 : Math.max(0.55, 1 - d * 0.1); },
             'shadow-blur': (ele: any) => +ele.data('depth') === 0 ? 28 : 14,
-            'shadow-color': (ele: any) => typeColor(ele.data('type') || 'default'),
+            'shadow-color': (ele: any) => this.typeColor(ele.data('type') || 'default'),
             'shadow-opacity': (ele: any) => +ele.data('depth') === 0 ? 0.6 : 0.35,
             'shadow-offset-x': 0,
             'shadow-offset-y': 0,
@@ -1344,7 +1369,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
         {
           selector: 'node.root',
           style: {
-            'border-color': '#7c6af7',
+            'border-color': this.graphNodeRoot,
             'border-width': 3,
             'border-opacity': 1,
           } as any,
@@ -1362,12 +1387,12 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
         {
           selector: 'node:selected',
           style: {
-            'border-color': '#58a6ff',
+            'border-color': this.graphNodeSelect,
             'border-width': 3,
             'border-opacity': 1,
             'opacity': 1,
             'shadow-blur': 36,
-            'shadow-color': '#58a6ff',
+            'shadow-color': this.graphNodeSelect,
             'shadow-opacity': 0.9,
           } as any,
         },
@@ -1375,16 +1400,16 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
           selector: 'edge',
           style: {
             'width': 1.5,
-            'line-color': '#3d444d',
+            'line-color': this.graphEdge,
             'target-arrow-shape': 'triangle',
-            'target-arrow-color': '#3d444d',
+            'target-arrow-color': this.graphEdge,
             'curve-style': 'bezier',
             'label': 'data(label)',
             'font-size': 10,
-            'color': '#6e7681',
+            'color': this.graphEdgeLabel,
             'text-rotation': 'autorotate',
             'text-margin-y': -8,
-            'text-background-color': '#0d1117',
+            'text-background-color': this.graphNodeBg,
             'text-background-opacity': 0.7,
             'text-background-padding': '2px',
             'opacity': 0.75,
@@ -1394,12 +1419,12 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
         {
           selector: 'edge.hovered',
           style: {
-            'line-color': '#58a6ff',
-            'target-arrow-color': '#58a6ff',
+            'line-color': this.graphEdgeHover,
+            'target-arrow-color': this.graphEdgeHover,
             'opacity': 1,
             'width': 2.5,
             'shadow-blur': 12,
-            'shadow-color': '#58a6ff',
+            'shadow-color': this.graphEdgeHover,
             'shadow-opacity': 0.6,
             'shadow-offset-x': 0,
             'shadow-offset-y': 0,
@@ -1408,12 +1433,12 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
         {
           selector: 'edge:selected',
           style: {
-            'line-color': '#7c6af7',
-            'target-arrow-color': '#7c6af7',
+            'line-color': this.graphEdgeSelect,
+            'target-arrow-color': this.graphEdgeSelect,
             'opacity': 1,
             'width': 2.5,
             'shadow-blur': 16,
-            'shadow-color': '#7c6af7',
+            'shadow-color': this.graphEdgeSelect,
             'shadow-opacity': 0.7,
             'shadow-offset-x': 0,
             'shadow-offset-y': 0,

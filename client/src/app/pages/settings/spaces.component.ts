@@ -36,15 +36,15 @@ interface TypeSchemaState {
     /* storage bar */
     .st-bar { height:6px; border-radius:3px; background:var(--border); overflow:hidden; }
     .st-bar-fill { height:100%; border-radius:3px; transition:width .3s; }
-    .st-bar-fill.ok     { background:var(--success,#22c55e); }
-    .st-bar-fill.warn   { background:var(--warning,#f59e0b); }
+    .st-bar-fill.ok     { background:var(--success); }
+    .st-bar-fill.warn   { background:var(--warning); }
     .st-bar-fill.danger { background:var(--danger); }
     /* create dialog */
-    .dialog-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); display:flex; align-items:center; justify-content:center; z-index:100; }
+    .dialog-backdrop { position:fixed; inset:0; background:var(--bg-scrim); display:flex; align-items:center; justify-content:center; z-index:100; }
     .dialog { background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px; width:90%; max-width:960px; max-height:90vh; overflow-y:auto; }
     .dialog-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
     /* settings popup */
-    .sp-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:200; display:flex; align-items:center; justify-content:center; }
+    .sp-backdrop { position:fixed; inset:0; background:var(--bg-scrim); z-index:200; display:flex; align-items:center; justify-content:center; }
     .sp-panel { width:92vw; height:92vh; max-width:1200px; background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--radius-lg); display:flex; flex-direction:column; overflow:hidden; }
     .sp-header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--border); flex-shrink:0; }
     .sp-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; background:var(--bg-surface); }

@@ -18,31 +18,31 @@ import { Subscription } from 'rxjs';
   styles: [`
     .overlay {
       position: fixed; inset: 0;
-      background: rgba(0,0,0,0.65);
+      background: var(--bg-scrim);
       display: flex; align-items: center; justify-content: center;
       z-index: 9999;
     }
     .dialog {
-      background: var(--bg-card, #1a1a1a);
-      border: 1px solid var(--border, #333);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
       border-radius: 10px;
       padding: 2rem;
       width: 100%; max-width: 360px;
     }
     h2 { margin: 0 0 0.4rem; font-size: 1.1rem; }
-    p  { margin: 0 0 1.25rem; color: var(--text-muted, #888); font-size: 0.88rem; }
+    p  { margin: 0 0 1.25rem; color: var(--text-muted); font-size: 0.88rem; }
     input {
       width: 100%; padding: 0.55rem 0.75rem;
-      border: 1px solid var(--border, #444); border-radius: 6px;
-      background: var(--bg-primary, #111); color: var(--text, #eee);
+      border: 1px solid var(--border); border-radius: 6px;
+      background: var(--bg-primary); color: var(--text-primary);
       font-size: 1.3rem; letter-spacing: 0.25em; text-align: center;
       font-family: var(--font-mono, monospace);
       margin-bottom: 1rem;
     }
-    input:focus { outline: none; border-color: #6060f0; }
+    input:focus { outline: none; border-color: var(--accent); }
     .actions { display: flex; gap: 10px; }
     .actions button { flex: 1; }
-    .error { color: #f66; font-size: 0.82rem; margin: -0.5rem 0 0.75rem; }
+    .error { color: var(--error); font-size: 0.82rem; margin: -0.5rem 0 0.75rem; }
   `],
   template: `
     @if (active()) {

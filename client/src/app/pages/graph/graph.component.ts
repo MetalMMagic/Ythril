@@ -34,8 +34,8 @@ import { PropertiesViewComponent } from '../../shared/properties-view.component'
 // ── Deterministic colour palette for node types ──────────────────────────────
 
 const TYPE_COLORS = [
-  '#7c6af7', '#58a6ff', '#3fb950', '#d29922', '#f85149',
-  '#e38625', '#9580ff', '#79c0ff', '#56d364', '#e3b341',
+  '#7c6af7', '#58a6ff', '#3fb950', '#00e5ff', '#f85149',
+  '#e38625', '#9580ff', '#79c0ff', '#56d364', '#ff6eb4',
 ];
 
 function typeColor(type: string): string {
@@ -1118,6 +1118,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
             'text-background-opacity': 0.7,
             'text-background-padding': '2px',
             'opacity': 0.75,
+            'shadow-blur': 0,
           } as any,
         },
         {
@@ -1127,6 +1128,11 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
             'target-arrow-color': '#58a6ff',
             'opacity': 1,
             'width': 2.5,
+            'shadow-blur': 12,
+            'shadow-color': '#58a6ff',
+            'shadow-opacity': 0.6,
+            'shadow-offset-x': 0,
+            'shadow-offset-y': 0,
           } as any,
         },
         {
@@ -1135,6 +1141,12 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
             'line-color': '#7c6af7',
             'target-arrow-color': '#7c6af7',
             'opacity': 1,
+            'width': 2.5,
+            'shadow-blur': 16,
+            'shadow-color': '#7c6af7',
+            'shadow-opacity': 0.7,
+            'shadow-offset-x': 0,
+            'shadow-offset-y': 0,
           } as any,
         },
         {
@@ -1404,7 +1416,18 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
       padding: 40,
     } as any);
 
-    layout.on('layoutstop', () => this.fitGraph());
+    layout.on('layoutstop', () => {
+      this.fitGraph();
+      // Zoom out a bit more so graph breathes
+      if (this.cy) this.cy.zoom(this.cy.zoom() * 0.78);
+      // Auto-select root node on first render
+      const root = this.rootEntity();
+      if (root && !this.selectedNode() && !this.selectedEdge()) {
+        const rootTn: TraverseNode = { _id: root._id, name: root.name, type: root.type || 'default', depth: 0, description: root.description, tags: root.tags };
+        this.selectedNode.set(rootTn);
+        this.loadNodeDetails(root._id);
+      }
+    });
     layout.run();
   }
 
@@ -1501,8 +1524,17 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   openDetailPopup(row: DetailRow): void {
-    this.popupRecord.set(row.raw);
-    this.popupType.set(row.kind);
+    const spaceId = this.activeSpaceId();
+    if (!spaceId) return;
+    if (row.kind === 'memory') {
+      this.api.getMemory(spaceId, row.id).pipe(catchError(() => of(null))).subscribe(m => {
+        if (m) { this.popupRecord.set(m as unknown as Record<string, unknown>); this.popupType.set('memory'); }
+      });
+    } else {
+      this.api.getChrono(spaceId, row.id).pipe(catchError(() => of(null))).subscribe(c => {
+        if (c) { this.popupRecord.set(c as unknown as Record<string, unknown>); this.popupType.set('chrono'); }
+      });
+    }
   }
 
   asRecord(obj: unknown): Record<string, unknown> {

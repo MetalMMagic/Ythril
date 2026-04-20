@@ -131,7 +131,14 @@ describe('Config loader resilience — missing arrays', () => {
   });
 
   it('rejects invalid JSON gracefully (500, no crash)', async () => {
-    fs.writeFileSync(CONFIG_FILE, '{ this is not valid JSON }}}', 'utf8');
+    if (USE_DOCKER_EXEC) {
+      execSync(
+        `docker exec -i ${CONTAINER_A} sh -c 'cat > /config/config.json && chmod 600 /config/config.json'`,
+        { input: '{ this is not valid JSON }}}' },
+      );
+    } else {
+      fs.writeFileSync(CONFIG_FILE, '{ this is not valid JSON }}}', 'utf8');
+    }
     const r = await post(INSTANCES.a, token, '/api/admin/reload-config', {});
     assert.equal(r.status, 500, 'Should return 500 for invalid JSON');
     assert.ok(r.body?.error?.includes('JSON'), `Error should mention JSON: ${r.body?.error}`);

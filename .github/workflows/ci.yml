@@ -40,16 +40,9 @@ jobs:
           chmod 777 testing/sync/configs/a testing/sync/configs/b testing/sync/configs/c
           docker compose -p ythril-test -f testing/docker-compose.test.yml up -d --wait --wait-timeout 300
           node testing/sync/setup.js
-          # config.json is created by the container's node user (uid 1000, mode 0600).
-          # The runner (uid 1001) can't read it without sudo; gossip.test.js reads these files directly.
-          sudo chmod -R a+rX testing/sync/configs/
 
       - name: Run all tests
-        run: |
-          # config.json is rewritten by containers during tests (mode 0600, uid 1000).
-          # Relax permissions immediately before the test runner reads them.
-          sudo chmod -R a+rX testing/sync/configs/
-          npm run test:all:core
+        run: npm run test:all:core
 
       - name: Tear down containers
         if: always()

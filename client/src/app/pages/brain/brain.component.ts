@@ -2397,7 +2397,7 @@ export class BrainComponent implements OnInit {
 
   applyChronoSearch(): void { this.chronoSkip.set(0); this.loadCurrentTab(this.activeSpaceId()); }
 
-  private loadStats(spaceId: string): void {
+  loadStats(spaceId: string): void {
     this.api.getSpaceStats(spaceId).subscribe({
       next: (stats) => {
         this.spaces.update(list =>

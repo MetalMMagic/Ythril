@@ -30,6 +30,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build server
+        run: npm run build:server
+        # Required by testing/standalone/oidc.test.js which imports server/dist/
+
       - name: Build test stack
         run: docker compose -p ythril-test -f testing/docker-compose.test.yml build
         # Single build (all services in one pass) is fine on CI — no VS Code to crash.

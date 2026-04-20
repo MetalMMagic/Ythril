@@ -3,6 +3,7 @@ import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/rou
 import { AuthService } from '../../core/auth.service';
 import { ApiService } from '../../core/api.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { TranslocoService } from '@jsverse/transloco';
 
 @Component({
   selector: 'app-shell',
@@ -57,6 +58,19 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
     }
     .topbar-logout:hover { color: var(--text-primary); background: var(--bg-elevated); }
 
+    .lang-select {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+      font-size: 12px;
+      font-family: var(--font);
+      padding: 3px 6px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    .lang-select:focus { outline: none; border-color: var(--accent); }
+
     .layout {
       display: flex;
       flex: 1;
@@ -109,10 +123,10 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
     .nav-link:hover { color: var(--text-primary); background: var(--bg-elevated); }
 
     .nav-link.active {
-      color: var(--nav-active);
+      color: var(--text-primary);
       background: var(--nav-active-dim);
     }
-    .nav-link.active .nav-icon { opacity: 1; }
+    .nav-link.active .nav-icon { opacity: 1; color: var(--nav-active); }
 
     .nav-link .nav-icon {
       width: 16px;
@@ -152,6 +166,11 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
         ythril
       </a>
       <span class="topbar-spacer"></span>
+      <select class="lang-select" [value]="activeLang()" (change)="setLang($any($event.target).value)">
+        <option value="en">EN</option>
+        <option value="de">DE</option>
+        <option value="pl">PL</option>
+      </select>
       <button class="topbar-logout" (click)="logout()">Sign out</button>
     </header>
 
@@ -204,8 +223,16 @@ export class ShellComponent implements OnInit {
   private auth = inject(AuthService);
   private router = inject(Router);
   private api = inject(ApiService);
+  private transloco = inject(TranslocoService);
 
   conflictCount = signal(0);
+  activeLang = signal(this.transloco.getActiveLang());
+
+  setLang(lang: string): void {
+    this.transloco.setActiveLang(lang);
+    this.activeLang.set(lang);
+    localStorage.setItem('lang', lang);
+  }
 
   private _pollTimer: ReturnType<typeof setInterval> | null = null;
 

@@ -367,7 +367,7 @@ interface SpaceView {
       background: var(--bg-primary);
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+      box-shadow: var(--shadow-md);
     }
     .entity-picker-item {
       display: flex;
@@ -404,7 +404,7 @@ interface SpaceView {
     .flyout-panel {
       position: absolute; top: calc(100% + 4px); left: 0; min-width: 300px; z-index: 60;
       background: var(--bg-primary); border: 1px solid var(--border);
-      border-radius: var(--radius-md); box-shadow: 0 4px 20px rgba(0,0,0,0.22); padding: 12px;
+      border-radius: var(--radius-md); box-shadow: var(--shadow-lg); padding: 12px;
     }
     .chip-list { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; min-height: 24px; }
     .chip {

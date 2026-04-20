@@ -112,7 +112,7 @@ import { ApiService, Entity, RecallResult } from '../core/api.service';
       background: var(--bg-surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
-      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      box-shadow: var(--shadow-md);
       z-index: 200;
       max-height: 260px;
       overflow-y: auto;

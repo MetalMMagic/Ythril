@@ -93,7 +93,7 @@ interface TypeSchemaState {
     .pdet-full { padding:0 14px 14px; }
     .req-toggle { display:inline-flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; color:var(--text-muted); background:none; border:1px solid var(--border); font-family:var(--font); padding:3px 10px; border-radius:var(--radius-sm); transition:all .15s; }
     .req-toggle:hover { background:var(--bg-elevated); color:var(--text-primary); border-color:color-mix(in srgb,var(--accent) 40%,transparent); }
-    .req-toggle.is-req { color:var(--warning,#f59e0b); border-color:color-mix(in srgb,var(--warning,#f59e0b) 50%,transparent); background:color-mix(in srgb,var(--warning,#f59e0b) 8%,transparent); font-weight:600; }
+    .req-toggle.is-req { color:var(--warning); border-color:color-mix(in srgb,var(--warning) 50%,transparent); background:color-mix(in srgb,var(--warning) 8%,transparent); font-weight:600; }
     /* ── schema sub-section headers ── */
     .sch-sub { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--text-muted); padding:14px 0 8px; margin-bottom:2px; }
   `],
@@ -379,7 +379,7 @@ interface TypeSchemaState {
                                             <div style="display:flex;align-items:center;gap:7px;">
                                               <span style="font-family:var(--font-mono);font-size:12px;">{{ p.key }}</span>
                                               @if (p.s.required) {
-                                                <span style="font-size:10px;background:color-mix(in srgb,var(--warning,#f59e0b) 16%,transparent);color:var(--warning,#f59e0b);border-radius:3px;padding:1px 5px;font-weight:700;">req</span>
+                                                <span style="font-size:10px;background:color-mix(in srgb,var(--warning) 16%,transparent);color:var(--warning);border-radius:3px;padding:1px 5px;font-weight:700;">req</span>
                                               }
                                             </div>
                                           </td>

@@ -323,7 +323,7 @@ interface DetailRow {
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(0,0,0,0.25);
+      background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
       z-index: 30;
       backdrop-filter: blur(2px);
     }
@@ -608,7 +608,7 @@ interface DetailRow {
       position: absolute; top: 100%; left: 0; right: 0; z-index: 200;
       background: var(--bg-surface); border: 1px solid var(--border);
       border-radius: var(--radius-md); padding: 10px; margin-top: 4px;
-      box-shadow: 0 8px 24px rgba(0,0,0,.3);
+      box-shadow: var(--shadow-lg);
     }
   `],
   template: `
@@ -1700,37 +1700,36 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
       this.cy.edges().removeClass('hide-labels');
     }
 
-    // Run layout
-    const maxDepth = Math.max(0, ...elements.filter((e: any) => e.group === 'nodes').map((e: any) => e.data.depth ?? 0));
+    // Run layout — breadthfirst keeps each node next to its direct edge-partner
     const layout = this.cy.layout({
-      name: 'concentric',
-      concentric: (node: any) => maxDepth + 1 - (node.data('depth') ?? 0),
-      levelWidth: () => 1,
-      spacingFactor: 2.2,
-      padding: 60,
+      name: 'breadthfirst',
+      roots: `#${rootId}`,
+      directed: false,
+      spacingFactor: 1.1,
+      padding: 40,
       avoidOverlap: true,
       animate: true,
       animationDuration: 400,
     } as any);
 
     layout.on('layoutstop', () => {
-      if (this.cy) {
-        // Fit all nodes then zoom out so the full graph breathes
-        this.cy.fit(undefined, 60);
-        this.cy.zoom(this.cy.zoom() * 0.75);
-      }
+      if (!this.cy) return;
+      // resize first so Cytoscape knows the current canvas dimensions
+      // (Angular may have closed the side panel since renderGraph() was called)
+      this.cy.resize();
+      this.cy.fit(undefined, 40);
+
       // Auto-select root node on first render
       const root = this.rootEntity();
       if (root && !this.selectedNode() && !this.selectedEdge()) {
         const rootTn: TraverseNode = { _id: root._id, name: root.name, type: root.type || 'default', depth: 0, description: root.description, tags: root.tags };
         this.selectedNode.set(rootTn);
         this.loadNodeDetails(root._id);
-        // After the side panel opens (DOM update), resize cy and re-center root
+        // After the side panel opens (DOM update), refit to the narrower canvas
         setTimeout(() => {
           if (this.cy) {
             this.cy.resize();
-            const rootNode = this.cy.getElementById(root._id);
-            if (rootNode?.length) this.cy.center(rootNode);
+            this.cy.fit(undefined, 40);
           }
         }, 50);
       }

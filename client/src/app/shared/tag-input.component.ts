@@ -92,7 +92,7 @@ import { FormsModule } from '@angular/forms';
       background: var(--bg-surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-md, 6px);
-      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+      box-shadow: var(--shadow-sm);
       z-index: 300;
       max-height: 180px;
       overflow-y: auto;

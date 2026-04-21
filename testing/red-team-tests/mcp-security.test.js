@@ -47,7 +47,7 @@ function openMcpSession(instance, bearerToken, spaceId = 'general', timeoutMs = 
 
   return new Promise((resolve) => {
     const req = http.request(
-      { host, port, path: `/mcp/${spaceId}`, method: 'GET',
+      { host, port, path: '/mcp', method: 'GET',
         headers: {
           ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
           Accept: 'text/event-stream',
@@ -124,7 +124,7 @@ function openMcpSession(instance, bearerToken, spaceId = 'general', timeoutMs = 
             });
             const pr = http.request(
               { host, port,
-                path: `/mcp/${spaceId}/messages?sessionId=${sessionId}`,
+                path: `/mcp/messages?sessionId=${sessionId}`,
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -225,7 +225,7 @@ describe('MCP security — recall_global scope isolation', () => {
       assert.ok(callTool, 'MCP session must establish');
 
       // Call recall_global — this should only search spaces allowed by tokenA
-      const rpc = await callTool('recall_global', { query: secretFact });
+      const rpc = await callTool('recall', { query: secretFact });
 
       // The result must NOT contain the secret from instance B
       const content = JSON.stringify(rpc?.result ?? rpc ?? '');
@@ -247,7 +247,7 @@ describe('MCP security — remember tool input validation', () => {
       assert.ok(callTool, 'MCP session must establish');
 
       const rpc = await callTool('remember', {
-        spaceId: 'general',
+        space: 'general',
         fact: 'X'.repeat(200_000),
       });
       const result = rpc?.result ?? rpc;
@@ -271,7 +271,8 @@ describe('MCP security — query tool operator allowlist', () => {
       assert.ok(callTool, 'MCP session must establish');
 
       const rpc = await callTool('query', {
-        spaceId: 'general',
+        space: 'general',
+        collection: 'memories',
         filter: { $where: 'function() { return true; }' },
       });
       const result = rpc?.result ?? rpc;
@@ -290,7 +291,8 @@ describe('MCP security — query tool operator allowlist', () => {
       assert.ok(callTool, 'MCP session must establish');
 
       const rpc = await callTool('query', {
-        spaceId: 'general',
+        space: 'general',
+        collection: 'memories',
         filter: { $function: { body: 'return true', args: [], lang: 'js' } },
       });
       const result = rpc?.result ?? rpc;
@@ -315,7 +317,8 @@ describe('MCP security — query tool operator allowlist', () => {
       }
 
       const rpc = await callTool('query', {
-        spaceId: 'general',
+        space: 'general',
+        collection: 'memories',
         filter: deep,
       });
       const result = rpc?.result ?? rpc;
@@ -334,7 +337,7 @@ describe('MCP security — query tool operator allowlist', () => {
       assert.ok(callTool, 'MCP session must establish');
 
       const rpc = await callTool('query', {
-        spaceId: 'general',
+        space: 'general',
         collection: 'memories',
         filter: { tags: { $in: ['test'] } },
       });

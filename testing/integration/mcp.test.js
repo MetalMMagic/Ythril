@@ -35,7 +35,7 @@ let token;
  * Open an MCP SSE session using Node's `http` module (works on Node 18).
  * Returns { callTool, listTools, close }
  */
-async function openMcpSession(spaceId, timeoutMs = 15_000) {
+async function openMcpSession(timeoutMs = 15_000) {
   const base = INSTANCES.a; // e.g. http://localhost:3200
   const parsed = new URL(base);
   const host = parsed.hostname;
@@ -43,7 +43,7 @@ async function openMcpSession(spaceId, timeoutMs = 15_000) {
 
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { host, port, path: `/mcp/${spaceId}`, method: 'GET',
+      { host, port, path: '/mcp', method: 'GET',
         headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' } },
       (res) => {
         if (res.statusCode !== 200) {
@@ -112,7 +112,7 @@ async function openMcpSession(spaceId, timeoutMs = 15_000) {
             const postData = JSON.stringify(body);
             const pr = http.request(
               { host, port,
-                path: `/mcp/${spaceId}/messages?sessionId=${sessionId}`,
+                path: `/mcp/messages?sessionId=${sessionId}`,
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -179,7 +179,7 @@ describe('MCP tools', () => {
 
   describe('tools/list includes sync_now and list_peers', () => {
     let session;
-    before(async () => { session = await openMcpSession('general'); });
+    before(async () => { session = await openMcpSession(); });
     after(() => session?.close());
 
     it('sync_now is in the tool list', async () => {
@@ -212,7 +212,7 @@ describe('MCP tools', () => {
 
   describe('list_peers â€” no networks', () => {
     let session;
-    before(async () => { session = await openMcpSession('general'); });
+    before(async () => { session = await openMcpSession(); });
     after(() => session?.close());
 
     it('returns the empty-networks message when no networks are configured', async () => {
@@ -236,7 +236,7 @@ describe('MCP tools', () => {
     const PEER_ID = `list-peers-test-${Date.now()}`;
 
     before(async () => {
-      session = await openMcpSession('general');
+      session = await openMcpSession();
 
       // Create a club network and add a peer so list_peers has data to return
       const netRes = await post(INSTANCES.a, token, '/api/networks', {
@@ -297,7 +297,7 @@ describe('MCP tools', () => {
 
   describe('sync_now â€” no networks configured', () => {
     let session;
-    before(async () => { session = await openMcpSession('general'); });
+    before(async () => { session = await openMcpSession(); });
     after(() => session?.close());
 
     it('returns "No networks configured" when no networks exist (or a sync summary if they do)', async () => {
@@ -313,7 +313,7 @@ describe('MCP tools', () => {
 
   describe('sync_now â€” SSRF guard', () => {
     let session;
-    before(async () => { session = await openMcpSession('general'); });
+    before(async () => { session = await openMcpSession(); });
     after(() => session?.close());
 
     it('rejects an unknown peerId with isError', async () => {
@@ -334,7 +334,7 @@ describe('MCP tools', () => {
     const FAKE_PEER_ID = `mcp-sync-test-peer-${Date.now()}`;
 
     before(async () => {
-      session = await openMcpSession('general');
+      session = await openMcpSession();
 
       // Create a minimal braintree network with a fake peer so sync_now has a
       // valid peerId to target.  The peer URL is unreachable â€” the test only

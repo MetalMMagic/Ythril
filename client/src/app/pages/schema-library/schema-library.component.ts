@@ -156,7 +156,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
       </div>
     </div>
 
-    <p class="ref-hint">{{ 'schemaLib.refHint.prefix' | transloco }} <code>{{ '{ "$ref": "library:<name>" }' }}</code> {{ 'schemaLib.refHint.suffix' | transloco }}</p>
+    <p class="ref-hint">{{ 'schemaLib.refHint.prefix' | transloco }} <code>&#123; "$ref": "library:&lt;name&gt;" &#125;</code> {{ 'schemaLib.refHint.suffix' | transloco }}</p>
 
     @if (loading()) {
       <div class="empty-state"><span class="spinner"></span></div>

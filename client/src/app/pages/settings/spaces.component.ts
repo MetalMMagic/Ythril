@@ -701,8 +701,8 @@ export class SpacesComponent implements OnInit {
   sortedSpaces = computed(() => {
     const list = this.spaces();
     switch (this.sortMode()) {
-      case 'az':         return [...list].sort((a, b) => a.label.localeCompare(b.label));
-      case 'za':         return [...list].sort((a, b) => b.label.localeCompare(a.label));
+      case 'az':         return [...list].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+      case 'za':         return [...list].sort((a, b) => b.label.localeCompare(a.label, undefined, { sensitivity: 'base' }));
       case 'usage-desc': return [...list].sort((a, b) => (b.usageGiB ?? 0) - (a.usageGiB ?? 0));
       case 'usage-asc':  return [...list].sort((a, b) => (a.usageGiB ?? 0) - (b.usageGiB ?? 0));
       default:           return list;

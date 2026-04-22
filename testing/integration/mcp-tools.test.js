@@ -1551,7 +1551,7 @@ describe('MCP file tools — write_file with properties metadata', () => {
     assert.ok(!writeResult?.isError, `write_file error: ${JSON.stringify(writeResult)}`);
 
     const queryResult = await session.callTool('query', {
-      space: testSpaceId,
+      space: 'general',
       collection: 'files',
       filter: { _id: filePath },
     });

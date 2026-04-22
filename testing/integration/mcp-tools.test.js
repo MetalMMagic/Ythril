@@ -47,7 +47,7 @@ let tokenA;
 
 // â”€â”€ Reusable MCP session helper (same as mcp.test.js) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-async function openMcpSession(spaceId, authToken, instance = INSTANCES.a, timeoutMs = 15_000) {
+async function openMcpSession(authToken, instance = INSTANCES.a, timeoutMs = 15_000) {
   const base = instance;
   const parsed = new URL(base);
   const host = parsed.hostname;
@@ -57,7 +57,7 @@ async function openMcpSession(spaceId, authToken, instance = INSTANCES.a, timeou
     const req = http.request(
       {
         host, port,
-        path: `/mcp/${spaceId}`,
+        path: '/mcp',
         method: 'GET',
         headers: { Authorization: `Bearer ${authToken}`, Accept: 'text/event-stream' },
       },
@@ -121,7 +121,7 @@ async function openMcpSession(spaceId, authToken, instance = INSTANCES.a, timeou
             const pr = http.request(
               {
                 host, port,
-                path: `/mcp/${spaceId}/messages?sessionId=${sessionId}`,
+                path: `/mcp/messages?sessionId=${sessionId}`,
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
@@ -194,10 +194,10 @@ describe('MCP brain tools â€” remember / recall / query', () => {
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     await ensureReindexed(INSTANCES.a, tokenA);
-    session = await openMcpSession('general', tokenA);
+    session = await openMcpSession(tokenA);
     // Probe: attempt one remember to find out if embedding is configured.
     // If it returns isError with an embedding-unreachable message, skip embedding tests.
-    const probe = await session.callTool('remember', { fact: `__embedding-probe-${Date.now()}__`, tags: [] });
+    const probe = await session.callTool('remember', { space: 'general', fact: `__embedding-probe-${Date.now()}__`, tags: [] });
     const probeText = probe?.content?.[0]?.text ?? '';
     embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
   });
@@ -205,7 +205,7 @@ describe('MCP brain tools â€” remember / recall / query', () => {
 
   it('remember stores a memory and returns confirmation with seq and id', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack â€” skipping');
-    const result = await session.callTool('remember', { fact: uniqueFact, tags: ['mcp-test'] });
+    const result = await session.callTool('remember', { space: 'general', fact: uniqueFact, tags: ['mcp-test'] });
     assert.ok(!result?.isError, `remember returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes('Stored memory'), `Expected "Stored memory" in: ${text}`);
@@ -214,7 +214,7 @@ describe('MCP brain tools â€” remember / recall / query', () => {
 
   it('recall finds the just-stored memory', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack â€” skipping');
-    const result = await session.callTool('recall', { query: uniqueFact, topK: 5 });
+    const result = await session.callTool('recall', { space: 'general', query: uniqueFact, topK: 5 });
     assert.ok(!result?.isError, `recall returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     // Either finds the fact or returns "No memories found" (embedding may be unavailable)
@@ -227,12 +227,13 @@ describe('MCP brain tools â€” remember / recall / query', () => {
   });
 
   it('remember with empty fact returns isError', async () => {
-    const result = await session.callTool('remember', { fact: '' });
+    const result = await session.callTool('remember', { space: 'general', fact: '' });
     assert.ok(result?.isError, 'Empty fact must return isError=true');
   });
 
   it('query with allowed operators returns results (no error)', async () => {
     const result = await session.callTool('query', {
+      space: 'general',
       collection: 'memories',
       filter: { fact: { $exists: true } },
       limit: 5,
@@ -250,6 +251,7 @@ describe('MCP brain tools â€” remember / recall / query', () => {
 
   it('query with disallowed $where operator returns isError', async () => {
     const result = await session.callTool('query', {
+      space: 'general',
       collection: 'memories',
       filter: { $where: 'this.fact.length > 0' },
     });
@@ -260,6 +262,7 @@ describe('MCP brain tools â€” remember / recall / query', () => {
 
   it('query with disallowed $function operator returns isError', async () => {
     const result = await session.callTool('query', {
+      space: 'general',
       collection: 'memories',
       filter: { $function: { body: 'function() { return true; }', args: [], lang: 'js' } },
     });
@@ -271,6 +274,7 @@ describe('MCP brain tools â€” remember / recall / query', () => {
     let deep = { _id: 'x' };
     for (let i = 0; i < 10; i++) deep = { $and: [deep] };
     const result = await session.callTool('query', {
+      space: 'general',
       collection: 'memories',
       filter: deep,
     });
@@ -279,6 +283,7 @@ describe('MCP brain tools â€” remember / recall / query', () => {
 
   it('query on invalid collection returns isError', async () => {
     const result = await session.callTool('query', {
+      space: 'general',
       collection: 'admin',
       filter: {},
     });
@@ -293,13 +298,13 @@ describe('MCP brain tools â€” upsert_entity / upsert_edge', () => {
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    session = await openMcpSession('general', tokenA);
+    session = await openMcpSession(tokenA);
   });
   after(() => session?.close());
 
   it('upsert_entity creates an entity and returns its id', async () => {
     const name = `MCP-Entity-${Date.now()}`;
-    const result = await session.callTool('upsert_entity', { name, type: 'concept', tags: ['mcp-test'] });
+    const result = await session.callTool('upsert_entity', { space: 'general', name, type: 'concept', tags: ['mcp-test'] });
     assert.ok(!result?.isError, `upsert_entity error: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes('upserted'), `Expected "upserted" in: ${text}`);
@@ -309,24 +314,25 @@ describe('MCP brain tools â€” upsert_entity / upsert_edge', () => {
   });
 
   it('upsert_entity with empty name returns isError', async () => {
-    const result = await session.callTool('upsert_entity', { name: '', type: 'concept' });
+    const result = await session.callTool('upsert_entity', { space: 'general', name: '', type: 'concept' });
     assert.ok(result?.isError, 'Empty name must return isError');
   });
 
   it('upsert_entity with empty type returns isError', async () => {
-    const result = await session.callTool('upsert_entity', { name: 'ValidName', type: '' });
+    const result = await session.callTool('upsert_entity', { space: 'general', name: 'ValidName', type: '' });
     assert.ok(result?.isError, 'Empty type must return isError');
   });
 
   it('upsert_edge creates a directed edge and returns its id', async () => {
     // Create second entity
     const name2 = `MCP-Entity-B-${Date.now()}`;
-    const r2 = await session.callTool('upsert_entity', { name: name2, type: 'concept' });
+    const r2 = await session.callTool('upsert_entity', { space: 'general', name: name2, type: 'concept' });
     const idMatch2 = (r2?.content?.[0]?.text ?? '').match(/ID ([a-f0-9-]{36})/i);
     assert.ok(idMatch2, `Could not extract entityB ID: ${r2?.content?.[0]?.text}`);
     entityBId = idMatch2[1];
 
     const result = await session.callTool('upsert_edge', {
+      space: 'general',
       from: entityAId,
       to: entityBId,
       label: 'related_to',
@@ -339,12 +345,12 @@ describe('MCP brain tools â€” upsert_entity / upsert_edge', () => {
   });
 
   it('upsert_edge with empty from returns isError', async () => {
-    const result = await session.callTool('upsert_edge', { from: '', to: entityBId, label: 'test' });
+    const result = await session.callTool('upsert_edge', { space: 'general', from: '', to: entityBId, label: 'test' });
     assert.ok(result?.isError, 'Empty from must return isError');
   });
 
   it('upsert_edge with empty label returns isError', async () => {
-    const result = await session.callTool('upsert_edge', { from: entityAId, to: entityBId, label: '' });
+    const result = await session.callTool('upsert_edge', { space: 'general', from: entityAId, to: entityBId, label: '' });
     assert.ok(result?.isError, 'Empty label must return isError');
   });
 });
@@ -356,30 +362,30 @@ describe('MCP brain tools — traverse', () => {
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    session = await openMcpSession('general', tokenA);
+    session = await openMcpSession(tokenA);
 
     // Create two entities and an edge for traversal testing
-    const rA = await session.callTool('upsert_entity', { name: `TraverseMCP-A-${Date.now()}`, type: 'service' });
+    const rA = await session.callTool('upsert_entity', { space: 'general', name: `TraverseMCP-A-${Date.now()}`, type: 'service' });
     const mA = (rA?.content?.[0]?.text ?? '').match(/ID ([a-f0-9-]{36})/i);
     assert.ok(mA, `Could not extract entity A ID: ${rA?.content?.[0]?.text}`);
     entityAId = mA[1];
 
-    const rB = await session.callTool('upsert_entity', { name: `TraverseMCP-B-${Date.now()}`, type: 'service' });
+    const rB = await session.callTool('upsert_entity', { space: 'general', name: `TraverseMCP-B-${Date.now()}`, type: 'service' });
     const mB = (rB?.content?.[0]?.text ?? '').match(/ID ([a-f0-9-]{36})/i);
     assert.ok(mB, `Could not extract entity B ID: ${rB?.content?.[0]?.text}`);
     entityBId = mB[1];
 
-    await session.callTool('upsert_edge', { from: entityAId, to: entityBId, label: 'depends_on' });
+    await session.callTool('upsert_edge', { space: 'general', from: entityAId, to: entityBId, label: 'depends_on' });
   });
   after(() => session?.close());
 
   it('traverse with empty startId returns isError', async () => {
-    const result = await session.callTool('traverse', { startId: '' });
+    const result = await session.callTool('traverse', { space: 'general', startId: '' });
     assert.ok(result?.isError, 'Empty startId must return isError');
   });
 
   it('traverse returns nodes and edges JSON', async () => {
-    const result = await session.callTool('traverse', { startId: entityAId, direction: 'outbound', maxDepth: 1 });
+    const result = await session.callTool('traverse', { space: 'general', startId: entityAId, direction: 'outbound', maxDepth: 1 });
     assert.ok(!result?.isError, `traverse returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     const parsed = JSON.parse(text);
@@ -406,7 +412,7 @@ describe('MCP file tools â€” write_file / read_file / list_dir / create_dir
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     const createSpace = await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'MCP File Tools Test Space' });
     assert.equal(createSpace.status, 201, `Create space: ${JSON.stringify(createSpace.body)}`);
-    session = await openMcpSession(testSpaceId, tokenA);
+    session = await openMcpSession(tokenA);
   });
   after(async () => {
     session?.close();
@@ -415,6 +421,7 @@ describe('MCP file tools â€” write_file / read_file / list_dir / create_dir
 
   it('write_file creates a file and returns sha256', async () => {
     const result = await session.callTool('write_file', {
+      space: testSpaceId,
       path: `${dir}/hello.txt`,
       content: 'Hello from MCP!',
     });
@@ -424,76 +431,77 @@ describe('MCP file tools â€” write_file / read_file / list_dir / create_dir
   });
 
   it('write_file with empty path returns isError', async () => {
-    const result = await session.callTool('write_file', { path: '', content: 'oops' });
+    const result = await session.callTool('write_file', { space: testSpaceId, path: '', content: 'oops' });
     assert.ok(result?.isError, 'Empty path must return isError');
   });
 
   it('read_file returns the written content', async () => {
-    const result = await session.callTool('read_file', { path: `${dir}/hello.txt` });
+    const result = await session.callTool('read_file', { space: testSpaceId, path: `${dir}/hello.txt` });
     assert.ok(!result?.isError, `read_file error: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.equal(text, 'Hello from MCP!', `Expected file content, got: ${text}`);
   });
 
   it('read_file for non-existent file returns isError', async () => {
-    const result = await session.callTool('read_file', { path: `${dir}/does-not-exist.txt` });
+    const result = await session.callTool('read_file', { space: testSpaceId, path: `${dir}/does-not-exist.txt` });
     assert.ok(result?.isError, 'Non-existent file must return isError');
   });
 
   it('list_dir returns the created file', async () => {
-    const result = await session.callTool('list_dir', { path: dir });
+    const result = await session.callTool('list_dir', { space: testSpaceId, path: dir });
     assert.ok(!result?.isError, `list_dir error: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes('hello.txt'), `Expected hello.txt in listing: ${text}`);
   });
 
   it('list_dir on root returns non-empty result', async () => {
-    const result = await session.callTool('list_dir', {});
+    const result = await session.callTool('list_dir', { space: testSpaceId });
     assert.ok(!result?.isError, `list_dir root error: ${JSON.stringify(result)}`);
   });
 
   it('create_dir creates a new directory', async () => {
-    const result = await session.callTool('create_dir', { path: `${dir}/subdir` });
+    const result = await session.callTool('create_dir', { space: testSpaceId, path: `${dir}/subdir` });
     assert.ok(!result?.isError, `create_dir error: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes('created') || text.includes('subdir'), `Expected created in: ${text}`);
   });
 
   it('create_dir with empty path returns isError', async () => {
-    const result = await session.callTool('create_dir', { path: '' });
+    const result = await session.callTool('create_dir', { space: testSpaceId, path: '' });
     assert.ok(result?.isError, 'Empty path must return isError');
   });
 
   it('move_file renames a file within the space', async () => {
     // Write a file to move
-    await session.callTool('write_file', { path: `${dir}/to-move.txt`, content: 'move me' });
+    await session.callTool('write_file', { space: testSpaceId, path: `${dir}/to-move.txt`, content: 'move me' });
     const result = await session.callTool('move_file', {
+      space: testSpaceId,
       src: `${dir}/to-move.txt`,
       dst: `${dir}/moved.txt`,
     });
     assert.ok(!result?.isError, `move_file error: ${JSON.stringify(result)}`);
     // Verify source is gone and destination exists
-    const srcCheck = await session.callTool('read_file', { path: `${dir}/to-move.txt` });
+    const srcCheck = await session.callTool('read_file', { space: testSpaceId, path: `${dir}/to-move.txt` });
     assert.ok(srcCheck?.isError, 'Source file must not exist after move');
-    const dstCheck = await session.callTool('read_file', { path: `${dir}/moved.txt` });
+    const dstCheck = await session.callTool('read_file', { space: testSpaceId, path: `${dir}/moved.txt` });
     assert.ok(!dstCheck?.isError, 'Destination file must exist after move');
   });
 
   it('move_file with empty src returns isError', async () => {
-    const result = await session.callTool('move_file', { src: '', dst: `${dir}/x.txt` });
+    const result = await session.callTool('move_file', { space: testSpaceId, src: '', dst: `${dir}/x.txt` });
     assert.ok(result?.isError, 'Empty src must return isError');
   });
 
   it('delete_file removes a file', async () => {
-    await session.callTool('write_file', { path: `${dir}/to-delete.txt`, content: 'bye' });
-    const result = await session.callTool('delete_file', { path: `${dir}/to-delete.txt` });
+    await session.callTool('write_file', { space: testSpaceId, path: `${dir}/to-delete.txt`, content: 'bye' });
+    const result = await session.callTool('delete_file', { space: testSpaceId, path: `${dir}/to-delete.txt` });
     assert.ok(!result?.isError, `delete_file error: ${JSON.stringify(result)}`);
-    const check = await session.callTool('read_file', { path: `${dir}/to-delete.txt` });
+    const check = await session.callTool('read_file', { space: testSpaceId, path: `${dir}/to-delete.txt` });
     assert.ok(check?.isError, 'Deleted file must not be readable');
   });
 
   it('delete_file with empty path returns isError', async () => {
-    const result = await session.callTool('delete_file', { path: '' });
+    const result = await session.callTool('delete_file', { space: testSpaceId, path: '' });
     assert.ok(result?.isError, 'Empty path must return isError');
   });
 });
@@ -507,7 +515,7 @@ describe('MCP file metadata — write_file persists metadata, query supports fil
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     const createSpace = await post(INSTANCES.a, tokenA, '/api/spaces', { id: testSpaceId, label: 'MCP File Metadata Test Space' });
     assert.equal(createSpace.status, 201, `Create space: ${JSON.stringify(createSpace.body)}`);
-    session = await openMcpSession(testSpaceId, tokenA);
+    session = await openMcpSession(tokenA);
   });
   after(async () => {
     session?.close();
@@ -517,6 +525,7 @@ describe('MCP file metadata — write_file persists metadata, query supports fil
   it('write_file with description and tags stores metadata queryable via query tool', async () => {
     const filePath = `${dir}/documented.txt`;
     const writeResult = await session.callTool('write_file', {
+      space: testSpaceId,
       path: filePath,
       content: 'documented content',
       description: 'A well-documented file',
@@ -526,6 +535,7 @@ describe('MCP file metadata — write_file persists metadata, query supports fil
 
     // Query the files collection and verify the metadata record exists
     const queryResult = await session.callTool('query', {
+      space: testSpaceId,
       collection: 'files',
       filter: { tags: 'meta-test' },
     });
@@ -544,12 +554,14 @@ describe('MCP file metadata — write_file persists metadata, query supports fil
   it('write_file without description/tags still creates metadata record', async () => {
     const filePath = `${dir}/plain.txt`;
     const writeResult = await session.callTool('write_file', {
+      space: testSpaceId,
       path: filePath,
       content: 'plain content',
     });
     assert.ok(!writeResult?.isError, `write_file error: ${JSON.stringify(writeResult)}`);
 
     const queryResult = await session.callTool('query', {
+      space: testSpaceId,
       collection: 'files',
       filter: { _id: filePath },
     });
@@ -561,6 +573,7 @@ describe('MCP file metadata — write_file persists metadata, query supports fil
 
   it('query tool rejects unknown collection', async () => {
     const result = await session.callTool('query', {
+      space: testSpaceId,
       collection: 'unknown_coll',
       filter: {},
     });
@@ -568,26 +581,28 @@ describe('MCP file metadata — write_file persists metadata, query supports fil
   });
 
   it('get_stats files count increments after write_file', async () => {
-    const before = await session.callTool('get_stats', {});
+    const before = await session.callTool('get_stats', { space: testSpaceId });
     const beforeCount = JSON.parse(before?.content?.[0]?.text ?? '{}').files ?? 0;
 
     await session.callTool('write_file', {
+      space: testSpaceId,
       path: `${dir}/count-test.txt`,
       content: 'counting',
     });
 
-    const after = await session.callTool('get_stats', {});
+    const after = await session.callTool('get_stats', { space: testSpaceId });
     const afterCount = JSON.parse(after?.content?.[0]?.text ?? '{}').files ?? 0;
     assert.ok(afterCount >= beforeCount + 1, `Expected files count to increment: before=${beforeCount}, after=${afterCount}`);
   });
 
   it('delete_file removes the metadata record', async () => {
     const filePath = `${dir}/to-delete-meta.txt`;
-    await session.callTool('write_file', { path: filePath, content: 'bye' });
+    await session.callTool('write_file', { space: testSpaceId, path: filePath, content: 'bye' });
 
-    await session.callTool('delete_file', { path: filePath });
+    await session.callTool('delete_file', { space: testSpaceId, path: filePath });
 
     const queryResult = await session.callTool('query', {
+      space: testSpaceId,
       collection: 'files',
       filter: { _id: filePath },
     });
@@ -599,12 +614,13 @@ describe('MCP file metadata — write_file persists metadata, query supports fil
   it('move_file updates the path in metadata', async () => {
     const srcPath = `${dir}/move-meta-src.txt`;
     const dstPath = `${dir}/move-meta-dst.txt`;
-    await session.callTool('write_file', { path: srcPath, content: 'move me' });
+    await session.callTool('write_file', { space: testSpaceId, path: srcPath, content: 'move me' });
 
-    await session.callTool('move_file', { src: srcPath, dst: dstPath });
+    await session.callTool('move_file', { space: testSpaceId, src: srcPath, dst: dstPath });
 
     // Old path metadata should be gone
     const srcQuery = await session.callTool('query', {
+      space: testSpaceId,
       collection: 'files',
       filter: { _id: srcPath },
     });
@@ -613,6 +629,7 @@ describe('MCP file metadata — write_file persists metadata, query supports fil
 
     // New path metadata should exist
     const dstQuery = await session.callTool('query', {
+      space: testSpaceId,
       collection: 'files',
       filter: { _id: dstPath },
     });
@@ -637,12 +654,9 @@ describe('MCP recall_global â€” space-scoped token must only see its own sp
       tags: ['scope-leak-test'],
     });
 
-    // Create a space-scoped token that has access to NO spaces (empty allowlist)
-    // â€” in practice we use a token that is scoped to a space that is NOT 'general'
-    // so any recall_global result containing the secretFact is a scope leak.
-    //
-    // Since the test instance only has 'general' built-in, we create a space-scoped
-    // token scoped to nothing (spaces: []) â€” recall_global must return empty.
+    // Create a space-scoped token scoped to a non-existent space.
+    // In the global MCP endpoint, sessions open for any authenticated token;
+    // access to spaces is enforced at the tool-call level.
     const tokenRes = await post(INSTANCES.a, tokenA, '/api/tokens', {
       name: `scoped-no-access-${Date.now()}`,
       spaces: ['__nonexistent_space__'],
@@ -651,20 +665,9 @@ describe('MCP recall_global â€” space-scoped token must only see its own sp
     scopedTokenPlaintext = tokenRes.body.plaintext;
     scopedTokenId = tokenRes.body.id;
 
-    // Open MCP session using the scoped token against 'general'
-    // requireSpaceAuth checks the token has access to the spaceId in the URL â€”
-    // if the token's spaces list doesn't include 'general' this open should fail with 403.
-    // That itself is a security assertion.
-    try {
-      sessionScoped = await openMcpSession('general', scopedTokenPlaintext);
-    } catch (err) {
-      // 403 is the CORRECT behavior â€” scoped token must not open 'general' session
-      if (err.statusCode === 403) {
-        sessionScoped = null; // test will assert the 403 was correct
-      } else {
-        throw err;
-      }
-    }
+    // The global /mcp endpoint only requires authentication (not space-specific auth),
+    // so any valid token can open a session — access control is enforced per tool call.
+    sessionScoped = await openMcpSession(scopedTokenPlaintext);
   });
 
   after(async () => {
@@ -672,13 +675,15 @@ describe('MCP recall_global â€” space-scoped token must only see its own sp
     if (scopedTokenId) await del(INSTANCES.a, tokenA, `/api/tokens/${scopedTokenId}`).catch(() => {});
   });
 
-  it('space-scoped token cannot open MCP session for unauthorized space (must get 403)', () => {
-    // Either sessionScoped is null (403 was returned â€” correct) or it opened
-    // (should not happen â€” the test will then check recall_global cannot leak).
-    assert.equal(
-      sessionScoped,
-      null,
-      'A token scoped to __nonexistent_space__ must not be able to open an MCP session for "general" â€” got 200 instead of 403',
+  it('space-scoped token is rejected when calling a tool on an unauthorized space', async () => {
+    assert.ok(sessionScoped, 'Global MCP session must open for any authenticated token');
+    // The token is scoped to __nonexistent_space__ — a tool call targeting 'general' must be rejected
+    const result = await sessionScoped.callTool('recall', { space: 'general', query: secretFact });
+    assert.ok(result?.isError, 'Tool call to unauthorized space must return isError');
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(
+      text.toLowerCase().includes('access') || text.toLowerCase().includes('token'),
+      `Expected access-denied message, got: ${text}`,
     );
   });
 });
@@ -691,20 +696,20 @@ describe('MCP recall_global â€” full-access token, multi-space isolation', 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     await ensureReindexed(INSTANCES.a, tokenA);
-    session = await openMcpSession('general', tokenA);
+    session = await openMcpSession(tokenA);
     // Probe embedding availability before attempting to remember a seed fact.
-    const probe = await session.callTool('remember', { fact: `__rg-probe-${Date.now()}__`, tags: [] });
+    const probe = await session.callTool('remember', { space: 'general', fact: `__rg-probe-${Date.now()}__`, tags: [] });
     const probeText = probe?.content?.[0]?.text ?? '';
     embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
     if (embeddingAvailable) {
-      await session.callTool('remember', { fact: spaceAFact, tags: ['global-recall-test'] });
+      await session.callTool('remember', { space: 'general', fact: spaceAFact, tags: ['global-recall-test'] });
     }
   });
   after(() => session?.close());
 
   it('recall_global returns results without isError', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack â€” skipping');
-    const result = await session.callTool('recall_global', { query: spaceAFact, topK: 5 });
+    const result = await session.callTool('recall', { query: spaceAFact, topK: 5 });
     assert.ok(!result?.isError, `recall_global returned isError: ${JSON.stringify(result)}`);
   });
 
@@ -712,7 +717,7 @@ describe('MCP recall_global â€” full-access token, multi-space isolation', 
     // Full-access token CAN access all spaces, so results may come from all spaces â€”
     // the key check: the response is valid and not an error.
     // The CRITICAL path (scoped token seeing other spaces) is tested in the suite above.
-    const result = await session.callTool('recall_global', { query: spaceAFact, topK: 5 });
+    const result = await session.callTool('recall', { query: spaceAFact, topK: 5 });
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.length > 0, 'recall_global must return non-empty text');
     // Verify no raw embedding vectors are exposed
@@ -720,7 +725,7 @@ describe('MCP recall_global â€” full-access token, multi-space isolation', 
   });
 
   it('recall_global with empty query returns isError', async () => {
-    const result = await session.callTool('recall_global', { query: '' });
+    const result = await session.callTool('recall', { query: '' });
     assert.ok(result?.isError, 'Empty query must return isError');
   });
 });
@@ -733,7 +738,7 @@ describe('MCP brain tools — update_memory / delete_memory / get_stats', () => 
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    session = await openMcpSession('general', tokenA);
+    session = await openMcpSession(tokenA);
     // Create a memory via REST API so we have an ID to update/delete
     const res = await post(INSTANCES.a, tokenA, '/api/brain/general/memories', {
       fact: factText,
@@ -744,7 +749,7 @@ describe('MCP brain tools — update_memory / delete_memory / get_stats', () => 
   after(() => session?.close());
 
   it('get_stats returns counts with spaceId, memories, entities, edges, chrono, files', async () => {
-    const result = await session.callTool('get_stats', {});
+    const result = await session.callTool('get_stats', { space: 'general' });
     assert.ok(!result?.isError, `get_stats returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     const parsed = JSON.parse(text);
@@ -759,19 +764,20 @@ describe('MCP brain tools — update_memory / delete_memory / get_stats', () => 
   });
 
   it('update_memory with no id returns isError', async () => {
-    const result = await session.callTool('update_memory', { id: '' });
+    const result = await session.callTool('update_memory', { space: 'general', id: '' });
     assert.ok(result?.isError, 'Empty id must return isError');
   });
 
   it('update_memory with no fields to update returns isError', async (t) => {
     if (!storedMemoryId) return t.skip('No storedMemoryId — prior test failed');
-    const result = await session.callTool('update_memory', { id: storedMemoryId });
+    const result = await session.callTool('update_memory', { space: 'general', id: storedMemoryId });
     assert.ok(result?.isError, 'No update fields must return isError');
   });
 
   it('update_memory updates tags on an existing memory', async (t) => {
     if (!storedMemoryId) return t.skip('No storedMemoryId — prior test failed');
     const result = await session.callTool('update_memory', {
+      space: 'general',
       id: storedMemoryId,
       tags: ['mcp-updated-tag'],
     });
@@ -782,6 +788,7 @@ describe('MCP brain tools — update_memory / delete_memory / get_stats', () => 
 
   it('update_memory on non-existent id returns isError', async () => {
     const result = await session.callTool('update_memory', {
+      space: 'general',
       id: '00000000-0000-0000-0000-000000000000',
       tags: ['irrelevant'],
     });
@@ -789,13 +796,13 @@ describe('MCP brain tools — update_memory / delete_memory / get_stats', () => 
   });
 
   it('delete_memory with no id returns isError', async () => {
-    const result = await session.callTool('delete_memory', { id: '' });
+    const result = await session.callTool('delete_memory', { space: 'general', id: '' });
     assert.ok(result?.isError, 'Empty id must return isError');
   });
 
   it('delete_memory removes the memory', async (t) => {
     if (!storedMemoryId) return t.skip('No storedMemoryId — prior test failed');
-    const result = await session.callTool('delete_memory', { id: storedMemoryId });
+    const result = await session.callTool('delete_memory', { space: 'general', id: storedMemoryId });
     assert.ok(!result?.isError, `delete_memory returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes('deleted') || text.includes(storedMemoryId), `Expected deletion confirmation: ${text}`);
@@ -803,7 +810,7 @@ describe('MCP brain tools — update_memory / delete_memory / get_stats', () => 
 
   it('delete_memory on already-deleted id returns isError', async (t) => {
     if (!storedMemoryId) return t.skip('No storedMemoryId — prior test failed');
-    const result = await session.callTool('delete_memory', { id: storedMemoryId });
+    const result = await session.callTool('delete_memory', { space: 'general', id: storedMemoryId });
     assert.ok(result?.isError, 'Double-delete must return isError');
   });
 });
@@ -820,7 +827,7 @@ describe('MCP chrono tools — list_chrono tags filter / query chrono collection
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    session = await openMcpSession('general', tokenA);
+    session = await openMcpSession(tokenA);
 
     // Create four chrono entries: two with distinct tags, one with both, one untagged
     const rA = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/chrono', {
@@ -855,13 +862,13 @@ describe('MCP chrono tools — list_chrono tags filter / query chrono collection
   });
 
   it('list_chrono without filters returns results without isError', async () => {
-    const result = await session.callTool('list_chrono', {});
+    const result = await session.callTool('list_chrono', { space: 'general' });
     assert.ok(!result?.isError, `list_chrono returned isError: ${JSON.stringify(result)}`);
   });
 
   it('list_chrono with tags filter (AND) returns only entries with that tag', async (t) => {
     if (!idTagA) return t.skip('No idTagA — prior setup failed');
-    const result = await session.callTool('list_chrono', { tags: [tagA] });
+    const result = await session.callTool('list_chrono', { space: 'general', tags: [tagA] });
     assert.ok(!result?.isError, `list_chrono with tags returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes(idTagA), `Expected entry tagged ${tagA} (id ${idTagA}) in results: ${text}`);
@@ -870,7 +877,7 @@ describe('MCP chrono tools — list_chrono tags filter / query chrono collection
 
   it('list_chrono with multi-tag AND filter returns only entries with all specified tags', async (t) => {
     if (!idTagA || !idTagB || !idBoth) return t.skip('Missing seeded entries');
-    const result = await session.callTool('list_chrono', { tags: [tagA, tagB] });
+    const result = await session.callTool('list_chrono', { space: 'general', tags: [tagA, tagB] });
     assert.ok(!result?.isError, `list_chrono multi-tag AND returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes(idBoth), `Entry with both tags should appear for AND query: ${text}`);
@@ -879,7 +886,7 @@ describe('MCP chrono tools — list_chrono tags filter / query chrono collection
 
   it('list_chrono with tagsAny filter (OR) returns entries matching any tag', async (t) => {
     if (!idTagA || !idTagB) return t.skip('Missing seeded entries');
-    const result = await session.callTool('list_chrono', { tagsAny: [tagA, tagB] });
+    const result = await session.callTool('list_chrono', { space: 'general', tagsAny: [tagA, tagB] });
     assert.ok(!result?.isError, `list_chrono tagsAny returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes(idTagA), `Expected entry tagged ${tagA} in results: ${text}`);
@@ -896,7 +903,7 @@ describe('MCP chrono tools — list_chrono tags filter / query chrono collection
   it('list_chrono with after filter returns only entries after the timestamp', async (t) => {
     if (!idTagA) return t.skip('No seeded entries');
     const pastTime = new Date(Date.now() - 60_000).toISOString();
-    const result = await session.callTool('list_chrono', { after: pastTime });
+    const result = await session.callTool('list_chrono', { space: 'general', after: pastTime });
     assert.ok(!result?.isError, `list_chrono after returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes(idTagA), `Seeded entry should appear for after=${pastTime}: ${text}`);
@@ -905,7 +912,7 @@ describe('MCP chrono tools — list_chrono tags filter / query chrono collection
   it('list_chrono with before filter far in future returns seeded entries', async (t) => {
     if (!idTagA) return t.skip('No seeded entries');
     const futureTime = new Date(Date.now() + 3_600_000).toISOString();
-    const result = await session.callTool('list_chrono', { before: futureTime });
+    const result = await session.callTool('list_chrono', { space: 'general', before: futureTime });
     assert.ok(!result?.isError, `list_chrono before returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes(idTagA), `Seeded entry should appear for before=${futureTime}: ${text}`);
@@ -922,6 +929,7 @@ describe('MCP chrono tools — list_chrono tags filter / query chrono collection
   it('query with collection "chrono" returns array without isError', async (t) => {
     if (!idTagA) return t.skip('No seeded chrono entry');
     const result = await session.callTool('query', {
+      space: 'general',
       collection: 'chrono',
       filter: { _id: idTagA },
     });
@@ -936,6 +944,7 @@ describe('MCP chrono tools — list_chrono tags filter / query chrono collection
   it('query chrono with tag filter returns matching entries', async (t) => {
     if (!idTagA) return t.skip('No seeded chrono entry');
     const result = await session.callTool('query', {
+      space: 'general',
       collection: 'chrono',
       filter: { tags: { $in: [tagA] } },
     });
@@ -962,7 +971,7 @@ describe('MCP security — read-only token cannot call mutating tools', () => {
     assert.equal(tokenRes.status, 201, `Create read-only token: ${JSON.stringify(tokenRes.body)}`);
     readOnlyTokenPlaintext = tokenRes.body.plaintext;
     readOnlyTokenId = tokenRes.body.id;
-    readOnlySession = await openMcpSession('general', readOnlyTokenPlaintext);
+    readOnlySession = await openMcpSession(readOnlyTokenPlaintext);
   });
   after(async () => {
     readOnlySession?.close();
@@ -971,6 +980,7 @@ describe('MCP security — read-only token cannot call mutating tools', () => {
 
   it('update_memory is rejected with read-only token', async () => {
     const result = await readOnlySession.callTool('update_memory', {
+      space: 'general',
       id: '00000000-0000-0000-0000-000000000000',
       tags: ['nope'],
     });
@@ -981,6 +991,7 @@ describe('MCP security — read-only token cannot call mutating tools', () => {
 
   it('delete_memory is rejected with read-only token', async () => {
     const result = await readOnlySession.callTool('delete_memory', {
+      space: 'general',
       id: '00000000-0000-0000-0000-000000000000',
     });
     assert.ok(result?.isError, 'delete_memory must be rejected by read-only token');
@@ -989,17 +1000,17 @@ describe('MCP security — read-only token cannot call mutating tools', () => {
   });
 
   it('get_stats works with read-only token', async () => {
-    const result = await readOnlySession.callTool('get_stats', {});
+    const result = await readOnlySession.callTool('get_stats', { space: 'general' });
     assert.ok(!result?.isError, `get_stats must work with read-only token: ${JSON.stringify(result)}`);
   });
 });
 
 describe('MCP security â€” unauthenticated access', () => {
-  it('GET /mcp/:spaceId without auth returns 401', async () => {
+  it('GET /mcp without auth returns 401', async () => {
     const parsed = new URL(INSTANCES.a);
     const status = await new Promise((resolve) => {
       const req = http.request(
-        { host: parsed.hostname, port: parseInt(parsed.port || '80'), path: '/mcp/general', method: 'GET' },
+        { host: parsed.hostname, port: parseInt(parsed.port || '80'), path: '/mcp', method: 'GET' },
         r => { r.resume(); resolve(r.statusCode); },
       );
       req.on('error', () => resolve(0));
@@ -1008,14 +1019,14 @@ describe('MCP security â€” unauthenticated access', () => {
     assert.equal(status, 401, `Expected 401 without auth, got ${status}`);
   });
 
-  it('POST /mcp/:spaceId/messages without auth returns 401', async () => {
+  it('POST /mcp/messages without auth returns 401', async () => {
     const parsed = new URL(INSTANCES.a);
     const status = await new Promise((resolve) => {
       const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'list_peers', arguments: {} } });
       const req = http.request(
         {
           host: parsed.hostname, port: parseInt(parsed.port || '80'),
-          path: '/mcp/general/messages?sessionId=fake-session',
+          path: '/mcp/messages?sessionId=fake-session',
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
         },
@@ -1039,21 +1050,21 @@ describe('MCP recall — types filter restricts result set', () => {
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     await ensureReindexed(INSTANCES.a, tokenA);
-    session = await openMcpSession('general', tokenA);
+    session = await openMcpSession(tokenA);
     // Probe embedding availability
-    const probe = await session.callTool('remember', { fact: `__types-probe-${Date.now()}__`, tags: [] });
+    const probe = await session.callTool('remember', { space: 'general', fact: `__types-probe-${Date.now()}__`, tags: [] });
     const probeText = probe?.content?.[0]?.text ?? '';
     embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
     if (embeddingAvailable) {
       // Seed an entity so entity-type results exist
-      await session.callTool('upsert_entity', { name: entityName, type: 'concept', tags: ['types-filter-test'] });
+      await session.callTool('upsert_entity', { space: 'general', name: entityName, type: 'concept', tags: ['types-filter-test'] });
     }
   });
   after(() => session?.close());
 
   it('recall with types=["memory"] does not return isError', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
-    const result = await session.callTool('recall', { query: entityName, topK: 5, types: ['memory'] });
+    const result = await session.callTool('recall', { space: 'general', query: entityName, topK: 5, types: ['memory'] });
     assert.ok(!result?.isError, `recall types=memory returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.length > 0, 'recall with types filter must return non-empty response');
@@ -1061,13 +1072,13 @@ describe('MCP recall — types filter restricts result set', () => {
 
   it('recall with types=["entity"] does not return isError', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
-    const result = await session.callTool('recall', { query: entityName, topK: 5, types: ['entity'] });
+    const result = await session.callTool('recall', { space: 'general', query: entityName, topK: 5, types: ['entity'] });
     assert.ok(!result?.isError, `recall types=entity returned isError: ${JSON.stringify(result)}`);
   });
 
   it('recall with multiple types does not return isError', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
-    const result = await session.callTool('recall', { query: entityName, topK: 5, types: ['memory', 'entity', 'edge'] });
+    const result = await session.callTool('recall', { space: 'general', query: entityName, topK: 5, types: ['memory', 'entity', 'edge'] });
     assert.ok(!result?.isError, `recall types=[memory,entity,edge] returned isError: ${JSON.stringify(result)}`);
   });
 
@@ -1076,7 +1087,7 @@ describe('MCP recall — types filter restricts result set', () => {
     // Server filters to valid RecallKnowledgeType values — unknown strings are dropped,
     // resulting in an empty types filter (equivalent to no filter) or an empty search.
     // Either way it must not crash.
-    const result = await session.callTool('recall', { query: entityName, topK: 5, types: ['__unknown__'] });
+    const result = await session.callTool('recall', { space: 'general', query: entityName, topK: 5, types: ['__unknown__'] });
     // Should be either a valid response or an error indicating no results — not a server fault
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(typeof text === 'string', 'Response text must be a string regardless of types value');
@@ -1084,7 +1095,7 @@ describe('MCP recall — types filter restricts result set', () => {
 
   it('recall_global with types=["entity"] does not return isError', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
-    const result = await session.callTool('recall_global', { query: entityName, topK: 5, types: ['entity'] });
+    const result = await session.callTool('recall', { query: entityName, topK: 5, types: ['entity'] });
     assert.ok(!result?.isError, `recall_global types=entity returned isError: ${JSON.stringify(result)}`);
   });
 });
@@ -1097,8 +1108,8 @@ describe('MCP brain tools — remember with description and properties', () => {
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    session = await openMcpSession('general', tokenA);
-    const probe = await session.callTool('remember', { fact: `__rich-fields-probe-${Date.now()}__`, tags: [] });
+    session = await openMcpSession(tokenA);
+    const probe = await session.callTool('remember', { space: 'general', fact: `__rich-fields-probe-${Date.now()}__`, tags: [] });
     const probeText = probe?.content?.[0]?.text ?? '';
     embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
   });
@@ -1107,6 +1118,7 @@ describe('MCP brain tools — remember with description and properties', () => {
   it('remember with description and properties does not return isError', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
     const result = await session.callTool('remember', {
+      space: 'general',
       fact: `MCP-rich-fact-${Date.now()}`,
       tags: ['rich-field-test'],
       description: 'Extra context for this fact',
@@ -1121,6 +1133,7 @@ describe('MCP brain tools — remember with description and properties', () => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
     const uniqueFact = `DescPropMCPFact-${Date.now()}`;
     await session.callTool('remember', {
+      space: 'general',
       fact: uniqueFact,
       description: 'A unique MCP description',
       properties: { mcp_key: 'mcp_val' },
@@ -1128,6 +1141,7 @@ describe('MCP brain tools — remember with description and properties', () => {
 
     // Query memories collection and verify description + properties are persisted
     const queryResult = await session.callTool('query', {
+      space: 'general',
       collection: 'memories',
       filter: { fact: uniqueFact },
       limit: 1,
@@ -1147,13 +1161,14 @@ describe('MCP brain tools — upsert_entity with description', () => {
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    session = await openMcpSession('general', tokenA);
+    session = await openMcpSession(tokenA);
   });
   after(() => session?.close());
 
   it('upsert_entity with description stores it and returns id', async () => {
     const name = `MCP-DescEntity-${Date.now()}`;
     const result = await session.callTool('upsert_entity', {
+      space: 'general',
       name,
       type: 'service',
       description: 'Primary API gateway for external traffic',
@@ -1165,6 +1180,7 @@ describe('MCP brain tools — upsert_entity with description', () => {
 
     // Verify description is queryable via query tool
     const q = await session.callTool('query', {
+      space: 'general',
       collection: 'entities',
       filter: { name },
       limit: 1,
@@ -1184,7 +1200,7 @@ describe('MCP brain tools — bulk_write', () => {
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    session = await openMcpSession('general', tokenA);
+    session = await openMcpSession(tokenA);
   });
   after(() => session?.close());
 
@@ -1192,6 +1208,7 @@ describe('MCP brain tools — bulk_write', () => {
     const entName1 = `BulkEnt1-${RUN}`;
     const entName2 = `BulkEnt2-${RUN}`;
     const result = await session.callTool('bulk_write', {
+      space: 'general',
       memories: [
         { fact: `BulkMem-${RUN}`, tags: ['bulk-test'] },
       ],
@@ -1216,6 +1233,7 @@ describe('MCP brain tools — bulk_write', () => {
 
   it('bulk_write with validation errors returns error entries without aborting batch', async () => {
     const result = await session.callTool('bulk_write', {
+      space: 'general',
       memories: [
         { fact: '' },                                // invalid — empty fact
         { fact: `ValidBulkMem-${RUN}`, tags: [] },   // valid
@@ -1234,6 +1252,7 @@ describe('MCP brain tools — bulk_write', () => {
 
   it('bulk_write with empty arrays returns zero counts', async () => {
     const result = await session.callTool('bulk_write', {
+      space: 'general',
       memories: [],
       entities: [],
       edges: [],
@@ -1246,7 +1265,7 @@ describe('MCP brain tools — bulk_write', () => {
   });
 
   it('bulk_write with no arrays returns zero counts', async () => {
-    const result = await session.callTool('bulk_write', {});
+    const result = await session.callTool('bulk_write', { space: 'general' });
     assert.ok(!result?.isError, `bulk_write returned isError for no arrays: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes('bulk_write complete'), `Expected summary: ${text}`);
@@ -1255,6 +1274,7 @@ describe('MCP brain tools — bulk_write', () => {
 
   it('bulk_write chrono with invalid type returns error entry', async () => {
     const result = await session.callTool('bulk_write', {
+      space: 'general',
       chrono: [
         { title: 'Bad Type', type: 'invalid_type', startsAt: new Date().toISOString() },
       ],
@@ -1282,7 +1302,7 @@ describe('MCP security — read-only token cannot call bulk_write', () => {
     assert.equal(tokenRes.status, 201, `Create read-only token: ${JSON.stringify(tokenRes.body)}`);
     readOnlyTokenPlaintext = tokenRes.body.plaintext;
     readOnlyTokenId = tokenRes.body.id;
-    readOnlySession = await openMcpSession('general', readOnlyTokenPlaintext);
+    readOnlySession = await openMcpSession(readOnlyTokenPlaintext);
   });
   after(async () => {
     readOnlySession?.close();
@@ -1291,6 +1311,7 @@ describe('MCP security — read-only token cannot call bulk_write', () => {
 
   it('bulk_write is rejected with read-only token', async () => {
     const result = await readOnlySession.callTool('bulk_write', {
+      space: 'general',
       memories: [{ fact: 'This should be blocked' }],
     });
     assert.ok(result?.isError, 'bulk_write must be rejected by read-only token');
@@ -1308,10 +1329,10 @@ describe('MCP brain tools — upsert_edge with tags, description, and properties
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    session = await openMcpSession('general', tokenA);
+    session = await openMcpSession(tokenA);
 
-    const rA = await session.callTool('upsert_entity', { name: `RichEdgeA-${Date.now()}`, type: 'concept' });
-    const rB = await session.callTool('upsert_entity', { name: `RichEdgeB-${Date.now()}`, type: 'concept' });
+    const rA = await session.callTool('upsert_entity', { space: 'general', name: `RichEdgeA-${Date.now()}`, type: 'concept' });
+    const rB = await session.callTool('upsert_entity', { space: 'general', name: `RichEdgeB-${Date.now()}`, type: 'concept' });
     const mA = (rA?.content?.[0]?.text ?? '').match(/ID ([a-f0-9-]{36})/i);
     const mB = (rB?.content?.[0]?.text ?? '').match(/ID ([a-f0-9-]{36})/i);
     assert.ok(mA, `Could not extract entityA ID: ${rA?.content?.[0]?.text}`);
@@ -1323,6 +1344,7 @@ describe('MCP brain tools — upsert_edge with tags, description, and properties
 
   it('upsert_edge with tags, description, and properties does not return isError', async () => {
     const result = await session.callTool('upsert_edge', {
+      space: 'general',
       from: entityAId,
       to: entityBId,
       label: `rich_rel_${Date.now()}`,
@@ -1338,6 +1360,7 @@ describe('MCP brain tools — upsert_edge with tags, description, and properties
   it('upsert_edge description and properties are stored', async () => {
     const label = `queryable_rel_${Date.now()}`;
     await session.callTool('upsert_edge', {
+      space: 'general',
       from: entityAId,
       to: entityBId,
       label,
@@ -1346,6 +1369,7 @@ describe('MCP brain tools — upsert_edge with tags, description, and properties
     });
 
     const q = await session.callTool('query', {
+      space: 'general',
       collection: 'edges',
       filter: { label },
       limit: 1,
@@ -1368,12 +1392,12 @@ describe('MCP brain tools — recall and recall_global with minPerType', () => {
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     await ensureReindexed(INSTANCES.a, tokenA);
-    session = await openMcpSession('general', tokenA);
-    const probe = await session.callTool('remember', { fact: `__minpertype-probe-${Date.now()}__`, tags: [] });
+    session = await openMcpSession(tokenA);
+    const probe = await session.callTool('remember', { space: 'general', fact: `__minpertype-probe-${Date.now()}__`, tags: [] });
     const probeText = probe?.content?.[0]?.text ?? '';
     embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
     if (embeddingAvailable) {
-      await session.callTool('upsert_entity', { name: entityName, type: 'concept', tags: ['minpertype-test'] });
+      await session.callTool('upsert_entity', { space: 'general', name: entityName, type: 'concept', tags: ['minpertype-test'] });
     }
   });
   after(() => session?.close());
@@ -1381,6 +1405,7 @@ describe('MCP brain tools — recall and recall_global with minPerType', () => {
   it('recall with minPerType object does not return isError', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
     const result = await session.callTool('recall', {
+      space: 'general',
       query: entityName,
       topK: 5,
       minPerType: { entity: 1 },
@@ -1393,6 +1418,7 @@ describe('MCP brain tools — recall and recall_global with minPerType', () => {
   it('recall with minPerType={"entity":1} includes at least one entity when available', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
     const result = await session.callTool('recall', {
+      space: 'general',
       query: entityName,
       topK: 10,
       minPerType: { entity: 1 },
@@ -1406,7 +1432,7 @@ describe('MCP brain tools — recall and recall_global with minPerType', () => {
 
   it('recall_global with minPerType does not return isError', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
-    const result = await session.callTool('recall_global', {
+    const result = await session.callTool('recall', {
       query: entityName,
       topK: 5,
       minPerType: { entity: 1 },
@@ -1416,8 +1442,8 @@ describe('MCP brain tools — recall and recall_global with minPerType', () => {
 
   it('recall with empty minPerType object behaves like no minPerType', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
-    const withMinPerType = await session.callTool('recall', { query: entityName, topK: 5, minPerType: {} });
-    const withoutMinPerType = await session.callTool('recall', { query: entityName, topK: 5 });
+    const withMinPerType = await session.callTool('recall', { space: 'general', query: entityName, topK: 5, minPerType: {} });
+    const withoutMinPerType = await session.callTool('recall', { space: 'general', query: entityName, topK: 5 });
     assert.ok(!withMinPerType?.isError, 'recall with empty minPerType must not error');
     assert.ok(!withoutMinPerType?.isError, 'recall without minPerType must not error');
   });
@@ -1433,12 +1459,12 @@ describe('MCP brain tools — recall and recall_global with minScore', () => {
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     await ensureReindexed(INSTANCES.a, tokenA);
-    session = await openMcpSession('general', tokenA);
-    const probe = await session.callTool('remember', { fact: `__minscore-probe-${Date.now()}__`, tags: [] });
+    session = await openMcpSession(tokenA);
+    const probe = await session.callTool('remember', { space: 'general', fact: `__minscore-probe-${Date.now()}__`, tags: [] });
     const probeText = probe?.content?.[0]?.text ?? '';
     embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
     if (embeddingAvailable) {
-      await session.callTool('remember', { fact: factForScore, tags: ['minscore-test'] });
+      await session.callTool('remember', { space: 'general', fact: factForScore, tags: ['minscore-test'] });
     }
   });
   after(() => session?.close());
@@ -1446,6 +1472,7 @@ describe('MCP brain tools — recall and recall_global with minScore', () => {
   it('recall with minScore does not return isError', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
     const result = await session.callTool('recall', {
+      space: 'general',
       query: factForScore,
       topK: 5,
       minScore: 0.5,
@@ -1456,6 +1483,7 @@ describe('MCP brain tools — recall and recall_global with minScore', () => {
   it('recall with minScore=0.99 returns few or no results', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
     const result = await session.callTool('recall', {
+      space: 'general',
       query: factForScore,
       topK: 10,
       minScore: 0.99,
@@ -1469,15 +1497,15 @@ describe('MCP brain tools — recall and recall_global with minScore', () => {
 
   it('recall with minScore=0.0 behaves like no minScore', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
-    const withMinScore = await session.callTool('recall', { query: factForScore, topK: 5, minScore: 0.0 });
-    const withoutMinScore = await session.callTool('recall', { query: factForScore, topK: 5 });
+    const withMinScore = await session.callTool('recall', { space: 'general', query: factForScore, topK: 5, minScore: 0.0 });
+    const withoutMinScore = await session.callTool('recall', { space: 'general', query: factForScore, topK: 5 });
     assert.ok(!withMinScore?.isError, 'recall with minScore=0.0 must not error');
     assert.ok(!withoutMinScore?.isError, 'recall without minScore must not error');
   });
 
   it('recall_global with minScore does not return isError', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
-    const result = await session.callTool('recall_global', {
+    const result = await session.callTool('recall', {
       query: factForScore,
       topK: 5,
       minScore: 0.5,
@@ -1487,7 +1515,7 @@ describe('MCP brain tools — recall and recall_global with minScore', () => {
 
   it('recall_global with minScore=0.99 returns few or no results', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack — skipping');
-    const result = await session.callTool('recall_global', {
+    const result = await session.callTool('recall', {
       query: factForScore,
       topK: 10,
       minScore: 0.99,
@@ -1506,13 +1534,14 @@ describe('MCP file tools — write_file with properties metadata', () => {
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    session = await openMcpSession('general', tokenA);
+    session = await openMcpSession(tokenA);
   });
   after(() => session?.close());
 
   it('write_file with properties stores them in file metadata', async () => {
     const filePath = `${dir}/annotated.txt`;
     const writeResult = await session.callTool('write_file', {
+      space: 'general',
       path: filePath,
       content: 'annotated file content',
       description: 'Annotated file',
@@ -1522,6 +1551,7 @@ describe('MCP file tools — write_file with properties metadata', () => {
     assert.ok(!writeResult?.isError, `write_file error: ${JSON.stringify(writeResult)}`);
 
     const queryResult = await session.callTool('query', {
+      space: 'general',
       collection: 'files',
       filter: { _id: filePath },
     });

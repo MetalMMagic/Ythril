@@ -1,775 +1,498 @@
-# Ythril User Guide
+﻿# Ythril User Guide
 
-> How to use the Ythril web interface and connect MCP clients.
+> A practical guide to the Ythril web interface for everyday users.
 
-For hosting, deployment, and API reference see [integration-guide.md](integration-guide.md).
-For fastest workstation deployment steps see [workstation-mode-guide.md](workstation-mode-guide.md).
-For contributing and building from source see [contribution-guide.md](contribution-guide.md).
+For deployment and API reference see [integration-guide.md](integration-guide.md).
+For setting up a workstation quickly see [workstation-mode-guide.md](workstation-mode-guide.md).
 
 ---
 
 ## Table of Contents
 
 1. [Logging in](#logging-in)
-2. [Brain — Memories](#brain--memories)
-3. [Brain — Entities & Edges](#brain--entities--edges)
-4. [Brain — Chrono](#brain--chrono)
-5. [Brain — Query](#brain--query)
-6. [Graph](#graph)
-7. [Files](#files)
-8. [File preview](#file-preview)
-9. [Directory tree sidebar](#directory-tree-sidebar)
-10. [Conflict resolution](#conflict-resolution)
-11. [Settings — Spaces](#settings--spaces)
-12. [Settings — Tokens](#settings--tokens)
-13. [Settings — MFA](#settings--mfa)
-14. [Settings — Networks](#settings--networks)
-15. [Settings — Storage](#settings--storage)
-16. [Settings — Audit Log](#settings--audit-log)
-17. [Settings — Webhooks](#settings--webhooks)
-18. [Settings — About](#settings--about)
-19. [Connecting MCP clients](#connecting-mcp-clients)
+2. [Navigation](#navigation)
+3. [Spaces — what they are](#spaces--what-they-are)
+4. [Brain](#brain)
+   - [Memories](#memories)
+   - [Entities](#entities)
+   - [Edges](#edges)
+   - [Chrono](#chrono)
+   - [Query](#query)
+5. [Graph](#graph)
+6. [Files](#files)
+7. [Conflict resolution](#conflict-resolution)
+8. [Schema Library](#schema-library)
+9. [Settings — Spaces](#settings--spaces)
+10. [Settings — Tokens](#settings--tokens)
+11. [Settings — MFA](#settings--mfa)
+12. [Settings — Networks](#settings--networks)
+13. [Settings — Storage](#settings--storage)
+14. [Settings — Audit Log](#settings--audit-log)
+15. [Settings — Webhooks](#settings--webhooks)
+16. [Settings — About](#settings--about)
+17. [Connecting an AI assistant (MCP)](#connecting-an-ai-assistant-mcp)
 
 ---
 
 ## Logging in
 
-Open `http://localhost:3200` (or your instance URL). Enter your admin PAT — the token you received during setup — and click **Log in**.
+Open your instance URL in a browser (e.g. `http://localhost:3200`). Enter your access token — the one you received during setup — and click **Log in**.
 
-The token is stored in browser `localStorage` under `ythril_token`. Logging out clears it.
+If your organisation uses single sign-on (SSO), you will be redirected to your identity provider automatically. After authenticating there you land back in Ythril already logged in.
 
-### SSO / OIDC login
+To sign in with a token when SSO is active, go to `/login?local`.
 
-When an administrator has configured an OIDC provider (see [OIDC Configuration](integration-guide.md#oidc-openid-connect-authentication)), the login page **auto-redirects** to your organisation's identity provider — no extra click required. After authenticating there you are redirected back and logged in automatically.
-
-To bypass SSO and use a PAT instead, navigate to `/login?local`. This is useful for administrators, or when the identity provider is unavailable.
-
-Both login methods coexist: PAT users are unaffected when OIDC is enabled.
-
-### Navigation
-
-The left sidebar has three main sections:
-
-| Section | What it does |
-|---------|--------------|
-| **Brain** | Store and search memories, manage entities and knowledge-graph edges |
-| **Graph** | Visually explore the knowledge graph — search an entity and browse N hops deep |
-| **Files** | Browse, upload, download, move, and delete files |
-| **Settings** | Tokens, spaces, networks, MFA, storage, about |
-
-Everything is scoped to the spaces your token has access to. A token with `spaces: ["eng-kb"]` only sees that space throughout the UI.
-
-A red **conflict badge** appears next to **Files** in the sidebar when unresolved file conflicts exist. The count updates every 60 seconds.
+Clicking **Log out** in the sidebar footer clears the session.
 
 ---
 
-## Brain — Memories
+## Navigation
 
-The **Brain** tab shows all memories in the selected space, sorted newest-first.
+The left sidebar is the main navigation. It is divided into two sections:
 
-### Space stats and reindex
+**Workspace**
+- **Brain** — store and search everything you know
+- **Graph** — visualise how entities connect
+- **Files** — manage uploaded documents and files
+- **Schema Library** — reusable data definitions shared across spaces
 
-Five stat pills at the top of the Brain view show current counts: **memories**, **entities**, **edges**, **chrono**, and **files**.
+**Admin** (admin tokens only)
+- **Settings** → Tokens, Spaces, Networks, Storage, Audit Log, Webhooks, About, Preferences
 
-If the embedding model has changed since the last embed run, an **⚠️ Needs reindex** warning banner appears. Click **Reindex now** to rebuild all vector embeddings for the space. Progress is tracked server-side; a completion message appears when done.
+A space selector at the top of the sidebar (or inside each page) lets you switch between spaces. Everything you see is scoped to the selected space.
 
-### Creating a memory
-
-Click **+ Add memory** in the toolbar. Fill in the form:
-
-| Field | Required | Description |
-|-------|----------|--------------|
-| Fact | Yes | The statement to remember. |
-| Tags | No | Comma-separated categorisation tags. |
-| Entities | No | Click to open the entity picker flyout. Search by name and click an entity to link it. Linked entities appear as chips; click **✕** on a chip to unlink. |
-| Description | No | Free-text context or rationale behind the fact. |
-| Properties | No | Click to open the JSON editor flyout. Enter an arbitrary key-value object (e.g. `{"source": "docs", "confidence": 0.9}`). Live validation and a **Format** button are provided. |
-
-Click **Save**. The memory is embedded and stored immediately. `description` and `properties` are also shown on each memory row in the list. The **Entities** column shows how many entities are linked.
-
-Memories can also be written by MCP clients (e.g. Claude, Cursor) using the `remember` tool, or via the REST API (`POST /api/brain/:spaceId/memories`).
-
-### Semantic search (Recall)
-
-Type a natural-language query in the search bar and press Enter. Ythril uses the built-in embedding model and MongoDB vector search to find semantically similar memories. Results show a similarity score.
-
-### Filtering
-
-Click any **tag pill** or **entity badge** on a memory row to filter the list. Active filters appear as removable chips above the table. Click the **×** on a chip to clear it, or **Clear all** to reset.
-
-### Deleting memories
-
-Each memory row has a **✕** delete button. Clicking it shows an inline **Delete? / Yes / No** confirmation in the same row — no browser dialog. Click **Yes** to confirm or **No** (or any other ✕ button) to cancel.
-
-### Bulk wipe
-
-To delete all memories in a space, click **Wipe all** in the toolbar. A confirmation dialog will ask you to type the space ID to proceed. This writes tombstones so the deletion syncs to peers.
+A red badge appears next to **Files** when there are file conflicts waiting to be resolved.
 
 ---
 
-## Brain — Entities & Edges
+## Spaces — what they are
+
+A **space** is a completely separate container of data — memories, entities, edges, chrono entries, and files. Think of it as a project folder or a context boundary.
+
+The `general` space is created automatically on first run. Admins can create additional spaces in **Settings → Spaces**. Your access token determines which spaces you can see; if a space is not in your token's scope it is invisible to you.
+
+---
+
+## Brain
+
+The Brain is where all your knowledge lives. It has five tabs: **Memories**, **Entities**, **Edges**, **Chrono**, and **Query**.
+
+Five stat pills at the top of the page show the current counts for each collection in the selected space.
+
+If the search index needs rebuilding (for example after upgrading the embedding model), an **⚠ Needs reindex** banner appears. Click **Reindex now** to rebuild it.
+
+### Memories
+
+Memories are the core knowledge unit — plain-language statements you want to remember.
+
+**Creating a memory:** Click **+ Add memory**. Fill in:
+
+| Field | Notes |
+|-------|-------|
+| **Fact** | The statement to store. Required. |
+| **Tags** | Comma-separated keywords for filtering. |
+| **Entities** | Click to open the entity picker. Search by name and click to link. Linked items appear as chips. |
+| **Description** | Optional context or rationale. |
+| **Properties** | Click to open the JSON editor. Enter any key-value pairs you want to attach. |
+
+Click **Save**. The memory is indexed immediately and available for search.
+
+**Searching:** Type a natural-language question or phrase in the search bar and press Enter. Ythril uses semantic (meaning-based) search to find the most relevant memories.
+
+**Filtering:** Click any tag or entity badge on a memory row to filter the list. Active filters appear as chips above the table. Click **×** on a chip to remove it, or **Clear all** to reset.
+
+**Deleting:** Each row has a **✕** button. A small inline confirmation appears — click **Yes** to confirm, **No** to cancel.
+
+**Wiping everything:** Click **Wipe all** in the toolbar. You will be asked to type the space ID to confirm. This removes all memories in the space.
+
+---
 
 ### Entities
 
-Entities are named concepts inside a space (e.g. "Kubernetes", "Team Alpha"). Each entity has a `name`, an optional `type` (e.g. `technology`, `person`), optional `tags`, an optional `description`, and optional `properties` — arbitrary key-value pairs where each value is a string, number, or boolean (e.g. `{"wheels": 4, "color": "red"}`).
+Entities are named concepts — people, services, projects, tools, anything you want to connect knowledge around.
 
-Click **+ Add entity** in the Entities tab to create one from the UI. Enter a name, optional type, optional comma-separated tags, an optional description, and optional properties using the **JSON editor flyout** (click the button to open it; live validation and a **Format** button are provided), then click **Save**. Each save creates a new entity with a unique ID — multiple entities with the same name and type can coexist (e.g. several "Lisa" entries of type "person"). To update an existing entity, use the edit action on its row, or pass its `id` via the API/MCP tool. If entities with the same name and type already exist you will see a warning.
+Each entity has a **name**, optional **type** (e.g. `person`, `service`), optional **tags**, an optional **description**, and optional **properties** (key-value pairs like `{ "version": "3.0", "active": true }`).
 
-A **search bar** above the entity table lets you filter by name in real time. Results are paginated (20 per page) — use the **← Prev** / **Next →** controls below the table.
+**Creating an entity:** Click **+ Add entity**, fill in the fields, and click **Save**.
 
-Each entity row has an inline **✕ / Delete? / Yes / No** confirmation (no browser dialog).
+**Searching:** The search bar above the table filters by name in real time.
+
+**Editing:** Click the edit icon on any row to update it.
+
+**Deleting:** Each row has an inline **✕ → confirm** flow.
+
+Results are paginated — use **← Prev / Next →** to page through them.
+
+---
 
 ### Edges
 
-Edges connect two entities. Each edge has a `from`, `to`, `label` (the relationship name), an optional numeric `weight`, an optional `type` for classification (e.g. `causal`, `hierarchical`, `temporal`), optional `tags`, an optional `description`, and optional `properties` (key-value metadata).
+Edges connect two entities and describe the relationship between them (e.g. *service-a* `depends_on` *service-b*).
 
-Click **+ Add edge** in the Edges tab to create one from the UI. The form accepts:
+Each edge has a **from** entity, a **to** entity, a **label** (the relationship name), and optional **type**, **weight**, **tags**, **description**, and **properties**.
 
-| Field | Required | Description |
-|-------|----------|--------------|
-| From | Yes | Search and select the source entity by name using the picker dropdown. |
-| Label | Yes | Relationship name, e.g. `depends_on`. |
-| To | Yes | Search and select the target entity by name using the picker dropdown. |
-| Type | No | Classification, e.g. `causal`, `hierarchical`. |
-| Weight | No | Numeric strength (0–1 convention). |
-| Tags | No | Comma-separated tags. |
-| Description | No | Free-text rationale. |
-| Properties | No | Click to open the JSON editor flyout. Enter key-value metadata; live validation and **Format** are provided. |
+**Creating an edge:** Click **+ Add edge**. Use the entity pickers to select the source and target, type a label, and click **Save**.
 
-Click **Save**. If an edge with the same `(from, to, label)` already exists, tags are union-merged, properties are shallow-merged, and weight/type are updated.
-
-The edge table shows entity **names** in the From/To columns (not raw IDs). When editing an edge, the form shows a read-only **From → To** context header so you always know which edge you are changing.
-
-Each edge row has an inline **✕ / Delete? / Yes / No** confirmation (no browser dialog).
+**Editing / Deleting:** Same as entities — edit icon or inline ✕ confirm.
 
 ---
 
-## Brain — Chrono
+### Chrono
 
-The **Chrono** tab stores time-based entries: events, deadlines, plans, predictions, and milestones.
+Chrono stores time-anchored entries: events, deadlines, plans, predictions, and milestones.
 
-### Fields
+**Creating an entry:** Click **+ Add entry**. Required fields are **title**, **type**, and **starts at** (date and time). You can also add a description, tags, status, and linked entities.
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `title` | Yes | Short summary of the entry. |
-| `type` | Yes | One of `event`, `deadline`, `plan`, `prediction`, `milestone`. |
-| `startsAt` | Yes | ISO 8601 start date/time. |
-| `endsAt` | No | ISO 8601 end date/time. |
-| `status` | No | `upcoming` (default), `active`, `completed`, `overdue`, `cancelled`. |
-| `confidence` | No | 0–1 confidence level (useful for predictions). |
-| `description` | No | Longer description text. |
-| `tags` | No | Categorisation tags (array of strings). |
-| `entityIds` | No | Related entity IDs (array). |
-| `memoryIds` | No | Related memory IDs (array). |
+**Filtering:** The filter bar above the table lets you narrow by tag text and status. Filters apply immediately.
 
-### Creating from the UI
-
-Click **+ Add entry** in the Chrono tab. Fill in the title, select a type (or type a custom type), pick a start date/time, and optionally add a description, tags, and linked entities using the **entity picker flyout** (search by name, click to link, chips show linked items). Click **Save**.
-
-### Filtering
-
-A filter bar above the chrono table lets you narrow the list by **tag** (text input) and **status** (dropdown). Filters apply immediately and reset pagination. Use **Clear** to remove active filters.
-
-### Pagination
-
-Chrono results are paginated (20 per page). Use the **← Prev** / **Next →** controls below the table.
-
-### Deleting entries
-
-Each chrono row has an inline **✕ / Delete? / Yes / No** confirmation (no browser dialog).
-
-### MCP tools
-
-- `create_chrono` — create a new entry.
-- `update_chrono` — update an existing entry (change status, dates, etc.).
-- `list_chrono` — list entries, optionally filtered by `status`, `type`, `tags` (ALL), `tagsAny` (ANY), `after`, `before`, or `search`.
-
-The `query` tool also supports `collection: "chrono"` for advanced MongoDB filter queries.
-
-### Sync
-
-Chrono entries sync across brain networks using the same seq-based last-writer-wins protocol as entities and edges. Deleted entries create tombstones that propagate to peers.
+**Deleting:** Inline ✕ confirmation per row.
 
 ---
 
-## Brain — Query
+### Query
 
-The **Query** panel lets you run structured filter queries directly against any collection in the current space.
+The Query panel lets you run structured searches across any collection in the current space.
 
-Select a **collection** (`memories`, `entities`, `edges`, `chrono`, or `files`) from the dropdown, enter a MongoDB-style filter as JSON, and click **Run**. Results are displayed in a table below.
+Select a collection (`memories`, `entities`, `edges`, `chrono`, or `files`), enter a filter as JSON, and click **Run**. Results appear in a table below.
 
-The filter supports standard MongoDB operators like `$eq`, `$gt`, `$lt`, `$in`, `$regex`, etc. Dangerous operators (`$where`, `$function`) are blocked. Filters deeper than 8 levels are rejected.
+Example — find all entities of type `service`:
+```json
+{ "type": "service" }
+```
 
-Examples:
-
-- All entities of type `service`: `{ "type": "service" }`
-- Memories tagged `infra`: `{ "tags": "infra" }`
-- Chrono entries after a date: `{ "startsAt": { "$gte": "2026-01-01" } }`
-
-The same functionality is available as the `query` MCP tool and `POST /api/brain/spaces/:spaceId/query` REST endpoint.
+Example — find memories tagged `infra`:
+```json
+{ "tags": "infra" }
+```
 
 ---
 
 ## Graph
 
-The **Graph** view lets you visually explore the knowledge graph. Select an entity by name and browse its neighbourhood N hops deep.
+The Graph view lets you explore how entities relate to each other visually.
 
-### Getting started
-
+**Getting started:**
 1. Click **Graph** in the sidebar.
-2. Choose a space from the dropdown in the toolbar.
-3. Type an entity name in the search bar. An autocomplete dropdown shows matching entities.
-4. Click an entity to load its graph neighbourhood.
+2. Select a space from the toolbar.
+3. Type an entity name in the search bar and click the result to load its graph.
 
-### Toolbar controls
+**Toolbar controls:**
 
-| Control | Description |
+| Control | What it does |
 |---------|-------------|
-| **Space selector** | Switch between spaces. |
-| **Search** | Type-ahead entity search by name. |
-| **Depth slider** | Number of hops from the root node (1–10, default 3). |
-| **Direction pills** | `Out` = outbound edges only, `In` = inbound only, `Both` = both directions. |
-| **Hide labels** | Toggle edge label visibility on dense graphs. |
-| **⛶ Fit** | Fit the entire graph into the viewport. |
-| **↺ Reset** | Clear the graph and start over. |
+| **Search** | Find and load an entity as the root node |
+| **Depth** | How many hops out from the root to show (1–10) |
+| **Direction** | Show outbound edges, inbound edges, or both |
+| **Hide labels** | Toggle edge label text on dense graphs |
+| **Fit** | Zoom to fit the whole graph in view |
+| **Reset** | Clear the graph |
 
-### Canvas
-
-Nodes are coloured by entity type using a deterministic palette. The **root node** (the entity you searched for) is larger and has an accent-coloured border.
-
+**Interacting with the graph:**
 - **Single-click** a node to select it and open the detail panel below.
-- **Double-click** a node to re-root the graph at that node. The browser back button returns to the previous root.
-- **Click** an edge to open the edge record in a popup.
-- Each node and edge has a **👁** overlay icon. Click it to open the full record in a popup.
+- **Double-click** a node to make it the new root.
+- **Click** an edge to see its details in a popup.
+- The **👁** icon on nodes and edges opens a full detail popup.
 
-When the node cap is reached (the traverse response returns `truncated: true`), a warning banner is overlaid at the top of the canvas: _"⚠ Result truncated — reduce depth or node limit to see full graph"_. The banner is dismissible.
-
-### Detail panel
-
-When a node is selected, a detail panel appears below the canvas. It shows:
-
-- **Header:** entity name, type badge, memory count, chrono count.
-- **Filters:** type radio group (All / Memory / Chrono) and a description text filter — both filter client-side without a re-fetch.
-- **Table:** unified sortable table with columns **Description · Tags · Properties · Created · 👁**. Click a column header to sort. Click the 👁 button to open the full record in a popup.
-
-### Entry popup
-
-The 👁 button (on table rows, canvas nodes, or canvas edges) opens a shared entry popup that displays all fields of the record.
-
-- **Scalar fields** (string, number, boolean) are shown as labelled form inputs.
-- **Object/array fields** are rendered as sub-tables.
-- A **Raw JSON** toggle switches to the full JSON view.
-- The `_id` field is always read-only.
-- If your token has write permission, the popup shows **Validate · Undo · Cancel · Save** buttons. Save PATCHes the record via the correct REST endpoint for the record type.
-- If your token is read-only, only a **Close** button is shown.
+The detail panel below the canvas shows all memories and chrono entries linked to the selected entity. Use the type filter and description filter to narrow what you see.
 
 ---
 
 ## Files
 
-The file manager lets you browse, upload, download, move, rename, and delete files within each space.
+The file manager lets you upload, download, organise, and preview files within each space.
 
-### Uploading
+**Uploading:** Click **↑ Upload** in the toolbar, or drag and drop files directly onto the file list. Large files are uploaded in chunks automatically.
 
-There are two ways to upload:
+**Actions per row:**
 
-- **Toolbar button** — click **↑ Upload** and select one or more files.
-- **Drag and drop** — drag files from your desktop and drop them anywhere onto the file listing area. The panel highlights with a border when a drop is detected.
+| Action | How |
+|--------|-----|
+| Preview | Click the file name or the 👁 icon |
+| Download | Click the ↓ icon |
+| Rename | Click **Rename** |
+| Delete | Click ✕ and confirm |
 
-Files larger than 10 MB are automatically chunked (5 MB pieces) with a progress bar. Failed chunks retry up to 3 times.
+**New folder:** Click **New folder** in the toolbar.
 
-### Actions
+**Navigation:** A breadcrumb bar (`root / docs / guides`) at the top lets you jump to any parent directory. The **tree sidebar** (toggle with **Show tree** / **Hide tree**) provides a full directory view.
 
-- **Preview** — click the 👁 icon on any file row to open the preview pane.
-- **Download** — click the **↓** icon on any file row.
-- **Rename** — click **Rename** on any row.
-- **Delete** — click the **✕** icon and confirm.
-- **New Folder** — click **New folder** in the toolbar.
+### File preview
 
-### Breadcrumb navigation
+Clicking a file name or 👁 opens an inline preview pane:
 
-A clickable breadcrumb bar (`root / docs / guides`) appears above the file list. Click any segment to jump to that directory.
+| Type | How it renders |
+|------|---------------|
+| Text, code, Markdown, JSON, YAML… | Syntax-highlighted |
+| Images (.png, .jpg, .gif, .webp, .svg…) | Inline image |
+| PDF | Embedded viewer |
+| Everything else | File info + download button |
 
----
-
-## File preview
-
-Clicking a filename or the 👁 **Preview** button in the Actions column opens a preview pane instead of downloading.
-
-| File type | Extensions | How it renders |
-|-----------|-----------|----------------|
-| Text / Code | `.txt`, `.md`, `.json`, `.yaml`, `.yml`, `.ts`, `.js`, `.py`, `.sh`, `.csv`, `.xml`, `.html`, `.css`, `.log`, `.env`, `.toml` | Syntax-highlighted view |
-| Image | `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.bmp` | Inline image scaled to fit |
-| PDF | `.pdf` | Embedded viewer |
-| Other | Everything else | File metadata with a download button |
-
-### Controls
-
-- **Close**: click ✕, press Escape, or click the overlay backdrop.
-- **Navigate**: Arrow keys (↑/↓ or ←/→) cycle through files in the current directory.
-- **Download**: always visible in the preview header.
-
----
-
-## Directory tree sidebar
-
-The file manager has a collapsible directory tree in the left sidebar.
-
-- **Toggle**: click **Show tree** / **Hide tree** in the toolbar. State persists across reloads (localStorage).
-- **Lazy loading**: subdirectories load on demand when expanded.
-- **Navigation**: clicking a directory navigates the main file listing.
-- **Highlighting**: the active directory is highlighted.
-- **Auto-refresh**: the tree reloads when you switch spaces or create a folder.
+Press **Escape** or click the backdrop to close. Use arrow keys to move to the previous or next file in the directory.
 
 ---
 
 ## Conflict resolution
 
-When two brains modify the same file before syncing, a conflict record is created.
+When two connected brains modify the same file before syncing, a conflict is created. The sidebar shows a red badge on Files when conflicts are waiting.
 
-### Viewing
+Open **Files → Conflicts** to see them. For each conflict choose what to do:
 
-Open **Files → Conflicts** to see all unresolved conflicts.
-
-### Resolving
-
-Each conflict has four resolution options:
-
-| Action | Result |
+| Option | Result |
 |--------|--------|
-| **Keep local** | Keeps your file, discards the incoming version |
-| **Keep incoming** | Replaces your file with the incoming version |
-| **Keep both** | Keeps both files (optionally rename the incoming copy) |
-| **Save to space** | Copies the incoming file to a different space, then removes the conflict |
+| **Keep local** | Your version wins, the incoming version is discarded |
+| **Keep incoming** | The incoming version replaces yours |
+| **Keep both** | Both versions are kept (you can rename the incoming copy) |
+| **Save to space** | The incoming version is copied to a different space, then the conflict is removed |
 
-Select an action per row and click **Resolve**, or select multiple conflicts and use the bulk action bar. The **Dismiss** button (✕) removes only the conflict record without touching files.
+**Dismiss** (✕) removes the conflict record without changing any files.
+
+---
+
+## Schema Library
+
+The Schema Library is an instance-wide store of reusable data definitions. Instead of copying the same schema into every space, define it once here and reference it from any space.
+
+Open **Schema Library** from the sidebar (under Workspace).
+
+### My Library tab
+
+This tab lists all schema definitions on this instance.
+
+**Browsing:** Use the search bar to filter by name or description. Use the type filter pills (entity / memory / edge / chrono) to narrow by knowledge type.
+
+**Creating an entry:** Click **+ New entry**. Fill in:
+- **Default Type Name** — the display name (e.g. `Service`). A unique identifier is derived from it automatically.
+- **Knowledge Type** — which kind of data this schema applies to.
+- **Description** — optional, surfaced to AI assistants.
+- **Naming pattern** — an optional regular expression that entity names must match.
+- **Tag suggestions** — hints shown to users when entering tags.
+- **Property schemas** — click **+ Add property** to define properties with optional type, constraints, and whether they are required.
+
+Click anywhere on a card to open and edit it. Changes save and close automatically.
+
+**Publishing:** Click the globe icon on a card to make the entry visible to other Ythril instances. The icon turns accented when published. Click again to unpublish. No space data is ever exposed — only the schema definition.
+
+**Deleting:** Click the trash icon. If spaces currently reference the entry, a dialog shows which ones and offers to unlink them automatically before deleting.
+
+### Foreign Catalogs tab
+
+This tab lets you link to other Ythril instances' public schema libraries and import their definitions.
+
+**Adding a catalog:** Click **Add Catalog**. Enter a short ID (e.g. `acme`), the base URL of the remote instance (e.g. `https://brain.acme.example`), and an optional description.
+
+**Browsing:** Click **Browse** on a catalog card to see all published entries on that remote instance.
+
+**Importing:** Click **Import** next to any entry. It is copied into your local library tagged with the source catalog for traceability.
+
+**Removing a catalog link:** Click the trash icon on the catalog card. Previously imported entries stay in your library.
 
 ---
 
 ## Settings — Spaces
 
-A space is a fully isolated container for memories, entities, edges, and files. The `general` space is created automatically during setup.
+Open **Settings → Spaces** to manage all spaces on this instance.
 
 ### Creating a space
 
-Open **Settings → Spaces** and fill in:
+Click **+ Create space**. Fill in:
 
-- **Display Name** — human-readable label shown in the UI and included in MCP server instructions.
-- **ID** — optional. Lowercase alphanumeric + hyphens, max 40 chars. Auto-generated from the display name if left blank.
-- **Max GiB** — optional. Maximum storage quota (0 or blank = unlimited).
-- **Purpose** — optional, max 4000 chars. Describe what the space is for and how to use it. Accessible to MCP clients via `get_space_meta`.
-- **Validation mode** — set schema enforcement at creation time: `off` (default), `warn`, or `strict`.
-- **Strict linkage** — when checked, enforces UUID v4 references and blocks entity deletion while inbound links exist.
-
-### Renaming a space
-
-Click the pencil (✎) icon on a space row to rename its ID. Enter a new ID and press Enter or click the check mark. The rename:
-
-- Moves all MongoDB collections (`memories`, `entities`, `edges`, `chrono`, `tombstones`, etc.) to the new prefix.
-- Moves the file directory on disk from `/data/files/{old}` to `/data/files/{new}`.
-- Updates all network `spaces[]` arrays and adds a `spaceMap` entry (`old → new`) so peers continue to sync correctly.
-- Updates all token `spaces[]` scopes that referenced the old ID.
-
-The built-in `general` space cannot be renamed. Renaming to an existing space ID returns `409`.
-
-### Proxy spaces
-
-A proxy space groups multiple real spaces into a single virtual endpoint. Reads aggregate across all members; writes require selecting a target space.
-
-To create a proxy space from the UI, enter comma-separated space IDs in the **Proxy for** field when creating a space. Proxy members must be existing non-proxy spaces (nesting is not allowed).
-
-### Deleting a space
-
-Click the delete button on a space row and confirm by typing the space ID. On a networked brain this opens a vote round so peers can react before removal.
-
-### Wiping a space
-
-Click the ⊘ **Wipe space** button on a space row to erase all data from a space while keeping the space itself (its label, description, config, and settings are preserved).
-
-A confirmation dialog loads the current per-collection document counts (memories, entities, edges, chrono, files) before proceeding so you can confirm the scope of the operation. Click **Wipe space** to confirm.
-
-This is equivalent to `POST /api/admin/spaces/:spaceId/wipe` — see the [Integration Guide](integration-guide.md#wipe-space) for the API reference including partial-type wipes.
+- **Display Name** — the human-readable label shown everywhere in the UI.
+- **ID** — optional. Short lowercase identifier (auto-generated from the name if left blank).
+- **Max Storage (GiB)** — optional quota limit. Leave blank for unlimited.
+- **Purpose** — optional description of what this space is for. Visible to AI assistants.
 
 ### Space settings
 
-Open any space row and click **Settings** (or the gear icon) to edit the space's general settings:
+Click the gear icon on any space row to open its settings panel. Changes save and close automatically.
 
-- **Display Name** — update the human-readable label.
-- **Purpose** — short description (max 4000 chars) accessible to MCP clients via `get_space_meta`.
-- **Usage Notes** — optional extended guidance for LLM clients (max 50 000 chars, Markdown supported). Also accessible via `get_space_meta`.
-- **Max Storage (GiB)** — update the quota limit (blank = unlimited).
+**General tab:** Update the display name, purpose, usage notes for AI assistants, and storage quota.
 
-### Schema validation
+**Schema tab:** Define what data this space accepts.
 
-Each space can define a schema that governs what data is accepted. Open a space's settings and switch to the **Schema** tab to configure:
+- **Validation mode** — `off` means anything goes; `warn` lets writes through but flags violations; `strict` blocks invalid writes entirely.
+- **Strict linkage** — when on, references between items must be valid IDs and deletion of referenced items is blocked.
+- **Type schemas** — define per-type rules under each knowledge type (entity, memory, edge, chrono). For each named type you can set:
+  - **Naming pattern** — a regex the name must match.
+  - **Tag suggestions** — hints shown in the tag input.
+  - **Property schemas** — rules for each property field (type, allowed values, min/max, pattern, required, default).
+- **From Lib** — import a schema from the Schema Library. The type row shows a badge and stays in sync with the library automatically.
+- **From File** — import a schema from a previously exported JSON file.
+- **Save to Lib** — save the current type schema to the Schema Library for reuse in other spaces.
 
-- **Validation mode** — `off` (default), `warn` (accept with warnings), or `strict` (reject violations).
-- **Type schemas** — a per-type schema tree (`typeSchemas`) organised by knowledge type (`entity`, `edge`, `memory`, `chrono`) and then by type name. Adding a type name under a knowledge type automatically creates its allowlist entry. For each named type you can configure:
-  - **Naming pattern** (entities only) — regex to validate entity `name` (e.g. `service` names must match `^[a-z][a-z0-9-]+$`).
-  - **Tag suggestions** — non-enforced tag hints for that specific type shown in the UI.
-  - **Property schemas** — per-property value constraints: `type` (string/number/boolean/date), `enum` (allowed values), `minimum`/`maximum` (numeric ranges), `pattern` (regex), `required` (must be present on every write), `default` (value inserted when absent), `mergeFn` (merge hint for entity merges).
-- **Global tag suggestions** — non-enforced hints shown in the UI across all knowledge types.
-- **Strict linkage** — when enabled, all reference fields (`from`/`to` on edges, `entityIds`/`memoryIds` on chrono and memories) must be valid UUID v4 values, and entity deletion is blocked while inbound edges or memories reference it.
+**Danger tab:** Rename the space ID, wipe all data, or delete the space entirely.
 
-**Schema export / import:** Use the **Export JSON** and **Import JSON** buttons at the top of the Schema tab to download or upload the full `typeSchemas` definition as a JSON file. Schemas are also auto-synced to `schemas/` in the space's file store on every save.
+### Renaming a space
 
-When validation is `strict`, any write (individual or bulk) that violates the schema is rejected with a detailed error listing every violation. When `warn`, writes proceed but the response includes warnings. The `validate-schema` endpoint lets you dry-run a proposed schema change against existing data — see the [Integration Guide](integration-guide.md#validate-schema-dry-run).
+Click the pencil icon on a space row to rename its ID. All data, files, token scopes, and network sync mappings are updated automatically.
 
-Schema validation applies equally to REST API writes, MCP tool calls, and bulk operations.
+### Deleting a space
 
-### Schema Library
+In the space's settings panel, open the **Danger** tab and click **Delete space**. You will be asked to type the space ID to confirm.
 
-The **Schema Library** (accessible from the main navigation, under Workspace) is an instance-level store of reusable `TypeSchema` definitions. Instead of copying the same schema into every space, you define it once in the library and reference it from each space.
+### Wiping a space
 
-**Creating a library entry:** Open **Schema Library** → **+ New entry**. Give it a unique name (e.g. `service-v1`), select the knowledge type and type name it is intended for, then fill in the same constraints you would enter in a space's schema editor: naming pattern, tag suggestions, and property schemas.
-
-**Referencing a library entry from a space:** In the space's schema tab, click **From Lib** in the footer of any knowledge-type section. A picker shows all library entries for that type. Click **Use this schema** to import the entry as a `$ref` — the type row shows a **Library** badge and a read-only hint. Spaces that use `$ref` automatically pick up library edits without any re-configuration.
-
-**Saving a type schema to the library:** Click the **Save to Lib** button on any type row that is not already a library reference. The entry is created automatically using a slugified version of the type name. On success the row converts to a `$ref` in place.
-
-**Link counter:** The Schema Library page shows how many spaces link each entry (e.g. **2 links** badge). Entries with no links show no badge.
-
-**Safe deletion:** Clicking the trash icon on a library entry fetches all linked spaces first. If any exist, a warning dialog lists them and offers **Unlink & Delete** — this replaces every `$ref` with the inline schema before removing the entry, so no space loses its validation rules. Entries with no links are removed immediately after a single confirm.
-
-**Publishing an entry:** Click the eye icon on any library entry card to publish it. Published entries are exposed on the public endpoint (`GET /api/schema-library/public`) without authentication, so other Ythril instances can discover and import them. The card shows a green **Published** badge while active. Click the icon again (or use the API) to unpublish. Publishing exposes only the schema definition — no space data is ever exposed.
-
-**Imported entries:** If an entry was imported from a foreign catalog, its card shows an italic *"from `<catalog-name>`"* label below the badges. The original source URL is stored internally for traceability.
-
-**Foreign Catalogs tab:** The **Foreign Catalogs** tab (alongside "My Library" at the top of the page) lets you link to other Ythril instances' public schema libraries and browse their published entries.
-
-- **Add a catalog link:** Click **Add Catalog**, enter a unique catalog ID (e.g. `acme-schemas`), the base URL of the remote instance's schema library API (e.g. `https://brain.acme.example/api/schema-library`), and an optional description. Only HTTPS URLs to public internet hosts are accepted.
-- **Browse a catalog:** Click **Browse** on a catalog card. The browser dialog lists all published entries on the remote instance with their knowledge type and description.
-- **Import an entry:** Click **Import to Library** next to any entry in the browse dialog. The full schema is fetched from the remote instance and saved to your local library, with `sourceCatalog` set to the catalog ID for traceability. Imports are independent copies — they are not kept in sync with the remote.
-- **Remove a catalog link:** Click the trash icon on a catalog card. This removes the link only; any previously imported entries remain in your local library.
-
-**JSON format for `$ref`:**
-
-```json
-{
-  "meta": {
-    "typeSchemas": {
-      "entity": {
-        "service": { "$ref": "library:service-v1" }
-      }
-    }
-  }
-}
-```
-
-Editing a library entry takes effect immediately for all spaces that reference it. If a `$ref` points to a non-existent entry, the type is treated as having an empty schema (no constraints).
-
-### Exporting a space
-
-Use the REST API to export a full space dump:
-
-```
-GET /api/admin/spaces/:spaceId/export
-```
-
-Returns all memories, entities, edges, chrono entries, and file metadata as a single JSON document. Embedding vectors are stripped so the export is model-independent. Binary file content is not included.
-
-### Importing into a space
-
-```
-POST /api/admin/spaces/:spaceId/import
-```
-
-Accepts the same JSON format as the export. Each document is matched by `_id` — existing documents are replaced, new ones are inserted. After importing, run a reindex (`POST /api/brain/spaces/:spaceId/reindex`) to rebuild embedding vectors.
+In the **Danger** tab, click **Wipe space**. A confirmation dialog shows how many items are in each collection before you proceed. The space itself (its settings, label, schema) is kept — only the data inside it is removed.
 
 ---
 
 ## Settings — Tokens
 
-All API and MCP access requires a Bearer PAT (`ythril_` prefix). Tokens are bcrypt-hashed and never stored or logged in plaintext.
+All access to Ythril — from the web UI, REST API, or AI assistants — requires an access token.
 
-### Token types
+**Token types:**
 
 | Type | Access |
 |------|--------|
-| Admin | Full access — token management, space CRUD, network management |
-| Non-admin | Data only — brain, files, MCP; cannot manage tokens or networks |
-| Read-only | Search and read only — all mutations blocked |
-| Space-scoped | Restricted to listed spaces; all others invisible |
+| Admin | Everything, including token and space management |
+| Standard | Brain, files, and MCP tools; cannot manage tokens, spaces, or networks |
+| Read-only | Search and read only; all writes blocked |
 
-The web UI supports creating all token types: admin, non-admin, read-only, and space-scoped.
+Tokens can also be **space-scoped** — restricted to a specific list of spaces. Spaces outside that list are invisible to the token.
 
-### Actions
+### Creating a token
 
-- **Create** — provide a name and optional expiry date, then choose a **permission level** (Read-only, Standard, or Admin) using the radio buttons, and optionally restrict the token to specific spaces using the checkbox list. The plaintext is shown **once** — copy it immediately.
-- **Rotate** (↺) — generates a new secret, invalidating the old one instantly. The new plaintext is shown once.
-- **Revoke** (✕) — permanently deletes the token.
+Click **+ New token**. Enter a name, choose a permission level, optionally set an expiry date, and optionally restrict it to specific spaces. Click **Create** — the token value is shown **once**. Copy it immediately.
 
-The token you are currently logged in with is marked **(you)** in the list. Read-only tokens show a yellow **read-only** badge next to the name.
+### Rotating a token
+
+Click the ↺ icon on any token row. A new secret is generated; the old one stops working immediately. The new value is shown once.
+
+### Revoking a token
+
+Click the ✕ icon and confirm. The token is deleted and can never be used again.
+
+Your current session token is marked **(you)** in the list.
 
 ---
 
 ## Settings — MFA
 
-MFA adds an optional TOTP requirement on admin mutations (creating tokens, managing spaces). Read-only and data-plane operations are unaffected.
+MFA adds a one-time code requirement for admin actions (creating tokens, managing spaces). Normal data operations are not affected.
 
 ### Enrolling
 
 1. Open **Settings → MFA** and click **Enable MFA**.
-2. Scan the QR code with your authenticator app (Google Authenticator, Authy, 1Password, Bitwarden, etc.). The QR is generated entirely in-browser — the TOTP secret never leaves your machine.
-3. Enter a 6-digit code and click **Confirm**.
-4. A green **Enabled** badge appears.
+2. Scan the QR code with an authenticator app (Google Authenticator, Authy, 1Password, Bitwarden, etc.).
+3. Enter the 6-digit code shown in the app and click **Confirm**.
 
-> The base32 key is shown only during enrollment. If you need it later, disable and re-enroll.
+The TOTP secret is generated in your browser and never sent to any server other than to store the encrypted key for verification.
 
-### Daily use
+### Day-to-day use
 
-When you perform an admin action (e.g. create a token), the UI automatically prompts for a TOTP code. Once entered, the code is cached in memory for 15 minutes so you aren't re-prompted on every click.
+When you perform an admin action, the UI prompts for a 6-digit code. After entering it, the code is cached for 15 minutes so you are not asked again on every click.
 
 ### Disabling
 
-Click **Disable MFA** and confirm. No TOTP code is needed — this is the recovery path if you lose your authenticator. You must still have a valid admin PAT.
-
-### Recovery
-
-If you've lost your authenticator app, disable MFA from the UI (or API) using your admin token. Then re-enroll with a new authenticator.
-
-If you've also lost all admin tokens: restore a backup of `config/secrets.json` or start fresh with `docker compose down -v && docker compose up`.
+Click **Disable MFA**. No code is needed — this is intentional, so you can recover if you lose your authenticator.
 
 ---
 
 ## Settings — Networks
 
-Networks sync specific spaces between brains. Each network has a governance type that controls how members join and leave.
+Networks sync selected spaces between multiple Ythril instances over the internet.
 
-### Governance types
+### Network types
 
-| Type | Join approval | Best for |
-|------|--------------|----------|
-| **Closed** | All members unanimous | Personal multi-device |
-| **Democratic** | Majority vote, no vetoes | Small teams |
-| **Club** | Inviter decides alone | Open collaboration |
-| **Braintree** | All ancestors to root | Hierarchical orgs |
-| **Pub/Sub** | Automatic (no approval) | Public distribution, documentation |
-
-For full governance rules see [network-types.md](network-types.md).
+| Type | Who approves joins and leaves |
+|------|-------------------------------|
+| **Closed** | All members must agree unanimously |
+| **Democratic** | Majority vote, any member can veto |
+| **Club** | The person who invited decides alone |
+| **Braintree** | All parent nodes up to the root must agree |
+| **Pub/Sub** | No approval — any compatible brain can subscribe |
 
 ### Creating a network
 
-1. Open **Settings → Networks**.
-2. Enter a label, choose a type, enter space IDs (comma-separated).
-3. Set a voting deadline (hours) and optional cron sync schedule.
-4. Click **Create network**.
+Click **+ Create network**. Enter a label, choose a type, enter the space IDs to include, and optionally set a sync schedule (cron expression).
 
 ### Inviting another brain
 
-1. Expand the network card.
-2. Click **Generate invite** → **Copy bundle**.
-3. Send the JSON bundle to the other brain's admin out-of-band.
+1. Expand the network card and click **Generate invite**.
+2. Copy the invite bundle (a JSON blob).
+3. Send it to the other admin out-of-band (email, chat, etc.).
 
-The invite expires after 24 hours. The bundle contains an RSA-4096 public key and a one-time handshake ID — no token is included.
+The invite expires after 24 hours.
 
 ### Joining a network
 
-1. Open **Settings → Networks → Join an existing network**.
-2. Paste the invite bundle JSON.
-3. Enter this brain's publicly reachable URL (e.g. `https://brain-b.example.com`).
-4. If the remote network includes spaces that already exist locally, a **collision resolution** dialog appears for each overlapping space. Choose:
-   - **Merge** — sync into the existing local space directly.
-   - **Alias** — create a new local space with a different ID. Enter the new name in the text field.
+1. Click **Join an existing network**.
+2. Paste the invite bundle.
+3. Enter your brain's publicly reachable URL (e.g. `https://brain.example.com`).
+4. If any space IDs overlap with existing local spaces, a dialog lets you choose to merge into the existing space or map the remote space to a new local ID.
 5. Click **Join network**.
-
-The RSA handshake runs server-to-server. Sync tokens are exchanged encrypted — never visible in the UI.
-
-If join fails with a peer URL validation error (private IP, localhost, embedded credentials), see [Integration Guide — Join Troubleshooting: private or local URLs rejected](integration-guide.md#join-troubleshooting-private-or-local-urls-rejected).
-
-Space aliases are stored as a `spaceMap` on the network config (`remote-id → local-id`). The sync engine transparently translates between remote and local space IDs during pull and push.
-
-### Enable Networks wizard (localhost/private URL)
-
-If this brain is opened via `localhost` or another private URL, the Networks header shows **Enable Networks** instead of **Create Network** / **Join Network**.
-
-Why:
-
-- Peer URL validation blocks private/loopback targets for network join/sync endpoints.
-- A public HTTPS hostname is required for cross-instance networking.
-
-Wizard flow:
-
-1. Explains why a public URL is needed and what risks apply.
-2. Asks for a hostname you control in Cloudflare and auto-detects OS (`Windows` or `Linux`, editable).
-3. Generates platform-specific Cloudflare Tunnel command steps.
-4. Optional autostart command is included.
-5. After setup, use `https://<hostname>` as this brain's URL in join flows.
-
-Notes:
-
-- The hostname must be inside a DNS zone you control in Cloudflare.
-- Host-level install/service commands are never executed directly by browser code.
-- Optional: when a trusted local connector service is configured, the wizard can run the setup automatically through that connector.
-
-If you hit URL validation errors while joining, see [Integration Guide — Join Troubleshooting: private or local URLs rejected](integration-guide.md#join-troubleshooting-private-or-local-urls-rejected).
-
-### Managing members
-
-Expand a network card to see its member list. Click **×** on any member to remove them.
-
-| Network type | What happens on remove |
-|---|---|
-| Closed | Immediate removal |
-| Democratic / Club | Vote round opened |
-| Braintree | Ancestor approval required |
-| Pub/Sub | Publisher removes directly (no vote) |
 
 ### Sync schedule
 
-Enter a cron expression in the **Sync** section (e.g. `*/5 * * * *` for every 5 minutes). Leave empty for manual-only. Click **Sync now** for an immediate cycle.
+Enter a cron expression on the network card (e.g. `*/5 * * * *` for every 5 minutes). Click **Sync now** to trigger an immediate sync without waiting.
 
 ### Sync history
 
-Expand a network card and click **Sync History**. Each entry shows:
+Expand a network card and click **Sync History** to see a log of every sync cycle — timestamp, status, items pulled and pushed, and any errors.
 
-- **Timestamp** and **status badge** (green/yellow/red)
-- **Pulled / pushed counts** — memories, entities, edges, files
-- **Errors** — expandable list (if any)
+### Voting
 
-### Governance and voting
-
-When a pending vote exists, expand the network card and scroll to **Open votes**. Each entry shows the operation type and subject. Click **✓ Yes** or **✗ No**. Votes propagate to peers during the next sync.
-
-| Type | Passes when |
-|------|-------------|
-| Closed | All members vote yes |
-| Democratic | Majority yes, no vetoes |
-| Braintree | All ancestors vote yes |
-
-A single **veto** immediately fails the round.
-
-### Braintree setup
-
-1. **Root**: create a braintree network.
-2. **First child**: Root invites Brain B → B joins → auto-approved (single ancestor).
-3. **Grandchild**: Brain B invites Brain C → C joins → needs approval from both B and Root. Brain B auto-votes yes; Root sees the vote on next sync and approves from **Open votes**.
-
-### Forking a network
-
-If you've been ejected or want to start fresh from a snapshot, you can fork via the API. The fork gets a new ID, no members, and you become the root. See [integration-guide.md](integration-guide.md#fork-a-network) for the API call.
+When a vote is open (e.g. a member wants to leave), expand the network card and scroll to **Open votes**. Click **✓ Yes** or **✗ No** to cast your vote.
 
 ### Leaving a network
 
-Click **Leave network** at the bottom of the network card. This notifies all peers and removes the network config locally. Your data in the network's spaces is kept.
+Click **Leave network** at the bottom of the network card. Your local data in the network's spaces is kept.
 
 ---
 
 ## Settings — Storage
 
-**Settings → Storage** shows disk usage per space and against configured quota limits.
+**Settings → Storage** shows how much disk space each space is using and the configured quota limits.
 
-| Threshold | Behaviour |
-|-----------|----------|
-| Below soft limit | Normal |
-| Above soft limit | Writes succeed with a warning |
-| Above hard limit | Writes rejected (HTTP 507) |
-
-Quota limits are configured in `config.json` — see [integration-guide.md](integration-guide.md#storage-quotas) for details.
+When a space approaches its quota limit, writes will first return warnings and eventually be rejected. Contact your administrator to raise the quota.
 
 ---
 
 ## Settings — Audit Log
 
-**Settings → Audit Log** (admin only) shows a searchable, filterable log of every authenticated API operation.
+**Settings → Audit Log** (admin only) shows a searchable log of every API operation on this instance.
 
-### Filters
+**Filtering:** Filter by date range, operation type, space, HTTP status, or client IP.
 
-| Filter | Description |
-|--------|-------------|
-| After / Before | Date-time range |
-| Operation | Dropdown of tracked operation types (e.g. `memory.create`, `auth.failed`) |
-| Space | Filter by space |
-| Status | HTTP status code (200, 201, 400, 401, 403, 404, 500) |
-| IP | Client IP address |
+**Table:** Each row shows the timestamp, which token or user made the request, the operation, the space, the HTTP status, and the response time. Click a row to see the full details.
 
-### Table columns
-
-Timestamp, Token/User, Operation, Space, Status (colour-coded badge), IP, Duration. Click a row to see the full JSON entry.
-
-### Export
-
-Download the current filtered view as **JSON** or **CSV**.
-
-### Configuration
-
-The audit log is always enabled. Configure behaviour in `config.json`:
-
-```json
-{
-  "audit": {
-    "logReads": false,
-    "retentionDays": 90
-  }
-}
-```
-
-- `logReads: false` (default) — only write operations and auth failures are logged
-- `logReads: true` — read operations (recall, query, list, traverse, stats) are also logged
-- `retentionDays` — entries older than this are automatically purged
+**Exporting:** Download the current filtered view as JSON or CSV.
 
 ---
 
 ## Settings — Webhooks
 
-**Settings → Webhooks** (admin only) lets you subscribe external systems to real-time HTTP POST notifications when write events occur on Ythril spaces.
+**Settings → Webhooks** (admin only) lets you send HTTP notifications to external systems whenever data changes.
 
 ### Creating a webhook
 
-1. Click **+ New Webhook**
-2. Enter a target **URL** (must be HTTPS, must not target private/reserved IPs)
-3. Enter a **secret** (minimum 8 characters) — used to sign payloads with HMAC-SHA256
-4. Optionally restrict to specific **spaces** and **event types**
-5. Click **Create**
+Click **+ New Webhook**. Enter:
+- **URL** — the HTTPS endpoint to notify.
+- **Secret** — used to sign payloads so your endpoint can verify they came from Ythril.
+- Optionally restrict to specific spaces and event types.
 
 ### Event types
 
-Webhooks fire on write events across 5 domains:
-
-| Domain | Events |
-|--------|--------|
-| Memory | `memory.created`, `memory.updated`, `memory.deleted` |
-| Entity | `entity.created`, `entity.updated`, `entity.deleted`, `entity.merged` |
-| Edge | `edge.created`, `edge.updated`, `edge.deleted` |
-| Chrono | `chrono.created`, `chrono.updated`, `chrono.deleted` |
-| File | `file.created`, `file.updated`, `file.deleted` |
-
-### Delivery guarantees
-
-- **At-least-once** delivery with up to 6 retries (10s → 30s → 1m → 5m → 30m → 1h)
-- Each delivery is signed with `X-Ythril-Signature: sha256=<HMAC-SHA256 hex digest>`
-- Delivery history is visible per webhook
+Webhooks fire on any write event: `memory.created`, `entity.updated`, `file.deleted`, etc. — across all five data types (memory, entity, edge, chrono, file).
 
 ### Testing
 
-Use the **Test** button to send a `test.ping` event to verify connectivity.
+Click **Test** on a webhook card to send a test ping and verify the endpoint is reachable.
 
 ---
 
 ## Settings — About
 
-The **About** tab shows:
-
-| Field | Description |
-|-------|-------------|
-| Instance Label | Name configured during setup |
-| Instance ID | UUID identifying this brain |
-| Version | Server version |
-| Uptime | Time since server started |
-| MongoDB Version | Connected MongoDB version |
-| Disk Usage | Visual bar of used / total space |
-| Server Log | Last 200 lines, auto-refreshed every 15 seconds |
+The About page shows instance information: label, version, uptime, database version, disk usage, and the last 200 lines of the server log (auto-refreshed every 15 seconds).
 
 ---
 
-## Connecting MCP clients
+## Connecting an AI assistant (MCP)
 
-Ythril exposes a single global MCP endpoint at `/mcp`. Connect your AI assistant to give it access to all spaces your token permits — each tool takes a `space` parameter.
+Ythril speaks the Model Context Protocol (MCP), which lets AI assistants like Claude, Cursor, or Windsurf read and write to your knowledge base using natural language.
 
-### Configuration
+### Setup
 
-Add to your MCP client config (Claude Desktop, Cursor, Windsurf, VS Code, etc.):
+Add the following to your MCP client's config file:
 
 ```json
 {
@@ -784,50 +507,21 @@ Add to your MCP client config (Claude Desktop, Cursor, Windsurf, VS Code, etc.):
 }
 ```
 
-One entry is sufficient — all spaces the token can access are available as a `space` tool parameter. A space-scoped token automatically restricts tools to its allowed spaces.
+Replace `localhost:3200` with your instance URL and `ythril_yourTokenHere` with a valid token.
 
-### Server instructions
+One connection entry is all you need — every space the token can access is available. The AI will see instructions listing the available spaces when it connects.
 
-On connect, the server sends instructions listing all accessible space IDs and noting that each tool requires a `space` parameter. Call `list_spaces` to discover spaces and their descriptions. Call `get_space_meta` on a specific space to get its full schema, allowed types, naming patterns, and usage notes.
+### What the AI can do
 
-### Available tools
+Once connected, your AI assistant can:
 
-| Tool | Description |
-|------|-------------|
-| `remember` | Store a memory with optional tags, entity links, `description`, and `properties` |
-| `update_memory` | Update an existing memory's fact, tags, entity links, or remove fields via `deleteFields` |
-| `delete_memory` | Delete a memory by ID |
-| `recall` | Semantic search across all knowledge types. Requires `space`; omit to search across all accessible spaces. Optional `tags`, `types`, `minPerType`, and `minScore` filters |
-| `query` | Structured filter query (read-only) — supports `memories`, `entities`, `edges`, `chrono`, and `files` collections |
-| `find_similar` | Find entries with high vector similarity to an existing entry by ID — uses stored embedding, no re-embedding |
-| `get_stats` | Return counts of memories, entities, edges, chrono entries, and files |
-| `get_space_meta` | Return the full space schema, purpose, usage notes, and stats |
-| `upsert_entity` | Create or update a named entity (`name`, `type`, `tags`, `description`, `properties`) |
-| `update_entity` | Update an existing entity by ID; supports `deleteFields` for field removal |
-| `merge_entities` | Merge two entities — relink references, resolve per-property conflicts, delete absorbed entity |
-| `find_entities_by_name` | Find all entities with an exact name match |
-| `upsert_edge` | Create or update a directed relationship (`label`, `type`, `weight`, `tags`, `description`, `properties`) |
-| `update_edge` | Update an existing edge by ID; supports `deleteFields` for field removal |
-| `traverse` | BFS graph traversal — follow edges from a starting entity up to N hops |
-| `create_chrono` | Create a chrono entry (event, deadline, plan, prediction, milestone) |
-| `update_chrono` | Update an existing chrono entry |
-| `list_chrono` | List chrono entries with filters for status, type, tags, date range, and text search |
-| `bulk_write` | Batch-upsert memories, entities, edges, and chrono entries in a single call |
-| `read_file` | Read a file from the space |
-| `write_file` | Write a file to the space (optional `description`, `tags`, and `properties` stored as metadata) |
-| `list_dir` | List directory contents |
-| `delete_file` | Delete a file |
-| `create_dir` | Create a directory |
-| `move_file` | Move or rename a file/directory |
-| `update_space` | Update space label and/or description (admin only) |
-| `wipe_space` | Wipe all or specific collection types (admin only) |
-| `list_peers` | List all configured sync peers |
-| `sync_now` | Trigger immediate sync |
+- **Remember** things — store facts, notes, decisions, and links to entities.
+- **Recall** — semantically search everything you have stored.
+- **Manage entities** — create, update, merge, and traverse the knowledge graph.
+- **Track time** — create and update events, deadlines, plans, and milestones in the chrono log.
+- **Work with files** — read, write, list, and move files in any accessible space.
+- **Query directly** — run structured MongoDB-style queries against any collection.
 
-### Read-only tokens
+Use a **read-only token** to give an assistant search access without the ability to write or delete anything.
 
-When connected with a `readOnly` token, mutating tools are hidden from `tools/list` and rejected if called directly. Read-only tools (`recall`, `recall_global`, `query`, `find_similar`, `get_stats`, `get_space_meta`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `list_peers`, `traverse`) work normally.
-
-### Proxy spaces
-
-When connected to a proxy space, read tools aggregate across all member spaces automatically. Write tools require an additional `targetSpace` argument specifying which member space to write to.
+Use a **space-scoped token** to restrict the assistant to specific spaces only.

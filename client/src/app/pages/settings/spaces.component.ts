@@ -1092,7 +1092,8 @@ export class SpacesComponent implements OnInit {
     if (!space) return;
     const state = this.typeState(kt, name);
     const schema: TypeSchema = {};
-    if (kt === 'entity' && state.namingPattern.trim()) schema.namingPattern = state.namingPattern.trim();
+    const trimmedPattern = state.namingPattern.trim();
+    if (kt === 'entity' && trimmedPattern) schema.namingPattern = trimmedPattern;
     if (state.tagSuggestions.length) schema.tagSuggestions = [...state.tagSuggestions];
     if (state.propertySchemas.length) {
       const ps: Record<string, PropertySchema> = {};
@@ -1102,7 +1103,8 @@ export class SpacesComponent implements OnInit {
         if (s.enum?.length)    entry.enum    = [...s.enum];
         if (s.minimum != null) entry.minimum = s.minimum;
         if (s.maximum != null) entry.maximum = s.maximum;
-        if (s.pattern?.trim()) entry.pattern = s.pattern.trim();
+        const trimmedProp = s.pattern?.trim();
+        if (trimmedProp)       entry.pattern = trimmedProp;
         if (s.mergeFn)         entry.mergeFn = s.mergeFn;
         if (s.required)        entry.required = s.required;
         if (s.default != null) entry.default  = s.default;

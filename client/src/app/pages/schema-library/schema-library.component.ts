@@ -294,7 +294,6 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
           </div>
           @if (catalogError()) { <p style="font-size:12px;color:var(--danger);margin:0 0 12px;">{{ catalogError() }}</p> }
           <div style="display:flex;gap:8px;justify-content:flex-end;">
-            <button class="btn btn-secondary" type="button" (click)="showAddCatalog.set(false)">{{ 'common.cancel' | transloco }}</button>
             <button class="btn btn-primary" type="button" (click)="addCatalog()" [disabled]="catalogSaving()">
               {{ catalogSaving() ? ('common.saving' | transloco) : ('schemaLib.catalog.addButton' | transloco) }}
             </button>
@@ -397,7 +396,6 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 
           <div class="dialog-footer">
             @if (dialogError()) { <span style="font-size:12px;color:var(--danger);flex:1;">{{ dialogError() }}</span> }
-            <button class="btn btn-secondary" type="button" (click)="closeDialog()">{{ 'common.cancel' | transloco }}</button>
             <button class="btn btn-primary" type="button" (click)="saveEntry()" [disabled]="saving()">
               {{ saving() ? ('common.saving' | transloco) : ('common.save' | transloco) }}
             </button>

@@ -183,7 +183,6 @@ interface TypeSchemaState {
               </div>
             </div>
             <div style="display:flex;gap:8px;flex-basis:100%;">
-              <button class="btn btn-secondary" type="button" (click)="showCreateDialog.set(false)">{{ 'common.cancel' | transloco }}</button>
               <button class="btn btn-primary" type="submit" style="margin-left:auto;" [disabled]="creating()||!form.label.trim()">
                 @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.create.submitButton' | transloco }}
               </button>
@@ -633,7 +632,6 @@ interface TypeSchemaState {
               @if (settingsError()) {
                 <div class="alert alert-error" style="flex:1;margin:0;padding:6px 12px;font-size:13px;">{{ settingsError() }}</div>
               }
-              <button class="btn btn-secondary" type="button" (click)="closeSettings()">{{ 'common.cancel' | transloco }}</button>
               <button class="btn btn-primary" type="button" (click)="saveSettings()" [disabled]="settingsSaving()">
                 @if (settingsSaving()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.popup.footer.saveChanges' | transloco }}
               </button>
@@ -1043,7 +1041,7 @@ export class SpacesComponent implements OnInit {
       next: ({ space }) => {
         this.settingsSaving.set(false);
         this.spaces.update(list => list.map(s => s.id === space.id ? { ...s, ...space } : s));
-        this.settingsSpace.set({ ...target, ...space });
+        this.closeSettings();
       },
       error: (err) => { this.settingsSaving.set(false); this.settingsError.set(err.error?.error ?? this.transloco.translate('spaces.error.saveFailed')); },
     });

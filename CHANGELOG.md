@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+
+## [1.1.0] — 2026-04-22
+
 ### Added
 
 - **Instance-level Schema Library** — a dedicated first-class store of reusable `TypeSchema` definitions, persisted in `schema-library.json` (sibling to `config.json`).
@@ -18,29 +23,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Integration tests: `testing/integration/schema-library.test.js` covering CRUD, `$ref` resolution, live library-update propagation, unresolvable-ref fallback, 409 duplicate, 400 invalid payloads, and name-format validation.
   - i18n: en / de / pl.
 - **Schema Library — search** — live filter bar on the library page searches by entry name, type name, and description.
+- **Schema Library — type filter toggles** — pill buttons to filter the library list by knowledge type (entity / memory / edge / chrono).
+- **Schema Library — foreign catalog support** — catalogs tab lets admins link external Ythril instances by base URL; entries from those catalogs can be browsed and imported directly. URL validation includes SSRF protection.
+- **Schema Library — publish toggle** — entries can be marked published/unpublished, controlling visibility on the `/api/schema-library/public` feed. Published entries display a globe icon in the card.
+- **Schema Library — public API** — unauthenticated `GET /api/schema-library/public` and `/api/schema-library/public/:name` endpoints expose published entries; rate-limited at 60 req/min per IP.
+- **Schema Library — `GET /:name/usages`** — returns the list of spaces and type names that reference a library entry via `$ref`, used to drive the safe-delete confirmation flow.
 - **Schema Library — "Import from Library" in add-type footer** — the add-type row in the space schema editor now includes a **← Lib** button directly, so a type can be imported from the library without first creating an empty type manually.
 - **Space schema — "From File" footer button** — the add-type row now also includes a **From File** button that imports a previously exported type-schema JSON file as a new type, with the type name derived from the file's `typeName` field.
-- **`ph-icon`: `bookmarks` and `gear` icons** — added Phosphor Icons SVG paths for both symbols; the Schema Library and Settings nav items now render their icons correctly.
+- **`ph-icon`: `bookmarks`, `gear`, and `globe` icons** — added Phosphor Icons SVG paths; the Schema Library nav item, Settings nav item, and publish toggle now render their icons correctly.
+- **`PropSchemaTableComponent`** — shared reusable standalone Angular component encapsulating the property schema editor table (expand/collapse rows, type / mergeFn / pattern / min / max / enum / required editing). Used in both the Schema Library editor and the space schema editor.
 
 ### Changed
 
 - **Schema Library — click to edit** — clicking anywhere on a library entry card opens the edit dialog; the separate Edit button has been removed.
-- **Schema editor — file arrow directions corrected** — per-type export button now shows ↑ (send to file) and import button shows ↓ (load from file), matching the established convention used elsewhere in the UI.
-- **Schema Library — edit/delete icons** — the text-character edit (`✎`) and delete (`✕`) buttons in the entry card have been replaced with `ph-icon` `pencil-simple` and `trash` icons for visual consistency.
-- **Schema Library — ref-hint removed** — the static `$ref` reference hint paragraph below the page header has been removed; the `$ref` concept is now surfaced contextually when a type is linked to a library entry in the space schema editor.
+- **Schema Library — card layout** — knowledge-type badge appears before the entry name; type name and last-updated timestamp are shown in the card footer.
 - **Schema Library — identifier auto-derived** — the "Name (identifier)" field in the create/edit dialog is no longer a separate editable input. The slug identifier is automatically derived from "Default Type Name" as the user types, and displayed read-only beneath it.
+- **Schema Library — edit/delete icons** — the text-character edit (`✎`) and delete (`✕`) buttons in the entry card have been replaced with `ph-icon` `pencil-simple` and `trash` icons for visual consistency.
 - **Schema Library — delete button is icon-only** — the delete confirmation button now shows a `ph-icon trash` icon instead of a text label.
-- **Space schema — "From Lib" / "From File" buttons unified style** — both footer import buttons now use `btn-secondary` (same as `+ Add Type`), with ph-icons, replacing the previous ghost/tiny-text styling.
-- **Space schema — "From Library" always imports as `$ref`** — the picker dialog no longer offers an "Import inline" option. All library imports create a linked `$ref` schema. The expanded row for a `$ref` type shows a "Linked to library schema…" message instead of the edit form.
-- **Space schema — "Save to Lib" no longer uses browser dialogs** — `prompt()` and `alert()` calls removed. The entry name is auto-derived from the type name. On success the type is automatically converted to a linked `$ref` in-place (non-editable in the space until unlinked via the library page). Errors appear inline via the existing schema error area.
+- **Schema Library — ref-hint removed** — the static `$ref` reference hint paragraph below the page header has been removed.
+- **Schema editor — file arrow directions corrected** — per-type export button now shows ↑ (send to file) and import button shows ↓ (load from file), matching the established convention used elsewhere in the UI.
+- **Space schema — "From Lib" / "From File" buttons unified style** — both footer import buttons now use `btn-secondary` (same as `+ Add Type`), with ph-icons.
+- **Space schema — "From Library" always imports as `$ref`** — the picker dialog no longer offers an "Import inline" option. All library imports create a linked `$ref` schema.
+- **Space schema — "Save to Lib" no longer uses browser dialogs** — `prompt()` and `alert()` calls removed. The entry name is auto-derived from the type name. On success the type is automatically converted to a linked `$ref` in-place.
+- **Property schema editor — required toggle in row header** — the required checkbox is now always visible inline in the property name cell; expanding the row no longer shows a redundant header banner.
+- **Property schema editor — click row to toggle expand/collapse** — clicking anywhere on a property row expands or collapses it; the separate triangle button has been removed.
+- **Schema Library / Spaces settings — dialogs close on save** — all save operations (schema library entry, catalog, space settings) close the dialog automatically on success. Redundant Cancel buttons removed from dialogs that already have an X button and backdrop click.
 - **Entity search — A-Z / Semantic toggle in picker mode** — the search-mode pill toggle was previously only rendered in `bar` mode; it now appears in `picker` mode as well.
-- **Entity search — default mode changed to `name`** — `defaultMode` on `EntitySearchComponent` defaults to `'name'` (A-Z) instead of `'semantic'`; callers that need semantic-first search pass `defaultMode="semantic"` explicitly.
+- **Entity search — default mode changed to `name`** — `defaultMode` on `EntitySearchComponent` defaults to `'name'` (A-Z) instead of `'semantic'`.
 
 ### Fixed
 
 - `config/schema-library.json` added to `.gitignore` — the instance-level library file is runtime data and must not be committed alongside `config.json` and `secrets.json`.
-
----
 
 
 ## [1.0.0] — 2026-04-20

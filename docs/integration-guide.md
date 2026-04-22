@@ -2081,9 +2081,144 @@ A space type definition can reference a library entry instead of embedding the s
 
 `$ref` and inline fields are mutually exclusive: a `TypeSchema` that contains `$ref` must not also contain `namingPattern`, `propertySchemas`, etc.
 
+#### Publish an entry (make publicly accessible)
+
+An entry can be published so that unauthenticated callers on the open internet can fetch it and import it into their own instance.
+
+```
+PATCH /api/schema-library/:name/publish
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{ "published": true }
+```
+
+To unpublish, send `{ "published": false }`.
+
+**Response** `200 { "entry": { ... } }` (full updated entry). Returns `404` if the entry does not exist. Requires an **admin token**; returns `403` otherwise.
+
+> **Security note:** Publishing only exposes the schema definition (field types, constraints, naming patterns, tag suggestions). It never exposes space data, memories, or any other tenant information.
+
+#### Public listing (unauthenticated)
+
+Returns all published entries. No `Authorization` header is required. Rate-limited at 60 requests/minute per IP.
+
+```
+GET /api/schema-library/public
+```
+
+**Response** `200`:
+```json
+{
+  "entries": [
+    {
+      "name": "service-v1",
+      "knowledgeType": "entity",
+      "typeName": "service",
+      "description": "Standard service entity schema",
+      "updatedAt": "2026-04-22T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+The listing exposes only metadata — the `schema` object is omitted. Fetch the individual entry to obtain the full schema.
+
+#### Public single entry (unauthenticated)
+
+```
+GET /api/schema-library/public/:name
+```
+
+**Response** `200 { "entry": { ... } }` — full entry including `schema`. Returns `404` if the entry does not exist or is not published.
+
 ---
 
-### Delete a Space
+#### Foreign catalogs
+
+A **foreign catalog** is a link to another Ythril instance's public schema library. Linking a catalog lets you browse its published entries and import them into your own library. Imports are copied locally — they do not create live dependencies.
+
+Catalog links are stored in `schema-catalogs.json` (sibling to `config.json`). Max 50 catalog links per instance.
+
+##### List catalogs
+
+```
+GET /api/schema-library/catalogs
+Authorization: Bearer <token>
+```
+
+**Response** `200 { "catalogs": [ { "name", "url", "description", "createdAt" } ] }`.
+
+##### Add a catalog link
+
+```
+POST /api/schema-library/catalogs
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{
+  "name": "acme-schemas",
+  "url": "https://brain.acme.example/api/schema-library",
+  "description": "ACME Corp shared schema catalog"
+}
+```
+
+**Fields:**
+
+| Field | Required | Notes |
+|---|---|---|
+| `name` | ✓ | Unique catalog ID: `^[a-z0-9][a-z0-9_-]{0,99}$` |
+| `url` | ✓ | Base URL of the remote schema library. Must be HTTPS; private/loopback addresses are rejected (SSRF protection). |
+| `description` | — | Free text, up to 500 characters. |
+
+**Responses:** `201 { "catalog": { ... } }`, `400` (invalid URL/name), `409` (name already exists), `400` (SSRF-blocked URL).
+
+> **SSRF protection:** Private-range IPs (`10.x`, `172.16–31.x`, `192.168.x`), loopback (`127.x`, `::1`), link-local (`169.254.x`), and GCP metadata (`169.254.169.254`) are rejected at validation time. Only HTTPS scheme is accepted.
+
+##### Remove a catalog link
+
+```
+DELETE /api/schema-library/catalogs/:name
+Authorization: Bearer <admin-token>
+```
+
+**Response** `204`. Returns `404` if not found. Removing a catalog link does not delete any entries that were already imported from it.
+
+##### Browse a foreign catalog
+
+Proxies a request to the remote catalog's public listing endpoint. Requires authentication on the local instance (the remote endpoint is public).
+
+```
+GET /api/schema-library/catalogs/:name/entries
+Authorization: Bearer <token>
+```
+
+**Response** `200 { "catalog": "acme-schemas", "entries": [ { name, knowledgeType, typeName, description, updatedAt } ] }`.
+
+Returns `404` if the catalog link is unknown. Returns `502` if the remote endpoint returns a non-200 response. Returns `504` if the request times out (8 s).
+
+##### Fetch a single entry from a foreign catalog
+
+```
+GET /api/schema-library/catalogs/:name/entries/:entryName
+Authorization: Bearer <token>
+```
+
+**Response** `200 { "catalog": "acme-schemas", "entry": { ... } }` — full entry including `schema`. Returns `404` or `502` as above.
+
+Use this endpoint to obtain the full schema before importing. To import, call `PUT /api/schema-library/:name` on your local instance with the fetched schema. Pass `sourceCatalog` in the body to record the origin:
+
+```json
+{
+  "knowledgeType": "entity",
+  "typeName": "service",
+  "schema": { "..." },
+  "description": "Imported from acme-schemas",
+  "sourceCatalog": "acme-schemas"
+}
+```
+
+---
 
 ```
 DELETE /api/spaces/:id

@@ -46,8 +46,29 @@ export interface SchemaLibraryEntry {
   typeName: string;
   schema: Omit<TypeSchema, '$ref'>;
   description?: string;
+  published?: boolean;
+  sourceUrl?: string;
+  sourceCatalog?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SchemaCatalog {
+  name: string;
+  url: string;
+  description?: string;
+  createdAt: string;
+}
+
+/** A single entry from a foreign catalog (public endpoint shape). */
+export interface ForeignCatalogEntry {
+  name: string;
+  knowledgeType: KnowledgeType;
+  typeName: string;
+  description?: string;
+  updatedAt: string;
+  /** Present on full entry fetch, absent on index listing. */
+  schema?: Omit<TypeSchema, '$ref'>;
 }
 
 export interface SpaceMeta {
@@ -424,6 +445,36 @@ export class ApiService {
 
   getSchemaLibraryUsages(name: string): Observable<{ usages: { spaceId: string; spaceLabel: string; knowledgeType: string; typeName: string }[] }> {
     return this.http.get<{ usages: { spaceId: string; spaceLabel: string; knowledgeType: string; typeName: string }[] }>(`/api/schema-library/${encodeURIComponent(name)}/usages`);
+  }
+
+  publishSchemaLibraryEntry(name: string, published: boolean): Observable<{ entry: SchemaLibraryEntry }> {
+    return this.http.patch<{ entry: SchemaLibraryEntry }>(`/api/schema-library/${encodeURIComponent(name)}/publish`, { published });
+  }
+
+  getPublicSchemaLibrary(): Observable<{ entries: ForeignCatalogEntry[] }> {
+    return this.http.get<{ entries: ForeignCatalogEntry[] }>('/api/schema-library/public');
+  }
+
+  // ── Schema catalogs ────────────────────────────────────────────────────────
+
+  listSchemaCatalogs(): Observable<{ catalogs: SchemaCatalog[] }> {
+    return this.http.get<{ catalogs: SchemaCatalog[] }>('/api/schema-library/catalogs');
+  }
+
+  addSchemaCatalog(body: { name: string; url: string; description?: string }): Observable<{ catalog: SchemaCatalog }> {
+    return this.http.post<{ catalog: SchemaCatalog }>('/api/schema-library/catalogs', body);
+  }
+
+  deleteSchemaCatalog(name: string): Observable<void> {
+    return this.http.delete<void>(`/api/schema-library/catalogs/${encodeURIComponent(name)}`);
+  }
+
+  browseCatalog(catalogName: string): Observable<{ catalog: string; entries: ForeignCatalogEntry[] }> {
+    return this.http.get<{ catalog: string; entries: ForeignCatalogEntry[] }>(`/api/schema-library/catalogs/${encodeURIComponent(catalogName)}/entries`);
+  }
+
+  getCatalogEntry(catalogName: string, entryName: string): Observable<{ catalog: string; entry: ForeignCatalogEntry }> {
+    return this.http.get<{ catalog: string; entry: ForeignCatalogEntry }>(`/api/schema-library/catalogs/${encodeURIComponent(catalogName)}/entries/${encodeURIComponent(entryName)}`);
   }
 
   // ── Spaces ────────────────────────────────────────────────────────────────

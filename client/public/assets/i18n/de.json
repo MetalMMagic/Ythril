@@ -762,6 +762,33 @@
   "schemaLib.delete.confirmUnlink": "Verknüpfung lösen & Löschen",
   "schemaLib.delete.unlinking": "Verknüpfungen werden gelöst…",
 
+  "schemaLib.tab.library": "Meine Bibliothek",
+  "schemaLib.tab.catalogs": "Externe Kataloge",
+
+  "schemaLib.badge.published": "Veröffentlicht",
+  "schemaLib.badge.from": "aus",
+
+  "schemaLib.action.publish": "Veröffentlichen (öffentlich zugänglich machen)",
+  "schemaLib.action.unpublish": "Zurückziehen (nur für angemeldete Nutzer)",
+
+  "schemaLib.catalog.addButton": "Katalog hinzufügen",
+  "schemaLib.catalog.addTitle": "Externen Katalog-Link hinzufügen",
+  "schemaLib.catalog.nameLabel": "Katalog-ID",
+  "schemaLib.catalog.namePlaceholder": "mein-org-katalog",
+  "schemaLib.catalog.urlLabel": "Basis-URL",
+  "schemaLib.catalog.urlPlaceholder": "https://brain.example.com",
+  "schemaLib.catalog.descLabel": "Beschreibung (optional)",
+  "schemaLib.catalog.descPlaceholder": "Gemeinsamer Schema-Katalog meiner Organisation",
+  "schemaLib.catalog.deleteTitle": "Katalog-Link entfernen",
+  "schemaLib.catalog.browseButton": "Durchsuchen",
+  "schemaLib.catalog.browseTitle": "Externer Schema-Katalog",
+  "schemaLib.catalog.browseEmpty": "Keine veröffentlichten Einträge in diesem Katalog.",
+  "schemaLib.catalog.importButton": "In Bibliothek importieren",
+  "schemaLib.catalog.empty": "Keine externen Katalog-Links konfiguriert.",
+  "schemaLib.catalog.errorRequired": "Name und URL sind erforderlich.",
+  "schemaLib.catalog.saveError": "Katalog-Link konnte nicht hinzugefügt werden.",
+  "schemaLib.catalog.fetchFailed": "Katalogeinträge konnten nicht geladen werden.",
+
   "spaces.schema.saveToLibraryButton": "In Bib.",
   "spaces.schema.saveToLibraryTitle": "Dieses Typschema in der Instanzbibliothek speichern",
   "spaces.schema.importFromLibraryButton": "Aus Bib.",

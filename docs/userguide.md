@@ -432,6 +432,17 @@ The **Schema Library** (accessible from the main navigation, under Workspace) is
 
 **Safe deletion:** Clicking the trash icon on a library entry fetches all linked spaces first. If any exist, a warning dialog lists them and offers **Unlink & Delete** — this replaces every `$ref` with the inline schema before removing the entry, so no space loses its validation rules. Entries with no links are removed immediately after a single confirm.
 
+**Publishing an entry:** Click the eye icon on any library entry card to publish it. Published entries are exposed on the public endpoint (`GET /api/schema-library/public`) without authentication, so other Ythril instances can discover and import them. The card shows a green **Published** badge while active. Click the icon again (or use the API) to unpublish. Publishing exposes only the schema definition — no space data is ever exposed.
+
+**Imported entries:** If an entry was imported from a foreign catalog, its card shows an italic *"from `<catalog-name>`"* label below the badges. The original source URL is stored internally for traceability.
+
+**Foreign Catalogs tab:** The **Foreign Catalogs** tab (alongside "My Library" at the top of the page) lets you link to other Ythril instances' public schema libraries and browse their published entries.
+
+- **Add a catalog link:** Click **Add Catalog**, enter a unique catalog ID (e.g. `acme-schemas`), the base URL of the remote instance's schema library API (e.g. `https://brain.acme.example/api/schema-library`), and an optional description. Only HTTPS URLs to public internet hosts are accepted.
+- **Browse a catalog:** Click **Browse** on a catalog card. The browser dialog lists all published entries on the remote instance with their knowledge type and description.
+- **Import an entry:** Click **Import to Library** next to any entry in the browse dialog. The full schema is fetched from the remote instance and saved to your local library, with `sourceCatalog` set to the catalog ID for traceability. Imports are independent copies — they are not kept in sync with the remote.
+- **Remove a catalog link:** Click the trash icon on a catalog card. This removes the link only; any previously imported entries remain in your local library.
+
 **JSON format for `$ref`:**
 
 ```json

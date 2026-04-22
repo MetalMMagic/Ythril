@@ -13,11 +13,12 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { finalize, forkJoin } from 'rxjs';
 import {
-  ApiService, SchemaLibraryEntry, KnowledgeType, PropertySchema, TypeSchema,
+  ApiService, SchemaLibraryEntry, SchemaCatalog, ForeignCatalogEntry, KnowledgeType, PropertySchema, TypeSchema,
 } from '../../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { PropSchemaTableComponent } from '../../shared/prop-schema-table.component';
 
 // ── Local form state ────────────────────────────────────────────────────────
 
@@ -90,7 +91,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 @Component({
   selector: 'app-schema-library',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, PropSchemaTableComponent],
   styles: [`
     /* chip inputs — same as spaces.component.ts */
     .chip-wrap {
@@ -117,21 +118,19 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
     .sch-coll-tab { background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-2px; padding:10px 22px; cursor:pointer; font-size:13px; font-family:var(--font); color:var(--text-muted); display:inline-flex; align-items:center; gap:6px; transition:color .15s; white-space:nowrap; }
     .sch-coll-tab:hover { color:var(--text-primary); }
     .sch-coll-tab.active { color:var(--text-primary); border-bottom-color:var(--accent); font-weight:600; }
-    /* property table */
-    .prop-table { width:100%; border-collapse:collapse; font-size:13px; }
-    .prop-table th { text-align:left; font-size:11px; font-weight:600; color:var(--text-muted); padding:5px 8px; border-bottom:1px solid var(--border); }
-    .prop-table td { padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:middle; }
-    .prop-expand-row td { background:var(--bg-elevated); padding:0; }
-    .prop-expand-inner { padding:12px 16px; }
-    .sch-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-    .sch-grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
     .sch-sub { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin-bottom:8px; padding-bottom:4px; border-bottom:1px solid var(--border); margin-top:20px; }
     /* entry list */
     .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
     .header-row h2 { margin:0; font-size:20px; font-weight:700; }
     .header-actions { display:flex; gap:8px; }
-    .search-row { margin-bottom:16px; }
+    .search-row { margin-bottom:12px; }
     .search-row input { width:100%; max-width:400px; }
+    .type-filters { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; }
+    .type-filter-btn { background:none; border:1px solid var(--border); border-radius:20px; padding:2px 12px; font-size:12px; cursor:pointer; color:var(--text-muted); transition:all .15s; font-family:var(--font); }
+    .type-filter-btn:hover { color:var(--text-primary); border-color:var(--text-muted); }
+    .type-filter-btn.active { background:var(--accent-dim); color:var(--accent); border-color:color-mix(in srgb,var(--accent) 60%,transparent); font-weight:600; }
+    .entry-title-row { display:flex; align-items:center; gap:6px; margin-bottom:2px; }
+    .entry-footer { display:flex; justify-content:flex-end; gap:8px; align-items:center; margin-top:6px; }
     .entry-grid { display:grid; gap:10px; }
     .entry-card { background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 16px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; transition:border-color .15s; cursor:pointer; }
     .entry-card:hover { border-color: var(--accent); }
@@ -144,6 +143,17 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
     .badge-type { background:var(--bg-elevated); color:var(--text-secondary); border:1px solid var(--border); border-radius:4px; padding:1px 7px; font-size:0.72rem; font-weight:500; font-family:var(--font-mono); }
     .updated { font-size:11px; color:var(--text-muted); }
     .prop-badge { font-size:10px; color:var(--text-muted); background:var(--bg-elevated); border-radius:3px; padding:1px 5px; }
+    .badge-published { font-size:10px; font-weight:600; color:#16a34a; background:rgba(22,163,74,.12); border-radius:3px; padding:1px 6px; }
+    .badge-source { font-size:10px; color:var(--text-muted); background:var(--bg-elevated); border-radius:3px; padding:1px 5px; font-style:italic; }
+    /* page tabs */
+    .page-tabs { display:flex; gap:0; margin-bottom:20px; border-bottom:2px solid var(--border); }
+    .page-tab { background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-2px; padding:10px 22px; cursor:pointer; font-size:13px; font-family:var(--font); color:var(--text-muted); display:inline-flex; align-items:center; gap:6px; transition:color .15s; white-space:nowrap; }
+    .page-tab:hover { color:var(--text-primary); }
+    .page-tab.active { color:var(--text-primary); border-bottom-color:var(--accent); font-weight:600; }
+    /* catalog panel */
+    .catalog-card { background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 16px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .catalog-entry-row { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 12px; border-bottom:1px solid var(--border); font-size:13px; }
+    .catalog-entry-row:last-child { border-bottom:none; }
     /* import/export banner */
     .ref-hint { font-size:12px; color:var(--text-secondary); background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-sm); padding:8px 12px; margin-bottom:20px; font-family:var(--font-mono); }
     .ref-hint code { color:var(--accent); }
@@ -152,60 +162,181 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
     <div class="header-row">
       <h2>{{ 'schemaLib.title' | transloco }}</h2>
       <div class="header-actions">
-        <button class="btn btn-secondary btn-sm" type="button" (click)="triggerImportFile()" [attr.title]="'schemaLib.import.fileTitle' | transloco"><ph-icon name="download-simple" [size]="13" style="margin-right:5px;vertical-align:-2px;"/>{{ 'schemaLib.import.fileButton' | transloco }}</button>
-        <input #importFileInput type="file" accept=".json" style="display:none" (change)="onImportFile($event)" />
-        <button class="btn btn-primary btn-sm" type="button" (click)="openCreate()">{{ 'schemaLib.createButton' | transloco }}</button>
+        @if (pageTab() === 'library') {
+          <button class="btn btn-secondary btn-sm" type="button" (click)="triggerImportFile()" [attr.title]="'schemaLib.import.fileTitle' | transloco"><ph-icon name="download-simple" [size]="13" style="margin-right:5px;vertical-align:-2px;"/>{{ 'schemaLib.import.fileButton' | transloco }}</button>
+          <input #importFileInput type="file" accept=".json" style="display:none" (change)="onImportFile($event)" />
+          <button class="btn btn-primary btn-sm" type="button" (click)="openCreate()">{{ 'schemaLib.createButton' | transloco }}</button>
+        } @else {
+          <button class="btn btn-primary btn-sm" type="button" (click)="openAddCatalog()">{{ 'schemaLib.catalog.addButton' | transloco }}</button>
+        }
       </div>
+    </div>
+
+    <!-- page tabs: My Library / Foreign Catalogs -->
+    <div class="page-tabs">
+      <button class="page-tab" [class.active]="pageTab()==='library'" (click)="pageTab.set('library')">{{ 'schemaLib.tab.library' | transloco }}</button>
+      <button class="page-tab" [class.active]="pageTab()==='catalogs'" (click)="pageTab.set('catalogs');loadCatalogs()"><ph-icon name="globe" [size]="13" style="margin-right:4px;"/>{{ 'schemaLib.tab.catalogs' | transloco }}</button>
     </div>
 
     <div class="search-row">
       <input type="search" [ngModel]="searchQuery()" (ngModelChange)="searchQuery.set($event)" [placeholder]="'schemaLib.searchPlaceholder' | transloco" />
     </div>
-
-    @if (loading()) {
-      <div class="empty-state"><span class="spinner"></span></div>
-    } @else if (!entries().length) {
-      <div class="empty-state">
-        <div class="empty-state-icon"><ph-icon name="bookmarks" [size]="48"/></div>
-        <h3>{{ 'schemaLib.empty.title' | transloco }}</h3>
-        <p>{{ 'schemaLib.empty.subtitle' | transloco }}</p>
-      </div>
-    } @else if (!filteredEntries().length) {
-      <div class="empty-state">
-        <p style="color:var(--text-muted);">{{ 'schemaLib.noResults' | transloco }}</p>
-      </div>
-    } @else {
-      <div class="entry-grid">
-        @for (entry of filteredEntries(); track entry.name) {
-          <div class="entry-card" (click)="openEdit(entry)">
-            <div class="entry-main">
-              <div class="entry-name">{{ entry.name }}</div>
-              <div class="entry-meta">
-                <span class="badge-kt">{{ entry.knowledgeType }}</span>
-                <span class="badge-type">{{ entry.typeName }}</span>
-                @if (propCount(entry) > 0) {
-                  <span class="prop-badge">{{ propCount(entry) }} prop{{ propCount(entry) !== 1 ? 's' : '' }}</span>
-                }
-                @if (entry.schema.namingPattern) {
-                  <span class="prop-badge" [title]="entry.schema.namingPattern">pattern</span>
-                }
-                <span class="updated">{{ 'schemaLib.updated' | transloco }}: {{ entry.updatedAt | date:'dd.MM.yyyy HH:mm' }}</span>
-                @if ((usageCounts()[entry.name] || 0) > 0) {
-                  <span class="prop-badge" style="color:var(--accent);background:var(--accent-dim);">{{ usageCounts()[entry.name] }} link{{ usageCounts()[entry.name] !== 1 ? 's' : '' }}</span>
-                }
-              </div>
-              @if (entry.description) { <div class="entry-description">{{ entry.description }}</div> }
-            </div>
-            <div class="entry-actions" (click)="$event.stopPropagation()">
-              <button class="btn btn-ghost btn-sm" type="button" (click)="exportEntry(entry)" [attr.title]="'schemaLib.export.title' | transloco"><ph-icon name="upload" [size]="13"/></button>
-              <button class="btn btn-ghost btn-sm danger" type="button" (click)="initiateDelete(entry.name)" [attr.title]="'common.remove' | transloco"><ph-icon name="trash" [size]="13"/></button>
-            </div>
-          </div>
+    @if (pageTab() === 'library' && entries().length) {
+      <div class="type-filters">
+        @for (kt of ['entity','memory','edge','chrono']; track kt) {
+          <button class="type-filter-btn" [class.active]="typeFilter() === kt" type="button" (click)="typeFilter.set(typeFilter() === kt ? null : $any(kt))">{{ kt }}</button>
         }
       </div>
     }
 
-    <!-- Create / Edit dialog -->
+    <!-- ── MY LIBRARY TAB ─────────────────────────────────────────────────── -->
+    @if (pageTab() === 'library') {
+      @if (loading()) {
+        <div class="empty-state"><span class="spinner"></span></div>
+      } @else if (!entries().length) {
+        <div class="empty-state">
+          <div class="empty-state-icon"><ph-icon name="bookmarks" [size]="48"/></div>
+          <h3>{{ 'schemaLib.empty.title' | transloco }}</h3>
+          <p>{{ 'schemaLib.empty.subtitle' | transloco }}</p>
+        </div>
+      } @else if (!filteredEntries().length) {
+        <div class="empty-state">
+          <p style="color:var(--text-muted);">{{ 'schemaLib.noResults' | transloco }}</p>
+        </div>
+      } @else {
+        <div class="entry-grid">
+          @for (entry of filteredEntries(); track entry.name) {
+            <div class="entry-card" (click)="openEdit(entry)">
+              <div class="entry-main">
+                <div class="entry-title-row">
+                  <span class="badge-kt">{{ entry.knowledgeType }}</span>
+                  <span class="entry-name">{{ entry.name }}</span>
+                </div>
+                <div class="entry-meta">
+                  @if (propCount(entry) > 0) {
+                    <span class="prop-badge">{{ propCount(entry) }} prop{{ propCount(entry) !== 1 ? 's' : '' }}</span>
+                  }
+                  @if (entry.schema.namingPattern) {
+                    <span class="prop-badge" [title]="entry.schema.namingPattern">pattern</span>
+                  }
+                  @if ((usageCounts()[entry.name] || 0) > 0) {
+                    <span class="prop-badge" style="color:var(--accent);background:var(--accent-dim);">{{ usageCounts()[entry.name] }} link{{ usageCounts()[entry.name] !== 1 ? 's' : '' }}</span>
+                  }
+                  @if (entry.published) {
+                    <span class="badge-published">{{ 'schemaLib.badge.published' | transloco }}</span>
+                  }
+                  @if (entry.sourceCatalog) {
+                    <span class="badge-source" [title]="entry.sourceUrl || ''">{{ 'schemaLib.badge.from' | transloco }} {{ entry.sourceCatalog }}</span>
+                  }
+                </div>
+                @if (entry.description) { <div class="entry-description">{{ entry.description }}</div> }
+                <div class="entry-footer">
+                  <span class="badge-type">{{ entry.typeName }}</span>
+                  <span class="updated">{{ entry.updatedAt | date:'dd.MM.yyyy HH:mm' }}</span>
+                </div>
+              </div>
+              <div class="entry-actions" (click)="$event.stopPropagation()">
+                <button class="btn btn-ghost btn-sm" type="button" (click)="togglePublish(entry)" [attr.title]="(entry.published ? 'schemaLib.action.unpublish' : 'schemaLib.action.publish') | transloco" [style.color]="entry.published ? 'var(--accent)' : undefined"><ph-icon name="globe" [size]="13"/></button>
+                <button class="btn btn-ghost btn-sm" type="button" (click)="exportEntry(entry)" [attr.title]="'schemaLib.export.title' | transloco"><ph-icon name="upload" [size]="13"/></button>
+                <button class="btn btn-ghost btn-sm danger" type="button" (click)="initiateDelete(entry.name)" [attr.title]="'common.remove' | transloco"><ph-icon name="trash" [size]="13"/></button>
+              </div>
+            </div>
+          }
+        </div>
+      }
+
+    <!-- ── FOREIGN CATALOGS TAB ─────────────────────────────────────────────── -->
+    } @else {
+      @if (catalogsLoading()) {
+        <div class="empty-state"><span class="spinner"></span></div>
+      } @else if (!catalogs().length) {
+        <div class="empty-state">
+          <p style="color:var(--text-muted);">{{ 'schemaLib.catalog.empty' | transloco }}</p>
+        </div>
+      } @else {
+        <div style="display:grid;gap:10px;">
+          @for (cat of catalogs(); track cat.name) {
+            <div class="catalog-card">
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:14px;font-family:var(--font-mono);">{{ cat.name }}</div>
+                <div style="font-size:12px;color:var(--text-muted);word-break:break-all;margin-top:2px;">{{ cat.url }}</div>
+                @if (cat.description) { <div style="font-size:12px;color:var(--text-secondary);margin-top:3px;">{{ cat.description }}</div> }
+              </div>
+              <div style="display:flex;gap:6px;flex-shrink:0;">
+                <button class="btn btn-secondary btn-sm" type="button" (click)="openBrowse(cat.name)">{{ 'schemaLib.catalog.browseButton' | transloco }}</button>
+                <button class="btn btn-ghost btn-sm danger" type="button" (click)="removeCatalog(cat.name)" [attr.title]="'schemaLib.catalog.deleteTitle' | transloco"><ph-icon name="trash" [size]="13"/></button>
+              </div>
+            </div>
+          }
+        </div>
+      }
+    }
+
+    <!-- Add Catalog dialog -->
+    @if (showAddCatalog()) {
+      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;" (click)="showAddCatalog.set(false)">
+        <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:92vw;max-width:480px;" (click)="$event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+            <h3 style="margin:0;font-size:15px;">{{ 'schemaLib.catalog.addTitle' | transloco }}</h3>
+            <button class="icon-btn" type="button" (click)="showAddCatalog.set(false)"><ph-icon name="x" [size]="18"/></button>
+          </div>
+          <div class="field" style="margin-bottom:14px;">
+            <label>{{ 'schemaLib.catalog.nameLabel' | transloco }}</label>
+            <input type="text" [(ngModel)]="newCatalog.name" [placeholder]="'schemaLib.catalog.namePlaceholder' | transloco" />
+          </div>
+          <div class="field" style="margin-bottom:14px;">
+            <label>{{ 'schemaLib.catalog.urlLabel' | transloco }}</label>
+            <input type="url" [(ngModel)]="newCatalog.url" [placeholder]="'schemaLib.catalog.urlPlaceholder' | transloco" />
+          </div>
+          <div class="field" style="margin-bottom:20px;">
+            <label>{{ 'schemaLib.catalog.descLabel' | transloco }}</label>
+            <input type="text" [(ngModel)]="newCatalog.description" [placeholder]="'schemaLib.catalog.descPlaceholder' | transloco" />
+          </div>
+          @if (catalogError()) { <p style="font-size:12px;color:var(--danger);margin:0 0 12px;">{{ catalogError() }}</p> }
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button class="btn btn-secondary" type="button" (click)="showAddCatalog.set(false)">{{ 'common.cancel' | transloco }}</button>
+            <button class="btn btn-primary" type="button" (click)="addCatalog()" [disabled]="catalogSaving()">
+              {{ catalogSaving() ? ('common.saving' | transloco) : ('schemaLib.catalog.addButton' | transloco) }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- Catalog browse dialog -->
+    @if (browsing(); as b) {
+      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;" (click)="browsing.set(null)">
+        <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:96vw;max-width:780px;max-height:85vh;display:flex;flex-direction:column;" (click)="$event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-shrink:0;">
+            <h3 style="margin:0;font-size:15px;">{{ 'schemaLib.catalog.browseTitle' | transloco }}: <span style="font-family:var(--font-mono);">{{ b.catalogName }}</span></h3>
+            <button class="icon-btn" type="button" (click)="browsing.set(null)"><ph-icon name="x" [size]="18"/></button>
+          </div>
+          @if (b.loading) {
+            <div style="flex:1;display:flex;align-items:center;justify-content:center;"><span class="spinner"></span></div>
+          } @else if (b.error) {
+            <p style="color:var(--danger);font-size:13px;">{{ b.error }}</p>
+          } @else if (!b.entries.length) {
+            <p style="color:var(--text-muted);font-size:13px;">{{ 'schemaLib.catalog.browseEmpty' | transloco }}</p>
+          } @else {
+            <div style="overflow-y:auto;flex:1;border:1px solid var(--border);border-radius:var(--radius-sm);">
+              @for (e of b.entries; track e.name) {
+                <div class="catalog-entry-row">
+                  <div style="flex:1;min-width:0;">
+                    <span style="font-weight:600;font-size:13px;font-family:var(--font-mono);">{{ e.name }}</span>
+                    <span class="badge-kt" style="margin-left:8px;">{{ e.knowledgeType }}</span>
+                    <span class="badge-type" style="margin-left:4px;">{{ e.typeName }}</span>
+                    @if (e.description) { <span style="font-size:12px;color:var(--text-muted);margin-left:8px;">{{ e.description }}</span> }
+                  </div>
+                  <button class="btn btn-secondary btn-sm" type="button" (click)="importFromCatalog(b.catalogName, e)" [disabled]="catalogImporting()">
+                    {{ 'schemaLib.catalog.importButton' | transloco }}
+                  </button>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    }
     @if (showDialog()) {
       <div class="dialog-backdrop" (click)="closeDialog()">
         <div class="dialog" (click)="$event.stopPropagation()">
@@ -258,119 +389,10 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
             </div>
           </div>
 
-          <!-- Property schemas — same table as spaces.component.ts -->
+          <!-- Property schemas -->
           <div>
             <div class="sch-sub">{{ 'spaces.schema.propertySchemas' | transloco }}</div>
-            @if (form.schemaState.propertySchemas.length) {
-              <table class="prop-table" style="margin-bottom:8px;">
-                <thead><tr>
-                  <th style="width:160px;">{{ 'spaces.schema.propTable.property' | transloco }}</th>
-                  <th style="width:80px;">{{ 'spaces.schema.propTable.type' | transloco }}</th>
-                  <th>{{ 'spaces.schema.propTable.constraints' | transloco }}</th>
-                  <th></th>
-                </tr></thead>
-                <tbody>
-                  @for (p of form.schemaState.propertySchemas; track p.key) {
-                    <tr>
-                      <td style="font-family:var(--font-mono);font-size:12px;">{{ p.key }}</td>
-                      <td>
-                        @if (p.s.type) { <span class="badge badge-gray" style="font-size:11px;">{{ p.s.type }}</span> }
-                        @if (p.s.required) { <span class="badge badge-blue" style="font-size:10px;margin-left:3px;">req</span> }
-                      </td>
-                      <td style="font-size:11px;color:var(--text-muted);">
-                        @if (p.s.enum?.length) { <span>enum({{ p.s.enum!.length }})</span> }
-                        @if (p.s.minimum != null) { <span>min={{ p.s.minimum }}</span> }
-                        @if (p.s.maximum != null) { <span>max={{ p.s.maximum }}</span> }
-                        @if (p.s.pattern) { <span>pattern</span> }
-                        @if (p.s.mergeFn) { <span>{{ p.s.mergeFn }}</span> }
-                      </td>
-                      <td style="white-space:nowrap;">
-                        <button class="btn btn-ghost btn-sm" type="button" (click)="togglePropExpand(p.key)" style="font-size:11px;padding:2px 6px;">{{ isPropExpanded(p.key) ? '▲' : '▼' }}</button>
-                        <button class="icon-btn danger" type="button" (click)="removeProp(p.key)" style="margin-left:4px;">✕</button>
-                      </td>
-                    </tr>
-                    @if (isPropExpanded(p.key)) {
-                      <tr class="prop-expand-row"><td colspan="4"><div class="prop-expand-inner">
-                        <div class="sch-grid-3">
-                          <div class="field" style="margin-bottom:0">
-                            <label>{{ 'spaces.schema.propDetail.type' | transloco }}</label>
-                            <select [(ngModel)]="p.s.type" (ngModelChange)="onPropTypeChange(p)">
-                              <option value="">—</option>
-                              <option value="string">string</option>
-                              <option value="number">number</option>
-                              <option value="boolean">boolean</option>
-                              <option value="date">date</option>
-                            </select>
-                          </div>
-                          <div class="field" style="margin-bottom:0">
-                            <label>{{ 'spaces.schema.propDetail.default' | transloco }}</label>
-                            <input type="text" [(ngModel)]="p.s.default" />
-                          </div>
-                          <div class="field" style="margin-bottom:0">
-                            <label>{{ 'spaces.schema.propDetail.mergeFn' | transloco }}</label>
-                            <select [(ngModel)]="p.s.mergeFn">
-                              <option value="">—</option>
-                              @if (p.s.type === 'number' || !p.s.type) {
-                                <option value="avg">avg</option>
-                                <option value="min">min</option>
-                                <option value="max">max</option>
-                                <option value="sum">sum</option>
-                              }
-                              @if (p.s.type === 'boolean' || !p.s.type) {
-                                <option value="and">and</option>
-                                <option value="or">or</option>
-                                <option value="xor">xor</option>
-                              }
-                            </select>
-                          </div>
-                        </div>
-                        <div class="sch-grid" style="margin-top:12px;">
-                          @if (p.s.type !== 'boolean') {
-                            <div class="field" style="margin-bottom:0">
-                              <label>{{ 'spaces.schema.propDetail.pattern' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.propDetail.patternHint' | transloco }}</span></label>
-                              <input type="text" [(ngModel)]="p.s.pattern" />
-                            </div>
-                          }
-                          @if (p.s.type === 'number') {
-                            <div class="sch-grid-3">
-                              <div class="field" style="margin-bottom:0"><label>{{ 'spaces.schema.propDetail.min' | transloco }}</label><input type="number" [(ngModel)]="p.s.minimum" /></div>
-                              <div class="field" style="margin-bottom:0"><label>{{ 'spaces.schema.propDetail.max' | transloco }}</label><input type="number" [(ngModel)]="p.s.maximum" /></div>
-                            </div>
-                          }
-                        </div>
-                        @if (p.s.type !== 'boolean' && p.s.type !== 'number') {
-                          <div class="field" style="margin-top:12px;margin-bottom:0">
-                            <label>{{ 'spaces.schema.propDetail.enumValues' | transloco }} <span style="font-size:11px;font-weight:normal;color:var(--text-muted);">{{ 'spaces.schema.propDetail.enumHint' | transloco }}</span></label>
-                            <div class="chip-wrap">
-                              @for (v of (p.s.enum ?? []); track v) {
-                                <span class="chip">{{ v }} <button class="chip-rm" type="button" (mousedown)="removeEnumVal(p.key, v)">×</button></span>
-                              }
-                              <input class="chip-field" [(ngModel)]="p._enumInput"
-                                     [placeholder]="'spaces.schema.propDetail.enumPlaceholder' | transloco"
-                                     (keydown)="onEnumKey($event, p.key)" />
-                            </div>
-                          </div>
-                        }
-                        <label style="display:inline-flex;align-items:center;gap:6px;margin-top:12px;font-size:13px;">
-                          <input type="checkbox" [(ngModel)]="p.s.required" style="margin:0;" />
-                          {{ 'spaces.schema.propDetail.required' | transloco }}
-                        </label>
-                      </div></td></tr>
-                    }
-                  }
-                </tbody>
-              </table>
-            } @else {
-              <p style="font-size:12px;color:var(--text-muted);margin:4px 0 8px;">{{ 'spaces.schema.noProps' | transloco }}</p>
-            }
-            <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
-              <input type="text" [(ngModel)]="form.schemaState._newPropInput"
-                     [placeholder]="'spaces.schema.newPropNamePlaceholder' | transloco"
-                     style="width:180px;"
-                     (keydown.enter)="addProp(); $event.preventDefault()" />
-              <button class="btn btn-secondary btn-sm" type="button"
-                      (click)="addProp()" [disabled]="!form.schemaState._newPropInput.trim()">{{ 'spaces.schema.addPropertyButton' | transloco }}</button>
-            </div>
+            <app-prop-schema-table [rows]="form.schemaState.propertySchemas" />
           </div>
 
           <div class="dialog-footer">
@@ -432,6 +454,27 @@ export class SchemaLibraryComponent implements OnInit {
   dialogError     = signal('');
   confirmDeleteName = signal('');
   searchQuery     = signal('');
+  typeFilter      = signal<KnowledgeType | null>(null);
+
+  /** Current page tab: 'library' | 'catalogs'. */
+  pageTab = signal<'library' | 'catalogs'>('library');
+
+  /** Foreign catalog signals. */
+  catalogs        = signal<SchemaCatalog[]>([]);
+  catalogsLoading = signal(false);
+  catalogSaving   = signal(false);
+  catalogError    = signal('');
+  showAddCatalog  = signal(false);
+  catalogImporting = signal(false);
+  newCatalog: { name: string; url: string; description: string } = { name: '', url: '', description: '' };
+
+  /** Catalog browse dialog state. */
+  browsing = signal<{
+    catalogName: string;
+    entries: ForeignCatalogEntry[];
+    loading: boolean;
+    error: string;
+  } | null>(null);
 
   /** State for the usage-aware delete warning dialog. */
   deleteDialog = signal<{
@@ -444,15 +487,16 @@ export class SchemaLibraryComponent implements OnInit {
 
   filteredEntries = computed(() => {
     const q = this.searchQuery().trim().toLowerCase();
-    if (!q) return this.entries();
-    return this.entries().filter(e =>
+    const kt = this.typeFilter();
+    let result = this.entries();
+    if (kt) result = result.filter(e => e.knowledgeType === kt);
+    if (!q) return result;
+    return result.filter(e =>
       e.name.toLowerCase().includes(q) ||
       e.typeName.toLowerCase().includes(q) ||
       (e.description ?? '').toLowerCase().includes(q),
     );
   });
-
-  expandedPropKey = signal<string | null>(null);
 
   @ViewChild('importFileInput') importFileInputRef?: ElementRef<HTMLInputElement>;
 
@@ -504,7 +548,6 @@ export class SchemaLibraryComponent implements OnInit {
     this.form = this.blankForm();
     this.editingName.set(null);
     this.dialogError.set('');
-    this.expandedPropKey.set(null);
     this.showDialog.set(true);
   }
 
@@ -512,7 +555,6 @@ export class SchemaLibraryComponent implements OnInit {
     this.form = entryToFormState(entry);
     this.editingName.set(entry.name);
     this.dialogError.set('');
-    this.expandedPropKey.set(null);
     this.showDialog.set(true);
   }
 
@@ -611,56 +653,6 @@ export class SchemaLibraryComponent implements OnInit {
     this.form.schemaState.tagSuggestions = this.form.schemaState.tagSuggestions.filter(t => t !== tag);
   }
 
-  // ── Property schemas ──────────────────────────────────────────────────────
-
-  isPropExpanded(key: string): boolean { return this.expandedPropKey() === key; }
-
-  togglePropExpand(key: string): void {
-    this.expandedPropKey.set(this.isPropExpanded(key) ? null : key);
-  }
-
-  addProp(): void {
-    const key = (this.form.schemaState._newPropInput ?? '').trim();
-    if (!key || this.form.schemaState.propertySchemas.some(e => e.key === key)) {
-      this.form.schemaState._newPropInput = '';
-      return;
-    }
-    this.form.schemaState.propertySchemas = [...this.form.schemaState.propertySchemas, { key, s: {}, _enumInput: '' }];
-    this.form.schemaState._newPropInput   = '';
-    this.expandedPropKey.set(key);
-  }
-
-  removeProp(key: string): void {
-    this.form.schemaState.propertySchemas = this.form.schemaState.propertySchemas.filter(e => e.key !== key);
-    if (this.isPropExpanded(key)) this.expandedPropKey.set(null);
-  }
-
-  onPropTypeChange(p: { key: string; s: PropertySchema; _enumInput: string }): void {
-    // Clear incompatible mergeFn when type changes
-    if (p.s.type === 'boolean' && p.s.mergeFn && ['avg', 'min', 'max', 'sum'].includes(p.s.mergeFn)) p.s.mergeFn = undefined;
-    if (p.s.type === 'number'  && p.s.mergeFn && ['and', 'or', 'xor'].includes(p.s.mergeFn))         p.s.mergeFn = undefined;
-  }
-
-  onEnumKey(e: KeyboardEvent, key: string): void {
-    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); this.addEnumVal(key); }
-  }
-
-  addEnumVal(key: string): void {
-    const entry = this.form.schemaState.propertySchemas.find(e => e.key === key);
-    if (!entry) return;
-    const val = (entry._enumInput ?? '').trim();
-    if (!val) return;
-    const curr = entry.s.enum ?? [];
-    if (!curr.some(v => String(v) === val)) entry.s = { ...entry.s, enum: [...curr, val] };
-    entry._enumInput = '';
-  }
-
-  removeEnumVal(key: string, val: string | number | boolean): void {
-    const entry = this.form.schemaState.propertySchemas.find(e => e.key === key);
-    if (!entry) return;
-    entry.s = { ...entry.s, enum: (entry.s.enum ?? []).filter(v => v !== val) };
-  }
-
   // ── Save ───────────────────────────────────────────────────────────────────
 
   saveEntry(): void {
@@ -705,6 +697,114 @@ export class SchemaLibraryComponent implements OnInit {
     // Legacy inline confirm path — now superseded by initiateDelete().
     // Kept for safety; should not be reachable from current template.
     this._doDelete(name);
+  }
+
+  // ── Publish toggle ────────────────────────────────────────────────────────
+
+  togglePublish(entry: SchemaLibraryEntry): void {
+    const next = !entry.published;
+    this.api.publishSchemaLibraryEntry(entry.name, next).subscribe({
+      next: ({ entry: updated }) => {
+        this.entries.update(list => {
+          const idx = list.findIndex(e => e.name === updated.name);
+          if (idx === -1) return list;
+          const copy = [...list];
+          copy[idx] = updated;
+          return copy;
+        });
+      },
+      error: () => { /* non-critical — show nothing */ },
+    });
+  }
+
+  // ── Foreign catalogs ──────────────────────────────────────────────────────
+
+  loadCatalogs(): void {
+    if (this.catalogsLoading()) return;
+    this.catalogsLoading.set(true);
+    this.api.listSchemaCatalogs().pipe(
+      finalize(() => this.catalogsLoading.set(false)),
+    ).subscribe({
+      next: ({ catalogs }) => this.catalogs.set(catalogs),
+      error: () => this.catalogs.set([]),
+    });
+  }
+
+  openAddCatalog(): void {
+    this.newCatalog = { name: '', url: '', description: '' };
+    this.catalogError.set('');
+    this.showAddCatalog.set(true);
+  }
+
+  addCatalog(): void {
+    this.catalogError.set('');
+    const { name, url, description } = this.newCatalog;
+    if (!name.trim() || !url.trim()) {
+      this.catalogError.set(this.transloco.translate('schemaLib.catalog.errorRequired'));
+      return;
+    }
+    this.catalogSaving.set(true);
+    const baseUrl = url.trim().replace(/\/+$/, '');
+    const catalogUrl = baseUrl.endsWith('/api/schema-library') ? baseUrl : `${baseUrl}/api/schema-library`;
+    this.api.addSchemaCatalog({ name: name.trim(), url: catalogUrl, description: description.trim() || undefined }).pipe(
+      finalize(() => this.catalogSaving.set(false)),
+    ).subscribe({
+      next: ({ catalog }) => {
+        this.catalogs.update(list => [...list, catalog]);
+        this.showAddCatalog.set(false);
+      },
+      error: (err) => {
+        this.catalogError.set(err?.error?.error ?? this.transloco.translate('schemaLib.catalog.saveError'));
+      },
+    });
+  }
+
+  removeCatalog(name: string): void {
+    this.api.deleteSchemaCatalog(name).subscribe({
+      next: () => this.catalogs.update(list => list.filter(c => c.name !== name)),
+      error: () => { /* non-critical */ },
+    });
+  }
+
+  openBrowse(catalogName: string): void {
+    this.browsing.set({ catalogName, entries: [], loading: true, error: '' });
+    this.api.browseCatalog(catalogName).subscribe({
+      next: ({ entries }) => this.browsing.update(b => b ? { ...b, entries, loading: false } : b),
+      error: (err) => {
+        const msg = err?.error?.error ?? this.transloco.translate('schemaLib.catalog.fetchFailed');
+        this.browsing.update(b => b ? { ...b, loading: false, error: msg } : b);
+      },
+    });
+  }
+
+  importFromCatalog(catalogName: string, entry: ForeignCatalogEntry): void {
+    if (this.catalogImporting()) return;
+    // Fetch full schema for this entry, then upsert locally
+    this.catalogImporting.set(true);
+    this.api.getCatalogEntry(catalogName, entry.name).pipe(
+      finalize(() => this.catalogImporting.set(false)),
+    ).subscribe({
+      next: ({ entry: full }) => {
+        if (!full.schema) return;
+        this.api.upsertSchemaLibraryEntry(full.name, {
+          knowledgeType: full.knowledgeType,
+          typeName: full.typeName,
+          schema: full.schema,
+          description: full.description,
+          sourceCatalog: catalogName,
+        }).subscribe({
+          next: ({ entry: upserted }) => {
+            this.entries.update(list => {
+              const idx = list.findIndex(e => e.name === upserted.name);
+              if (idx === -1) return [...list, upserted];
+              const copy = [...list]; copy[idx] = upserted; return copy;
+            });
+          },
+          error: () => { /* non-critical */ },
+        });
+      },
+      error: () => { /* non-critical */ },
+    });
   }
 
   // ── Export single entry to file ────────────────────────────────────────────

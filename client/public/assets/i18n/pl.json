@@ -761,6 +761,33 @@
   "schemaLib.delete.confirmUnlink": "Odłącz i usuń",
   "schemaLib.delete.unlinking": "Odłączanie…",
 
+  "schemaLib.tab.library": "Moja biblioteka",
+  "schemaLib.tab.catalogs": "Zewnętrzne katalogi",
+
+  "schemaLib.badge.published": "Opublikowano",
+  "schemaLib.badge.from": "z",
+
+  "schemaLib.action.publish": "Opublikuj (udostępnij publicznie)",
+  "schemaLib.action.unpublish": "Cofnij publikację (tylko dla zalogowanych)",
+
+  "schemaLib.catalog.addButton": "Dodaj katalog",
+  "schemaLib.catalog.addTitle": "Dodaj łącze do zewnętrznego katalogu",
+  "schemaLib.catalog.nameLabel": "ID katalogu",
+  "schemaLib.catalog.namePlaceholder": "moj-katalog-org",
+  "schemaLib.catalog.urlLabel": "Bazowy URL",
+  "schemaLib.catalog.urlPlaceholder": "https://brain.example.com",
+  "schemaLib.catalog.descLabel": "Opis (opcjonalnie)",
+  "schemaLib.catalog.descPlaceholder": "Wspólny katalog schematów mojej organizacji",
+  "schemaLib.catalog.deleteTitle": "Usuń łącze do katalogu",
+  "schemaLib.catalog.browseButton": "Przeglądaj",
+  "schemaLib.catalog.browseTitle": "Zewnętrzny katalog schematów",
+  "schemaLib.catalog.browseEmpty": "Brak opublikowanych wpisów w tym katalogu.",
+  "schemaLib.catalog.importButton": "Importuj do biblioteki",
+  "schemaLib.catalog.empty": "Brak skonfigurowanych łączy do zewnętrznych katalogów.",
+  "schemaLib.catalog.errorRequired": "Nazwa i URL są wymagane.",
+  "schemaLib.catalog.saveError": "Nie można dodać łącza do katalogu.",
+  "schemaLib.catalog.fetchFailed": "Nie można załadować wpisów katalogu.",
+
   "spaces.schema.saveToLibraryButton": "Zapisz do bib.",
   "spaces.schema.saveToLibraryTitle": "Zapisz ten schemat typu w bibliotece instancji",
   "spaces.schema.importFromLibraryButton": "Z biblioteki",

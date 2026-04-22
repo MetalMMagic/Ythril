@@ -2,16 +2,24 @@
  * Integration tests: Instance-level schema library CRUD
  *
  * Covers:
- *  - GET /api/schema-library                   — list all entries
- *  - GET /api/schema-library/:name             — get a single entry
- *  - POST /api/schema-library                  — create a new entry
- *  - PUT /api/schema-library/:name             — create-or-replace an entry
- *  - DELETE /api/schema-library/:name          — remove an entry
+ *  - GET /api/schema-library                        — list all entries
+ *  - GET /api/schema-library/:name                  — get a single entry
+ *  - POST /api/schema-library                       — create a new entry
+ *  - PUT /api/schema-library/:name                  — create-or-replace an entry
+ *  - DELETE /api/schema-library/:name               — remove an entry
  *  - $ref resolution: space referencing a library entry
  *  - 404 for missing entry
  *  - 400 for invalid payloads
  *  - 409 on duplicate POST
  *  - Max 500 entries limit
+ *  - GET /api/schema-library/:name/usages           — link counter
+ *  - Safe delete: unlink $refs then remove entry
+ *  - PATCH /api/schema-library/:name/publish        — publish/unpublish toggle
+ *  - GET /api/schema-library/public                 — unauthenticated public listing
+ *  - GET /api/schema-library/public/:name           — unauthenticated public entry fetch
+ *  - GET/POST/DELETE /api/schema-library/catalogs   — foreign catalog CRUD
+ *  - GET /api/schema-library/catalogs/:name/entries — catalog proxy endpoint
+ *  - SSRF validation on catalog URL
  *
  * Run: node --test testing/integration/schema-library.test.js
  */
@@ -21,7 +29,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, patch, put, del } from '../sync/helpers.js';
+import { INSTANCES, post, get, patch, put, del, reqJson } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -580,5 +588,207 @@ describe('safe delete — unlink $refs then delete library entry', () => {
     const stored = metaR.body.typeSchemas?.entity?.service;
     assert.ok(!stored?.$ref, 'No $ref should remain');
     assert.equal(stored?.namingPattern, '^svc-', 'namingPattern should still be present as inline schema');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  PATCH /:name/publish — publish / unpublish toggle
+// ═════════════════════════════════════════════════════════════════════════════
+describe('PATCH /api/schema-library/:name/publish — publish toggle', () => {
+  const pubName = `lib-test-${RUN}-publish`;
+
+  before(async () => {
+    const r = await createEntry({
+      name: pubName,
+      knowledgeType: 'entity',
+      typeName: 'widget',
+      schema: { tagSuggestions: ['public'] },
+      description: 'A publicly shared schema',
+    });
+    assert.equal(r.status, 201, `Failed to create entry: ${JSON.stringify(r.body)}`);
+  });
+
+  after(async () => { await deleteEntry(pubName).catch(() => {}); });
+
+  it('entry starts unpublished (published is falsy)', async () => {
+    const r = await getEntry(pubName);
+    assert.equal(r.status, 200);
+    assert.ok(!r.body.entry?.published, 'published should be falsy on creation');
+  });
+
+  it('PATCH publish:true sets published flag', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/schema-library/${encodeURIComponent(pubName)}/publish`, { published: true });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.entry?.published, true, 'entry.published should be true');
+  });
+
+  it('entry is visible on GET /public after publishing', async () => {
+    const r = await reqJson(INSTANCES.a, '', '/api/schema-library/public', { headers: {} });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body?.entries), 'entries should be an array');
+    const found = r.body.entries.find(e => e.name === pubName);
+    assert.ok(found, `${pubName} should appear in public listing`);
+    // public listing exposes limited fields, not schema
+    assert.ok(found.knowledgeType, 'should have knowledgeType');
+    assert.ok(found.typeName, 'should have typeName');
+    assert.ok(!('schema' in found), 'public listing should not expose schema');
+  });
+
+  it('GET /public/:name returns the full entry when published', async () => {
+    const r = await reqJson(INSTANCES.a, '', `/api/schema-library/public/${encodeURIComponent(pubName)}`, { headers: {} });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.entry?.name, pubName);
+    assert.ok(r.body.entry?.schema, 'full entry should include schema');
+  });
+
+  it('PATCH publish:false removes from public listing', async () => {
+    const patchR = await patch(INSTANCES.a, token(), `/api/schema-library/${encodeURIComponent(pubName)}/publish`, { published: false });
+    assert.equal(patchR.status, 200, JSON.stringify(patchR.body));
+    assert.equal(patchR.body.entry?.published, false);
+
+    const listR = await reqJson(INSTANCES.a, '', '/api/schema-library/public', { headers: {} });
+    assert.equal(listR.status, 200);
+    const found = listR.body.entries.find(e => e.name === pubName);
+    assert.ok(!found, `${pubName} should not appear in public listing after unpublish`);
+  });
+
+  it('GET /public/:name returns 404 when unpublished', async () => {
+    const r = await reqJson(INSTANCES.a, '', `/api/schema-library/public/${encodeURIComponent(pubName)}`, { headers: {} });
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+  });
+
+  it('PATCH publish requires admin token — rejects non-admin', async () => {
+    // Create a non-admin token
+    const createR = await post(INSTANCES.a, token(), '/api/auth/tokens', { label: `non-admin-pub-${RUN}`, admin: false });
+    assert.equal(createR.status, 201, JSON.stringify(createR.body));
+    const nonAdminToken = createR.body.plaintext;
+    const r = await patch(INSTANCES.a, nonAdminToken, `/api/schema-library/${encodeURIComponent(pubName)}/publish`, { published: true });
+    assert.ok([401, 403].includes(r.status), `Expected 401/403 for non-admin, got ${r.status}`);
+    // cleanup
+    await del(INSTANCES.a, token(), `/api/auth/tokens/${createR.body.token?.id}`).catch(() => {});
+  });
+
+  it('PATCH publish returns 404 for non-existent entry', async () => {
+    const r = await patch(INSTANCES.a, token(), `/api/schema-library/${encodeURIComponent(`lib-test-${RUN}-ghost-pub`)}/publish`, { published: true });
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+  });
+
+  it('GET /public is accessible without authentication', async () => {
+    const r = await reqJson(INSTANCES.a, '', '/api/schema-library/public', { headers: {} });
+    assert.equal(r.status, 200, 'Public endpoint should not require auth');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Foreign catalogs — CRUD and proxy
+// ═════════════════════════════════════════════════════════════════════════════
+describe('Foreign catalogs — CRUD and proxy endpoints', () => {
+  const catName = `test-catalog-${RUN}`;
+
+  after(async () => {
+    await del(INSTANCES.a, token(), `/api/schema-library/catalogs/${encodeURIComponent(catName)}`).catch(() => {});
+  });
+
+  it('GET /catalogs returns empty array initially (for this run)', async () => {
+    const r = await get(INSTANCES.a, token(), '/api/schema-library/catalogs');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body?.catalogs), 'catalogs should be an array');
+  });
+
+  it('GET /catalogs requires authentication', async () => {
+    const r = await get(INSTANCES.a, null, '/api/schema-library/catalogs');
+    assert.ok([401, 403].includes(r.status), `Expected 401/403 without auth, got ${r.status}`);
+  });
+
+  it('POST /catalogs creates a catalog link', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/schema-library/catalogs', {
+      name: catName,
+      url: 'https://example.com/api/schema-library',
+      description: 'Test catalog',
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    assert.equal(r.body.catalog?.name, catName);
+    assert.equal(r.body.catalog?.url, 'https://example.com/api/schema-library');
+    assert.ok(r.body.catalog?.createdAt, 'catalog should have createdAt');
+  });
+
+  it('POST /catalogs returns 409 on duplicate name', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/schema-library/catalogs', {
+      name: catName,
+      url: 'https://example.com/api/schema-library',
+    });
+    assert.equal(r.status, 409, `Expected 409 for duplicate catalog name, got ${r.status}`);
+  });
+
+  it('GET /catalogs lists the created catalog', async () => {
+    const r = await get(INSTANCES.a, token(), '/api/schema-library/catalogs');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const found = r.body.catalogs.find(c => c.name === catName);
+    assert.ok(found, `${catName} should appear in catalog list`);
+  });
+
+  it('POST /catalogs rejects private/loopback URLs (SSRF)', async () => {
+    const blockedUrls = [
+      'http://192.168.1.1/api/schema-library',
+      'http://127.0.0.1/api/schema-library',
+      'http://169.254.169.254/api/schema-library',
+      'http://localhost/api/schema-library',
+    ];
+    for (const url of blockedUrls) {
+      const r = await post(INSTANCES.a, token(), '/api/schema-library/catalogs', {
+        name: `test-ssrf-${RUN}-${Date.now()}`,
+        url,
+      });
+      assert.equal(r.status, 400, `Expected 400 for SSRF URL ${url}, got ${r.status}`);
+    }
+  });
+
+  it('POST /catalogs rejects non-HTTPS URLs', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/schema-library/catalogs', {
+      name: `test-http-${RUN}`,
+      url: 'http://example.com/api/schema-library',
+    });
+    assert.equal(r.status, 400, `Expected 400 for non-HTTPS URL, got ${r.status}`);
+  });
+
+  it('GET /catalogs/:name/entries proxies to foreign catalog (returns 502/504 for unreachable host)', async () => {
+    // example.com does not expose a schema library endpoint — expect a proxy error (not a 200)
+    const r = await get(INSTANCES.a, token(), `/api/schema-library/catalogs/${encodeURIComponent(catName)}/entries`);
+    // proxy will get a non-200 or timeout from example.com — server returns 502
+    assert.ok([502, 504].includes(r.status), `Expected 502/504 from proxy, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('GET /catalogs/:name/entries returns 404 for unknown catalog', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/schema-library/catalogs/${encodeURIComponent(`ghost-cat-${RUN}`)}/entries`);
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+  });
+
+  it('POST /catalogs requires admin token', async () => {
+    const createR = await post(INSTANCES.a, token(), '/api/auth/tokens', { label: `non-admin-cat-${RUN}`, admin: false });
+    assert.equal(createR.status, 201);
+    const nonAdminToken = createR.body.plaintext;
+    const r = await post(INSTANCES.a, nonAdminToken, '/api/schema-library/catalogs', {
+      name: `test-nonadmin-${RUN}`,
+      url: 'https://example.com/api/schema-library',
+    });
+    assert.ok([401, 403].includes(r.status), `Expected 401/403 for non-admin, got ${r.status}`);
+    await del(INSTANCES.a, token(), `/api/auth/tokens/${createR.body.token?.id}`).catch(() => {});
+  });
+
+  it('DELETE /catalogs/:name removes the catalog', async () => {
+    const r = await del(INSTANCES.a, token(), `/api/schema-library/catalogs/${encodeURIComponent(catName)}`);
+    assert.equal(r.status, 204, JSON.stringify(r.body));
+  });
+
+  it('catalog no longer listed after deletion', async () => {
+    const r = await get(INSTANCES.a, token(), '/api/schema-library/catalogs');
+    assert.equal(r.status, 200);
+    const found = r.body.catalogs?.find(c => c.name === catName);
+    assert.ok(!found, `${catName} should not appear after deletion`);
+  });
+
+  it('DELETE /catalogs/:name returns 404 for unknown name', async () => {
+    const r = await del(INSTANCES.a, token(), `/api/schema-library/catalogs/${encodeURIComponent(`ghost-cat-${RUN}`)}`);
+    assert.equal(r.status, 404, JSON.stringify(r.body));
   });
 });

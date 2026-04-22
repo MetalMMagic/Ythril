@@ -5,26 +5,61 @@
  * `$ref: "library:<name>"` in their typeSchemas instead of duplicating
  * schema definitions inline.
  *
- * Routes:
- *   GET    /api/schema-library          — list all entries
- *   GET    /api/schema-library/:name    — get a single entry
- *   POST   /api/schema-library          — create a new entry
- *   PUT    /api/schema-library/:name    — create or replace an entry
- *   DELETE /api/schema-library/:name    — remove an entry
+ * Routes (authenticated):
+ *   GET    /api/schema-library                        — list all entries
+ *   GET    /api/schema-library/:name                  — get a single entry
+ *   GET    /api/schema-library/:name/usages           — list space $ref usages
+ *   POST   /api/schema-library                        — create a new entry
+ *   PUT    /api/schema-library/:name                  — create or replace an entry
+ *   PATCH  /api/schema-library/:name/publish          — publish or unpublish an entry
+ *   DELETE /api/schema-library/:name                  — remove an entry
+ *   GET    /api/schema-library/catalogs               — list foreign catalog links
+ *   POST   /api/schema-library/catalogs               — add a foreign catalog link
+ *   DELETE /api/schema-library/catalogs/:name         — remove a foreign catalog link
+ *   GET    /api/schema-library/catalogs/:name/entries — browse a foreign catalog (proxied)
+ *   GET    /api/schema-library/catalogs/:name/entries/:entryName — preview one foreign entry
+ *
+ * Routes (unauthenticated, public):
+ *   GET    /api/schema-library/public                 — index of published entries
+ *   GET    /api/schema-library/public/:name           — a single published entry
  */
 
 import { Router } from 'express';
 import { requireAuth, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
-import { getSchemaLibrary, saveSchemaLibrary, getConfig } from '../config/loader.js';
+import { getSchemaLibrary, saveSchemaLibrary, getConfig, getSchemaCatalogs, saveSchemaCatalogs } from '../config/loader.js';
+import { isSsrfSafeUrl } from '../util/ssrf.js';
 import { z } from 'zod';
-import type { SchemaLibraryEntry } from '../config/types.js';
+import rateLimit from 'express-rate-limit';
+import type { SchemaLibraryEntry, SchemaCatalog } from '../config/types.js';
 
 export const schemaLibraryRouter = Router();
+
+// ── Rate limiters ──────────────────────────────────────────────────────────
+
+/** 60 req/min per IP for unauthenticated public read endpoints. */
+const publicRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 60,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Rate limit exceeded.' },
+});
+
+/** 20 req/min per IP for catalog proxy (each call makes an outbound fetch). */
+const catalogProxyRateLimit = rateLimit({
+  windowMs: 60_000,
+  max: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Catalog proxy rate limit exceeded.' },
+});
 
 // ── Validation ─────────────────────────────────────────────────────────────
 
 const MAX_LIBRARY_ENTRIES = 500;
+const MAX_CATALOGS = 50;
+const CATALOG_PROXY_TIMEOUT_MS = 8_000;
 
 /** Zod schema for a PropertySchema (matches spaces.ts PropertySchemaZ). */
 const PropertySchemaZ = z.object({
@@ -65,6 +100,9 @@ const LibraryEntryBodyZ = z.object({
   typeName: z.string().min(1).max(200),
   schema: LibraryTypeSchemaZ,
   description: z.string().max(1000).optional(),
+  published: z.boolean().optional(),
+  sourceUrl: z.string().url().max(2048).optional(),
+  sourceCatalog: z.string().max(200).optional(),
 });
 
 /** Body for PUT (name comes from the URL param). */
@@ -74,6 +112,22 @@ const LibraryEntryPutBodyZ = z.object({
   schema: LibraryTypeSchemaZ,
   /** Pass null to explicitly clear a previously set description. */
   description: z.string().max(1000).nullable().optional(),
+  published: z.boolean().optional(),
+  sourceUrl: z.string().url().max(2048).nullable().optional(),
+  sourceCatalog: z.string().max(200).nullable().optional(),
+});
+
+/** Body for PATCH /:name/publish */
+const PublishPatchZ = z.object({
+  published: z.boolean(),
+});
+
+/** Body for POST /catalogs */
+const CATALOG_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,99}$/;
+const CatalogBodyZ = z.object({
+  name: z.string().min(1).max(100).regex(CATALOG_NAME_RE, 'catalog name must be lowercase alphanumeric with optional dashes/underscores'),
+  url: z.string().url().max(2048).refine(u => isSsrfSafeUrl(u), { message: 'Catalog URL must use HTTPS and must not target private IPs, loopback, or cloud metadata endpoints' }),
+  description: z.string().max(500).optional(),
 });
 
 // ── GET / — list all library entries ──────────────────────────────────────
@@ -103,7 +157,7 @@ schemaLibraryRouter.post('/', globalRateLimit, requireAdminMfa, (req, res) => {
     return;
   }
 
-  const { name, knowledgeType, typeName, schema, description } = parsed.data;
+  const { name, knowledgeType, typeName, schema, description, published, sourceUrl, sourceCatalog } = parsed.data;
   const library = getSchemaLibrary();
 
   if (library.some(e => e.name === name)) {
@@ -123,6 +177,9 @@ schemaLibraryRouter.post('/', globalRateLimit, requireAdminMfa, (req, res) => {
     typeName,
     schema,
     ...(description ? { description } : {}),
+    ...(published ? { published } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
+    ...(sourceCatalog ? { sourceCatalog } : {}),
     createdAt: now,
     updatedAt: now,
   };
@@ -147,7 +204,7 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
     return;
   }
 
-  const { knowledgeType, typeName, schema, description } = parsed.data;
+  const { knowledgeType, typeName, schema, description, published, sourceUrl, sourceCatalog } = parsed.data;
 
   const library = getSchemaLibrary();
   const existingIdx = library.findIndex(e => e.name === name);
@@ -167,6 +224,9 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
       typeName,
       schema,
       ...(description ? { description } : {}),
+      ...(published ? { published } : {}),
+      ...(sourceUrl ? { sourceUrl } : {}),
+      ...(sourceCatalog ? { sourceCatalog } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -185,6 +245,13 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
         : description !== undefined
           ? { description }
           : existing.description !== undefined ? { description: existing.description } : {}),
+      ...(published !== undefined ? { published } : {}),
+      ...(sourceUrl === null
+        ? { sourceUrl: undefined }
+        : sourceUrl !== undefined ? { sourceUrl } : existing.sourceUrl !== undefined ? { sourceUrl: existing.sourceUrl } : {}),
+      ...(sourceCatalog === null
+        ? { sourceCatalog: undefined }
+        : sourceCatalog !== undefined ? { sourceCatalog } : existing.sourceCatalog !== undefined ? { sourceCatalog: existing.sourceCatalog } : {}),
       updatedAt: now,
     };
     const updatedLibrary = [...library];
@@ -232,4 +299,177 @@ schemaLibraryRouter.delete('/:name', globalRateLimit, requireAdminMfa, (req, res
 
   saveSchemaLibrary(library.filter(e => e.name !== name));
   res.status(204).end();
+});
+
+// ── PATCH /:name/publish — publish or unpublish an entry ─────────────────
+
+schemaLibraryRouter.patch('/:name/publish', globalRateLimit, requireAdminMfa, (req, res) => {
+  const name = req.params['name'] as string;
+  const library = getSchemaLibrary();
+  const idx = library.findIndex(e => e.name === name);
+
+  if (idx === -1) {
+    res.status(404).json({ error: `Schema library entry '${name}' not found` });
+    return;
+  }
+
+  const parsed = PublishPatchZ.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const updated = [...library];
+  updated[idx] = { ...updated[idx]!, published: parsed.data.published, updatedAt: new Date().toISOString() };
+  saveSchemaLibrary(updated);
+  res.json({ entry: updated[idx] });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Public endpoints — unauthenticated, rate-limited
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── GET /public — index of published entries ─────────────────────────────
+
+schemaLibraryRouter.get('/public', publicRateLimit, (_req, res) => {
+  const published = getSchemaLibrary()
+    .filter(e => e.published)
+    .map(({ name, knowledgeType, typeName, description, updatedAt }) => ({
+      name, knowledgeType, typeName, description, updatedAt,
+    }));
+  res.json({ entries: published });
+});
+
+// ── GET /public/:name — a single published entry ─────────────────────────
+
+schemaLibraryRouter.get('/public/:name', publicRateLimit, (req, res) => {
+  const name = req.params['name'] as string;
+  const entry = getSchemaLibrary().find(e => e.name === name);
+
+  if (!entry || !entry.published) {
+    res.status(404).json({ error: `Published schema library entry '${name}' not found` });
+    return;
+  }
+
+  // Return the full entry (schema + metadata) so consumers can import it
+  res.json({ entry: { name: entry.name, knowledgeType: entry.knowledgeType, typeName: entry.typeName, schema: entry.schema, description: entry.description, updatedAt: entry.updatedAt } });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Foreign catalog link management
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── GET /catalogs — list all catalog links ────────────────────────────────
+
+schemaLibraryRouter.get('/catalogs', globalRateLimit, requireAuth, (_req, res) => {
+  res.json({ catalogs: getSchemaCatalogs() });
+});
+
+// ── POST /catalogs — add a new catalog link ───────────────────────────────
+
+schemaLibraryRouter.post('/catalogs', globalRateLimit, requireAdminMfa, (req, res) => {
+  const parsed = CatalogBodyZ.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const catalogs = getSchemaCatalogs();
+  if (catalogs.some(c => c.name === parsed.data.name)) {
+    res.status(409).json({ error: `Catalog '${parsed.data.name}' already exists.` });
+    return;
+  }
+  if (catalogs.length >= MAX_CATALOGS) {
+    res.status(400).json({ error: `Maximum of ${MAX_CATALOGS} catalog links reached.` });
+    return;
+  }
+
+  const catalog: SchemaCatalog = {
+    name: parsed.data.name,
+    url: parsed.data.url,
+    ...(parsed.data.description ? { description: parsed.data.description } : {}),
+    createdAt: new Date().toISOString(),
+  };
+  saveSchemaCatalogs([...catalogs, catalog]);
+  res.status(201).json({ catalog });
+});
+
+// ── DELETE /catalogs/:name — remove a catalog link ────────────────────────
+
+schemaLibraryRouter.delete('/catalogs/:name', globalRateLimit, requireAdminMfa, (req, res) => {
+  const name = req.params['name'] as string;
+  const catalogs = getSchemaCatalogs();
+  if (!catalogs.some(c => c.name === name)) {
+    res.status(404).json({ error: `Catalog '${name}' not found.` });
+    return;
+  }
+  saveSchemaCatalogs(catalogs.filter(c => c.name !== name));
+  res.status(204).end();
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Catalog proxy — server-side fetch to avoid browser CORS and validate SSRF
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Fetch a foreign URL with timeout and basic safety checks. */
+async function proxyCatalogFetch(url: string): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CATALOG_PROXY_TIMEOUT_MS);
+  try {
+    const resp = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'Ythril-CatalogProxy/1.0' },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    const body = await resp.json().catch(() => null);
+    return { ok: resp.ok, status: resp.status, body };
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, status: 502, body: { error: `Catalog fetch failed: ${message}` } };
+  }
+}
+
+// ── GET /catalogs/:name/entries — browse a foreign catalog (proxied) ─────
+
+schemaLibraryRouter.get('/catalogs/:name/entries', catalogProxyRateLimit, requireAuth, async (req, res) => {
+  const catalogName = req.params['name'] as string;
+  const catalog = getSchemaCatalogs().find(c => c.name === catalogName);
+  if (!catalog) {
+    res.status(404).json({ error: `Catalog '${catalogName}' not found.` });
+    return;
+  }
+
+  // Build the index URL (ensure no double slash)
+  const indexUrl = catalog.url.replace(/\/$/, '') + (catalog.url.endsWith('/public') ? '' : '/public');
+
+  const result = await proxyCatalogFetch(indexUrl);
+  if (!result.ok) {
+    res.status(result.status).json(result.body);
+    return;
+  }
+  res.json({ catalog: catalogName, ...( result.body as object) });
+});
+
+// ── GET /catalogs/:name/entries/:entryName — preview one foreign entry ────
+
+schemaLibraryRouter.get('/catalogs/:name/entries/:entryName', catalogProxyRateLimit, requireAuth, async (req, res) => {
+  const catalogName = req.params['name'] as string;
+  const entryName  = req.params['entryName'] as string;
+
+  const catalog = getSchemaCatalogs().find(c => c.name === catalogName);
+  if (!catalog) {
+    res.status(404).json({ error: `Catalog '${catalogName}' not found.` });
+    return;
+  }
+
+  const base = catalog.url.replace(/\/$/, '');
+  const entryUrl = (base.endsWith('/public') ? base : base + '/public') + '/' + encodeURIComponent(entryName);
+
+  const result = await proxyCatalogFetch(entryUrl);
+  if (!result.ok) {
+    res.status(result.status).json(result.body);
+    return;
+  }
+  res.json({ catalog: catalogName, ...(result.body as object) });
 });

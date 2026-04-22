@@ -789,6 +789,33 @@
   "schemaLib.delete.confirmUnlink": "Unlink & Delete",
   "schemaLib.delete.unlinking": "Unlinking…",
 
+  "schemaLib.tab.library": "My Library",
+  "schemaLib.tab.catalogs": "Foreign Catalogs",
+
+  "schemaLib.badge.published": "Published",
+  "schemaLib.badge.from": "from",
+
+  "schemaLib.action.publish": "Publish (make publicly accessible)",
+  "schemaLib.action.unpublish": "Unpublish (restrict to authenticated users)",
+
+  "schemaLib.catalog.addButton": "Add Catalog",
+  "schemaLib.catalog.addTitle": "Add Foreign Catalog Link",
+  "schemaLib.catalog.nameLabel": "Catalog ID",
+  "schemaLib.catalog.namePlaceholder": "my-org-catalog",
+  "schemaLib.catalog.urlLabel": "Base URL",
+  "schemaLib.catalog.urlPlaceholder": "https://brain.example.com",
+  "schemaLib.catalog.descLabel": "Description (optional)",
+  "schemaLib.catalog.descPlaceholder": "My organisation's shared schema catalog",
+  "schemaLib.catalog.deleteTitle": "Remove catalog link",
+  "schemaLib.catalog.browseButton": "Browse",
+  "schemaLib.catalog.browseTitle": "Foreign Schema Catalog",
+  "schemaLib.catalog.browseEmpty": "No published entries in this catalog.",
+  "schemaLib.catalog.importButton": "Import to Library",
+  "schemaLib.catalog.empty": "No foreign catalog links configured.",
+  "schemaLib.catalog.errorRequired": "Name and URL are required.",
+  "schemaLib.catalog.saveError": "Could not add catalog link.",
+  "schemaLib.catalog.fetchFailed": "Could not load catalog entries.",
+
   "spaces.schema.saveToLibraryButton": "Save to Lib",
   "spaces.schema.saveToLibraryTitle": "Save this type schema to the instance library",
   "spaces.schema.importFromLibraryButton": "From Lib",

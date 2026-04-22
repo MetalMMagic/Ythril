@@ -92,10 +92,42 @@ export interface SchemaLibraryEntry {
   schema: Omit<TypeSchema, '$ref'>;
   /** Optional human-readable description for the library entry. */
   description?: string;
+  /**
+   * When true the entry is exposed on the unauthenticated public endpoint.
+   * Default: false (private).
+   */
+  published?: boolean;
+  /**
+   * URL of the foreign catalog this entry was imported from, if any.
+   * Informational only — used to show "imported from" label and to support
+   * manual refresh.
+   */
+  sourceUrl?: string;
+  /**
+   * Local catalog name (key in schema-catalogs.json) this entry was imported
+   * from, if applicable.
+   */
+  sourceCatalog?: string;
   /** ISO8601 creation timestamp. */
   createdAt: string;
   /** ISO8601 last-update timestamp. */
   updatedAt: string;
+}
+
+/**
+ * A named link to a foreign Ythril instance's public schema library.
+ * The server proxies browse/import requests through this record to avoid
+ * browser CORS issues and to apply SSRF validation server-side.
+ */
+export interface SchemaCatalog {
+  /** Unique local name for this catalog link (e.g. `"team-b"`). */
+  name: string;
+  /** Validated HTTPS URL of the foreign public library index endpoint. */
+  url: string;
+  /** Optional human-readable description. */
+  description?: string;
+  /** ISO8601 creation timestamp. */
+  createdAt: string;
 }
 
 /** Structured schema and metadata for a space — all fields optional. */

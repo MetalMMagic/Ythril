@@ -1,11 +1,12 @@
 ﻿import fs from 'node:fs';
 import path from 'node:path';
 import { log } from '../util/log.js';
-import type { Config, SecretsFile, SchemaLibraryEntry } from './types.js';
+import type { Config, SecretsFile, SchemaLibraryEntry, SchemaCatalog } from './types.js';
 
 const CONFIG_PATH = process.env['CONFIG_PATH'] ?? '/config/config.json';
 const SECRETS_PATH = path.join(path.dirname(CONFIG_PATH), 'secrets.json');
 const SCHEMA_LIB_PATH = path.join(path.dirname(CONFIG_PATH), 'schema-library.json');
+const SCHEMA_CATALOGS_PATH = path.join(path.dirname(CONFIG_PATH), 'schema-catalogs.json');
 
 let _config: Config | null = null;
 let _secrets: SecretsFile | null = null;
@@ -233,6 +234,43 @@ export function saveSchemaLibrary(entries: SchemaLibraryEntry[]): void {
   fs.writeFileSync(tmp, JSON.stringify(entries, null, 2), { encoding: 'utf8', mode: 0o600 });
   fs.renameSync(tmp, SCHEMA_LIB_PATH);
   try { fs.chmodSync(SCHEMA_LIB_PATH, 0o600); } catch { /* non-POSIX — ignore */ }
+}
+
+// ── Schema catalogs ────────────────────────────────────────────────────────
+
+let _schemaCatalogs: SchemaCatalog[] | null = null;
+
+/** Load schema-catalogs.json from disk. Returns empty array if not found. */
+export function loadSchemaCatalogs(): SchemaCatalog[] {
+  if (!fs.existsSync(SCHEMA_CATALOGS_PATH)) {
+    _schemaCatalogs = [];
+    return _schemaCatalogs;
+  }
+  try {
+    checkPermissions(SCHEMA_CATALOGS_PATH);
+    const raw = fs.readFileSync(SCHEMA_CATALOGS_PATH, 'utf8');
+    _schemaCatalogs = JSON.parse(raw) as SchemaCatalog[];
+  } catch (err) {
+    log.warn(`schema-catalogs.json could not be loaded — treating as empty: ${err}`);
+    _schemaCatalogs = [];
+  }
+  return _schemaCatalogs;
+}
+
+/** Return the in-memory catalog list, loading from disk if not yet loaded. */
+export function getSchemaCatalogs(): SchemaCatalog[] {
+  if (!_schemaCatalogs) return loadSchemaCatalogs();
+  return _schemaCatalogs;
+}
+
+/** Atomically persist the catalog list to disk. */
+export function saveSchemaCatalogs(catalogs: SchemaCatalog[]): void {
+  _schemaCatalogs = catalogs;
+  fs.mkdirSync(path.dirname(SCHEMA_CATALOGS_PATH), { recursive: true });
+  const tmp = SCHEMA_CATALOGS_PATH + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(catalogs, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(tmp, SCHEMA_CATALOGS_PATH);
+  try { fs.chmodSync(SCHEMA_CATALOGS_PATH, 0o600); } catch { /* non-POSIX — ignore */ }
 }
 
 // ── Defaults ───────────────────────────────────────────────────────────────

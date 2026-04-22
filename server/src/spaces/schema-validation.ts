@@ -12,7 +12,7 @@
  *   - "strict" → validation runs, violations cause 400 rejection
  */
 
-import type { SpaceMeta, PropertySchema, TypeSchema } from '../config/types.js';
+import type { SpaceMeta, PropertySchema, TypeSchema, SchemaLibraryEntry } from '../config/types.js';
 
 // ── Violation type ─────────────────────────────────────────────────────────
 
@@ -20,6 +20,67 @@ export interface SchemaViolation {
   field: string;
   value: unknown;
   reason: string;
+}
+
+// ── Library ref resolution ─────────────────────────────────────────────────
+
+/**
+ * Resolve a single TypeSchema that may contain a `$ref` pointer to a library entry.
+ * Returns the resolved inline schema, or `undefined` if the reference cannot be found.
+ * Returns the schema unchanged when no `$ref` is present.
+ */
+export function resolveTypeSchema(
+  schema: TypeSchema | undefined,
+  library?: SchemaLibraryEntry[],
+): TypeSchema | undefined {
+  if (!schema) return schema;
+  const ref = schema.$ref;
+  if (!ref) return schema;
+
+  // Resolve library reference
+  if (ref.startsWith('library:') && library && library.length > 0) {
+    const name = ref.slice('library:'.length);
+    const entry = library.find(e => e.name === name);
+    return entry ? entry.schema : undefined;
+  }
+
+  // Unknown ref format — treat as unresolved (return empty schema)
+  return undefined;
+}
+
+/**
+ * Return a copy of the SpaceMeta with all `$ref` TypeSchema entries resolved from
+ * the provided library.  Unresolvable refs become empty schemas.
+ *
+ * This is the preferred integration point: call `resolveMetaRefs(meta, library)`
+ * once before passing meta to the validate functions, so validation operates on
+ * fully-resolved schemas.
+ */
+export function resolveMetaRefs(meta: SpaceMeta, library?: SchemaLibraryEntry[]): SpaceMeta {
+  if (!library || library.length === 0) return meta;
+  if (!meta.typeSchemas) return meta;
+
+  let changed = false;
+  const resolvedTypeSchemas: typeof meta.typeSchemas = {};
+
+  for (const [kt, ktMap] of Object.entries(meta.typeSchemas) as [string, Record<string, TypeSchema>][]) {
+    let ktChanged = false;
+    const resolvedKtMap: Record<string, TypeSchema> = {};
+    for (const [typeName, typeSchema] of Object.entries(ktMap)) {
+      if (typeSchema.$ref) {
+        const resolved = resolveTypeSchema(typeSchema, library);
+        resolvedKtMap[typeName] = resolved ?? {};
+        ktChanged = true;
+      } else {
+        resolvedKtMap[typeName] = typeSchema;
+      }
+    }
+    resolvedTypeSchemas[kt as 'entity' | 'memory' | 'edge' | 'chrono'] = resolvedKtMap;
+    if (ktChanged) changed = true;
+  }
+
+  if (!changed) return meta;
+  return { ...meta, typeSchemas: resolvedTypeSchemas };
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────

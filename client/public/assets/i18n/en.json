@@ -742,5 +742,28 @@
   "settings.language": "Language",
   "settings.language.en": "English",
   "settings.language.de": "Deutsch",
-  "settings.language.pl": "Polski"
+  "settings.language.pl": "Polski",
+
+  "nav.schemaLibrary": "Schema Library",
+
+  "schemaLib.title": "Schema Library",
+  "schemaLib.description": "Reusable TypeSchema definitions for the whole instance. Spaces can reference an entry with $ref: \"library:<name>\" instead of duplicating the schema inline.",
+  "schemaLib.createButton": "+ New entry",
+  "schemaLib.updated": "Updated",
+  "schemaLib.empty.title": "No library entries yet",
+  "schemaLib.empty.subtitle": "Create a reusable TypeSchema definition that any space can reference.",
+
+  "schemaLib.dialog.createTitle": "Create library entry",
+  "schemaLib.dialog.editTitle": "Edit library entry",
+
+  "schemaLib.field.name": "Name (identifier)",
+  "schemaLib.field.typeName": "Default type name",
+  "schemaLib.field.knowledgeType": "Knowledge type",
+  "schemaLib.field.description": "Description (optional)",
+  "schemaLib.field.descriptionPlaceholder": "Short description of what this schema is for",
+  "schemaLib.field.schema": "Schema (JSON)",
+  "schemaLib.field.schemaHint": "Inline TypeSchema: namingPattern, tagSuggestions, propertySchemas. No $ref nesting.",
+
+  "schemaLib.delete.title": "Delete library entry",
+  "schemaLib.delete.confirm": "Permanently delete library entry"
 }

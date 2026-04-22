@@ -183,6 +183,9 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
         <a class="nav-link" routerLink="/settings/networks" routerLinkActive="active">
           <span class="nav-icon"><ph-icon name="link" [size]="16"/></span>{{ 'nav.networks' | transloco }}
         </a>
+        <a class="nav-link" routerLink="/settings/schema-library" routerLinkActive="active">
+          <span class="nav-icon"><ph-icon name="bookmarks" [size]="16"/></span>{{ 'nav.schemaLibrary' | transloco }}
+        </a>
         <a class="nav-link" routerLink="/settings/preferences" routerLinkActive="active">
           <span class="nav-icon"><ph-icon name="gear" [size]="16"/></span>{{ 'nav.settings' | transloco }}
         </a>

@@ -715,5 +715,28 @@
   "brain.query.filterPlaceholder": "{\"tags\": {\"$in\": [\"mein-tag\"]}} oder {\"name\": {\"$regex\": \"auth\", \"$options\": \"i\"}}",
   "brain.query.projectionPlaceholder": "{\"fact\": 1, \"tags\": 1}",
   "brain.query.resultsFrom": "Ergebnis(se) aus {{ collection }}",
-  "graph.stats.nodesEdges": "{{ nodes }} Knoten · {{ edges }} Kanten"
+  "graph.stats.nodesEdges": "{{ nodes }} Knoten · {{ edges }} Kanten",
+
+  "nav.schemaLibrary": "Schema-Bibliothek",
+
+  "schemaLib.title": "Schema-Bibliothek",
+  "schemaLib.description": "Wiederverwendbare TypeSchema-Definitionen für die gesamte Instanz. Spaces können einen Eintrag mit $ref: \"library:<name>\" referenzieren, anstatt das Schema inline zu duplizieren.",
+  "schemaLib.createButton": "+ Neuer Eintrag",
+  "schemaLib.updated": "Aktualisiert",
+  "schemaLib.empty.title": "Noch keine Bibliothekseinträge",
+  "schemaLib.empty.subtitle": "Erstellen Sie eine wiederverwendbare TypeSchema-Definition, die jeder Space referenzieren kann.",
+
+  "schemaLib.dialog.createTitle": "Bibliothekseintrag erstellen",
+  "schemaLib.dialog.editTitle": "Bibliothekseintrag bearbeiten",
+
+  "schemaLib.field.name": "Name (Bezeichner)",
+  "schemaLib.field.typeName": "Standard-Typname",
+  "schemaLib.field.knowledgeType": "Wissenstyp",
+  "schemaLib.field.description": "Beschreibung (optional)",
+  "schemaLib.field.descriptionPlaceholder": "Kurze Beschreibung des Zwecks dieses Schemas",
+  "schemaLib.field.schema": "Schema (JSON)",
+  "schemaLib.field.schemaHint": "Inline TypeSchema: namingPattern, tagSuggestions, propertySchemas. Kein $ref-Nesting.",
+
+  "schemaLib.delete.title": "Bibliothekseintrag löschen",
+  "schemaLib.delete.confirm": "Bibliothekseintrag dauerhaft löschen"
 }

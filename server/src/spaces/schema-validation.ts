@@ -49,16 +49,15 @@ export function resolveTypeSchema(schema: TypeSchema | undefined): TypeSchema | 
 
 /**
  * Return a copy of the SpaceMeta with all `$ref` TypeSchema entries resolved from
- * the instance schema library.  Unresolvable refs become empty schemas.
+ * the instance schema library.  Unresolvable refs produce a TypeSchema with
+ * `_unresolvedRef` set so that subsequent validate* calls can surface a violation
+ * instead of silently passing with no constraints.
  *
  * This is the preferred integration point: call `resolveMetaRefs(meta)` once before
  * passing meta to the validate functions, so validation operates on fully-resolved schemas.
  */
 export function resolveMetaRefs(meta: SpaceMeta): SpaceMeta {
   if (!meta.typeSchemas) return meta;
-
-  const library = getSchemaLibrary();
-  if (library.length === 0) return meta;
 
   let changed = false;
   const resolvedTypeSchemas: typeof meta.typeSchemas = {};
@@ -69,7 +68,8 @@ export function resolveMetaRefs(meta: SpaceMeta): SpaceMeta {
     for (const [typeName, typeSchema] of Object.entries(ktMap)) {
       if (typeSchema.$ref) {
         const resolved = resolveTypeSchema(typeSchema);
-        resolvedKtMap[typeName] = resolved ?? {};
+        // Unresolvable ref → stamp _unresolvedRef so validate* functions can surface a violation
+        resolvedKtMap[typeName] = resolved ?? { _unresolvedRef: typeSchema.$ref };
         ktChanged = true;
       } else {
         resolvedKtMap[typeName] = typeSchema;
@@ -110,6 +110,10 @@ export function validateEntity(
 
   // Per-type schema (naming pattern + required + property schemas)
   const typeSchema = entity.type ? entitySchemas?.[entity.type] : undefined;
+
+  // Broken $ref check — must come before any further typeSchema access
+  violations.push(...checkUnresolvedRef(typeSchema));
+  if (typeSchema?._unresolvedRef) return violations;
 
   // Naming pattern for the entity's type
   if (entity.name && entity.type && typeSchema?.namingPattern) {
@@ -152,7 +156,10 @@ export function validateEdge(
   }
 
   const typeSchema = edge.label ? edgeSchemas?.[edge.label] : undefined;
-  violations.push(...validatePropertiesAgainstSchema(typeSchema, edge.properties));
+  violations.push(...checkUnresolvedRef(typeSchema));
+  if (!typeSchema?._unresolvedRef) {
+    violations.push(...validatePropertiesAgainstSchema(typeSchema, edge.properties));
+  }
 
   return violations;
 }
@@ -166,6 +173,8 @@ export function validateMemory(
 ): SchemaViolation[] {
   if (!meta) return [];
   const typeSchema = memory.type ? meta.typeSchemas?.memory?.[memory.type] : undefined;
+  const refViolations = checkUnresolvedRef(typeSchema);
+  if (refViolations.length) return refViolations;
   return validatePropertiesAgainstSchema(typeSchema, memory.properties);
 }
 
@@ -178,6 +187,8 @@ export function validateChrono(
 ): SchemaViolation[] {
   if (!meta) return [];
   const typeSchema = chrono.type ? meta.typeSchemas?.chrono?.[chrono.type] : undefined;
+  const refViolations = checkUnresolvedRef(typeSchema);
+  if (refViolations.length) return refViolations;
   return validatePropertiesAgainstSchema(typeSchema, chrono.properties);
 }
 
@@ -209,6 +220,20 @@ export function buildSchemaSummary(meta: SpaceMeta): string {
 }
 
 // ── Internal helpers ───────────────────────────────────────────────────────
+
+/**
+ * Emit a violation when the resolved TypeSchema carries an `_unresolvedRef` marker,
+ * meaning the `$ref` pointed to a library entry that no longer exists.
+ * Returns an empty array when the schema is fine.
+ */
+function checkUnresolvedRef(typeSchema: TypeSchema | undefined): SchemaViolation[] {
+  if (!typeSchema?._unresolvedRef) return [];
+  return [{
+    field: '$ref',
+    value: typeSchema._unresolvedRef,
+    reason: `schema library entry '${typeSchema._unresolvedRef.slice('library:'.length)}' not found — update or remove this $ref`,
+  }];
+}
 
 /**
  * Validate required properties and property value schemas against a TypeSchema.

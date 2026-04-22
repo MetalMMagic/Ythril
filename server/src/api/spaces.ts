@@ -2,7 +2,7 @@ import { Router } from 'express';
 import path from 'path';
 import { requireAuth, requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
-import { getConfig, saveConfig, getSecrets, getDataRoot } from '../config/loader.js';
+import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary } from '../config/loader.js';
 import { createSpace, updateSpace, removeSpace, renameSpace, reorderSpaces, slugify } from '../spaces/spaces.js';
 import { measureUsage, dirSizeBytes } from '../quota/quota.js';
 import { col } from '../db/mongo.js';
@@ -57,6 +57,29 @@ const TypeSchemasZ = z.object({
   edge:   z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
   chrono: z.record(z.string().min(1).max(200), TypeSchemaZ).optional(),
 }).strict();
+
+/**
+ * Return names of any `$ref` library entries referenced in typeSchemas that do not
+ * exist in the instance schema library.  Used to reject PATCH/PUT early with 422.
+ */
+function findBrokenLibraryRefs(typeSchemas: z.infer<typeof TypeSchemasZ> | undefined): string[] {
+  if (!typeSchemas) return [];
+  const library = getSchemaLibrary();
+  const broken: string[] = [];
+  for (const ktMap of Object.values(typeSchemas)) {
+    if (!ktMap) continue;
+    for (const schema of Object.values(ktMap)) {
+      if (typeof schema === 'object' && schema !== null && '$ref' in schema) {
+        const ref = (schema as { $ref: string }).$ref;
+        const name = ref.startsWith('library:') ? ref.slice('library:'.length) : ref;
+        if (!library.some(e => e.name === name) && !broken.includes(name)) {
+          broken.push(name);
+        }
+      }
+    }
+  }
+  return broken;
+}
 
 const SpaceMetaBody = z.object({
   purpose: z.string().max(4000).optional(),
@@ -236,6 +259,15 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfa, async (req, res) =>
     return;
   }
 
+  // Validate any $ref values in the incoming meta against the instance schema library
+  if (parsed.data.meta?.typeSchemas) {
+    const brokenRefs = findBrokenLibraryRefs(parsed.data.meta.typeSchemas as z.infer<typeof TypeSchemasZ>);
+    if (brokenRefs.length > 0) {
+      res.status(422).json({ error: `Schema library ${brokenRefs.length === 1 ? 'entry' : 'entries'} not found: ${brokenRefs.join(', ')}. Create ${brokenRefs.length === 1 ? 'it' : 'them'} via POST /api/schema-library before referencing.` });
+      return;
+    }
+  }
+
   // ── Network voting for meta changes ──────────────────────────────────────
   // If this space is part of a network and a meta change is requested,
   // open a meta_change vote round instead of applying immediately.
@@ -391,6 +423,15 @@ spacesRouter.put('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLim
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
+  }
+
+  // Validate any $ref against the instance schema library before writing
+  if ('$ref' in parsed.data) {
+    const brokenRefs = findBrokenLibraryRefs({ [knowledgeType]: { _check: parsed.data } });
+    if (brokenRefs.length > 0) {
+      res.status(422).json({ error: `Schema library ${brokenRefs.length === 1 ? 'entry' : 'entries'} not found: ${brokenRefs.join(', ')}. Create ${brokenRefs.length === 1 ? 'it' : 'them'} via POST /api/schema-library before referencing.` });
+      return;
+    }
   }
 
   const cfg = getConfig();

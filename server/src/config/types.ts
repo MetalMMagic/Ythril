@@ -50,6 +50,12 @@ export interface TypeSchema {
    * inline fields.  Inline fields on the same object are ignored when `$ref` is set.
    */
   $ref?: string;
+  /**
+   * @internal Set by resolveMetaRefs() when a `$ref` cannot be resolved to a library entry.
+   * Never present in stored config; only exists on in-memory resolved copies.
+   * Causes validate* functions to emit a schema_ref_unresolved violation.
+   */
+  _unresolvedRef?: string;
   /** Regex pattern for entity.name validation (entity collection only). */
   namingPattern?: string;
   /** Non-enforced tag hints surfaced in UI autocomplete for items of this type. */

@@ -24,7 +24,6 @@ export const schemaLibraryRouter = Router();
 
 // ── Validation ─────────────────────────────────────────────────────────────
 
-const VALID_KNOWLEDGE_TYPES = new Set(['entity', 'memory', 'edge', 'chrono']);
 const MAX_LIBRARY_ENTRIES = 500;
 
 /** Zod schema for a PropertySchema (matches spaces.ts PropertySchemaZ). */
@@ -73,7 +72,8 @@ const LibraryEntryPutBodyZ = z.object({
   knowledgeType: z.enum(['entity', 'memory', 'edge', 'chrono']),
   typeName: z.string().min(1).max(200),
   schema: LibraryTypeSchemaZ,
-  description: z.string().max(1000).optional(),
+  /** Pass null to explicitly clear a previously set description. */
+  description: z.string().max(1000).nullable().optional(),
 });
 
 // ── GET / — list all library entries ──────────────────────────────────────
@@ -116,11 +116,6 @@ schemaLibraryRouter.post('/', globalRateLimit, requireAdminMfa, (req, res) => {
     return;
   }
 
-  if (!VALID_KNOWLEDGE_TYPES.has(knowledgeType)) {
-    res.status(400).json({ error: `Invalid knowledgeType '${knowledgeType}'.` });
-    return;
-  }
-
   const now = new Date().toISOString();
   const entry: SchemaLibraryEntry = {
     name,
@@ -154,11 +149,6 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
 
   const { knowledgeType, typeName, schema, description } = parsed.data;
 
-  if (!VALID_KNOWLEDGE_TYPES.has(knowledgeType)) {
-    res.status(400).json({ error: `Invalid knowledgeType '${knowledgeType}'.` });
-    return;
-  }
-
   const library = getSchemaLibrary();
   const existingIdx = library.findIndex(e => e.name === name);
 
@@ -189,7 +179,12 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
       knowledgeType,
       typeName,
       schema,
-      description: description ?? existing.description,
+      // null explicitly clears; undefined preserves existing; string updates
+      ...(description === null
+        ? { description: undefined }
+        : description !== undefined
+          ? { description }
+          : existing.description !== undefined ? { description: existing.description } : {}),
       updatedAt: now,
     };
     const updatedLibrary = [...library];

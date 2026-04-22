@@ -198,7 +198,9 @@ All persistent data lives in named Docker volumes:
 | `ythril-mongo-data` | Brain data: memories, entities, edges, tombstones |
 | `ythril-mongo-configdb` | MongoDB replica set keyfile |
 
-The `config/` directory is a host bind mount — `config.json` and `secrets.json` are plain files that survive any container lifecycle event.
+The `config/` directory is a host bind mount — `config.json`, `secrets.json`, and `schema-library.json` are plain files that survive any container lifecycle event.
+
+> **Backup note:** All three files are required for a complete restore. `schema-library.json` holds the instance-level schema library; spaces using `$ref: "library:<name>"` will have broken validation if this file is missing after a restore.
 
 ### Config File Permissions
 
@@ -350,6 +352,7 @@ docker run --rm -v ythril-mongo-data:/src -v $(pwd)/backup:/dst alpine \
   sh -c "cp -a /src/. /dst/mongo/"
 
 # Also back up config/ (bind mount — just copy)
+# config.json, secrets.json, and schema-library.json (if present) are all required for a full restore.
 cp -r config/ backup/config/
 
 docker compose start

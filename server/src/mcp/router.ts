@@ -787,8 +787,8 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
           const ts = wt.target;
 
           // Schema validation (single pass — reuse for both strict gate and warn output)
-          const _remMetaRaw = getConfig().spaces.find(s => s.id === ts)?.meta;
-          const remMeta = _remMetaRaw ? resolveMetaRefs(_remMetaRaw) : undefined;
+          const remMetaRaw = getConfig().spaces.find(s => s.id === ts)?.meta;
+          const remMeta = remMetaRaw ? resolveMetaRefs(remMetaRaw) : undefined;
           const remSchemaViolations = remMeta ? validateMemory(remMeta, { properties: props }) : [];
           if (remSchemaViolations.length > 0 && remMeta?.validationMode === 'strict') {
             return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(remSchemaViolations, null, 2)}` }], isError: true };
@@ -1176,8 +1176,8 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
           if (!wt.ok) throw new Error(wt.error);
 
           // Schema validation (single pass)
-          const _entMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
-          const entMeta = _entMetaRaw ? resolveMetaRefs(_entMetaRaw) : undefined;
+          const entMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
+          const entMeta = entMetaRaw ? resolveMetaRefs(entMetaRaw) : undefined;
           const entSchemaViolations = entMeta ? validateEntity(entMeta, { name: eName.trim(), type: eType.trim(), properties: props }) : [];
           if (entSchemaViolations.length > 0 && entMeta?.validationMode === 'strict') {
             return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(entSchemaViolations, null, 2)}` }], isError: true };
@@ -1233,8 +1233,8 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
           }
 
           // Schema validation (single pass)
-          const _edgeMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
-          const edgeMeta = _edgeMetaRaw ? resolveMetaRefs(_edgeMetaRaw) : undefined;
+          const edgeMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
+          const edgeMeta = edgeMetaRaw ? resolveMetaRefs(edgeMetaRaw) : undefined;
           const edgeSchemaViolations = edgeMeta ? validateEdge(edgeMeta, { label: label.trim(), properties: edgeProps }) : [];
           if (edgeSchemaViolations.length > 0 && edgeMeta?.validationMode === 'strict') {
             return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(edgeSchemaViolations, null, 2)}` }], isError: true };
@@ -1352,8 +1352,8 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
           if (!wt.ok) throw new Error(wt.error);
 
           // Schema validation (single pass)
-          const _chronoMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
-          const chronoMeta = _chronoMetaRaw ? resolveMetaRefs(_chronoMetaRaw) : undefined;
+          const chronoMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
+          const chronoMeta = chronoMetaRaw ? resolveMetaRefs(chronoMetaRaw) : undefined;
           const chronoSchemaViolations = chronoMeta ? validateChrono(chronoMeta, { type: chronoType, properties: chronoProps }) : [];
           if (chronoSchemaViolations.length > 0 && chronoMeta?.validationMode === 'strict') {
             return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(chronoSchemaViolations, null, 2)}` }], isError: true };
@@ -1687,8 +1687,8 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
           const ts = wt.target;
 
           // Schema validation context
-          const _bwMetaRaw = getConfig().spaces.find(s => s.id === ts)?.meta;
-          const bwMeta = _bwMetaRaw ? resolveMetaRefs(_bwMetaRaw) : undefined;
+          const bwMetaRaw = getConfig().spaces.find(s => s.id === ts)?.meta;
+          const bwMeta = bwMetaRaw ? resolveMetaRefs(bwMetaRaw) : undefined;
           const bwValidation = bwMeta?.validationMode ?? 'off';
 
           const BULK_MAX = 500;

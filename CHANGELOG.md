@@ -17,6 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - File export (↓) and bulk import from file (↑ Import from file) in the library page.
   - Integration tests: `testing/integration/schema-library.test.js` covering CRUD, `$ref` resolution, live library-update propagation, unresolvable-ref fallback, 409 duplicate, 400 invalid payloads, and name-format validation.
   - i18n: en / de / pl.
+- **Schema Library — search** — live filter bar on the library page searches by entry name, type name, and description.
+- **Schema Library — "Import from Library" in add-type footer** — the add-type row in the space schema editor now includes a **← Lib** button directly, so a type can be imported from the library without first creating an empty type manually.
+- **`ph-icon`: `bookmarks` and `gear` icons** — added Phosphor Icons SVG paths for both symbols; the Schema Library and Settings nav items now render their icons correctly.
+
+### Changed
+
+- **Schema Library — click to edit** — clicking anywhere on a library entry card opens the edit dialog; the separate Edit button has been removed.
+- **Schema editor — file arrow directions corrected** — per-type export button now shows ↑ (send to file) and import button shows ↓ (load from file), matching the established convention used elsewhere in the UI.
+- **Schema Library — edit/delete icons** — the text-character edit (`✎`) and delete (`✕`) buttons in the entry card have been replaced with `ph-icon` `pencil-simple` and `trash` icons for visual consistency.
+- **Schema Library — ref-hint copy** — the `$ref` hint below the page header is now written in plain language ("To link a space to this entry, use … in its schema.") rather than developer-facing implementation notes.
+- **Entity search — A-Z / Semantic toggle in picker mode** — the search-mode pill toggle was previously only rendered in `bar` mode; it now appears in `picker` mode as well.
+- **Entity search — default mode changed to `name`** — `defaultMode` on `EntitySearchComponent` defaults to `'name'` (A-Z) instead of `'semantic'`; callers that need semantic-first search pass `defaultMode="semantic"` explicitly.
+
+### Fixed
+
+- `config/schema-library.json` added to `.gitignore` — the instance-level library file is runtime data and must not be committed alongside `config.json` and `secrets.json`.
 
 ---
 

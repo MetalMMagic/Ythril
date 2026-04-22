@@ -9,6 +9,7 @@ import {
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
+import { PhIconComponent } from '../../shared/ph-icon.component';
 
 interface TypeSchemaState {
   namingPattern:   string;
@@ -21,7 +22,7 @@ interface TypeSchemaState {
 @Component({
   selector: 'app-spaces',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, DragDropModule],
+  imports: [CommonModule, FormsModule, TranslocoPipe, DragDropModule, PhIconComponent],
   styles: [`
     /* chip inputs */
     .chip-wrap {
@@ -254,8 +255,8 @@ interface TypeSchemaState {
             @if (settingsTab() === 'schema') {
               <!-- export / import toolbar -->
               <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
-                <button class="btn btn-secondary btn-sm" type="button" (click)="exportSchema()" [attr.title]="'spaces.schema.exportTitle' | transloco">{{ 'spaces.schema.exportJsonButton' | transloco }}</button>
-                <button class="btn btn-secondary btn-sm" type="button" (click)="triggerImportSchema()" [attr.title]="'spaces.schema.importTitle' | transloco">{{ 'spaces.schema.importJsonButton' | transloco }}</button>
+                <button class="btn btn-secondary btn-sm" type="button" (click)="exportSchema()" [attr.title]="'spaces.schema.exportTitle' | transloco"><ph-icon name="upload" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.exportJsonButton' | transloco }}</button>
+                <button class="btn btn-secondary btn-sm" type="button" (click)="triggerImportSchema()" [attr.title]="'spaces.schema.importTitle' | transloco"><ph-icon name="download-simple" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.importJsonButton' | transloco }}</button>
                 <input #schImportInput type="file" accept=".json,application/json" style="display:none" (change)="onImportSchemaFile($event)" />
                 <input #schTypeImportInput type="file" accept=".json,application/json" style="display:none" (change)="onImportTypeSchemaFile($event)" />
                 @if (schImportError) {
@@ -349,13 +350,9 @@ interface TypeSchemaState {
                           <td (click)="$event.stopPropagation()">
                             <div style="display:flex;gap:4px;justify-content:flex-end;">
                               <button class="btn btn-ghost btn-sm" type="button" (click)="exportTypeSchema(kt,name)"
-                                style="font-size:10px;padding:2px 6px;" [attr.title]="'spaces.schema.exportTypeTitle' | transloco">↓</button>
-                              <button class="btn btn-ghost btn-sm" type="button" (click)="triggerImportTypeSchema(kt,name)"
-                                style="font-size:10px;padding:2px 6px;" [attr.title]="'spaces.schema.importTypeTitle' | transloco">↑</button>
+                                style="padding:2px 6px;" [attr.title]="'spaces.schema.exportTypeTitle' | transloco"><ph-icon name="upload" [size]="12"/></button>
                               <button class="btn btn-ghost btn-sm" type="button" (click)="saveTypeToLibrary(kt,name)"
                                 style="font-size:10px;padding:2px 6px;" [attr.title]="'spaces.schema.saveToLibraryTitle' | transloco">{{ 'spaces.schema.saveToLibraryButton' | transloco }}</button>
-                              <button class="btn btn-ghost btn-sm" type="button" (click)="triggerImportFromLibrary(kt,name)"
-                                style="font-size:10px;padding:2px 6px;" [attr.title]="'spaces.schema.importFromLibraryTitle' | transloco">{{ 'spaces.schema.importFromLibraryButton' | transloco }}</button>
                               <button class="btn btn-ghost btn-sm" type="button" (click)="toggleTypeExpand(kt,name)"
                                 style="font-size:10px;padding:2px 8px;min-width:28px;">{{ isTypeExpanded(kt,name) ? '▲' : '▼' }}</button>
                               <button class="icon-btn danger" type="button" (click)="removeType(kt,name)" [attr.title]="'common.remove' | transloco">✕</button>
@@ -541,6 +538,9 @@ interface TypeSchemaState {
                     (keydown.enter)="$event.preventDefault();addType(kt)" />
                   <button class="btn btn-secondary btn-sm" type="button"
                     (click)="addType(kt)" [disabled]="!schNewTypeInputs[kt]?.trim()">{{ kt === 'edge' ? ('spaces.schema.addLabelButton' | transloco) : ('spaces.schema.addTypeButton' | transloco) }}</button>
+                  <button class="btn btn-ghost btn-sm" type="button"
+                    (click)="triggerImportFromLibraryNew(kt)"
+                    style="font-size:10px;padding:2px 6px;" [attr.title]="'spaces.schema.importFromLibraryTitle' | transloco">{{ 'spaces.schema.importFromLibraryButton' | transloco }}</button>
                 </div>
               </ng-template>
             }
@@ -1463,6 +1463,22 @@ export class SpacesComponent implements OnInit {
     });
   }
 
+  triggerImportFromLibraryNew(kt: KnowledgeType): void {
+    this._libPickerTarget = { kt, name: '' };
+    this.libPickerLoading.set(true);
+    this.showLibPickerDialog.set(true);
+    this.api.listSchemaLibrary().subscribe({
+      next: ({ entries }) => {
+        this.libPickerEntries.set(entries.filter(e => e.knowledgeType === kt));
+        this.libPickerLoading.set(false);
+      },
+      error: () => {
+        this.libPickerEntries.set([]);
+        this.libPickerLoading.set(false);
+      },
+    });
+  }
+
   closeLibPicker(): void {
     this.showLibPickerDialog.set(false);
     this._libPickerTarget = null;
@@ -1472,6 +1488,8 @@ export class SpacesComponent implements OnInit {
   importFromLibraryInline(entry: SchemaLibraryEntry): void {
     const target = this._libPickerTarget;
     if (!target) return;
+    const typeName = target.name || entry.typeName;
+    if (!typeName) return;
     const s = entry.schema;
     const imported: TypeSchemaState = {
       namingPattern:   s.namingPattern ?? '',
@@ -1484,7 +1502,7 @@ export class SpacesComponent implements OnInit {
     };
     this.schTypeSchemas = {
       ...this.schTypeSchemas,
-      [target.kt]: { ...(this.schTypeSchemas[target.kt] ?? {}), [target.name]: imported },
+      [target.kt]: { ...(this.schTypeSchemas[target.kt] ?? {}), [typeName]: imported },
     };
     this.closeLibPicker();
   }
@@ -1493,6 +1511,8 @@ export class SpacesComponent implements OnInit {
   importFromLibraryRef(entry: SchemaLibraryEntry): void {
     const target = this._libPickerTarget;
     if (!target) return;
+    const typeName = target.name || entry.typeName;
+    if (!typeName) return;
     // Store as a special sentinel state that renders as a $ref in buildMeta()
     const refState: TypeSchemaState & { _libRef?: string } = {
       namingPattern:   '',
@@ -1504,7 +1524,7 @@ export class SpacesComponent implements OnInit {
     };
     this.schTypeSchemas = {
       ...this.schTypeSchemas,
-      [target.kt]: { ...(this.schTypeSchemas[target.kt] ?? {}), [target.name]: refState },
+      [target.kt]: { ...(this.schTypeSchemas[target.kt] ?? {}), [typeName]: refState },
     };
     this.closeLibPicker();
   }

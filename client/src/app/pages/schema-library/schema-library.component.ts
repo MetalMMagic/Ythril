@@ -127,11 +127,13 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
     .sch-grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
     .sch-sub { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin-bottom:8px; padding-bottom:4px; border-bottom:1px solid var(--border); margin-top:20px; }
     /* entry list */
-    .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+    .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
     .header-row h2 { margin:0; font-size:20px; font-weight:700; }
     .header-actions { display:flex; gap:8px; }
+    .search-row { margin-bottom:16px; }
+    .search-row input { width:100%; max-width:400px; }
     .entry-grid { display:grid; gap:10px; }
-    .entry-card { background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 16px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; transition:border-color .15s; }
+    .entry-card { background:var(--bg-surface); border:1px solid var(--border); border-radius:var(--radius-md); padding:14px 16px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; transition:border-color .15s; cursor:pointer; }
     .entry-card:hover { border-color: var(--accent); }
     .entry-main { flex:1; min-width:0; }
     .entry-name { font-weight:600; font-size:14px; color:var(--text-primary); font-family:var(--font-mono); }
@@ -158,6 +160,10 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 
     <p class="ref-hint">{{ 'schemaLib.refHint.prefix' | transloco }} <code>&#123; "$ref": "library:&lt;name&gt;" &#125;</code> {{ 'schemaLib.refHint.suffix' | transloco }}</p>
 
+    <div class="search-row">
+      <input type="search" [ngModel]="searchQuery()" (ngModelChange)="searchQuery.set($event)" [placeholder]="'schemaLib.searchPlaceholder' | transloco" />
+    </div>
+
     @if (loading()) {
       <div class="empty-state"><span class="spinner"></span></div>
     } @else if (!entries().length) {
@@ -166,10 +172,14 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
         <h3>{{ 'schemaLib.empty.title' | transloco }}</h3>
         <p>{{ 'schemaLib.empty.subtitle' | transloco }}</p>
       </div>
+    } @else if (!filteredEntries().length) {
+      <div class="empty-state">
+        <p style="color:var(--text-muted);">{{ 'schemaLib.noResults' | transloco }}</p>
+      </div>
     } @else {
       <div class="entry-grid">
-        @for (entry of entries(); track entry.name) {
-          <div class="entry-card">
+        @for (entry of filteredEntries(); track entry.name) {
+          <div class="entry-card" (click)="openEdit(entry)">
             <div class="entry-main">
               <div class="entry-name">{{ entry.name }}</div>
               <div class="entry-meta">
@@ -185,9 +195,8 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
               </div>
               @if (entry.description) { <div class="entry-description">{{ entry.description }}</div> }
             </div>
-            <div class="entry-actions">
-              <button class="btn btn-ghost btn-sm" type="button" (click)="exportEntry(entry)" [attr.title]="'schemaLib.export.title' | transloco">↓</button>
-              <button class="btn btn-secondary btn-sm" type="button" (click)="openEdit(entry)">{{ 'common.edit' | transloco }}</button>
+            <div class="entry-actions" (click)="$event.stopPropagation()">
+              <button class="btn btn-ghost btn-sm" type="button" (click)="exportEntry(entry)" [attr.title]="'schemaLib.export.title' | transloco"><ph-icon name="upload" [size]="13"/></button>
               @if (confirmDeleteName() === entry.name) {
                 <span class="inline-confirm">
                   <button class="btn btn-danger btn-sm" (click)="deleteEntry(entry.name)">{{ 'common.yes' | transloco }}</button>
@@ -399,6 +408,17 @@ export class SchemaLibraryComponent implements OnInit {
   editingName     = signal<string | null>(null);
   dialogError     = signal('');
   confirmDeleteName = signal('');
+  searchQuery     = signal('');
+
+  filteredEntries = computed(() => {
+    const q = this.searchQuery().trim().toLowerCase();
+    if (!q) return this.entries();
+    return this.entries().filter(e =>
+      e.name.toLowerCase().includes(q) ||
+      e.typeName.toLowerCase().includes(q) ||
+      (e.description ?? '').toLowerCase().includes(q),
+    );
+  });
 
   expandedPropKey = signal<string | null>(null);
 

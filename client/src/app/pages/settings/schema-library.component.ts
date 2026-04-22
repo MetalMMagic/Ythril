@@ -3,11 +3,12 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService, SchemaLibraryEntry, KnowledgeType } from '../../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
+import { PhIconComponent } from '../../shared/ph-icon.component';
 
 @Component({
   selector: 'app-schema-library',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
   styles: [`
     .header-row {
       display: flex;
@@ -226,8 +227,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
                 <div class="ref-hint">\$ref: "library:{{ entry.name }}"</div>
               </div>
               <div class="entry-actions">
-                <button class="icon-btn" [title]="'common.rename' | transloco" (click)="openEdit(entry)">✎</button>
-                <button class="icon-btn danger" [title]="'common.remove' | transloco" (click)="promptDelete(entry)">✕</button>
+                <button class="icon-btn" [title]="'common.rename' | transloco" (click)="openEdit(entry)"><ph-icon name="pencil-simple" [size]="14"/></button>
+                <button class="icon-btn danger" [title]="'common.remove' | transloco" (click)="promptDelete(entry)"><ph-icon name="trash" [size]="14"/></button>
               </div>
             </div>
           }

@@ -472,7 +472,10 @@ export function updateSpace(
   if (!space) return null;
   if (typeof updates.label === 'string') space.label = updates.label;
   if (typeof updates.description === 'string') space.description = updates.description;
-  if (updates.maxGiB !== undefined) space.maxGiB = (updates.maxGiB !== null && updates.maxGiB > 0) ? updates.maxGiB : undefined;
+  if (updates.maxGiB !== undefined) {
+    // null or non-positive clears the cap (unlimited); positive number sets the cap
+    space.maxGiB = updates.maxGiB !== null && updates.maxGiB > 0 ? updates.maxGiB : undefined;
+  }
 
   if (updates.meta !== undefined) {
     const now = new Date().toISOString();

@@ -136,6 +136,45 @@ schemaLibraryRouter.get('/', globalRateLimit, requireAuth, (_req, res) => {
   res.json({ entries: getSchemaLibrary() });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Public endpoints — unauthenticated, rate-limited
+//  MUST be registered before GET /:name to avoid the generic pattern
+//  shadowing these literal paths.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── GET /public — index of published entries ─────────────────────────────
+
+schemaLibraryRouter.get('/public', publicRateLimit, (_req, res) => {
+  const published = getSchemaLibrary()
+    .filter(e => e.published)
+    .map(({ name, knowledgeType, typeName, description, updatedAt }) => ({
+      name, knowledgeType, typeName, description, updatedAt,
+    }));
+  res.json({ entries: published });
+});
+
+// ── GET /public/:name — a single published entry ─────────────────────────
+
+schemaLibraryRouter.get('/public/:name', publicRateLimit, (req, res) => {
+  const name = req.params['name'] as string;
+  const entry = getSchemaLibrary().find(e => e.name === name);
+
+  if (!entry || !entry.published) {
+    res.status(404).json({ error: `Published schema library entry '${name}' not found` });
+    return;
+  }
+
+  // Return the full entry (schema + metadata) so consumers can import it
+  res.json({ entry: { name: entry.name, knowledgeType: entry.knowledgeType, typeName: entry.typeName, schema: entry.schema, description: entry.description, updatedAt: entry.updatedAt } });
+});
+
+// ── GET /catalogs — list all catalog links ────────────────────────────────
+// Must precede GET /:name to avoid 'catalogs' being treated as a library entry name.
+
+schemaLibraryRouter.get('/catalogs', globalRateLimit, requireAuth, (_req, res) => {
+  res.json({ catalogs: getSchemaCatalogs() });
+});
+
 // ── GET /:name — get a single library entry ────────────────────────────────
 
 schemaLibraryRouter.get('/:name', globalRateLimit, requireAuth, (req, res) => {
@@ -326,44 +365,8 @@ schemaLibraryRouter.patch('/:name/publish', globalRateLimit, requireAdminMfa, (r
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Public endpoints — unauthenticated, rate-limited
-// ─────────────────────────────────────────────────────────────────────────────
-
-// ── GET /public — index of published entries ─────────────────────────────
-
-schemaLibraryRouter.get('/public', publicRateLimit, (_req, res) => {
-  const published = getSchemaLibrary()
-    .filter(e => e.published)
-    .map(({ name, knowledgeType, typeName, description, updatedAt }) => ({
-      name, knowledgeType, typeName, description, updatedAt,
-    }));
-  res.json({ entries: published });
-});
-
-// ── GET /public/:name — a single published entry ─────────────────────────
-
-schemaLibraryRouter.get('/public/:name', publicRateLimit, (req, res) => {
-  const name = req.params['name'] as string;
-  const entry = getSchemaLibrary().find(e => e.name === name);
-
-  if (!entry || !entry.published) {
-    res.status(404).json({ error: `Published schema library entry '${name}' not found` });
-    return;
-  }
-
-  // Return the full entry (schema + metadata) so consumers can import it
-  res.json({ entry: { name: entry.name, knowledgeType: entry.knowledgeType, typeName: entry.typeName, schema: entry.schema, description: entry.description, updatedAt: entry.updatedAt } });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
 //  Foreign catalog link management
 // ─────────────────────────────────────────────────────────────────────────────
-
-// ── GET /catalogs — list all catalog links ────────────────────────────────
-
-schemaLibraryRouter.get('/catalogs', globalRateLimit, requireAuth, (_req, res) => {
-  res.json({ catalogs: getSchemaCatalogs() });
-});
 
 // ── POST /catalogs — add a new catalog link ───────────────────────────────
 

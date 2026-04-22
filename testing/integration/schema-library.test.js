@@ -659,13 +659,13 @@ describe('PATCH /api/schema-library/:name/publish — publish toggle', () => {
 
   it('PATCH publish requires admin token — rejects non-admin', async () => {
     // Create a non-admin token
-    const createR = await post(INSTANCES.a, token(), '/api/auth/tokens', { label: `non-admin-pub-${RUN}`, admin: false });
+    const createR = await post(INSTANCES.a, token(), '/api/tokens', { name: `non-admin-pub-${RUN}`, admin: false });
     assert.equal(createR.status, 201, JSON.stringify(createR.body));
     const nonAdminToken = createR.body.plaintext;
     const r = await patch(INSTANCES.a, nonAdminToken, `/api/schema-library/${encodeURIComponent(pubName)}/publish`, { published: true });
     assert.ok([401, 403].includes(r.status), `Expected 401/403 for non-admin, got ${r.status}`);
     // cleanup
-    await del(INSTANCES.a, token(), `/api/auth/tokens/${createR.body.token?.id}`).catch(() => {});
+    await del(INSTANCES.a, token(), `/api/tokens/${createR.body.token?.id}`).catch(() => {});
   });
 
   it('PATCH publish returns 404 for non-existent entry', async () => {
@@ -764,7 +764,7 @@ describe('Foreign catalogs — CRUD and proxy endpoints', () => {
   });
 
   it('POST /catalogs requires admin token', async () => {
-    const createR = await post(INSTANCES.a, token(), '/api/auth/tokens', { label: `non-admin-cat-${RUN}`, admin: false });
+    const createR = await post(INSTANCES.a, token(), '/api/tokens', { name: `non-admin-cat-${RUN}`, admin: false });
     assert.equal(createR.status, 201);
     const nonAdminToken = createR.body.plaintext;
     const r = await post(INSTANCES.a, nonAdminToken, '/api/schema-library/catalogs', {
@@ -772,7 +772,7 @@ describe('Foreign catalogs — CRUD and proxy endpoints', () => {
       url: 'https://example.com/api/schema-library',
     });
     assert.ok([401, 403].includes(r.status), `Expected 401/403 for non-admin, got ${r.status}`);
-    await del(INSTANCES.a, token(), `/api/auth/tokens/${createR.body.token?.id}`).catch(() => {});
+    await del(INSTANCES.a, token(), `/api/tokens/${createR.body.token?.id}`).catch(() => {});
   });
 
   it('DELETE /catalogs/:name removes the catalog', async () => {

@@ -756,6 +756,11 @@
 
   "schemaLib.delete.title": "Bibliothekseintrag löschen",
   "schemaLib.delete.confirm": "Bibliothekseintrag dauerhaft löschen",
+  "schemaLib.delete.noUsages": "\"{{name}}\" dauerhaft aus der Bibliothek entfernen?",
+  "schemaLib.delete.usagesWarning": "Dieser Eintrag ist in {{count}} Typ(en) verknüpft. Sie werden vor dem Löschen in eigenständige Schemata umgewandelt:",
+  "schemaLib.delete.unlinkNote": "Alle verknüpften Typen werden durch das Inline-Schema dieses Eintrags ersetzt.",
+  "schemaLib.delete.confirmUnlink": "Verknüpfung lösen & Löschen",
+  "schemaLib.delete.unlinking": "Verknüpfungen werden gelöst…",
 
   "spaces.schema.saveToLibraryButton": "In Bib.",
   "spaces.schema.saveToLibraryTitle": "Dieses Typschema in der Instanzbibliothek speichern",

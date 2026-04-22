@@ -402,3 +402,183 @@ describe('$ref to non-existent library entry', () => {
     assert.ok([200, 201].includes(r.status), `Write with unresolvable ref should succeed: ${JSON.stringify(r.body)}`);
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  GET /:name/usages — link counter endpoint
+// ═════════════════════════════════════════════════════════════════════════════
+describe('GET /api/schema-library/:name/usages — link counter', () => {
+  const usageLibName = `lib-test-${RUN}-usage-counter`;
+  const usageLibSchema = {
+    tagSuggestions: ['monitored'],
+    propertySchemas: { version: { type: 'string' } },
+  };
+  const usageSpaceA = `schema-lib-usagea-${RUN}`;
+  const usageSpaceB = `schema-lib-usageb-${RUN}`;
+
+  before(async () => {
+    // Create library entry
+    const libR = await createEntry({
+      name: usageLibName,
+      knowledgeType: 'entity',
+      typeName: 'app',
+      schema: usageLibSchema,
+    });
+    assert.equal(libR.status, 201, `Failed to create usage lib entry: ${JSON.stringify(libR.body)}`);
+
+    // Create two spaces that both $ref this entry
+    const spaceAR = await post(INSTANCES.a, token(), '/api/spaces', { id: usageSpaceA, label: `Usage Space A ${RUN}` });
+    assert.equal(spaceAR.status, 201, `Failed to create space A: ${JSON.stringify(spaceAR.body)}`);
+    const spaceBR = await post(INSTANCES.a, token(), '/api/spaces', { id: usageSpaceB, label: `Usage Space B ${RUN}` });
+    assert.equal(spaceBR.status, 201, `Failed to create space B: ${JSON.stringify(spaceBR.body)}`);
+
+    // Wire $ref in both spaces
+    for (const spaceId of [usageSpaceA, usageSpaceB]) {
+      const pR = await patch(INSTANCES.a, token(), `/api/spaces/${spaceId}`, {
+        meta: { typeSchemas: { entity: { app: { $ref: `library:${usageLibName}` } } } },
+      });
+      assert.ok([200, 202].includes(pR.status), `Failed to patch space ${spaceId}: ${JSON.stringify(pR.body)}`);
+    }
+  });
+
+  after(async () => {
+    await deleteEntry(usageLibName).catch(() => {});
+    for (const id of [usageSpaceA, usageSpaceB]) {
+      await fetch(`${INSTANCES.a}/api/spaces/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: true }),
+      }).catch(() => {});
+    }
+  });
+
+  it('returns 200 with a usages array', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/schema-library/${encodeURIComponent(usageLibName)}/usages`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body?.usages), 'usages should be an array');
+  });
+
+  it('reports both spaces as usages', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/schema-library/${encodeURIComponent(usageLibName)}/usages`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const ids = r.body.usages.map(u => u.spaceId);
+    assert.ok(ids.includes(usageSpaceA), `Expected ${usageSpaceA} in usages: ${JSON.stringify(ids)}`);
+    assert.ok(ids.includes(usageSpaceB), `Expected ${usageSpaceB} in usages: ${JSON.stringify(ids)}`);
+  });
+
+  it('each usage has the expected fields', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/schema-library/${encodeURIComponent(usageLibName)}/usages`);
+    for (const u of r.body.usages) {
+      assert.ok(u.spaceId, 'usage should have spaceId');
+      assert.ok(u.spaceLabel, 'usage should have spaceLabel');
+      assert.ok(u.knowledgeType, 'usage should have knowledgeType');
+      assert.ok(u.typeName, 'usage should have typeName');
+      assert.equal(u.knowledgeType, 'entity');
+      assert.equal(u.typeName, 'app');
+    }
+  });
+
+  it('returns empty usages array for an entry with no $refs', async () => {
+    // Create an unlinked entry
+    const unlinkedName = `lib-test-${RUN}-unlinked`;
+    await createEntry({ name: unlinkedName, knowledgeType: 'memory', typeName: 'note', schema: {} });
+    const r = await get(INSTANCES.a, token(), `/api/schema-library/${encodeURIComponent(unlinkedName)}/usages`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.usages.length, 0, `Expected 0 usages, got ${r.body.usages.length}`);
+    await deleteEntry(unlinkedName).catch(() => {});
+  });
+
+  it('returns 200 with empty array for non-existent entry name (no $ref can point to it)', async () => {
+    // The endpoint scans spaces — if no space refs a non-existent name, usages is empty (not 404)
+    const r = await get(INSTANCES.a, token(), `/api/schema-library/${encodeURIComponent(`lib-test-${RUN}-ghost`)}/usages`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.usages.length, 0);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Safe delete: unlink $refs then remove library entry
+// ═════════════════════════════════════════════════════════════════════════════
+describe('safe delete — unlink $refs then delete library entry', () => {
+  const safeLibName  = `lib-test-${RUN}-safe-del`;
+  const safeSpaceId  = `schema-lib-safedel-${RUN}`;
+  const safeSchema   = {
+    namingPattern: '^svc-',
+    propertySchemas: { tier: { type: 'string' } },
+  };
+
+  before(async () => {
+    // Create library entry
+    const libR = await createEntry({
+      name: safeLibName,
+      knowledgeType: 'entity',
+      typeName: 'service',
+      schema: safeSchema,
+    });
+    assert.equal(libR.status, 201, `Failed to create safe-del lib entry: ${JSON.stringify(libR.body)}`);
+
+    // Create a space and wire the $ref
+    const spR = await post(INSTANCES.a, token(), '/api/spaces', { id: safeSpaceId, label: `Safe Del ${RUN}` });
+    assert.equal(spR.status, 201, `Failed to create safe-del space: ${JSON.stringify(spR.body)}`);
+    const pR = await patch(INSTANCES.a, token(), `/api/spaces/${safeSpaceId}`, {
+      meta: { typeSchemas: { entity: { service: { $ref: `library:${safeLibName}` } } } },
+    });
+    assert.ok([200, 202].includes(pR.status), `Failed to wire $ref: ${JSON.stringify(pR.body)}`);
+  });
+
+  after(async () => {
+    await deleteEntry(safeLibName).catch(() => {});
+    await fetch(`${INSTANCES.a}/api/spaces/${safeSpaceId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    }).catch(() => {});
+  });
+
+  it('usages reports the linked space before unlink', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/schema-library/${encodeURIComponent(safeLibName)}/usages`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.usages.length, 1, `Expected 1 usage: ${JSON.stringify(r.body.usages)}`);
+    assert.equal(r.body.usages[0].spaceId, safeSpaceId);
+  });
+
+  it('PUT inline schema replaces $ref in the space', async () => {
+    // Simulate the client unlink: PUT the inline schema directly (replacing $ref)
+    const r = await put(
+      INSTANCES.a, token(),
+      `/api/spaces/${safeSpaceId}/meta/typeSchemas/entity/service`,
+      { ...safeSchema },
+    );
+    assert.equal(r.status, 200, `PUT inline schema failed: ${JSON.stringify(r.body)}`);
+
+    // Verify the space no longer has a $ref
+    const metaR = await get(INSTANCES.a, token(), `/api/spaces/${safeSpaceId}/meta`);
+    assert.equal(metaR.status, 200);
+    const stored = metaR.body.typeSchemas?.entity?.service;
+    assert.ok(!stored?.$ref, `$ref should be gone after inline PUT; got: ${JSON.stringify(stored)}`);
+    assert.equal(stored?.namingPattern, '^svc-', 'inline namingPattern should be stored');
+  });
+
+  it('usages is empty after inline replacement', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/schema-library/${encodeURIComponent(safeLibName)}/usages`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.usages.length, 0, `Expected 0 usages after unlink: ${JSON.stringify(r.body.usages)}`);
+  });
+
+  it('DELETE succeeds after all refs are replaced', async () => {
+    const r = await deleteEntry(safeLibName);
+    assert.equal(r.status, 204, JSON.stringify(r.body));
+  });
+
+  it('GET after delete returns 404', async () => {
+    const r = await getEntry(safeLibName);
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+  });
+
+  it('the space type schema remains intact as inline after library entry is gone', async () => {
+    const metaR = await get(INSTANCES.a, token(), `/api/spaces/${safeSpaceId}/meta`);
+    assert.equal(metaR.status, 200);
+    const stored = metaR.body.typeSchemas?.entity?.service;
+    assert.ok(!stored?.$ref, 'No $ref should remain');
+    assert.equal(stored?.namingPattern, '^svc-', 'namingPattern should still be present as inline schema');
+  });
+});

@@ -11,7 +11,7 @@
 import { Component, inject, signal, computed, OnInit, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { finalize } from 'rxjs';
+import { finalize, forkJoin } from 'rxjs';
 import {
   ApiService, SchemaLibraryEntry, KnowledgeType, PropertySchema, TypeSchema,
 } from '../../core/api.service';
@@ -190,19 +190,15 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
                   <span class="prop-badge" [title]="entry.schema.namingPattern">pattern</span>
                 }
                 <span class="updated">{{ 'schemaLib.updated' | transloco }}: {{ entry.updatedAt | date:'dd.MM.yyyy HH:mm' }}</span>
+                @if ((usageCounts()[entry.name] || 0) > 0) {
+                  <span class="prop-badge" style="color:var(--accent);background:var(--accent-dim);">{{ usageCounts()[entry.name] }} link{{ usageCounts()[entry.name] !== 1 ? 's' : '' }}</span>
+                }
               </div>
               @if (entry.description) { <div class="entry-description">{{ entry.description }}</div> }
             </div>
             <div class="entry-actions" (click)="$event.stopPropagation()">
               <button class="btn btn-ghost btn-sm" type="button" (click)="exportEntry(entry)" [attr.title]="'schemaLib.export.title' | transloco"><ph-icon name="upload" [size]="13"/></button>
-              @if (confirmDeleteName() === entry.name) {
-                <span class="inline-confirm">
-                  <button class="btn btn-danger btn-sm" (click)="deleteEntry(entry.name)">{{ 'common.yes' | transloco }}</button>
-                  <button class="btn btn-secondary btn-sm" (click)="confirmDeleteName.set('')">{{ 'common.no' | transloco }}</button>
-                </span>
-              } @else {
-                <button class="btn btn-ghost btn-sm danger" type="button" (click)="confirmDeleteName.set(entry.name)" [attr.title]="'common.remove' | transloco"><ph-icon name="trash" [size]="13"/></button>
-              }
+              <button class="btn btn-ghost btn-sm danger" type="button" (click)="initiateDelete(entry.name)" [attr.title]="'common.remove' | transloco"><ph-icon name="trash" [size]="13"/></button>
             </div>
           </div>
         }
@@ -387,6 +383,40 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
         </div>
       </div>
     }
+
+    <!-- Delete warning dialog -->
+    @if (deleteDialog(); as dd) {
+      <div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:320;display:flex;align-items:center;justify-content:center;" (click)="closeDeleteDialog()">
+        <div style="background:var(--surface);border-radius:8px;padding:24px;max-width:480px;width:90%;display:flex;flex-direction:column;gap:16px;" (click)="$event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <h3 style="margin:0;font-size:15px;">{{ 'schemaLib.delete.title' | transloco }}</h3>
+            <button class="icon-btn" type="button" (click)="closeDeleteDialog()"><ph-icon name="x" [size]="18"/></button>
+          </div>
+          @if (dd.loading) {
+            <div style="text-align:center;padding:16px 0;"><span class="spinner"></span></div>
+          } @else {
+            @if (dd.usages.length > 0) {
+              <p style="margin:0;font-size:13px;color:var(--text-muted);">{{ 'schemaLib.delete.usagesWarning' | transloco: { count: dd.usages.length } }}</p>
+              <ul style="margin:0;padding-left:20px;font-size:12px;color:var(--text-muted);">
+                @for (u of dd.usages; track u.spaceId + u.knowledgeType + u.typeName) {
+                  <li><strong>{{ u.spaceLabel }}</strong> — {{ u.knowledgeType }}: <code>{{ u.typeName }}</code></li>
+                }
+              </ul>
+              <p style="margin:0;font-size:12px;color:var(--text-muted);">{{ 'schemaLib.delete.unlinkNote' | transloco }}</p>
+            } @else {
+              <p style="margin:0;font-size:13px;color:var(--text-muted);">{{ 'schemaLib.delete.noUsages' | transloco: { name: dd.entryName } }}</p>
+            }
+            @if (dd.error) { <p style="margin:0;font-size:12px;color:var(--danger);">{{ dd.error }}</p> }
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
+              <button class="btn btn-secondary btn-sm" type="button" (click)="closeDeleteDialog()" [disabled]="dd.unlinking">{{ 'common.cancel' | transloco }}</button>
+              <button class="btn btn-danger btn-sm" type="button" (click)="confirmDelete()" [disabled]="dd.unlinking">
+                {{ dd.unlinking ? ('schemaLib.delete.unlinking' | transloco) : (dd.usages.length > 0 ? ('schemaLib.delete.confirmUnlink' | transloco) : ('common.remove' | transloco)) }}
+              </button>
+            </div>
+          }
+        </div>
+      </div>
+    }
   `,
 })
 export class SchemaLibraryComponent implements OnInit {
@@ -394,6 +424,7 @@ export class SchemaLibraryComponent implements OnInit {
   private transloco = inject(TranslocoService);
 
   entries         = signal<SchemaLibraryEntry[]>([]);
+  usageCounts     = signal<Record<string, number>>({});
   loading         = signal(true);
   saving          = signal(false);
   showDialog      = signal(false);
@@ -401,6 +432,15 @@ export class SchemaLibraryComponent implements OnInit {
   dialogError     = signal('');
   confirmDeleteName = signal('');
   searchQuery     = signal('');
+
+  /** State for the usage-aware delete warning dialog. */
+  deleteDialog = signal<{
+    entryName: string;
+    usages: { spaceId: string; spaceLabel: string; knowledgeType: string; typeName: string }[];
+    loading: boolean;
+    unlinking: boolean;
+    error: string;
+  } | null>(null);
 
   filteredEntries = computed(() => {
     const q = this.searchQuery().trim().toLowerCase();
@@ -435,7 +475,21 @@ export class SchemaLibraryComponent implements OnInit {
     this.api.listSchemaLibrary().pipe(
       finalize(() => this.loading.set(false)),
     ).subscribe({
-      next: ({ entries }) => this.entries.set(entries),
+      next: ({ entries }) => {
+        this.entries.set(entries);
+        if (entries.length === 0) return;
+        // Fetch usage counts for all entries (non-critical; errors silently ignored)
+        forkJoin(
+          entries.map(e => this.api.getSchemaLibraryUsages(e.name)),
+        ).subscribe({
+          next: (results) => {
+            const counts: Record<string, number> = {};
+            entries.forEach((e, i) => { counts[e.name] = results[i]?.usages?.length ?? 0; });
+            this.usageCounts.set(counts);
+          },
+          error: () => {}, // usage counts are non-critical
+        });
+      },
       error: () => this.entries.set([]),
     });
   }
@@ -467,6 +521,63 @@ export class SchemaLibraryComponent implements OnInit {
     this.editingName.set(null);
     this.dialogError.set('');
     this.confirmDeleteName.set('');
+  }
+
+  // ── Usage-aware delete flow ────────────────────────────────────────────────
+
+  initiateDelete(name: string): void {
+    this.deleteDialog.set({ entryName: name, usages: [], loading: true, unlinking: false, error: '' });
+    this.api.getSchemaLibraryUsages(name).subscribe({
+      next: ({ usages }) => {
+        this.deleteDialog.update(d => d ? { ...d, usages, loading: false } : d);
+      },
+      error: () => {
+        // If we can't check usages, still allow delete (fail open — usages non-critical)
+        this.deleteDialog.update(d => d ? { ...d, usages: [], loading: false } : d);
+      },
+    });
+  }
+
+  closeDeleteDialog(): void { this.deleteDialog.set(null); }
+
+  confirmDelete(): void {
+    const d = this.deleteDialog();
+    if (!d) return;
+    if (d.usages.length === 0) {
+      this._doDelete(d.entryName);
+      return;
+    }
+    // Unlink all linked types (replace $ref with inline schema from library entry),
+    // then delete the library entry.
+    const entry = this.entries().find(e => e.name === d.entryName);
+    this.deleteDialog.update(s => s ? { ...s, unlinking: true, error: '' } : s);
+    const unlinks$ = d.usages.map(u =>
+      this.api.upsertTypeSchema(
+        u.spaceId,
+        u.knowledgeType as KnowledgeType,
+        u.typeName,
+        entry ? { ...entry.schema } : {},
+      ),
+    );
+    forkJoin(unlinks$.length ? unlinks$ : [Promise.resolve()]).subscribe({
+      next: () => this._doDelete(d.entryName),
+      error: (err) => {
+        this.deleteDialog.update(s => s ? { ...s, unlinking: false, error: err?.error?.error ?? 'Failed to unlink one or more spaces.' } : s);
+      },
+    });
+  }
+
+  private _doDelete(name: string): void {
+    this.api.deleteSchemaLibraryEntry(name).subscribe({
+      next: () => {
+        this.entries.update(list => list.filter(e => e.name !== name));
+        this.usageCounts.update(c => { const n = { ...c }; delete n[name]; return n; });
+        this.deleteDialog.set(null);
+      },
+      error: (err) => {
+        this.deleteDialog.update(s => s ? { ...s, unlinking: false, error: err?.error?.error ?? this.transloco.translate('schemaLib.error.deleteFailed') } : s);
+      },
+    });
   }
 
   // ── Name slugify ───────────────────────────────────────────────────────────
@@ -591,16 +702,9 @@ export class SchemaLibraryComponent implements OnInit {
   }
 
   deleteEntry(name: string): void {
-    this.api.deleteSchemaLibraryEntry(name).subscribe({
-      next: () => {
-        this.entries.update(list => list.filter(e => e.name !== name));
-        this.confirmDeleteName.set('');
-      },
-      error: (err) => {
-        alert(err?.error?.error ?? this.transloco.translate('schemaLib.error.deleteFailed'));
-        this.confirmDeleteName.set('');
-      },
-    });
+    // Legacy inline confirm path — now superseded by initiateDelete().
+    // Kept for safety; should not be reachable from current template.
+    this._doDelete(name);
   }
 
   // ── Export single entry to file ────────────────────────────────────────────

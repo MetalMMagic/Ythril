@@ -259,26 +259,23 @@ interface TypeSchemaState {
                 <button class="btn btn-secondary btn-sm" type="button" (click)="triggerImportSchema()" [attr.title]="'spaces.schema.importTitle' | transloco"><ph-icon name="download-simple" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.importJsonButton' | transloco }}</button>
                 <input #schImportInput type="file" accept=".json,application/json" style="display:none" (change)="onImportSchemaFile($event)" />
                 <input #schTypeImportInput type="file" accept=".json,application/json" style="display:none" (change)="onImportTypeSchemaFile($event)" />
-                @if (schImportError) {
-                  <span style="font-size:12px;color:var(--error);">{{ schImportError }}</span>
-                }
                 <span style="font-size:11px;color:var(--text-muted);margin-left:4px;">{{ 'spaces.schema.autoSyncHint' | transloco }}</span>
               </div>
               <!-- collection tabs -->
               <div class="sch-coll-tabs">
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='entity'" (click)="schemaCollTab.set('entity')">
+                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='entity'" (click)="schemaCollTab.set('entity');schImportError=''">
                   {{ 'spaces.schema.tab.entities' | transloco }}
                   @if (typeCount('entity')) { <span class="sch-cnt-badge">{{ typeCount('entity') }}</span> }
                 </button>
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='edge'" (click)="schemaCollTab.set('edge')">
+                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='edge'" (click)="schemaCollTab.set('edge');schImportError=''">
                   {{ 'spaces.schema.tab.edges' | transloco }}
                   @if (typeCount('edge')) { <span class="sch-cnt-badge">{{ typeCount('edge') }}</span> }
                 </button>
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='memory'" (click)="schemaCollTab.set('memory')">
+                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='memory'" (click)="schemaCollTab.set('memory');schImportError=''">
                   {{ 'spaces.schema.tab.memories' | transloco }}
                   @if (typeCount('memory')) { <span class="sch-cnt-badge">{{ typeCount('memory') }}</span> }
                 </button>
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='chrono'" (click)="schemaCollTab.set('chrono')">
+                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='chrono'" (click)="schemaCollTab.set('chrono');schImportError=''">
                   {{ 'spaces.schema.tab.chrono' | transloco }}
                   @if (typeCount('chrono')) { <span class="sch-cnt-badge">{{ typeCount('chrono') }}</span> }
                 </button>
@@ -555,6 +552,9 @@ interface TypeSchemaState {
                     (click)="triggerImportFromLibraryNew(kt)"
                     [attr.title]="'spaces.schema.importFromLibraryTitle' | transloco"><ph-icon name="bookmarks" [size]="13" style="margin-right:4px;vertical-align:-2px;"/>{{ 'spaces.schema.importFromLibraryButton' | transloco }}</button>
                 </div>
+                @if (schImportError) {
+                  <div style="font-size:12px;color:var(--error);margin-top:4px;">{{ schImportError }}</div>
+                }
               </ng-template>
             }
 
@@ -641,6 +641,27 @@ interface TypeSchemaState {
           }
         </div><!-- sp-panel -->
       </div><!-- sp-backdrop -->
+    }
+
+    <!-- Import conflict dialog -->
+    @if (importConflict(); as conflict) {
+      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:320;" (click)="dismissImportConflict()">
+        <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:440px;max-width:96vw;" (click)="$event.stopPropagation()">
+          <div style="font-weight:700;font-size:15px;margin-bottom:8px;">Type already exists</div>
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;">A type named <strong style="font-family:var(--font-mono);">{{ conflict.name }}</strong> already exists in <strong>{{ conflict.kt }}</strong>. What would you like to do?</p>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <button class="btn btn-secondary" type="button" (click)="resolveImportConflictOverride()">Override existing</button>
+            @if (importConflict()!.allowAddAs) {
+              <div style="display:flex;gap:8px;align-items:center;">
+                <input type="text" [ngModel]="importConflictAddAsName()" (ngModelChange)="importConflictAddAsName.set($event)"
+                  placeholder="New type name" style="flex:1;" (keydown.enter)="$event.preventDefault();resolveImportConflictAddAs()" />
+                <button class="btn btn-primary btn-sm" type="button" (click)="resolveImportConflictAddAs()" [disabled]="!importConflictAddAsName().trim()">Add as</button>
+              </div>
+            }
+            <button class="btn btn-ghost" type="button" (click)="dismissImportConflict()">Cancel</button>
+          </div>
+        </div>
+      </div>
     }
 
     <!-- Library picker dialog -->
@@ -843,6 +864,9 @@ export class SpacesComponent implements OnInit {
   schExpandedType:   { kt: KnowledgeType; name: string } | null = null;
   schExpandedProp:   { kt: KnowledgeType; typeName: string; propKey: string } | null = null;
   schImportError     = '';
+  /** Pending import conflict: holds the parsed state waiting for user resolution. */
+  importConflict = signal<{ kt: KnowledgeType; name: string; state: TypeSchemaState; allowAddAs: boolean } | null>(null);
+  importConflictAddAsName = signal('');
 
   @ViewChild('schImportInput') schImportInputRef?: ElementRef<HTMLInputElement>;
   @ViewChild('schTypeImportInput') schTypeImportInputRef?: ElementRef<HTMLInputElement>;
@@ -1224,11 +1248,6 @@ export class SpacesComponent implements OnInit {
           this.schImportError = this.transloco.translate('spaces.schema.import.invalidTypeFile');
           return;
         }
-        // When importing as a new type (name derived from file), refuse to overwrite an existing type
-        if (!this._typeImportTarget?.name && this.typeNames(kt).includes(name)) {
-          this.schImportError = `Type "${name}" already exists. Rename or remove it first.`;
-          return;
-        }
         const ts2 = schemaRaw as Record<string, unknown>;
         const imported: TypeSchemaState = {
           namingPattern:   typeof ts2['namingPattern'] === 'string' ? ts2['namingPattern'] : '',
@@ -1245,6 +1264,13 @@ export class SpacesComponent implements OnInit {
           _newPropInput: '',
           _newTagInput:  '',
         };
+        // When importing as a new type (name derived from file), check for collision
+        if (!this._typeImportTarget?.name && this.typeNames(kt).includes(name)) {
+          // Stash parsed state and show conflict dialog instead of erroring
+          this.importConflict.set({ kt, name, state: imported, allowAddAs: true });
+          this.importConflictAddAsName.set(name + '-2');
+          return;
+        }
         this.schTypeSchemas = {
           ...this.schTypeSchemas,
           [kt]: { ...(this.schTypeSchemas[kt] ?? {}), [name]: imported },
@@ -1258,6 +1284,37 @@ export class SpacesComponent implements OnInit {
       }
     };
     reader.readAsText(file);
+  }
+
+  dismissImportConflict(): void {
+    this.importConflict.set(null);
+    this.importConflictAddAsName.set('');
+  }
+
+  resolveImportConflictOverride(): void {
+    const c = this.importConflict();
+    if (!c) return;
+    this.schTypeSchemas = {
+      ...this.schTypeSchemas,
+      [c.kt]: { ...(this.schTypeSchemas[c.kt] ?? {}), [c.name]: c.state },
+    };
+    this.dismissImportConflict();
+  }
+
+  resolveImportConflictAddAs(): void {
+    const c = this.importConflict();
+    const newName = this.importConflictAddAsName().trim();
+    if (!c || !newName) return;
+    if (this.typeNames(c.kt).includes(newName)) {
+      // Still conflicts — update the suggested name signal so the input shakes visually
+      this.importConflictAddAsName.set(newName);
+      return;
+    }
+    this.schTypeSchemas = {
+      ...this.schTypeSchemas,
+      [c.kt]: { ...(this.schTypeSchemas[c.kt] ?? {}), [newName]: c.state },
+    };
+    this.dismissImportConflict();
   }
 
   // ── typeSchemas helpers ────────────────────────────────────────────────────
@@ -1561,6 +1618,12 @@ export class SpacesComponent implements OnInit {
       _newTagInput:    '',
       _libRef:         entry.name,
     };
+    // When adding a new type from lib (no pre-existing name), check for collision
+    if (!target.name && this.typeNames(target.kt).includes(typeName)) {
+      this.closeLibPicker();
+      this.importConflict.set({ kt: target.kt, name: typeName, state: refState, allowAddAs: false });
+      return;
+    }
     this.schTypeSchemas = {
       ...this.schTypeSchemas,
       [target.kt]: { ...(this.schTypeSchemas[target.kt] ?? {}), [typeName]: refState },

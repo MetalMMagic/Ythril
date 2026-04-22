@@ -1987,6 +1987,31 @@ Authorization: Bearer <token>
 
 **Response** `200 { "entry": { ... } }` or `404`.
 
+#### Get usages of an entry
+
+Returns every space type definition that references this library entry via `$ref`.
+
+```
+GET /api/schema-library/:name/usages
+Authorization: Bearer <token>
+```
+
+**Response** `200`:
+```json
+{
+  "usages": [
+    {
+      "spaceId": "my-space",
+      "spaceLabel": "My Space",
+      "knowledgeType": "entity",
+      "typeName": "service"
+    }
+  ]
+}
+```
+
+Returns an empty `usages` array if no space references the entry (including for names that do not exist in the library). Use this endpoint before deleting an entry to identify which spaces would lose their schema reference.
+
 #### Create an entry
 
 ```
@@ -2030,6 +2055,10 @@ Authorization: Bearer <token>
 ```
 
 **Response** `204`. Returns `404` if not found.
+
+> **Safe deletion:** Before deleting an entry, call `GET /api/schema-library/:name/usages` to find all spaces that reference it. For each usage, `PUT /api/spaces/:spaceId/meta/typeSchemas/:kt/:typeName` with the inline schema (copied from the library entry) to replace the `$ref` with a standalone definition. Once all references are replaced, the `DELETE` can proceed without breaking any space's validation.
+>
+> The admin UI performs this sequence automatically — it shows a warning with the affected spaces and an **Unlink & Delete** button that handles the replacement before deleting.
 
 #### Using `$ref` in space typeSchemas
 

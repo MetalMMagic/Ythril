@@ -783,6 +783,11 @@
 
   "schemaLib.delete.title": "Delete library entry",
   "schemaLib.delete.confirm": "Permanently delete library entry",
+  "schemaLib.delete.noUsages": "Remove \"{{name}}\" from the library permanently?",
+  "schemaLib.delete.usagesWarning": "This entry is linked in {{count}} space type(s). They will be converted to inline schemas before deletion:",
+  "schemaLib.delete.unlinkNote": "All linked types will be replaced with the inline schema from this library entry.",
+  "schemaLib.delete.confirmUnlink": "Unlink & Delete",
+  "schemaLib.delete.unlinking": "Unlinking…",
 
   "spaces.schema.saveToLibraryButton": "Save to Lib",
   "spaces.schema.saveToLibraryTitle": "Save this type schema to the instance library",

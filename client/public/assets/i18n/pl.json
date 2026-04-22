@@ -755,6 +755,11 @@
 
   "schemaLib.delete.title": "Usuń wpis biblioteki",
   "schemaLib.delete.confirm": "Trwale usuń wpis biblioteki",
+  "schemaLib.delete.noUsages": "Trwale usunąć \"{{name}}\" z biblioteki?",
+  "schemaLib.delete.usagesWarning": "Ten wpis jest powiązany w {{count}} typach. Zostaną przekształcone w schematy inline przed usunięciem:",
+  "schemaLib.delete.unlinkNote": "Wszystkie powiązane typy zostaną zastąpione schematem inline z tego wpisu biblioteki.",
+  "schemaLib.delete.confirmUnlink": "Odłącz i usuń",
+  "schemaLib.delete.unlinking": "Odłączanie…",
 
   "spaces.schema.saveToLibraryButton": "Zapisz do bib.",
   "spaces.schema.saveToLibraryTitle": "Zapisz ten schemat typu w bibliotece instancji",

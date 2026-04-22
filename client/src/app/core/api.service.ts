@@ -422,6 +422,10 @@ export class ApiService {
     return this.http.delete<void>(`/api/schema-library/${encodeURIComponent(name)}`);
   }
 
+  getSchemaLibraryUsages(name: string): Observable<{ usages: { spaceId: string; spaceLabel: string; knowledgeType: string; typeName: string }[] }> {
+    return this.http.get<{ usages: { spaceId: string; spaceLabel: string; knowledgeType: string; typeName: string }[] }>(`/api/schema-library/${encodeURIComponent(name)}/usages`);
+  }
+
   // ── Spaces ────────────────────────────────────────────────────────────────
 
   listSpaces(): Observable<SpacesResponse> {

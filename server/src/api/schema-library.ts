@@ -16,7 +16,7 @@
 import { Router } from 'express';
 import { requireAuth, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
-import { getSchemaLibrary, saveSchemaLibrary } from '../config/loader.js';
+import { getSchemaLibrary, saveSchemaLibrary, getConfig } from '../config/loader.js';
 import { z } from 'zod';
 import type { SchemaLibraryEntry } from '../config/types.js';
 
@@ -192,6 +192,30 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
     saveSchemaLibrary(updatedLibrary);
     res.json({ entry: updatedEntry });
   }
+});
+
+// ── GET /:name/usages — list all spaces that $ref this library entry ─────────
+
+schemaLibraryRouter.get('/:name/usages', globalRateLimit, requireAuth, (req, res) => {
+  const name = req.params['name'] as string;
+  const refValue = `library:${name}`;
+  const kts = ['entity', 'memory', 'edge', 'chrono'] as const;
+
+  const usages: { spaceId: string; spaceLabel: string; knowledgeType: string; typeName: string }[] = [];
+  for (const space of getConfig().spaces) {
+    const ts = space.meta?.typeSchemas;
+    if (!ts) continue;
+    for (const kt of kts) {
+      const ktMap = ts[kt];
+      if (!ktMap) continue;
+      for (const [typeName, schema] of Object.entries(ktMap)) {
+        if ((schema as { $ref?: string }).$ref === refValue) {
+          usages.push({ spaceId: space.id, spaceLabel: space.label, knowledgeType: kt, typeName });
+        }
+      }
+    }
+  }
+  res.json({ usages });
 });
 
 // ── DELETE /:name — remove a library entry ─────────────────────────────────

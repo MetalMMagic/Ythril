@@ -424,9 +424,13 @@ The **Schema Library** (accessible from the main navigation, under Workspace) is
 
 **Creating a library entry:** Open **Schema Library** → **+ New entry**. Give it a unique name (e.g. `service-v1`), select the knowledge type and type name it is intended for, then fill in the same constraints you would enter in a space's schema editor: naming pattern, tag suggestions, and property schemas.
 
-**Referencing a library entry from a space:** In the space's schema tab, each type row has a **← Lib** button that opens a picker showing matching library entries. Choose **Import inline** to copy the schema directly, or **Use $ref** to store a reference (`library:<name>`) instead. Spaces that use `$ref` automatically pick up library edits without any re-configuration.
+**Referencing a library entry from a space:** In the space's schema tab, click **From Lib** in the footer of any knowledge-type section. A picker shows all library entries for that type. Click **Use this schema** to import the entry as a `$ref` — the type row shows a **Library** badge and a read-only hint. Spaces that use `$ref` automatically pick up library edits without any re-configuration.
 
-**Exporting a library entry to a space (and vice-versa):** In the space's schema tab, click **→ Lib** on any type row to save that type's current schema to the library (you will be prompted for a name). Use the download icon (↓) in the library list to export an entry as a JSON file, or the **↑ Import from file** button to bulk-import entries from a JSON file.
+**Saving a type schema to the library:** Click the **Save to Lib** button on any type row that is not already a library reference. The entry is created automatically using a slugified version of the type name. On success the row converts to a `$ref` in place.
+
+**Link counter:** The Schema Library page shows how many spaces link each entry (e.g. **2 links** badge). Entries with no links show no badge.
+
+**Safe deletion:** Clicking the trash icon on a library entry fetches all linked spaces first. If any exist, a warning dialog lists them and offers **Unlink & Delete** — this replaces every `$ref` with the inline schema before removing the entry, so no space loses its validation rules. Entries with no links are removed immediately after a single confirm.
 
 **JSON format for `$ref`:**
 

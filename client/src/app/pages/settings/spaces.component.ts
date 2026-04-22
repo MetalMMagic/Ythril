@@ -1,6 +1,7 @@
 ﻿import { Component, inject, signal, OnInit, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { finalize } from 'rxjs';
 import {
   ApiService, Network, Space, SpaceMeta, SpaceStats,
   KnowledgeType, PropertySchema, TypeSchema, ValidationMode,
@@ -824,16 +825,17 @@ export class SpacesComponent implements OnInit {
     if (this.form.validationMode !== 'off') meta.validationMode = this.form.validationMode;
     if (this.form.strictLinkage) meta.strictLinkage = true;
     if (Object.keys(meta).length) body.meta = meta;
-    this.api.createSpace(body).subscribe({
+    this.api.createSpace(body).pipe(
+      finalize(() => this.creating.set(false)),
+    ).subscribe({
       next: ({ space }) => {
-        this.creating.set(false);
         this.showCreateDialog.set(false);
         this.spaces.update(list => [...list, space]);
         this.form = { label: '', id: '', maxGiB: null, purpose: SpacesComponent.DEFAULT_PURPOSE, validationMode: 'off', strictLinkage: false };
         this.proxyForSelected = [];
         this.proxyForAll = false;
       },
-      error: (err) => { this.creating.set(false); this.createError.set(err.error?.error ?? this.transloco.translate('spaces.error.createFailed')); },
+      error: (err) => { this.createError.set(err.error?.error ?? this.transloco.translate('spaces.error.createFailed')); },
     });
   }
 

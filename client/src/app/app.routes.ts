@@ -44,6 +44,11 @@ export const routes: Routes = [
           import('./pages/files/conflicts.component').then(m => m.ConflictsComponent),
       },
       {
+        path: 'schema-library',
+        loadComponent: () =>
+          import('./pages/schema-library/schema-library.component').then(m => m.SchemaLibraryComponent),
+      },
+      {
         path: 'settings',
         loadComponent: () =>
           import('./pages/settings/settings.component').then(m => m.SettingsComponent),
@@ -78,11 +83,6 @@ export const routes: Routes = [
             path: 'audit-log',
             loadComponent: () =>
               import('./pages/settings/audit-log.component').then(m => m.AuditLogComponent),
-          },
-          {
-            path: 'schema-library',
-            loadComponent: () =>
-              import('./pages/settings/schema-library.component').then(m => m.SchemaLibraryComponent),
           },
           {
             path: 'about',

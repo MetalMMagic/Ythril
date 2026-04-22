@@ -48,7 +48,7 @@ function getSpaceMeta(spaceId: string): SpaceMeta | undefined {
   const cfg = getConfig();
   const meta = cfg.spaces.find(s => s.id === spaceId)?.meta;
   if (!meta) return undefined;
-  return resolveMetaRefs(meta, cfg.schemaLibrary);
+  return resolveMetaRefs(meta);
 }
 
 /** Check whether strict linkage enforcement is enabled for a space. */

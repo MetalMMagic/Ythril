@@ -503,7 +503,7 @@ spacesRouter.post('/:id/validate-schema', globalRateLimit, requireAdminMfa, asyn
 
   // Import validation functions dynamically to avoid circular deps
   const { validateEntity, validateEdge, validateMemory, validateChrono, resolveMetaRefs } = await import('../spaces/schema-validation.js');
-  const resolvedMeta = resolveMetaRefs(dryMeta, cfg.schemaLibrary);
+  const resolvedMeta = resolveMetaRefs(dryMeta);
 
   const violations: Array<{ collection: string; _id: string; violations: Array<{ field: string; value: unknown; reason: string }> }> = [];
   const memberIds = resolveMemberSpaces(id);

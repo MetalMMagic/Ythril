@@ -302,8 +302,6 @@ export interface Config {
   spaces: SpaceConfig[];
   networks: NetworkConfig[];
   ejectedFromNetworks?: string[];  // network IDs this instance has been removed from via vote
-  /** Instance-level schema library — reusable TypeSchema definitions. */
-  schemaLibrary?: SchemaLibraryEntry[];
   embedding?: EmbeddingConfig;
   storage?: StorageConfig;
   maxUploadBodyBytes?: number;

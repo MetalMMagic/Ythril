@@ -16,7 +16,7 @@
 import { Router } from 'express';
 import { requireAuth, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
-import { getConfig, saveConfig } from '../config/loader.js';
+import { getSchemaLibrary, saveSchemaLibrary } from '../config/loader.js';
 import { z } from 'zod';
 import type { SchemaLibraryEntry } from '../config/types.js';
 
@@ -79,16 +79,14 @@ const LibraryEntryPutBodyZ = z.object({
 // ── GET / — list all library entries ──────────────────────────────────────
 
 schemaLibraryRouter.get('/', globalRateLimit, requireAuth, (_req, res) => {
-  const cfg = getConfig();
-  res.json({ entries: cfg.schemaLibrary ?? [] });
+  res.json({ entries: getSchemaLibrary() });
 });
 
 // ── GET /:name — get a single library entry ────────────────────────────────
 
 schemaLibraryRouter.get('/:name', globalRateLimit, requireAuth, (req, res) => {
   const name = req.params['name'] as string;
-  const cfg = getConfig();
-  const entry = (cfg.schemaLibrary ?? []).find(e => e.name === name);
+  const entry = getSchemaLibrary().find(e => e.name === name);
   if (!entry) {
     res.status(404).json({ error: `Schema library entry '${name}' not found` });
     return;
@@ -106,8 +104,7 @@ schemaLibraryRouter.post('/', globalRateLimit, requireAdminMfa, (req, res) => {
   }
 
   const { name, knowledgeType, typeName, schema, description } = parsed.data;
-  const cfg = getConfig();
-  const library = cfg.schemaLibrary ?? [];
+  const library = getSchemaLibrary();
 
   if (library.some(e => e.name === name)) {
     res.status(409).json({ error: `Schema library entry '${name}' already exists. Use PUT to update it.` });
@@ -135,8 +132,7 @@ schemaLibraryRouter.post('/', globalRateLimit, requireAdminMfa, (req, res) => {
     updatedAt: now,
   };
 
-  cfg.schemaLibrary = [...library, entry];
-  saveConfig(cfg);
+  saveSchemaLibrary([...library, entry]);
   res.status(201).json({ entry });
 });
 
@@ -163,8 +159,7 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
     return;
   }
 
-  const cfg = getConfig();
-  const library = cfg.schemaLibrary ?? [];
+  const library = getSchemaLibrary();
   const existingIdx = library.findIndex(e => e.name === name);
 
   if (existingIdx === -1 && library.length >= MAX_LIBRARY_ENTRIES) {
@@ -185,11 +180,10 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
       createdAt: now,
       updatedAt: now,
     };
-    cfg.schemaLibrary = [...library, newEntry];
-    saveConfig(cfg);
+    saveSchemaLibrary([...library, newEntry]);
     res.status(201).json({ entry: newEntry });
   } else {
-    const existing = library[existingIdx];
+    const existing = library[existingIdx]!;
     const updatedEntry: SchemaLibraryEntry = {
       ...existing,
       knowledgeType,
@@ -200,8 +194,7 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
     };
     const updatedLibrary = [...library];
     updatedLibrary[existingIdx] = updatedEntry;
-    cfg.schemaLibrary = updatedLibrary;
-    saveConfig(cfg);
+    saveSchemaLibrary(updatedLibrary);
     res.json({ entry: updatedEntry });
   }
 });
@@ -210,8 +203,7 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
 
 schemaLibraryRouter.delete('/:name', globalRateLimit, requireAdminMfa, (req, res) => {
   const name = req.params['name'] as string;
-  const cfg = getConfig();
-  const library = cfg.schemaLibrary ?? [];
+  const library = getSchemaLibrary();
   const idx = library.findIndex(e => e.name === name);
 
   if (idx === -1) {
@@ -219,7 +211,6 @@ schemaLibraryRouter.delete('/:name', globalRateLimit, requireAdminMfa, (req, res
     return;
   }
 
-  cfg.schemaLibrary = library.filter(e => e.name !== name);
-  saveConfig(cfg);
+  saveSchemaLibrary(library.filter(e => e.name !== name));
   res.status(204).end();
 });

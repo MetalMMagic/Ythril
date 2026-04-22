@@ -163,6 +163,9 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
         <a class="nav-link" routerLink="/brain" routerLinkActive="active">
           <span class="nav-icon"><ph-icon name="brain" [size]="16"/></span>{{ 'nav.brain' | transloco }}
         </a>
+        <a class="nav-link" routerLink="/schema-library" routerLinkActive="active">
+          <span class="nav-icon"><ph-icon name="bookmarks" [size]="16"/></span>{{ 'nav.schemaLibrary' | transloco }}
+        </a>
         @if (conflictCount() > 0) {
           <a class="nav-link" routerLink="/files/conflicts" routerLinkActive="active">
             <span class="nav-icon"><ph-icon name="warning" [size]="16"/></span>{{ 'nav.conflicts' | transloco }}
@@ -182,9 +185,6 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
         </a>
         <a class="nav-link" routerLink="/settings/networks" routerLinkActive="active">
           <span class="nav-icon"><ph-icon name="link" [size]="16"/></span>{{ 'nav.networks' | transloco }}
-        </a>
-        <a class="nav-link" routerLink="/settings/schema-library" routerLinkActive="active">
-          <span class="nav-icon"><ph-icon name="bookmarks" [size]="16"/></span>{{ 'nav.schemaLibrary' | transloco }}
         </a>
         <a class="nav-link" routerLink="/settings/preferences" routerLinkActive="active">
           <span class="nav-icon"><ph-icon name="gear" [size]="16"/></span>{{ 'nav.settings' | transloco }}

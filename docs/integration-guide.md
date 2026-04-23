@@ -4228,12 +4228,66 @@ Content-Type: application/json
 }
 ```
 
-Omit `space` to search across all accessible spaces. `recall` searches all knowledge types — **memories**, **entities**, **edges**, **chrono entries**, and **files** — using vector similarity.  Results include a `type` discriminator field (`memory`, `entity`, `edge`, `chrono`, `file`) so callers can distinguish the origin of each result.
+Omit `space` to search across all accessible spaces. `recall` searches all knowledge types — **memories**, **entities**, **edges**, **chrono entries**, and **files** — using vector similarity.
+
+**Response format:**
+
+The tool returns a JSON object with a `results` array and a `count`. Each result has five top-level keys — search metadata and a quick-read text field cleanly separated from the stored document:
+
+```json
+{
+  "results": [
+    {
+      "score": 0.91,
+      "spaceId": "general",
+      "type": "memory",
+      "matchedText": "portal-backend Traefik routing configuration uses path-prefix matchers",
+      "record": {
+        "_id": "a1b2c3d4-e5f6-4789-abcd-ef1234567890",
+        "fact": "Traefik routing configuration uses path-prefix matchers",
+        "tags": ["portal-backend", "traefik"],
+        "description": "Configured via IngressRoute CRD.",
+        "properties": { "version": "3.x" },
+        "entityIds": [],
+        "createdAt": "2026-03-25T14:00:00.000Z",
+        "updatedAt": "2026-03-25T14:00:00.000Z"
+      }
+    },
+    {
+      "score": 0.87,
+      "spaceId": "general",
+      "type": "entity",
+      "matchedText": "traefik-ingress ingress-controller portal-backend Handles HTTP routing for portal services.",
+      "record": {
+        "_id": "b2c3d4e5-f6a7-4890-bcde-f12345678901",
+        "name": "traefik-ingress",
+        "type": "ingress-controller",
+        "tags": ["portal-backend"],
+        "description": "Handles HTTP routing for portal services.",
+        "properties": { "status": "active" },
+        "createdAt": "2026-03-20T10:00:00.000Z",
+        "updatedAt": "2026-04-01T08:00:00.000Z"
+      }
+    }
+  ],
+  "count": 2
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `score` | Cosine similarity score (0.0–1.0). Higher is more relevant. |
+| `spaceId` | Space this result came from. Critical for cross-space recall (no `space` arg). |
+| `type` | Knowledge type discriminator: `memory`, `entity`, `edge`, `chrono`, or `file`. |
+| `matchedText` | The full multi-field text that was fed to the embedding model for this document (e.g. for a memory: `tags + entity names + fact + description + properties`). Lets you scan results without knowing which fields to look at per type. Pre-computed at write time — not reconstructed on demand. |
+| `record` | The full stored document with all user-visible fields. `_id` is always present and can be used directly in follow-up tool calls (`update_memory`, `upsert_entity`, `delete_memory`, etc.) without a second lookup. Embedding vector excluded. |
+
+For cross-space recall (omit `space`), `spaceId` on each result identifies which space it came from.
 
 **What is vector-indexed:**
 
-| Data type | Embedded? | Fields included in embedding text | Returned by `recall`? |
-|-----------|:---------:|-----------------------------------|:---------------------:|
+| Data type | Embedded? | Fields included in embedding text (`matchedText`) | Returned by `recall`? |
+|-----------|:---------:|---------------------------------------------------|:---------------------:|
 | `memory` | ✅ | `tags` + entity names + `fact` + `description` + `properties` | ✅ |
 | `entity` | ✅ | `name` + `type` + `tags` + `description` + `properties` | ✅ |
 | `edge` | ✅ | `tags` + `from` + `label` + `to` + `type` + `description` | ✅ |

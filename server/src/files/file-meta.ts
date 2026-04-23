@@ -56,10 +56,11 @@ export async function upsertFileMeta(
   // Embed path + tags + description — best-effort, never blocks write
   const descForEmbed = opts.description !== undefined ? opts.description : (existing as FileMetaDoc | null)?.description;
   const tagsForEmbed = opts.tags !== undefined ? opts.tags : ((existing as FileMetaDoc | null)?.tags ?? []);
-  let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};
+  let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
-    const embResult = await embed(fileEmbedText(normalised, tagsForEmbed, descForEmbed));
-    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
+    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed);
+    const embResult = await embed(embedText);
+    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* embedding unavailable — file stored without vector */ }
 
   if (existing) {
@@ -114,10 +115,11 @@ export async function updateFileMeta(
   const now = new Date().toISOString();
   const descForEmbed = opts.description !== undefined ? opts.description : existing.description;
   const tagsForEmbed = opts.tags !== undefined ? opts.tags : existing.tags;
-  let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};
+  let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
-    const embResult = await embed(fileEmbedText(normalised, tagsForEmbed, descForEmbed));
-    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
+    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed);
+    const embResult = await embed(embedText);
+    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* best-effort */ }
 
   const $set: Record<string, unknown> = { updatedAt: now, ...embeddingFields };

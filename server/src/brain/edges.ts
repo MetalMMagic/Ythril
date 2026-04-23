@@ -86,11 +86,12 @@ export async function upsertEdge(
     : ((existing as EdgeDoc | null)?.tags ?? []);
 
   // Embed the edge text (best-effort) — resolve entity names so the vector captures semantics
-  let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};
+  let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
     const [fromName, toName] = await resolveEdgeEntityNames(spaceId, from, to);
-    const embResult = await embed(edgeEmbedText(fromName, label, toName, effectiveTags, effectiveType, effectiveDesc));
-    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
+    const embedText = edgeEmbedText(fromName, label, toName, effectiveTags, effectiveType, effectiveDesc);
+    const embResult = await embed(embedText);
+    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* embedding unavailable — edge stored without vector */ }
 
   if (existing) {
@@ -267,9 +268,11 @@ export async function updateEdgeById(
   // Re-embed whenever any content field changes — resolve entity names for semantic signal
   try {
     const [fromName, toName] = await resolveEdgeEntityNames(spaceId, existing.from, existing.to);
-    const embResult = await embed(edgeEmbedText(fromName, newLabel, toName, newTags, newType, newDesc));
+    const embedText = edgeEmbedText(fromName, newLabel, toName, newTags, newType, newDesc);
+    const embResult = await embed(embedText);
     $set['embedding'] = embResult.vector;
     $set['embeddingModel'] = embResult.model;
+    $set['matchedText'] = embedText;
   } catch { /* embedding unavailable — keep existing embedding */ }
 
   const updateOp: Record<string, unknown> = { $set };

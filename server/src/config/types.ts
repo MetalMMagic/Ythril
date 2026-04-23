@@ -381,6 +381,8 @@ export interface MemoryDoc {
   entityIds: string[];
   description?: string;
   properties?: Record<string, string | number | boolean>;
+  /** Pre-embedding source text — the exact string fed to the embedding model. */
+  matchedText?: string;
   author: AuthorRef;
   createdAt: string;
   updatedAt: string;
@@ -397,6 +399,8 @@ export interface EntityDoc {
   tags: string[];
   description?: string;
   properties: Record<string, string | number | boolean>;
+  /** Pre-embedding source text — the exact string fed to the embedding model. */
+  matchedText?: string;
   author: AuthorRef;
   createdAt: string;
   updatedAt: string;
@@ -416,6 +420,8 @@ export interface EdgeDoc {
   tags?: string[];
   description?: string;
   properties?: Record<string, string | number | boolean>;
+  /** Pre-embedding source text — the exact string fed to the embedding model. */
+  matchedText?: string;
   author: AuthorRef;
   createdAt: string;
   updatedAt: string;
@@ -448,6 +454,8 @@ export interface ChronoEntry {
     interval: number;
     until?: string;
   };
+  /** Pre-embedding source text — the exact string fed to the embedding model. */
+  matchedText?: string;
   author: AuthorRef;
   createdAt: string;
   updatedAt: string;
@@ -485,6 +493,8 @@ export interface FileMetaDoc {
   chronoIds?: string[];  // linked chrono entry IDs
   memoryIds?: string[];  // linked memory IDs
   properties?: Record<string, string | number | boolean>; // structured metadata (optional)
+  /** Pre-embedding source text — the exact string fed to the embedding model. */
+  matchedText?: string;
   createdAt: string;    // ISO8601 — first write timestamp
   updatedAt: string;    // ISO8601 — last write timestamp
   sizeBytes: number;    // file size in bytes at last write

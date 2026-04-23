@@ -56,6 +56,32 @@ function formatRecallSummary(r: RecallResult): string {
   }
 }
 
+/** Build the `record` object for a recall result — full stored document with native field
+ *  names, embedding vector excluded. `entityType`/`chronoType`/`edgeType` are remapped
+ *  back to the native `type` field they were aliased from. */
+function toRecallRecord(r: RecallResult): Record<string, unknown> {
+  const common: Record<string, unknown> = { _id: r._id };
+  if (r.createdAt !== undefined) common['createdAt'] = r.createdAt;
+  if (r.updatedAt !== undefined) common['updatedAt'] = r.updatedAt;
+  if (r.seq !== undefined) common['seq'] = r.seq;
+  if (r.embeddingModel !== undefined) common['embeddingModel'] = r.embeddingModel;
+  if (r.tags !== undefined) common['tags'] = r.tags;
+  if (r.description !== undefined) common['description'] = r.description;
+  if (r.properties !== undefined) common['properties'] = r.properties;
+  switch (r.type) {
+    case 'memory':
+      return { ...common, fact: r.fact, ...(r.entityIds !== undefined ? { entityIds: r.entityIds } : {}) };
+    case 'entity':
+      return { ...common, name: r.name, type: r.entityType };
+    case 'edge':
+      return { ...common, from: r.from, to: r.to, label: r.label, ...(r.weight !== undefined ? { weight: r.weight } : {}), ...(r.edgeType !== undefined ? { type: r.edgeType } : {}) };
+    case 'chrono':
+      return { ...common, title: r.title, type: r.chronoType, startsAt: r.startsAt, ...(r.status !== undefined ? { status: r.status } : {}), ...(r.entityIds !== undefined ? { entityIds: r.entityIds } : {}) };
+    case 'file':
+      return { ...common, path: r.path, ...(r.sizeBytes !== undefined ? { sizeBytes: r.sizeBytes } : {}) };
+  }
+}
+
 const MUTATING_TOOLS = new Set([
   'remember', 'update_memory', 'delete_memory',
   'upsert_entity', 'update_entity', 'merge_entities', 'upsert_edge', 'update_edge',
@@ -844,24 +870,34 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
             const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore)))).flat();
             all.sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
             const results = all.slice(0, topK);
+            const output = {
+              results: results.map(r => ({
+                score: r.score,
+                spaceId: r.spaceId,
+                type: r.type,
+                matchedText: r.matchedText ?? formatRecallSummary(r),
+                record: toRecallRecord(r),
+              })),
+              count: results.length,
+            };
             return {
-              content: [{
-                type: 'text' as const,
-                text: results.length === 0
-                  ? 'No results found.'
-                  : results.map((r, i) => `[${i + 1}] [${r.type}] (score: ${r.score?.toFixed(3) ?? 'n/a'}) ${formatRecallSummary(r)}`).join('\n'),
-              }],
+              content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }],
             };
           } else {
             // Cross-space search across all accessible spaces
             const results = await recallGlobal(accessibleSpaceIds, query, topK, tags, types, minPerType, minScore);
+            const output = {
+              results: results.map(r => ({
+                score: r.score,
+                spaceId: r.spaceId,
+                type: r.type,
+                matchedText: r.matchedText ?? formatRecallSummary(r),
+                record: toRecallRecord(r),
+              })),
+              count: results.length,
+            };
             return {
-              content: [{
-                type: 'text' as const,
-                text: results.length === 0
-                  ? 'No results found across any space.'
-                  : results.map((r, i) => `[${i + 1}] [${r.spaceId}] [${r.type}] (score: ${r.score?.toFixed(3) ?? 'n/a'}) ${formatRecallSummary(r)}`).join('\n'),
-              }],
+              content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }],
             };
           }
         }

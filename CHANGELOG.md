@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **MCP `recall` output format** — The `recall` tool (and cross-space recall when `space` is omitted) now returns structured JSON instead of human-readable prose. Each result is a wrapper object with five top-level keys: `score`, `spaceId`, `type`, `matchedText`, and `record`. `record` is the full stored document including `_id`, making follow-up tool calls (`update_memory`, `upsert_entity`, `delete_memory`, etc.) possible without a second lookup. `matchedText` is the pre-embedding source text (the exact string fed to the embedding model for that document) — stored at write time for all knowledge types. Old entries without a stored `matchedText` fall back to a summary derived from the same algorithm. `record` also gains `updatedAt` and (for edges/chrono) the native `type` field correctly restored. Integration guide updated with response format, field descriptions, and an example response. Full test suite passes on fresh test instances (issue #91).
+
 ---
 
 ## [1.1.2] — 2026-04-23

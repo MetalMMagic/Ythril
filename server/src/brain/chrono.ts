@@ -47,10 +47,11 @@ export async function createChrono(
   const tags = fields.tags ?? [];
 
   // Embed kind + status + title + description + tags (best-effort)
-  let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};
+  let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
-    const embResult = await embed(chronoEmbedText(fields.title, fields.type, status, fields.description, tags));
-    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
+    const embedText = chronoEmbedText(fields.title, fields.type, status, fields.description, tags);
+    const embResult = await embed(embedText);
+    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* embedding unavailable — chrono stored without vector */ }
 
   const doc: ChronoEntry = {
@@ -108,9 +109,11 @@ export async function updateChrono(
     const newDesc = updates.description !== undefined ? updates.description : existing.description;
     const newTags = updates.tags ?? existing.tags;
     try {
-      const embResult = await embed(chronoEmbedText(newTitle, newKind, newStatus, newDesc, newTags));
+      const embedText = chronoEmbedText(newTitle, newKind, newStatus, newDesc, newTags);
+      const embResult = await embed(embedText);
       $set['embedding'] = embResult.vector;
       $set['embeddingModel'] = embResult.model;
+      $set['matchedText'] = embedText;
     } catch { /* embedding unavailable — keep existing embedding */ }
   }
 

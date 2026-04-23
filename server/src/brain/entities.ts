@@ -71,13 +71,14 @@ export async function upsertEntity(
   const now = new Date().toISOString();
 
   // Embed the entity text (best-effort — if embedding fails we still store the entity)
-  let embeddingFields: { embedding?: number[]; embeddingModel?: string } = {};
+  let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
     const mergedTags = existing ? Array.from(new Set([...(existing.tags ?? []), ...tags])) : tags;
     const mergedProps = existing ? { ...(existing.properties ?? {}), ...properties } : properties;
     const effectiveDesc = description ?? existing?.description;
-    const embResult = await embed(entityEmbedText(name, type, mergedTags, effectiveDesc, mergedProps));
-    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model };
+    const embedText = entityEmbedText(name, type, mergedTags, effectiveDesc, mergedProps);
+    const embResult = await embed(embedText);
+    embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* embedding unavailable — entity stored without vector */ }
 
   if (existing) {
@@ -197,9 +198,11 @@ export async function updateEntityById(
 
   // Re-embed whenever any content field changes
   try {
-    const embResult = await embed(entityEmbedText(newName, newType, newTags, newDesc, newProps));
+    const embedText = entityEmbedText(newName, newType, newTags, newDesc, newProps);
+    const embResult = await embed(embedText);
     $set['embedding'] = embResult.vector;
     $set['embeddingModel'] = embResult.model;
+    $set['matchedText'] = embedText;
   } catch { /* embedding unavailable — keep existing embedding */ }
 
   const updateOp: Record<string, unknown> = { $set };

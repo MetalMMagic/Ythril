@@ -687,6 +687,258 @@ describe('formatRecallSummary — file', () => {
   });
 });
 
+// ── toRecallRecord ────────────────────────────────────────────────────────────
+// Replicates the helper in mcp/router.ts.  If that function changes, these
+// tests will catch the divergence.
+
+function toRecallRecord(r) {
+  const common = { _id: r._id };
+  if (r.createdAt !== undefined) common.createdAt = r.createdAt;
+  if (r.updatedAt !== undefined) common.updatedAt = r.updatedAt;
+  if (r.seq !== undefined) common.seq = r.seq;
+  if (r.embeddingModel !== undefined) common.embeddingModel = r.embeddingModel;
+  if (r.tags !== undefined) common.tags = r.tags;
+  if (r.description !== undefined) common.description = r.description;
+  if (r.properties !== undefined) common.properties = r.properties;
+  switch (r.type) {
+    case 'memory':
+      return { ...common, fact: r.fact, ...(r.entityIds !== undefined ? { entityIds: r.entityIds } : {}) };
+    case 'entity':
+      return { ...common, name: r.name, type: r.entityType };
+    case 'edge':
+      return { ...common, from: r.from, to: r.to, label: r.label, ...(r.weight !== undefined ? { weight: r.weight } : {}), ...(r.edgeType !== undefined ? { type: r.edgeType } : {}) };
+    case 'chrono':
+      return { ...common, title: r.title, type: r.chronoType, startsAt: r.startsAt, ...(r.status !== undefined ? { status: r.status } : {}), ...(r.entityIds !== undefined ? { entityIds: r.entityIds } : {}) };
+    case 'file':
+      return { ...common, path: r.path, ...(r.sizeBytes !== undefined ? { sizeBytes: r.sizeBytes } : {}) };
+    default:
+      return common;
+  }
+}
+
+describe('toRecallRecord — _id is always present', () => {
+  it('memory record has _id', () => {
+    const rec = toRecallRecord(memoryResult());
+    assert.equal(rec._id, 'mem-1');
+  });
+
+  it('entity record has _id', () => {
+    const rec = toRecallRecord(entityResult());
+    assert.equal(rec._id, 'ent-1');
+  });
+
+  it('edge record has _id', () => {
+    const rec = toRecallRecord(edgeResult());
+    assert.equal(rec._id, 'edge-1');
+  });
+
+  it('chrono record has _id', () => {
+    const rec = toRecallRecord(chronoResult());
+    assert.equal(rec._id, 'chrono-1');
+  });
+
+  it('file record has _id', () => {
+    const rec = toRecallRecord(fileResult());
+    assert.equal(rec._id, 'docs/portal-backend/README.md');
+  });
+});
+
+describe('toRecallRecord — common fields included only when present', () => {
+  it('omits updatedAt when not on result', () => {
+    const rec = toRecallRecord(memoryResult({ updatedAt: undefined }));
+    assert.ok(!('updatedAt' in rec), 'updatedAt must be absent when not set');
+  });
+
+  it('includes updatedAt when present', () => {
+    const rec = toRecallRecord(memoryResult({ updatedAt: '2025-01-02T00:00:00.000Z' }));
+    assert.equal(rec.updatedAt, '2025-01-02T00:00:00.000Z');
+  });
+
+  it('includes seq when present', () => {
+    const rec = toRecallRecord(memoryResult({ seq: 42 }));
+    assert.equal(rec.seq, 42);
+  });
+
+  it('omits seq when absent', () => {
+    const rec = toRecallRecord(memoryResult({ seq: undefined }));
+    assert.ok(!('seq' in rec));
+  });
+
+  it('includes properties when present', () => {
+    const rec = toRecallRecord(entityResult());
+    assert.deepEqual(rec.properties, { language: 'Go', port: 8080 });
+  });
+
+  it('omits description when absent', () => {
+    const rec = toRecallRecord(memoryResult({ description: undefined }));
+    assert.ok(!('description' in rec));
+  });
+});
+
+describe('toRecallRecord — memory type fields', () => {
+  it('includes fact', () => {
+    const rec = toRecallRecord(memoryResult());
+    assert.equal(rec.fact, 'The service uses Traefik for routing.');
+  });
+
+  it('includes entityIds when present', () => {
+    const rec = toRecallRecord(memoryResult({ entityIds: ['ent-1', 'ent-2'] }));
+    assert.deepEqual(rec.entityIds, ['ent-1', 'ent-2']);
+  });
+
+  it('omits entityIds when absent', () => {
+    const rec = toRecallRecord(memoryResult({ entityIds: undefined }));
+    assert.ok(!('entityIds' in rec));
+  });
+
+  it('does not include score or spaceId', () => {
+    const rec = toRecallRecord(memoryResult());
+    assert.ok(!('score' in rec));
+    assert.ok(!('spaceId' in rec));
+  });
+});
+
+describe('toRecallRecord — entity type fields', () => {
+  it('includes name', () => {
+    const rec = toRecallRecord(entityResult());
+    assert.equal(rec.name, 'portal-backend');
+  });
+
+  it('maps entityType → type', () => {
+    const rec = toRecallRecord(entityResult({ entityType: 'service' }));
+    assert.equal(rec.type, 'service');
+    assert.ok(!('entityType' in rec), 'entityType must not appear on the record — use type');
+  });
+});
+
+describe('toRecallRecord — edge type fields', () => {
+  it('includes from, to, label', () => {
+    const rec = toRecallRecord(edgeResult());
+    assert.equal(rec.from, 'ent-portal');
+    assert.equal(rec.to, 'ent-db');
+    assert.equal(rec.label, 'connects_to');
+  });
+
+  it('includes weight when present', () => {
+    const rec = toRecallRecord(edgeResult({ weight: 0.9 }));
+    assert.equal(rec.weight, 0.9);
+  });
+
+  it('omits weight when absent', () => {
+    const rec = toRecallRecord(edgeResult({ weight: undefined }));
+    assert.ok(!('weight' in rec));
+  });
+
+  it('maps edgeType → type when present', () => {
+    const rec = toRecallRecord(edgeResult({ edgeType: 'causal' }));
+    assert.equal(rec.type, 'causal');
+    assert.ok(!('edgeType' in rec));
+  });
+
+  it('omits type when edgeType is absent', () => {
+    const rec = toRecallRecord(edgeResult({ edgeType: undefined }));
+    assert.ok(!('type' in rec));
+  });
+});
+
+describe('toRecallRecord — chrono type fields', () => {
+  it('includes title and startsAt', () => {
+    const rec = toRecallRecord(chronoResult());
+    assert.equal(rec.title, 'portal-backend migration');
+    assert.equal(rec.startsAt, '2024-06-01T00:00:00.000Z');
+  });
+
+  it('maps chronoType → type', () => {
+    const rec = toRecallRecord(chronoResult({ chronoType: 'milestone' }));
+    assert.equal(rec.type, 'milestone');
+    assert.ok(!('chronoType' in rec));
+  });
+
+  it('includes status when present', () => {
+    const rec = toRecallRecord(chronoResult({ status: 'completed' }));
+    assert.equal(rec.status, 'completed');
+  });
+
+  it('omits status when absent', () => {
+    const rec = toRecallRecord(chronoResult({ status: undefined }));
+    assert.ok(!('status' in rec));
+  });
+
+  it('includes entityIds when present', () => {
+    const rec = toRecallRecord(chronoResult());
+    assert.deepEqual(rec.entityIds, ['ent-portal']);
+  });
+});
+
+describe('toRecallRecord — file type fields', () => {
+  it('includes path', () => {
+    const rec = toRecallRecord(fileResult());
+    assert.equal(rec.path, 'docs/portal-backend/README.md');
+  });
+
+  it('includes sizeBytes when present', () => {
+    const rec = toRecallRecord(fileResult({ sizeBytes: 4096 }));
+    assert.equal(rec.sizeBytes, 4096);
+  });
+
+  it('omits sizeBytes when absent', () => {
+    const rec = toRecallRecord(fileResult({ sizeBytes: undefined }));
+    assert.ok(!('sizeBytes' in rec));
+  });
+});
+
+describe('toRecallRecord — MCP output wrapper shape', () => {
+  it('each result wrapper has score, spaceId, type, matchedText, record', () => {
+    const results = [memoryResult(), entityResult(), edgeResult(), chronoResult(), fileResult()];
+    for (const r of results) {
+      const wrapper = {
+        score: r.score,
+        spaceId: r.spaceId,
+        type: r.type,
+        matchedText: r.matchedText ?? formatRecallSummary(r),
+        record: toRecallRecord(r),
+      };
+      assert.ok('score' in wrapper, `${r.type} wrapper missing score`);
+      assert.ok('spaceId' in wrapper, `${r.type} wrapper missing spaceId`);
+      assert.ok('type' in wrapper, `${r.type} wrapper missing type`);
+      assert.ok('matchedText' in wrapper, `${r.type} wrapper missing matchedText`);
+      assert.ok('record' in wrapper, `${r.type} wrapper missing record`);
+      assert.ok('_id' in wrapper.record, `${r.type} record missing _id`);
+    }
+  });
+
+  it('falls back to formatRecallSummary when matchedText is absent', () => {
+    const r = memoryResult({ matchedText: undefined });
+    const matchedText = r.matchedText ?? formatRecallSummary(r);
+    assert.equal(matchedText, 'The service uses Traefik for routing.');
+  });
+
+  it('uses stored matchedText when present', () => {
+    const r = memoryResult({ matchedText: 'infra portal-backend The service uses Traefik for routing.' });
+    const matchedText = r.matchedText ?? formatRecallSummary(r);
+    assert.equal(matchedText, 'infra portal-backend The service uses Traefik for routing.');
+  });
+
+  it('output object serialises to valid JSON with results array and count', () => {
+    const results = [memoryResult(), entityResult()];
+    const output = {
+      results: results.map(r => ({
+        score: r.score,
+        spaceId: r.spaceId,
+        type: r.type,
+        matchedText: r.matchedText ?? formatRecallSummary(r),
+        record: toRecallRecord(r),
+      })),
+      count: results.length,
+    };
+    const json = JSON.parse(JSON.stringify(output, null, 2));
+    assert.equal(json.count, 2);
+    assert.equal(json.results.length, 2);
+    assert.equal(json.results[0].record._id, 'mem-1');
+    assert.equal(json.results[1].record._id, 'ent-1');
+  });
+});
+
 // ── minScore filtering (simulated) ─────────────────────────────────────────────
 // These tests validate the minScore filtering logic in isolation, the same
 // algorithm that recall() and recallGlobal() use as a post-query filter.

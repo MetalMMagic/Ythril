@@ -56,7 +56,8 @@ export async function remember(
   type?: string,
 ): Promise<MemoryDoc> {
   const names = entityNames ?? await resolveEntityNames(spaceId, entityIds);
-  const embResult = await embed(memoryEmbedText(fact, tags, names, description, properties));
+  const embedText = memoryEmbedText(fact, tags, names, description, properties);
+  const embResult = await embed(embedText);
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();
   const doc: MemoryDoc = {
@@ -66,6 +67,7 @@ export async function remember(
     embedding: embResult.vector,
     tags,
     entityIds,
+    matchedText: embedText,
     author: authorRef(),
     createdAt: now,
     updatedAt: now,
@@ -87,11 +89,14 @@ interface RecallBase {
   spaceId: string;
   score: number;
   createdAt?: string;
+  updatedAt?: string;
   seq?: number;
   embeddingModel?: string;
   tags?: string[];
   description?: string;
   properties?: Record<string, string | number | boolean>;
+  /** Pre-embedding source text — the exact string fed to the embedding model for this document. */
+  matchedText?: string;
 }
 
 export interface RecallMemory extends RecallBase {
@@ -113,6 +118,8 @@ export interface RecallEdge extends RecallBase {
   to: string;
   label: string;
   weight?: number;
+  /** Edge relationship type (named `edgeType` to avoid conflict with the `type` discriminator). */
+  edgeType?: string;
 }
 
 export interface RecallChrono extends RecallBase {
@@ -122,6 +129,8 @@ export interface RecallChrono extends RecallBase {
    *  avoid conflict with the `type` discriminator field. */
   chronoType: string;
   startsAt: string;
+  /** Chrono status (upcoming/active/completed/overdue/cancelled). */
+  status?: string;
   entityIds?: string[];
 }
 
@@ -245,16 +254,16 @@ async function recallByType(
   pipeline.push({ $addFields: { _knowledgeType: knowledgeType, score: { $meta: 'vectorSearchScore' } } });
 
   // Project type-specific fields, always exclude embedding vector
-  const commonProject = { _id: 1, spaceId: 1, _knowledgeType: 1, score: 1, createdAt: 1, seq: 1, embeddingModel: 1 };
+  const commonProject = { _id: 1, spaceId: 1, _knowledgeType: 1, score: 1, createdAt: 1, updatedAt: 1, seq: 1, embeddingModel: 1, matchedText: 1 };
   let typeProject: Record<string, number> = {};
   if (knowledgeType === 'memory') {
     typeProject = { fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1 };
   } else if (knowledgeType === 'entity') {
     typeProject = { name: 1, type: 1, tags: 1, description: 1, properties: 1 };
   } else if (knowledgeType === 'edge') {
-    typeProject = { from: 1, to: 1, label: 1, weight: 1, tags: 1, description: 1, properties: 1 };
+    typeProject = { from: 1, to: 1, label: 1, weight: 1, type: 1, tags: 1, description: 1, properties: 1 };
   } else if (knowledgeType === 'chrono') {
-    typeProject = { title: 1, description: 1, type: 1, startsAt: 1, tags: 1, entityIds: 1, properties: 1 };
+    typeProject = { title: 1, description: 1, type: 1, status: 1, startsAt: 1, tags: 1, entityIds: 1, properties: 1 };
   } else if (knowledgeType === 'file') {
     typeProject = { path: 1, description: 1, tags: 1, sizeBytes: 1, properties: 1 };
   }
@@ -275,11 +284,13 @@ function mapToRecallResult(doc: Record<string, unknown>, knowledgeType: RecallKn
     spaceId: doc['spaceId'] as string,
     score: doc['score'] as number,
     createdAt: doc['createdAt'] as string | undefined,
+    updatedAt: doc['updatedAt'] as string | undefined,
     seq: doc['seq'] as number | undefined,
     embeddingModel: doc['embeddingModel'] as string | undefined,
     tags: doc['tags'] as string[] | undefined,
     description: doc['description'] as string | undefined,
     properties: doc['properties'] as Record<string, string | number | boolean> | undefined,
+    matchedText: doc['matchedText'] as string | undefined,
   };
   switch (knowledgeType) {
     case 'memory':
@@ -287,9 +298,9 @@ function mapToRecallResult(doc: Record<string, unknown>, knowledgeType: RecallKn
     case 'entity':
       return { ...base, type: 'entity', name: doc['name'] as string, entityType: doc['type'] as string };
     case 'edge':
-      return { ...base, type: 'edge', from: doc['from'] as string, to: doc['to'] as string, label: doc['label'] as string, weight: doc['weight'] as number | undefined };
+      return { ...base, type: 'edge', from: doc['from'] as string, to: doc['to'] as string, label: doc['label'] as string, weight: doc['weight'] as number | undefined, edgeType: doc['type'] as string | undefined };
     case 'chrono':
-      return { ...base, type: 'chrono', title: doc['title'] as string, chronoType: doc['type'] as string, startsAt: doc['startsAt'] as string, entityIds: doc['entityIds'] as string[] | undefined };
+      return { ...base, type: 'chrono', title: doc['title'] as string, chronoType: doc['type'] as string, startsAt: doc['startsAt'] as string, status: doc['status'] as string | undefined, entityIds: doc['entityIds'] as string[] | undefined };
     case 'file':
       return { ...base, type: 'file', path: doc['path'] as string, sizeBytes: doc['sizeBytes'] as number | undefined };
   }
@@ -467,9 +478,11 @@ export async function updateMemory(
     const newProps = ($set['properties'] as Record<string, string | number | boolean>) ?? existing.properties;
     const entityNames = await resolveEntityNames(spaceId, newEntityIds);
     try {
-      const embResult = await embed(memoryEmbedText(newFact, newTags, entityNames, newDesc, newProps));
+      const embedText = memoryEmbedText(newFact, newTags, entityNames, newDesc, newProps);
+      const embResult = await embed(embedText);
       $set['embedding'] = embResult.vector;
       $set['embeddingModel'] = embResult.model;
+      $set['matchedText'] = embedText;
     } catch { /* embedding unavailable — keep existing embedding */ }
   }
 

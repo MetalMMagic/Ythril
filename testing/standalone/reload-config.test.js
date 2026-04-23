@@ -138,12 +138,30 @@ describe('POST /api/admin/reload-config — quota changes take effect', () => {
   before(() => {
     if (!CONFIG_FILE) throw new Error('No config.json found for test or dev stack');
     token = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
-    originalConfig = readConfig();
+    // Strip any storage limits from what's on disk — a previous failed run may have
+    // left hardLimitGiB:0 in config.json.  Restoring that would write zero-quota
+    // right back, making every retry in the quota-restore test a no-op.
+    const { storage: _dropped, ...baseConfig } = readConfig();
+    originalConfig = baseConfig;
   });
 
   after(async () => {
-    // Always restore — even if a test throws
-    if (originalConfig) await applyConfig(originalConfig);
+    if (!originalConfig) return;
+    // Retry restore until a write succeeds — prevents zero-quota from leaking into
+    // subsequent test files if bind-mount propagation is slow on Docker Desktop.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try {
+        writeConfig(originalConfig);
+        await new Promise(resolve => setTimeout(resolve, 600));
+        const reloadR = await post(INSTANCES.a, token, '/api/admin/reload-config', {});
+        if (reloadR.status !== 200) { await new Promise(resolve => setTimeout(resolve, 400)); continue; }
+        const probe = await post(INSTANCES.a, token, '/api/brain/general/memories', {
+          fact: `__quota-cleanup-probe-${Date.now()}__`,
+        });
+        if (probe.status === 201) break;
+      } catch { /* ignore, keep retrying */ }
+      await new Promise(resolve => setTimeout(resolve, 400));
+    }
   });
 
   it('brain.hardLimitGiB = 0 is enforced immediately after reload (writes return 507)', async () => {
@@ -170,14 +188,27 @@ describe('POST /api/admin/reload-config — quota changes take effect', () => {
       storage: { brain: { softLimitGiB: 0, hardLimitGiB: 0 } },
     });
 
-    // Now restore
+    // Restore — then retry until a write actually succeeds (bind-mount propagation
+    // on Docker Desktop may deliver the config.json write with a slight delay;
+    // if reloadConfig() read the stale file the zero-quota is still active).
     await applyConfig(originalConfig);
-
-    const r = await post(INSTANCES.a, token, '/api/brain/general/memories', {
-      fact: `reload-config restore enforcement test ${Date.now()}`,
-    });
-    assert.equal(r.status, 201,
-      `Expected 201 after restoring config, got ${r.status}: ${JSON.stringify(r.body)}`);
+    let status = 507;
+    let body = {};
+    for (let attempt = 0; attempt < 20 && status !== 201; attempt++) {
+      const r = await post(INSTANCES.a, token, '/api/brain/general/memories', {
+        fact: `reload-config restore enforcement test ${Date.now()}`,
+      });
+      status = r.status;
+      body = r.body;
+      if (status !== 201) {
+        writeConfig(originalConfig);
+        await new Promise(resolve => setTimeout(resolve, 600));
+        await post(INSTANCES.a, token, '/api/admin/reload-config', {});
+        await new Promise(resolve => setTimeout(resolve, 400));
+      }
+    }
+    assert.equal(status, 201,
+      `Expected 201 after restoring config, got ${status}: ${JSON.stringify(body)}`);
   });
 });
 
@@ -185,10 +216,29 @@ describe('POST /api/admin/reload-config — space config changes take effect', (
   const RUN = Date.now();
   const NEW_SPACE_ID = `reload-test-${RUN}`;
 
-  before(() => {
+  before(async () => {
     if (!CONFIG_FILE) throw new Error('No config.json found for test or dev stack');
     token = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
-    originalConfig = readConfig();
+    // Strip storage limits regardless of what the disk currently shows.
+    // The quota suite may have left hardLimitGiB:0 on disk even after its after()
+    // cleared the server's in-memory state via a reload — the bind-mount propagation
+    // window means readConfig() can return a stale zero-quota snapshot.  Any config
+    // built by spreading originalConfig would then re-apply zero-quota on the next
+    // applyConfig() call, producing a 507 that looks like a flaky test.
+    const { storage: _dropped, ...baseConfig } = readConfig();
+    originalConfig = baseConfig;
+    // Ensure the server is also free of quota enforcement before proceeding.
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const probe = await post(INSTANCES.a, token, '/api/brain/general/memories', {
+        fact: `__space-suite-quota-guard-${Date.now()}__`,
+      });
+      if (probe.status === 201) break;
+      // Server still has quota active — write the no-storage config and reload.
+      writeConfig(originalConfig);
+      await new Promise(resolve => setTimeout(resolve, 600));
+      await post(INSTANCES.a, token, '/api/admin/reload-config', {});
+      await new Promise(resolve => setTimeout(resolve, 400));
+    }
   });
 
   after(async () => {
@@ -204,6 +254,25 @@ describe('POST /api/admin/reload-config — space config changes take effect', (
       ],
     };
     await applyConfig(withNewSpace);
+
+    // Retry until the space appears in /api/spaces — bind-mount propagation may be slow
+    // on Docker Desktop (same pattern as the "removing a space" test below).
+    let spaceVisible = false;
+    for (let attempt = 0; attempt < 20 && !spaceVisible; attempt++) {
+      const check = await fetch(`${INSTANCES.a}/api/spaces`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await check.json();
+      if (data.spaces?.find(s => s.id === NEW_SPACE_ID)) {
+        spaceVisible = true;
+        break;
+      }
+      writeConfig(withNewSpace);
+      await new Promise(resolve => setTimeout(resolve, 600));
+      await post(INSTANCES.a, token, '/api/admin/reload-config', {});
+      await new Promise(resolve => setTimeout(resolve, 400));
+    }
+    assert.ok(spaceVisible, `Space '${NEW_SPACE_ID}' should appear in /api/spaces after reload`);
 
     const r = await post(INSTANCES.a, token, `/api/brain/${NEW_SPACE_ID}/memories`, {
       fact: `testing new space after reload ${RUN}`,

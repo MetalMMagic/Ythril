@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] — 2026-04-23
+
+### Fixed
+
+- **Schema Library route ordering** — `GET /public`, `GET /public/:name`, and `GET /catalogs` were registered after `GET /:name` in the Express router, causing those literal paths to be matched as library entry name lookups (returning 401 or 404). Routes are now registered in correct specificity order.
+- **`.gitignore`** — added `config/schema-catalogs.json` and `testing/sync/configs/*/schema-catalogs.json` (and test-instance `schema-library.json`) to prevent accidental commits of runtime data files.
+
+---
+
 
 ## [1.1.0] — 2026-04-22
 

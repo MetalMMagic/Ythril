@@ -3888,7 +3888,7 @@ Content-Type: application/json
 
 > **Feature flag required.** Returns `403` unless the instance was started with `YTHRIL_DB_MIGRATION_ENABLED=true`.
 
-Returns the current contents of `backup.json` — the infrastructure-admin-managed file that configures scheduled and offsite backups. This endpoint is **read-only**; the file can never be written via the API.
+Returns the current contents of `backup.json` — the file that configures scheduled and offsite backups. Can also be written via [PUT /api/admin/data/backup-config](#put-apiadmindatabackup-config) (also flag-gated).
 
 ```
 GET /api/admin/data/backup-config
@@ -3903,11 +3903,12 @@ Authorization: Bearer <admin-token>
     "schedule": "0 2 * * *",
     "retention": { "keepLocal": 7 },
     "offsite": {
-      "destPath": "/mnt/offsite-backup/ythril",
+      "destPath": "/backups",
       "retention": { "keepCount": 14 }
     }
   },
-  "configPath": "/config/backup.json"
+  "configPath": "/config/backup.json",
+  "backupsPath": "/data/backups"
 }
 ```
 
@@ -3915,6 +3916,7 @@ Authorization: Bearer <admin-token>
 
 | Status | Meaning |
 |--------|--------|
+| `200` | Success |
 | `403` | `YTHRIL_DB_MIGRATION_ENABLED` is not `true` (feature disabled) |
 
 #### Configuring backup.json
@@ -3953,10 +3955,53 @@ services:
     volumes:
       - ./config:/config
       - ythril-data:/data
-      - /mnt/external-drive/ythril-backups:/mnt/offsite-backup/ythril
+      - /mnt/external-drive/ythril-backups:/backups
 
-# config/backup.json  →  { "schedule": "0 2 * * *", "offsite": { "destPath": "/mnt/offsite-backup/ythril" } }
+# config/backup.json  →  { "schedule": "0 2 * * *", "offsite": { "destPath": "/backups" } }
 ```
+
+---
+
+### PUT /api/admin/data/backup-config
+
+> **Feature flag required.** Returns `403` unless the instance was started with `YTHRIL_DB_MIGRATION_ENABLED=true`.
+
+> **Requires admin MFA** (same as other write operations).
+
+Writes (replaces) `backup.json`. Use this to configure the backup schedule and offsite destination from the UI or programmatically. The backup settings UI in **Settings → Database** calls this endpoint.
+
+```
+PUT /api/admin/data/backup-config
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+```
+
+**Request body** — the full `BackupConfig` object (all fields optional):
+
+```json
+{
+  "schedule": "0 2 * * *",
+  "retention": { "keepLocal": 7 },
+  "offsite": {
+    "destPath": "/backups",
+    "retention": { "keepCount": 14 }
+  }
+}
+```
+
+`offsite.destPath` must be an absolute path — the request is rejected with `400` otherwise.
+
+**Response `200`:**
+
+```json
+{ "ok": true, "config": { ... } }
+```
+
+| Status | Meaning |
+|--------|--------|
+| `200` | Config saved |
+| `400` | Validation error (invalid cron, relative path, etc.) |
+| `403` | Feature disabled or MFA not satisfied |
 
 ---
 

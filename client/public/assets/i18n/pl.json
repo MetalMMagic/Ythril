@@ -89,7 +89,7 @@
   "data.dest.internalPathHint": "Folder danych Ythril (domy\u015blny)",
   "data.dest.pathPlaceholder": "/mnt/backup lub \\\\serwer\\udzia\u0142",
   "data.dest.browseButton": "Przeglądaj…",
-  "data.dest.pathHint": "Wpisz ścieżkę dostępną z serwera (np. zamontowany wolumin). W trybie stacji roboczej jest to lokalna ścieżka systemu plików.",
+    "data.dest.pathHint": "Musi być ścieżką dostępną do zapisu dla serwera. W Dockerze wymagane jest montowanie woluminu — patrz „Konfigurowanie ścieżki zewnętrznej“ w Podręczniku użytkownika.",
   "data.dest.keepLabel": "Zachowaj ostatnie",
   "data.dest.keepSuffix": "kopie zapasowe",
   "data.dest.keepUnlimitedPlaceholder": "nieograniczony",

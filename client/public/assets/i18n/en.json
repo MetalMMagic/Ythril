@@ -89,7 +89,7 @@
   "data.dest.pathLabel": "Backup location",
   "data.dest.internalPathHint": "Ythril data folder (default)",
   "data.dest.pathPlaceholder": "/mnt/backup or \\\\server\\share",
-  "data.dest.pathHint": "Enter a path accessible from the server (e.g. a mounted volume). In workstation mode, this is a local filesystem path.",
+  "data.dest.pathHint": "Must be a path the server process can write to. In Docker, a volume mount is required — see \"Configuring the offsite path\" in the User Guide.",
   "data.dest.keepLabel": "Keep the last",
   "data.dest.keepSuffix": "backups",
   "data.dest.keepUnlimitedPlaceholder": "unlimited",

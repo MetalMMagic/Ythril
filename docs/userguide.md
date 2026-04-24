@@ -485,7 +485,7 @@ The **Backups** table lists all available backups with their timestamp and the c
 
 > **This feature must be explicitly enabled by your infrastructure administrator** (`YTHRIL_DB_MIGRATION_ENABLED=true`). It is disabled by default.
 
-Automatic and offsite backups are configured via a dedicated `backup.json` file placed alongside `config.json` (typically `/config/backup.json`). This file is **never written by the API** — only the infrastructure administrator can create or modify it via direct filesystem access. This design prevents a compromised admin token from redirecting backups to an attacker-controlled location.
+Configure automatic backups and an optional offsite destination from **Settings → Database** using the **Backup Destination** and **Scheduled Backups** cards. Settings are saved to `backup.json` (alongside `config.json`, typically `/config/backup.json`). You can also create or edit this file directly — see `config/backup.example.json` in the repository for the full schema.
 
 **Example `backup.json`:**
 
@@ -496,7 +496,7 @@ Automatic and offsite backups are configured via a dedicated `backup.json` file 
     "keepLocal": 7
   },
   "offsite": {
-    "destPath": "/mnt/offsite-backup/ythril",
+    "destPath": "/backups",
     "retention": {
       "keepCount": 14
     }
@@ -507,15 +507,83 @@ Automatic and offsite backups are configured via a dedicated `backup.json` file 
 | Field | Description |
 |---|---|
 | `schedule` | Cron expression for automatic backups (e.g. `"0 2 * * *"` = daily at 02:00). |
-| `retention.keepLocal` | Maximum number of local backups to retain. Oldest are deleted automatically after each run. |
-| `offsite.destPath` | **Absolute path** on the container filesystem to copy each backup to. Mount external drives, NFS shares, or any storage as a Docker/K8s volume pointing here. |
-| `offsite.retention.keepCount` | Maximum number of offsite backup sets to retain (default: 14). |
+| `retention.keepLocal` | Maximum number of local backups to retain. Oldest are deleted after each run. |
+| `offsite.destPath` | Absolute path **on the server's filesystem** to copy each backup to. See [Configuring the offsite path](#configuring-the-offsite-path) below. |
+| `offsite.retention.keepCount` | Maximum number of offsite backup sets to retain (default: unlimited). |
 
 Each backup set at the offsite destination contains:
 - `<backupId>/` — MongoDB NDJSON dump (same format as local backups)
 - `<backupId>-files/` — copy of `<data-root>/files/` (user-uploaded files), if present
 
-The `backup.json` file must not exist (or can be empty) to disable the feature entirely. All fields are optional.
+All fields are optional. Omit `offsite` to disable offsite copying; omit `schedule` to disable automatic scheduling.
+
+#### Configuring the offsite path
+
+`offsite.destPath` is an absolute path on the **filesystem visible to the Ythril server process** — not a path on your workstation or host machine. How you make external storage appear at that path depends on how you run Ythril.
+
+---
+
+**Docker Desktop on Windows**
+
+Docker Desktop runs containers inside a lightweight Linux VM. Windows paths (`C:\…`) are not directly visible inside the container. You must add a volume mount so that a Windows folder appears at a Linux path inside the container.
+
+Add (or create) `docker-compose.override.yml` in the project root:
+
+```yaml
+services:
+  ythril:
+    volumes:
+      - C:/Users/YourName/Backups/Ythril:/backups
+```
+
+Then set **Backup location** to `/backups` in the UI. Docker Desktop translates the Windows path automatically — no further configuration needed.
+
+> `docker-compose.override.yml` is already listed in `.gitignore`, so your local paths will never be accidentally committed.
+
+---
+
+**Docker on Linux / macOS**
+
+Mount any local directory, USB drive, or network share as a volume:
+
+```yaml
+services:
+  ythril:
+    volumes:
+      - /mnt/usb/ythril-backups:/backups
+      # SMB/NFS pre-mounted on the host work the same way
+```
+
+Set **Backup location** to `/backups` (or whatever container-side mount path you choose).
+
+---
+
+**Kubernetes**
+
+Mount a PersistentVolumeClaim, NFS export, or `hostPath` into the Ythril pod at a chosen mount path, then set `offsite.destPath` to that mount path:
+
+```yaml
+# In the Ythril Deployment spec:
+volumeMounts:
+  - name: offsite-backup
+    mountPath: /backups
+volumes:
+  - name: offsite-backup
+    nfs:
+      server: nas.local
+      path: /exports/ythril-backups
+```
+
+---
+
+**Workstation mode (no Docker)**
+
+Ythril runs directly on your OS. Set **Backup location** to any absolute path your OS user can write to:
+
+- Linux / macOS: `/mnt/usb/ythril-backups` or `/home/user/backups`
+- Windows: `D:\Backups\Ythril`
+
+> Ythril does **not** create the directory automatically — ensure the path exists and is writable before saving the destination.
 
 ### Restore
 

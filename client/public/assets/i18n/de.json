@@ -90,7 +90,7 @@
   "data.dest.internalPathHint": "Ythril-Datenordner (Standard)",
   "data.dest.pathPlaceholder": "/mnt/backup oder \\\\server\\freigabe",
   "data.dest.browseButton": "Durchsuchen…",
-  "data.dest.pathHint": "Pfad eingeben, der vom Server erreichbar ist (z. B. ein eingebundenes Volume). Im Workstation-Modus ist dies ein lokaler Dateisystempfad.",
+  "data.dest.pathHint": "Muss ein Pfad sein, auf den der Serverprozess schreiben kann. Unter Docker ist ein Volume-Mount erforderlich \u2014 siehe \u201eOffsite-Pfad konfigurieren\u201c im Benutzerhandbuch.",
   "data.dest.keepLabel": "Die letzten",
   "data.dest.keepSuffix": "Sicherungen behalten",
   "data.dest.keepUnlimitedPlaceholder": "unbegrenzt",

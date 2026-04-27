@@ -94,6 +94,13 @@ export interface SchemaLibraryEntry {
   /** Optional human-readable description for the library entry. */
   description?: string;
   /**
+   * Optional group identifier for organizing related entries into a named set
+   * (e.g. `"design-system"` or `"platform-base"`).  Purely organizational —
+   * entries remain individually importable regardless of their group tag.
+   * Any string is accepted; multiple entries can share the same group name.
+   */
+  schemaGroup?: string;
+  /**
    * When true the entry is exposed on the unauthenticated public endpoint.
    * Default: false (private).
    */

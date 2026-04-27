@@ -46,6 +46,8 @@ export interface SchemaLibraryEntry {
   typeName: string;
   schema: Omit<TypeSchema, '$ref'>;
   description?: string;
+  /** Optional group tag for organizing related entries into a named set. */
+  schemaGroup?: string;
   published?: boolean;
   sourceUrl?: string;
   sourceCatalog?: string;
@@ -464,6 +466,21 @@ export class ApiService {
 
   getPublicSchemaLibrary(): Observable<{ entries: ForeignCatalogEntry[] }> {
     return this.http.get<{ entries: ForeignCatalogEntry[] }>('/api/schema-library/public');
+  }
+
+  /** List all distinct schema group names and their entry counts. */
+  listSchemaLibraryGroups(): Observable<{ groups: { name: string; count: number }[] }> {
+    return this.http.get<{ groups: { name: string; count: number }[] }>('/api/schema-library/groups');
+  }
+
+  /** Export a space's full typeSchemas into the library as a named group. */
+  exportSpaceSchemaToLibrary(body: { spaceId: string; groupName: string; namePrefix?: string }): Observable<{ created: number; updated: number; entries: SchemaLibraryEntry[] }> {
+    return this.http.post<{ created: number; updated: number; entries: SchemaLibraryEntry[] }>('/api/schema-library/export-space', body);
+  }
+
+  /** Apply all library entries belonging to a group to a space as $ref links. */
+  applyGroupToSpace(group: string, spaceId: string): Observable<{ applied: { knowledgeType: string; typeName: string; entryName: string }[]; count: number }> {
+    return this.http.post<{ applied: { knowledgeType: string; typeName: string; entryName: string }[]; count: number }>(`/api/schema-library/groups/${encodeURIComponent(group)}/apply`, { spaceId });
   }
 
   // ── Schema catalogs ────────────────────────────────────────────────────────

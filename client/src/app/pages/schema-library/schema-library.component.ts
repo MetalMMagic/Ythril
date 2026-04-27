@@ -13,7 +13,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { finalize, forkJoin } from 'rxjs';
 import {
-  ApiService, SchemaLibraryEntry, SchemaCatalog, ForeignCatalogEntry, KnowledgeType, PropertySchema, TypeSchema,
+  ApiService, SchemaLibraryEntry, SchemaCatalog, ForeignCatalogEntry, KnowledgeType, PropertySchema, TypeSchema, Space,
 } from '../../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
@@ -35,6 +35,7 @@ interface LibraryFormState {
   description:   string;
   knowledgeType: KnowledgeType;
   typeName:      string;
+  schemaGroup:   string;
   schemaState:   TypeSchemaState;
 }
 
@@ -49,6 +50,7 @@ function entryToFormState(e: SchemaLibraryEntry): LibraryFormState {
     description:   e.description ?? '',
     knowledgeType: e.knowledgeType,
     typeName:      e.typeName,
+    schemaGroup:   e.schemaGroup ?? '',
     schemaState: {
       namingPattern:   s.namingPattern   ?? '',
       tagSuggestions:  [...(s.tagSuggestions ?? [])],
@@ -145,6 +147,11 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
     .prop-badge { font-size:10px; color:var(--text-muted); background:var(--bg-elevated); border-radius:3px; padding:1px 5px; }
     .badge-published { font-size:10px; font-weight:600; color:#16a34a; background:rgba(22,163,74,.12); border-radius:3px; padding:1px 6px; }
     .badge-source { font-size:10px; color:var(--text-muted); background:var(--bg-elevated); border-radius:3px; padding:1px 5px; font-style:italic; }
+    .badge-group { font-size:10px; font-weight:600; color:#7c3aed; background:rgba(124,58,237,.1); border-radius:3px; padding:1px 6px; cursor:pointer; }
+    .badge-group:hover { background:rgba(124,58,237,.2); }
+    .group-filter-btn { background:none; border:1px solid var(--border); border-radius:20px; padding:2px 12px; font-size:12px; cursor:pointer; color:#7c3aed; transition:all .15s; font-family:var(--font); }
+    .group-filter-btn:hover { border-color:#7c3aed; }
+    .group-filter-btn.active { background:rgba(124,58,237,.1); border-color:#7c3aed; font-weight:600; }
     /* page tabs */
     .page-tabs { display:flex; gap:0; margin-bottom:20px; border-bottom:2px solid var(--border); }
     .page-tab { background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-2px; padding:10px 22px; cursor:pointer; font-size:13px; font-family:var(--font); color:var(--text-muted); display:inline-flex; align-items:center; gap:6px; transition:color .15s; white-space:nowrap; }
@@ -165,6 +172,8 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
       <h2>{{ 'schemaLib.title' | transloco }}</h2>
       <div class="header-actions">
         @if (pageTab() === 'library') {
+          <button class="btn btn-secondary btn-sm" type="button" (click)="openExportSpace()" [attr.title]="'schemaLib.exportSpace.title' | transloco"><ph-icon name="export" [size]="13" style="margin-right:5px;vertical-align:-2px;"/>{{ 'schemaLib.exportSpace.button' | transloco }}</button>
+          <button class="btn btn-secondary btn-sm" type="button" (click)="openApplyGroup()" [attr.title]="'schemaLib.applyGroup.title' | transloco"><ph-icon name="stack" [size]="13" style="margin-right:5px;vertical-align:-2px;"/>{{ 'schemaLib.applyGroup.button' | transloco }}</button>
           <button class="btn btn-secondary btn-sm" type="button" (click)="triggerImportFile()" [attr.title]="'schemaLib.import.fileTitle' | transloco"><ph-icon name="download-simple" [size]="13" style="margin-right:5px;vertical-align:-2px;"/>{{ 'schemaLib.import.fileButton' | transloco }}</button>
           <input #importFileInput type="file" accept=".json" style="display:none" (change)="onImportFile($event)" />
           <button class="btn btn-primary btn-sm" type="button" (click)="openCreate()">{{ 'schemaLib.createButton' | transloco }}</button>
@@ -198,6 +207,9 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
       <div class="type-filters">
         @for (kt of ['entity','memory','edge','chrono']; track kt) {
           <button class="type-filter-btn" [class.active]="typeFilter() === kt" type="button" (click)="typeFilter.set(typeFilter() === kt ? null : $any(kt))">{{ kt }}</button>
+        }
+        @for (g of availableGroups(); track g) {
+          <button class="group-filter-btn" [class.active]="groupFilter() === g" type="button" (click)="groupFilter.set(groupFilter() === g ? null : g)"><ph-icon name="tag" [size]="11" style="margin-right:3px;vertical-align:-1px;"/>{{ g }}</button>
         }
       </div>
     }
@@ -234,6 +246,9 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
                   }
                   @if ((usageCounts()[entry.name] || 0) > 0) {
                     <span class="prop-badge" style="color:var(--accent);background:var(--accent-dim);">{{ usageCounts()[entry.name] }} link{{ usageCounts()[entry.name] !== 1 ? 's' : '' }}</span>
+                  }
+                  @if (entry.schemaGroup) {
+                    <span class="badge-group" [title]="'schemaLib.badge.groupTitle' | transloco" (click)="$event.stopPropagation(); groupFilter.set(groupFilter() === entry.schemaGroup ? null : (entry.schemaGroup ?? null))"><ph-icon name="tag" [size]="10" style="margin-right:2px;vertical-align:-1px;"/>{{ entry.schemaGroup }}</span>
                   }
                   @if (entry.published) {
                     <span class="badge-published">{{ 'schemaLib.badge.published' | transloco }}</span>
@@ -398,6 +413,88 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
       </div>
     }
 
+    <!-- Export space schema dialog -->
+    @if (exportSpaceDialog()) {
+      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;" (click)="exportSpaceDialog.set(null)">
+        <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:92vw;max-width:500px;" (click)="$event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+            <h3 style="margin:0;font-size:15px;">{{ 'schemaLib.exportSpace.dialogTitle' | transloco }}</h3>
+            <button class="icon-btn" type="button" (click)="exportSpaceDialog.set(null)"><ph-icon name="x" [size]="18"/></button>
+          </div>
+          <p style="font-size:13px;color:var(--text-secondary);margin:0 0 16px;">{{ 'schemaLib.exportSpace.dialogHint' | transloco }}</p>
+          <div class="field" style="margin-bottom:14px;">
+            <label>{{ 'schemaLib.exportSpace.spaceLabel' | transloco }}</label>
+            <select [(ngModel)]="exportSpaceDialog()!.spaceId" style="width:100%;">
+              <option value="">{{ 'schemaLib.exportSpace.selectSpace' | transloco }}</option>
+              @for (s of spaces(); track s.id) {
+                <option [value]="s.id">{{ s.label }}</option>
+              }
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:14px;">
+            <label>{{ 'schemaLib.exportSpace.groupNameLabel' | transloco }}</label>
+            <input type="text" [(ngModel)]="exportSpaceDialog()!.groupName" [placeholder]="'schemaLib.exportSpace.groupNamePlaceholder' | transloco" maxlength="200" />
+          </div>
+          <div class="field" style="margin-bottom:20px;">
+            <label>{{ 'schemaLib.exportSpace.namePrefixLabel' | transloco }}</label>
+            <input type="text" [(ngModel)]="exportSpaceDialog()!.namePrefix" [placeholder]="exportSpaceDialog()!.groupName || ('schemaLib.exportSpace.namePrefixPlaceholder' | transloco)" maxlength="200" />
+            <span style="font-size:11px;color:var(--text-muted);">{{ 'schemaLib.exportSpace.namePrefixHint' | transloco }}</span>
+          </div>
+          @if (exportSpaceDialog()!.result) {
+            <p style="font-size:12px;color:var(--success, #16a34a);margin:0 0 12px;"><ph-icon name="check-circle" [size]="13" style="margin-right:4px;vertical-align:-2px;"/>{{ exportSpaceDialog()!.result }}</p>
+          }
+          @if (exportSpaceDialog()!.error) { <p style="font-size:12px;color:var(--danger);margin:0 0 12px;">{{ exportSpaceDialog()!.error }}</p> }
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button class="btn btn-secondary btn-sm" type="button" (click)="exportSpaceDialog.set(null)">{{ 'common.cancel' | transloco }}</button>
+            <button class="btn btn-primary" type="button" (click)="doExportSpace()" [disabled]="exportSpaceDialog()!.saving">
+              {{ exportSpaceDialog()!.saving ? ('common.saving' | transloco) : ('schemaLib.exportSpace.confirmButton' | transloco) }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
+    <!-- Apply group to space dialog -->
+    @if (applyGroupDialog()) {
+      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;" (click)="applyGroupDialog.set(null)">
+        <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:92vw;max-width:500px;" (click)="$event.stopPropagation()">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+            <h3 style="margin:0;font-size:15px;">{{ 'schemaLib.applyGroup.dialogTitle' | transloco }}</h3>
+            <button class="icon-btn" type="button" (click)="applyGroupDialog.set(null)"><ph-icon name="x" [size]="18"/></button>
+          </div>
+          <p style="font-size:13px;color:var(--text-secondary);margin:0 0 16px;">{{ 'schemaLib.applyGroup.dialogHint' | transloco }}</p>
+          <div class="field" style="margin-bottom:14px;">
+            <label>{{ 'schemaLib.applyGroup.groupLabel' | transloco }}</label>
+            <select [(ngModel)]="applyGroupDialog()!.group" style="width:100%;">
+              <option value="">{{ 'schemaLib.applyGroup.selectGroup' | transloco }}</option>
+              @for (g of availableGroups(); track g) {
+                <option [value]="g">{{ g }}</option>
+              }
+            </select>
+          </div>
+          <div class="field" style="margin-bottom:20px;">
+            <label>{{ 'schemaLib.applyGroup.spaceLabel' | transloco }}</label>
+            <select [(ngModel)]="applyGroupDialog()!.spaceId" style="width:100%;">
+              <option value="">{{ 'schemaLib.applyGroup.selectSpace' | transloco }}</option>
+              @for (s of spaces(); track s.id) {
+                <option [value]="s.id">{{ s.label }}</option>
+              }
+            </select>
+          </div>
+          @if (applyGroupDialog()!.result) {
+            <p style="font-size:12px;color:var(--success, #16a34a);margin:0 0 12px;"><ph-icon name="check-circle" [size]="13" style="margin-right:4px;vertical-align:-2px;"/>{{ applyGroupDialog()!.result }}</p>
+          }
+          @if (applyGroupDialog()!.error) { <p style="font-size:12px;color:var(--danger);margin:0 0 12px;">{{ applyGroupDialog()!.error }}</p> }
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button class="btn btn-secondary btn-sm" type="button" (click)="applyGroupDialog.set(null)">{{ 'common.cancel' | transloco }}</button>
+            <button class="btn btn-primary" type="button" (click)="doApplyGroup()" [disabled]="applyGroupDialog()!.saving">
+              {{ applyGroupDialog()!.saving ? ('common.saving' | transloco) : ('schemaLib.applyGroup.confirmButton' | transloco) }}
+            </button>
+          </div>
+        </div>
+      </div>
+    }
+
     @if (showDialog()) {
       <div class="dialog-backdrop" (click)="closeDialog()">
         <div class="dialog" (click)="$event.stopPropagation()">
@@ -427,6 +524,15 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
           <div class="field" style="margin-bottom:16px;">
             <label>{{ 'schemaLib.field.description' | transloco }}</label>
             <input type="text" [(ngModel)]="form.description" [placeholder]="'schemaLib.field.descriptionPlaceholder' | transloco" />
+          </div>
+
+          <div class="field" style="margin-bottom:16px;">
+            <label>{{ 'schemaLib.field.schemaGroup' | transloco }}</label>
+            <input type="text" [(ngModel)]="form.schemaGroup" [placeholder]="'schemaLib.field.schemaGroupPlaceholder' | transloco" maxlength="200" list="schema-group-suggestions" />
+            <datalist id="schema-group-suggestions">
+              @for (g of availableGroups(); track g) { <option [value]="g"></option> }
+            </datalist>
+            <span style="font-size:11px;color:var(--text-muted);">{{ 'schemaLib.field.schemaGroupHint' | transloco }}</span>
           </div>
 
           <!-- Schema editor — matches spaces.component.ts per-type expand panel -->
@@ -515,6 +621,7 @@ export class SchemaLibraryComponent implements OnInit {
   confirmDeleteName = signal('');
   searchQuery     = signal('');
   typeFilter      = signal<KnowledgeType | null>(null);
+  groupFilter     = signal<string | null>(null);
 
   /** Current page tab: 'library' | 'catalogs'. */
   pageTab = signal<'library' | 'catalogs'>('library');
@@ -537,6 +644,28 @@ export class SchemaLibraryComponent implements OnInit {
   libTokenRevealed    = signal<string | null>(null);
   libTokenError       = signal('');
 
+  /** Space list for export/apply dialogs. */
+  spaces = signal<Space[]>([]);
+
+  /** Export space schema dialog state. */
+  exportSpaceDialog = signal<{
+    spaceId: string;
+    groupName: string;
+    namePrefix: string;
+    saving: boolean;
+    error: string;
+    result: string;
+  } | null>(null);
+
+  /** Apply group to space dialog state. */
+  applyGroupDialog = signal<{
+    group: string;
+    spaceId: string;
+    saving: boolean;
+    error: string;
+    result: string;
+  } | null>(null);
+
   /** Catalog browse dialog state. */
   browsing = signal<{
     catalogName: string;
@@ -554,16 +683,32 @@ export class SchemaLibraryComponent implements OnInit {
     error: string;
   } | null>(null);
 
+  /** Distinct group names derived from the current entries list. */
+  availableGroups = computed(() => {
+    const seen = new Set<string>();
+    const groups: string[] = [];
+    for (const e of this.entries()) {
+      if (e.schemaGroup && !seen.has(e.schemaGroup)) {
+        seen.add(e.schemaGroup);
+        groups.push(e.schemaGroup);
+      }
+    }
+    return groups.sort();
+  });
+
   filteredEntries = computed(() => {
     const q = this.searchQuery().trim().toLowerCase();
     const kt = this.typeFilter();
+    const g = this.groupFilter();
     let result = this.entries();
     if (kt) result = result.filter(e => e.knowledgeType === kt);
+    if (g) result = result.filter(e => e.schemaGroup === g);
     if (!q) return result;
     return result.filter(e =>
       e.name.toLowerCase().includes(q) ||
       e.typeName.toLowerCase().includes(q) ||
-      (e.description ?? '').toLowerCase().includes(q),
+      (e.description ?? '').toLowerCase().includes(q) ||
+      (e.schemaGroup ?? '').toLowerCase().includes(q),
     );
   });
 
@@ -577,11 +722,19 @@ export class SchemaLibraryComponent implements OnInit {
       description:   '',
       knowledgeType: 'entity',
       typeName:      '',
+      schemaGroup:   '',
       schemaState:   emptySchemaState(),
     };
   }
 
-  ngOnInit(): void { this.load(); }
+  ngOnInit(): void {
+    this.load();
+    // Pre-load space list for export/apply dialogs
+    this.api.listSpaces().subscribe({
+      next: ({ spaces }) => this.spaces.set(spaces),
+      error: () => {},
+    });
+  }
 
   load(): void {
     this.loading.set(true);
@@ -732,6 +885,7 @@ export class SchemaLibraryComponent implements OnInit {
       typeName:      this.form.typeName.trim() || name,
       schema:        formStateToSchema(this.form),
       description:   this.form.description.trim() || undefined,
+      schemaGroup:   this.form.schemaGroup.trim() || undefined,
     };
 
     if (!name) {
@@ -954,6 +1108,7 @@ export class SchemaLibraryComponent implements OnInit {
               typeName: e.typeName ?? e.name,
               schema: e.schema,
               description: e.description,
+              schemaGroup: e.schemaGroup,
             }).toPromise();
             if (r?.entry) {
               this.entries.update(list => {
@@ -973,5 +1128,79 @@ export class SchemaLibraryComponent implements OnInit {
       }
     };
     reader.readAsText(file);
+  }
+
+  // ── Export space schema to library ────────────────────────────────────────
+
+  openExportSpace(): void {
+    this.exportSpaceDialog.set({ spaceId: '', groupName: '', namePrefix: '', saving: false, error: '', result: '' });
+  }
+
+  doExportSpace(): void {
+    const d = this.exportSpaceDialog();
+    if (!d) return;
+    if (!d.spaceId) {
+      this.exportSpaceDialog.update(s => s ? { ...s, error: this.transloco.translate('schemaLib.exportSpace.errorNoSpace') } : s);
+      return;
+    }
+    if (!d.groupName.trim()) {
+      this.exportSpaceDialog.update(s => s ? { ...s, error: this.transloco.translate('schemaLib.exportSpace.errorNoGroup') } : s);
+      return;
+    }
+    this.exportSpaceDialog.update(s => s ? { ...s, saving: true, error: '', result: '' } : s);
+    this.api.exportSpaceSchemaToLibrary({
+      spaceId: d.spaceId,
+      groupName: d.groupName.trim(),
+      namePrefix: d.namePrefix.trim() || undefined,
+    }).pipe(finalize(() => this.exportSpaceDialog.update(s => s ? { ...s, saving: false } : s))).subscribe({
+      next: ({ created, updated, entries: newEntries }) => {
+        // Merge new/updated entries into local list
+        this.entries.update(list => {
+          let result = [...list];
+          for (const entry of newEntries) {
+            const idx = result.findIndex(e => e.name === entry.name);
+            if (idx === -1) result = [...result, entry];
+            else { result = [...result]; result[idx] = entry; }
+          }
+          return result;
+        });
+        const msg = this.transloco.translate('schemaLib.exportSpace.success', { created, updated });
+        this.exportSpaceDialog.update(s => s ? { ...s, result: msg } : s);
+      },
+      error: (err) => {
+        this.exportSpaceDialog.update(s => s ? { ...s, error: err?.error?.error ?? this.transloco.translate('schemaLib.exportSpace.errorFailed') } : s);
+      },
+    });
+  }
+
+  // ── Apply group to space ──────────────────────────────────────────────────
+
+  openApplyGroup(): void {
+    this.applyGroupDialog.set({ group: this.groupFilter() ?? '', spaceId: '', saving: false, error: '', result: '' });
+  }
+
+  doApplyGroup(): void {
+    const d = this.applyGroupDialog();
+    if (!d) return;
+    if (!d.group) {
+      this.applyGroupDialog.update(s => s ? { ...s, error: this.transloco.translate('schemaLib.applyGroup.errorNoGroup') } : s);
+      return;
+    }
+    if (!d.spaceId) {
+      this.applyGroupDialog.update(s => s ? { ...s, error: this.transloco.translate('schemaLib.applyGroup.errorNoSpace') } : s);
+      return;
+    }
+    this.applyGroupDialog.update(s => s ? { ...s, saving: true, error: '', result: '' } : s);
+    this.api.applyGroupToSpace(d.group, d.spaceId).pipe(
+      finalize(() => this.applyGroupDialog.update(s => s ? { ...s, saving: false } : s)),
+    ).subscribe({
+      next: ({ count }) => {
+        const msg = this.transloco.translate('schemaLib.applyGroup.success', { count });
+        this.applyGroupDialog.update(s => s ? { ...s, result: msg } : s);
+      },
+      error: (err) => {
+        this.applyGroupDialog.update(s => s ? { ...s, error: err?.error?.error ?? this.transloco.translate('schemaLib.applyGroup.errorFailed') } : s);
+      },
+    });
   }
 }

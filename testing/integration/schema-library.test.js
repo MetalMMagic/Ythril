@@ -20,6 +20,10 @@
  *  - GET/POST/DELETE /api/schema-library/catalogs   — foreign catalog CRUD
  *  - GET /api/schema-library/catalogs/:name/entries — catalog proxy endpoint
  *  - SSRF validation on catalog URL
+ *  - schemaGroup field on library entries (optional, editable, clearable)
+ *  - GET /api/schema-library/groups                 — list distinct group names
+ *  - POST /api/schema-library/groups/:group/apply   — bulk apply group to a space
+ *  - POST /api/schema-library/export-space          — export space schema as group
  *
  * Run: node --test testing/integration/schema-library.test.js
  */
@@ -914,5 +918,287 @@ describe('Catalog accessToken — stored but never returned', () => {
     assert.equal(r.body.catalog?.hasAccessToken, false, 'hasAccessToken should be false when no token provided');
     assert.ok(!('accessToken' in r.body.catalog), 'accessToken must not be returned');
     await del(INSTANCES.a, token(), `/api/schema-library/catalogs/${encodeURIComponent(noTokenName)}`).catch(() => {});
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  Schema group support
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('Schema group support — schemaGroup field, GET /groups, POST /export-space, POST /groups/:group/apply', () => {
+  const GROUP_NAME = `test-group-${RUN}`;
+  const GROUP_ENTRY_A = `lib-grp-${RUN}-entity-widget`;
+  const GROUP_ENTRY_B = `lib-grp-${RUN}-memory-note`;
+  const GROUP_SPACE   = `schema-lib-grp-${RUN}`;
+
+  before(async () => {
+    // Create two entries in the same group
+    await createEntry({
+      name: GROUP_ENTRY_A,
+      knowledgeType: 'entity',
+      typeName: 'widget',
+      schema: { propertySchemas: { colour: { type: 'string' } } },
+      schemaGroup: GROUP_NAME,
+    });
+    await createEntry({
+      name: GROUP_ENTRY_B,
+      knowledgeType: 'memory',
+      typeName: 'note',
+      schema: { tagSuggestions: ['important'] },
+      schemaGroup: GROUP_NAME,
+    });
+    // Create the target space for apply tests
+    await post(INSTANCES.a, token(), '/api/spaces', { id: GROUP_SPACE, label: `Group Space ${RUN}` });
+  });
+
+  after(async () => {
+    await deleteEntry(GROUP_ENTRY_A).catch(() => {});
+    await deleteEntry(GROUP_ENTRY_B).catch(() => {});
+    await fetch(`${INSTANCES.a}/api/spaces/${GROUP_SPACE}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    }).catch(() => {});
+  });
+
+  // ── schemaGroup field ────────────────────────────────────────────────────
+
+  it('POST stores and returns schemaGroup', async () => {
+    const r = await getEntry(GROUP_ENTRY_A);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.entry.schemaGroup, GROUP_NAME);
+  });
+
+  it('PUT updates schemaGroup', async () => {
+    const newGroup = `${GROUP_NAME}-alt`;
+    const r = await putEntry(GROUP_ENTRY_A, {
+      knowledgeType: 'entity',
+      typeName: 'widget',
+      schema: { propertySchemas: { colour: { type: 'string' } } },
+      schemaGroup: newGroup,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.entry.schemaGroup, newGroup);
+    // Restore original group
+    await putEntry(GROUP_ENTRY_A, {
+      knowledgeType: 'entity',
+      typeName: 'widget',
+      schema: { propertySchemas: { colour: { type: 'string' } } },
+      schemaGroup: GROUP_NAME,
+    });
+  });
+
+  it('PUT clears schemaGroup with null', async () => {
+    const r = await putEntry(GROUP_ENTRY_B, {
+      knowledgeType: 'memory',
+      typeName: 'note',
+      schema: { tagSuggestions: ['important'] },
+      schemaGroup: null,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(!r.body.entry.schemaGroup, 'schemaGroup should be cleared with null');
+    // Restore
+    await putEntry(GROUP_ENTRY_B, {
+      knowledgeType: 'memory',
+      typeName: 'note',
+      schema: { tagSuggestions: ['important'] },
+      schemaGroup: GROUP_NAME,
+    });
+  });
+
+  it('POST returns 400 for schemaGroup exceeding 200 chars', async () => {
+    const r = await createEntry({
+      name: `lib-grp-bad-${RUN}`,
+      knowledgeType: 'entity',
+      typeName: 'x',
+      schema: {},
+      schemaGroup: 'a'.repeat(201),
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  });
+
+  // ── GET /groups ──────────────────────────────────────────────────────────
+
+  it('GET /groups returns groups array', async () => {
+    const r = await get(INSTANCES.a, token(), '/api/schema-library/groups');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(Array.isArray(r.body?.groups), 'groups should be an array');
+  });
+
+  it('GET /groups includes the test group with correct count', async () => {
+    const r = await get(INSTANCES.a, token(), '/api/schema-library/groups');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const found = r.body.groups.find(g => g.name === GROUP_NAME);
+    assert.ok(found, `Expected group '${GROUP_NAME}' in groups list`);
+    assert.ok(found.count >= 2, `Expected count >= 2 for group '${GROUP_NAME}', got ${found.count}`);
+  });
+
+  it('GET /groups returns empty array when no groups exist (only ungrouped entries)', async () => {
+    // Create an entry without a group, then verify groups endpoint works
+    const ungrpName = `lib-ungrp-${RUN}`;
+    await createEntry({ name: ungrpName, knowledgeType: 'edge', typeName: 'links', schema: {} });
+    const r = await get(INSTANCES.a, token(), '/api/schema-library/groups');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(!r.body.groups.find(g => g.name === undefined), 'undefined group should not appear');
+    await deleteEntry(ungrpName).catch(() => {});
+  });
+
+  // ── POST /groups/:group/apply ────────────────────────────────────────────
+
+  it('POST /groups/:group/apply applies all entries to a space as $ref', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/schema-library/groups/${encodeURIComponent(GROUP_NAME)}/apply`, {
+      spaceId: GROUP_SPACE,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(typeof r.body.count === 'number' && r.body.count >= 2, `Expected count >= 2, got ${r.body.count}`);
+    assert.ok(Array.isArray(r.body.applied), 'applied should be an array');
+    const entityApplied = r.body.applied.find(a => a.knowledgeType === 'entity' && a.typeName === 'widget');
+    const memoryApplied = r.body.applied.find(a => a.knowledgeType === 'memory' && a.typeName === 'note');
+    assert.ok(entityApplied, 'entity widget should be in applied list');
+    assert.ok(memoryApplied, 'memory note should be in applied list');
+  });
+
+  it('POST /groups/:group/apply creates $ref in space meta', async () => {
+    // Apply group first
+    await post(INSTANCES.a, token(), `/api/schema-library/groups/${encodeURIComponent(GROUP_NAME)}/apply`, {
+      spaceId: GROUP_SPACE,
+    });
+    // Read space meta and verify $ref entries
+    const r = await get(INSTANCES.a, token(), `/api/spaces/${GROUP_SPACE}/meta`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const entityWidget = r.body.typeSchemas?.entity?.widget;
+    assert.ok(entityWidget, 'entity widget type schema should exist');
+    assert.equal(entityWidget.$ref, `library:${GROUP_ENTRY_A}`, `Expected $ref to ${GROUP_ENTRY_A}`);
+  });
+
+  it('POST /groups/:group/apply returns 404 for unknown group', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/schema-library/groups/no-such-group-${RUN}/apply`, {
+      spaceId: GROUP_SPACE,
+    });
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+  });
+
+  it('POST /groups/:group/apply returns 404 for unknown space', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/schema-library/groups/${encodeURIComponent(GROUP_NAME)}/apply`, {
+      spaceId: `nonexistent-space-${RUN}`,
+    });
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+  });
+
+  it('POST /groups/:group/apply returns 400 for missing spaceId', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/schema-library/groups/${encodeURIComponent(GROUP_NAME)}/apply`, {});
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  });
+
+  // ── POST /export-space ───────────────────────────────────────────────────
+
+  it('POST /export-space exports typeSchemas as library entries', async () => {
+    // Set up a space with inline typeSchemas
+    const exportSpaceId = `schema-lib-export-${RUN}`;
+    await post(INSTANCES.a, token(), '/api/spaces', { id: exportSpaceId, label: `Export Test ${RUN}` });
+    await patch(INSTANCES.a, token(), `/api/spaces/${exportSpaceId}`, {
+      meta: {
+        typeSchemas: {
+          entity: { server: { namingPattern: '^svc-', tagSuggestions: ['backend'] } },
+          memory: { alert: { propertySchemas: { severity: { type: 'string' } } } },
+        },
+      },
+    });
+
+    const exportGroup = `export-test-${RUN}`;
+    const r = await post(INSTANCES.a, token(), '/api/schema-library/export-space', {
+      spaceId: exportSpaceId,
+      groupName: exportGroup,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(typeof r.body.created === 'number', 'response should have created count');
+    assert.ok(typeof r.body.updated === 'number', 'response should have updated count');
+    assert.ok(Array.isArray(r.body.entries), 'response should have entries array');
+    assert.ok(r.body.created >= 2, `Expected at least 2 created, got ${r.body.created}`);
+
+    // Verify entries were created with correct group
+    for (const entry of r.body.entries) {
+      assert.equal(entry.schemaGroup, exportGroup, `Entry ${entry.name} should have group ${exportGroup}`);
+    }
+
+    // Verify entity server entry
+    const entityEntry = r.body.entries.find(e => e.knowledgeType === 'entity' && e.typeName === 'server');
+    assert.ok(entityEntry, 'entity server entry should be created');
+    assert.equal(entityEntry.schema.namingPattern, '^svc-');
+
+    // Check group appears in GET /groups
+    const gR = await get(INSTANCES.a, token(), '/api/schema-library/groups');
+    const grp = gR.body.groups?.find(g => g.name === exportGroup);
+    assert.ok(grp, `Group '${exportGroup}' should appear in groups list after export`);
+
+    // Cleanup
+    await fetch(`${INSTANCES.a}/api/spaces/${exportSpaceId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    }).catch(() => {});
+    for (const entry of r.body.entries) {
+      await deleteEntry(entry.name).catch(() => {});
+    }
+  });
+
+  it('POST /export-space skips $ref entries', async () => {
+    // Create a space where one type uses $ref and another is inline
+    const refSpaceId = `schema-lib-refexp-${RUN}`;
+    await post(INSTANCES.a, token(), '/api/spaces', { id: refSpaceId, label: `Ref Export ${RUN}` });
+    await patch(INSTANCES.a, token(), `/api/spaces/${refSpaceId}`, {
+      meta: {
+        typeSchemas: {
+          entity: {
+            service: { $ref: `library:${GROUP_ENTRY_A}` },  // $ref — should be skipped
+            product: { tagSuggestions: ['retail'] },          // inline — should be exported
+          },
+        },
+      },
+    });
+
+    const refExportGroup = `refexp-${RUN}`;
+    const r = await post(INSTANCES.a, token(), '/api/schema-library/export-space', {
+      spaceId: refSpaceId,
+      groupName: refExportGroup,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    // Only 'product' should be exported, not 'service' ($ref)
+    const serviceEntry = r.body.entries.find(e => e.typeName === 'service');
+    const productEntry = r.body.entries.find(e => e.typeName === 'product');
+    assert.ok(!serviceEntry, '$ref entries should be skipped during export');
+    assert.ok(productEntry, 'inline entries should be exported');
+
+    // Cleanup
+    await fetch(`${INSTANCES.a}/api/spaces/${refSpaceId}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    }).catch(() => {});
+    for (const entry of r.body.entries) {
+      await deleteEntry(entry.name).catch(() => {});
+    }
+  });
+
+  it('POST /export-space returns 404 for unknown space', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/schema-library/export-space', {
+      spaceId: `nonexistent-${RUN}`,
+      groupName: 'my-group',
+    });
+    assert.equal(r.status, 404, JSON.stringify(r.body));
+  });
+
+  it('POST /export-space returns 400 for missing groupName', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/schema-library/export-space', {
+      spaceId: GROUP_SPACE,
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  });
+
+  it('POST /export-space returns 400 for missing spaceId', async () => {
+    const r = await post(INSTANCES.a, token(), '/api/schema-library/export-space', {
+      groupName: 'my-group',
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
   });
 });

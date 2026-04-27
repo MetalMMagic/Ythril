@@ -18,6 +18,9 @@
  *   DELETE /api/schema-library/catalogs/:name         — remove a foreign catalog link
  *   GET    /api/schema-library/catalogs/:name/entries — browse a foreign catalog (proxied)
  *   GET    /api/schema-library/catalogs/:name/entries/:entryName — preview one foreign entry
+ *   GET    /api/schema-library/groups                 — list distinct schema group names
+ *   POST   /api/schema-library/groups/:group/apply    — apply all entries in a group to a space
+ *   POST   /api/schema-library/export-space           — export a space's typeSchemas as a named group
  *
  * Routes (unauthenticated, public):
  *   GET    /api/schema-library/public                 — index of published entries
@@ -28,6 +31,7 @@ import { Router } from 'express';
 import { requireAuth, requireAdminMfa, acceptSchemaLibraryToken } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getSchemaLibrary, saveSchemaLibrary, getConfig, getSchemaCatalogs, saveSchemaCatalogs } from '../config/loader.js';
+import { updateSpace } from '../spaces/spaces.js';
 import { isSsrfSafeUrl } from '../util/ssrf.js';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
@@ -100,6 +104,7 @@ const LibraryEntryBodyZ = z.object({
   typeName: z.string().min(1).max(200),
   schema: LibraryTypeSchemaZ,
   description: z.string().max(1000).optional(),
+  schemaGroup: z.string().min(1).max(200).optional(),
   published: z.boolean().optional(),
   sourceUrl: z.string().url().max(2048).optional(),
   sourceCatalog: z.string().max(200).optional(),
@@ -112,6 +117,8 @@ const LibraryEntryPutBodyZ = z.object({
   schema: LibraryTypeSchemaZ,
   /** Pass null to explicitly clear a previously set description. */
   description: z.string().max(1000).nullable().optional(),
+  /** Pass null to explicitly clear a previously set group. */
+  schemaGroup: z.string().min(1).max(200).nullable().optional(),
   published: z.boolean().optional(),
   sourceUrl: z.string().url().max(2048).nullable().optional(),
   sourceCatalog: z.string().max(200).nullable().optional(),
@@ -183,6 +190,186 @@ schemaLibraryRouter.get('/catalogs', globalRateLimit, requireAuth, (_req, res) =
   res.json({ catalogs });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Schema group endpoints — must precede GET /:name
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── GET /groups — list all distinct schema groups ─────────────────────────
+
+schemaLibraryRouter.get('/groups', globalRateLimit, requireAuth, (_req, res) => {
+  const library = getSchemaLibrary();
+  const groupMap = new Map<string, number>();
+  for (const entry of library) {
+    if (entry.schemaGroup) {
+      groupMap.set(entry.schemaGroup, (groupMap.get(entry.schemaGroup) ?? 0) + 1);
+    }
+  }
+  const groups = Array.from(groupMap.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  res.json({ groups });
+});
+
+// ── POST /export-space — export a space's typeSchemas as a named group ────
+//
+//  Body: { spaceId: string; groupName: string; namePrefix?: string }
+//  Creates (or updates) one library entry per inline type schema found in the
+//  space's meta.typeSchemas.  Entries tagged with `$ref` are skipped (they are
+//  already backed by a library entry).  Entry names are derived as:
+//    <namePrefix|groupName>-<knowledgeType>-<typeName>   (sanitised)
+//  Returns the list of created/updated entries.
+
+const ExportSpaceBodyZ = z.object({
+  spaceId: z.string().min(1).max(200),
+  groupName: z.string().min(1).max(200),
+  namePrefix: z.string().min(1).max(200).optional(),
+});
+
+schemaLibraryRouter.post('/export-space', globalRateLimit, requireAdminMfa, (req, res) => {
+  const parsed = ExportSpaceBodyZ.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { spaceId, groupName, namePrefix } = parsed.data;
+  const cfg = getConfig();
+  const space = cfg.spaces.find(s => s.id === spaceId);
+  if (!space) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+
+  const typeSchemas = space.meta?.typeSchemas;
+  if (!typeSchemas) {
+    res.json({ created: 0, updated: 0, entries: [] });
+    return;
+  }
+
+  const prefix = (namePrefix ?? groupName)
+    .toLowerCase()
+    .replace(/[^a-z0-9_.-]/g, '-')
+    .replace(/^[^a-z0-9]+/, '')
+    .slice(0, 100);
+
+  const library = getSchemaLibrary();
+  const now = new Date().toISOString();
+  const kts = ['entity', 'memory', 'edge', 'chrono'] as const;
+  const resultEntries: SchemaLibraryEntry[] = [];
+  let created = 0;
+  let updated = 0;
+
+  for (const kt of kts) {
+    const ktMap = typeSchemas[kt];
+    if (!ktMap) continue;
+    for (const [typeName, schema] of Object.entries(ktMap)) {
+      // Skip $ref entries — they already point at a library entry
+      if ('$ref' in schema) continue;
+
+      const safeName = typeName.toLowerCase().replace(/[^a-z0-9_.-]/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 80);
+      const entryName = `${prefix}-${kt}-${safeName}`.slice(0, 200);
+
+      const existingIdx = library.findIndex(e => e.name === entryName);
+
+      // Inline schema (no $ref) — store as-is (already compatible with LibraryTypeSchema)
+      const inlineSchema: Omit<import('../config/types.js').TypeSchema, '$ref'> = schema as Omit<import('../config/types.js').TypeSchema, '$ref'>;
+
+      if (existingIdx === -1) {
+        if (library.length >= MAX_LIBRARY_ENTRIES) {
+          // Stop if limit reached — still return what was exported so far
+          break;
+        }
+        const newEntry: SchemaLibraryEntry = {
+          name: entryName,
+          knowledgeType: kt,
+          typeName,
+          schema: inlineSchema,
+          schemaGroup: groupName,
+          createdAt: now,
+          updatedAt: now,
+        };
+        library.push(newEntry);
+        resultEntries.push(newEntry);
+        created++;
+      } else {
+        const updatedEntry: SchemaLibraryEntry = {
+          ...library[existingIdx]!,
+          knowledgeType: kt,
+          typeName,
+          schema: inlineSchema,
+          schemaGroup: groupName,
+          updatedAt: now,
+        };
+        library[existingIdx] = updatedEntry;
+        resultEntries.push(updatedEntry);
+        updated++;
+      }
+    }
+  }
+
+  saveSchemaLibrary(library);
+  res.json({ created, updated, entries: resultEntries });
+});
+
+// ── POST /groups/:group/apply — apply all entries in a group to a space ───
+//
+//  Body: { spaceId: string }
+//  Creates `$ref: "library:<name>"` entries in the target space's typeSchemas
+//  for every library entry that belongs to the specified group.
+//  Existing type definitions for matching names are overwritten.
+
+const ApplyGroupBodyZ = z.object({
+  spaceId: z.string().min(1).max(200),
+});
+
+schemaLibraryRouter.post('/groups/:group/apply', globalRateLimit, requireAdminMfa, (req, res) => {
+  const group = req.params['group'] as string;
+  const parsed = ApplyGroupBodyZ.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const { spaceId } = parsed.data;
+  const cfg = getConfig();
+  const space = cfg.spaces.find(s => s.id === spaceId);
+  if (!space) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+
+  const groupEntries = getSchemaLibrary().filter(e => e.schemaGroup === group);
+  if (groupEntries.length === 0) {
+    res.status(404).json({ error: `No library entries found for group '${group}'` });
+    return;
+  }
+
+  // Build updated typeSchemas by injecting $ref entries
+  const existingMeta = space.meta ?? {};
+  const typeSchemas = { ...existingMeta.typeSchemas };
+
+  const applied: { knowledgeType: string; typeName: string; entryName: string }[] = [];
+
+  for (const entry of groupEntries) {
+    const kt = entry.knowledgeType;
+    const ktMap = { ...(typeSchemas[kt] ?? {}) };
+    ktMap[entry.typeName] = { $ref: `library:${entry.name}` };
+    typeSchemas[kt] = ktMap;
+    applied.push({ knowledgeType: kt, typeName: entry.typeName, entryName: entry.name });
+  }
+
+  const updated = updateSpace(spaceId, {
+    meta: { ...existingMeta, typeSchemas },
+  });
+
+  if (!updated) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+
+  res.json({ applied, count: applied.length });
+});
+
 // ── GET /:name — get a single library entry ────────────────────────────────
 
 schemaLibraryRouter.get('/:name', globalRateLimit, requireAuth, (req, res) => {
@@ -204,7 +391,7 @@ schemaLibraryRouter.post('/', globalRateLimit, requireAdminMfa, (req, res) => {
     return;
   }
 
-  const { name, knowledgeType, typeName, schema, description, published, sourceUrl, sourceCatalog } = parsed.data;
+  const { name, knowledgeType, typeName, schema, description, schemaGroup, published, sourceUrl, sourceCatalog } = parsed.data;
   const library = getSchemaLibrary();
 
   if (library.some(e => e.name === name)) {
@@ -224,6 +411,7 @@ schemaLibraryRouter.post('/', globalRateLimit, requireAdminMfa, (req, res) => {
     typeName,
     schema,
     ...(description ? { description } : {}),
+    ...(schemaGroup ? { schemaGroup } : {}),
     ...(published ? { published } : {}),
     ...(sourceUrl ? { sourceUrl } : {}),
     ...(sourceCatalog ? { sourceCatalog } : {}),
@@ -251,7 +439,7 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
     return;
   }
 
-  const { knowledgeType, typeName, schema, description, published, sourceUrl, sourceCatalog } = parsed.data;
+  const { knowledgeType, typeName, schema, description, schemaGroup, published, sourceUrl, sourceCatalog } = parsed.data;
 
   const library = getSchemaLibrary();
   const existingIdx = library.findIndex(e => e.name === name);
@@ -271,6 +459,7 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
       typeName,
       schema,
       ...(description ? { description } : {}),
+      ...(schemaGroup ? { schemaGroup } : {}),
       ...(published ? { published } : {}),
       ...(sourceUrl ? { sourceUrl } : {}),
       ...(sourceCatalog ? { sourceCatalog } : {}),
@@ -292,6 +481,11 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
         : description !== undefined
           ? { description }
           : existing.description !== undefined ? { description: existing.description } : {}),
+      ...(schemaGroup === null
+        ? { schemaGroup: undefined }
+        : schemaGroup !== undefined
+          ? { schemaGroup }
+          : existing.schemaGroup !== undefined ? { schemaGroup: existing.schemaGroup } : {}),
       ...(published !== undefined ? { published } : {}),
       ...(sourceUrl === null
         ? { sourceUrl: undefined }

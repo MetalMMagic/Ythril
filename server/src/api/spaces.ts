@@ -163,7 +163,8 @@ function mergeSpaceMeta(
   if (incoming.typeSchemas !== undefined) {
     const existingTs = existingBase.typeSchemas ?? {};
     const mergedTs: Partial<Record<KnowledgeType, Record<string, TypeSchema>>> = { ...existingTs };
-    for (const [kt, ktMap] of Object.entries(incoming.typeSchemas) as [KnowledgeType, Record<string, TypeSchema> | undefined][]) {
+    for (const [kt, ktMap] of Object.entries(incoming.typeSchemas) as
+        [KnowledgeType, Record<string, TypeSchema> | undefined][]) {
       if (!ktMap) continue;
       mergedTs[kt] = { ...(existingTs[kt] ?? {}), ...ktMap };
     }
@@ -423,9 +424,9 @@ spacesRouter.put('/:id/schema', globalRateLimit, requireAdminMfa, async (req, re
   const previousTypeSchemas = space.meta?.typeSchemas;
   if (previousTypeSchemas && Object.keys(previousTypeSchemas).length > 0) {
     try {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backupTimestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const backupContent = JSON.stringify({ typeSchemas: previousTypeSchemas }, null, 2);
-      await writeSpaceFile(id, `_schema-backup-${timestamp}.json`, backupContent);
+      await writeSpaceFile(id, `_schema-backup-${backupTimestamp}.json`, backupContent);
     } catch (err) {
       log.warn(`PUT /${id}/schema: could not write schema backup: ${err}`);
       // Non-fatal — proceed with replacement

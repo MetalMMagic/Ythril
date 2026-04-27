@@ -253,10 +253,10 @@ describe('Space management', () => {
 
     const metaR = await get(INSTANCES.a, tokenA, `/api/spaces/${spaceId}/meta`);
     assert.equal(metaR.status, 200);
-    const entityTypes = metaR.body?.typeSchemas?.entity ?? {};
-    assert.ok('service' in entityTypes, 'service type must be preserved');
-    assert.ok('person' in entityTypes, 'person type must be preserved');
-    assert.ok('team' in entityTypes, 'team type must be added');
+    const actualEntityTypes = metaR.body?.typeSchemas?.entity ?? {};
+    assert.ok('service' in actualEntityTypes, 'service type must be preserved');
+    assert.ok('person' in actualEntityTypes, 'person type must be preserved');
+    assert.ok('team' in actualEntityTypes, 'team type must be added');
     // validationMode should also be preserved
     assert.equal(metaR.body?.validationMode, 'strict', 'validationMode should be preserved');
   });
@@ -315,10 +315,10 @@ describe('Space management', () => {
 
     const metaR = await get(INSTANCES.a, tokenA, `/api/spaces/${spaceId}/meta`);
     assert.equal(metaR.status, 200);
-    const entityTypes = metaR.body?.typeSchemas?.entity ?? {};
-    assert.ok(!('old_type_a' in entityTypes), 'old_type_a must be removed by full replace');
-    assert.ok(!('old_type_b' in entityTypes), 'old_type_b must be removed by full replace');
-    assert.ok('new_type' in entityTypes, 'new_type must be present after full replace');
+    const actualEntityTypes = metaR.body?.typeSchemas?.entity ?? {};
+    assert.ok(!('old_type_a' in actualEntityTypes), 'old_type_a must be removed by full replace');
+    assert.ok(!('old_type_b' in actualEntityTypes), 'old_type_b must be removed by full replace');
+    assert.ok('new_type' in actualEntityTypes, 'new_type must be present after full replace');
   });
 
   it('PUT /api/spaces/:id/schema on non-existent space returns 404', async () => {

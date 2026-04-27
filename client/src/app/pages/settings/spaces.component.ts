@@ -698,7 +698,10 @@ interface TypeSchemaState {
     <div class="card">
       <div class="card-header">
         <div class="card-title">{{ 'spaces.table.title' | transloco }}</div>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="search" [value]="spaceSearch()" (input)="spaceSearch.set($any($event.target).value)"
+            style="height:28px;padding:0 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-surface);color:var(--text-primary);font-size:13px;min-width:160px;"
+            [placeholder]="'spaces.table.search.placeholder' | transloco" />
           <div class="sort-group" [attr.aria-label]="'spaces.table.sortLabel' | transloco">
             <button class="sort-btn" [class.active]="sortMode()==='custom'" (click)="sortMode.set('custom')" [attr.title]="'spaces.table.sort.custom' | transloco">⠿</button>
             <button class="sort-btn" [class.active]="sortMode()==='az'" (click)="sortMode.set('az')" [attr.title]="'spaces.table.sort.az' | transloco">A→Z</button>
@@ -774,16 +777,26 @@ export class SpacesComponent implements OnInit {
   networks = signal<Network[]>([]);
   loading  = signal(true);
 
+  spaceSearch = signal('');
   sortMode = signal<'custom' | 'az' | 'za' | 'usage-desc' | 'usage-asc'>('custom');
   sortedSpaces = computed(() => {
     const list = this.spaces();
-    switch (this.sortMode()) {
-      case 'az':         return [...list].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
-      case 'za':         return [...list].sort((a, b) => b.label.localeCompare(a.label, undefined, { sensitivity: 'base' }));
-      case 'usage-desc': return [...list].sort((a, b) => (b.usageGiB ?? 0) - (a.usageGiB ?? 0));
-      case 'usage-asc':  return [...list].sort((a, b) => (a.usageGiB ?? 0) - (b.usageGiB ?? 0));
-      default:           return list;
-    }
+    const sorted = (() => {
+      switch (this.sortMode()) {
+        case 'az':         return [...list].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+        case 'za':         return [...list].sort((a, b) => b.label.localeCompare(a.label, undefined, { sensitivity: 'base' }));
+        case 'usage-desc': return [...list].sort((a, b) => (b.usageGiB ?? 0) - (a.usageGiB ?? 0));
+        case 'usage-asc':  return [...list].sort((a, b) => (a.usageGiB ?? 0) - (b.usageGiB ?? 0));
+        default:           return list;
+      }
+    })();
+    const q = this.spaceSearch().trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter(s =>
+      s.label.toLowerCase().includes(q) ||
+      s.id.toLowerCase().includes(q) ||
+      (s.description ?? '').toLowerCase().includes(q),
+    );
   });
 
   // create dialog

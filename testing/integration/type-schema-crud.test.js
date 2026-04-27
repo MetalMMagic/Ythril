@@ -367,7 +367,9 @@ describe('Round-trip: GET then PUT (export/import snippet)', () => {
   };
 
   before(async () => {
-    await put(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta/typeSchemas/entity/roundtrip_svc`, originalSchema);
+    await resetMeta(); // ensure clean slate regardless of prior suite teardown
+    const r = await put(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta/typeSchemas/entity/roundtrip_svc`, originalSchema);
+    assert.equal(r.status, 200, `before: failed to seed roundtrip_svc: ${JSON.stringify(r.body)}`);
   });
 
   after(async () => { await resetMeta(); });

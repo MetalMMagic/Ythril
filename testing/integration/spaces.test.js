@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, delWithBody, patch } from '../sync/helpers.js';
+import { INSTANCES, post, get, del, delWithBody, patch, put } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -217,6 +217,128 @@ describe('Space management', () => {
 
     const r = await patch(INSTANCES.a, tokenA, `/api/spaces/${spaceId}`, {
       description: 'x'.repeat(4001),
+    });
+    assert.equal(r.status, 400, `Expected 400, got ${r.status}`);
+  });
+
+  it('PATCH /api/spaces/:id merges typeSchemas — existing types are preserved', async () => {
+    const created = await post(INSTANCES.a, tokenA, '/api/spaces', {
+      id: `patch-merge-schema-${RUN_ID}`,
+      label: 'Patch Merge Schema',
+      meta: {
+        validationMode: 'strict',
+        typeSchemas: {
+          entity: {
+            service: { namingPattern: '^[a-z]' },
+            person:  { namingPattern: '^[A-Z]' },
+          },
+        },
+      },
+    });
+    assert.equal(created.status, 201, `Create failed: ${JSON.stringify(created.body)}`);
+    const spaceId = created.body.space?.id;
+    createdSpaceIds.push(spaceId);
+
+    // PATCH with only a new type — existing types must survive
+    const r = await patch(INSTANCES.a, tokenA, `/api/spaces/${spaceId}`, {
+      meta: {
+        typeSchemas: {
+          entity: {
+            team: { namingPattern: '^[a-z]' },
+          },
+        },
+      },
+    });
+    assert.equal(r.status, 200, `PATCH failed: ${JSON.stringify(r.body)}`);
+
+    const metaR = await get(INSTANCES.a, tokenA, `/api/spaces/${spaceId}/meta`);
+    assert.equal(metaR.status, 200);
+    const entityTypes = metaR.body?.typeSchemas?.entity ?? {};
+    assert.ok('service' in entityTypes, 'service type must be preserved');
+    assert.ok('person' in entityTypes, 'person type must be preserved');
+    assert.ok('team' in entityTypes, 'team type must be added');
+    // validationMode should also be preserved
+    assert.equal(metaR.body?.validationMode, 'strict', 'validationMode should be preserved');
+  });
+
+  it('PATCH /api/spaces/:id preserves existing scalar meta fields when only typeSchemas is patched', async () => {
+    const created = await post(INSTANCES.a, tokenA, '/api/spaces', {
+      id: `patch-meta-preserve-${RUN_ID}`,
+      label: 'Patch Meta Preserve',
+      meta: {
+        purpose: 'original purpose',
+        validationMode: 'warn',
+        typeSchemas: { entity: { widget: {} } },
+      },
+    });
+    assert.equal(created.status, 201, `Create failed: ${JSON.stringify(created.body)}`);
+    const spaceId = created.body.space?.id;
+    createdSpaceIds.push(spaceId);
+
+    // PATCH with only a new edge type — purpose and validationMode must survive
+    const r = await patch(INSTANCES.a, tokenA, `/api/spaces/${spaceId}`, {
+      meta: {
+        typeSchemas: { edge: { connects: {} } },
+      },
+    });
+    assert.equal(r.status, 200, `PATCH failed: ${JSON.stringify(r.body)}`);
+
+    const metaR = await get(INSTANCES.a, tokenA, `/api/spaces/${spaceId}/meta`);
+    assert.equal(metaR.status, 200);
+    assert.equal(metaR.body?.purpose, 'original purpose', 'purpose must be preserved');
+    assert.equal(metaR.body?.validationMode, 'warn', 'validationMode must be preserved');
+    assert.ok(metaR.body?.typeSchemas?.entity?.widget, 'entity.widget must be preserved');
+    assert.ok(metaR.body?.typeSchemas?.edge?.connects, 'edge.connects must be added');
+  });
+
+  it('PUT /api/spaces/:id/schema replaces entire typeSchemas', async () => {
+    const created = await post(INSTANCES.a, tokenA, '/api/spaces', {
+      id: `put-schema-replace-${RUN_ID}`,
+      label: 'Put Schema Replace',
+      meta: {
+        typeSchemas: {
+          entity: { old_type_a: {}, old_type_b: {} },
+        },
+      },
+    });
+    assert.equal(created.status, 201, `Create failed: ${JSON.stringify(created.body)}`);
+    const spaceId = created.body.space?.id;
+    createdSpaceIds.push(spaceId);
+
+    // Full replacement — old types must be gone
+    const r = await put(INSTANCES.a, tokenA, `/api/spaces/${spaceId}/schema`, {
+      typeSchemas: {
+        entity: { new_type: { namingPattern: '^[a-z]' } },
+      },
+    });
+    assert.equal(r.status, 200, `PUT /schema failed: ${JSON.stringify(r.body)}`);
+
+    const metaR = await get(INSTANCES.a, tokenA, `/api/spaces/${spaceId}/meta`);
+    assert.equal(metaR.status, 200);
+    const entityTypes = metaR.body?.typeSchemas?.entity ?? {};
+    assert.ok(!('old_type_a' in entityTypes), 'old_type_a must be removed by full replace');
+    assert.ok(!('old_type_b' in entityTypes), 'old_type_b must be removed by full replace');
+    assert.ok('new_type' in entityTypes, 'new_type must be present after full replace');
+  });
+
+  it('PUT /api/spaces/:id/schema on non-existent space returns 404', async () => {
+    const r = await put(INSTANCES.a, tokenA, '/api/spaces/does-not-exist-put-schema/schema', {
+      typeSchemas: {},
+    });
+    assert.equal(r.status, 404, `Expected 404, got ${r.status}`);
+  });
+
+  it('PUT /api/spaces/:id/schema with invalid body returns 400', async () => {
+    const created = await post(INSTANCES.a, tokenA, '/api/spaces', {
+      id: `put-schema-invalid-${RUN_ID}`,
+      label: 'Put Schema Invalid',
+    });
+    assert.equal(created.status, 201);
+    const spaceId = created.body.space?.id;
+    createdSpaceIds.push(spaceId);
+
+    const r = await put(INSTANCES.a, tokenA, `/api/spaces/${spaceId}/schema`, {
+      notAValidField: true,
     });
     assert.equal(r.status, 400, `Expected 400, got ${r.status}`);
   });

@@ -63,7 +63,7 @@ export class UnstructuredConverter implements FileConverter {
     }
 
     const form = new FormData();
-    form.append('files', new Blob([fileBytes]), fileName);
+    form.append('files', new Blob([new Uint8Array(fileBytes)]), fileName);
     form.append('strategy', 'auto');
 
     let response: Response;

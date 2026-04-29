@@ -34,6 +34,7 @@ import { embedAudio } from './audio-embedder.js';
 import { embedVideo } from './video-embedder.js';
 import { col, mFilter } from '../../db/mongo.js';
 import type { FileMetaDoc } from '../../config/types.js';
+import { updateFileMeta } from '../file-meta.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { spaceRoot } from '../sandbox.js';
@@ -173,9 +174,10 @@ async function processJob(
     ).catch(() => {}); // non-fatal — job tracking is the source of truth
 
     // Run the appropriate embedder
+    let derivedDescription: string | undefined;
     switch (mediaType) {
       case 'image':
-        await embedImage(spaceId, fileId, fileBytes, mimeType, providers.vision);
+        derivedDescription = await embedImage(spaceId, fileId, fileBytes, mimeType, providers.vision);
         break;
       case 'audio':
         await embedAudio(spaceId, fileId, fileBytes, mimeType, providers.stt);
@@ -185,6 +187,20 @@ async function processJob(
         break;
       default:
         throw new Error(`Unknown mediaType: ${String(mediaType)}`);
+    }
+
+    // Write AI-generated caption to parent file meta description if not already set by user.
+    // This also re-embeds the parent file meta so the caption is searchable on the file itself.
+    if (derivedDescription) {
+      const parentMeta = await col<FileMetaDoc>(`${spaceId}_files`).findOne(
+        mFilter<FileMetaDoc>({ _id: fileId }),
+        { projection: { description: 1 } },
+      );
+      if (!parentMeta?.description?.trim()) {
+        await updateFileMeta(spaceId, filePath, { description: derivedDescription }).catch(err =>
+          log.warn(`Media worker: failed to write caption to file meta ${spaceId}/${fileId}: ${err instanceof Error ? err.message : String(err)}`),
+        );
+      }
     }
 
     await completeJob(spaceId, fileId);

@@ -27,11 +27,20 @@ function normPath(p: string): string {
   return p.replace(/\\/g, '/').replace(/^\/+/, '');
 }
 
-/** Derive the text to embed for a file (path + tags + description). */
-function fileEmbedText(filePath: string, tags: string[] = [], description?: string): string {
+/** Derive the text to embed for a file (path + tags + description + property values). */
+function fileEmbedText(
+  filePath: string,
+  tags: string[] = [],
+  description?: string,
+  properties?: Record<string, string | number | boolean>,
+): string {
   const parts: string[] = [filePath];
   if (tags.length > 0) parts.push(tags.join(' '));
   if (description?.trim()) parts.push(description.trim());
+  if (properties) {
+    const vals = Object.values(properties).map(v => String(v)).filter(v => v.trim());
+    if (vals.length > 0) parts.push(vals.join(' '));
+  }
   return parts.join(' ');
 }
 
@@ -53,12 +62,13 @@ export async function upsertFileMeta(
     mFilter<FileMetaDoc>({ _id: normalised }),
   );
 
-  // Embed path + tags + description — best-effort, never blocks write
+  // Embed path + tags + description + property values — best-effort, never blocks write
   const descForEmbed = opts.description !== undefined ? opts.description : (existing as FileMetaDoc | null)?.description;
   const tagsForEmbed = opts.tags !== undefined ? opts.tags : ((existing as FileMetaDoc | null)?.tags ?? []);
+  const propsForEmbed = opts.properties !== undefined ? opts.properties : (existing as FileMetaDoc | null)?.properties;
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
-    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed);
+    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed, propsForEmbed);
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* embedding unavailable — file stored without vector */ }
@@ -115,9 +125,10 @@ export async function updateFileMeta(
   const now = new Date().toISOString();
   const descForEmbed = opts.description !== undefined ? opts.description : existing.description;
   const tagsForEmbed = opts.tags !== undefined ? opts.tags : existing.tags;
+  const propsForEmbed = opts.properties !== undefined ? opts.properties : existing.properties;
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
-    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed);
+    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed, propsForEmbed);
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* best-effort */ }

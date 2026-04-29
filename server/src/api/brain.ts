@@ -1788,7 +1788,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
           }
         }
 
-        // Re-embed files (path + tags + description)
+        // Re-embed files (path + tags + description + property values)
         {
           let cursor: string | null = null;
           // eslint-disable-next-line no-constant-condition
@@ -1798,7 +1798,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
               ? { _id: { $gt: cursor }, parentFileId: { $exists: false } }
               : { parentFileId: { $exists: false } };
             const batch: FileMetaDoc[] = await col<FileMetaDoc>(`${mid}_files`)
-              .find(mFilter<FileMetaDoc>(q), { projection: { _id: 1, path: 1, tags: 1, description: 1 } })
+              .find(mFilter<FileMetaDoc>(q), { projection: { _id: 1, path: 1, tags: 1, description: 1, properties: 1 } })
               .sort({ _id: 1 })
               .limit(BATCH)
               .toArray() as FileMetaDoc[];
@@ -1809,6 +1809,10 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
                 const parts: string[] = [doc.path];
                 if (tags.length > 0) parts.push(tags.join(' '));
                 if (doc.description?.trim()) parts.push(doc.description.trim());
+                if (doc.properties) {
+                  const propEntries = Object.entries(doc.properties);
+                  if (propEntries.length > 0) parts.push(propEntries.map(([_k, v]) => String(v)).join(' '));
+                }
                 const result = await embed(parts.join(' '));
                 await col<FileMetaDoc>(`${mid}_files`).updateOne(
                   { _id: doc._id },

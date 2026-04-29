@@ -24,9 +24,19 @@ Track events, deadlines, plans, predictions, and milestones with the **chrono** 
 
 Full file manager with **chunked upload** (5 MB pieces, progress tracking, automatic retry), directory tree, inline preview (text, code, images, PDF), and file-level metadata (description, tags, properties). All file operations are available as MCP tools and via the REST API.
 
+Uploaded PDF, DOCX, and EPUB files are automatically converted to text by the bundled `unstructured-api-full` sidecar using full OCR and layout detection (`hi_res` strategy). Tables are extracted as structured HTML; embedded images are extracted as independent subfiles and queued for the full media pipeline (captioning + face recognition). Plain-text and HTML files are converted in-process. All converted content is chunked and embedded so it is immediately searchable via `recall`.
+
 ### Image, Audio & Video Understanding
 
 Upload binary media and Ythril makes it searchable like everything else. Images are captioned with a vision model (default `moondream2` via Ollama), audio is silence-segmented and transcribed with Whisper, and video is decomposed into keyframes plus audio chunks. Every result lands in the **same** `nomic-embed-text-v1.5` vector space as memories, entities, and documents — so a single semantic query crosses text, speech, and pictures. Bundled out of the box on both Docker Compose and Kubernetes; toggle in **Settings → Models** if you'd rather plug in OpenAI, Azure, or your own endpoints.
+
+### Face Recognition
+
+Automatically detect, embed, and label faces in uploaded images. Ythril runs `@vladmandic/human` (BlazeFace Back + FaceRes 128d descriptors) entirely in-process on the CPU — no GPU, no sidecar, no Python. Detected faces are matched against a per-space gallery using `$vectorSearch`. When a face exceeds the configurable cosine similarity threshold, the image is automatically linked to the matching person entity. Label a single photo and future uploads of the same person are tagged without any further input.
+
+Gallery poisoning is prevented by a person-type entity guard: only entities whose `type` belongs to `personEntityTypes` (default `["person"]`) can enter the gallery, regardless of what else is tagged on a photo. Synced images are automatically reprocessed so secondary instances build their own gallery from network-replicated content.
+
+Opt-in — requires placing two model files (~7 MB total) in your data directory. See the [integration guide](docs/integration-guide.md) for setup.
 
 ### Schema Validation
 

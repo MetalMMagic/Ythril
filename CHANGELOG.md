@@ -8,6 +8,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Face recognition pipeline** — automatically detect, embed, and label faces in uploaded images.
+  Powered by `@vladmandic/human` (BlazeFace Back detector + FaceRes 128-dimensional descriptor)
+  running entirely in-process on the CPU via TF.js — no GPU, no Python, no sidecar required.
+  - **Auto-labeling:** when a detected face matches a labeled gallery entry above the configurable
+    cosine similarity threshold (`confidenceThreshold`, default `0.6`), the parent image is
+    automatically linked to the matching entity (`entityIds`).
+  - **Face gallery:** each detected face is stored as a `{fileId}#face-chunk{N}` record with a
+    128d `faceEmbedding`, `faceBbox` (normalised bounding box), and `faceEntityId` when
+    auto-labeled or manually confirmed. Gallery lookups use exact-mode `$vectorSearch` on a
+    dedicated per-space `{spaceId}_files_faceEmbedding` Atlas vector index.
+  - **Gallery poisoning guard:** only entities whose `type` is in `personEntityTypes` (default
+    `["person"]`) are eligible to enter the gallery. Linking a "building" or "product" entity
+    to a photo cannot corrupt future auto-labeling regardless of how many faces the image contains.
+    Exactly-one-person criterion must be met (single matching entity in `entityIds`).
+  - **Manual label propagation:** when a user manually links an image to a person entity via
+    `updateFileMeta` (or the Files UI), all existing face-chunk records for that file are
+    immediately updated with the new `faceEntityId` so they enter the gallery at once.
+  - **`reprocessSyncedImages`** — when `true` (default), images received through a network sync
+    are automatically re-enqueued for face processing. This lets secondary instances build their
+    own face gallery from synced images without requiring a separate re-upload.
+  - Model files are **not bundled** — place them at `DATA_ROOT/<modelPath>/` (default
+    `human-models/`). Download links:
+    - `blazeface-back.json` + `.bin` (~0.5 MB) — face detector
+    - `faceres.json` + `.bin` (~6.7 MB) — 128d face descriptor
+    from `https://vladmandic.github.io/human/models/`
+  - Configuration under `mediaEmbedding.faceRecognition` in `config.json` — see
+    [integration guide](docs/integration-guide.md) for the full reference.
+  - **Opt-in** (`enabled: false` by default). Enabled per-instance in `config.json`.
+
+- **Document processing: `hi_res` strategy + embedded image extraction** — the unstructured
+  sidecar now defaults to `strategy=hi_res` (full Tesseract OCR + layout detection) instead of
+  `strategy=auto`. Two new `mediaEmbedding.documentProcessing` settings control this:
+  - **`strategy`** (`"hi_res"` default | `"auto"` | `"fast"` | `"ocr_only"`) — passed directly
+    to the unstructured-api-full sidecar. `hi_res` enables accurate OCR on scanned documents,
+    correct table structure extraction, and embedded image extraction. `fast` uses pdfminer
+    text-layer only (fastest, no OCR, no images). `auto` lets the sidecar decide.
+  - **`extractImages`** (`true` default) — when strategy is `hi_res`, base64-encoded images
+    returned by the sidecar in `Image` partition metadata are decoded and written to disk as
+    `_extracted/{originalId}/image-{N}.{ext}` subfiles. Each subfile gets a filemeta record
+    with `parentFileId` pointing to the source document, and is automatically enqueued for the
+    full media pipeline (caption generation + face recognition). Only effective when
+    `strategy: "hi_res"`.
+  - **Table improvement** — `Table` partitions now use `metadata.text_as_html` (the sidecar's
+    structured HTML representation) when available, preserving row/column structure in the
+    Markdown output. Previously only raw text was used.
+
 - **Binary media embedding pipeline** — image / audio / video uploads now convert to text and produce
   searchable chunks in the same vector space (`nomic-embed-text-v1.5`) as memories, entities and
   documents. Pluggable provider model: vision via Ollama-compatible API (default `moondream2`) or any

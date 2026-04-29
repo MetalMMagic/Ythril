@@ -27,6 +27,8 @@ For setting up a workstation quickly see [workstation-mode-guide.md](workstation
 11. [Settings — MFA](#settings--mfa)
 12. [Settings — Networks](#settings--networks)
 13. [Settings — Models](#settings--models)
+    - [Face Recognition](#face-recognition)
+    - [Document Processing (OCR & Image Extraction)](#document-processing-ocr--image-extraction)
 14. [Settings — Storage](#settings--storage)
 15. [Settings — Data](#settings--data)
 16. [Settings — Audit Log](#settings--audit-log)
@@ -448,7 +450,7 @@ Click **Leave network** at the bottom of the network card. Your local data in th
 
 ## Settings — Models
 
-**Settings → Models** (admin only, MFA-protected) controls how Ythril turns image, audio, and video uploads into searchable text.
+**Settings → Models** (admin only, MFA-protected) controls how Ythril turns image, audio, video, and document uploads into searchable content.
 
 By default, Ythril ships with a bundled vision service (Ollama running `moondream2`) and a bundled speech-to-text service (faster-whisper-server). When you upload a picture, Ythril writes a short caption of what's in it; when you upload audio or video, it transcribes the words. The result is added to the same search index as your memories, so you can find an attachment by what's *inside* it, not just its filename.
 
@@ -465,6 +467,49 @@ Fields shown with an **env** badge cannot be changed from the UI — they are pi
 ### Privacy note
 
 When both providers are set to *Local*, no file content ever leaves your instance. Switching to *External* sends image frames or audio segments to the configured endpoint — review your data residency policy before doing so.
+
+---
+
+### Face Recognition
+
+Face recognition lets Ythril automatically detect faces in uploaded images and link them to person entities in your space. Once you label a few photos, new uploads containing the same person are tagged automatically.
+
+**This feature is opt-in and disabled by default.** It requires local model files to be placed on disk (not bundled). See the [integration guide](integration-guide.md) for download links and setup.
+
+#### How to use it
+
+1. **Place the model files** — Download `blazeface-back.json`, `blazeface-back.bin`, `faceres.json`, and `faceres.bin` from `https://vladmandic.github.io/human/models/` and place them in the `human-models/` folder inside your data directory.
+2. **Enable the feature** — In `config.json` set `mediaEmbedding.faceRecognition.enabled: true`. No UI toggle is available; this is intentional since enabling it without model files would silently do nothing.
+3. **Upload images** — Any image that goes through the media pipeline is automatically processed. Faces are detected, embedded, and stored. If no gallery exists yet, faces are stored unlabeled.
+4. **Label a face** — Open the file in the Files view and link it to a person entity (via the entity tag in the file metadata panel). The face embedding is immediately added to the gallery.
+5. **Auto-labeling kicks in** — From this point on, new images containing that person's face are automatically linked to their entity, as long as the match score exceeds the confidence threshold.
+
+#### Settings
+
+These are set in `config.json` under `mediaEmbedding.faceRecognition` — they are not editable from the UI:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `enabled` | `false` | Master switch — must be set to `true` to activate the feature |
+| `confidenceThreshold` | `0.6` | How similar a face must be to a gallery entry to be auto-labeled (0–1). Start conservative; increase as your gallery grows. |
+| `minFaceSizeFraction` | `0.05` | Minimum face size (as a fraction of the image's shorter side). Smaller faces in crowd shots are ignored. |
+| `personEntityTypes` | `["person"]` | Entity types considered as people. Only entities of these types can enter the face gallery. |
+| `reprocessSyncedImages` | `true` | When true, images received from other instances via sync are queued for face recognition automatically. |
+
+---
+
+### Document Processing (OCR & Image Extraction)
+
+When you upload a PDF, DOCX, or EPUB, Ythril converts it to text using the `unstructured-api-full` sidecar, which includes Tesseract OCR. The conversion strategy controls the trade-off between speed and quality.
+
+These settings live in `config.json` under `mediaEmbedding.documentProcessing`:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `strategy` | `"hi_res"` | `"hi_res"`: full OCR + layout analysis — accurate on scanned documents, extracts embedded images and tables. `"auto"`: sidecar decides. `"fast"`: text layer only, no OCR, fastest. `"ocr_only"`: forces OCR even on born-digital PDFs. |
+| `extractImages` | `true` | When using `hi_res`, images embedded in the document are extracted, saved, and queued for the media pipeline (captioning + face recognition). |
+
+**Default behaviour (no configuration needed):** every uploaded PDF is OCR'd with full layout detection, embedded images are extracted and independently captioned, and tables are converted to structured HTML. For text-heavy documents without scanned content or images, `"fast"` is significantly quicker.
 
 ---
 

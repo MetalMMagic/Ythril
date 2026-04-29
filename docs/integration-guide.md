@@ -1597,6 +1597,56 @@ If the unstructured sidecar is unavailable, `write_file` still succeeds. The ori
 
 To disable the conversion pipeline entirely, set `CONVERSION_SIDECAR_URL=""` in Ythril's environment — all uploads fall back to the `"text"` bypass regardless of `inputFormat`.
 
+#### Document Processing Configuration
+
+The unstructured sidecar strategy and image extraction behaviour can be tuned under `mediaEmbedding.documentProcessing` in `config.json`. All settings are optional — the defaults are designed for maximum data extraction out of the box.
+
+| Field | Default | Description |
+|---|---|---|
+| `strategy` | `"hi_res"` | Unstructured partition strategy. `"hi_res"`: full Tesseract OCR + layout detection — accurate on scanned PDFs, extracts embedded images and structured tables. `"auto"`: sidecar picks the fastest viable strategy. `"fast"`: pdfminer text-layer only — fastest but no OCR, no image extraction. `"ocr_only"`: force OCR on every page regardless of whether a text layer exists. |
+| `extractImages` | `true` | When `true` and `strategy` is `"hi_res"`, embedded images found in document partitions are decoded and saved as `_extracted/{originalId}/image-{N}.{ext}` subfiles. Each is automatically enqueued for the full media pipeline (caption + face recognition). Has no effect when strategy is not `"hi_res"`. |
+
+**Example `config.json` excerpt:**
+
+```json
+{
+  "mediaEmbedding": {
+    "documentProcessing": {
+      "strategy": "hi_res",
+      "extractImages": true
+    }
+  }
+}
+```
+
+To revert to the old `auto` behaviour (text extraction only, no images):
+
+```json
+{
+  "mediaEmbedding": {
+    "documentProcessing": {
+      "strategy": "auto",
+      "extractImages": false
+    }
+  }
+}
+```
+
+#### Extracted Image Subfiles
+
+When `strategy: "hi_res"` and `extractImages: true`, Ythril creates one extra stored artefact per embedded image found in a document:
+
+- **`_extracted/{originalId}/image-{N}.{ext}`** — decoded image bytes written to the space file store. `N` is a 0-based index within the document. The extension (`png`, `jpg`, etc.) is derived from the MIME type reported by the sidecar.
+  - `parentFileId` is set to the original document's filemeta `_id`.
+  - The record is hidden from the file manager UI and listing endpoints by default (same as chunks and `_converted/` files).
+  - Immediately enqueued for the media embedding pipeline — the image will be captioned and face-searched automatically.
+
+This means a PDF containing five embedded photographs will produce:
+- The original PDF file record
+- A `_converted/{id}.md` Markdown record
+- One chunk record per heading/paragraph section
+- Five `_extracted/{id}/image-{N}.jpg` records, each independently captioned and face-searched
+
 ---
 
 ### Media Embedding Pipeline (Images, Audio, Video)
@@ -1702,6 +1752,101 @@ All settings can be managed at `GET/PATCH /api/admin/media-config` or via **Sett
 #### ISO 27001 / Data Egress Note
 
 When `visionProvider: external` or `sttProvider: external`, file bytes (image frames, audio segments) are transmitted to the configured external endpoint. Ensure the endpoint URL complies with your data residency and privacy requirements. Using `visionProvider: local` and `sttProvider: local` with on-premises Ollama and Whisper keeps all data within your infrastructure.
+
+---
+
+### Face Recognition Pipeline
+
+The face recognition pipeline detects and embeds faces in uploaded images, builds a per-space face gallery, and automatically links images to person entities when a match exceeds a configurable confidence threshold. It runs **entirely in-process** on the CPU — no GPU, no sidecar, no Python — using `@vladmandic/human` (TF.js CPU backend).
+
+**Opt-in** — disabled by default. Enable via `mediaEmbedding.faceRecognition.enabled: true` in `config.json`.
+
+#### Prerequisites: Model Files
+
+The model files are not bundled with Ythril. Download and place them in `DATA_ROOT/<modelPath>/` (default: `human-models/`):
+
+| File | Size | Purpose |
+|---|---|---|
+| `blazeface-back.json` + `.bin` | ~0.5 MB | Face detector (BlazeFace Back) |
+| `faceres.json` + `.bin` | ~6.7 MB | 128-dimensional face descriptor (FaceRes) |
+
+Download from `https://vladmandic.github.io/human/models/` — use the exact filenames listed above.
+
+Also create the Atlas vector index for face embeddings (per space, 128 dimensions, cosine similarity, field path `faceEmbedding`, index name `{spaceId}_files_faceEmbedding`) on the `{spaceId}_files` collection. This is done automatically when a space is initialised if face recognition is enabled.
+
+#### How It Works
+
+When a media-embedding job processes an image and `faceRecognition.enabled` is `true`:
+
+1. **Decode** — image bytes decoded to raw RGBA via `sharp`.
+2. **Detect** — `@vladmandic/human` runs BlazeFace Back detection. Faces below `minFaceSizeFraction` (default: 5% of the shorter image side) are skipped.
+3. **Embed** — FaceRes produces a 128-dimensional descriptor per face.
+4. **Gallery search** — each descriptor is searched against the space's face gallery (all face-chunk records that have a `faceEntityId`) using an exact `$vectorSearch`. The top-1 result is examined.
+5. **Auto-label** — if the top match's cosine similarity score ≥ `confidenceThreshold` (default: `0.6`), the parent image is linked to that entity (`entityIds` updated). The first successful match wins.
+6. **Persist face-chunks** — one `{fileId}#face-chunk{N}` filemeta record per detected face is written (or replaced on reprocess) with:
+   - `faceEmbedding` — the 128d descriptor
+   - `faceBbox` — normalised `[x, y, w, h]` bounding box
+   - `faceEntityId` — populated if auto-labeled or manually labeled
+   - `faceScore` — cosine similarity of the gallery match (when auto-labeled)
+   - `parentFileId` — the original image's filemeta `_id`
+
+#### Gallery Poisoning Guard
+
+Only entities whose `type` is listed in `personEntityTypes` (default `["person"]`) are eligible for the face gallery. When a user manually links an image to an entity via `updateFileMeta`:
+
+- If exactly one `personEntityTypes` entity is in `entityIds`, all face-chunks of that file are immediately updated with `faceEntityId` — the labeled face enters the gallery at once.
+- If zero or more than one person-type entity is present, no gallery entry is made. This prevents a "group photo" from poisoning the gallery with an ambiguous identity.
+
+#### Manual Label Propagation
+
+When a user manually updates `entityIds` on an image (e.g. correcting a mis-label via the Files UI or REST API), Ythril calls `propagateFaceLabel` — which sets `faceEntityId` on every face-chunk record belonging to that file. This immediately improves future auto-labeling for that person's identity.
+
+#### Synced Image Reprocessing
+
+When `reprocessSyncedImages: true` (default), images received through a network sync are automatically enqueued for face processing if they have not yet been processed (`faceChunkCount` is `0`). This lets secondary instances build a full face gallery from synced images without requiring separate re-uploads.
+
+Set `reprocessSyncedImages: false` to restrict gallery building to images uploaded directly to each instance.
+
+#### MongoDB Atlas Vector Index
+
+Face recognition requires a dedicated Atlas vector search index per space. Name: `{spaceId}_files_faceEmbedding`, field: `faceEmbedding`, dimensions: `128`, similarity: `cosine`. This is distinct from the text embedding index used by `recall`.
+
+When the face recognition feature is first enabled, any existing `initSpace` call will create the required index. If you add the feature after spaces already exist, re-run `initSpace` for each space or create the index manually via the Atlas UI / MongoDB admin API.
+
+#### Configuration Reference
+
+All settings live under `mediaEmbedding.faceRecognition` in `config.json`. None are controllable via the `PATCH /api/admin/media-config` endpoint (face recognition is a local-only feature; no external service is involved).
+
+| Field | Default | Description |
+|---|---|---|
+| `enabled` | `false` | Master switch. When false, face detection is completely skipped. |
+| `confidenceThreshold` | `0.6` | Cosine similarity score (0–1) required for auto-labeling. Lower values label more aggressively; higher values require a closer match. Tune upward as your gallery grows. |
+| `minFaceSizeFraction` | `0.05` | Minimum face bounding-box size as a fraction of the image's shorter side. Faces smaller than this are skipped (avoids noise from crowd shots or background faces). |
+| `modelPath` | `"human-models"` | Path relative to `DATA_ROOT` where the BlazeFace and FaceRes model files are located. |
+| `personEntityTypes` | `["person"]` | Entity type names that qualify as people. Only entities with a `type` in this list are eligible to enter the face gallery. Extend this list if you use custom type names like `"contact"` or `"employee"`. |
+| `reprocessSyncedImages` | `true` | When true, images received via network sync are automatically re-enqueued for face processing if they haven't been processed yet. Set to false to keep gallery building local-origin only. |
+
+**Example `config.json` excerpt:**
+
+```json
+{
+  "mediaEmbedding": {
+    "enabled": true,
+    "faceRecognition": {
+      "enabled": true,
+      "confidenceThreshold": 0.65,
+      "minFaceSizeFraction": 0.05,
+      "modelPath": "human-models",
+      "personEntityTypes": ["person", "contact"],
+      "reprocessSyncedImages": true
+    }
+  }
+}
+```
+
+#### ISO 27001 Note
+
+Face embeddings (128d float vectors) are stored in MongoDB. They are not reversible to images; they cannot reconstruct a face. No face data is transmitted to any external service — all inference is in-process. If your data residency policy classifies biometric-derived data, ensure your MongoDB instance and backup destinations comply.
 
 ---
 

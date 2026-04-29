@@ -15,7 +15,7 @@
 import { col, mFilter, mDoc, mUpdate } from '../db/mongo.js';
 import { embed } from '../brain/embedding.js';
 import { getConfig } from '../config/loader.js';
-import type { FileMetaDoc, AuthorRef } from '../config/types.js';
+import type { FileMetaDoc, AuthorRef, EntityDoc } from '../config/types.js';
 
 function authorRef(): AuthorRef {
   const cfg = getConfig();
@@ -27,14 +27,16 @@ function normPath(p: string): string {
   return p.replace(/\\/g, '/').replace(/^\/+/, '');
 }
 
-/** Derive the text to embed for a file (path + tags + description + property values). */
+/** Derive the text to embed for a file (path + entity names + tags + description + property values). */
 function fileEmbedText(
   filePath: string,
   tags: string[] = [],
   description?: string,
   properties?: Record<string, string | number | boolean>,
+  entityNames: string[] = [],
 ): string {
   const parts: string[] = [filePath];
+  if (entityNames.length > 0) parts.push(entityNames.join(' '));
   if (tags.length > 0) parts.push(tags.join(' '));
   if (description?.trim()) parts.push(description.trim());
   if (properties) {
@@ -42,6 +44,17 @@ function fileEmbedText(
     if (vals.length > 0) parts.push(vals.join(' '));
   }
   return parts.join(' ');
+}
+
+/** Resolve entity names from a list of entity IDs in this space. Best-effort — returns [] on error. */
+async function resolveEntityNames(spaceId: string, entityIds: string[]): Promise<string[]> {
+  if (entityIds.length === 0) return [];
+  try {
+    const docs = await col<EntityDoc>(`${spaceId}_entities`)
+      .find(mFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
+      .toArray() as Array<{ name: string }>;
+    return docs.map(d => d.name);
+  } catch { return []; }
 }
 
 /**
@@ -62,13 +75,15 @@ export async function upsertFileMeta(
     mFilter<FileMetaDoc>({ _id: normalised }),
   );
 
-  // Embed path + tags + description + property values — best-effort, never blocks write
+  // Embed path + entity names + tags + description + property values — best-effort, never blocks write
   const descForEmbed = opts.description !== undefined ? opts.description : (existing as FileMetaDoc | null)?.description;
   const tagsForEmbed = opts.tags !== undefined ? opts.tags : ((existing as FileMetaDoc | null)?.tags ?? []);
   const propsForEmbed = opts.properties !== undefined ? opts.properties : (existing as FileMetaDoc | null)?.properties;
+  const existingEntityIds: string[] = (existing as FileMetaDoc | null)?.entityIds ?? [];
+  const entityNames = await resolveEntityNames(spaceId, existingEntityIds);
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
-    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed, propsForEmbed);
+    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed, propsForEmbed, entityNames);
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* embedding unavailable — file stored without vector */ }
@@ -126,9 +141,12 @@ export async function updateFileMeta(
   const descForEmbed = opts.description !== undefined ? opts.description : existing.description;
   const tagsForEmbed = opts.tags !== undefined ? opts.tags : existing.tags;
   const propsForEmbed = opts.properties !== undefined ? opts.properties : existing.properties;
+  // Use the incoming entityIds if being updated, otherwise fall back to existing
+  const entityIdsForEmbed: string[] = opts.entityIds !== undefined ? opts.entityIds : (existing.entityIds ?? []);
+  const entityNames = await resolveEntityNames(spaceId, entityIdsForEmbed);
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
-    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed, propsForEmbed);
+    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed, propsForEmbed, entityNames);
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* best-effort */ }

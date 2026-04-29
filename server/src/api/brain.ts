@@ -1788,7 +1788,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
           }
         }
 
-        // Re-embed files (path + tags + description + property values)
+        // Re-embed files (path + entity names + tags + description + property values)
         {
           let cursor: string | null = null;
           // eslint-disable-next-line no-constant-condition
@@ -1798,7 +1798,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
               ? { _id: { $gt: cursor }, parentFileId: { $exists: false } }
               : { parentFileId: { $exists: false } };
             const batch: FileMetaDoc[] = await col<FileMetaDoc>(`${mid}_files`)
-              .find(mFilter<FileMetaDoc>(q), { projection: { _id: 1, path: 1, tags: 1, description: 1, properties: 1 } })
+              .find(mFilter<FileMetaDoc>(q), { projection: { _id: 1, path: 1, tags: 1, description: 1, properties: 1, entityIds: 1 } })
               .sort({ _id: 1 })
               .limit(BATCH)
               .toArray() as FileMetaDoc[];
@@ -1806,7 +1806,15 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
             for (const doc of batch) {
               try {
                 const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
+                const entityIds: string[] = Array.isArray(doc.entityIds) ? doc.entityIds : [];
+                const entityDocs = entityIds.length > 0
+                  ? await col<EntityDoc>(`${mid}_entities`)
+                      .find(mFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
+                      .toArray() as Array<{ name: string }>
+                  : [];
+                const entityNames = entityDocs.map(e => e.name);
                 const parts: string[] = [doc.path];
+                if (entityNames.length > 0) parts.push(entityNames.join(' '));
                 if (tags.length > 0) parts.push(tags.join(' '));
                 if (doc.description?.trim()) parts.push(doc.description.trim());
                 if (doc.properties) {

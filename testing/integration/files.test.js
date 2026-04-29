@@ -328,7 +328,7 @@ describe('File metadata (MongoDB)', () => {
         tags: ['api-meta-test', 'tagged'],
       }),
     });
-    assert.equal(r.status, 201, await r.text());
+    assert.ok([201, 202].includes(r.status), await r.text());
 
     const q = await listFileMeta(tokenA, 'general', `?path=${encodeURIComponent(filePath)}`);
     assert.equal(q.status, 200);
@@ -590,7 +590,8 @@ describe('Chunked upload (Content-Range)', () => {
   it('Non-chunked upload still works (regression)', async () => {
     const buf = Buffer.from('still works without Content-Range', 'utf8');
     const r = await uploadRaw(tokenA, 'general', `regression-${RUN}.txt`, buf);
-    assert.equal(r.status, 201, JSON.stringify(r.body));
+    // .txt is a document format → async embedding → 202
+    assert.ok([201, 202].includes(r.status), JSON.stringify(r.body));
     assert.ok(r.body.sha256);
   });
 

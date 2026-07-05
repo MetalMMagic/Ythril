@@ -210,7 +210,7 @@ const IncomingChronoDoc = z.object({
   spaceId: z.string().min(1),
   title: z.string().min(1),
   description: z.string().optional(),
-  type: z.enum(['event', 'deadline', 'plan', 'prediction', 'milestone']),
+  type: z.string().min(1),
   startsAt: z.string().min(1),
   endsAt: z.string().optional(),
   status: z.enum(['upcoming', 'active', 'completed', 'overdue', 'cancelled']),

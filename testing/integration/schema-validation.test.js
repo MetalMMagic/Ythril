@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, patch } from '../sync/helpers.js';
+import { INSTANCES, post, get, patch, put } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -53,7 +53,10 @@ async function setMeta(meta) {
 
 // ── Helper: reset meta to off ──────────────────────────────────────────────
 async function resetMeta() {
-  await setMeta({ validationMode: 'off', typeSchemas: {} });
+  // Use PUT (full replacement) to clear all typeSchemas; PATCH merges and
+  // would leave existing type definitions intact when given an empty object.
+  await put(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/schema`, { typeSchemas: {} });
+  await setMeta({ validationMode: 'off' });
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -425,6 +428,110 @@ describe('Schema validation — POST validate-schema dry-run', () => {
     assert.equal(r.body.spaceId, TEST_SPACE, 'Response should include spaceId');
     assert.ok(typeof r.body.totalViolations === 'number', 'Response should have totalViolations count');
     assert.ok(Array.isArray(r.body.violations), 'Response should have violations array');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  CUSTOM CHRONO TYPES — typeSchemas.chrono overrides global enum
+// ═════════════════════════════════════════════════════════════════════════════
+describe('Schema validation — custom chrono types', () => {
+  before(async () => {
+    await setMeta({
+      validationMode: 'strict',
+      typeSchemas: {
+        chrono: {
+          incident: {
+            propertySchemas: { severity: { type: 'string', enum: ['low', 'medium', 'high'], required: true } },
+          },
+          'fix-shipped': {},
+          resolved: {},
+        },
+      },
+    });
+  });
+
+  after(async () => { await resetMeta(); });
+
+  it('accepts a chrono entry with a custom type', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/chrono`, {
+      title: `Custom type chrono ${RUN}`,
+      type: 'incident',
+      startsAt: new Date().toISOString(),
+      properties: { severity: 'high' },
+    });
+    assert.equal(r.status, 201, `Expected 201, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.type, 'incident');
+  });
+
+  it('rejects a chrono entry with a global built-in type when custom types are defined', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/chrono`, {
+      title: `Built-in type chrono ${RUN}`,
+      type: 'event',
+      startsAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 400, `Expected 400 when using built-in type with custom schema, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('rejects a custom chrono entry with missing required property (strict mode)', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/chrono`, {
+      title: `Missing props chrono ${RUN}`,
+      type: 'incident',
+      startsAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 400, `Expected 400 for missing required property, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body.error, 'schema_violation');
+    assert.ok(r.body.violations.some(v => v.field === 'properties.severity'));
+  });
+
+  it('accepts a custom chrono type with no propertySchemas (no required constraints)', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/chrono`, {
+      title: `Fix shipped chrono ${RUN}`,
+      type: 'fix-shipped',
+      startsAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 201, `Expected 201, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('bulk write accepts custom chrono types', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/bulk`, {
+      chrono: [
+        { title: `BulkCustomGood-${RUN}`, type: 'incident', startsAt: new Date().toISOString(), properties: { severity: 'low' } },
+        { title: `BulkCustomBad-${RUN}`, type: 'event', startsAt: new Date().toISOString() },  // built-in type, not in custom schema
+      ],
+    });
+    assert.equal(r.status, 207, JSON.stringify(r.body));
+    assert.equal(r.body.inserted.chrono, 1, 'only valid chrono should be inserted');
+    assert.ok(r.body.errors.some(e => e.type === 'chrono' && e.index === 1), 'built-in type should be rejected');
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  DEFAULT CHRONO TYPES — no custom typeSchemas.chrono → 5 built-ins apply
+// ═════════════════════════════════════════════════════════════════════════════
+describe('Schema validation — default chrono types (no custom schema)', () => {
+  before(async () => {
+    // Validation mode is on but no custom chrono types
+    await setMeta({ validationMode: 'strict', typeSchemas: { entity: { service: {} } } });
+  });
+
+  after(async () => { await resetMeta(); });
+
+  it('accepts a chrono entry with a built-in type when no custom types are defined', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/chrono`, {
+      title: `Default type chrono ${RUN}`,
+      type: 'event',
+      startsAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 201, `Expected 201, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('rejects a chrono entry with an unknown type when no custom types are defined', async () => {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/chrono`, {
+      title: `Unknown type chrono ${RUN}`,
+      type: 'unknown-type',
+      startsAt: new Date().toISOString(),
+    });
+    assert.equal(r.status, 400, `Expected 400 for unknown type, got ${r.status}: ${JSON.stringify(r.body)}`);
   });
 });
 

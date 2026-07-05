@@ -179,6 +179,19 @@ export function validateMemory(
 }
 
 /**
+ * Return the set of allowed chrono type names for a space.
+ * If the space defines custom `typeSchemas.chrono` keys, those are the
+ * allowed types; otherwise falls back to the 5 built-in global types.
+ */
+export function getAllowedChronoTypes(meta: SpaceMeta | undefined): Set<string> {
+  const customTypes = meta?.typeSchemas?.chrono;
+  if (customTypes && Object.keys(customTypes).length > 0) {
+    return new Set(Object.keys(customTypes));
+  }
+  return new Set(['event', 'deadline', 'plan', 'prediction', 'milestone']);
+}
+
+/**
  * Validate a chrono write against the space meta schema.
  */
 export function validateChrono(
@@ -186,10 +199,25 @@ export function validateChrono(
   chrono: { type?: string; properties?: Record<string, unknown>; tags?: string[] },
 ): SchemaViolation[] {
   if (!meta) return [];
-  const typeSchema = chrono.type ? meta.typeSchemas?.chrono?.[chrono.type] : undefined;
+  const violations: SchemaViolation[] = [];
+
+  const chronoSchemas = meta.typeSchemas?.chrono;
+
+  // Chrono type allowlist (if custom types are defined, chrono.type must be one of them)
+  if (chrono.type && chronoSchemas && Object.keys(chronoSchemas).length > 0) {
+    if (!Object.prototype.hasOwnProperty.call(chronoSchemas, chrono.type)) {
+      violations.push({
+        field: 'type',
+        value: chrono.type,
+        reason: `not in chronoTypes allowlist: ${Object.keys(chronoSchemas).join(', ')}`,
+      });
+    }
+  }
+
+  const typeSchema = chrono.type ? chronoSchemas?.[chrono.type] : undefined;
   const refViolations = checkUnresolvedRef(typeSchema);
-  if (refViolations.length) return refViolations;
-  return validatePropertiesAgainstSchema(typeSchema, chrono.properties);
+  if (refViolations.length) return [...violations, ...refViolations];
+  return [...violations, ...validatePropertiesAgainstSchema(typeSchema, chrono.properties)];
 }
 
 /**

@@ -528,7 +528,7 @@ describe('Schema validation — default chrono types (no custom schema)', () => 
   it('rejects a chrono entry with an unknown type when no custom types are defined', async () => {
     const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/chrono`, {
       title: `Unknown type chrono ${RUN}`,
-      type: 'incident',
+      type: 'unknown-type',
       startsAt: new Date().toISOString(),
     });
     assert.equal(r.status, 400, `Expected 400 for unknown type, got ${r.status}: ${JSON.stringify(r.body)}`);

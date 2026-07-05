@@ -14,8 +14,8 @@ import readline from 'node:readline';
 import { MongoClient } from 'mongodb';
 import type { DumpManifest } from './dump.js';
 import { log } from '../util/log.js';
+import { dbNameFromUri } from './db-name.js';
 
-const DB_NAME = 'ythril';
 const INSERT_BATCH_SIZE = 500;
 
 /**
@@ -39,7 +39,7 @@ export async function restoreDatabase(uri: string, srcDir: string): Promise<void
 
   try {
     await client.connect();
-    const db = client.db(DB_NAME);
+    const db = client.db(dbNameFromUri(uri));
 
     for (const { name, count: expectedCount } of collections) {
       const srcFile = path.join(srcDir, `${name}.ndjson`);

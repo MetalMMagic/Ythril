@@ -57,7 +57,7 @@ function makeFakeClient({ aggregateError = null, aggregateResult = [], buildInfo
  * Pure implementation of the probe logic, parameterised by a fake client and
  * database name. Mirrors the logic in server/src/db/mongo.ts exactly.
  */
-async function probeVectorSearch(fakeClient, dbName = '') {
+async function probeVectorSearch(fakeClient, dbName = 'ythril') {
   const db = fakeClient.db(dbName);
 
   let serverVersion = 'unknown';

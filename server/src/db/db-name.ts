@@ -11,11 +11,11 @@
  * back to `'ythril'` for backward compatibility with existing deployments.
  *
  * Examples:
- *   mongodb://host:27017/my-instance          → 'my-instance'
- *   ******cluster/prod      → 'prod'
- *   ******h1:27017,h2:27017/db  → 'db'  (multi-host)
- *   mongodb://host:27017/                     → 'ythril'  (empty path)
- *   mongodb://host:27017                      → 'ythril'  (no path)
+ *   mongodb://host:27017/my-instance                     → 'my-instance'
+ *   mongodb+srv://host/prod                              → 'prod'
+ *   mongodb://host1:27017,host2:27017/db                 → 'db'  (multi-host)
+ *   mongodb://host:27017/                                → 'ythril'  (empty path)
+ *   mongodb://host:27017                                 → 'ythril'  (no path)
  */
 export function dbNameFromUri(uri: string): string {
   // Capture the first path segment between the authority separator '/' and any

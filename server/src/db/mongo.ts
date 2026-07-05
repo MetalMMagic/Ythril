@@ -4,7 +4,7 @@ import { log } from '../util/log.js';
 import { dbNameFromUri } from './db-name.js';
 
 let _client: MongoClient | null = null;
-let _dbName = '';
+let _dbName = 'ythril';
 
 /** Tri-state: null = not yet checked, true = available, false = unavailable */
 let _vectorSearchAvailable: boolean | null = null;
@@ -13,7 +13,7 @@ let _vectorSearchDetails = '';
 export async function connectMongo(): Promise<MongoClient> {
   const uri = getMongoUri();
   _dbName = dbNameFromUri(uri);
-  log.debug(`Connecting to MongoDB at ${uri.replace(/\/\/.*@/, '//[credentials]@')} (database: ${_dbName})`);
+  log.debug(`Connecting to MongoDB at ${uri.replace(/\/\/[^@]*@/, '//[credentials]@')} (database: ${_dbName})`);
   _client = new MongoClient(uri, {
     serverSelectionTimeoutMS: 10_000,
   });

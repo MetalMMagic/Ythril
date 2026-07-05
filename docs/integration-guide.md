@@ -126,19 +126,21 @@ Ythril requires a MongoDB instance that supports the `$vectorSearch` aggregation
 | MongoDB 8.2+ (community / enterprise) | ✓ | Native support — no `mongot` sidecar required |
 | MongoDB < 8.2 (vanilla) | ✗ | `recall` / `recall_global` tools disabled; all other features work |
 
-**Using an existing MongoDB 8.2+ cluster** — remove the `ythril-mongo` service from `docker-compose.yml` and point `MONGO_URI` at your cluster:
+**Using an existing MongoDB 8.2+ cluster** — remove the `ythril-mongo` service from `docker-compose.yml` and point `MONGO_URI` at your cluster. Include the database name in the URI path (recommended):
 
 ```yaml
 environment:
-  MONGO_URI: mongodb://mongodb-0.example.com:27017/?directConnection=true
+  MONGO_URI: mongodb://mongodb-0.example.com:27017/ythril?directConnection=true
 ```
 
-**Using managed Atlas** — provide the `mongodb+srv://` connection string:
+**Using managed Atlas** — provide the `mongodb+srv://` connection string with the database name:
 
 ```yaml
 environment:
-  MONGO_URI: mongodb+srv://user:pass@cluster0.example.mongodb.net/?retryWrites=true
+  MONGO_URI: ******cluster0.example.mongodb.net/ythril?retryWrites=true
 ```
+
+> **Database name:** Ythril reads the database name from the path component of `MONGO_URI`. If no database name is specified in the URI, it falls back to `"ythril"`. All operations — including dump/restore — use the resolved name.
 
 On startup, Ythril probes for `$vectorSearch` support and logs the result:
 

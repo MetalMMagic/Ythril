@@ -1,8 +1,8 @@
 /**
  * Database dump utility.
  *
- * Streams all collections from the `ythril` MongoDB database to a directory
- * as NDJSON files (one JSON document per line). Writes a manifest.json
+ * Streams all collections from the MongoDB database specified in the URI to a
+ * directory as NDJSON files (one JSON document per line). Writes a manifest.json
  * describing the dump.
  *
  * Designed to be reusable by both the DB migration flow and the manual backup
@@ -21,8 +21,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { MongoClient } from 'mongodb';
 import { log } from '../util/log.js';
+import { dbNameFromUri } from './db-name.js';
 
-const DB_NAME = 'ythril';
 const MANIFEST_VERSION = 1 as const;
 const CURSOR_BATCH_SIZE = 500;
 
@@ -53,7 +53,7 @@ export async function dumpDatabase(uri: string, destDir: string): Promise<DumpMa
 
   try {
     await client.connect();
-    const db = client.db(DB_NAME);
+    const db = client.db(dbNameFromUri(uri));
 
     const collectionInfos = await db.listCollections().toArray();
     const collectionNames = collectionInfos

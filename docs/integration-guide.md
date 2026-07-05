@@ -183,7 +183,7 @@ DEBUG=1 docker compose up
 |----------|---------|-------------|
 | `CONFIG_PATH` | `/config/config.json` | Path to config file inside container |
 | `DATA_ROOT` | `/data` | Root directory for file storage |
-| `MONGO_URI` | `mongodb://ythril-mongo:27017/?directConnection=true` | MongoDB connection string — any `$vectorSearch`-capable MongoDB works |
+| `MONGO_URI` | `mongodb://ythril-mongo:27017/ythril?directConnection=true` | MongoDB connection string — any `$vectorSearch`-capable MongoDB works. The database name in the URI is used for all operations. |
 | `NODE_ENV` | `production` | Node environment |
 | `PORT` | `3200` | HTTP listen port |
 | `DEBUG` | (unset) | Set to `1` for verbose logging |
@@ -4166,7 +4166,7 @@ Authorization: Bearer <admin-token>
 |---|---|
 | `"env"` | `MONGO_URI` environment variable — set in deployment config (e.g. `docker-compose.yml`). Always takes precedence. Migration is not available when this is the source. |
 | `"config"` | Connection string stored in `config.json` — set via database migration or manual edit. |
-| `"default"` | Built-in default (`mongodb://ythril-mongo:27017/`). No custom connection configured. |
+| `"default"` | Built-in default (`mongodb://ythril-mongo:27017/ythril`). No custom connection configured. |
 
 ---
 

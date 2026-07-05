@@ -1,9 +1,10 @@
 ﻿import { MongoClient, type Db, type Collection, type Document, type Filter, type UpdateFilter, type OptionalUnlessRequiredId, type AnyBulkWriteOperation } from 'mongodb';
 import { getMongoUri } from '../config/loader.js';
 import { log } from '../util/log.js';
+import { dbNameFromUri } from './db-name.js';
 
 let _client: MongoClient | null = null;
-const DB_NAME = 'ythril';
+let _dbName = 'ythril';
 
 /** Tri-state: null = not yet checked, true = available, false = unavailable */
 let _vectorSearchAvailable: boolean | null = null;
@@ -11,7 +12,8 @@ let _vectorSearchDetails = '';
 
 export async function connectMongo(): Promise<MongoClient> {
   const uri = getMongoUri();
-  log.debug(`Connecting to MongoDB at ${uri.replace(/\/\/.*@/, '//[credentials]@')}`);
+  _dbName = dbNameFromUri(uri);
+  log.debug(`Connecting to MongoDB at ${uri.replace(/\/\/[^@]*@/, '//[credentials]@')} (database: ${_dbName})`);
   _client = new MongoClient(uri, {
     serverSelectionTimeoutMS: 10_000,
   });
@@ -41,7 +43,7 @@ export async function checkVectorSearchAvailability(): Promise<{
     return { available: _vectorSearchAvailable, details: _vectorSearchDetails };
   }
 
-  const db = getMongo().db(DB_NAME);
+  const db = getDb();
 
   // Collect server version for the log message
   let serverVersion = 'unknown';
@@ -97,13 +99,18 @@ export function _resetVectorSearchCache(): void {
   _vectorSearchDetails = '';
 }
 
+/** Reset the active database name (for testing). */
+export function _resetDbName(): void {
+  _dbName = '';
+}
+
 export function getMongo(): MongoClient {
   if (!_client) throw new Error('MongoDB not connected — call connectMongo() first');
   return _client;
 }
 
 export function getDb(): Db {
-  return getMongo().db(DB_NAME);
+  return getMongo().db(_dbName);
 }
 
 export function col<T extends object>(name: string): Collection<T> {
@@ -148,5 +155,6 @@ export async function closeMongo(): Promise<void> {
   if (_client) {
     await _client.close();
     _client = null;
+    _dbName = '';
   }
 }

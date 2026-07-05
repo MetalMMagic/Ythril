@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, patch } from '../sync/helpers.js';
+import { INSTANCES, post, get, patch, put } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -53,7 +53,10 @@ async function setMeta(meta) {
 
 // ── Helper: reset meta to off ──────────────────────────────────────────────
 async function resetMeta() {
-  await setMeta({ validationMode: 'off', typeSchemas: {} });
+  // Use PUT (full replacement) to clear all typeSchemas; PATCH merges and
+  // would leave existing type definitions intact when given an empty object.
+  await put(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/schema`, { typeSchemas: {} });
+  await setMeta({ validationMode: 'off' });
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

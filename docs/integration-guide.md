@@ -137,7 +137,7 @@ environment:
 
 ```yaml
 environment:
-  MONGO_URI: ******cluster0.example.mongodb.net/ythril?retryWrites=true
+  MONGO_URI: mongodb+srv://user:pass@cluster0.example.mongodb.net/ythril?retryWrites=true
 ```
 
 > **Database name:** Ythril reads the database name from the path component of `MONGO_URI`. If no database name is specified in the URI, it falls back to `"ythril"`. All operations — including dump/restore — use the resolved name.

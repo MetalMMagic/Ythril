@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.1] — 2026-07-05
+
+### Fixed
+
+- **Custom chrono types now respected** — `typeSchemas.chrono` entries were previously ignored at
+  validation time because the global built-in enum (`event`, `deadline`, `plan`, `prediction`,
+  `milestone`) was enforced unconditionally. `getAllowedChronoTypes()` now returns the keys of
+  `typeSchemas.chrono` when any are defined, falling back to the five built-ins only when no
+  custom types are configured. Validation is also applied consistently during sync ingest so
+  type constraints are honoured on replicated entries. (#114)
+
+- **Database name derived from `MONGO_URI`** — all MongoDB operations previously used a hardcoded
+  `"ythril"` database name regardless of what was specified in the connection string. The database
+  component is now parsed from `MONGO_URI` at startup (via `dbNameFromUri()`), with `"ythril"` as
+  a fallback for URIs that do not include an explicit database path segment. Dump and restore
+  operations use the same resolved name. The default built-in URI is
+  `mongodb://ythril-mongo:27017/ythril` so existing bundled deployments are unaffected. (#116)
+
+---
+
 ## [1.4.0] — 2026-05-02
 
 ### Added

@@ -21,6 +21,7 @@ import { log } from '../util/log.js';
 import { nextSeq, bumpSeq } from '../util/seq.js';
 import { updateSpace } from '../spaces/spaces.js';
 import { isStrictLinkage } from '../spaces/proxy.js';
+import { getAllowedChronoTypes } from '../spaces/schema-validation.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { computeMerkleRoot } from '../brain/merkle.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
@@ -734,6 +735,11 @@ syncRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (req,
       return;
     }
     const incoming = parsed.data as ChronoEntry;
+    const allowedChronoTypes = getAllowedChronoTypes(getConfig().spaces.find(s => s.id === spaceId)?.meta);
+    if (!allowedChronoTypes.has(incoming.type)) {
+      res.status(400).json({ error: `\`type\` must be one of: ${[...allowedChronoTypes].join(', ')}` });
+      return;
+    }
 
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
       .findOne(mFilter<TombstoneDoc>({ _id: incoming._id, type: 'chrono' })) as TombstoneDoc | null;
@@ -1443,4 +1449,3 @@ syncRouter.post('/warm', syncRateLimit, requireAuth, async (req, res) => {
 
 // Re-export the helper for use by the network router and sync engine
 export { concludeRoundIfReady };
-

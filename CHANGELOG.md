@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.3] — 2026-07-06
+
+### Added
+
+- **OIDC `claimMapping.requireMatch`** — new boolean field; when `true`, any OIDC JWT that matches
+  neither the `admin` nor the `readOnly` claim rule is rejected with 401.  This closes the access
+  gap where KC-authenticated users who obtain a valid audience-matched token via SSO from a shared
+  realm could read or write data without any mapped Ythril role.  PAT tokens are entirely
+  unaffected.  4 new standalone tests validate all branches of the guard. (#120)
+
+---
+
 ## [1.4.2] — 2026-07-06
 
 ### Added

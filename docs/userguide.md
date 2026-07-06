@@ -119,9 +119,14 @@ Each entity has a **name**, optional **type** (e.g. `person`, `service`), option
 
 **Creating an entity:** Click **+ Add entity**, fill in the fields, and click **Save**.
 
+When a **type** is selected and the space has a schema defined for that type, the properties section is automatically pre-populated with all property fields from that type's schema:
+- **Required properties** — shown with a `*` badge; must be filled in before the record can be saved (strict mode) or will generate a warning (warn mode).
+- **Optional properties** — shown with a remove (×) button; any field left blank when you click Save is silently omitted from the stored record.
+- Switching the type dropdown **immediately rebuilds** the properties form for the newly selected type; values you have already filled in are preserved where the field name matches.
+
 **Searching:** The search bar above the table filters by name in real time.
 
-**Editing:** Click the edit icon on any row to update it.
+**Editing:** Click the ⊙ view-details button on any row to open the full editable drawer.
 
 **Deleting:** Each row has an inline **✕ → confirm** flow.
 
@@ -135,9 +140,11 @@ Edges connect two entities and describe the relationship between them (e.g. *ser
 
 Each edge has a **from** entity, a **to** entity, a **label** (the relationship name), and optional **type**, **weight**, **tags**, **description**, and **properties**.
 
-**Creating an edge:** Click **+ Add edge**. Use the entity pickers to select the source and target, type a label, and click **Save**.
+**Creating an edge:** Click **+ Add edge**. Use the entity pickers to select the source and target, choose or type a label, and click **Save**.
 
-**Editing / Deleting:** Same as entities — edit icon or inline ✕ confirm.
+When a **label** is selected and the space has a schema defined for that label, the properties section is pre-populated with all fields from that label's schema — the same required/optional behaviour as entities applies.
+
+**Editing / Deleting:** Same as entities — ⊙ view-details drawer or inline ✕ confirm.
 
 ---
 

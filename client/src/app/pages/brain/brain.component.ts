@@ -2525,7 +2525,7 @@ export class BrainComponent implements OnInit {
       type: ent.type ?? '',
       tags: ent.tags ?? [],
       description: ent.description ?? '',
-      properties: this.buildPropertiesObject('entity', ent.properties ?? {}),
+      properties: this.buildPropertiesObject('entity', ent.properties ?? {}, ent.type),
     };
   }
 
@@ -2541,7 +2541,7 @@ export class BrainComponent implements OnInit {
       weight: edge.weight ?? null,
       tags: edge.tags ?? [],
       description: edge.description ?? '',
-      properties: this.buildPropertiesObject('edge', edge.properties ?? {}),
+      properties: this.buildPropertiesObject('edge', edge.properties ?? {}, edge.label),
     };
   }
 
@@ -2588,7 +2588,7 @@ export class BrainComponent implements OnInit {
   saveEditEntity(id: string): void {
     this.editSaving.set(true);
     this.editError.set('');
-    const entProps = this.editEntity.properties;
+    const entProps = this.stripEmptyOptionalProps(this.editEntity.properties, this.entitySchema(this.editEntity.type));
     this.api.updateEntity(this.activeSpaceId(), id, {
       name: this.editEntity.name.trim(),
       type: this.editEntity.type.trim(),
@@ -2608,7 +2608,7 @@ export class BrainComponent implements OnInit {
   saveEditEdge(id: string): void {
     this.editSaving.set(true);
     this.editError.set('');
-    const edgeProps = this.editEdge.properties;
+    const edgeProps = this.stripEmptyOptionalProps(this.editEdge.properties, this.edgeSchema(this.editEdge.label));
     this.api.updateEdge(this.activeSpaceId(), id, {
       label: this.editEdge.label.trim(),
       tags: this.editEdge.tags,
@@ -2842,7 +2842,8 @@ export class BrainComponent implements OnInit {
     if (this.entityForm.type.trim()) body.type = this.entityForm.type.trim();
     if (this.entityForm.tags.length) body.tags = this.entityForm.tags;
     if (this.entityForm.description.trim()) body.description = this.entityForm.description.trim();
-    if (Object.keys(this.entityForm.properties).length) body.properties = this.entityForm.properties;
+    const props = this.stripEmptyOptionalProps(this.entityForm.properties, this.entitySchema(this.entityForm.type));
+    if (Object.keys(props).length) body.properties = props;
     this.api.createEntity(this.activeSpaceId(), body).subscribe({
       next: () => {
         this.creatingEntity.set(false);
@@ -2867,7 +2868,8 @@ export class BrainComponent implements OnInit {
     if (this.edgeForm.weight != null) body.weight = this.edgeForm.weight;
     if (this.edgeForm.tags.length) body.tags = this.edgeForm.tags;
     if (this.edgeForm.description.trim()) body.description = this.edgeForm.description.trim();
-    if (Object.keys(this.edgeForm.properties).length) body.properties = this.edgeForm.properties;
+    const edgeProps = this.stripEmptyOptionalProps(this.edgeForm.properties, this.edgeSchema(this.edgeForm.label));
+    if (Object.keys(edgeProps).length) body.properties = edgeProps;
     this.api.createEdge(this.activeSpaceId(), body).subscribe({
       next: () => {
         this.creatingEdge.set(false);
@@ -3045,24 +3047,24 @@ export class BrainComponent implements OnInit {
 
   openEntityForm(): void {
     const firstType = Object.keys(this.spaceMeta()?.typeSchemas?.entity ?? {})[0] ?? '';
-    this.entityForm = { name: '', type: firstType, tags: [], description: '', properties: this.buildPropertiesObject('entity') };
+    this.entityForm = { name: '', type: firstType, tags: [], description: '', properties: this.buildPropertiesObject('entity', {}, firstType) };
     this.showEntityForm.set(true);
   }
 
   /** Called when the entity type dropdown changes. Rebuilds properties: keeps existing values, adds defaults for any new schema-required fields. */
-  onEntityTypeChange(_type: string, target: 'create' | 'inline' | 'drawer'): void {
+  onEntityTypeChange(type: string, target: 'create' | 'inline' | 'drawer'): void {
     if (target === 'create') {
-      this.entityForm.properties = this.buildPropertiesObject('entity', this.entityForm.properties);
+      this.entityForm.properties = this.buildPropertiesObject('entity', this.entityForm.properties, type);
     } else if (target === 'inline') {
-      this.editEntity.properties = this.buildPropertiesObject('entity', this.editEntity.properties);
+      this.editEntity.properties = this.buildPropertiesObject('entity', this.editEntity.properties, type);
     } else {
-      this.drawerEditEntity.properties = this.buildPropertiesObject('entity', this.drawerEditEntity.properties);
+      this.drawerEditEntity.properties = this.buildPropertiesObject('entity', this.drawerEditEntity.properties, type);
     }
   }
 
   openEdgeForm(): void {
     const firstLabel = Object.keys(this.spaceMeta()?.typeSchemas?.edge ?? {})[0] ?? '';
-    this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: firstLabel, weight: null, tags: [], description: '', properties: this.buildPropertiesObject('edge') };
+    this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: firstLabel, weight: null, tags: [], description: '', properties: this.buildPropertiesObject('edge', {}, firstLabel) };
     this.showEdgeForm.set(true);
   }
 
@@ -3076,15 +3078,15 @@ export class BrainComponent implements OnInit {
     this.showChronoForm.set(true);
   }
 
-  private buildPropertiesObject(type: KnowledgeType, existing: Record<string, string | number | boolean> = {}): Record<string, string | number | boolean> {
+  private buildPropertiesObject(type: KnowledgeType, existing: Record<string, string | number | boolean> = {}, typeName?: string): Record<string, string | number | boolean> {
     const meta = this.spaceMeta();
     const typeSchemas = meta?.typeSchemas?.[type];
     if (!typeSchemas || Object.keys(typeSchemas).length === 0) return existing;
-    // Use the first type's property schemas as fallback defaults
-    const firstTypeSchemas = Object.values(typeSchemas)[0]?.propertySchemas ?? {};
-    if (Object.keys(firstTypeSchemas).length === 0) return existing;
+    // Use the specified type's schema; fall back to the first type when no name is given
+    const schemas = (typeName ? typeSchemas[typeName] : Object.values(typeSchemas)[0])?.propertySchemas ?? {};
+    if (Object.keys(schemas).length === 0) return existing;
     const result = { ...existing };
-    for (const [key, schema] of Object.entries(firstTypeSchemas)) {
+    for (const [key, schema] of Object.entries(schemas)) {
       if (key in result) continue;
       if (schema.enum?.length) {
         result[key] = schema.enum[0] as string | number | boolean;
@@ -3097,6 +3099,17 @@ export class BrainComponent implements OnInit {
       }
     }
     return result;
+  }
+
+  /** Strip optional properties whose value is an empty string; required fields are preserved even if empty (server will reject them with a clear error). */
+  private stripEmptyOptionalProps(
+    props: Record<string, string | number | boolean>,
+    schema: Record<string, PropertySchema> | undefined,
+  ): Record<string, string | number | boolean> {
+    if (!schema) return props;
+    return Object.fromEntries(
+      Object.entries(props).filter(([k, v]) => v !== '' || (schema[k]?.required ?? false)),
+    );
   }
 
   // ── Detail drawer ──────────────────────────────────────────────────────
@@ -3130,7 +3143,7 @@ export class BrainComponent implements OnInit {
         type: record.type ?? '',
         tags: [...(record.tags ?? [])],
         description: record.description ?? '',
-        properties: this.buildPropertiesObject('entity', record.properties ?? {}),
+        properties: this.buildPropertiesObject('entity', record.properties ?? {}, record.type),
       };
     } else if (kind === 'edge') {
       this.drawerEditEdge = {
@@ -3139,7 +3152,7 @@ export class BrainComponent implements OnInit {
         weight: record.weight ?? null,
         tags: [...(record.tags ?? [])],
         description: record.description ?? '',
-        properties: this.buildPropertiesObject('edge', record.properties ?? {}),
+        properties: this.buildPropertiesObject('edge', record.properties ?? {}, record.label),
       };
     } else if (kind === 'chrono') {
       const isPredefined = this.chronoKinds.includes(record.type as ChronoType);
@@ -3189,7 +3202,7 @@ export class BrainComponent implements OnInit {
         error: (err) => { this.drawerSaving.set(false); this.drawerError.set(this.fmtApiError(err, 'Failed to save')); },
       });
     } else if (dr.kind === 'entity') {
-      const props = this.drawerEditEntity.properties;
+      const props = this.stripEmptyOptionalProps(this.drawerEditEntity.properties, this.entitySchema(this.drawerEditEntity.type));
       this.api.updateEntity(spaceId, id, {
         name: this.drawerEditEntity.name.trim(),
         type: this.drawerEditEntity.type.trim(),
@@ -3205,7 +3218,7 @@ export class BrainComponent implements OnInit {
         error: (err) => { this.drawerSaving.set(false); this.drawerError.set(this.fmtApiError(err, 'Failed to save')); },
       });
     } else if (dr.kind === 'edge') {
-      const props = this.drawerEditEdge.properties;
+      const props = this.stripEmptyOptionalProps(this.drawerEditEdge.properties, this.edgeSchema(this.drawerEditEdge.label));
       this.api.updateEdge(spaceId, id, {
         label: this.drawerEditEdge.label.trim(),
         ...(this.drawerEditEdge.type.trim() ? { type: this.drawerEditEdge.type.trim() } : {}),

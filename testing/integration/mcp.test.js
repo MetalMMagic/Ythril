@@ -183,7 +183,7 @@ async function postMcpHttp(body) {
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(payload),
-          Accept: 'application/json',
+          Accept: 'application/json, text/event-stream',
           Authorization: `Bearer ${token}`,
         },
       },
@@ -196,8 +196,30 @@ async function postMcpHttp(body) {
             reject(new Error(`POST /mcp failed: ${res.statusCode} ${txt}`));
             return;
           }
-          try { resolve(JSON.parse(txt)); }
-          catch { reject(new Error(`Non-JSON response from POST /mcp: ${txt}`)); }
+          const contentType = String(res.headers['content-type'] ?? '');
+          try {
+            if (contentType.includes('application/json')) {
+              resolve(JSON.parse(txt));
+              return;
+            }
+            if (contentType.includes('text/event-stream')) {
+              const message = txt
+                .split('\n\n')
+                .map(part => part.trim())
+                .find(Boolean);
+              if (!message) throw new Error('Empty SSE response from POST /mcp');
+              const data = message
+                .split('\n')
+                .filter(line => line.startsWith('data:'))
+                .map(line => line.slice(5).trim())
+                .join('\n');
+              resolve(JSON.parse(data));
+              return;
+            }
+            throw new Error(`Unexpected content-type from POST /mcp: ${contentType}`);
+          } catch {
+            reject(new Error(`Unsupported response from POST /mcp: ${contentType} ${txt}`));
+          }
         });
       },
     );

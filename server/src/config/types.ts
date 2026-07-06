@@ -492,6 +492,12 @@ export interface OidcClaimMapping {
   /** When matched, the claim value is treated as the list of allowed space IDs.
    *  The claim itself must be a JSON array of strings. */
   spaces?: OidcClaimRule;
+  /**
+   * When true, any OIDC token that does not match the `admin` or `readOnly`
+   * rule is rejected with 401.  PAT tokens are unaffected.
+   * Default: false (unmatched tokens are accepted with no special permissions).
+   */
+  requireMatch?: boolean;
 }
 
 export interface OidcConfig {

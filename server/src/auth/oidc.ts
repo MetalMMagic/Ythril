@@ -210,6 +210,16 @@ export async function validateOidcJwt(bearer: string): Promise<OidcTokenRecord |
     const admin = mapping.admin ? evaluateClaimRule(payload, mapping.admin) : false;
     const readOnly = mapping.readOnly ? evaluateClaimRule(payload, mapping.readOnly) : undefined;
 
+    // ── requireMatch guard ────────────────────────────────────────────────
+    // When requireMatch is true, reject any token that matches neither the
+    // admin nor the readOnly rule.  This prevents KC-authenticated users
+    // who hold a valid audience-matched token (e.g. via SSO from a shared
+    // realm) from accessing the instance without an explicit role assignment.
+    if (mapping.requireMatch && !admin && !readOnly) {
+      log.warn('OIDC JWT rejected: requireMatch is enabled and no claim rule matched');
+      return null;
+    }
+
     let spaces: string[] | undefined;
     if (mapping.spaces) {
       const raw = resolveClaim(payload, mapping.spaces.claim);

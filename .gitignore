@@ -24,6 +24,10 @@ testing/sync/configs/*/schema-library.json
 testing/sync/configs/*/schema-catalogs.json
 testing/sync/configs/*/backup.json
 
+# Transient test scaffolding (local npm installs used only during dev)
+testing/package.json
+testing/package-lock.json
+
 # Env files
 .env
 .env.*

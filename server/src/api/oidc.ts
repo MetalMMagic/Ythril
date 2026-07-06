@@ -25,5 +25,7 @@ oidcRouter.get('/oidc-info', globalRateLimit, (_req, res) => {
     issuerUrl: cfg.issuerUrl,
     clientId: cfg.clientId,
     scopes: cfg.scopes ?? ['openid', 'profile', 'email'],
+    enforceForBrowser: cfg.enforceForBrowser ?? false,
+    ...(cfg.postLogoutRedirectUri ? { postLogoutRedirectUri: cfg.postLogoutRedirectUri } : {}),
   });
 });

@@ -5379,6 +5379,8 @@ Add an `oidc` block to `config.json`:
 | `audience` | No | Expected `aud` claim. Defaults to `clientId`. |
 | `scopes` | No | Scopes to request. Defaults to `["openid", "profile", "email"]`. |
 | `claimMapping` | No | Maps IdP claims to Ythril permissions (see below). |
+| `enforceForBrowser` | No | When `true`, the browser SPA rejects cached PAT sessions and always forces a fresh OIDC login. PATs continue to work for API / MCP bearer-header requests. Default: `false`. |
+| `postLogoutRedirectUri` | No | URI the IdP should redirect to after `end_session`. Passed as `post_logout_redirect_uri`. Defaults to `{origin}/login`. |
 
 ### Claim Mapping
 
@@ -5549,3 +5551,5 @@ After saving any IdP configuration, run `POST /api/admin/reload-config` to apply
 - **Spaces claim controls visibility.**  When a `spaces` claim is present in the JWT, the OIDC session can only see and modify those spaces.  If the claim is missing or not an array, the session has access to all spaces (same as a PAT with no `spaces` allowlist).  Users who cannot see expected spaces should check with their administrator that the IdP is emitting the correct claim values.
 - **Config validation.**  When `oidc.enabled` is `true`, `issuerUrl` and `clientId` are required.  The server validates the OIDC config block at startup and on `reload-config` — a malformed block will prevent the server from starting.
 - **Config reload required.**  Any change to the `oidc` block requires `POST /api/admin/reload-config` or a container restart to take effect.  The OIDC discovery document and JWKS key set are cached in memory and flushed on reload.
+- **Enforcing OIDC for browser sessions.**  Set `enforceForBrowser: true` to prevent users who have a cached PAT in their browser from bypassing the IdP.  When this flag is set the SPA clears any PAT-based localStorage session on startup and forces a fresh OIDC login.  Programmatic callers (API, MCP) that supply an `Authorization: ****** header are not affected.
+- **Sign-out clears all browser auth state.**  Clicking the sign-out button always removes every Ythril auth key from `localStorage` regardless of whether the session was established via OIDC or a PAT.  For OIDC sessions the browser is additionally redirected to the IdP's `end_session_endpoint` (from the discovery document) with an `id_token_hint` so the Keycloak / IdP server-side session is also destroyed.  Without this step, `prompt=none` silent refresh would immediately re-authenticate the user.  Use `postLogoutRedirectUri` to control where the IdP sends the user after sign-out.

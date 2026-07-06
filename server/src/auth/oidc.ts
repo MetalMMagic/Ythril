@@ -86,6 +86,7 @@ interface DiscoveryDoc {
   jwks_uri: string;
   authorization_endpoint: string;
   token_endpoint: string;
+  end_session_endpoint?: string;
 }
 
 let _discoveryDoc: DiscoveryDoc | null = null;

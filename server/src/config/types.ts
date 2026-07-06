@@ -516,7 +516,8 @@ export interface OidcConfig {
    * sessions and forces re-authentication through the IdP.  PATs continue to
    * work for programmatic access (API / MCP via Authorization: ******;
    * only the browser localStorage session path is gated.
-   * Default: false.
+   * Default: false.  The API endpoint (`/api/auth/oidc-info`) normalises an
+   * absent value to `false` so clients always receive a boolean.
    */
   enforceForBrowser?: boolean;
   /**

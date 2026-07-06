@@ -9,6 +9,9 @@ const OIDC_CLIENT_ID_KEY = 'oidc_client_id';
 const OIDC_SCOPES_KEY = 'oidc_scopes';
 const OIDC_ID_TOKEN_KEY = 'oidc_id_token';
 
+/** Prefix that identifies a Ythril-issued Personal Access Token. */
+const PAT_TOKEN_PREFIX = 'ythril_';
+
 /** Shape of the response from GET /api/auth/oidc-info */
 export interface OidcInfo {
   enabled: boolean;
@@ -76,8 +79,11 @@ export class AuthService {
     localStorage.setItem(OIDC_ISSUER_KEY, issuerUrl);
     localStorage.setItem(OIDC_CLIENT_ID_KEY, clientId);
     localStorage.setItem(OIDC_SCOPES_KEY, scopes.join(' '));
+    // Always set or clear the id_token key to avoid stale hints from a previous session.
     if (idToken) {
       localStorage.setItem(OIDC_ID_TOKEN_KEY, idToken);
+    } else {
+      localStorage.removeItem(OIDC_ID_TOKEN_KEY);
     }
     this.login(token);
     this.scheduleOidcSilentRefresh();
@@ -169,7 +175,7 @@ export class AuthService {
   enforceOidcBrowserSession(): Promise<boolean> {
     const token = this._token();
     // Only PAT tokens (ythril_ prefix) can bypass the OIDC gate.
-    if (!token || !token.startsWith('ythril_')) {
+    if (!token || !token.startsWith(PAT_TOKEN_PREFIX)) {
       return Promise.resolve(false);
     }
 

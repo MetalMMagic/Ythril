@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.4] — 2026-07-06
+
+### Added
+
+- **MCP Streamable HTTP transport (`POST /mcp`)** — adds a second MCP transport alongside the
+  existing SSE transport.  `POST /mcp` accepts a JSON-RPC 2.0 request (`Content-Type:
+  application/json`) and returns the result synchronously as `Content-Type: application/json`
+  (when `Accept: application/json`) or upgrades to an SSE stream (when `Accept:
+  text/event-stream`), per the [2025-03-26 MCP spec](https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/transports/).
+  The new transport is stateless and works through standard HTTP proxies (HTTPS CONNECT, CDN,
+  serverless, etc.) where a persistent SSE stream is not possible.  Both transports share the same
+  authentication middleware and tool registry:
+  - `GET /mcp` — existing SSE transport (unchanged, backward-compatible)
+  - `POST /mcp` — new Streamable HTTP transport (stateless, per-request)
+  3 new integration tests and 1 new security test validate the new endpoint. (#122)
+
+---
+
 ## [1.4.3] — 2026-07-06
 
 ### Added

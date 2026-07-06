@@ -209,7 +209,8 @@ describe('buildPropertiesFromSchema — uses selected type schema, not always fi
 
   it('falls back to first type schema when typeName is undefined', () => {
     const result = buildPropertiesFromSchema(typeSchemas, 'entity', undefined);
-    // First type in insertion order is 'service'
+    // ECMAScript guarantees string-keyed object properties preserve insertion order,
+    // so Object.values(ktSchemas)[0] is reliably 'service' here.
     assert.ok('version' in result, 'should fall back to service schema');
   });
 
@@ -312,9 +313,11 @@ describe('stripEmptyOptionalProps — strips empty optional fields', () => {
     assert.deepStrictEqual(result, {});
   });
 
-  it('keeps properties whose key is not present in schema (extra/freeform fields)', () => {
+  it('strips unknown/extra empty-string properties not present in schema', () => {
     const result = stripEmptyOptionalProps({ version: '', custom: '', status: 'on' }, schema);
-    // 'custom' is not in schema so schema[k] is undefined → schema[k]?.required is undefined → false → stripped if empty
+    // 'custom' is not in schema → schema[k] is undefined → treated as optional → stripped when empty
+    // 'version' is optional in schema → stripped when empty
+    // 'status' has a value → kept
     assert.deepStrictEqual(result, { status: 'on' });
   });
 });

@@ -181,7 +181,10 @@ export class AuthService {
 
     if (this._oidcEnforcementPromise === null) {
       this._oidcEnforcementPromise = this.getOidcInfo().then(info => {
-        if (info.enabled && info.enforceForBrowser) {
+        // Re-check the token here: if the session was replaced while the
+        // getOidcInfo() network call was in-flight (e.g. OIDC login completed
+        // in a separate tab), do not evict the fresh session.
+        if (info.enabled && info.enforceForBrowser && this._token()?.startsWith(PAT_TOKEN_PREFIX)) {
           this.logout();
           return true;
         }

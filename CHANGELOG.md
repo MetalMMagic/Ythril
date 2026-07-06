@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.2] — 2026-07-06
+
+### Added
+
+- **OIDC `enforceForBrowser` gate** — new `enforceForBrowser` config field evicts PAT-based sessions when an OIDC provider is active, ensuring browser users always authenticate through the IdP. Cached per-page-load to avoid repeated server calls; race condition guarded by re-checking token type inside the resolved promise.
+- **OIDC `postLogoutRedirectUri`** — new config field; passed as `post_logout_redirect_uri` to the IdP's `end_session_endpoint` on sign-out.
+- **`end_session_endpoint` sign-out** — `logout()` now unconditionally clears all auth localStorage keys (PAT + OIDC); `logoutOidc()` redirects to the IdP's end-session endpoint with `id_token_hint` when the discovery document provides one.
+- **`id_token` stored on login** — OIDC `id_token` persisted in localStorage (`oidc_id_token`) so it is available as `id_token_hint` on subsequent sign-out.
+- **5 new standalone tests** covering `enforceForBrowser`, `postLogoutRedirectUri`, and `end_session_endpoint` surfacing via `getDiscoveryDoc()`.
+
+### Fixed
+
+- **Stale `id_token_hint` on re-login** — `loginOidc()` now explicitly removes the stored `oidc_id_token` when no `idToken` is supplied, preventing a prior session's token from leaking into a new sign-out flow.
+
+---
+
 ## [1.4.1] — 2026-07-05
 
 ### Fixed

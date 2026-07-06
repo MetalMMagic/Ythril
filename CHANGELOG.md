@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Entity/edge type schema auto-population now uses selected type**: `buildPropertiesObject` previously always used the first defined type's property schemas regardless of which type was actually selected in the form. The function now accepts the selected type name and looks up the correct per-type schema. This means switching entity type (or edge label) in the Add / Edit / Drawer-edit form correctly rebuilds properties from the chosen type's schema instead of always using the first.
+- **Empty optional properties stripped on save**: When saving a new or edited entity or edge, property fields that are empty strings and not marked `required` in the type schema are now omitted from the stored document. Required fields with empty values are still forwarded to the server so that schema validation can surface a clear error.
+
 ---
 
 ## [1.4.4] — 2026-07-06

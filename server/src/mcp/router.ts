@@ -2068,20 +2068,21 @@ mcpRouter.post('/messages', globalRateLimit, async (req, res) => {
 mcpRouter.post('/', globalRateLimit, async (req, res) => {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin);
+  // Register cleanup before handling the request so it fires regardless of outcome.
+  res.on('close', () => {
+    transport.close();
+    server.close();
+  });
   try {
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body);
-    res.on('close', () => {
-      transport.close();
-      server.close();
-    });
   } catch (err) {
     log.error('MCP Streamable HTTP error', err);
     if (!res.headersSent) {
       res.status(500).json({
         jsonrpc: '2.0',
         error: { code: -32603, message: 'Internal server error' },
-        id: null,
+        id: (req.body as Record<string, unknown>)?.id ?? null,
       });
     }
   }

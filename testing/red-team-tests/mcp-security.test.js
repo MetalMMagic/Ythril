@@ -180,6 +180,15 @@ describe('MCP security — authentication', () => {
     assert.equal(r.status, 401);
   });
 
+  it('POST /mcp (Streamable HTTP) without auth returns 401', async () => {
+    const r = await fetch(`${INSTANCES.a}/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+    });
+    assert.equal(r.status, 401);
+  });
+
   it('Token prefix collision — 8-char prefix alone must return 401', async () => {
     // Take only first 8 characters of a valid token: "ythril_x" prefix-only attack
     const fullToken = tokenA;

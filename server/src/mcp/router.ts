@@ -1,6 +1,7 @@
 ﻿import { Router } from 'express';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
@@ -2050,7 +2051,7 @@ mcpRouter.get('/', globalRateLimit, async (req, res) => {
   await server.connect(transport);
 });
 
-// POST /mcp/messages  — global tool call
+// POST /mcp/messages  — global tool call (SSE transport)
 mcpRouter.post('/messages', globalRateLimit, async (req, res) => {
   const sessionId = String(req.query['sessionId'] ?? '');
   const transport = transports.get(sessionId);
@@ -2059,6 +2060,31 @@ mcpRouter.post('/messages', globalRateLimit, async (req, res) => {
     return;
   }
   await transport.handlePostMessage(req, res, req.body);
+});
+
+// POST /mcp  — Streamable HTTP transport (stateless, per-request)
+// Supports both application/json (synchronous response) and text/event-stream (SSE upgrade).
+// This transport requires no persistent connection and works through standard HTTP proxies.
+mcpRouter.post('/', globalRateLimit, async (req, res) => {
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin);
+  try {
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+    res.on('close', () => {
+      transport.close();
+      server.close();
+    });
+  } catch (err) {
+    log.error('MCP Streamable HTTP error', err);
+    if (!res.headersSent) {
+      res.status(500).json({
+        jsonrpc: '2.0',
+        error: { code: -32603, message: 'Internal server error' },
+        id: null,
+      });
+    }
+  }
 });
 
 // Catch-all for unrecognised MCP paths — must not fall through to SPA

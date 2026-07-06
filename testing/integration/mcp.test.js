@@ -164,6 +164,50 @@ async function openMcpSession(timeoutMs = 15_000) {
 
 // â”€â”€ Tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+// ── Streamable HTTP MCP helper ───────────────────────────────────────────
+
+/**
+ * Send a single JSON-RPC request via POST /mcp (Streamable HTTP transport).
+ * Returns the parsed JSON-RPC response object.
+ */
+async function postMcpHttp(body) {
+  const base = INSTANCES.a;
+  const parsed = new URL(base);
+  const host = parsed.hostname;
+  const port = parseInt(parsed.port || '80', 10);
+
+  return new Promise((resolve, reject) => {
+    const payload = JSON.stringify(body);
+    const req = http.request(
+      { host, port, path: '/mcp', method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+          Accept: 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      },
+      (res) => {
+        let txt = '';
+        res.setEncoding('utf8');
+        res.on('data', c => { txt += c; });
+        res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`POST /mcp failed: ${res.statusCode} ${txt}`));
+            return;
+          }
+          try { resolve(JSON.parse(txt)); }
+          catch { reject(new Error(`Non-JSON response from POST /mcp: ${txt}`)); }
+        });
+      },
+    );
+    req.on('error', reject);
+    req.write(payload);
+    req.end();
+  });
+}
+
+
 describe('MCP tools', () => {
   before(async () => {
     token = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
@@ -384,5 +428,44 @@ describe('MCP tools', () => {
       const text = result?.content?.[0]?.text ?? '';
       assert.ok(text.length > 0, 'Expected non-empty response text');
     });
+  });
+});
+
+// ── Streamable HTTP transport tests ────────────────────────────────
+
+describe('MCP Streamable HTTP transport (POST /mcp)', () => {
+  before(async () => {
+    token = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+  });
+
+  it('tools/list returns expected tool names via stateless JSON response', async () => {
+    const rpc = await postMcpHttp(
+      { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
+    );
+    const tools = rpc?.result?.tools ?? [];
+    assert.ok(Array.isArray(tools) && tools.length > 0, 'tools/list must return a non-empty array');
+    const names = tools.map(t => t.name);
+    assert.ok(names.includes('remember'), `Expected 'remember' tool in list: ${names.join(', ')}`);
+    assert.ok(names.includes('recall'), `Expected 'recall' tool in list: ${names.join(', ')}`);
+    assert.ok(names.includes('sync_now'), `Expected 'sync_now' tool in list: ${names.join(', ')}`);
+  });
+
+  it('tools/call returns a result via stateless JSON response', async () => {
+    const rpc = await postMcpHttp({
+      jsonrpc: '2.0', id: 2, method: 'tools/call',
+      params: { name: 'list_peers', arguments: {} },
+    });
+    const result = rpc?.result;
+    assert.ok(result !== undefined, `Expected a result from tools/call, got: ${JSON.stringify(rpc)}`);
+    assert.ok(result?.isError !== true, `list_peers via Streamable HTTP returned isError: ${JSON.stringify(result)}`);
+    const text = result?.content?.[0]?.text ?? '';
+    assert.ok(text.length > 0, 'Expected non-empty content from list_peers via Streamable HTTP');
+  });
+
+  it('returns a JSON-RPC error for an unknown method', async () => {
+    const rpc = await postMcpHttp(
+      { jsonrpc: '2.0', id: 3, method: 'unknown/method', params: {} },
+    );
+    assert.ok(rpc?.error, `Expected a JSON-RPC error for unknown method, got: ${JSON.stringify(rpc)}`);
   });
 });

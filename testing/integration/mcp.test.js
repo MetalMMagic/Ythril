@@ -217,8 +217,9 @@ async function postMcpHttp(body) {
               return;
             }
             throw new Error(`Unexpected content-type from POST /mcp: ${contentType}`);
-          } catch {
-            reject(new Error(`Unsupported response from POST /mcp: ${contentType} ${txt}`));
+          } catch (err) {
+            const reason = err instanceof Error ? err.message : String(err);
+            reject(new Error(`Unsupported response from POST /mcp: ${contentType} ${reason} ${txt}`));
           }
         });
       },

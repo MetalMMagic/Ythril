@@ -13,6 +13,7 @@
  *  - getOidcConfig() enabled / disabled states
  *  - validateOidcJwt() with a mock IdP (full end-to-end)
  *  - validateOidcJwt() returns null for invalid / disabled OIDC
+ *  - claimMapping.requireMatch: true rejects tokens matching no rule
  *
  * Run: node --test testing/standalone/oidc.test.js
  */
@@ -483,6 +484,249 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       writeFullConfig(makeOidcConfig());
       loaderMod.loadConfig();
       oidcMod.clearOidcCache();
+    }
+  });
+
+  // ── requireMatch tests ─────────────────────────────────────────────────────
+
+  it('validateOidcJwt() returns null when requireMatch:true and no rule matches', async () => {
+    const { createServer } = await import('node:http');
+    const jwksPayload = JSON.stringify({ keys: [publicJwk] });
+    let serverPort;
+
+    const server = createServer((req, res) => {
+      if (req.url === '/.well-known/openid-configuration') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          issuer:                  `http://127.0.0.1:${serverPort}`,
+          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
+          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
+          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+        }));
+      } else if (req.url === '/jwks') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(jwksPayload);
+      } else { res.writeHead(404); res.end(); }
+    });
+
+    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+      serverPort = server.address().port;
+      resolve();
+    }));
+
+    try {
+      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      writeFullConfig({
+        ...makeOidcConfig(),
+        issuerUrl,
+        audience: 'ythril',
+        claimMapping: {
+          admin:    { claim: 'realm_access.roles', value: 'ythril-admin' },
+          readOnly: { claim: 'realm_access.roles', value: 'ythril-readonly' },
+          requireMatch: true,
+        },
+      });
+      loaderMod.loadConfig();
+      oidcMod.clearOidcCache();
+
+      // Token with no matching role — should be rejected
+      const token = await new SignJWT({
+        sub:          'no-role-user',
+        realm_access: { roles: ['some-other-role'] },
+      })
+        .setProtectedHeader({ alg: 'RS256', kid: 'test-key-1' })
+        .setIssuer(issuerUrl)
+        .setAudience('ythril')
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .setSubject('no-role-user')
+        .sign(privateKey);
+
+      const record = await oidcMod.validateOidcJwt(token);
+      assert.equal(record, null, 'should return null when requireMatch:true and no rule matches');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      writeFullConfig(makeOidcConfig());
+      loaderMod.loadConfig();
+    }
+  });
+
+  it('validateOidcJwt() allows admin match when requireMatch:true', async () => {
+    const { createServer } = await import('node:http');
+    const jwksPayload = JSON.stringify({ keys: [publicJwk] });
+    let serverPort;
+
+    const server = createServer((req, res) => {
+      if (req.url === '/.well-known/openid-configuration') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          issuer:                  `http://127.0.0.1:${serverPort}`,
+          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
+          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
+          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+        }));
+      } else if (req.url === '/jwks') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(jwksPayload);
+      } else { res.writeHead(404); res.end(); }
+    });
+
+    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+      serverPort = server.address().port;
+      resolve();
+    }));
+
+    try {
+      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      writeFullConfig({
+        ...makeOidcConfig(),
+        issuerUrl,
+        audience: 'ythril',
+        claimMapping: {
+          admin:    { claim: 'realm_access.roles', value: 'ythril-admin' },
+          readOnly: { claim: 'realm_access.roles', value: 'ythril-readonly' },
+          requireMatch: true,
+        },
+      });
+      loaderMod.loadConfig();
+      oidcMod.clearOidcCache();
+
+      const token = await new SignJWT({
+        sub:          'admin-user',
+        realm_access: { roles: ['ythril-admin'] },
+      })
+        .setProtectedHeader({ alg: 'RS256', kid: 'test-key-1' })
+        .setIssuer(issuerUrl)
+        .setAudience('ythril')
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .setSubject('admin-user')
+        .sign(privateKey);
+
+      const record = await oidcMod.validateOidcJwt(token);
+      assert.ok(record !== null, 'admin match should be accepted with requireMatch:true');
+      assert.equal(record.admin, true);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      writeFullConfig(makeOidcConfig());
+      loaderMod.loadConfig();
+    }
+  });
+
+  it('validateOidcJwt() allows readOnly match when requireMatch:true', async () => {
+    const { createServer } = await import('node:http');
+    const jwksPayload = JSON.stringify({ keys: [publicJwk] });
+    let serverPort;
+
+    const server = createServer((req, res) => {
+      if (req.url === '/.well-known/openid-configuration') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          issuer:                  `http://127.0.0.1:${serverPort}`,
+          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
+          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
+          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+        }));
+      } else if (req.url === '/jwks') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(jwksPayload);
+      } else { res.writeHead(404); res.end(); }
+    });
+
+    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+      serverPort = server.address().port;
+      resolve();
+    }));
+
+    try {
+      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      writeFullConfig({
+        ...makeOidcConfig(),
+        issuerUrl,
+        audience: 'ythril',
+        claimMapping: {
+          admin:    { claim: 'realm_access.roles', value: 'ythril-admin' },
+          readOnly: { claim: 'realm_access.roles', value: 'ythril-readonly' },
+          requireMatch: true,
+        },
+      });
+      loaderMod.loadConfig();
+      oidcMod.clearOidcCache();
+
+      const token = await new SignJWT({
+        sub:          'readonly-user',
+        realm_access: { roles: ['ythril-readonly'] },
+      })
+        .setProtectedHeader({ alg: 'RS256', kid: 'test-key-1' })
+        .setIssuer(issuerUrl)
+        .setAudience('ythril')
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .setSubject('readonly-user')
+        .sign(privateKey);
+
+      const record = await oidcMod.validateOidcJwt(token);
+      assert.ok(record !== null, 'readOnly match should be accepted with requireMatch:true');
+      assert.equal(record.readOnly, true);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      writeFullConfig(makeOidcConfig());
+      loaderMod.loadConfig();
+    }
+  });
+
+  it('validateOidcJwt() allows unmatched token when requireMatch is absent', async () => {
+    const { createServer } = await import('node:http');
+    const jwksPayload = JSON.stringify({ keys: [publicJwk] });
+    let serverPort;
+
+    const server = createServer((req, res) => {
+      if (req.url === '/.well-known/openid-configuration') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          issuer:                  `http://127.0.0.1:${serverPort}`,
+          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
+          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
+          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+        }));
+      } else if (req.url === '/jwks') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(jwksPayload);
+      } else { res.writeHead(404); res.end(); }
+    });
+
+    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+      serverPort = server.address().port;
+      resolve();
+    }));
+
+    try {
+      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      // requireMatch absent — default permissive behaviour
+      writeFullConfig({ ...makeOidcConfig(), issuerUrl, audience: 'ythril' });
+      loaderMod.loadConfig();
+      oidcMod.clearOidcCache();
+
+      const token = await new SignJWT({
+        sub:          'no-role-user',
+        realm_access: { roles: ['some-other-role'] },
+      })
+        .setProtectedHeader({ alg: 'RS256', kid: 'test-key-1' })
+        .setIssuer(issuerUrl)
+        .setAudience('ythril')
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .setSubject('no-role-user')
+        .sign(privateKey);
+
+      const record = await oidcMod.validateOidcJwt(token);
+      assert.ok(record !== null, 'unmatched token should be accepted when requireMatch is absent');
+      assert.equal(record.admin, false);
+      assert.equal(record.readOnly, undefined);
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      writeFullConfig(makeOidcConfig());
+      loaderMod.loadConfig();
     }
   });
 

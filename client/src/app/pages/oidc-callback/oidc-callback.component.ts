@@ -89,7 +89,7 @@ export class OidcCallbackComponent implements OnInit {
     }
 
     try {
-      const { accessToken, issuerUrl, clientId, scopes } =
+      const { accessToken, issuerUrl, clientId, scopes, idToken } =
         await this.auth.exchangeOidcCode(code, state);
 
       // Verify the token is accepted by Ythril before storing it
@@ -102,7 +102,7 @@ export class OidcCallbackComponent implements OnInit {
       });
 
       // loginOidc persists the OIDC session params and schedules silent refresh
-      this.auth.loginOidc(accessToken, issuerUrl, clientId, scopes);
+      this.auth.loginOidc(accessToken, issuerUrl, clientId, scopes, idToken);
       await this.router.navigate(['/']);
     } catch (err) {
       this.error.set(

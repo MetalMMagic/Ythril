@@ -511,6 +511,21 @@ export interface OidcConfig {
   scopes?: string[];
   /** Maps IdP JWT claims to Ythril permission flags. */
   claimMapping?: OidcClaimMapping;
+  /**
+   * When true, the browser SPA rejects cached PAT (Personal Access Token)
+   * sessions and forces re-authentication through the IdP.  PATs continue to
+   * work for programmatic access (API / MCP via Authorization: ******;
+   * only the browser localStorage session path is gated.
+   * Default: false.  The API endpoint (`/api/auth/oidc-info`) normalises an
+   * absent value to `false` so clients always receive a boolean.
+   */
+  enforceForBrowser?: boolean;
+  /**
+   * URI the IdP should redirect to after a successful end-session request.
+   * Passed as `post_logout_redirect_uri` to the IdP's end_session_endpoint.
+   * Defaults to the instance origin (i.e. the login page).
+   */
+  postLogoutRedirectUri?: string;
 }
 
 // ── Audit log types ────────────────────────────────────────────────────────

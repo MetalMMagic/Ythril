@@ -7,6 +7,10 @@ const TOKEN_KEY = 'ythril_token';
 const OIDC_ISSUER_KEY = 'oidc_issuer_url';
 const OIDC_CLIENT_ID_KEY = 'oidc_client_id';
 const OIDC_SCOPES_KEY = 'oidc_scopes';
+const OIDC_ID_TOKEN_KEY = 'oidc_id_token';
+
+/** Prefix that identifies a Ythril-issued Personal Access Token. */
+const PAT_TOKEN_PREFIX = 'ythril_';
 
 /** Shape of the response from GET /api/auth/oidc-info */
 export interface OidcInfo {
@@ -14,6 +18,17 @@ export interface OidcInfo {
   issuerUrl?: string;
   clientId?: string;
   scopes?: string[];
+  /**
+   * When true, cached PAT browser sessions are rejected and the browser is
+   * forced to authenticate through the IdP.  PATs still work for API / MCP
+   * calls that supply an Authorization header.
+   */
+  enforceForBrowser?: boolean;
+  /**
+   * URI the IdP should redirect to after end-session.  Passed as
+   * post_logout_redirect_uri to the IdP's end_session_endpoint.
+   */
+  postLogoutRedirectUri?: string;
 }
 
 export interface AuthState {
@@ -34,6 +49,10 @@ export class AuthService {
   // Timer handle for the next scheduled OIDC silent refresh
   private _silentRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Cached promise for the OIDC enforcement check — ensures we only call the
+  // server once per page load even if the auth guard fires multiple times.
+  private _oidcEnforcementPromise: Promise<boolean> | null = null;
+
   constructor() {
     // On page load, resume the silent-refresh schedule if an OIDC session was
     // active (identified by the presence of the OIDC issuer key in localStorage).
@@ -53,27 +72,127 @@ export class AuthService {
    * silent refresh, then schedule the first background refresh.
    *
    * Call this after a successful OIDC code exchange instead of plain login().
+   * `idToken` is the raw id_token returned by the IdP; it is stored so that
+   * end-session requests can supply an id_token_hint.
    */
-  loginOidc(token: string, issuerUrl: string, clientId: string, scopes: string[]): void {
+  loginOidc(token: string, issuerUrl: string, clientId: string, scopes: string[], idToken?: string): void {
     localStorage.setItem(OIDC_ISSUER_KEY, issuerUrl);
     localStorage.setItem(OIDC_CLIENT_ID_KEY, clientId);
     localStorage.setItem(OIDC_SCOPES_KEY, scopes.join(' '));
+    // Always set or clear the id_token key to avoid stale hints from a previous session.
+    if (idToken) {
+      localStorage.setItem(OIDC_ID_TOKEN_KEY, idToken);
+    } else {
+      localStorage.removeItem(OIDC_ID_TOKEN_KEY);
+    }
     this.login(token);
     this.scheduleOidcSilentRefresh();
   }
 
-  /** Clear token from storage */
+  /** Clear all auth state from storage and memory (unconditional). */
   logout(): void {
     // Cancel any pending silent refresh
     if (this._silentRefreshTimer !== null) {
       clearTimeout(this._silentRefreshTimer);
       this._silentRefreshTimer = null;
     }
+    // Wipe all localStorage auth keys unconditionally — covers both PAT and
+    // OIDC sessions so no cached credential can outlive a sign-out.
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(OIDC_ISSUER_KEY);
     localStorage.removeItem(OIDC_CLIENT_ID_KEY);
     localStorage.removeItem(OIDC_SCOPES_KEY);
+    localStorage.removeItem(OIDC_ID_TOKEN_KEY);
     this._token.set(null);
+    // Reset the enforcement cache so that a re-login is evaluated fresh.
+    this._oidcEnforcementPromise = null;
+  }
+
+  /**
+   * Perform a full OIDC sign-out by calling the IdP's end_session_endpoint
+   * with an id_token_hint (so the Keycloak / IdP session is actually destroyed)
+   * and then clearing all local auth state.
+   *
+   * Returns `true` when the browser has been redirected to the IdP for
+   * sign-out (caller should not also redirect to /login).
+   * Returns `false` when no OIDC session was active or the IdP does not
+   * advertise an end_session_endpoint — the caller should then do a plain
+   * redirect to /login.
+   */
+  async logoutOidc(): Promise<boolean> {
+    const issuerUrl = localStorage.getItem(OIDC_ISSUER_KEY);
+    const idToken = localStorage.getItem(OIDC_ID_TOKEN_KEY);
+
+    // Clear local auth state immediately — regardless of what the IdP does.
+    this.logout();
+
+    if (!issuerUrl) return false;
+
+    try {
+      const discoveryUrl = issuerUrl.replace(/\/$/, '') + '/.well-known/openid-configuration';
+      const res = await fetch(discoveryUrl);
+      if (!res.ok) return false;
+      const doc = await res.json() as { end_session_endpoint?: string };
+
+      if (!doc.end_session_endpoint) return false;
+
+      const endSessionUrl = new URL(doc.end_session_endpoint);
+      if (idToken) {
+        endSessionUrl.searchParams.set('id_token_hint', idToken);
+      }
+
+      // postLogoutRedirectUri is fetched fresh from the server because the
+      // in-memory OidcInfo may not be available at logout time.
+      let postLogoutUri: string | undefined;
+      try {
+        const info = await this.getOidcInfo();
+        postLogoutUri = info.postLogoutRedirectUri;
+      } catch {
+        // Non-fatal — fall back to default
+      }
+      endSessionUrl.searchParams.set(
+        'post_logout_redirect_uri',
+        postLogoutUri ?? location.origin + '/login',
+      );
+
+      location.href = endSessionUrl.toString();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check whether the current session is a PAT-based browser session that
+   * must be rejected because `oidc.enforceForBrowser` is enabled.
+   *
+   * When it returns `true` the PAT has already been cleared from storage and
+   * the caller should redirect to /login so that the OIDC flow starts.
+   *
+   * The result is cached for the lifetime of the page so that repeated
+   * navigation events (route changes) do not trigger multiple server calls.
+   */
+  enforceOidcBrowserSession(): Promise<boolean> {
+    const token = this._token();
+    // Only PAT tokens (ythril_ prefix) can bypass the OIDC gate.
+    if (!token || !token.startsWith(PAT_TOKEN_PREFIX)) {
+      return Promise.resolve(false);
+    }
+
+    if (this._oidcEnforcementPromise === null) {
+      this._oidcEnforcementPromise = this.getOidcInfo().then(info => {
+        // Re-check the token here: if the session was replaced while the
+        // getOidcInfo() network call was in-flight (e.g. OIDC login completed
+        // in a separate tab), do not evict the fresh session.
+        if (info.enabled && info.enforceForBrowser && this._token()?.startsWith(PAT_TOKEN_PREFIX)) {
+          this.logout();
+          return true;
+        }
+        return false;
+      });
+    }
+
+    return this._oidcEnforcementPromise;
   }
 
   /**
@@ -325,7 +444,7 @@ export class AuthService {
   async exchangeOidcCode(
     code: string,
     returnedState: string,
-  ): Promise<{ accessToken: string; issuerUrl: string; clientId: string; scopes: string[] }> {
+  ): Promise<{ accessToken: string; issuerUrl: string; clientId: string; scopes: string[]; idToken?: string }> {
     const storedState = sessionStorage.getItem('oidc_state');
     const codeVerifier = sessionStorage.getItem('oidc_code_verifier');
     const issuerUrl = sessionStorage.getItem('oidc_token_endpoint_hint');
@@ -363,7 +482,7 @@ export class AuthService {
     });
 
     const tokenRes = await firstValueFrom(
-      this.http.post<{ access_token: string }>(
+      this.http.post<{ access_token: string; id_token?: string }>(
         discovery.token_endpoint,
         body.toString(),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
@@ -371,6 +490,12 @@ export class AuthService {
     );
 
     const scopes = scopesStr ? scopesStr.split(' ') : ['openid', 'profile', 'email'];
-    return { accessToken: tokenRes.access_token, issuerUrl, clientId, scopes };
+    return {
+      accessToken: tokenRes.access_token,
+      issuerUrl,
+      clientId,
+      scopes,
+      idToken: tokenRes.id_token,
+    };
   }
 }

@@ -414,4 +414,116 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       loaderMod.loadConfig();
     }
   });
+
+  // ── enforceForBrowser + postLogoutRedirectUri config field tests ───────────
+
+  it('getOidcConfig() includes enforceForBrowser when set to true', () => {
+    writeFullConfig({ ...makeOidcConfig(), enforceForBrowser: true });
+    loaderMod.loadConfig();
+    const cfg = oidcMod.getOidcConfig();
+    assert.ok(cfg !== null);
+    assert.equal(cfg.enforceForBrowser, true);
+    writeFullConfig(makeOidcConfig());
+    loaderMod.loadConfig();
+  });
+
+  it('getOidcConfig() enforceForBrowser is undefined when not set', () => {
+    writeFullConfig(makeOidcConfig());
+    loaderMod.loadConfig();
+    const cfg = oidcMod.getOidcConfig();
+    assert.ok(cfg !== null);
+    assert.equal(cfg.enforceForBrowser, undefined);
+  });
+
+  it('getOidcConfig() includes postLogoutRedirectUri when set', () => {
+    writeFullConfig({ ...makeOidcConfig(), postLogoutRedirectUri: 'https://example.com/goodbye' });
+    loaderMod.loadConfig();
+    const cfg = oidcMod.getOidcConfig();
+    assert.ok(cfg !== null);
+    assert.equal(cfg.postLogoutRedirectUri, 'https://example.com/goodbye');
+    writeFullConfig(makeOidcConfig());
+    loaderMod.loadConfig();
+  });
+
+  it('getDiscoveryDoc() surfaces end_session_endpoint when present in discovery document', async () => {
+    const { createServer } = await import('node:http');
+    let serverPort;
+
+    const server = createServer((req, res) => {
+      if (req.url === '/.well-known/openid-configuration') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          issuer:                  `http://127.0.0.1:${serverPort}`,
+          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
+          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
+          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+          end_session_endpoint:    `http://127.0.0.1:${serverPort}/logout`,
+        }));
+      } else {
+        res.writeHead(404); res.end();
+      }
+    });
+
+    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+      serverPort = server.address().port;
+      resolve();
+    }));
+
+    try {
+      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      writeFullConfig({ ...makeOidcConfig(), issuerUrl });
+      loaderMod.loadConfig();
+      oidcMod.clearOidcCache();
+
+      const doc = await oidcMod.getDiscoveryDoc(issuerUrl);
+      assert.equal(doc.end_session_endpoint, `http://127.0.0.1:${serverPort}/logout`,
+        'end_session_endpoint must be preserved from the discovery document');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      writeFullConfig(makeOidcConfig());
+      loaderMod.loadConfig();
+      oidcMod.clearOidcCache();
+    }
+  });
+
+  it('getDiscoveryDoc() works when end_session_endpoint is absent (optional field)', async () => {
+    const { createServer } = await import('node:http');
+    let serverPort;
+
+    const server = createServer((req, res) => {
+      if (req.url === '/.well-known/openid-configuration') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        // Deliberately omit end_session_endpoint
+        res.end(JSON.stringify({
+          issuer:                  `http://127.0.0.1:${serverPort}`,
+          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
+          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
+          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+        }));
+      } else {
+        res.writeHead(404); res.end();
+      }
+    });
+
+    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+      serverPort = server.address().port;
+      resolve();
+    }));
+
+    try {
+      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      writeFullConfig({ ...makeOidcConfig(), issuerUrl });
+      loaderMod.loadConfig();
+      oidcMod.clearOidcCache();
+
+      const doc = await oidcMod.getDiscoveryDoc(issuerUrl);
+      assert.equal(doc.end_session_endpoint, undefined,
+        'end_session_endpoint should be undefined when absent');
+    } finally {
+      await new Promise(resolve => server.close(resolve));
+      writeFullConfig(makeOidcConfig());
+      loaderMod.loadConfig();
+      oidcMod.clearOidcCache();
+    }
+  });
 });

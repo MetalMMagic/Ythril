@@ -233,9 +233,15 @@ export class ShellComponent implements OnInit {
     });
   }
 
-  logout(): void {
+  async logout(): Promise<void> {
     if (this._pollTimer !== null) clearInterval(this._pollTimer);
-    this.auth.logout();
-    this.router.navigate(['/login']);
+    // Attempt a full OIDC sign-out (calls end_session_endpoint + clears local
+    // state and redirects to the IdP).  When no OIDC session is active (PAT or
+    // no session) the method returns false and we do a plain local logout.
+    const oidcLogoutInitiated = await this.auth.logoutOidc();
+    if (!oidcLogoutInitiated) {
+      this.auth.logout();
+      void this.router.navigate(['/login']);
+    }
   }
 }

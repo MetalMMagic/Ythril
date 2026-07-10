@@ -25,7 +25,7 @@ import { getAllowedChronoTypes } from '../spaces/schema-validation.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { computeMerkleRoot } from '../brain/merkle.js';
 import { buildBraintreeAncestors } from '../util/braintree.js';
-import { acceptVoteCast, getSigningPublicKey, pinMemberSigningKey } from '../util/signing.js';
+import { acceptVoteCast, getSigningPublicKey, getSigningKeyRotation, pinMemberSigningKey, type SigningKeyRotation } from '../util/signing.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -1202,8 +1202,10 @@ syncRouter.post('/networks/:networkId/members', syncRateLimit, requireAuth, deny
           children: incoming.children ?? freshNet.members[idx]!.children,
           lastSyncAt: new Date().toISOString(),
         };
-        // Trust-on-first-use: pin the member's signing key the first time we see it.
-        pinMemberSigningKey(updated, incoming.signingPublicKey);
+        // Trust-on-first-use pin; a change to a different key is accepted only
+        // with a valid rotation proof carried on the self-record.
+        const incomingRotation = (incoming as { signingKeyRotation?: SigningKeyRotation }).signingKeyRotation;
+        pinMemberSigningKey(updated, incoming.signingPublicKey, incomingRotation);
         freshNet.members[idx] = updated;
         saveConfig(fresh);
       }
@@ -1215,6 +1217,8 @@ syncRouter.post('/networks/:networkId/members', syncRateLimit, requireAuth, deny
     if (selfUrl) selfRecord['url'] = selfUrl;
     const ownSigningKey = getSigningPublicKey();
     if (ownSigningKey) selfRecord['signingPublicKey'] = ownSigningKey;
+    const ownRotation = getSigningKeyRotation();
+    if (ownRotation) selfRecord['signingKeyRotation'] = ownRotation;
     res.status(200).json({ status: 'ok', self: selfRecord });
   } catch (err) {
     log.error(`sync POST members: ${err}`);

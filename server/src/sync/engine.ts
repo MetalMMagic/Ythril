@@ -50,7 +50,7 @@ import { getDataRoot } from '../config/loader.js';
 import { createHash } from 'node:crypto';
 import { resolveSafePath } from '../files/sandbox.js';
 import { deleteFileMeta, upsertFileMeta } from '../files/file-meta.js';
-import { acceptVoteCast, getSigningPublicKey, pinMemberSigningKey } from '../util/signing.js';
+import { acceptVoteCast, getSigningPublicKey, getSigningKeyRotation, pinMemberSigningKey } from '../util/signing.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // Timeout for every outbound fetch to a peer.
@@ -550,6 +550,8 @@ async function gossipWithPeer(
     if (selfUrl) selfRecord['url'] = selfUrl;
     const ownSigningKey = getSigningPublicKey();
     if (ownSigningKey) selfRecord['signingPublicKey'] = ownSigningKey;
+    const ownRotation = getSigningKeyRotation();
+    if (ownRotation) selfRecord['signingKeyRotation'] = ownRotation;
     const resp = await fetch(`${base}/members`, {
       ...opts(),
       method: 'POST',
@@ -558,7 +560,7 @@ async function gossipWithPeer(
     if (resp.ok) {
       // Peer may piggyback its own self-record in the response so we can update our entry for it
       try {
-        const body = await resp.json() as { status: string; self?: Partial<NetworkMember> };
+        const body = await resp.json() as { status: string; self?: Partial<NetworkMember> & { signingKeyRotation?: import('../util/signing.js').SigningKeyRotation } };
         const peerSelf = body.self;
         if (peerSelf?.instanceId === member.instanceId) {
           const freshCfg = getConfig();
@@ -569,7 +571,7 @@ async function gossipWithPeer(
               let changed = false;
               if (peerSelf.url && peerSelf.url !== local.url) { local.url = peerSelf.url; changed = true; }
               if (peerSelf.label && peerSelf.label !== local.label) { local.label = peerSelf.label; changed = true; }
-              if (pinMemberSigningKey(local, peerSelf.signingPublicKey)) changed = true;
+              if (pinMemberSigningKey(local, peerSelf.signingPublicKey, peerSelf.signingKeyRotation)) changed = true;
               if (changed) {
                 log.info(`Gossip: updated ${member.label} via self-piggyback (${net.id})`);
                 saveConfig(freshCfg);

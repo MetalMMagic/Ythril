@@ -1,69 +1,228 @@
 /**
- * Shared SSRF-safe peer URL validator.
+ * Shared SSRF-safe URL validation and fetch helpers.
  *
- * Used by both the network member add flow (networks.ts) and the invite apply
- * flow (invite.ts) to prevent server-side request forgery.
+ * Used by the network member add flow (networks.ts), invite apply (invite.ts),
+ * webhook delivery (webhooks/dispatcher.ts), media-config, schema-library and
+ * the Mongo URI config API to prevent server-side request forgery.
  *
- * Blocks:
- *  - Non-http(s) schemes
- *  - Embedded credentials in the URL
- *  - Loopback IPv4 (127/8) and hostname "localhost"
- *  - Loopback IPv6 (::1)
- *  - ULA IPv6 (fc00::/7)  ← addresses starting fc or fd
- *  - Link-local IPv6 (fe80::/10)
- *  - RFC-1918 private IPv4 (10/8, 172.16-31/12, 192.168/16)
- *  - Link-local IPv4 (169.254/16) — covers AWS/Azure IMDS
- *  - GCP metadata FQDN (metadata.google.internal)
- *  - 0.0.0.0
+ * Two layers of defence:
+ *
+ *  1. `isSsrfSafeUrl` — a synchronous, allocation-free string check used inside
+ *     Zod refinements at config time. It rejects unsafe schemes, embedded
+ *     credentials, and any host that is *literally* a blocked address — in ALL
+ *     of its encodings: dotted-decimal, decimal/hex/octal integers, short forms
+ *     (`127.1`), IPv4-mapped/compatible IPv6 (`[::ffff:127.0.0.1]`), ULA,
+ *     link-local, loopback and the unspecified address. It does NOT resolve DNS.
+ *
+ *  2. `assertUrlSafeResolved` / `ssrfSafeFetch` — the authoritative, async,
+ *     use-time check. It resolves the hostname via DNS and validates EVERY
+ *     returned A/AAAA record against the block ranges, then (for fetch) follows
+ *     redirects manually, re-validating each hop. This defeats DNS names that
+ *     point at internal addresses and DNS-rebinding / redirect-to-internal
+ *     pivots that a config-time string check can never catch.
+ *
+ * Blocked address ranges (IPv4): 0.0.0.0/8, 10/8, 100.64/10 (CGNAT), 127/8,
+ * 169.254/16 (incl. cloud IMDS 169.254.169.254), 172.16/12, 192.168/16, and
+ * 255.255.255.255. IPv6: ::/128 (unspecified), ::1 (loopback), fc00::/7 (ULA),
+ * fe80::/10 (link-local), plus any IPv4-mapped/compatible address embedding a
+ * blocked IPv4. Hostnames `localhost` and `metadata.google.internal` are also
+ * blocked by name.
  */
 
-// Matches private/loopback/link-local IPv4 ranges.
-const PRIVATE_IP_RE =
-  /^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0\.0\.0\.0)$/;
+import net from 'node:net';
+import dns from 'node:dns/promises';
+
+/** Thrown by the async SSRF guards when a target resolves to a blocked address. */
+export class SsrfBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SsrfBlockedError';
+  }
+}
+
+// ── IPv4 helpers ─────────────────────────────────────────────────────────────
+
+/** Blocked IPv4 CIDRs as [base, mask] pairs (unsigned 32-bit). */
+const BLOCKED_IPV4_CIDRS: ReadonlyArray<readonly [number, number]> = [
+  [0x00000000, 0xff000000], // 0.0.0.0/8      "this network"
+  [0x0a000000, 0xff000000], // 10.0.0.0/8     RFC-1918
+  [0x64400000, 0xffc00000], // 100.64.0.0/10  CGNAT (RFC-6598)
+  [0x7f000000, 0xff000000], // 127.0.0.0/8    loopback
+  [0xa9fe0000, 0xffff0000], // 169.254.0.0/16 link-local incl. cloud IMDS
+  [0xac100000, 0xfff00000], // 172.16.0.0/12  RFC-1918
+  [0xc0a80000, 0xffff0000], // 192.168.0.0/16 RFC-1918
+  [0xffffffff, 0xffffffff], // 255.255.255.255 broadcast
+];
+
+/** Parse a standard dotted-decimal IPv4 string to an unsigned 32-bit int, or null. */
+function dottedIpv4ToInt(dotted: string): number | null {
+  const parts = dotted.split('.');
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const v = parseInt(part, 10);
+    if (v > 255) return null;
+    n = n * 256 + v;
+  }
+  return n >>> 0;
+}
 
 /**
- * Returns true only if the URL is safe to use as a sync peer target.
- * Rejects private/loopback/ULA/link-local addresses and unsafe schemes.
+ * Canonicalise a non-standard IPv4 host encoding to a dotted-decimal string.
+ * Handles decimal/hex/octal integers and short forms following inet_aton
+ * semantics (`2130706433`, `0x7f000001`, `0177.0.0.1`, `127.1`, `127.0.1`).
+ * Returns null when `host` is not an inet_aton-parseable IPv4 (e.g. a hostname).
+ */
+function canonicalizeIpv4(host: string): string | null {
+  const parts = host.split('.');
+  if (parts.length < 1 || parts.length > 4) return null;
+  const nums: number[] = [];
+  for (const part of parts) {
+    let v: number;
+    if (/^0x[0-9a-f]+$/i.test(part)) v = parseInt(part, 16);
+    else if (/^0[0-7]+$/.test(part)) v = parseInt(part, 8);
+    else if (/^0$/.test(part)) v = 0;
+    else if (/^[1-9][0-9]*$/.test(part)) v = parseInt(part, 10);
+    else return null; // non-numeric part → this is a hostname, not a numeric IP
+    if (!Number.isFinite(v) || v < 0) return null;
+    nums.push(v);
+  }
+  // Leading parts are 8 bits each; the final part absorbs the remaining bits.
+  let acc = 0;
+  for (let i = 0; i < nums.length - 1; i++) {
+    if (nums[i]! > 255) return null;
+    acc = acc * 256 + nums[i]!;
+  }
+  const remainderBits = 8 * (5 - nums.length); // 1→32, 2→24, 3→16, 4→8
+  const maxLast = 2 ** remainderBits;
+  const last = nums[nums.length - 1]!;
+  if (last >= maxLast) return null;
+  const n = (acc * maxLast + last) >>> 0;
+  return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff].join('.');
+}
+
+function isBlockedIpv4Int(n: number): boolean {
+  const u = n >>> 0;
+  return BLOCKED_IPV4_CIDRS.some(([base, mask]) => ((u & mask) >>> 0) === (base >>> 0));
+}
+
+// ── IPv6 helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Expand an IPv6 literal (with optional `::` compression, embedded IPv4, or a
+ * `%zone` suffix) to its 8 hextets as integers. Returns null when not a valid
+ * IPv6 literal.
+ */
+function expandIpv6(input: string): number[] | null {
+  let s = input.toLowerCase().split('%')[0]!; // drop zone id
+  // Convert a trailing embedded IPv4 (`::ffff:127.0.0.1`) into two hextets.
+  if (s.includes('.')) {
+    const colon = s.lastIndexOf(':');
+    if (colon === -1) return null;
+    const v4 = s.slice(colon + 1);
+    const n = dottedIpv4ToInt(v4);
+    if (n === null) return null;
+    s = s.slice(0, colon + 1) + ((n >>> 16) & 0xffff).toString(16) + ':' + (n & 0xffff).toString(16);
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0]!.length ? halves[0]!.split(':') : [];
+  let hextets: string[];
+  if (halves.length === 1) {
+    hextets = head;
+    if (hextets.length !== 8) return null;
+  } else {
+    const tail = halves[1]!.length ? halves[1]!.split(':') : [];
+    const missing = 8 - head.length - tail.length;
+    if (missing < 0) return null;
+    hextets = [...head, ...Array(missing).fill('0'), ...tail];
+    if (hextets.length !== 8) return null;
+  }
+  const out: number[] = [];
+  for (const h of hextets) {
+    if (!/^[0-9a-f]{1,4}$/.test(h)) return null;
+    out.push(parseInt(h, 16));
+  }
+  return out;
+}
+
+function isBlockedIpv6Expanded(h: number[]): boolean {
+  // Unspecified :: and loopback ::1
+  if (h.every(x => x === 0)) return true;
+  if (h.slice(0, 7).every(x => x === 0) && h[7] === 1) return true;
+  // ULA fc00::/7 and link-local fe80::/10
+  if ((h[0]! & 0xfe00) === 0xfc00) return true;
+  if ((h[0]! & 0xffc0) === 0xfe80) return true;
+  // IPv4-mapped ::ffff:a.b.c.d  (h[0..4]=0, h[5]=0xffff)
+  if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0xffff) {
+    return isBlockedIpv4Int((((h[6]! << 16) >>> 0) | h[7]!) >>> 0);
+  }
+  // IPv4-compatible ::a.b.c.d (deprecated, h[0..5]=0), excluding ::1 handled above
+  if (h.slice(0, 6).every(x => x === 0) && (h[6] !== 0 || h[7] !== 0)) {
+    return isBlockedIpv4Int((((h[6]! << 16) >>> 0) | h[7]!) >>> 0);
+  }
+  return false;
+}
+
+// ── Host classification ──────────────────────────────────────────────────────
+
+/**
+ * Returns true if `host` (an IP literal in any encoding, brackets optional) is a
+ * blocked address. Returns false for plain hostnames — those must be resolved
+ * via `assertUrlSafeResolved` before use.
+ */
+export function isBlockedIp(host: string): boolean {
+  let stripped = host.trim().toLowerCase();
+  if (stripped.startsWith('[') && stripped.endsWith(']')) stripped = stripped.slice(1, -1);
+  stripped = stripped.replace(/\.$/, ''); // tolerate a single trailing dot
+  if (stripped.includes(':')) {
+    const h = expandIpv6(stripped);
+    return h ? isBlockedIpv6Expanded(h) : false;
+  }
+  if (net.isIPv4(stripped)) return isBlockedIpv4Int(dottedIpv4ToInt(stripped)!);
+  const canon = canonicalizeIpv4(stripped);
+  if (canon) return isBlockedIpv4Int(dottedIpv4ToInt(canon)!);
+  return false;
+}
+
+/** Normalise a URL hostname: lowercase, strip IPv6 brackets and a trailing dot. */
+function normaliseHost(hostname: string): string {
+  let h = hostname.toLowerCase();
+  if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+  return h.replace(/\.$/, '');
+}
+
+/** True when the host is a literal IP address in any recognised encoding. */
+function isIpLiteral(host: string): boolean {
+  if (host.includes(':')) return expandIpv6(host) !== null;
+  return net.isIPv4(host) || canonicalizeIpv4(host) !== null;
+}
+
+// ── Public synchronous validator (config-time, no DNS) ───────────────────────
+
+/**
+ * Returns true only if the URL is safe to use as an outbound target based on a
+ * literal inspection of the host. Rejects unsafe schemes, embedded credentials,
+ * and any host that is literally a blocked address in any encoding.
+ *
+ * NOTE: this does NOT resolve DNS. A hostname that resolves to an internal
+ * address will pass here — call `assertUrlSafeResolved` / `ssrfSafeFetch` before
+ * actually making the request.
  */
 export function isSsrfSafeUrl(raw: string): boolean {
   let parsed: URL;
   try {
     parsed = new URL(raw);
   } catch {
-    return false; // malformed URL
+    return false;
   }
-
-  // Only http and https are valid transport schemes for a sync peer.
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-
-  // Reject embedded credentials — they belong in the token, not the URL.
   if (parsed.username || parsed.password) return false;
 
-  const host = parsed.hostname.toLowerCase();
-
-  // Block localhost by name.
-  if (host === 'localhost') return false;
-
-  // Block GCP metadata server (FQDN, not just IP).
-  if (host === 'metadata.google.internal') return false;
-
-  // Strip brackets from IPv6 addresses for range checks.
-  const ipv6 = host.startsWith('[') && host.endsWith(']')
-    ? host.slice(1, -1).toLowerCase()
-    : host.toLowerCase();
-
-  // Block loopback IPv6.
-  if (ipv6 === '::1') return false;
-
-  // Block ULA IPv6 (fc00::/7): addresses starting with fc or fd.
-  if (/^f[cd][0-9a-f]{0,2}:/i.test(ipv6)) return false;
-
-  // Block link-local IPv6 (fe80::/10): addresses starting with fe8, fe9, fea, feb.
-  if (/^fe[89ab][0-9a-f]:/i.test(ipv6)) return false;
-
-  // Block private/link-local/loopback IPv4 ranges.
-  if (PRIVATE_IP_RE.test(host)) return false;
-
+  const host = normaliseHost(parsed.hostname);
+  if (host === 'localhost' || host === 'metadata.google.internal') return false;
+  if (isBlockedIp(host)) return false;
   return true;
 }
 
@@ -72,12 +231,92 @@ export const SSRF_SAFE_MESSAGE =
   'Peer URL must use http(s) and must not target private IPs, loopback, ' +
   'ULA/link-local IPv6, cloud metadata endpoints, or include embedded credentials';
 
+// ── Authoritative async check (resolves DNS) ─────────────────────────────────
+
+export interface LookupAddress {
+  address: string;
+  family?: number;
+}
+
+/** Injectable resolver signature (defaults to `dns.lookup(host, { all: true })`). */
+export type DnsLookup = (hostname: string) => Promise<LookupAddress[]>;
+
+const defaultLookup: DnsLookup = async (hostname) => {
+  const res = await dns.lookup(hostname, { all: true });
+  return res as LookupAddress[];
+};
+
+/**
+ * Assert that a URL is safe to fetch, resolving DNS and validating every
+ * resolved address against the block ranges. Throws `SsrfBlockedError` when the
+ * URL is unsafe or resolves to a blocked address.
+ *
+ * @param opts.lookup  Injectable DNS resolver (for testing / custom resolvers).
+ * @returns the parsed URL and the resolved addresses (empty for IP literals).
+ */
+export async function assertUrlSafeResolved(
+  raw: string,
+  opts: { lookup?: DnsLookup } = {},
+): Promise<{ url: URL; addresses: string[] }> {
+  if (!isSsrfSafeUrl(raw)) {
+    throw new SsrfBlockedError(`Blocked SSRF target (unsafe URL): ${raw}`);
+  }
+  const url = new URL(raw);
+  const host = normaliseHost(url.hostname);
+
+  // IP literals were already validated by isSsrfSafeUrl — no DNS needed.
+  if (isIpLiteral(host)) return { url, addresses: [host] };
+
+  const lookup = opts.lookup ?? defaultLookup;
+  const results = await lookup(host);
+  if (!results || results.length === 0) {
+    throw new SsrfBlockedError(`Blocked SSRF target (DNS returned no records): ${host}`);
+  }
+  for (const a of results) {
+    if (isBlockedIp(a.address)) {
+      throw new SsrfBlockedError(`Blocked SSRF target (${host} resolves to blocked address ${a.address})`);
+    }
+  }
+  return { url, addresses: results.map(a => a.address) };
+}
+
+/**
+ * SSRF-safe replacement for `fetch`. Validates the target (with DNS resolution)
+ * before each request and follows redirects manually, re-validating every hop's
+ * URL so a target cannot 3xx-redirect to an internal address.
+ *
+ * Uses `redirect: 'manual'` internally regardless of any `init.redirect`.
+ */
+export async function ssrfSafeFetch(
+  rawUrl: string,
+  init: RequestInit = {},
+  opts: { maxRedirects?: number; lookup?: DnsLookup; fetchImpl?: typeof fetch } = {},
+): Promise<Response> {
+  const maxRedirects = opts.maxRedirects ?? 3;
+  const doFetch = opts.fetchImpl ?? fetch;
+  let current = rawUrl;
+
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    await assertUrlSafeResolved(current, { lookup: opts.lookup });
+    const resp = await doFetch(current, { ...init, redirect: 'manual' });
+    const location = resp.status >= 300 && resp.status < 400 ? resp.headers.get('location') : null;
+    if (!location) return resp;
+    // Resolve the redirect target relative to the current URL and re-validate on
+    // the next loop iteration.
+    current = new URL(location, current).toString();
+  }
+  throw new SsrfBlockedError(`Blocked SSRF target (too many redirects, > ${maxRedirects})`);
+}
+
+// ── MongoDB URI variant ──────────────────────────────────────────────────────
+
 /**
  * Returns true if the MongoDB URI hostname is safe (not private/loopback).
  * Accepts mongodb:// and mongodb+srv:// schemes only.
  *
- * Used to validate user-supplied connection strings in the data config API
- * before the server attempts to connect.
+ * Covers the common single-host case. Replica-set host lists beyond the first
+ * host are not parsed by the URL class; the async guards above should be used
+ * for authoritative validation where a connection is actually opened.
  */
 export function isSsrfSafeMongoUri(raw: string): boolean {
   let parsed: URL;
@@ -86,24 +325,11 @@ export function isSsrfSafeMongoUri(raw: string): boolean {
   } catch {
     return false;
   }
-
   if (parsed.protocol !== 'mongodb:' && parsed.protocol !== 'mongodb+srv:') return false;
 
-  // For replica sets the host list lives in parsed.host, but URL only parses the first.
-  // This covers the common single-host case and prevents the most obvious SSRF vectors.
-  const host = parsed.hostname.toLowerCase();
+  const host = normaliseHost(parsed.hostname);
   if (!host) return false;
-
-  if (host === 'localhost') return false;
-  if (host === 'metadata.google.internal') return false;
-
-  // Strip IPv6 brackets
-  const ip6 = host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
-  if (ip6 === '::1') return false;
-  if (/^f[cd][0-9a-f]{0,2}:/i.test(ip6)) return false;
-  if (/^fe[89ab][0-9a-f]:/i.test(ip6)) return false;
-
-  if (PRIVATE_IP_RE.test(host)) return false;
-
+  if (host === 'localhost' || host === 'metadata.google.internal') return false;
+  if (isBlockedIp(host)) return false;
   return true;
 }

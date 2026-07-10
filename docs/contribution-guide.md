@@ -172,7 +172,7 @@ Covers: closed-network sync, braintree governance, democratic voting, pubsub top
 npm run test:redteam
 ```
 
-Attack simulations: auth bypass, path traversal, MongoDB injection ($options injection, operator whitelist), space boundary, oversized payload, invite replay, SSRF (IPv4/IPv6, network members), sequence injection, mass assignment, token brute-force, sync scope bypass, MCP security (token hygiene, input validation, operator injection), direction enforcement, space rename.
+Attack simulations: auth bypass, path traversal, MongoDB injection ($options injection, operator whitelist), space boundary, oversized payload, invite replay, SSRF (IPv4/IPv6, alternate host encodings, network members), sequence injection, mass assignment, token brute-force, sync scope bypass, MCP security (token hygiene, input validation, operator injection), direction enforcement, space rename.
 
 ### Run everything
 
@@ -309,7 +309,7 @@ Ythril is designed for ISO 27001-class environments. Security is not a phase —
 - **Cryptographic choices are non-negotiable.** AES-256-GCM for secrets at rest. RSA-4096-OAEP for invite payloads. bcrypt cost-12 for token hashes. HMAC-SHA256 for webhook signatures. `crypto.timingSafeEqual` for all constant-time comparisons. No weaker alternatives.
 - **No dynamic evaluation.** No `eval()`, no `Function()` constructors, no template-string code generation. User input never reaches a code path that interprets it as executable.
 - **Secrets never appear in logs.** The log-redaction layer strips tokens, passwords, and keys before they reach stdout. Red-team tests verify this.
-- **SSRF protection is mandatory** for any feature that makes outbound HTTP requests using user-supplied URLs. Resolve the hostname, reject private/link-local/loopback ranges, reject non-HTTP(S) schemes. The `validateUrl()` utility exists for this — use it.
+- **SSRF protection is mandatory** for any feature that makes outbound HTTP requests using user-supplied URLs. `util/ssrf.ts` provides the layers: `isSsrfSafeUrl()` for a synchronous config-time string check (rejects non-HTTP(S) schemes, embedded credentials, and blocked addresses in every encoding — decimal/hex/octal/short-form IPv4, IPv4-mapped IPv6, ULA/link-local), and `assertUrlSafeResolved()` / `ssrfSafeFetch()` for the authoritative use-time check that resolves DNS, validates every resolved A/AAAA record, and re-validates each redirect hop. Never `fetch()` a user-supplied URL directly — use `ssrfSafeFetch()`.
 - **Every security-adjacent change must pass red-team tests.** A failing red-team test is treated as a security regression, not a flaky test.
 
 ### 2. Scalability

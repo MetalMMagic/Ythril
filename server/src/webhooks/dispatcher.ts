@@ -14,6 +14,7 @@ import type { Filter, Sort } from 'mongodb';
 import { getMatchingWebhooks, getWebhookFull, recordDelivery, markWebhookSuccess, markWebhookFailure } from './store.js';
 import { col } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
+import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
 import type { WebhookEventType, WebhookEventPayload, WebhookDelivery, WebhookSubscription } from './types.js';
 
@@ -236,7 +237,10 @@ async function attemptDelivery(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
 
-    const resp = await fetch(sub.url, {
+    // Use the SSRF-safe fetch: it re-resolves DNS and re-validates every redirect
+    // hop, so a webhook target validated at creation time cannot rebind or
+    // 3xx-redirect to an internal address (cloud IMDS, RFC-1918, loopback).
+    const resp = await ssrfSafeFetch(sub.url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

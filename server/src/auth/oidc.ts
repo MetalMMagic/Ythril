@@ -15,7 +15,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import type { JWTPayload } from 'jose';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
-import type { OidcConfig, OidcClaimRule } from '../config/types.js';
+import type { OidcConfig, OidcClaimRule, OidcClaimMapping } from '../config/types.js';
 
 // ── OIDC URL validation ───────────────────────────────────────────────────
 // Unlike the full isSsrfSafeUrl check (designed for user-supplied peer URLs),
@@ -183,6 +183,50 @@ export function getOidcConfig(): OidcConfig | null {
   return cfg.oidc;
 }
 
+export interface OidcPermissions {
+  admin: boolean;
+  readOnly: boolean | undefined;
+  spaces: string[] | undefined;
+  /** True when the token matched the admin or readOnly claim rule. */
+  matched: boolean;
+}
+
+/**
+ * Map OIDC JWT claims to Ythril permissions — **fail closed**.
+ *
+ * A token that matches NEITHER the admin nor the readOnly rule receives
+ * read-only access to NO spaces. Previously such a token was granted
+ * `readOnly: undefined` (i.e. read-write) and `spaces: undefined` (i.e. ALL
+ * spaces), so any principal able to obtain an audience-matching JWT from a
+ * shared realm got full read-write access to every space. Access must now be
+ * granted explicitly via claim rules.
+ *
+ * When a `spaces` mapping is configured but the claim is missing or not an
+ * array, the allow-list is empty (deny) rather than undefined (all spaces).
+ */
+export function mapOidcClaims(payload: JWTPayload, mapping: OidcClaimMapping): OidcPermissions {
+  const admin = mapping.admin ? evaluateClaimRule(payload, mapping.admin) : false;
+  const readOnlyMatched = mapping.readOnly ? evaluateClaimRule(payload, mapping.readOnly) : false;
+  const matched = admin || readOnlyMatched;
+
+  let spaces: string[] | undefined;
+  if (mapping.spaces) {
+    const raw = resolveClaim(payload, mapping.spaces.claim);
+    spaces = Array.isArray(raw) ? raw.filter((s): s is string => typeof s === 'string') : [];
+  }
+
+  if (!matched) {
+    return { admin: false, readOnly: true, spaces: [], matched: false };
+  }
+
+  return {
+    admin,
+    readOnly: readOnlyMatched ? true : undefined,
+    spaces,
+    matched: true,
+  };
+}
+
 /**
  * Validate a JWT bearer token against the configured OIDC provider.
  *
@@ -204,28 +248,18 @@ export async function validateOidcJwt(bearer: string): Promise<OidcTokenRecord |
       audience,
     });
 
-    // ── Map claims → permissions ──────────────────────────────────────────
+    // ── Map claims → permissions (fail-closed) ────────────────────────────
     const mapping = oidcCfg.claimMapping ?? {};
-
-    const admin = mapping.admin ? evaluateClaimRule(payload, mapping.admin) : false;
-    const readOnly = mapping.readOnly ? evaluateClaimRule(payload, mapping.readOnly) : undefined;
+    const perms = mapOidcClaims(payload, mapping);
 
     // ── requireMatch guard ────────────────────────────────────────────────
     // When requireMatch is true, reject any token that matches neither the
     // admin nor the readOnly rule.  This prevents KC-authenticated users
     // who hold a valid audience-matched token (e.g. via SSO from a shared
     // realm) from accessing the instance without an explicit role assignment.
-    if (mapping.requireMatch && !admin && !readOnly) {
+    if (mapping.requireMatch && !perms.matched) {
       log.warn('OIDC JWT rejected: requireMatch is enabled and no claim rule matched');
       return null;
-    }
-
-    let spaces: string[] | undefined;
-    if (mapping.spaces) {
-      const raw = resolveClaim(payload, mapping.spaces.claim);
-      if (Array.isArray(raw)) {
-        spaces = raw.filter((s): s is string => typeof s === 'string');
-      }
     }
 
     // ── Derive display name ────────────────────────────────────────────────
@@ -244,9 +278,9 @@ export async function validateOidcJwt(bearer: string): Promise<OidcTokenRecord |
       createdAt,
       lastUsed: null,
       expiresAt,
-      admin,
-      readOnly: readOnly === true ? true : undefined,
-      spaces,
+      admin: perms.admin,
+      readOnly: perms.readOnly,
+      spaces: perms.spaces,
       source: 'oidc',
     };
   } catch (err) {

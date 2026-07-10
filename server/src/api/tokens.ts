@@ -43,6 +43,28 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
     res.status(400).json({ error: 'A schemaLibrary token cannot have admin or space access' });
     return;
   }
+
+  // Privilege-escalation guard: a space-restricted creator (its token carries a
+  // `spaces` allow-list) may only mint tokens confined to a SUBSET of its own
+  // spaces. Without this, a token scoped to space A could mint an unrestricted
+  // token (no `spaces` = all spaces, `admin: true`) and defeat its own scoping.
+  // An unrestricted creator (no `spaces`) may mint any scope.
+  const creatorSpaces = req.authToken?.spaces;
+  if (creatorSpaces) {
+    if (schemaLibrary) {
+      // schemaLibrary tokens have no space access — always within any scope.
+    } else if (!spaces) {
+      res.status(403).json({ error: 'A space-restricted token cannot create an unrestricted (all-spaces) token' });
+      return;
+    } else {
+      const outside = spaces.filter(s => !creatorSpaces.includes(s));
+      if (outside.length > 0) {
+        res.status(403).json({ error: `Cannot grant access to space(s) outside your own scope: ${outside.join(', ')}` });
+        return;
+      }
+    }
+  }
+
   // schemaLibrary tokens are always read-only and have no space access
   const effectiveReadOnly = schemaLibrary ? true : (readOnly ?? false);
   const effectiveSpaces = schemaLibrary ? [] : spaces;

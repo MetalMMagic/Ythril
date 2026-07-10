@@ -147,53 +147,50 @@ describe('Token lifecycle', () => {
 // Uses POST /api/admin/reload-config instead of docker restart so this test
 // does not kill the container while other test files run concurrently.
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-describe('Config-reload migration: prefix-less tokens are evicted', () => {
-  it('prefix-less token is rejected after reload; admin token survives', async () => {
-    // 1. Create a fresh token â€” it will have a prefix field set by createToken()
+describe('Legacy (prefix-less) tokens self-heal instead of being evicted', () => {
+  it('a prefix-less token still authenticates after reload and its prefix is backfilled', async () => {
+    // 1. Create a fresh token — it has a prefix field set by createToken().
     const create = await post(INSTANCES.a, tokenA, '/api/tokens', { name: 'legacy-sim-token' });
     assert.equal(create.status, 201);
     const legacyId = create.body.token.id;
     const legacyPlaintext = create.body.plaintext;
 
-    // Sanity: it authenticates before we tamper with anything
+    // Sanity: it authenticates before we tamper with anything.
     const before = await get(INSTANCES.a, legacyPlaintext, '/api/tokens/me');
     assert.equal(before.status, 200, 'Token must authenticate before simulation');
 
-    // 2–3. Strip the prefix and reload, with retry.
-    //    A concurrent test's saveConfig() can overwrite the file between the
-    //    docker exec and the reload, re-introducing the prefix from in-memory
-    //    config.  Retry up to 3 times (the window is tiny; one retry suffices).
-    let migrated = false;
-    for (let attempt = 0; attempt < 3 && !migrated; attempt++) {
-      // 2. Atomic strip: write to tmp then rename (avoids SyntaxError from
-      //    concurrent reads of a half-written file).
-      execSync(
-        `docker exec ythril-a node -e ` +
-        `"const fs=require('fs'),p='/config/config.json',c=JSON.parse(fs.readFileSync(p,'utf8'));` +
-        `const t=c.tokens.find(t=>t.id==='${legacyId}');` +
-        `if(t)delete t.prefix;` +
-        `const tmp=p+'.test-tmp';` +
-        `fs.writeFileSync(tmp,JSON.stringify(c,null,2),{mode:0o600});` +
-        `fs.renameSync(tmp,p);"`,
-      );
+    // 2. Strip the prefix to simulate a token created before the prefix field
+    //    existed (atomic tmp+rename to avoid a half-written read).
+    execSync(
+      `docker exec ythril-a node -e ` +
+      `"const fs=require('fs'),p='/config/config.json',c=JSON.parse(fs.readFileSync(p,'utf8'));` +
+      `const t=c.tokens.find(t=>t.id==='${legacyId}');` +
+      `if(t)delete t.prefix;` +
+      `const tmp=p+'.test-tmp';` +
+      `fs.writeFileSync(tmp,JSON.stringify(c,null,2),{mode:0o600});` +
+      `fs.renameSync(tmp,p);"`,
+    );
 
-      // 3. Reload config to trigger the migration
-      const reloadR = await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
-      assert.equal(reloadR.status, 200, `Reload failed: ${JSON.stringify(reloadR.body)}`);
+    // 3. Reload config so the prefix-less token is the in-memory state.
+    const reloadR = await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
+    assert.equal(reloadR.status, 200, `Reload failed: ${JSON.stringify(reloadR.body)}`);
 
-      // Check if the migration took effect
-      const probe = await get(INSTANCES.a, legacyPlaintext, '/api/tokens/me');
-      migrated = probe.status === 401;
-    }
-    assert.ok(migrated, 'Prefix-less token must be rejected after migration (failed after 3 attempts)');
+    // 4. The legacy token must STILL authenticate (self-healing fallback scan),
+    //    NOT be rejected — this is the fix for silent fleet-wide token invalidation.
+    const probe = await get(INSTANCES.a, legacyPlaintext, '/api/tokens/me');
+    assert.equal(probe.status, 200, 'Prefix-less token must still authenticate (self-heal, not eviction)');
 
-    // 4. The admin token (which has a prefix) must still work
-    const afterAdmin = await get(INSTANCES.a, tokenA, '/api/tokens/me');
-    assert.equal(afterAdmin.status, 200, 'Admin token must still authenticate after migration');
-
-    // 5. The pruned token must not appear in the listing
+    // 5. It remains in the token list (never deleted) and its prefix is backfilled.
     const list = await get(INSTANCES.a, tokenA, '/api/tokens');
-    const listedIds = list.body.tokens.map(t => t.id);
-    assert.ok(!listedIds.includes(legacyId), 'Evicted token must not appear in token list');
+    const listed = list.body.tokens.find(t => t.id === legacyId);
+    assert.ok(listed, 'Legacy token must NOT be evicted from the token list');
+    assert.ok(listed.prefix && listed.prefix.length === 8, 'Prefix must be backfilled on first use');
+
+    // 6. A follow-up call still works (now via the fast prefix-filtered path).
+    const again = await get(INSTANCES.a, legacyPlaintext, '/api/tokens/me');
+    assert.equal(again.status, 200);
+
+    // Cleanup
+    await del(INSTANCES.a, tokenA, `/api/tokens/${legacyId}`).catch(() => {});
   });
 });

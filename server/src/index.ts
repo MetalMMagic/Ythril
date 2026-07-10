@@ -33,23 +33,10 @@ async function main(): Promise<void> {
     loadSecrets();
     loadSchemaLibrary();
 
-    // Migration: tokens created before the prefix field was introduced have no
-    // prefix and cannot be looked up efficiently (nor can the prefix be
-    // recomputed from the stored hash). Remove them now — holders must create
-    // new tokens.
-    {
-      const { getConfig, saveConfig } = await import('./config/loader.js');
-      const cfg = getConfig();
-      const before = cfg.tokens.length;
-      cfg.tokens = cfg.tokens.filter(t => t.prefix);
-      if (cfg.tokens.length < before) {
-        log.warn(
-          `Removed ${before - cfg.tokens.length} token(s) that pre-date the ` +
-          'prefix field and cannot be verified. Affected PAT holders must create new tokens.',
-        );
-        saveConfig(cfg);
-      }
-    }
+    // NOTE: tokens created before the `prefix` field existed are NOT deleted.
+    // findMatchingToken() verifies them via a fallback bcrypt scan and backfills
+    // the prefix on first use (self-healing migration), so upgrading no longer
+    // silently invalidates existing PATs.
 
     // Ensure this instance has a persistent Ed25519 signing keypair for governance
     // vote signatures. Generated once (no-op on subsequent boots).

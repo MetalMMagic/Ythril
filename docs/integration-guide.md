@@ -3175,6 +3175,30 @@ In `closed`/`democratic` networks this opens a removal voting round (**202**). I
 
 ---
 
+### Rotate the Instance Signing Key
+
+```
+POST /api/admin/rotate-signing-key
+```
+
+Generates a new Ed25519 governance vote-signing keypair and a continuity proof signed by the old key. Peers that pinned the old key adopt the new one automatically on the next sync; the new public key is returned. Requires an **unrestricted** admin token (a space-restricted admin gets `403`), plus a TOTP code when MFA is enabled.
+
+**Response** `200`: `{ "ok": true, "signingPublicKey": "-----BEGIN PUBLIC KEY-----…" }`
+
+### Force-Pin a Member's Signing Key (break-glass)
+
+```
+PUT /api/networks/:id/members/:instanceId/signing-key
+```
+
+```json
+{ "signingPublicKey": "-----BEGIN PUBLIC KEY-----…" }
+```
+
+Force-sets a member's pinned signing key **without** a rotation proof — recovery for when a peer lost its old private key and cannot produce one. Admin only. **Response** `200`: `{ "ok": true, "instanceId": "…" }`.
+
+---
+
 ### Reparent Self (Braintree)
 
 Called by a braintree child node on itself after completing an RSA handshake with a grandparent. Records a temporary reparent so the node syncs through the grandparent while its original parent is offline.

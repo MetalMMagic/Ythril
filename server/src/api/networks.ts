@@ -18,7 +18,7 @@ import { createSpace } from '../spaces/spaces.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from './sync.js';
 import { getSyncHistory } from '../sync/history.js';
 import { buildBraintreeAncestors } from '../util/braintree.js';
-import { signOwnVoteCast, getSigningPublicKey } from '../util/signing.js';
+import { signOwnVoteCast, getSigningPublicKey, forceSetMemberSigningKey } from '../util/signing.js';
 import { log } from '../util/log.js';
 import type { NetworkConfig, NetworkMember, VoteRound, VoteCast } from '../config/types.js';
 
@@ -292,6 +292,26 @@ networksRouter.patch('/:id', globalRateLimit, requireAdmin, (req, res) => {
   log.info(`Updated network ${net.id}`);
   const { inviteKeyHash: _ikh, ...safe } = net;
   res.json({ ...safe, members: net.members.map(({ tokenHash: _th, skipTlsVerify: _sv, ...m }) => m) });
+});
+
+// ── PUT /api/networks/:id/members/:instanceId/signing-key ──────────────────
+// Break-glass: force-pin a member's governance signing key WITHOUT a rotation
+// proof. Use when a peer lost its old private key (so it cannot produce a
+// continuity proof) and must re-establish trust. Normal rotations propagate
+// automatically via a signed proof over gossip.
+const SigningKeyBody = z.object({ signingPublicKey: z.string().min(100).max(4000) });
+
+networksRouter.put('/:id/members/:instanceId/signing-key', globalRateLimit, requireAdmin, (req, res) => {
+  const parsed = SigningKeyBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+  const cfg = getConfig();
+  const net = cfg.networks.find(n => n.id === req.params['id']);
+  if (!net) { res.status(404).json({ error: 'Network not found' }); return; }
+  const member = net.members.find(m => m.instanceId === req.params['instanceId']);
+  if (!member) { res.status(404).json({ error: 'Member not found' }); return; }
+  forceSetMemberSigningKey(member, parsed.data.signingPublicKey);
+  saveConfig(cfg);
+  res.json({ ok: true, instanceId: member.instanceId });
 });
 
 // ── POST /api/networks/join-remote ─────────────────────────────────────────

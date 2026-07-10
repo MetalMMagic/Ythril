@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **SSRF guard hardened against alternate host encodings and DNS-based bypasses** — the outbound-URL
+  validator (`util/ssrf.ts`) previously inspected only the literal hostname string, so a blocked
+  address supplied in a non-standard encoding — decimal/hex/octal integer (`http://2130706433/`),
+  short form (`http://127.1/`), IPv4-mapped IPv6 (`http://[::ffff:127.0.0.1]/`), trailing dot, or the
+  unspecified address — slipped through, as did any public DNS name that resolves to an internal
+  host. `isSsrfSafeUrl` now canonicalises every IPv4 encoding and expands IPv6 (including
+  IPv4-mapped/compatible forms), and additionally blocks CGNAT (100.64/10) and the broadcast address.
+  A new authoritative async layer (`assertUrlSafeResolved` / `ssrfSafeFetch`) resolves the target via
+  DNS and validates **every** returned A/AAAA record, then follows redirects manually and re-validates
+  each hop. **Webhook delivery** now uses `ssrfSafeFetch`, closing a post-auth SSRF pivot where a
+  webhook target could 302-redirect (or DNS-rebind) to a private/reserved IP after passing
+  creation-time validation. Covered by `testing/standalone/ssrf-hardening.test.js` (65 unit cases) and
+  `testing/red-team-tests/ssrf-encoding.test.js`.
 ### Added
 
 - **Cryptographically signed governance votes** — every brain now owns a persistent Ed25519 signing

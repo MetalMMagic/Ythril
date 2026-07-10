@@ -57,6 +57,7 @@ node --test testing/red-team-tests/mass-assignment.test.js
 | `invite-replay.test.js` | Session security | Replay of consumed handshake, garbage ciphertext in finalize, non-existent IDs |
 | `token-brute-force.test.js` | Brute force | Rate limiter stops token enumeration; unauthenticated endpoint rate limiting |
 | `ssrf-network-member.test.js` | SSRF | Peer URL registration rejects private IPs (RFC-1918, loopback, link-local), cloud metadata endpoints (AWS/Azure/GCP IMDS), non-http(s) schemes, and embedded credentials |
+| `ssrf-encoding.test.js` | SSRF | Peer URL registration rejects alternate host encodings of blocked addresses (decimal/hex/octal/short-form IPv4, IPv4-mapped IPv6, trailing dot, CGNAT) while still allowing genuine public IPs |
 | `sync-scope-bypass.test.js` | Access control | Space-scoped tokens are blocked from all sync endpoints (GET, POST, batch-upsert, tombstones, manifest) for spaces outside their allowlist |
 | `mass-assignment.test.js` | Mass assignment / input validation | Server-generated fields (token id, hash) cannot be injected by the client; `builtIn` flag is not injectable on spaces; Zod strips unknown fields; duplicate JSON keys and oversized inputs are handled safely |
 

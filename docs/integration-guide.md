@@ -2629,7 +2629,7 @@ Content-Type: application/json
 
 **Responses:** `201 { "catalog": { ..., "hasAccessToken": true } }`, `400` (invalid URL/name), `409` (name already exists), `400` (SSRF-blocked URL).
 
-> **SSRF protection:** Private-range IPs (`10.x`, `172.16–31.x`, `192.168.x`), loopback (`127.x`, `::1`), link-local (`169.254.x`), and GCP metadata (`169.254.169.254`) are rejected at validation time. Only HTTPS scheme is accepted.
+> **SSRF protection:** Private-range IPs (`10.x`, `172.16–31.x`, `192.168.x`), CGNAT (`100.64–127.x`), loopback (`127.x`, `::1`), link-local/IMDS (`169.254.x`, `169.254.169.254`), IPv6 ULA (`fc00::/7`), and GCP metadata are rejected — in every host encoding, including decimal/hex/octal/short-form IPv4 (e.g. `2130706433`, `0x7f000001`, `127.1`) and IPv4-mapped IPv6 (`[::ffff:127.0.0.1]`). The target hostname is also resolved via DNS and every resolved address is validated, so a public name that points at an internal host is rejected too. Only the HTTPS scheme is accepted.
 
 ##### Remove a catalog link
 

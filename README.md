@@ -64,7 +64,7 @@ Append-only, immutable access log of every authenticated API operation. The audi
 
 ### Webhooks
 
-Subscribe external systems to real-time HTTP POST notifications when write events occur. Supports 15 event types across memories, entities, edges, chrono, and files. Payloads are signed with HMAC-SHA256, delivered with at-least-once guarantees (6 retries with exponential backoff), and SSRF-protected to block private/reserved IP targets. Manage subscriptions through the REST API or the **Settings → Webhooks** UI.
+Subscribe external systems to real-time HTTP POST notifications when write events occur. Supports 15 event types across memories, entities, edges, chrono, and files. Payloads are signed with HMAC-SHA256, delivered with at-least-once guarantees (6 retries with exponential backoff), and SSRF-protected — targets are DNS-resolved and validated at delivery time and every redirect hop is re-validated, so a webhook cannot be pointed (or redirected/rebound) at a private/reserved IP. Manage subscriptions through the REST API or the **Settings → Webhooks** UI.
 
 ### 30 MCP Tools
 
@@ -106,7 +106,7 @@ Membership changes are decided by **cryptographically signed votes**: each brain
 - **MongoDB operator whitelist** — blocks `$where`, `$function`, injection via `$options`
 - **ReDoS protection** on all user-supplied regex patterns
 - **Path sandboxing** against traversal, null bytes, and encoded characters
-- **SSRF guards** blocking RFC-1918, loopback, IMDS, IPv6 ULA, link-local, and embedded credentials
+- **SSRF guards** blocking RFC-1918, CGNAT, loopback, IMDS, IPv6 ULA, link-local, unspecified, embedded credentials, and alternate host encodings (decimal/hex/octal/short-form IPv4, IPv4-mapped IPv6). Outbound targets are re-resolved via DNS and every resolved address is validated (defeats DNS names pointing at internal hosts and DNS rebinding); webhook delivery follows redirects manually and re-validates each hop
 - **Storage quotas** (soft/hard limits) for files and brain data
 - **Global rate limiting** (configurable per-endpoint)
 - **Content-Security-Policy**, security headers, `0600` config file enforcement

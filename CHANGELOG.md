@@ -21,6 +21,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   webhook target could 302-redirect (or DNS-rebind) to a private/reserved IP after passing
   creation-time validation. Covered by `testing/standalone/ssrf-hardening.test.js` (65 unit cases) and
   `testing/red-team-tests/ssrf-encoding.test.js`.
+### Added
+
+- **Cryptographically signed governance votes** — every brain now owns a persistent Ed25519 signing
+  keypair (private half in `secrets.json`, public half in `config.json`, generated at setup / first
+  boot). Each governance vote cast is signed over a canonical message binding `network | round |
+  subject | voter | vote`, and the signature travels with the cast. Peers publish and pin each
+  other's public keys via member gossip (trust-on-first-use; a later attempt to change a pinned key
+  is refused). Because a signed cast can be verified by anyone, votes now **relay safely through
+  intermediate nodes** — restoring braintree governance for trees deeper than a single hop, which the
+  own-cast-only forgery fix had limited. A new per-network `requireSignedVotes` flag (settable on
+  create/update, default off) enforces strict mode once every member has published a key: unsigned or
+  invalid casts are then rejected outright. Default (compatibility) mode verifies signed casts and
+  relays them, while still accepting an unsigned cast only directly from its own voter — so signing
+  rolls out to existing networks without a flag day. New tests: `testing/standalone/vote-signing.test.js`
+  (20 unit cases) and `testing/sync/vote-signing.test.js` (signed cast + key distribution + safe relay
+  of a third-party signed cast, tampered cast rejected).
+
+### Security
+
+- **Sync: forged tombstones can no longer delete another instance's data** — `applyRemoteTombstone`
+  authorised a deletion purely on `localDoc.author.instanceId === tombstone.instanceId`, both of which
+  are attacker-controlled, so a member could forge a tombstone with `instanceId` set to a victim
+  instance and delete that victim's authored memories/entities/edges/chrono across the network. The
+  deletion is now bound to the authenticated peer: a tombstone may delete a document only when its
+  issuer matches the delivering peer's identity (`peerInstanceId`, set on production peer tokens) or
+  the caller is a trusted local/admin token. A tombstone relayed by a third party on behalf of another
+  author is refused; the author's own tombstone reaches each peer first-hand on direct sync. New
+  red-team test `testing/sync/tombstone-forgery.test.js`; the pubsub tombstone test now uses a
+  production-style bound peer token.
+
+- **Sync governance: vote forgery via the gossip pull path is now rejected** — during a sync cycle a
+  node pulls open vote rounds from each peer and merged the vote casts it received. The merge trusted
+  the `instanceId` on each cast, so a single malicious member could serve a fabricated round
+  pre-stuffed with forged `yes` votes attributed to every other member and drive a `remove` /
+  `space_deletion` / braintree `join` round to conclusion without real quorum — ejecting members or
+  destroying a remote space. The pull-merge (`server/src/sync/engine.ts`) now accepts only a peer's
+  **own** vote (`peerCast.instanceId === member.instanceId`), matching the authenticated POST vote
+  path; each member's vote reaches quorum first-hand because governance networks sync with every
+  member. Additionally, braintree conclusion (`server/src/api/sync.ts`) no longer trusts a
+  peer-supplied `requiredVoters` **set**: it recomputes the ancestor chain from the local topology
+  (anchored on the proposer node), so the set cannot be shrunk to `[attacker]`. Covered by a new
+  red-team integration test `testing/sync/vote-forgery.test.js`; the full governance/vote/braintree/
+  pubsub/democratic/closed suite continues to pass.
 
 ---
 

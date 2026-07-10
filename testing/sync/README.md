@@ -36,6 +36,9 @@
    node --test testing/sync/leave-removal.test.js
    node --test testing/sync/merkle.test.js
    node --test testing/sync/vote-propagation.test.js
+   node --test testing/sync/vote-forgery.test.js
+   node --test testing/sync/vote-signing.test.js
+   node --test testing/sync/tombstone-forgery.test.js
    ```
    Or run all:
    ```
@@ -105,6 +108,19 @@
 - After A triggers sync with B, A merges B's vote casts into the shared round
 - A round concludes locally once all remote voters have cast yes (unanimous types) or threshold is met
 
+### Tombstone forgery (a ↔ b, red-team)
+- A authors a memory; malicious B, using its own bound peer token, POSTs a tombstone forged as instance A to delete it
+- A must refuse the deletion (issuer ≠ delivering peer), so the memory survives; a trusted admin tombstone still deletes — regression guard for the forged-tombstone-deletion fix
+
+### Vote forgery (a ↔ b, red-team)
+- A malicious peer B serves a fabricated `remove` round carrying a `yes` vote forged on behalf of A
+- After A pulls from B, A must ignore the forged cast (a peer may only report its own vote), so the round does not conclude and B is not ejected — regression guard for the gossip vote-forgery fix
+
+### Vote signing (a ↔ b)
+- A vote cast created via the API carries an Ed25519 signature, and that signature survives propagation to a peer intact
+- Peers pin each other's signing public keys via member gossip (trust-on-first-use)
+- A validly-signed cast from a third instance is accepted even when relayed by a different peer (safe multi-hop relay); a tampered relayed cast is rejected
+
 ### Conflict
 - Write the same memory ID on A and B simultaneously (requires manual seq injection)
 - Sync A→B; verify fork exists on B
@@ -170,6 +186,9 @@ testing/sync/
   leave-removal.test.js
   merkle.test.js
   vote-propagation.test.js
+  vote-forgery.test.js
+  vote-signing.test.js
+  tombstone-forgery.test.js
   configs/
     a/                           — populated by setup.js
     b/

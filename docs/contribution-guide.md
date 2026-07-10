@@ -164,7 +164,7 @@ npm run test:sync
 npm run test:down
 ```
 
-Covers: closed-network sync, braintree governance, democratic voting, pubsub topology, gossip exchange, conflict detection, file sync, entity/edge sync, fork/merge, Merkle verification, vote propagation, direction enforcement, leave/removal.
+Covers: closed-network sync, braintree governance, democratic voting, pubsub topology, gossip exchange, conflict detection, file sync, entity/edge sync, fork/merge, Merkle verification, vote propagation, vote signing &amp; safe relay, vote forgery rejection, tombstone forgery rejection, direction enforcement, leave/removal.
 
 ### Red-team tests
 
@@ -306,7 +306,7 @@ Ythril is designed for ISO 27001-class environments. Security is not a phase —
 
 - **Validate at the boundary, trust internally.** Every public endpoint validates input with Zod schemas before any logic runs. Internal function calls between modules do not re-validate.
 - **Defence in depth.** A single control is never the only thing standing between an attacker and a breach. Input validation, SSRF checks, path-traversal guards, rate limits, and audit logging each operate independently.
-- **Cryptographic choices are non-negotiable.** AES-256-GCM for secrets at rest. RSA-4096-OAEP for invite payloads. bcrypt cost-12 for token hashes. HMAC-SHA256 for webhook signatures. `crypto.timingSafeEqual` for all constant-time comparisons. No weaker alternatives.
+- **Cryptographic choices are non-negotiable.** AES-256-GCM for secrets at rest. RSA-4096-OAEP for invite payloads. Ed25519 for governance vote-cast signatures. bcrypt cost-12 for token hashes. HMAC-SHA256 for webhook signatures. `crypto.timingSafeEqual` for all constant-time comparisons. No weaker alternatives.
 - **No dynamic evaluation.** No `eval()`, no `Function()` constructors, no template-string code generation. User input never reaches a code path that interprets it as executable.
 - **Secrets never appear in logs.** The log-redaction layer strips tokens, passwords, and keys before they reach stdout. Red-team tests verify this.
 - **SSRF protection is mandatory** for any feature that makes outbound HTTP requests using user-supplied URLs. `util/ssrf.ts` provides the layers: `isSsrfSafeUrl()` for a synchronous config-time string check (rejects non-HTTP(S) schemes, embedded credentials, and blocked addresses in every encoding — decimal/hex/octal/short-form IPv4, IPv4-mapped IPv6, ULA/link-local), and `assertUrlSafeResolved()` / `ssrfSafeFetch()` for the authoritative use-time check that resolves DNS, validates every resolved A/AAAA record, and re-validates each redirect hop. Never `fetch()` a user-supplied URL directly — use `ssrfSafeFetch()`.

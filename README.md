@@ -95,6 +95,8 @@ Brains can form **networks** to sync selected spaces. Five network types define 
 
 Sync uses watermark-based incremental replication with SHA-256 file manifests, Merkle verification, and conflict detection with four resolution strategies (keep-local, keep-incoming, keep-both, save-to-space).
 
+Membership changes are decided by **cryptographically signed votes**: each brain holds a persistent Ed25519 keypair and signs every governance vote cast; peers pin each other's public keys on first contact. Signatures let votes relay safely through intermediate nodes (multi-hop braintree trees) and make it impossible for one member to forge another's vote. Set `requireSignedVotes` on a network to reject any unsigned vote once all members have published keys. Tombstone-based deletions are likewise bound to the authenticated peer, so a member cannot forge a tombstone to delete another instance's data.
+
 ### Security & Auth
 
 - **PAT tokens** (`ythril_*`) with bcrypt-hashed storage, per-space scope, read-only mode, and expiry dates

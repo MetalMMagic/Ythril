@@ -11,6 +11,7 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { execSync } from 'node:child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -21,9 +22,17 @@ import {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
 
+/** Read a container's real instanceId (a uuid) from its config. */
+function getInstanceId(container) {
+  return execSync(
+    `docker exec ${container} node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('/config/config.json','utf8'));process.stdout.write(c.instanceId)"`,
+  ).toString().trim();
+}
+
 let tokenA, tokenB;
 let networkId;
 let testSpaceId;
+let instanceIdA;
 
 describe('Pub/Sub topology (A -> B subscriber)', () => {
   before(async () => {
@@ -45,8 +54,12 @@ describe('Pub/Sub topology (A -> B subscriber)', () => {
     assert.equal(r.status, 201, `Create pubsub network: ${JSON.stringify(r.body)}`);
     networkId = r.body.id;
 
-    // Create a peer token on B for A to use when pushing
-    const bPeer = await postRetry429(INSTANCES.b, tokenB, '/api/tokens', { name: 'pubsub-peer-a' });
+    // Create a peer token on B for A to use when pushing. Bind it to A's real
+    // instanceId (peerInstanceId) so it represents a production peer token — the
+    // subscriber authorises publisher tombstones by matching this identity against
+    // the tombstone issuer.
+    instanceIdA = getInstanceId('ythril-a');
+    const bPeer = await postRetry429(INSTANCES.b, tokenB, '/api/tokens', { name: 'pubsub-peer-a', peerInstanceId: instanceIdA });
     assert.equal(bPeer.status, 201, `Create peer token on B: ${JSON.stringify(bPeer.body)}`);
 
     const addB = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/members`, {

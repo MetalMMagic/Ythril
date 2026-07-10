@@ -110,15 +110,18 @@ With `?full=true` the full document payload is embedded in the paginated list re
 
 Tombstones are fetched before documents so that a deletion that arrived at the peer applies before the engine could accidentally re-insert the same document that was just deleted. After tombstones are applied, items appearing in the list with a `deletedAt` field are skipped (they're stubs that the tombstone phase already handled).
 
-### Tombstone author guard
+### Tombstone deletion authorisation
 
-When `applyRemoteTombstone` processes an incoming tombstone it compares `tombstone.instanceId` (the instance that issued the delete) with `localDoc.author.instanceId` (the instance that created the document). If they differ, the local document is **not deleted**. This prevents a remote deletion from destroying locally-authored content — critical for pubsub subscribers and braintree leaves that may have their own data alongside pushed content.
+When `applyRemoteTombstone` processes an incoming tombstone it must satisfy **two** conditions before deleting the underlying document:
 
-Documents without `author` metadata (legacy, pre-author-field data) are deleted unconditionally since authorship cannot be determined.
+1. **Author match** — `tombstone.instanceId` (the issuer of the delete) must equal `localDoc.author.instanceId` (the instance that created the document). A tombstone can only delete a document authored by its own issuer.
+2. **Issuer proof** — because `tombstone.instanceId` is attacker-controllable, matching it against the author is not enough on its own. The delete is authorised only when the tombstone was delivered by the issuer itself — the authenticated peer's identity (`peerInstanceId`, carried on production peer tokens; or `member.instanceId` on the pull path) equals the issuer — or the caller is a trusted local/admin token. A tombstone relayed by a third party on behalf of another author is **refused**; the authoring peer's own tombstone reaches each member first-hand on direct sync.
+
+Together this prevents a member from forging a tombstone with `instanceId` set to a victim instance in order to delete the victim's content across the network. Documents without `author` metadata (legacy, pre-author-field data) are deleted unconditionally since authorship cannot be determined.
 
 ### Document ID collision safety
 
-All document `_id` values (`memories`, `entities`, `edges`, `chrono`) are **UUIDv4** — 122 bits of cryptographic randomness from Node.js `uuid` v4. The probability of two independent instances generating the same `_id` is astronomically low (~2.7 × 10⁻²⁰ after 1 billion documents). In practice, a publisher's tombstone targeting `_id = X` will never match a subscriber-created document because the subscriber's documents will always have different UUIDv4 identifiers. The tombstone author guard is a defence-in-depth layer on top of this structural guarantee.
+All document `_id` values (`memories`, `entities`, `edges`, `chrono`) are **UUIDv4** — 122 bits of cryptographic randomness from Node.js `uuid` v4. The probability of two independent instances generating the same `_id` is astronomically low (~2.7 × 10⁻²⁰ after 1 billion documents). In practice, a publisher's tombstone targeting `_id = X` will never match a subscriber-created document because the subscriber's documents will always have different UUIDv4 identifiers. The tombstone deletion-authorisation checks are a defence-in-depth layer on top of this structural guarantee.
 
 ### `lastSeqReceived` update
 
@@ -322,9 +325,22 @@ The `self` field in the `POST` response carries the receiver's own identity so t
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
 | `GET` | `/api/sync/networks/:networkId/votes` | — | `{ rounds[VoteRound] }` |
-| `POST` | `/api/sync/networks/:networkId/votes/:roundId` | `{ vote: 'yes'\|'veto', instanceId }` | `200 { status:'ok' }` \| `404` |
+| `POST` | `/api/sync/networks/:networkId/votes/:roundId` | `{ vote: 'yes'\|'veto', instanceId, sig?, castAt? }` | `200 { status:'ok' }` \| `403` \| `404` |
 
 Sensitive fields (`inviteKeyHash`, `pendingMember.tokenHash`) are stripped from `GET` responses before sending to peers.
+
+### Signed vote casts
+
+Each brain holds a persistent **Ed25519 keypair** (private key in `secrets.json` as `signingPrivateKey`, public key in `config.json` as `signingPublicKey`, generated at setup / first boot). When an instance casts its own vote it signs the canonical message `ythril-vote:v1|<networkId>|<roundId>|<subjectInstanceId>|<voterInstanceId>|<vote>`; the base64 signature travels with the cast as `VoteCast.sig`.
+
+Public keys are distributed and **pinned trust-on-first-use** via the member-gossip `self` record (`NetworkMember.signingPublicKey`); a later attempt to change a member's pinned key is refused.
+
+A receiver accepts a cast when:
+
+- its signature verifies against the voter's pinned key — accepted from **any** reporting peer, which is what makes multi-hop vote relay (deep braintree trees) safe; or
+- the network is not in strict mode (`requireSignedVotes` unset) **and** the cast is reported directly by its own voter (the unsigned-compatibility path — a peer may never relay an unsigned cast on another member's behalf).
+
+With `requireSignedVotes: true` on the network, only signed-and-verified casts are accepted. Enable it once every member has published a key.
 
 ---
 
@@ -332,13 +348,13 @@ Sensitive fields (`inviteKeyHash`, `pendingMember.tokenHash`) are stripped from 
 
 After the gossip (member identity) exchange, the engine runs a vote propagation pass with each peer:
 
-1. **Push casts** — for each open local vote round, each known vote cast is relayed to the peer via `POST /api/sync/networks/:networkId/votes/:roundId { vote, instanceId }`. If the peer does not yet have the round (404), the push is silently skipped — the round will arrive on the peer's next pull cycle.
+1. **Push casts** — for each open local vote round, each known vote cast is relayed to the peer via `POST /api/sync/networks/:networkId/votes/:roundId { vote, instanceId, sig, castAt }`, forwarding the voter's signature so the peer can verify and relay it onward. If the peer does not yet have the round (404), the push is silently skipped — the round will arrive on the peer's next pull cycle.
 
 2. **Pull rounds** — `GET /api/sync/networks/:networkId/votes` fetches the peer's open rounds. For each round:
    - **New round**: if the round does not exist locally, it is adopted into `pendingRounds` (with an empty `votes` array); votes are then merged in the same pass.
-   - **Vote merge**: for each cast from the peer's round, if the cast is not already present locally it is added. If the same voter's cast differs (e.g., updated from `yes` to `veto`), the local cast is replaced.
+   - **Vote merge**: each cast from the peer's round is accepted only if it passes the signature/own-cast check above (a forged cast attributed to another member is dropped). The cast — including its signature — is stored verbatim so it can be relayed onward unchanged. If the same voter's cast changes (e.g., `yes` → `veto`), the local cast is replaced.
 
-3. **Round conclusion** — after all merges, `concludeRoundIfReady` is evaluated for every open local round. Unanimous-type networks (closed, braintree) require every listed remote member to have individually cast `yes`; a single outstanding member prevents conclusion. Democratic networks use a simple majority count. Club networks conclude on the first `yes`.
+3. **Round conclusion** — after all merges, `concludeRoundIfReady` is evaluated for every open local round. Unanimous-type networks (closed, braintree) require every listed remote member to have individually cast `yes`; a single outstanding member prevents conclusion. For **braintree** rounds the required-voter set (ancestor path) is recomputed from the local topology at conclusion, never trusted from the adopted round, so a peer cannot shrink it. Democratic networks use a simple majority count. Club networks conclude on the first `yes`.
 
 4. **Side effects** — if a `space_deletion` round concludes with zero vetoes, the space is removed from the local instance asynchronously.
 

@@ -2024,14 +2024,16 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
 
 // ── Express router ───────────────────────────────────────────────────────────
 
-import { requireAuth } from '../auth/middleware.js';
+import { requireMcpAuth } from '../auth/middleware.js';
 import { mcpConnectionsActive, mcpToolCallsTotal } from '../metrics/registry.js';
 
 export const mcpRouter = Router();
 
 // All MCP routes require authentication — unauthenticated requests must not
-// fall through to the SPA and return 200.
-mcpRouter.use(requireAuth);
+// fall through to the SPA and return 200. On a 401 this also emits the RFC 9728
+// WWW-Authenticate header so OAuth browser connectors can discover the
+// authorization server and begin the OAuth flow.
+mcpRouter.use(requireMcpAuth);
 
 // GET /mcp  — global SSE stream (space is a tool parameter, not a URL segment)
 mcpRouter.get('/', globalRateLimit, async (req, res) => {

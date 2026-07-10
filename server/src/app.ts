@@ -20,6 +20,7 @@ import { themeRouter } from './api/theme.js';
 import { auditRouter } from './api/audit.js';
 import { setupRouter } from './setup/routes.js';
 import { mcpRouter } from './mcp/router.js';
+import { buildMcpOAuthRouter } from './mcp/oauth.js';
 import { auditMiddleware } from './audit/middleware.js';
 import { webhooksRouter } from './api/webhooks.js';
 import { schemaLibraryRouter } from './api/schema-library.js';
@@ -184,6 +185,16 @@ export function createApp() {
 
   // ── MCP endpoints ────────────────────────────────────────────────────────
   app.use('/mcp', mcpRouter);
+
+  // MCP OAuth authorization server (metadata + authorize + token + register +
+  // consent). Mounted at the application root because OAuth discovery endpoints
+  // live under /.well-known and the grant endpoints are root-relative. Returns
+  // null (and mounts nothing) when the issuer URL is unusable for OAuth, e.g. a
+  // plaintext non-loopback publicUrl — the static bearer flow still works.
+  {
+    const oauthRouter = buildMcpOAuthRouter();
+    if (oauthRouter) app.use(oauthRouter);
+  }
 
   // ── Webhook management ─────────────────────────────────────────────────────
   app.use('/api/admin/webhooks', webhooksRouter);

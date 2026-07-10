@@ -3175,6 +3175,30 @@ In `closed`/`democratic` networks this opens a removal voting round (**202**). I
 
 ---
 
+### Rotate the Instance Signing Key
+
+```
+POST /api/admin/rotate-signing-key
+```
+
+Generates a new Ed25519 governance vote-signing keypair and a continuity proof signed by the old key. Peers that pinned the old key adopt the new one automatically on the next sync; the new public key is returned. Requires an **unrestricted** admin token (a space-restricted admin gets `403`), plus a TOTP code when MFA is enabled.
+
+**Response** `200`: `{ "ok": true, "signingPublicKey": "-----BEGIN PUBLIC KEY-----…" }`
+
+### Force-Pin a Member's Signing Key (break-glass)
+
+```
+PUT /api/networks/:id/members/:instanceId/signing-key
+```
+
+```json
+{ "signingPublicKey": "-----BEGIN PUBLIC KEY-----…" }
+```
+
+Force-sets a member's pinned signing key **without** a rotation proof — recovery for when a peer lost its old private key and cannot produce one. Admin only. **Response** `200`: `{ "ok": true, "instanceId": "…" }`.
+
+---
+
 ### Reparent Self (Braintree)
 
 Called by a braintree child node on itself after completing an RSA handshake with a grandparent. Records a temporary reparent so the node syncs through the grandparent while its original parent is offline.
@@ -3576,6 +3600,11 @@ POST /api/mfa/setup
 ```
 
 Scan the `otpauth` URI as a QR code in any TOTP app.
+
+> When MFA is **already enabled**, `POST /api/mfa/setup` (rotating the secret) and `DELETE /api/mfa`
+> (disabling) require a current TOTP code in the `X-TOTP-Code` header — a stolen admin PAT alone
+> cannot replace or remove the second factor. First-time enrolment (MFA off) needs no code. If the
+> authenticator is lost, remove `totpSecret` from `secrets.json` on the host to recover.
 
 ---
 
@@ -4639,6 +4668,8 @@ Base path: `/api/admin/webhooks` — **requires admin token** on all endpoints.
 
 Webhooks allow external systems to receive real-time HTTP POST notifications when write events occur on Ythril spaces. This replaces the need to poll for changes.
 
+> **Delivery & SSRF:** target URLs must be `https://` and are SSRF-validated at creation. At delivery the target is re-resolved, the connection is **pinned to the validated IP** (so a DNS rebind cannot redirect it to an internal host), and redirects are followed manually with each hop re-validated. The redirect-follow cap defaults to 3 and is configurable via `webhookMaxRedirects` in `config.json` (or the `WEBHOOK_MAX_REDIRECTS` env var), clamped to `[0, 20]`.
+
 ### Event Types
 
 | Event | Fired when |
@@ -5453,6 +5484,13 @@ Add an `oidc` block to `config.json`:
 Each rule has:
 - `claim` — dot-notation path inside the JWT payload (e.g. `"realm_access.roles"`).
 - `value` (optional) — the claim must equal this value, or be an array containing it. When omitted, the claim simply needs to be truthy.
+
+**Fail-closed defaults.** A validly-signed JWT that matches **neither** the `admin` nor the `readOnly`
+rule is accepted but granted **read-only access to no spaces** — grant access explicitly through the
+rules above. (Previously such a token received read-write access to *all* spaces.) When a `spaces`
+mapping is configured but the claim is missing or not a string array, the allow-list is empty (deny),
+never "all spaces". Set `requireMatch: true` in `claimMapping` to reject unmatched tokens outright
+with `401` instead of accepting them with no access.
 
 ### Bearer Token Dispatch
 

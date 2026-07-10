@@ -6,7 +6,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Legacy tokens are no longer silently invalidated on upgrade** — a startup/reload migration
+  *deleted* any PAT created before the `prefix` field existed, on the assumption it "cannot be
+  verified." In fact a prefix-less token can still be bcrypt-verified; the prefix is only a lookup
+  optimization. The deletion meant that after an innocuous restart/upgrade, every client sharing such
+  a token — web UI, monitors, MCP connectors — dropped to `401` at once, with nothing but a single log
+  line to explain it. Legacy tokens are now **verified via a fallback scan and self-heal**: the prefix
+  is backfilled on first use so subsequent lookups take the fast path, and no token is ever deleted by
+  the migration. Covered by `testing/integration/auth.test.js`.
+### Added
+
+- **Governance signing-key rotation** — an instance can now rotate its Ed25519 vote-signing keypair
+  via `POST /api/admin/rotate-signing-key` (unrestricted admin; +TOTP when MFA is enabled). Rotation
+  produces a **continuity proof** signed by the old key over the new one; peers that had pinned the
+  old key adopt the new key automatically over gossip (the proof verifies against their pinned key),
+  while a key swap *without* a valid proof is still refused as impersonation. For recovery when the
+  old private key is lost (no proof possible), `PUT /api/networks/:id/members/:instanceId/signing-key`
+  lets an admin force-pin a member's key (break-glass). This removes the previous limitation where a
+  member that regenerated its keypair would be locked out of `requireSignedVotes` networks. Covered by
+  `testing/standalone/vote-key-rotation.test.js` and `testing/sync/vote-key-rotation.test.js`.
+
 ### Security
+
+- **Webhook delivery now pins the connection to the validated IP** — `ssrfSafeFetch` resolved and
+  validated the target's address but then let `fetch` re-resolve it to connect, leaving a narrow
+  DNS-rebind TOCTOU window between check and connect. It now pins the socket to the exact validated
+  address via an undici dispatcher (TLS SNI / certificate validation still use the hostname), and
+  re-pins on every redirect hop, so the connection can never land on a different (internal) IP than
+  the one that passed the SSRF check. The redirect-follow cap is configurable via
+  `webhookMaxRedirects` in `config.json` (or the `WEBHOOK_MAX_REDIRECTS` env var), default 3, clamped
+  to `[0, 20]`. Adds `undici` as a direct dependency. Covered by
+  `testing/standalone/ssrf-ip-pinning.test.js`.
+- **MCP proxy spaces no longer bypass member-space token scope** — an MCP call targeting a proxy space
+  checked the token only against the *proxy* space id, then fanned reads/writes out to the member
+  spaces with no further check. A token scoped solely to a proxy (especially a `proxyFor: ['*']`
+  wildcard) could therefore reach spaces it was never granted — the whole instance in the wildcard
+  case. The MCP dispatcher now requires the token to hold **every** member space (mirroring
+  `requireSpaceAuth` on the REST layer) before any proxy fan-out.
+
+- **MFA setup/disable now require a current TOTP code once MFA is enabled** — `POST /api/mfa/setup`
+  (rotate) and `DELETE /api/mfa` (disable) were gated only by `requireAdmin`, so a stolen admin PAT
+  could silently overwrite or remove the second factor it was meant to be protected by. Both now use
+  `requireAdminMfa`: first-time enrolment still needs no code (MFA is off), but rotating or disabling
+  an *enabled* factor requires a valid code. Break-glass recovery when the authenticator is lost is
+  removing `totpSecret` from `secrets.json` on the host.
+
+- **Token minting cannot escalate scope** — `POST /api/tokens` applied no relationship between the
+  new token's scope and the creating token's. A *space-restricted* admin token could mint an
+  `admin: true` token with no `spaces` (= all spaces) and escalate to unrestricted admin. A
+  space-restricted creator may now only mint tokens confined to a subset of its own spaces; an
+  unrestricted admin is unaffected.
+
+- **OIDC now fails closed for unmatched tokens (behaviour change)** — a JWT that matched neither the
+  `admin` nor the `readOnly` claim rule was granted `readOnly: undefined` (read-write) and
+  `spaces: undefined` (ALL spaces), so any principal able to obtain an audience-matching token from a
+  shared realm got full read-write access to every space. Such tokens are now accepted with
+  **read-only access to no spaces**; a configured-but-missing `spaces` claim likewise yields an empty
+  allow-list rather than all spaces. **Action required:** if you relied on the permissive default,
+  grant access explicitly via `claimMapping` rules (or set `requireMatch: true` to reject unmatched
+  tokens outright). Covered by `testing/standalone/oidc-claim-mapping.test.js` and
+  `testing/red-team-tests/auth-escalation.test.js`.
 
 - **SSRF guard hardened against alternate host encodings and DNS-based bypasses** — the outbound-URL
   validator (`util/ssrf.ts`) previously inspected only the literal hostname string, so a blocked

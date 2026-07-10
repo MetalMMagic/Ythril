@@ -801,6 +801,19 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
       if (tokenSpaces && !tokenSpaces.includes(rawSpace)) {
         return { content: [{ type: 'text' as const, text: `Error: token does not have access to space '${rawSpace}'` }], isError: true };
       }
+      // Proxy fan-out scope check: a proxy space aggregates reads across (and
+      // routes writes to) its member spaces. The token must hold EVERY member
+      // space — mirroring requireSpaceAuth on the REST layer — otherwise a token
+      // scoped only to the proxy (especially a `proxyFor: ['*']` wildcard) could
+      // read/write member spaces it was never granted. For a non-proxy space
+      // resolveMemberSpaces returns [rawSpace], so this is a no-op there.
+      if (tokenSpaces) {
+        const members = resolveMemberSpaces(rawSpace);
+        const missing = members.filter(m => !tokenSpaces.includes(m));
+        if (missing.length > 0) {
+          return { content: [{ type: 'text' as const, text: `Error: token does not have access to member space(s) of '${rawSpace}': ${missing.join(', ')}` }], isError: true };
+        }
+      }
     }
     const callSpace = rawSpace;
 

@@ -212,6 +212,17 @@ export async function deliverToWebhook(
 
 // ── Delivery attempt ────────────────────────────────────────────────────────
 
+/** Max redirect hops to follow during delivery. Config-editable (reload-aware)
+ *  with an env-var override; clamped to a sane range. Default 3. */
+function webhookMaxRedirects(): number {
+  const env = process.env['WEBHOOK_MAX_REDIRECTS'];
+  let raw: unknown;
+  if (env !== undefined && env !== '') raw = Number(env);
+  else { try { raw = getConfig().webhookMaxRedirects; } catch { raw = undefined; } }
+  const n = typeof raw === 'number' && Number.isFinite(raw) ? Math.floor(raw) : 3;
+  return Math.max(0, Math.min(20, n));
+}
+
 async function attemptDelivery(
   sub: WebhookSubscription,
   body: string,
@@ -237,9 +248,10 @@ async function attemptDelivery(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
 
-    // Use the SSRF-safe fetch: it re-resolves DNS and re-validates every redirect
-    // hop, so a webhook target validated at creation time cannot rebind or
-    // 3xx-redirect to an internal address (cloud IMDS, RFC-1918, loopback).
+    // Use the SSRF-safe fetch: it re-resolves DNS, pins the connection to the
+    // validated IP, and re-validates every redirect hop, so a webhook target
+    // validated at creation time cannot rebind or 3xx-redirect to an internal
+    // address (cloud IMDS, RFC-1918, loopback).
     const resp = await ssrfSafeFetch(sub.url, {
       method: 'POST',
       headers: {
@@ -250,7 +262,7 @@ async function attemptDelivery(
       },
       body,
       signal: controller.signal,
-    });
+    }, { maxRedirects: webhookMaxRedirects() });
 
     clearTimeout(timeout);
 

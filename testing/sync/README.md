@@ -38,6 +38,7 @@
    node --test testing/sync/vote-propagation.test.js
    node --test testing/sync/vote-forgery.test.js
    node --test testing/sync/vote-signing.test.js
+   node --test testing/sync/vote-key-rotation.test.js
    node --test testing/sync/tombstone-forgery.test.js
    ```
    Or run all:
@@ -188,6 +189,7 @@ testing/sync/
   vote-propagation.test.js
   vote-forgery.test.js
   vote-signing.test.js
+  vote-key-rotation.test.js
   tombstone-forgery.test.js
   configs/
     a/                           — populated by setup.js

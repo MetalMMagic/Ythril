@@ -358,19 +358,8 @@ export function createApp() {
       const oldSpaceIds = new Set(getConfig().spaces.map(s => s.id));
       reloadConfig();
       loadSecrets(); // Also reload secrets.json (peer tokens injected by tests/scripts)
-      // Migration: strip prefix-less tokens (same as startup migration)
-      {
-        const cfg = getConfig();
-        const before = cfg.tokens.length;
-        cfg.tokens = cfg.tokens.filter(t => t.prefix);
-        if (cfg.tokens.length < before) {
-          log.warn(
-            `Removed ${before - cfg.tokens.length} token(s) that pre-date the ` +
-            'prefix field and cannot be verified. Affected PAT holders must create new tokens.',
-          );
-          saveConfig(cfg);
-        }
-      }
+      // Prefix-less (legacy) tokens are NOT stripped — findMatchingToken()
+      // verifies them via a fallback scan and backfills the prefix on first use.
       // Flush caches so revoked tokens and updated OIDC config take effect immediately
       clearTokenCache();
       clearOidcCache();
@@ -384,6 +373,30 @@ export function createApp() {
         }
       }
       res.json({ ok: true });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // ── Admin: rotate the instance signing keypair ───────────────────────────
+  // Generates a new Ed25519 governance-signing keypair and a continuity proof
+  // signed by the old key. Peers that pinned the old key adopt the new one via
+  // gossip; the new public key propagates on the next sync cycle. Requires an
+  // unrestricted admin token (+ TOTP when MFA is enabled).
+  app.post('/api/admin/rotate-signing-key', globalRateLimit, requireAdminMfa, async (req, res) => {
+    if (req.authToken?.spaces) {
+      res.status(403).json({ error: 'Signing-key rotation requires an unrestricted admin token' });
+      return;
+    }
+    try {
+      const { rotateInstanceKeypair } = await import('./util/signing.js');
+      const result = rotateInstanceKeypair();
+      if (!result) {
+        res.status(409).json({ error: 'Instance not initialised' });
+        return;
+      }
+      res.json({ ok: true, signingPublicKey: result.publicKeyPem });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: msg });

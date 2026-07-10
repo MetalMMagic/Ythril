@@ -152,26 +152,121 @@ export function signOwnVoteCast(params: {
   return signMessage(kp.privateKeyPem, voteCastMessage(params));
 }
 
-// ── Key distribution (trust-on-first-use) ────────────────────────────────────
+// ── Key rotation ─────────────────────────────────────────────────────────────
+
+/** A signed proof that a new signing key supersedes a previous one. */
+export interface SigningKeyRotation {
+  /** The public key that was in use before this rotation. */
+  previousPublicKey: string;
+  /** base64 signature by the PREVIOUS private key over the rotation message. */
+  proof: string;
+}
 
 /**
- * Pin a member's signing public key on first sight (TOFU). Sets it when absent;
- * a later attempt to change it to a DIFFERENT key is refused and logged — this
- * prevents a peer from rotating another member's key to impersonate it. Returns
- * true when the member record was modified.
+ * Canonical message signed by the OLD private key to prove that `newPublicKey`
+ * is a legitimate successor for `instanceId`. Binding the instanceId prevents a
+ * proof from being reused for a different instance.
  */
-export function pinMemberSigningKey(member: NetworkMember, incomingKey: string | undefined): boolean {
+export function keyRotationMessage(params: { instanceId: string; newPublicKey: string }): string {
+  return ['ythril-keyrot:v1', params.instanceId, params.newPublicKey].join('|');
+}
+
+/**
+ * Rotate this instance's signing keypair, producing a continuity proof signed by
+ * the OLD key so peers who pinned the old key can safely adopt the new one. The
+ * new private key replaces the old in secrets.json; the new public key and the
+ * rotation proof are written to config.json (published to peers via gossip).
+ * Returns the new public key, or null if config/secrets are unavailable.
+ */
+export function rotateInstanceKeypair(): { publicKeyPem: string } | null {
+  let cfg;
+  try { cfg = getConfig(); } catch { return null; }
+  const secrets = getSecrets();
+  const old = getInstanceKeypair();
+
+  const next = generateInstanceKeypair();
+  secrets.signingPrivateKey = next.privateKeyPem;
+  cfg.signingPublicKey = next.publicKeyPem;
+
+  if (old) {
+    // Prove continuity: sign the new key with the old private key.
+    const proof = signMessage(old.privateKeyPem, keyRotationMessage({ instanceId: cfg.instanceId, newPublicKey: next.publicKeyPem }));
+    cfg.signingKeyRotation = { previousPublicKey: old.publicKeyPem, proof };
+    log.info('Rotated Ed25519 instance signing keypair (continuity proof generated).');
+  } else {
+    // No prior key — nothing to chain from; peers pin the new key trust-on-first-use.
+    delete cfg.signingKeyRotation;
+    log.info('Generated Ed25519 instance signing keypair (no prior key to rotate from).');
+  }
+
+  saveSecrets(secrets);
+  saveConfig(cfg);
+  return { publicKeyPem: next.publicKeyPem };
+}
+
+/** The current rotation proof to advertise to peers, or undefined if none. */
+export function getSigningKeyRotation(): SigningKeyRotation | undefined {
+  try {
+    return getConfig().signingKeyRotation;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Verify that `rotation` proves `newKey` legitimately supersedes `currentPinned`
+ * for `instanceId` — i.e. it was signed by the currently-pinned key.
+ */
+export function isValidKeyRotation(
+  instanceId: string,
+  currentPinned: string,
+  newKey: string,
+  rotation: SigningKeyRotation | undefined,
+): boolean {
+  if (!rotation || rotation.previousPublicKey !== currentPinned) return false;
+  return verifyMessage(currentPinned, keyRotationMessage({ instanceId, newPublicKey: newKey }), rotation.proof);
+}
+
+// ── Key distribution (trust-on-first-use + signed rotation) ───────────────────
+
+/**
+ * Pin a member's signing public key. Trust-on-first-use when absent. A change to
+ * a DIFFERENT key is accepted only when accompanied by a valid rotation proof
+ * signed by the currently-pinned key (continuity of control); otherwise it is
+ * refused — preventing a peer from swapping another member's key to impersonate
+ * it. Returns true when the member record was modified.
+ */
+export function pinMemberSigningKey(
+  member: NetworkMember,
+  incomingKey: string | undefined,
+  rotation?: SigningKeyRotation,
+): boolean {
   if (!incomingKey || typeof incomingKey !== 'string') return false;
   if (!member.signingPublicKey) {
     member.signingPublicKey = incomingKey;
     return true;
   }
-  if (member.signingPublicKey !== incomingKey) {
-    log.warn(
-      `TOFU: refusing to change pinned signing key for member '${member.instanceId}' — ignoring new key`,
-    );
+  if (member.signingPublicKey === incomingKey) return false;
+
+  if (isValidKeyRotation(member.instanceId, member.signingPublicKey, incomingKey, rotation)) {
+    log.info(`Accepted signed key rotation for member '${member.instanceId}' — re-pinning to the new key.`);
+    member.signingPublicKey = incomingKey;
+    return true;
   }
+  log.warn(
+    `Refusing to change pinned signing key for member '${member.instanceId}' — no valid rotation proof (possible impersonation).`,
+  );
   return false;
+}
+
+/**
+ * Force-set a member's pinned signing key WITHOUT a rotation proof — the
+ * break-glass recovery path used when a member lost its old private key (so it
+ * cannot produce a continuity proof). Admin-gated at the API layer.
+ */
+export function forceSetMemberSigningKey(member: NetworkMember, key: string): void {
+  member.signingPublicKey = key;
+  log.warn(`Admin force-set signing key for member '${member.instanceId}' (manual re-pin).`);
 }
 
 // ── Vote-cast verification & relay acceptance ────────────────────────────────

@@ -333,7 +333,7 @@ Sensitive fields (`inviteKeyHash`, `pendingMember.tokenHash`) are stripped from 
 
 Each brain holds a persistent **Ed25519 keypair** (private key in `secrets.json` as `signingPrivateKey`, public key in `config.json` as `signingPublicKey`, generated at setup / first boot). When an instance casts its own vote it signs the canonical message `ythril-vote:v1|<networkId>|<roundId>|<subjectInstanceId>|<voterInstanceId>|<vote>`; the base64 signature travels with the cast as `VoteCast.sig`.
 
-Public keys are distributed and **pinned trust-on-first-use** via the member-gossip `self` record (`NetworkMember.signingPublicKey`); a later attempt to change a member's pinned key is refused.
+Public keys are distributed and **pinned trust-on-first-use** via the member-gossip `self` record (`NetworkMember.signingPublicKey`). A later attempt to change a member's pinned key is refused **unless** it is accompanied by a valid **rotation proof** — a signature by the currently-pinned (old) key over `ythril-keyrot:v1|<instanceId>|<newPublicKeyPem>`. An instance rotates its keypair with `POST /api/admin/rotate-signing-key`, which generates the new key and the proof and advertises both on the `self` record (`signingKeyRotation`); peers then re-pin automatically. When the old private key is lost (no proof possible), an admin force-pins the new key via `PUT /api/networks/:id/members/:instanceId/signing-key` (break-glass). A rotation proof only re-pins peers that hold the immediately-preceding key; peers that missed an intermediate rotation recover via the force-pin endpoint.
 
 A receiver accepts a cast when:
 

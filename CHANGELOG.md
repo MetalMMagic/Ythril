@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Governance signing-key rotation** — an instance can now rotate its Ed25519 vote-signing keypair
+  via `POST /api/admin/rotate-signing-key` (unrestricted admin; +TOTP when MFA is enabled). Rotation
+  produces a **continuity proof** signed by the old key over the new one; peers that had pinned the
+  old key adopt the new key automatically over gossip (the proof verifies against their pinned key),
+  while a key swap *without* a valid proof is still refused as impersonation. For recovery when the
+  old private key is lost (no proof possible), `PUT /api/networks/:id/members/:instanceId/signing-key`
+  lets an admin force-pin a member's key (break-glass). This removes the previous limitation where a
+  member that regenerated its keypair would be locked out of `requireSignedVotes` networks. Covered by
+  `testing/standalone/vote-key-rotation.test.js` and `testing/sync/vote-key-rotation.test.js`.
+
 ### Security
 
 - **Webhook delivery now pins the connection to the validated IP** — `ssrfSafeFetch` resolved and

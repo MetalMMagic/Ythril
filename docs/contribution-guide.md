@@ -164,7 +164,7 @@ npm run test:sync
 npm run test:down
 ```
 
-Covers: closed-network sync, braintree governance, democratic voting, pubsub topology, gossip exchange, conflict detection, file sync, entity/edge sync, fork/merge, Merkle verification, vote propagation, vote signing &amp; safe relay, vote forgery rejection, tombstone forgery rejection, direction enforcement, leave/removal.
+Covers: closed-network sync, braintree governance, democratic voting, pubsub topology, gossip exchange, conflict detection, file sync, entity/edge sync, fork/merge, Merkle verification, vote propagation, vote signing &amp; safe relay, signing-key rotation, vote forgery rejection, tombstone forgery rejection, direction enforcement, leave/removal.
 
 ### Red-team tests
 

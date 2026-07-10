@@ -583,6 +583,10 @@ export interface Config {
    *  so they can verify our signed governance vote casts. Private half is in
    *  secrets.json. Generated on first startup after setup. */
   signingPublicKey?: string;
+  /** Present after a signing-key rotation: a proof (signed by the previous key)
+   *  that the current `signingPublicKey` supersedes it. Advertised to peers via
+   *  gossip so they can safely re-pin. */
+  signingKeyRotation?: { previousPublicKey: string; proof: string };
   tokens: TokenRecord[];
   spaces: SpaceConfig[];
   networks: NetworkConfig[];

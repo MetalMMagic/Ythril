@@ -379,6 +379,30 @@ export function createApp() {
     }
   });
 
+  // ── Admin: rotate the instance signing keypair ───────────────────────────
+  // Generates a new Ed25519 governance-signing keypair and a continuity proof
+  // signed by the old key. Peers that pinned the old key adopt the new one via
+  // gossip; the new public key propagates on the next sync cycle. Requires an
+  // unrestricted admin token (+ TOTP when MFA is enabled).
+  app.post('/api/admin/rotate-signing-key', globalRateLimit, requireAdminMfa, async (req, res) => {
+    if (req.authToken?.spaces) {
+      res.status(403).json({ error: 'Signing-key rotation requires an unrestricted admin token' });
+      return;
+    }
+    try {
+      const { rotateInstanceKeypair } = await import('./util/signing.js');
+      const result = rotateInstanceKeypair();
+      if (!result) {
+        res.status(409).json({ error: 'Instance not initialised' });
+        return;
+      }
+      res.json({ ok: true, signingPublicKey: result.publicKeyPem });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
   // ── API 404 — must precede SPA fallback ─────────────────────────────────
   // Any /api/ path not matched by the routers above is an unknown endpoint.
   // Return JSON 404 here so the SPA fallback never swallows API typos.

@@ -3601,6 +3601,11 @@ POST /api/mfa/setup
 
 Scan the `otpauth` URI as a QR code in any TOTP app.
 
+> When MFA is **already enabled**, `POST /api/mfa/setup` (rotating the secret) and `DELETE /api/mfa`
+> (disabling) require a current TOTP code in the `X-TOTP-Code` header — a stolen admin PAT alone
+> cannot replace or remove the second factor. First-time enrolment (MFA off) needs no code. If the
+> authenticator is lost, remove `totpSecret` from `secrets.json` on the host to recover.
+
 ---
 
 ### Verify OTP Code
@@ -4663,6 +4668,8 @@ Base path: `/api/admin/webhooks` — **requires admin token** on all endpoints.
 
 Webhooks allow external systems to receive real-time HTTP POST notifications when write events occur on Ythril spaces. This replaces the need to poll for changes.
 
+> **Delivery & SSRF:** target URLs must be `https://` and are SSRF-validated at creation. At delivery the target is re-resolved, the connection is **pinned to the validated IP** (so a DNS rebind cannot redirect it to an internal host), and redirects are followed manually with each hop re-validated. The redirect-follow cap defaults to 3 and is configurable via `webhookMaxRedirects` in `config.json` (or the `WEBHOOK_MAX_REDIRECTS` env var), clamped to `[0, 20]`.
+
 ### Event Types
 
 | Event | Fired when |
@@ -5422,6 +5429,13 @@ Add an `oidc` block to `config.json`:
 Each rule has:
 - `claim` — dot-notation path inside the JWT payload (e.g. `"realm_access.roles"`).
 - `value` (optional) — the claim must equal this value, or be an array containing it. When omitted, the claim simply needs to be truthy.
+
+**Fail-closed defaults.** A validly-signed JWT that matches **neither** the `admin` nor the `readOnly`
+rule is accepted but granted **read-only access to no spaces** — grant access explicitly through the
+rules above. (Previously such a token received read-write access to *all* spaces.) When a `spaces`
+mapping is configured but the claim is missing or not a string array, the allow-list is empty (deny),
+never "all spaces". Set `requireMatch: true` in `claimMapping` to reject unmatched tokens outright
+with `401` instead of accepting them with no access.
 
 ### Bearer Token Dispatch
 

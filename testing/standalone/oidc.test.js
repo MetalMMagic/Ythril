@@ -702,7 +702,7 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
 
     try {
       const issuerUrl = `http://127.0.0.1:${serverPort}`;
-      // requireMatch absent — default permissive behaviour
+      // requireMatch absent — unmatched tokens are accepted but fail closed
       writeFullConfig({ ...makeOidcConfig(), issuerUrl, audience: 'ythril' });
       loaderMod.loadConfig();
       oidcMod.clearOidcCache();
@@ -720,9 +720,12 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
         .sign(privateKey);
 
       const record = await oidcMod.validateOidcJwt(token);
+      // Fail-closed: an unmatched token is accepted (requireMatch is absent) but
+      // granted read-only access to NO spaces — not the old read-write, all-spaces default.
       assert.ok(record !== null, 'unmatched token should be accepted when requireMatch is absent');
       assert.equal(record.admin, false);
-      assert.equal(record.readOnly, undefined);
+      assert.equal(record.readOnly, true, 'unmatched token must be read-only (fail closed)');
+      assert.deepEqual(record.spaces, [], 'unmatched token must have no space access (fail closed)');
     } finally {
       await new Promise(resolve => server.close(resolve));
       writeFullConfig(makeOidcConfig());

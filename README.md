@@ -106,7 +106,7 @@ Membership changes are decided by **cryptographically signed votes**: each brain
 - **MongoDB operator whitelist** — blocks `$where`, `$function`, injection via `$options`
 - **ReDoS protection** on all user-supplied regex patterns
 - **Path sandboxing** against traversal, null bytes, and encoded characters
-- **SSRF guards** blocking RFC-1918, CGNAT, loopback, IMDS, IPv6 ULA, link-local, unspecified, embedded credentials, and alternate host encodings (decimal/hex/octal/short-form IPv4, IPv4-mapped IPv6). Outbound targets are re-resolved via DNS and every resolved address is validated (defeats DNS names pointing at internal hosts and DNS rebinding); webhook delivery follows redirects manually and re-validates each hop
+- **SSRF guards** blocking RFC-1918, CGNAT, loopback, IMDS, IPv6 ULA, link-local, unspecified, embedded credentials, and alternate host encodings (decimal/hex/octal/short-form IPv4, IPv4-mapped IPv6). Outbound targets are re-resolved via DNS and every resolved address is validated (defeats DNS names pointing at internal hosts and DNS rebinding); webhook delivery pins the connection to the validated IP (closing the DNS-rebind window between check and connect) and follows redirects manually, re-validating and re-pinning each hop
 - **Storage quotas** (soft/hard limits) for files and brain data
 - **Global rate limiting** (configurable per-endpoint)
 - **Content-Security-Policy**, security headers, `0600` config file enforcement

@@ -172,7 +172,7 @@ Covers: closed-network sync, braintree governance, democratic voting, pubsub top
 npm run test:redteam
 ```
 
-Attack simulations: auth bypass, path traversal, MongoDB injection ($options injection, operator whitelist), space boundary, oversized payload, invite replay, SSRF (IPv4/IPv6, alternate host encodings, network members), sequence injection, mass assignment, token brute-force, sync scope bypass, MCP security (token hygiene, input validation, operator injection), direction enforcement, space rename.
+Attack simulations: auth bypass, path traversal, MongoDB injection ($options injection, operator whitelist), space boundary, oversized payload, invite replay, SSRF (IPv4/IPv6, alternate host encodings, network members), sequence injection, mass assignment, token brute-force, sync scope bypass, MCP security (token hygiene, input validation, operator injection), auth escalation (MCP proxy member-space scope, MFA setup/disable gating, token-minting scope), direction enforcement, space rename.
 
 ### Run everything
 

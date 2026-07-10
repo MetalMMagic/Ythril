@@ -597,6 +597,9 @@ export interface Config {
   mediaEmbedding?: MediaEmbeddingConfig;
   maxUploadBodyBytes?: number;
   allowInsecurePlaintext?: boolean;
+  /** Max redirect hops followed (and re-validated) during webhook delivery.
+   *  Default 3; clamped to [0, 20]. Env var WEBHOOK_MAX_REDIRECTS overrides. */
+  webhookMaxRedirects?: number;
   setup?: { completed: true };
   mongo?: { uri?: string };
   /** Optional OpenID Connect configuration for SSO login. */

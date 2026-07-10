@@ -4639,6 +4639,8 @@ Base path: `/api/admin/webhooks` — **requires admin token** on all endpoints.
 
 Webhooks allow external systems to receive real-time HTTP POST notifications when write events occur on Ythril spaces. This replaces the need to poll for changes.
 
+> **Delivery & SSRF:** target URLs must be `https://` and are SSRF-validated at creation. At delivery the target is re-resolved, the connection is **pinned to the validated IP** (so a DNS rebind cannot redirect it to an internal host), and redirects are followed manually with each hop re-validated. The redirect-follow cap defaults to 3 and is configurable via `webhookMaxRedirects` in `config.json` (or the `WEBHOOK_MAX_REDIRECTS` env var), clamped to `[0, 20]`.
+
 ### Event Types
 
 | Event | Fired when |

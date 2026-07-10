@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Webhook delivery now pins the connection to the validated IP** — `ssrfSafeFetch` resolved and
+  validated the target's address but then let `fetch` re-resolve it to connect, leaving a narrow
+  DNS-rebind TOCTOU window between check and connect. It now pins the socket to the exact validated
+  address via an undici dispatcher (TLS SNI / certificate validation still use the hostname), and
+  re-pins on every redirect hop, so the connection can never land on a different (internal) IP than
+  the one that passed the SSRF check. The redirect-follow cap is configurable via
+  `webhookMaxRedirects` in `config.json` (or the `WEBHOOK_MAX_REDIRECTS` env var), default 3, clamped
+  to `[0, 20]`. Adds `undici` as a direct dependency. Covered by
+  `testing/standalone/ssrf-ip-pinning.test.js`.
+
 - **SSRF guard hardened against alternate host encodings and DNS-based bypasses** — the outbound-URL
   validator (`util/ssrf.ts`) previously inspected only the literal hostname string, so a blocked
   address supplied in a non-standard encoding — decimal/hex/octal integer (`http://2130706433/`),

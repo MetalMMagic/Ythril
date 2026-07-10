@@ -51,6 +51,13 @@ async function main(): Promise<void> {
       }
     }
 
+    // Ensure this instance has a persistent Ed25519 signing keypair for governance
+    // vote signatures. Generated once (no-op on subsequent boots).
+    {
+      const { ensureInstanceKeypair } = await import('./util/signing.js');
+      ensureInstanceKeypair();
+    }
+
     // TLS warning: if non-loopback binding and plaintext allowed
     const { getConfig } = await import('./config/loader.js');
     const cfg = getConfig();

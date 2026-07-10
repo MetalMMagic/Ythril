@@ -2891,11 +2891,14 @@ POST /api/networks
   "type": "closed",
   "spaces": ["general"],
   "votingDeadlineHours": 24,
-  "syncSchedule": "*/5 * * * *"
+  "syncSchedule": "*/5 * * * *",
+  "requireSignedVotes": false
 }
 ```
 
 **Network types**: `closed` (unanimous vote), `democratic` (majority), `club` (proposer only), `braintree` (tree hierarchy), `pubsub` (auto-join publisher/subscriber, push-only).
+
+**`requireSignedVotes`** (optional, default `false`): when `true`, governance vote casts must carry a valid Ed25519 signature from the voting member (strict mode). Leave it off until every member has synced at least once so their signing keys are published; then enable it (also settable via `PATCH`) to reject any unsigned or forged vote. See [Sync Protocol → Signed vote casts](sync-protocol.md).
 
 **Response** `201`: the created network object.
 
@@ -2918,7 +2921,7 @@ PATCH /api/networks/:id
 ```
 
 ```json
-{ "syncSchedule": "*/10 * * * *", "label": "Renamed" }
+{ "syncSchedule": "*/10 * * * *", "label": "Renamed", "requireSignedVotes": true }
 ```
 
 ---
@@ -3513,9 +3516,9 @@ GET /api/sync/merkle?spaceId=general&networkId=net-uuid
 ### Gossip Endpoints
 
 - `GET /api/sync/networks/:networkId/members` returns current member view (sensitive fields stripped).
-- `POST /api/sync/networks/:networkId/members` accepts member updates for gossip propagation.
+- `POST /api/sync/networks/:networkId/members` accepts member updates for gossip propagation. The `self` record carries the sender's `signingPublicKey`, which the receiver pins trust-on-first-use for verifying that member's signed votes.
 - `GET /api/sync/networks/:networkId/votes` returns open rounds.
-- `POST /api/sync/networks/:networkId/votes/:roundId` relays `{ vote: "yes" | "veto", instanceId }`.
+- `POST /api/sync/networks/:networkId/votes/:roundId` relays `{ vote: "yes" | "veto", instanceId, sig?, castAt? }`. A cast bearing a valid `sig` (Ed25519 over `ythril-vote:v1|network|round|subject|voter|vote`) is accepted from any relaying peer; an unsigned cast is accepted only directly from its own voter. Returns `403` if the cast is rejected. See [Sync Protocol → Signed vote casts](sync-protocol.md).
 
 If this instance has been ejected from a network, `/api/sync/networks/:networkId/*` returns `401` with `{ "error": "ejected" }`.
 

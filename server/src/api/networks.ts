@@ -17,10 +17,24 @@ import { createToken, revokeToken } from '../auth/tokens.js';
 import { createSpace } from '../spaces/spaces.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from './sync.js';
 import { getSyncHistory } from '../sync/history.js';
+import { buildBraintreeAncestors } from '../util/braintree.js';
+import { signOwnVoteCast, getSigningPublicKey } from '../util/signing.js';
 import { log } from '../util/log.js';
-import type { NetworkConfig, NetworkMember, VoteRound } from '../config/types.js';
+import type { NetworkConfig, NetworkMember, VoteRound, VoteCast } from '../config/types.js';
 
 export const networksRouter = Router();
+
+/** Build this instance's own vote cast, signed when a signing key is available. */
+function makeSignedOwnCast(networkId: string, round: VoteRound, instanceId: string, vote: 'yes' | 'veto'): VoteCast {
+  const sig = signOwnVoteCast({
+    networkId,
+    roundId: round.roundId,
+    subjectInstanceId: round.subjectInstanceId,
+    instanceId,
+    vote,
+  });
+  return { instanceId, vote, castAt: new Date().toISOString(), ...(sig ? { sig } : {}) };
+}
 
 const BCRYPT_ROUNDS = 12;
 
@@ -45,6 +59,7 @@ const CreateNetworkBody = z.object({
   votingDeadlineHours: z.number().int().min(1).max(72).default(24),
   syncSchedule: z.string().optional(),
   merkle: z.boolean().optional(),
+  requireSignedVotes: z.boolean().optional(),  // strict mode: reject unsigned governance votes
   myParentInstanceId: z.string().optional(),  // braintree: this instance's parent in the tree (omit → root)
 });
 
@@ -65,6 +80,7 @@ const CastVoteBody = z.object({
 const UpdateNetworkBody = z.object({
   syncSchedule: z.string().optional(),
   label: z.string().min(1).max(200).optional(),
+  requireSignedVotes: z.boolean().optional(),
 });
 
 const JoinRemoteBody = z.object({
@@ -161,7 +177,7 @@ networksRouter.post('/', globalRateLimit, requireAdmin, async (req, res) => {
     const parsed = CreateNetworkBody.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
-    const { id: presetId, label, type, spaces, votingDeadlineHours, syncSchedule, merkle, myParentInstanceId } = parsed.data;
+    const { id: presetId, label, type, spaces, votingDeadlineHours, syncSchedule, merkle, requireSignedVotes, myParentInstanceId } = parsed.data;
     const cfg = getConfig();
 
     // Validate spaces exist
@@ -185,6 +201,7 @@ networksRouter.post('/', globalRateLimit, requireAdmin, async (req, res) => {
       votingDeadlineHours,
       syncSchedule,
       merkle,
+      ...(requireSignedVotes ? { requireSignedVotes: true } : {}),
       myParentInstanceId: type === 'braintree' ? myParentInstanceId : undefined,
       members: [],
       pendingRounds: [],
@@ -269,6 +286,7 @@ networksRouter.patch('/:id', globalRateLimit, requireAdmin, (req, res) => {
     }).catch(err => log.warn(`Failed to reschedule sync for ${net!.id}: ${err}`));
   }
   if (parsed.data.label) net.label = parsed.data.label;
+  if (parsed.data.requireSignedVotes !== undefined) net.requireSignedVotes = parsed.data.requireSignedVotes;
 
   saveConfig(cfg);
   log.info(`Updated network ${net.id}`);
@@ -492,40 +510,6 @@ networksRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, r
   }
 });
 
-// ── Braintree governance helpers ────────────────────────────────────────────
-
-/**
- * Compute the list of instance IDs that must vote yes for a Braintree governance action.
- *
- * Walks from `startId` upward through `parentInstanceId` on network members.
- * When the walk reaches `selfId` it continues via `net.myParentInstanceId` (the recorded
- * parent of this instance).  Returns the path from `startId` up to (and including) the root.
- *
- * For a JOIN round: call with startId = selfId (the inviting node is this server).
- * For a REMOVE round: call with startId = subject.parentInstanceId (the subject's direct parent).
- */
-function buildBraintreeAncestors(
-  net: NetworkConfig,
-  selfId: string,
-  startId: string,
-): string[] {
-  const path: string[] = [];
-  const visited = new Set<string>();
-  let cur: string | undefined = startId;
-  while (cur && !visited.has(cur)) {
-    path.push(cur);
-    visited.add(cur);
-    if (cur === selfId) {
-      cur = net.myParentInstanceId;   // continue upward via this instance's declared parent
-    } else {
-      const m = net.members.find(m => m.instanceId === cur);
-      if (!m) break;                  // chain incomplete; stop here
-      cur = m.parentInstanceId;
-    }
-  }
-  return path;
-}
-
 // ── POST /api/networks/:id/members — add a peer member ────────────────────
 
 networksRouter.post('/:id/members', globalRateLimit, requireAdmin, async (req, res) => {
@@ -626,7 +610,7 @@ networksRouter.post('/:id/members', globalRateLimit, requireAdmin, async (req, r
     };
     freshNet.pendingRounds.push(round);
     // Auto-cast this instance's yes vote (proposer implicitly approves their own proposal)
-    round.votes.push({ instanceId: freshCfg.instanceId, vote: 'yes', castAt: new Date().toISOString() });
+    round.votes.push(makeSignedOwnCast(freshNet.id, round, freshCfg.instanceId, 'yes'));
     const secrets = getSecrets();
     secrets.peerTokens[instanceId] = token;
     saveSecrets(secrets);
@@ -708,7 +692,7 @@ networksRouter.delete('/:id/members/:instanceId', globalRateLimit, requireAdmin,
   net.pendingRounds.push(removeRound);
   // Auto-cast this instance's yes vote if we are a required voter
   if (requiredVoters.includes(cfg.instanceId)) {
-    removeRound.votes.push({ instanceId: cfg.instanceId, vote: 'yes', castAt: new Date().toISOString() });
+    removeRound.votes.push(makeSignedOwnCast(net.id, removeRound, cfg.instanceId, 'yes'));
   }
   const immediatePassed = concludeRoundIfReady(net, removeRound);
   if (immediatePassed) {
@@ -863,7 +847,7 @@ networksRouter.post('/:id/votes/:roundId', globalRateLimit, requireAdmin, (req, 
 
     const instanceId = cfg.instanceId;
     const existing = round.votes.findIndex(v => v.instanceId === instanceId);
-    const cast = { instanceId, vote: parsed.data.vote, castAt: new Date().toISOString() };
+    const cast = makeSignedOwnCast(net.id, round, instanceId, parsed.data.vote);
     if (existing >= 0) { round.votes[existing] = cast; }
     else { round.votes.push(cast); }
 

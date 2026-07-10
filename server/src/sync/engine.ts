@@ -50,6 +50,7 @@ import { getDataRoot } from '../config/loader.js';
 import { createHash } from 'node:crypto';
 import { resolveSafePath } from '../files/sandbox.js';
 import { deleteFileMeta, upsertFileMeta } from '../files/file-meta.js';
+import { acceptVoteCast, getSigningPublicKey, pinMemberSigningKey } from '../util/signing.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // Timeout for every outbound fetch to a peer.
@@ -547,6 +548,8 @@ async function gossipWithPeer(
         .map(m => m.instanceId),
     };
     if (selfUrl) selfRecord['url'] = selfUrl;
+    const ownSigningKey = getSigningPublicKey();
+    if (ownSigningKey) selfRecord['signingPublicKey'] = ownSigningKey;
     const resp = await fetch(`${base}/members`, {
       ...opts(),
       method: 'POST',
@@ -566,6 +569,7 @@ async function gossipWithPeer(
               let changed = false;
               if (peerSelf.url && peerSelf.url !== local.url) { local.url = peerSelf.url; changed = true; }
               if (peerSelf.label && peerSelf.label !== local.label) { local.label = peerSelf.label; changed = true; }
+              if (pinMemberSigningKey(local, peerSelf.signingPublicKey)) changed = true;
               if (changed) {
                 log.info(`Gossip: updated ${member.label} via self-piggyback (${net.id})`);
                 saveConfig(freshCfg);
@@ -617,6 +621,7 @@ async function gossipWithPeer(
         local.children = peerRecord.children;
         updated = true;
       }
+      if (pinMemberSigningKey(local, peerRecord.signingPublicKey)) updated = true;
       if (updated) {
         log.info(`Gossip: updated member ${local.label} (${local.instanceId}) in network ${net.id}`);
         changed = true;
@@ -658,7 +663,9 @@ async function propagateVotesWithPeer(
         await fetch(`${base}/votes/${encodeURIComponent(round.roundId)}`, {
           ...opts(),
           method: 'POST',
-          body: JSON.stringify({ vote: cast.vote, instanceId: cast.instanceId }),
+          // Forward the signature (and castAt) so the peer can verify and, when
+          // valid, relay this cast onward — signed casts are relay-safe.
+          body: JSON.stringify({ vote: cast.vote, instanceId: cast.instanceId, sig: cast.sig, castAt: cast.castAt }),
         }).catch(err => log.warn(`Vote push (${round.roundId}) to ${member.label}: ${err}`));
       }
     }
@@ -699,12 +706,29 @@ async function propagateVotesWithPeer(
       }
       if (local.concluded) continue;
 
-      // Merge vote casts
+      // Merge vote casts.
+      //
+      // SECURITY: a signed cast is accepted from any reporter (its signature
+      // proves the voter cast it, so multi-hop relay is safe); an unsigned cast
+      // is accepted only when the reporting peer IS the voter. This blocks the
+      // forgery where a malicious peer serves a round pre-stuffed with `yes`
+      // votes forged for other members, while allowing signed votes to relay
+      // through intermediate nodes (deep braintree trees).
       for (const peerCast of (peerRound.votes ?? []) as VoteCast[]) {
         if (!peerCast.instanceId || !['yes', 'veto'].includes(peerCast.vote)) continue;
+        const decision = acceptVoteCast(freshNet, local, peerCast, member.instanceId);
+        if (!decision.accept) {
+          log.warn(
+            `Vote gossip: rejecting cast for '${peerCast.instanceId}' relayed by '${member.instanceId}' ` +
+            `(round ${peerRound.roundId}) — ${decision.reason}`,
+          );
+          continue;
+        }
         const idx = local.votes.findIndex(v => v.instanceId === peerCast.instanceId);
         if (idx >= 0) {
-          if (local.votes[idx]!.vote !== peerCast.vote) {
+          // Only replace if the new cast changes the vote value; preserve the
+          // signature that came with it.
+          if (local.votes[idx]!.vote !== peerCast.vote || local.votes[idx]!.sig !== peerCast.sig) {
             local.votes[idx] = peerCast;
             changed = true;
           }
@@ -781,7 +805,11 @@ async function pullFromPeer(
     if (resp.ok) {
       const data = await resp.json() as { memories?: TombstoneDoc[]; entities?: TombstoneDoc[]; edges?: TombstoneDoc[]; chrono?: TombstoneDoc[] };
       const all = [...(data.memories ?? []), ...(data.entities ?? []), ...(data.edges ?? []), ...(data.chrono ?? [])];
-      for (const t of all) { await applyRemoteTombstone(t); }
+      // The peer we pulled from is the authenticated source. Its own tombstones
+      // (issuer === member) are authorised; a tombstone it relays on behalf of a
+      // third author is refused here and applied instead when we sync directly
+      // with that author.
+      for (const t of all) { await applyRemoteTombstone(t, { peerInstanceId: member.instanceId }); }
     }
   } catch (err) {
     log.warn(`pullFromPeer tombstones from ${member.label}: ${err}`);

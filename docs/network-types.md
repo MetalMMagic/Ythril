@@ -42,6 +42,12 @@ A brain's spaces are isolated from each other. A network is scoped to specific s
 
 ---
 
+## Vote integrity
+
+Regardless of type, every governance vote is **cryptographically signed**. Each brain holds a persistent Ed25519 keypair and signs each vote it casts; peers pin one another's public keys on first contact. A signed vote can be verified by any brain, so votes relay safely across intermediate nodes (important for deep Braintree trees) and no member can forge a vote on another member's behalf. A network can be switched to strict mode (`requireSignedVotes`) to reject any unsigned vote once all members have published keys. See the [Sync Protocol](sync-protocol.md) for the wire-level detail.
+
+---
+
 ## Closed network
 
 All members must vote yes for any join or removal. A single no blocks it. For a solo member (one device), every action is instant self-approval.

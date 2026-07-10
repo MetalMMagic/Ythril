@@ -4,6 +4,7 @@ import { authRateLimit } from '../rate-limit/middleware.js';
 import { configExists, saveConfig, saveSecrets, loadSecrets, loadConfig } from '../config/loader.js';
 import { ensureGeneralSpace } from '../spaces/spaces.js';
 import { createToken } from '../auth/tokens.js';
+import { ensureInstanceKeypair } from '../util/signing.js';
 import { log } from '../util/log.js';
 import type { Config, SecretsFile } from '../config/types.js';
 
@@ -112,6 +113,7 @@ setupRouter.post('/', authRateLimit, async (req, res) => {
   await saveSecrets(secrets);
   loadConfig();
   loadSecrets();
+  ensureInstanceKeypair();
 
   try {
     await ensureGeneralSpace();
@@ -175,6 +177,7 @@ setupRouter.post('/json', authRateLimit, async (req, res) => {
   await saveSecrets(secrets);
   loadConfig();
   loadSecrets();
+  ensureInstanceKeypair();
 
   try {
     await ensureGeneralSpace();

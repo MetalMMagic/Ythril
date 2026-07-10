@@ -1,5 +1,15 @@
 import { col, mFilter, mDoc, mUpdate } from '../db/mongo.js';
+import { log } from '../util/log.js';
 import type { TombstoneDoc } from '../config/types.js';
+
+/** Context for authorising a remote tombstone's deletion of a local document. */
+export interface TombstoneAuth {
+  /** instanceId of the authenticated peer that delivered this tombstone
+   *  (the peer we pulled from, or the caller of POST /tombstones). */
+  peerInstanceId?: string;
+  /** True when the caller is a trusted local/admin token (no peer identity). */
+  trustedRelay?: boolean;
+}
 
 /** List tombstones with seq greater than the given watermark */
 export async function listTombstones(
@@ -18,7 +28,7 @@ export async function listTombstones(
 }
 
 /** Write a tombstone received from a peer (only if local seq is lower or doc doesn't exist) */
-export async function applyRemoteTombstone(tombstone: TombstoneDoc): Promise<void> {
+export async function applyRemoteTombstone(tombstone: TombstoneDoc, auth: TombstoneAuth = {}): Promise<void> {
   const { spaceId, _id, type, seq } = tombstone;
 
   // Idempotent upsert — only insert if not present or remote seq is higher
@@ -46,12 +56,31 @@ export async function applyRemoteTombstone(tombstone: TombstoneDoc): Promise<voi
   const targetColl = collMap[type];
   if (targetColl) {
     const localDoc = await col(targetColl).findOne(mFilter({ _id })) as { author?: { instanceId?: string } } | null;
-    // If the local doc has an author and it doesn't match the tombstone issuer, skip deletion.
-    // Documents without author metadata (legacy) are deleted as before.
-    if (localDoc?.author?.instanceId && tombstone.instanceId &&
-        localDoc.author.instanceId !== tombstone.instanceId) {
-      return;
+    if (localDoc?.author?.instanceId) {
+      const issuer = tombstone.instanceId;
+      // The tombstone may only delete a document authored by its own issuer.
+      if (localDoc.author.instanceId !== issuer) return;
+
+      // SECURITY: `issuer` is attacker-controllable, so matching it against the
+      // doc's author is not enough — a malicious peer could forge a tombstone
+      // with `instanceId` set to a victim instance to delete that victim's data.
+      // Require proof that the delete is authorised: either the tombstone was
+      // delivered directly by its issuer (the authenticated peer IS the author),
+      // or it came from a trusted local/admin token. A tombstone relayed by a
+      // third party on behalf of another author is refused; the authoring peer's
+      // own tombstone reaches us first-hand on direct sync.
+      const authorised =
+        auth.trustedRelay === true ||
+        (auth.peerInstanceId !== undefined && auth.peerInstanceId === issuer);
+      if (!authorised) {
+        log.warn(
+          `Refusing tombstone for doc '${_id}' (${type}) in space '${spaceId}': issuer '${issuer}' ` +
+          `is not the delivering peer '${auth.peerInstanceId ?? '-'}' — possible cross-instance delete forgery`,
+        );
+        return;
+      }
     }
+    // Documents without author metadata (legacy) carry nothing to protect — delete as before.
     await col(targetColl).deleteOne(mFilter({ _id }));
   }
 }

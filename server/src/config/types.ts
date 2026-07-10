@@ -416,12 +416,20 @@ export interface NetworkMember {
   originalParentInstanceId?: string;
   children?: string[];       // instanceIds of direct children (braintree)
   skipTlsVerify?: boolean;   // non-default; UI shows security warning when true
+  /** Ed25519 public key (SPKI PEM) used to verify this member's signed vote casts.
+   *  Trust-on-first-use: pinned the first time we learn it via member gossip / invite;
+   *  a later attempt to change it to a different key is rejected. */
+  signingPublicKey?: string;
 }
 
 export interface VoteCast {
   instanceId: string;
   vote: VoteValue;
   castAt: string;            // ISO8601
+  /** Base64 Ed25519 signature by `instanceId` over the canonical vote message
+   *  (see util/signing.ts). Present on casts created by signing-capable brains;
+   *  absent on legacy/unsigned casts (accepted only via the own-cast path). */
+  sig?: string;
 }
 
 export interface VoteRound {
@@ -455,6 +463,12 @@ export interface NetworkConfig {
   spaceMap?: Record<string, string>;
   votingDeadlineHours: number;
   merkle?: boolean;
+  /** When true, governance vote casts must carry a valid Ed25519 signature from
+   *  the voting member (verified against its pinned signingPublicKey). Enable
+   *  once every member has published a signing key. Default (false/undefined)
+   *  runs in compatibility mode: signed casts are verified and relay-safe, while
+   *  unsigned casts are accepted only directly from the voter (never relayed). */
+  requireSignedVotes?: boolean;
   members: NetworkMember[];
   pendingRounds: VoteRound[];
   syncSchedule?: string;     // cron expression; omit = manual only
@@ -565,6 +579,10 @@ export interface Config {
   instanceId: string;
   instanceLabel: string;
   publicUrl?: string;         // optional canonical public URL for this brain instance
+  /** Ed25519 public signing key (SPKI PEM) for this instance. Published to peers
+   *  so they can verify our signed governance vote casts. Private half is in
+   *  secrets.json. Generated on first startup after setup. */
+  signingPublicKey?: string;
   tokens: TokenRecord[];
   spaces: SpaceConfig[];
   networks: NetworkConfig[];
@@ -592,6 +610,7 @@ export interface SecretsFile {
   peerTokens: Record<string, string>;
   totpSecret?: string;              // base32 TOTP secret; absent = MFA disabled
   webhookEncryptionKey?: string;    // hex-encoded AES-256 key for webhook secret encryption
+  signingPrivateKey?: string;       // Ed25519 private key (PKCS8 PEM) for signing governance votes
   /**
    * Media embedding provider credentials. Stored here (0o600) instead of
    * config.json so API keys are never world-readable. Env vars

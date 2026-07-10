@@ -24,6 +24,8 @@ import { isStrictLinkage } from '../spaces/proxy.js';
 import { getAllowedChronoTypes } from '../spaces/schema-validation.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { computeMerkleRoot } from '../brain/merkle.js';
+import { buildBraintreeAncestors } from '../util/braintree.js';
+import { acceptVoteCast, getSigningPublicKey, pinMemberSigningKey } from '../util/signing.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -964,7 +966,13 @@ syncRouter.post('/tombstones', syncRateLimit, requireAuth, denyReadOnly, async (
     const parsed = schema.safeParse(tombstones);
     if (!parsed.success) { res.status(400).json({ error: 'Invalid tombstone format' }); return; }
 
-    await Promise.all(parsed.data.map(t => applyRemoteTombstone(t)));
+    // A peer token may only delete content it authored (peerInstanceId === tombstone issuer);
+    // a trusted local/admin token (no peerInstanceId) may relay any tombstone.
+    const callerPeerId = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string | undefined;
+    const trustedRelay = !callerPeerId && req.authToken?.admin === true;
+    await Promise.all(parsed.data.map(t =>
+      applyRemoteTombstone(t as TombstoneDoc, { peerInstanceId: callerPeerId, trustedRelay }),
+    ));
     res.status(200).json({ applied: parsed.data.length });
   } catch (err) {
     log.error(`sync POST tombstones: ${err}`);
@@ -1187,13 +1195,16 @@ syncRouter.post('/networks/:networkId/members', syncRateLimit, requireAuth, deny
     if (freshNet) {
       const idx = freshNet.members.findIndex(m => m.instanceId === incoming.instanceId);
       if (idx >= 0) {
-        freshNet.members[idx] = {
+        const updated = {
           ...freshNet.members[idx]!,
           label: incoming.label ?? freshNet.members[idx]!.label,
           url: incoming.url ?? freshNet.members[idx]!.url,
           children: incoming.children ?? freshNet.members[idx]!.children,
           lastSyncAt: new Date().toISOString(),
         };
+        // Trust-on-first-use: pin the member's signing key the first time we see it.
+        pinMemberSigningKey(updated, incoming.signingPublicKey);
+        freshNet.members[idx] = updated;
         saveConfig(fresh);
       }
     }
@@ -1202,6 +1213,8 @@ syncRouter.post('/networks/:networkId/members', syncRateLimit, requireAuth, deny
     const selfUrl = process.env['INSTANCE_URL'] ?? '';
     const selfRecord: Record<string, unknown> = { instanceId: cfg.instanceId, label: cfg.instanceLabel };
     if (selfUrl) selfRecord['url'] = selfUrl;
+    const ownSigningKey = getSigningPublicKey();
+    if (ownSigningKey) selfRecord['signingPublicKey'] = ownSigningKey;
     res.status(200).json({ status: 'ok', self: selfRecord });
   } catch (err) {
     log.error(`sync POST members: ${err}`);
@@ -1242,17 +1255,9 @@ syncRouter.get('/networks/:networkId/votes', syncRateLimit, requireAuth, async (
  */
 syncRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
-    const body = req.body as { vote: string; instanceId: string };
+    const body = req.body as { vote: string; instanceId: string; sig?: string; castAt?: string };
     if (!body?.vote || !body?.instanceId || !['yes', 'veto'].includes(body.vote)) {
       res.status(400).json({ error: 'vote (yes|veto) and instanceId required' });
-      return;
-    }
-
-    // Vote forgery prevention: a peer token may only cast votes on behalf of its own instanceId.
-    // Tokens without peerInstanceId (admin/local) may relay votes on behalf of any instanceId.
-    const callerPeerId = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string | undefined;
-    if (callerPeerId && callerPeerId !== body.instanceId) {
-      res.status(403).json({ error: 'Token is not authorized to cast votes on behalf of this instanceId' });
       return;
     }
 
@@ -1263,9 +1268,25 @@ syncRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requireAut
     const round = net.pendingRounds.find(r => r.roundId === req.params['roundId'] && !r.concluded);
     if (!round) { res.status(404).json({ error: 'Round not found or concluded' }); return; }
 
+    // Vote forgery prevention. A signed cast is accepted from any reporter (its
+    // signature proves the voter cast it). An unsigned cast is accepted only from
+    // its own voter — a peer token may only relay its own instanceId; admin/local
+    // tokens (no peerInstanceId) may relay any unsigned cast (compat).
+    const callerPeerId = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string | undefined;
+    const cast = {
+      instanceId: body.instanceId,
+      vote: body.vote as 'yes' | 'veto',
+      castAt: typeof body.castAt === 'string' ? body.castAt : new Date().toISOString(),
+      ...(typeof body.sig === 'string' && body.sig ? { sig: body.sig } : {}),
+    };
+    const decision = acceptVoteCast(net, round, cast, callerPeerId ?? body.instanceId);
+    if (!decision.accept) {
+      res.status(403).json({ error: `Vote rejected: ${decision.reason}` });
+      return;
+    }
+
     // Deduplicate: replace existing vote from this instance if present
     const existing = round.votes.findIndex(v => v.instanceId === body.instanceId);
-    const cast = { instanceId: body.instanceId, vote: body.vote as 'yes' | 'veto', castAt: new Date().toISOString() };
     if (existing >= 0) { round.votes[existing] = cast; }
     else { round.votes.push(cast); }
 
@@ -1311,6 +1332,31 @@ syncRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requireAut
 
 // â”€â”€ Vote conclusion logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
+/**
+ * Recompute the braintree ancestor voter set for a round from this instance's
+ * own view of the tree, so conclusion never depends on a peer-supplied
+ * `requiredVoters` *set*. Returns null for round types that are not
+ * ancestor-gated (space_deletion / meta_change) or when no anchor is available —
+ * the caller then falls back to requiring every member to vote yes.
+ *
+ * The round's `requiredVoters[0]` is the anchor node the proposer computed the
+ * chain from (the inviting node for a join, the subject's parent for a remove).
+ * We trust only that single anchor and recompute the FULL chain from it against
+ * our local topology. This exactly reproduces the proposer's set for legitimate
+ * rounds, but a peer cannot SHRINK the required set: anchoring on `[attacker]`
+ * still recomputes the real ancestor chain from the attacker up to the root, so
+ * every genuine ancestor must still vote yes.
+ */
+function localBraintreeRequiredVoters(
+  net: import('../config/types.js').NetworkConfig,
+  round: import('../config/types.js').VoteRound,
+): string[] | null {
+  if (round.type !== 'join' && round.type !== 'remove') return null;
+  const anchor = round.requiredVoters?.[0];
+  if (!anchor) return null;
+  return buildBraintreeAncestors(net, getConfig().instanceId, anchor);
+}
+
 function concludeRoundIfReady(
   net: import('../config/types.js').NetworkConfig,
   round: import('../config/types.js').VoteRound,
@@ -1339,19 +1385,27 @@ function concludeRoundIfReady(
     case 'closed':
       passed = allRemoteVotedYes;
       break;
-    case 'braintree':
-      if (round.requiredVoters && round.requiredVoters.length > 0) {
-        // Only the designated ancestors (path from inviting node to root) must vote yes.
-        // The subject itself is excluded from the required set.
-        const relevant = round.requiredVoters.filter(id => id !== round.subjectInstanceId);
+    case 'braintree': {
+      // SECURITY: recompute the ancestor voter set from the LOCAL topology rather
+      // than trusting `round.requiredVoters`. Once a round is adopted via gossip,
+      // that field is attacker-controllable — a malicious peer could shrink it to
+      // `[attacker]` and, with its own (authentic) yes vote, force a join/remove/
+      // space_deletion to conclude on the victim. The local recomputation yields
+      // the same set for legitimate rounds and cannot be shrunk by a peer.
+      const localRequired = localBraintreeRequiredVoters(net, round);
+      if (localRequired && localRequired.length > 0) {
+        const relevant = localRequired.filter(id => id !== round.subjectInstanceId);
         passed = relevant.every(id =>
           round.votes.some(c => c.instanceId === id && c.vote === 'yes'),
         );
       } else {
-        // Fallback for rounds created before requiredVoters was introduced
+        // No locally-derivable ancestor set (e.g. space_deletion / meta_change, a
+        // pre-requiredVoters round, or an incomplete local tree view): fall back to
+        // requiring EVERY current member to have voted yes — never fewer.
         passed = allRemoteVotedYes;
       }
       break;
+    }
     case 'democratic':
       passed = (voters.length === 0 && yesCount > 0) || (yesCount > voters.length / 2 && vetoCount === 0);
       break;

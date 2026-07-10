@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Legacy tokens are no longer silently invalidated on upgrade** — a startup/reload migration
+  *deleted* any PAT created before the `prefix` field existed, on the assumption it "cannot be
+  verified." In fact a prefix-less token can still be bcrypt-verified; the prefix is only a lookup
+  optimization. The deletion meant that after an innocuous restart/upgrade, every client sharing such
+  a token — web UI, monitors, MCP connectors — dropped to `401` at once, with nothing but a single log
+  line to explain it. Legacy tokens are now **verified via a fallback scan and self-heal**: the prefix
+  is backfilled on first use so subsequent lookups take the fast path, and no token is ever deleted by
+  the migration. Covered by `testing/integration/auth.test.js`.
+
 ### Security
 
 - **SSRF guard hardened against alternate host encodings and DNS-based bypasses** — the outbound-URL

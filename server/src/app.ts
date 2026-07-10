@@ -347,19 +347,8 @@ export function createApp() {
       const oldSpaceIds = new Set(getConfig().spaces.map(s => s.id));
       reloadConfig();
       loadSecrets(); // Also reload secrets.json (peer tokens injected by tests/scripts)
-      // Migration: strip prefix-less tokens (same as startup migration)
-      {
-        const cfg = getConfig();
-        const before = cfg.tokens.length;
-        cfg.tokens = cfg.tokens.filter(t => t.prefix);
-        if (cfg.tokens.length < before) {
-          log.warn(
-            `Removed ${before - cfg.tokens.length} token(s) that pre-date the ` +
-            'prefix field and cannot be verified. Affected PAT holders must create new tokens.',
-          );
-          saveConfig(cfg);
-        }
-      }
+      // Prefix-less (legacy) tokens are NOT stripped — findMatchingToken()
+      // verifies them via a fallback scan and backfills the prefix on first use.
       // Flush caches so revoked tokens and updated OIDC config take effect immediately
       clearTokenCache();
       clearOidcCache();

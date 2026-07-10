@@ -2,6 +2,7 @@
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import { getConfig, saveConfig } from '../config/loader.js';
+import { log } from '../util/log.js';
 import type { TokenRecord } from '../config/types.js';
 
 const BCRYPT_ROUNDS = 12;
@@ -76,7 +77,7 @@ export async function findMatchingToken(
   // Prefix-filtered path: only bcrypt-compare records whose prefix matches.
   // `prefix` is the first 8 chars of the plaintext token, stored in the record
   // at creation time — this allows O(small n) pre-filtering so we virtually
-  // never run more than 1 bcrypt compare (collisions are ~1/62^8 ≈ 1 in 218 trillion).
+  // never run more than 1 bcrypt compare.
   const prefix = plaintext.slice(0, 8);
   const candidates = config.tokens.filter(t => t.prefix === prefix);
 
@@ -84,6 +85,26 @@ export async function findMatchingToken(
     const ok = await verifyToken(plaintext, record.hash);
     if (!ok) continue;
     if (record.expiresAt && new Date(record.expiresAt) < new Date()) continue;
+    _tokenCache.set(plaintext, { tokenId: record.id, expiresAt: Date.now() + CACHE_TTL_MS });
+    return record;
+  }
+
+  // Fallback for LEGACY tokens created before the `prefix` field existed. They
+  // cannot be prefix-prefiltered, but they can still be bcrypt-verified. Rather
+  // than silently deleting such tokens on startup (which used to break every
+  // client using them at once), we verify them here and BACKFILL the prefix on
+  // first use so future lookups take the fast path. This list is empty in a
+  // fully-migrated deployment, so there is no cost in the common case.
+  const legacy = config.tokens.filter(t => !t.prefix);
+  for (const record of legacy) {
+    const ok = await verifyToken(plaintext, record.hash);
+    if (!ok) continue;
+    if (record.expiresAt && new Date(record.expiresAt) < new Date()) continue;
+    record.prefix = prefix; // self-heal
+    try {
+      saveConfig(config);
+      log.info(`Backfilled prefix for legacy token '${record.name}' (${record.id}) on first use.`);
+    } catch { /* best-effort — will persist on the next config save */ }
     _tokenCache.set(plaintext, { tokenId: record.id, expiresAt: Date.now() + CACHE_TTL_MS });
     return record;
   }

@@ -31,6 +31,7 @@
 
 import net from 'node:net';
 import dns from 'node:dns/promises';
+import { fetch as undiciFetch, Agent } from 'undici';
 
 /** Thrown by the async SSRF guards when a target resolves to a blocked address. */
 export class SsrfBlockedError extends Error {
@@ -281,9 +282,38 @@ export async function assertUrlSafeResolved(
 }
 
 /**
- * SSRF-safe replacement for `fetch`. Validates the target (with DNS resolution)
- * before each request and follows redirects manually, re-validating every hop's
- * URL so a target cannot 3xx-redirect to an internal address.
+ * Build an undici dispatcher that pins every connection to `ip`. The socket
+ * therefore connects to the exact address we validated, closing the TOCTOU
+ * window where DNS could rebind to an internal address between validation and
+ * connect. TLS SNI / certificate validation still use the URL hostname (undici
+ * derives `servername` from the request URL, not from `lookup`), so HTTPS
+ * targets keep working normally.
+ */
+export function pinnedAgent(ip: string): Agent {
+  const family = net.isIP(ip) === 6 ? 6 : 4;
+  return new Agent({
+    connect: {
+      lookup: (
+        _hostname: string,
+        options: { all?: boolean } | undefined,
+        cb: (err: NodeJS.ErrnoException | null, address: string | { address: string; family: number }[], family?: number) => void,
+      ) => {
+        if (options && options.all) cb(null, [{ address: ip, family }]);
+        else cb(null, ip, family);
+      },
+    },
+  });
+}
+
+/**
+ * SSRF-safe replacement for `fetch`. Before each request it resolves and
+ * validates the target (via `assertUrlSafeResolved`), then **pins the connection
+ * to the validated IP** so a DNS rebind cannot redirect the socket to an internal
+ * address after the check. Redirects are followed manually and every hop is
+ * re-validated and re-pinned.
+ *
+ * A custom `opts.fetchImpl` (used in tests) bypasses IP pinning — the injected
+ * implementation owns transport.
  *
  * Uses `redirect: 'manual'` internally regardless of any `init.redirect`.
  */
@@ -293,16 +323,36 @@ export async function ssrfSafeFetch(
   opts: { maxRedirects?: number; lookup?: DnsLookup; fetchImpl?: typeof fetch } = {},
 ): Promise<Response> {
   const maxRedirects = opts.maxRedirects ?? 3;
-  const doFetch = opts.fetchImpl ?? fetch;
+  const injected = opts.fetchImpl;
   let current = rawUrl;
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
-    await assertUrlSafeResolved(current, { lookup: opts.lookup });
-    const resp = await doFetch(current, { ...init, redirect: 'manual' });
+    const { addresses } = await assertUrlSafeResolved(current, { lookup: opts.lookup });
+
+    let resp: Response;
+    let agent: Agent | undefined;
+    if (injected) {
+      resp = await injected(current, { ...init, redirect: 'manual' });
+    } else {
+      agent = pinnedAgent(addresses[0]!);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      resp = await (undiciFetch as any)(current, { ...init, redirect: 'manual', dispatcher: agent }) as Response;
+    }
+
     const location = resp.status >= 300 && resp.status < 400 ? resp.headers.get('location') : null;
-    if (!location) return resp;
-    // Resolve the redirect target relative to the current URL and re-validate on
-    // the next loop iteration.
+    if (!location) {
+      if (!agent) return resp;
+      // Detach from the pinned connection: buffer the (small) body and close the
+      // agent so no socket lingers past return. Webhook callers read only status.
+      const buf = await resp.arrayBuffer().catch(() => new ArrayBuffer(0));
+      await agent.close().catch(() => { /* best-effort */ });
+      return new Response(buf, { status: resp.status, statusText: resp.statusText, headers: resp.headers as unknown as HeadersInit });
+    }
+    // Redirect: drain the body, close this hop's agent, then follow + re-validate.
+    if (agent) {
+      await resp.arrayBuffer().catch(() => { /* ignore */ });
+      await agent.close().catch(() => { /* best-effort */ });
+    }
     current = new URL(location, current).toString();
   }
   throw new SsrfBlockedError(`Blocked SSRF target (too many redirects, > ${maxRedirects})`);

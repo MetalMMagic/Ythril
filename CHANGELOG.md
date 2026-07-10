@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Webhook delivery now pins the connection to the validated IP** — `ssrfSafeFetch` resolved and
+  validated the target's address but then let `fetch` re-resolve it to connect, leaving a narrow
+  DNS-rebind TOCTOU window between check and connect. It now pins the socket to the exact validated
+  address via an undici dispatcher (TLS SNI / certificate validation still use the hostname), and
+  re-pins on every redirect hop, so the connection can never land on a different (internal) IP than
+  the one that passed the SSRF check. The redirect-follow cap is configurable via
+  `webhookMaxRedirects` in `config.json` (or the `WEBHOOK_MAX_REDIRECTS` env var), default 3, clamped
+  to `[0, 20]`. Adds `undici` as a direct dependency. Covered by
+  `testing/standalone/ssrf-ip-pinning.test.js`.
 - **MCP proxy spaces no longer bypass member-space token scope** — an MCP call targeting a proxy space
   checked the token only against the *proxy* space id, then fanned reads/writes out to the member
   spaces with no further check. A token scoped solely to a proxy (especially a `proxyFor: ['*']`

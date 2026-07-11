@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { requireAuth } from '../auth/middleware.js';
 import { notifyRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig } from '../config/loader.js';
+import { revokePeerCredentialsIfOrphaned } from '../auth/tokens.js';
 import { log } from '../util/log.js';
 
 export const notifyRouter = Router();
@@ -162,6 +163,10 @@ notifyRouter.post('/', notifyRateLimit, requireAuth, (req, res) => {
         log.info(`Departed member ${instanceId} removed from network ${networkId}`);
       }
     }
+    // The departing peer's PAT stays valid only while it is still a member of
+    // some other shared network; otherwise revoke it (and our outbound token).
+    revokePeerCredentialsIfOrphaned(instanceId)
+      .catch(err => log.error(`peer credential revocation for ${instanceId}: ${err}`));
   }
 
   // We have been ejected from this network — mark as ejected and remove it locally
@@ -172,11 +177,20 @@ notifyRouter.post('/', notifyRateLimit, requireAuth, (req, res) => {
       cfgEject.ejectedFromNetworks.push(networkId);
     }
     const netIdx = cfgEject.networks.findIndex(n => n.id === networkId);
+    const formerMembers = netIdx >= 0 ? cfgEject.networks[netIdx]!.members.map(m => m.instanceId) : [];
     if (netIdx >= 0) {
       cfgEject.networks.splice(netIdx, 1);
     }
     saveConfig(cfgEject);
     log.warn(`Ejected from network ${networkId} — network removed and marked as ejected`);
+    // Ex-peers of the deleted network keep their PATs only if they still share
+    // another network with us; otherwise their credentials are revoked so they
+    // cannot keep hitting our data endpoints after the ejection.
+    for (const memberId of formerMembers) {
+      if (memberId === cfgEject.instanceId) continue;
+      revokePeerCredentialsIfOrphaned(memberId)
+        .catch(err => log.error(`peer credential revocation for ${memberId}: ${err}`));
+    }
   }
 
   res.status(204).end();

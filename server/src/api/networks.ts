@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { requireAdmin } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets, saveSecrets } from '../config/loader.js';
-import { createToken, revokeToken } from '../auth/tokens.js';
+import { createToken, revokeToken, revokePeerCredentialsIfOrphaned } from '../auth/tokens.js';
 import { createSpace } from '../spaces/spaces.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from './sync.js';
 import { getSyncHistory } from '../sync/history.js';
@@ -260,6 +260,13 @@ networksRouter.delete('/:id', globalRateLimit, requireAdmin, async (req, res) =>
     if (i >= 0) { c.networks.splice(i, 1); saveConfig(c); }
   }
   log.info(`Deleted network id=${net.id}`);
+
+  // Revoke credentials of peers that no longer share any network with us.
+  for (const member of net.members) {
+    if (member.instanceId === cfg.instanceId) continue;
+    await revokePeerCredentialsIfOrphaned(member.instanceId)
+      .catch(err => log.error(`peer credential revocation for ${member.instanceId}: ${err}`));
+  }
 
   if (warnings.length) {
     res.json({ ok: true, warnings });
@@ -685,8 +692,11 @@ networksRouter.delete('/:id/members/:instanceId', globalRateLimit, requireAdmin,
 
   if (net.type === 'club' || net.type === 'pubsub') {
     // Club / Pubsub: publisher (owner) removes directly, no vote required
+    const removedId = net.members[memberIdx]!.instanceId;
     net.members.splice(memberIdx, 1);
     saveConfig(cfg);
+    revokePeerCredentialsIfOrphaned(removedId)
+      .catch(err => log.error(`peer credential revocation for ${removedId}: ${err}`));
     res.status(204).end();
     return;
   }

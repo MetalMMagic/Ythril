@@ -84,8 +84,31 @@ function readContainerConfig(container) {
   return JSON.parse(out);
 }
 
+/** Mint fresh peer PATs on both instances. Departures/removals now REVOKE the
+ *  departed peer's credentials (H7), so tokens cannot be reused across the
+ *  leave/removal cycles in this file — each setup mints its own pair. */
+async function mintPeerTokens() {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+  const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', {
+    name: `leave-test-peer-a-${suffix}`,
+    peerInstanceId: instanceIdA,
+  });
+  assert.equal(ptForA.status, 201, `Create peer token for A on B: ${JSON.stringify(ptForA.body)}`);
+  peerTokenForA = ptForA.body.plaintext;
+  peerTokenForAId = ptForA.body.token?.id;
+
+  const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', {
+    name: `leave-test-peer-b-${suffix}`,
+    peerInstanceId: instanceIdB,
+  });
+  assert.equal(ptForB.status, 201, `Create peer token for B on A: ${JSON.stringify(ptForB.body)}`);
+  peerTokenForB = ptForB.body.plaintext;
+  peerTokenForBId = ptForB.body.token?.id;
+}
+
 /** Create a club network on A, mirror on B, inject peer tokens. Returns networkId. */
 async function setupClubNetwork() {
+  await mintPeerTokens();
   const netR = await post(INSTANCES.a, tokenA, '/api/networks', {
     label: `Leave Test ${Date.now()}`,
     type: 'club',
@@ -136,6 +159,7 @@ async function setupClubNetwork() {
 
 /** Create a democratic network on A, mirror on B, inject peer tokens. Returns networkId. */
 async function setupDemocraticNetwork() {
+  await mintPeerTokens();
   const netR = await post(INSTANCES.a, tokenA, '/api/networks', {
     label: `Removal Test ${Date.now()}`,
     type: 'democratic',
@@ -204,23 +228,9 @@ describe('Leave and removal flows', () => {
     instanceIdA = getInstanceId('ythril-a');
     instanceIdB = getInstanceId('ythril-b');
 
-    // Create peer PATs with peerInstanceId so the notify handler's identity
-    // verification passes (in production the invite handshake sets this).
-    const ptForA = await post(INSTANCES.b, tokenB, '/api/tokens', {
-      name: `leave-test-peer-a-${Date.now()}`,
-      peerInstanceId: instanceIdA,
-    });
-    assert.equal(ptForA.status, 201, `Create peer token for A on B: ${JSON.stringify(ptForA.body)}`);
-    peerTokenForA = ptForA.body.plaintext;
-    peerTokenForAId = ptForA.body.token?.id;
-
-    const ptForB = await post(INSTANCES.a, tokenA, '/api/tokens', {
-      name: `leave-test-peer-b-${Date.now()}`,
-      peerInstanceId: instanceIdB,
-    });
-    assert.equal(ptForB.status, 201, `Create peer token for B on A: ${JSON.stringify(ptForB.body)}`);
-    peerTokenForB = ptForB.body.plaintext;
-    peerTokenForBId = ptForB.body.token?.id;
+    // Peer PATs (with peerInstanceId so the notify handler's identity
+    // verification passes) are minted fresh by each setup*Network call —
+    // see mintPeerTokens().
   });
 
   after(async () => {

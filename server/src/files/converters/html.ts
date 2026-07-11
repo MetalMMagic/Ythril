@@ -9,8 +9,19 @@ import TurndownService from 'turndown';
 import type { FileConverter } from './types.js';
 import { ConversionUnavailableError } from './types.js';
 
+
+// jsdom builds the full DOM in-process — parsing cost is highly non-linear in
+// input size, so HTML gets a tighter cap than the sidecar-backed formats.
+const MAX_HTML_BYTES = 25 * 1024 * 1024;
+
 export class HtmlConverter implements FileConverter {
   async convert(fileBytes: Buffer, _fileName: string): Promise<string> {
+    if (fileBytes.length > MAX_HTML_BYTES) {
+      throw new ConversionUnavailableError(
+        'too_large',
+        `HTML input is ${fileBytes.length} bytes; in-process conversion is capped at ${MAX_HTML_BYTES} bytes`,
+      );
+    }
     const html = fileBytes.toString('utf8');
 
     const dom = new JSDOM(html, { url: 'http://localhost/' });

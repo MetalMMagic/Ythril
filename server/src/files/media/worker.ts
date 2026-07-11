@@ -41,6 +41,7 @@ import {
   deleteConversionArtifacts,
 } from '../converters/pipeline.js';
 import type { ResolvedFormat } from '../converters/pipeline.js';
+import { ConversionUnavailableError } from '../converters/types.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { spaceRoot } from '../sandbox.js';
@@ -236,12 +237,21 @@ async function processJob(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(`Media worker: job ${spaceId}/${fileId} failed: ${message}`);
-    if (attempts >= maxAttempts) {
+    // An oversized document will never shrink — fail permanently instead of
+    // burning the retry budget re-reading a file the pipeline refuses to convert.
+    const permanent = err instanceof ConversionUnavailableError && err.reason === 'too_large';
+    if (permanent) {
+      await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
+        mFilter<FileMetaDoc>({ _id: fileId }),
+        { $set: { embeddingStatus: 'skipped' } },
+      ).catch(() => {});
+    }
+    if (permanent || attempts >= maxAttempts) {
       mediaJobsFailedTotal.labels({ space: spaceId, media_type: mediaType }).inc();
     } else {
       mediaJobsRetriedTotal.labels({ space: spaceId, media_type: mediaType }).inc();
     }
-    await failJob(spaceId, fileId, attempts, maxAttempts, message).catch(innerErr =>
+    await failJob(spaceId, fileId, permanent ? maxAttempts : attempts, maxAttempts, message).catch(innerErr =>
       log.warn(`Media worker: failJob error: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`),
     );
   } finally {

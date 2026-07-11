@@ -1,7 +1,7 @@
 ﻿import { randomBytes } from 'crypto';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
-import { getConfig, saveConfig } from '../config/loader.js';
+import { getConfig, saveConfig, getSecrets, saveSecrets } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { TokenRecord } from '../config/types.js';
 
@@ -183,6 +183,45 @@ export async function revokeToken(id: string): Promise<boolean> {
     if (val.tokenId === id) _tokenCache.delete(key);
   }
   return true;
+}
+
+/**
+ * Revoke all credentials tied to a peer instance once it no longer shares any
+ * network with us: the inbound PATs it presents (records with a matching
+ * `peerInstanceId`) and our outbound token for calling it (`secrets.peerTokens`).
+ *
+ * A peer can legitimately be a member of several networks, so this is a no-op
+ * while the instance still appears in any network's member list or in an
+ * unconcluded join round's pending member. Call it after a member has been
+ * removed (vote conclusion, direct removal, departure, or network deletion).
+ *
+ * Returns true if any credential was actually revoked.
+ */
+export async function revokePeerCredentialsIfOrphaned(instanceId: string): Promise<boolean> {
+  if (!instanceId) return false;
+  const config = getConfig();
+  const stillMember = config.networks.some(n =>
+    n.members.some(m => m.instanceId === instanceId) ||
+    n.pendingRounds?.some(r => !r.concluded && r.pendingMember?.instanceId === instanceId),
+  );
+  if (stillMember) return false;
+
+  let revoked = false;
+  const inbound = config.tokens.filter(t => t.peerInstanceId === instanceId);
+  for (const t of inbound) {
+    if (await revokeToken(t.id)) {
+      revoked = true;
+      log.info(`Revoked peer PAT '${t.name}' (${t.id}) — instance ${instanceId} is no longer a member of any network`);
+    }
+  }
+  const secrets = getSecrets();
+  if (secrets.peerTokens[instanceId]) {
+    delete secrets.peerTokens[instanceId];
+    saveSecrets(secrets);
+    revoked = true;
+    log.info(`Dropped outbound peer token for departed instance ${instanceId}`);
+  }
+  return revoked;
 }
 
 /** Rotate a token: generate a new plaintext/hash for an existing record.

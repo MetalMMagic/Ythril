@@ -30,6 +30,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **`query` tool `$regex` filters are now bounded against ReDoS** — the structured query filter
+  sanitizer whitelisted `$regex` but applied no pattern analysis, so a catastrophic-backtracking
+  pattern could pin MongoDB CPU for the full `maxTimeMS` budget per call (multiplied per member
+  space on proxy spaces). `$regex` values must now be strings of at most 500 characters and pass
+  the same conservative nested-quantifier heuristic used for schema `pattern` rules (shared via
+  `util/redos.ts`); the `maxTimeMS` ceiling drops from 30 s to 10 s. Covered by
+  `testing/standalone/query-regex-redos.test.js`.
+
+- **Removed or ejected sync peers no longer keep valid credentials** — removing a member (direct
+  club/pubsub removal, a concluded remove vote, a departure, or deleting a network) never revoked
+  the peer's PAT or dropped the stored outbound token, so an ejected peer could keep reading and
+  writing sync data indefinitely. Credentials are now revoked once the peer no longer shares **any**
+  network with this instance (membership in another common network preserves them), on both sides of
+  an ejection. The ejection guard also now covers the **data** endpoints (`/api/sync/memories`,
+  `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/manifest`, `/files`, tombstones, merkle …) —
+  previously only `/api/sync/networks/:id/*` returned `401 ejected`, while data endpoints fell back
+  to "space exists" because the network config is deleted on ejection. Covered by
+  `testing/sync/peer-revocation.test.js`.
+
+- **Chunked uploads now enforce the storage quota and a total-size bound** — the `Content-Range`
+  upload branch performed no quota check at all (quota applied only to single-request uploads) and
+  never bounded the declared total, so a client could bypass the files hard limit or fill the disk
+  through the `.chunks` staging area. Every chunk now runs the same quota check as a single-request
+  upload (the first chunk projects the full declared total), staged bytes under `.chunks` count
+  toward measured file usage, and the declared total is capped by `maxChunkedUploadBytes`
+  (default 10 GiB). Covered by `testing/red-team-tests/file-hardening.test.js`.
+
+- **User-uploaded HTML/SVG/XML can no longer run script in the instance origin (stored XSS)** —
+  file downloads served `text/html` and `image/svg+xml` inline with no `Content-Disposition`, so a
+  crafted upload opened in the browser executed in Ythril's origin (web-UI token theft). Active-content
+  types (`.html`, `.htm`, `.svg`, `.xml`, `.xhtml`) are now served with
+  `Content-Disposition: attachment` and a `sandbox` CSP; passive types (images, PDF, plain text)
+  stay inline so previews keep working. Filenames are quote/CRLF-sanitised in the header. Covered by
+  `testing/red-team-tests/file-hardening.test.js`.
+
+- **Document conversion is size-bounded (DoS guard)** — the pdf/docx/epub/html → markdown pipeline
+  accepted inputs of any size (`maxFileSizeBytes` applied only to media embedding), parsed HTML
+  in-process via jsdom, and stored every image a document embedded. Conversion now rejects documents
+  over `maxDocumentConversionBytes` (default 100 MiB; HTML capped at 25 MiB because jsdom parses
+  in-process) permanently — no retry burn — and extracted images are capped at 50 per document /
+  100 MiB aggregate. Covered by `testing/standalone/conversion-limits.test.js`.
+
 - **Webhook delivery now pins the connection to the validated IP** — `ssrfSafeFetch` resolved and
   validated the target's address but then let `fetch` re-resolve it to connect, leaving a narrow
   DNS-rebind TOCTOU window between check and connect. It now pins the socket to the exact validated

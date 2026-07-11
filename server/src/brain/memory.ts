@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { col, isVectorSearchAvailable, mFilter, mDoc, mUpdate, mBulk } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { NotFoundError } from '../util/errors.js';
+import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
 import { embed } from './embedding.js';
 import { getConfig, getEmbeddingConfig } from '../config/loader.js';
 import { needsReindex } from '../spaces/spaces.js';
@@ -765,6 +766,20 @@ function sanitizeFilter(filter: unknown, depth = 0): unknown {
       if (key.startsWith('$') && !ALLOWED_OPERATORS.has(key)) {
         throw new Error(`Operator '${key}' is not allowed in queries`);
       }
+      // $regex must be a plain string and pass the shared ReDoS heuristic —
+      // a catastrophic pattern would otherwise pin Mongo CPU for the full
+      // maxTimeMS budget per call (multiplied per member space on proxies).
+      if (key === '$regex') {
+        if (typeof val !== 'string') {
+          throw new Error("'$regex' must be a string pattern");
+        }
+        if (val.length > MAX_PATTERN_LENGTH) {
+          throw new Error(`'$regex' pattern exceeds ${MAX_PATTERN_LENGTH} characters`);
+        }
+        if (hasReDoSRisk(val)) {
+          throw new Error("'$regex' pattern rejected: potential catastrophic backtracking (nested or alternating quantifiers)");
+        }
+      }
       out[key] = sanitizeFilter(val, depth + 1);
     }
     // $options must only appear alongside $regex and contain valid flags
@@ -796,7 +811,7 @@ export async function queryBrain(
     throw new Error(`Unknown collection '${collectionName}'`);
   }
   const safeFilter = sanitizeFilter(filter) as Record<string, never>;
-  const safeMaxTime = Math.min(maxTimeMS, 30_000);
+  const safeMaxTime = Math.min(maxTimeMS, 10_000);
   const collName = `${spaceId}_${collectionName}`;
   let cursor = col(collName)
     .find(safeFilter)

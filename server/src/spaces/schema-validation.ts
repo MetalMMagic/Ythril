@@ -14,6 +14,7 @@
 
 import type { SpaceMeta, PropertySchema, TypeSchema } from '../config/types.js';
 import { getSchemaLibrary } from '../config/loader.js';
+import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
 
 // ── Violation type ─────────────────────────────────────────────────────────
 
@@ -341,32 +342,14 @@ function validateValue(field: string, value: unknown, schema: PropertySchema): S
 }
 
 /**
- * Detect regex patterns susceptible to catastrophic backtracking (ReDoS).
- * Rejects patterns with nested quantifiers like (a+)+, (a*)*b, (a|a)+, etc.
- * This is a conservative heuristic — it may block some safe patterns, which
- * is the correct fail-safe direction for user-supplied regexes.
- *
- * Groups that begin with a mandatory literal separator character (-, /, :)
- * that is not itself optional are excluded because the separator forces unique
- * iteration boundaries and prevents exponential backtracking.
- * e.g. (-[a-z0-9]+)+ is safe — each iteration must start with a literal '-'
- * that cannot be matched by [a-z0-9], so there is no ambiguous partitioning.
- */
-const NESTED_QUANTIFIER_RE = /\((?:\?:)?(?![-/:](?![?*{]))([^)]*[+*])\)([+*?]|\{)/;
-const ALTERNATION_QUANTIFIER_RE = /\([^)]*\|[^)]*\)([+*?]|\{)/;
-
-function hasReDoSRisk(pattern: string): boolean {
-  return NESTED_QUANTIFIER_RE.test(pattern) || ALTERNATION_QUANTIFIER_RE.test(pattern);
-}
-
-/**
  * Test a regex pattern against a value with comprehensive ReDoS protection:
  * 1. Length limits on both pattern (500) and value (10K)
  * 2. Structural analysis rejecting nested quantifiers / alternation+quantifier
+ *    (`hasReDoSRisk`, shared via util/redos.ts)
  * 3. Fail-safe: returns false (non-matching → reported as violation) on any issue
  */
 function safeRegexTest(pattern: string, value: string): boolean {
-  if (pattern.length > 500 || value.length > 10_000) return false;
+  if (pattern.length > MAX_PATTERN_LENGTH || value.length > 10_000) return false;
   if (hasReDoSRisk(pattern)) return false;
   try {
     return new RegExp(pattern).test(value);

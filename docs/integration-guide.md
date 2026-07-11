@@ -197,7 +197,7 @@ All persistent data lives in named Docker volumes:
 
 | Volume | Contents |
 |--------|----------|
-| `ythril-data` | File storage (`/data/{spaceId}/`) |
+| `ythril-data` | File storage (`/data/files/{spaceId}/`), upload chunks, media/face-model files |
 | `ythril-mongo-data` | Brain data: memories, entities, edges, tombstones |
 | `ythril-mongo-configdb` | MongoDB replica set keyfile |
 
@@ -221,19 +221,104 @@ docker compose up -d       # reattaches volumes — picks up where it left off
 docker compose down -v     # ⚠ permanently deletes all named volumes
 ```
 
-### Running Multiple Brains
+### Running Multiple Brains on One Host
 
-Each brain is an independent Compose stack. To run two on one machine:
+You can run any number of Ythril instances on a single server. Each is a fully
+independent brain — they know nothing about each other until you explicitly connect
+them into a sync network. This is a supported and common topology (e.g. one instance
+per team, project, or tenant, all behind subdomains like `a.ythril.example.com` and
+`b.ythril.example.com`).
+
+The **only** requirement is that each instance gets its own copy of three pieces of
+state. There is no instance ID baked into collection names or file paths, so isolation
+comes entirely from pointing each instance at distinct storage:
+
+| Axis | Env var | What collides if two instances share it |
+|---|---|---|
+| **Database** | `MONGO_URI` (database name in the path) | All knowledge collections. Spaces are stored as collections named `<spaceId>_memories`, `<spaceId>_entities`, etc. — there is **no** per-instance prefix, so two instances on the same database that both have a space called `default` read and write the *same* `default_memories`. |
+| **Config directory** | `CONFIG_PATH` | `config.json`, `secrets.json`, `schema-library.json`, `schema-catalogs.json` all live in this directory. Sharing it means each instance's config writes overwrite the other's tokens, spaces, and networks. |
+| **Data root** | `DATA_ROOT` | File **bytes** live on the filesystem under `<DATA_ROOT>/files/<spaceId>/` (plus upload chunks and media/face-model files) — **not** in MongoDB. Sharing this directory collides the file stores the same way a shared database collides collections. |
+
+Plus a distinct published **port** per instance.
+
+> **Common pitfall — the silent `ythril` fallback.** Ythril takes the database name
+> from the *path* of `MONGO_URI`. If the path is empty (e.g.
+> `mongodb://mongo:27017/?directConnection=true`), it falls back to `"ythril"`. So if
+> you point two instances at the same MongoDB server and neither URI names a database,
+> **both silently land in the `ythril` database and corrupt each other's data** — with
+> no error and no warning, because neither instance can see the other's collections
+> until they clash. Always put an explicit, distinct database name in each
+> `MONGO_URI`.
+
+#### Option A — separate stacks (each with its own bundled MongoDB)
+
+Simplest, fully isolated by construction. Each brain is its own Compose project with its
+own `ythril-mongo` service and volumes:
 
 ```bash
 # Brain A — default, port 3200
 docker compose up -d
 
-# Brain B — separate project, port 3201
+# Brain B — separate project + compose file, port 3201
 docker compose -p ythril-b -f docker-compose.brain-b.yml up -d
 ```
 
-Keep `config/` bind mounts separate per brain. Each goes through first-run setup independently and knows nothing about the other until explicitly networked.
+Keep the `config/` bind mount and data volume separate per brain (the `-p` project name
+namespaces the named volumes automatically; give each its own `config/` host directory).
+
+#### Option B — one shared MongoDB, a database per instance
+
+Run a single MongoDB server (or cluster) and give each Ythril instance its **own
+database** on it. This is exactly as isolated as separate machines — the database
+boundary is a hard wall — while sharing one `mongod` and its RAM/cache overhead.
+
+```yaml
+services:
+  ythril-a:
+    image: ghcr.io/ythril-network/ythril:latest
+    environment:
+      MONGO_URI: mongodb://shared-mongo:27017/brain-a?directConnection=true   # ← distinct DB
+      CONFIG_PATH: /config/config.json
+      DATA_ROOT: /data
+    volumes:
+      - ./config-a:/config      # ← distinct host directory
+      - ythril-data-a:/data     # ← distinct named volume
+    ports:
+      - "3200:3200"
+
+  ythril-b:
+    image: ghcr.io/ythril-network/ythril:latest
+    environment:
+      MONGO_URI: mongodb://shared-mongo:27017/brain-b?directConnection=true   # ← distinct DB
+      CONFIG_PATH: /config/config.json
+      DATA_ROOT: /data
+    volumes:
+      - ./config-b:/config
+      - ythril-data-b:/data
+    ports:
+      - "3201:3200"
+
+volumes:
+  ythril-data-a:
+  ythril-data-b:
+```
+
+Note that the `CONFIG_PATH` and `DATA_ROOT` *values* can be identical (`/config`,
+`/data`) — what makes them distinct is the volume or bind mount behind each, since every
+container has its own filesystem. If you instead run instances as **bare processes** on
+the host (no containers), give each a genuinely different `CONFIG_PATH` and `DATA_ROOT`
+path.
+
+The shared MongoDB must be `$vectorSearch`-capable (see [MongoDB Flexibility](#mongodb-flexibility));
+one capable server backs every database.
+
+#### Networking co-located instances together
+
+Instances on the same host can still form a sync network with each other. Because peer
+URLs are SSRF-validated, address peers by a **resolvable public hostname** (e.g.
+`https://a.ythril.example.com`), not `localhost` or a private/loopback IP — those are
+rejected at member-add time. See
+[Join Troubleshooting: private or local URLs rejected](#join-troubleshooting-private-or-local-urls-rejected).
 
 ### Recovery After Downtime
 

@@ -44,8 +44,9 @@ Thumbs.db
 # Local-only docs
 docs/docker-build-protocol.md
 
-# Local-only security audit working notes — never commit
+# Local-only working notes — never commit
 SECURITY-AUDIT-TODO.md
+ARCHITECTURE-TODO.md
 
 # Debug artifacts
 _diag_body*.json

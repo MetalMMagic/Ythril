@@ -30,6 +30,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **A `?token=` query parameter is now accepted only on the SSE endpoints** — the Bearer-token
+  query-string fallback exists because the browser `EventSource` API cannot set headers, but it was
+  wired into the shared auth path and therefore honoured on **every route and every method**. A token
+  in a query string leaks into access logs, proxy logs, browser history and `Referer` headers, so it
+  is now accepted only on `GET /api/about/logs/stream` and `GET /mcp` (the two SSE streams).
+  Everything else requires the `Authorization` header. **Breaking** for any integration that passed
+  `?token=` to a REST route — switch it to the header.
+
+- **TOTP codes are single-use** — a code stayed valid for its whole ±1-step window (up to 90 s), so a
+  code captured in transit (proxy log, shoulder-surf, phished operator) could be replayed — precisely
+  the window an attacker with a stolen admin PAT needs to disable MFA. The highest consumed step is
+  now recorded (`totpLastStep` in `secrets.json`) and a code is accepted only for a step strictly
+  greater than it. Note: this makes the "test your authenticator" call on `POST /api/mfa/verify`
+  consume the code, so a code entered there cannot immediately be reused for a gated action — wait
+  for the next one.
+
+- **OIDC ID-token signature algorithms are pinned** — `jwtVerify` ran with no `algorithms` option, so
+  the accepted set was an implicit consequence of jose's JWKS resolver rather than stated policy. It
+  is now an explicit asymmetric allow-list (RS/PS/ES/EdDSA), narrowable per deployment via
+  `oidc.allowedAlgorithms` (e.g. `["RS256"]`). To be precise about the scope: jose already refuses
+  symmetric JWKS keys, so the classic HS/RS confusion attack was **not** reachable — this is defence
+  in depth, not a fix for an exploitable hole. Covered by `testing/standalone/oidc-alg-pinning.test.js`.
+
+- **The instance-level MCP tools now require an admin token** — `list_peers` (full peer topology:
+  instance IDs, URLs, network membership) and `sync_now` (drives outbound connections to every peer)
+  had no admin gate, though their REST equivalents under `/api/networks*` are all `requireAdmin`. Any
+  space-scoped token could enumerate the network and trigger syncs. Both are now admin-only, enforced
+  in the dispatcher and hidden from `tools/list` for non-admin tokens.
+
+- **`POST /api/conflicts/seed` is admin-gated** — this test fixture fabricates conflict records that
+  the UI presents as genuine sync conflicts with an attacker-chosen peer label, and whose resolution
+  actions move/overwrite files. It sat on the plain authenticated router, so any space-scoped token
+  could inject them.
+
+- **Token lookup prefixes now carry their intended entropy** — the stored `prefix` (a pre-filter for
+  the bcrypt scan) was `plaintext.slice(0, 8)` = the literal `ythril_` plus **one** random character,
+  despite a comment claiming 62^8. Roughly 1/62 of all tokens shared a bucket, so a large deployment
+  ran many bcrypt compares per request. It is now taken from the random part (offset 7). Records
+  still holding the old format keep authenticating and are migrated on first use — no token is
+  invalidated, no re-issue needed.
+
 - **`query` tool `$regex` filters are now bounded against ReDoS** — the structured query filter
   sanitizer whitelisted `$regex` but applied no pattern analysis, so a catastrophic-backtracking
   pattern could pin MongoDB CPU for the full `maxTimeMS` budget per call (multiplied per member

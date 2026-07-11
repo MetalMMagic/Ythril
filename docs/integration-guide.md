@@ -373,6 +373,8 @@ Authorization: Bearer ythril_<base62-encoded-token>
 
 Tokens are created during first-run setup or via `POST /api/tokens`. The plaintext token is shown **once** — store it securely.
 
+> **The token must travel in the header.** A `?token=…` query parameter is accepted **only** on the two SSE streams — `GET /api/about/logs/stream` and `GET /mcp` — because the browser `EventSource` API cannot set headers. On every other route a query-string token is ignored and the request returns `401`. Query strings end up in access logs, proxy logs, browser history, and `Referer` headers, which is why the fallback is not available API-wide.
+
 ### Token Scoping
 
 | Token Type | Access |
@@ -3609,6 +3611,11 @@ Scan the `otpauth` URI as a QR code in any TOTP app.
 > (disabling) require a current TOTP code in the `X-TOTP-Code` header — a stolen admin PAT alone
 > cannot replace or remove the second factor. First-time enrolment (MFA off) needs no code. If the
 > authenticator is lost, remove `totpSecret` from `secrets.json` on the host to recover.
+>
+> **Codes are single-use.** A TOTP code is accepted once; replaying it — including within the ±1-step
+> (up to 90 s) clock-skew window it would otherwise still match — is refused. `POST /api/mfa/verify`
+> consumes the code too, so a code you tested there cannot immediately be reused for a gated call:
+> wait for your authenticator to roll to the next one.
 
 ---
 
@@ -5027,7 +5034,7 @@ On connect, the server sends global instructions listing all available space IDs
 
 ### Read-Only Tokens
 
-When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `sync_now`, `update_space`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`recall`, `query`, `get_stats`, `get_space_meta`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `list_peers`, `traverse`) work normally.
+When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `sync_now`, `update_space`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`recall`, `query`, `get_stats`, `get_space_meta`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `traverse`) work normally. `list_peers` is read-only but **admin-gated** — see the admin-only note below.
 
 ### Connecting
 
@@ -5133,8 +5140,13 @@ Content-Type: application/json
 | `move_file` | Move or rename a file/directory |
 | `update_space` | Update space label and/or description (admin only) |
 | `wipe_space` | Wipe all or specific collection types from the space (admin only) |
-| `list_peers` | List all configured peer instances |
-| `sync_now` | Trigger immediate sync (all networks or specific peer) |
+| `list_peers` | List all configured peer instances (admin only) |
+| `sync_now` | Trigger immediate sync (all networks or specific peer) (admin only) |
+
+> **Admin-only tools.** `list_peers`, `sync_now`, `update_space`, and `wipe_space` require an `admin`
+> token: the first two are instance-level (they expose the whole peer topology and drive outbound
+> connections to every peer) and have no space scoping. They are hidden from `tools/list` for
+> non-admin tokens and rejected if called directly.
 
 ### Example: remember
 
@@ -5471,6 +5483,7 @@ Add an `oidc` block to `config.json`:
 | `clientId` | Yes | OAuth2 client ID registered at the IdP. |
 | `audience` | No | Expected `aud` claim. Defaults to `clientId`. |
 | `scopes` | No | Scopes to request. Defaults to `["openid", "profile", "email"]`. |
+| `allowedAlgorithms` | No | JWS algorithms accepted when verifying ID tokens. Defaults to the asymmetric set `RS256/384/512`, `PS256/384/512`, `ES256/384/512`, `EdDSA`. Use it to **narrow** verification to what your IdP actually signs with (e.g. `["RS256"]`). |
 | `claimMapping` | No | Maps IdP claims to Ythril permissions (see below). |
 | `enforceForBrowser` | No | When `true`, the browser SPA rejects cached PAT sessions and always forces a fresh OIDC login. PATs continue to work for API / MCP bearer-header requests. Default: `false`. |
 | `postLogoutRedirectUri` | No | URI the IdP should redirect to after `end_session`. Passed as `post_logout_redirect_uri`. Defaults to `{origin}/login`. |

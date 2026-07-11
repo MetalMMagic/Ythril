@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import fs from 'fs/promises';
 import path from 'path';
-import { requireAuth } from '../auth/middleware.js';
+import { requireAuth, requireAdmin, denyReadOnly } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { col, mFilter, mDoc } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
@@ -276,8 +276,14 @@ conflictsRouter.post('/bulk-resolve', globalRateLimit, requireAuth, async (req, 
   }
 });
 
-// POST /api/conflicts/seed — seed a conflict record (for testing)
-conflictsRouter.post('/seed', globalRateLimit, requireAuth, async (req, res) => {
+// POST /api/conflicts/seed — seed a conflict record (test support)
+//
+// This fabricates a conflict record that the UI presents as a genuine sync
+// conflict with a named peer, and whose resolution actions move/overwrite files.
+// It is a test fixture, not a product feature, so it is admin-gated: any
+// space-scoped token could previously inject conflicts (with an attacker-chosen
+// `peerInstanceLabel`) into any space it could read.
+conflictsRouter.post('/seed', globalRateLimit, requireAdmin, denyReadOnly, async (req, res) => {
   try {
     const { _id, spaceId, originalPath, conflictPath, peerInstanceId, peerInstanceLabel, detectedAt } = req.body ?? {};
     if (!_id || !spaceId || !originalPath || !conflictPath) {

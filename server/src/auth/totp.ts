@@ -66,6 +66,8 @@ export function enableMfa(issuer: string, label: string): { secret: string; otpa
   const otpauth = generateURI({ issuer, label, secret });
   const secrets = getSecrets();
   secrets.totpSecret = secret;
+  // A fresh secret has no consumed steps — clear any counter from a prior enrolment.
+  delete secrets.totpLastStep;
   saveSecrets(secrets);
   return { secret, otpauth };
 }
@@ -74,27 +76,50 @@ export function enableMfa(issuer: string, label: string): { secret: string; otpa
 export function disableMfa(): void {
   const secrets = getSecrets();
   delete secrets.totpSecret;
+  delete secrets.totpLastStep;
   saveSecrets(secrets);
 }
+
+const TOTP_STEP_SECONDS = 30;
 
 /**
  * Verify a 6-digit TOTP code against the stored secret.
  * Returns false if MFA is not enabled or the code is wrong.
- * Checks current step ±1 (30 s window) using crypto.timingSafeEqual
- * to prevent timing side-channel attacks.
+ *
+ * Checks the current step ±1 (30 s window) using crypto.timingSafeEqual to
+ * prevent timing side-channel attacks, then enforces **single use**: the
+ * matched step must be strictly greater than the highest step already consumed
+ * (`secrets.totpLastStep`). Without this, a code captured in transit — from a
+ * proxy log, a shoulder-surf, or a phished operator — stays replayable for the
+ * remainder of its up-to-90 s validity window, which is exactly the window an
+ * attacker with a stolen admin PAT needs to disable MFA.
  */
 export function verifyMfaCode(code: string): boolean {
-  const { totpSecret } = getSecrets();
+  const secrets = getSecrets();
+  const { totpSecret } = secrets;
   if (!totpSecret) return false;
 
   const normalizedCode = Buffer.from(code.padStart(6, '0').slice(0, 6));
   const now = Math.floor(Date.now() / 1000);
 
-  // Always iterate all windows to prevent timing leakage of which window matched
+  // Always iterate all windows to prevent timing leakage of which window matched.
+  // `matchedStep` records WHICH step matched so it can be burned below.
   let matched = 0;
-  for (const offset of [-30, 0, 30]) {
-    const expected = Buffer.from(computeTotp(totpSecret, now + offset));
-    matched |= crypto.timingSafeEqual(normalizedCode, expected) ? 1 : 0;
+  let matchedStep = -1;
+  for (const offset of [-TOTP_STEP_SECONDS, 0, TOTP_STEP_SECONDS]) {
+    const epoch = now + offset;
+    const expected = Buffer.from(computeTotp(totpSecret, epoch));
+    const isMatch = crypto.timingSafeEqual(normalizedCode, expected);
+    matched |= isMatch ? 1 : 0;
+    if (isMatch) matchedStep = Math.floor(epoch / TOTP_STEP_SECONDS);
   }
-  return matched === 1;
+  if (matched !== 1 || matchedStep < 0) return false;
+
+  // Replay guard: refuse a step at or below the last consumed one.
+  const lastStep = secrets.totpLastStep ?? -1;
+  if (matchedStep <= lastStep) return false;
+
+  secrets.totpLastStep = matchedStep;
+  saveSecrets(secrets);
+  return true;
 }

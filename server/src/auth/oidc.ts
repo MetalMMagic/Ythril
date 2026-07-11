@@ -17,6 +17,27 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { OidcConfig, OidcClaimRule, OidcClaimMapping } from '../config/types.js';
 
+/**
+ * JWS algorithms accepted for OIDC ID tokens unless `oidc.allowedAlgorithms`
+ * narrows them. Asymmetric only: an IdP signs with its private key and publishes
+ * the public half via JWKS.
+ *
+ * Note on the threat model: jose's JWKS resolver already refuses symmetric keys
+ * ("Unsupported alg value for a JSON Web Key Set"), so the classic HS/RS
+ * confusion attack was NOT reachable here even without this option. What pinning
+ * buys is (a) the accepted set becomes explicit policy rather than a side effect
+ * of the resolver's behaviour — it cannot silently widen if that behaviour
+ * changes — and (b) operators can narrow it to exactly what their IdP signs with
+ * (`allowedAlgorithms: ["RS256"]`), so an alg the IdP never uses is rejected
+ * outright.
+ */
+export const DEFAULT_OIDC_ALGORITHMS = [
+  'RS256', 'RS384', 'RS512',
+  'PS256', 'PS384', 'PS512',
+  'ES256', 'ES384', 'ES512',
+  'EdDSA',
+];
+
 // ── OIDC URL validation ───────────────────────────────────────────────────
 // Unlike the full isSsrfSafeUrl check (designed for user-supplied peer URLs),
 // this allows private IPs and loopback because internal IdPs (e.g. Keycloak on
@@ -243,9 +264,11 @@ export async function validateOidcJwt(bearer: string): Promise<OidcTokenRecord |
 
     const audience = oidcCfg.audience ?? oidcCfg.clientId;
 
+    // Pin the accepted signature algorithms (see DEFAULT_OIDC_ALGORITHMS).
     const { payload } = await jwtVerify(bearer, jwks, {
       issuer: discovery.issuer,
       audience,
+      algorithms: oidcCfg.allowedAlgorithms ?? DEFAULT_OIDC_ALGORITHMS,
     });
 
     // ── Map claims → permissions (fail-closed) ────────────────────────────

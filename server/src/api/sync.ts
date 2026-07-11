@@ -19,7 +19,7 @@ import { listTombstones, applyRemoteTombstone } from '../brain/tombstones.js';
 import { requireAuth, denyReadOnly } from '../auth/middleware.js';
 import { revokePeerCredentialsIfOrphaned } from '../auth/tokens.js';
 import { log } from '../util/log.js';
-import { nextSeq, bumpSeq } from '../util/seq.js';
+import { nextSeq, bumpSeq, isSeqImplausible, MAX_INGEST_SEQ } from '../util/seq.js';
 import { updateSpace } from '../spaces/spaces.js';
 import { isStrictLinkage } from '../spaces/proxy.js';
 import { getAllowedChronoTypes } from '../spaces/schema-validation.js';
@@ -288,20 +288,86 @@ async function forkChainDepth(spaceId: string, docId: string | undefined): Promi
 }
 
 /**
- * Returns true if:
- *  1. The calling token (if space-scoped) includes spaceId in its allowlist, AND
- *  2. The spaceId is valid for the given networkId (or exists locally if no networkId).
- *
- * @param tokenSpaces - the `spaces` field from req.authToken (undefined = full-access token)
+ * Refuse a document whose `seq` is implausibly far ahead of the space counter
+ * (see util/seq.ts — MAX_INGEST_SEQ). Responds 400 and returns true when rejected.
  */
-function spaceAllowed(spaceId: string, networkId?: string, tokenSpaces?: string[]): boolean {
+function rejectImplausibleSeq(
+  spaceId: string,
+  seq: number,
+  res: import('express').Response,
+  peerInstanceId?: string,
+): boolean {
+  if (!isSeqImplausible(seq)) return false;
+  log.warn(
+    `Refused document with implausible seq ${seq} for space '${spaceId}' ` +
+    `from peer '${peerInstanceId ?? 'unknown'}' (max ingest seq ${MAX_INGEST_SEQ}).`,
+  );
+  res.status(400).json({ error: `seq ${seq} is too close to the protocol ceiling and was refused` });
+  return true;
+}
+
+/** The peer identity bound to a production peer PAT (set by the invite handshake). */
+function callerPeerId(authToken: Record<string, unknown> | undefined): string | undefined {
+  const v = authToken?.['peerInstanceId'];
+  return typeof v === 'string' && v ? v : undefined;
+}
+
+/**
+ * Networks (local view) in which `peerInstanceId` is a member.
+ *
+ * An EMPTY result means the token is bound to a peer we do not list as a member
+ * anywhere. That happens for manually-provisioned peer tokens and for
+ * single-side-configured (asymmetric) networks, where the sender holds the
+ * network config and we do not. Those callers fall back to plain token-space
+ * scoping — see spaceAllowed.
+ */
+function peerMemberNetworks(peerInstanceId: string) {
+  return getConfig().networks.filter(n => n.members.some(m => m.instanceId === peerInstanceId));
+}
+
+/**
+ * Returns true if the caller may touch `spaceId` (optionally within `networkId`).
+ *
+ * Checks, in order:
+ *  1. Token space scope (a space-scoped token may only touch its own spaces).
+ *  2. **Network membership** — a peer-bound token may only reach spaces shared
+ *     through a network that peer is actually a member of. Space scope alone is
+ *     not enough: two networks with overlapping spaces but disjoint membership
+ *     would otherwise leak into each other (a peer of network X reading a space
+ *     that X and Y both carry, while being no member of Y).
+ *  3. The space is actually shared by that network.
+ *
+ * Local/admin tokens (no `peerInstanceId`) keep the previous behaviour — they
+ * are this instance's own credentials, not a remote peer's.
+ */
+function spaceAllowed(
+  spaceId: string,
+  networkId: string | undefined,
+  tokenSpaces: string[] | undefined,
+  authToken?: Record<string, unknown>,
+): boolean {
   const cfg = getConfig();
   // Enforce token-level space scope before any network check
   if (tokenSpaces && !tokenSpaces.includes(spaceId)) return false;
+
+  const peerId = callerPeerId(authToken);
+  if (peerId) {
+    const memberNets = peerMemberNetworks(peerId);
+    if (memberNets.length > 0) {
+      // A known peer: it may only reach spaces via networks it belongs to.
+      const usable = networkId
+        ? memberNets.filter(n => n.id === networkId)
+        : memberNets;
+      return usable.some(n => n.spaces.includes(spaceId));
+    }
+    // Unknown peer (manual token / asymmetric network): fall through to the
+    // legacy space-existence check below — the token's own scope still applies.
+  }
+
   // If no networkId given, allow any known space
   if (!networkId) return cfg.spaces.some(s => s.id === spaceId);
   const net = cfg.networks.find(n => n.id === networkId);
-  // networkId not found locally â€” fall back to checking the space exists.
+  // networkId not found locally — fall back to checking the space exists.
   // This handles asymmetric networks where the caller has the network config
   // but the recipient does not (e.g. single-side configured networks).
   if (!net) return cfg.spaces.some(s => s.id === spaceId);
@@ -312,14 +378,27 @@ function spaceAllowed(spaceId: string, networkId?: string, tokenSpaces?: string[
  * For directional networks (braintree, pubsub), reject inbound writes from
  * members whose direction is 'push'. Direction is stored from THIS instance's
  * perspective:
- *   direction='push'  â†’ we push TO them â†’ they must NOT push to us
- *   direction='pull'  â†’ we pull FROM them â†’ they may push to us (data source)
- *   direction='both'  â†’ bidirectional â†’ accept
+ *   direction='push'  → we push TO them → they must NOT push to us
+ *   direction='pull'  → we pull FROM them → they may push to us (data source)
+ *   direction='both'  → bidirectional → accept
+ *
+ * Enforcement is against an IDENTIFIED member: the peer token carries a
+ * server-issued `peerInstanceId` (set by the invite handshake) that is matched
+ * against the member list. This covers the real case — a push-only subscriber
+ * or child trying to write back to its publisher/parent, where that peer IS a
+ * member with direction='push' on this side, so it is blocked.
+ *
+ * A token with NO `peerInstanceId` is intentionally NOT blocked here: in a
+ * braintree tree the receiver does not list its parent as a member at all, and
+ * manually-provisioned peer tokens legitimately omit `peerInstanceId`, so a
+ * blanket refusal would break those topologies. `peerInstanceId` is issued
+ * server-side and cannot be self-declared, so an attacker cannot forge a
+ * matching identity to bypass the check either.
  *
  * Returns true if the write should be REJECTED (403).
  */
 function isDirectionalWriteBlocked(networkId: string | undefined, authToken: Record<string, unknown> | undefined): boolean {
-  const peerInstanceId = authToken && typeof authToken['peerInstanceId'] === 'string' ? authToken['peerInstanceId'] : undefined;
+  const peerInstanceId = callerPeerId(authToken);
   if (!networkId || !peerInstanceId) return false;
   const cfg = getConfig();
   const net = cfg.networks.find(n => n.id === networkId);
@@ -327,7 +406,7 @@ function isDirectionalWriteBlocked(networkId: string | undefined, authToken: Rec
   if (net.type !== 'braintree' && net.type !== 'pubsub') return false;
   const member = net.members.find(m => m.instanceId === peerInstanceId);
   if (!member) return false;
-  // direction='push' means WE push to THEM â€” they should not be writing to us
+  // direction='push' means WE push to THEM — they should not be writing to us
   return member.direction === 'push';
 }
 
@@ -344,7 +423,7 @@ syncRouter.get('/memories', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
     const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
@@ -390,7 +469,7 @@ syncRouter.get('/memories/:id', syncRateLimit, requireAuth, async (req, res) => 
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const doc = await col<MemoryDoc>(`${spaceId}_memories`).findOne(mFilter<MemoryDoc>({ _id: req.params['id'] }));
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
@@ -410,7 +489,7 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async (re
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
     if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingMemoryDoc.safeParse(req.body);
@@ -419,6 +498,7 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async (re
       return;
     }
     const incoming = parsed.data as MemoryDoc;
+    if (rejectImplausibleSeq(spaceId, incoming.seq, res, callerPeerId(req.authToken as Record<string, unknown>))) return;
 
     // Check for tombstone â€” if a tombstone with >= seq exists, skip
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
@@ -496,7 +576,7 @@ syncRouter.get('/entities', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
     const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
@@ -533,7 +613,7 @@ syncRouter.get('/entities/:id', syncRateLimit, requireAuth, async (req, res) => 
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const doc = await col<EntityDoc>(`${spaceId}_entities`).findOne(mFilter<EntityDoc>({ _id: req.params['id'] }));
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
@@ -547,7 +627,7 @@ syncRouter.post('/entities', syncRateLimit, requireAuth, denyReadOnly, async (re
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
     if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingEntityDoc.safeParse(req.body);
@@ -556,6 +636,7 @@ syncRouter.post('/entities', syncRateLimit, requireAuth, denyReadOnly, async (re
       return;
     }
     const incoming = parsed.data as EntityDoc;
+    if (rejectImplausibleSeq(spaceId, incoming.seq, res, callerPeerId(req.authToken as Record<string, unknown>))) return;
 
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
       .findOne(mFilter<TombstoneDoc>({ _id: incoming._id, type: 'entity' })) as TombstoneDoc | null;
@@ -594,7 +675,7 @@ syncRouter.get('/edges', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
     const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
@@ -631,7 +712,7 @@ syncRouter.get('/edges/:id', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const doc = await col<EdgeDoc>(`${spaceId}_edges`).findOne(mFilter<EdgeDoc>({ _id: req.params['id'] }));
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
@@ -645,7 +726,7 @@ syncRouter.post('/edges', syncRateLimit, requireAuth, denyReadOnly, async (req, 
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
     if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingEdgeDoc.safeParse(req.body);
@@ -654,6 +735,7 @@ syncRouter.post('/edges', syncRateLimit, requireAuth, denyReadOnly, async (req, 
       return;
     }
     const incoming = parsed.data as EdgeDoc;
+    if (rejectImplausibleSeq(spaceId, incoming.seq, res, callerPeerId(req.authToken as Record<string, unknown>))) return;
 
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
       .findOne(mFilter<TombstoneDoc>({ _id: incoming._id, type: 'edge' })) as TombstoneDoc | null;
@@ -693,7 +775,7 @@ syncRouter.get('/chrono', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId, sinceSeq = '0', limit = '100', cursor, full: fullParam } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const sinceVal = cursor ? decodeCursor(cursor) : parseInt(sinceSeq, 10);
     const pageSize = Math.min(parseInt(limit, 10) || 100, 500);
@@ -730,7 +812,7 @@ syncRouter.get('/chrono/:id', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const doc = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(mFilter<ChronoEntry>({ _id: req.params['id'] }));
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
@@ -744,7 +826,7 @@ syncRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (req,
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
     if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingChronoDoc.safeParse(req.body);
@@ -753,6 +835,7 @@ syncRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (req,
       return;
     }
     const incoming = parsed.data as ChronoEntry;
+    if (rejectImplausibleSeq(spaceId, incoming.seq, res, callerPeerId(req.authToken as Record<string, unknown>))) return;
     const allowedChronoTypes = getAllowedChronoTypes(getConfig().spaces.find(s => s.id === spaceId)?.meta);
     if (!allowedChronoTypes.has(incoming.type)) {
       res.status(400).json({ error: `\`type\` must be one of: ${[...allowedChronoTypes].join(', ')}` });
@@ -803,18 +886,37 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, async
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
     if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const body = req.body as { memories?: unknown[]; entities?: unknown[]; edges?: unknown[]; chrono?: unknown[] };
-    const memories = (Array.isArray(body?.memories) ? body.memories.slice(0, 500) : [])
+    const memoriesRaw = (Array.isArray(body?.memories) ? body.memories.slice(0, 500) : [])
       .flatMap(m => { const r = IncomingMemoryDoc.safeParse(m); return r.success ? [r.data as MemoryDoc] : []; });
-    const entities = (Array.isArray(body?.entities) ? body.entities.slice(0, 500) : [])
+    const entitiesRaw = (Array.isArray(body?.entities) ? body.entities.slice(0, 500) : [])
       .flatMap(e => { const r = IncomingEntityDoc.safeParse(e); return r.success ? [r.data as EntityDoc] : []; });
-    const edges = (Array.isArray(body?.edges) ? body.edges.slice(0, 500) : [])
+    const edgesRaw = (Array.isArray(body?.edges) ? body.edges.slice(0, 500) : [])
       .flatMap(e => { const r = IncomingEdgeDoc.safeParse(e); return r.success ? [r.data as EdgeDoc] : []; });
-    const chrono = (Array.isArray(body?.chrono) ? body.chrono.slice(0, 500) : [])
+    const chronoRaw = (Array.isArray(body?.chrono) ? body.chrono.slice(0, 500) : [])
       .flatMap(c => { const r = IncomingChronoDoc.safeParse(c); return r.success ? [r.data as ChronoEntry] : []; });
+
+    // Drop documents whose seq is too close to the protocol ceiling — one such
+    // doc would otherwise drag the counter toward it via the bumpSeq below (see
+    // util/seq.ts). Batch ingest already skips invalid documents silently, so
+    // these are dropped with a warning, not fatal.
+    const plausible = <T extends { seq: number; _id: string }>(docs: T[], kind: string): T[] =>
+      docs.filter(d => {
+        if (!isSeqImplausible(d.seq)) return true;
+        log.warn(
+          `batch-upsert: dropped ${kind} '${d._id}' with implausible seq ${d.seq} ` +
+          `for space '${spaceId}' (max ingest seq ${MAX_INGEST_SEQ}) from peer ` +
+          `'${callerPeerId(req.authToken as Record<string, unknown>) ?? 'unknown'}'.`,
+        );
+        return false;
+      });
+    const memories = plausible(memoriesRaw, 'memory');
+    const entities = plausible(entitiesRaw, 'entity');
+    const edges = plausible(edgesRaw, 'edge');
+    const chrono = plausible(chronoRaw, 'chrono');
 
     // â”€â”€ Memories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const memStats = { inserted: 0, updated: 0, forked: 0, skipped: 0, tombstoned: 0 };
@@ -939,7 +1041,7 @@ syncRouter.get('/tombstones', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId, sinceSeq = '0', limit = '1000' } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const since = parseInt(sinceSeq, 10);
     const pageSize = Math.min(parseInt(limit, 10) || 1000, 5000);
@@ -964,7 +1066,7 @@ syncRouter.post('/tombstones', syncRateLimit, requireAuth, denyReadOnly, async (
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
     if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const body = req.body as { tombstones?: TombstoneDoc[] };
@@ -1009,7 +1111,7 @@ syncRouter.get('/manifest', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId, since } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const sinceDate = since ? new Date(since) : undefined;
     const manifest = await buildFileManifest(spaceId, sinceDate);
@@ -1033,7 +1135,7 @@ syncRouter.get('/file-tombstones', syncRateLimit, requireAuth, async (req, res) 
   try {
     const { spaceId, networkId, since } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const filter = since
       ? { spaceId, deletedAt: { $gt: since } }
@@ -1063,7 +1165,7 @@ syncRouter.post('/file-tombstones', syncRateLimit, requireAuth, denyReadOnly, as
     const { networkId } = req.query as Record<string, string>;
     if (!spaceId || typeof spaceId !== 'string') { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!Array.isArray(tombstones)) { res.status(400).json({ error: 'tombstones must be array' }); return; }
-    if (!spaceAllowed(spaceId, undefined, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
     if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const spaceFiles = path.resolve(getDataRoot(), 'files', spaceId);
@@ -1124,7 +1226,7 @@ syncRouter.get('/merkle', syncRateLimit, requireAuth, async (req, res) => {
   try {
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
-    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces)) { res.status(403).json({ error: 'Forbidden' }); return; }
+    if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
     const result = await computeMerkleRoot(spaceId);
     res.json({ ...result, networkId: networkId ?? null });

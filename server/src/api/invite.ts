@@ -81,6 +81,8 @@ interface HandshakeSession {
   /** When set, this session is a braintree reparent, not a new join.
    *  The instanceId of the grandchild being temporarily re-parented. */
   reparentInstanceId?: string;
+  /** When set, only this instanceId may apply the invite (optional pinning). */
+  expectedInstanceId?: string;
 }
 
 const _sessions = new Map<string, HandshakeSession>();
@@ -103,6 +105,9 @@ const GenerateBody = z.object({
   /** When set, this invite is a braintree reparent — not a new join.
    *  The target must already be a member whose parent is offline. */
   reparentInstanceId: z.string().uuid().optional(),
+  /** Optional: pin the invite to one instanceId. Only that instance may apply it,
+   *  so a leaked/forwarded bundle cannot be redeemed by someone else. */
+  expectedInstanceId: z.string().uuid().optional(),
 });
 
 const INVITE_SSRF_SAFE_URL = z.string().url().refine(isSsrfSafeUrl, { message: SSRF_SAFE_MESSAGE });
@@ -164,7 +169,7 @@ inviteRouter.post('/generate', globalRateLimit, requireAdmin, async (req, res) =
   const parsed = GenerateBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
-  const { networkId, reparentInstanceId } = parsed.data;
+  const { networkId, reparentInstanceId, expectedInstanceId } = parsed.data;
   const cfg = getConfig();
   const net = cfg.networks.find(n => n.id === networkId);
   if (!net) { res.status(404).json({ error: 'Network not found' }); return; }
@@ -204,6 +209,7 @@ inviteRouter.post('/generate', globalRateLimit, requireAdmin, async (req, res) =
     publicKeyPem: publicKey as string,
     expiresAt,
     reparentInstanceId,
+    expectedInstanceId,
   });
 
   log.info(`Invite handshake generated for network ${networkId} (session ${sessionKey})${
@@ -251,13 +257,35 @@ inviteRouter.post('/apply', authRateLimit, async (req, res) => {
   const net = cfg.networks.find(n => n.id === networkId);
   if (!net) { res.status(404).json({ error: 'Network not found' }); return; }
 
-  // Ensure the joining instance is not already a member — unless this is a reparent session
-  // targeting exactly that instance (the grandchild re-applying under a new parent).
-  if (net.members.some(m => m.instanceId === instanceId)) {
-    if (!session.reparentInstanceId || session.reparentInstanceId !== instanceId) {
-      res.status(409).json({ error: 'Instance is already a member of this network' });
+  // ── Reparent sessions are bound to their target ──────────────────────────
+  // A reparent invite exists to move ONE specific member (the grandchild whose
+  // parent went offline) under this instance. finalize() rewrites that member's
+  // record — including its tokenHash. Without this check the applier's identity
+  // was never compared to the session's target, so ANY holder of a reparent
+  // bundle could apply as an unrelated instanceId and have finalize hand them
+  // the victim's member record: its inbound tokenHash replaced by the
+  // attacker's, i.e. a member takeover.
+  if (session.reparentInstanceId) {
+    if (instanceId !== session.reparentInstanceId) {
+      res.status(403).json({ error: 'This invite is a reparent for a different instance' });
       return;
     }
+    if (!net.members.some(m => m.instanceId === instanceId)) {
+      res.status(409).json({ error: 'Reparent target is not a member of this network' });
+      return;
+    }
+  } else if (net.members.some(m => m.instanceId === instanceId)) {
+    res.status(409).json({ error: 'Instance is already a member of this network' });
+    return;
+  }
+
+  // Optional pinning: when the inviter named the instance this bundle is for,
+  // only that instance may use it. An invite bundle is a bearer credential, so
+  // without pinning anyone who obtains it (forwarded link, shoulder-surfed QR)
+  // can join in place of the intended peer.
+  if (session.expectedInstanceId && instanceId !== session.expectedInstanceId) {
+    res.status(403).json({ error: 'This invite is pinned to a different instanceId' });
+    return;
   }
 
   // Validate the peer's RSA public key is parseable and exactly 4096-bit
@@ -356,6 +384,12 @@ inviteRouter.post('/finalize', authRateLimit, async (req, res) => {
   if (session.reparentInstanceId) {
     // ── Reparent path ───────────────────────────────────────────────────────
     // Update the existing member record instead of creating a new one.
+    // /apply already bound the applier to the session's target; re-assert it here
+    // so the record being rewritten is always the one the applier authenticated as.
+    if (instanceId !== session.reparentInstanceId) {
+      res.status(403).json({ error: 'Reparent session does not match the applying instance' });
+      return;
+    }
     const target = net.members.find(m => m.instanceId === session.reparentInstanceId);
     if (!target) {
       res.status(400).json({ error: 'Reparent target member not found — was it removed?' });
@@ -387,6 +421,13 @@ inviteRouter.post('/finalize', authRateLimit, async (req, res) => {
     responseStatus = 'reparented';
   } else {
     // ── Normal join path ────────────────────────────────────────────────────
+    // Re-check membership: /apply ran this check, but two handshakes for the
+    // same instance could interleave between apply and finalize and add the
+    // member twice.
+    if (net.members.some(m => m.instanceId === instanceId)) {
+      res.status(409).json({ error: 'Instance is already a member of this network' });
+      return;
+    }
     const newMember: NetworkMember = {
       instanceId,
       label: instanceLabel,

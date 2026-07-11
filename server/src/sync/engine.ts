@@ -21,7 +21,7 @@ import { applyRemoteTombstone, listTombstones } from '../brain/tombstones.js';
 import { recordSyncResult, type SyncCounts } from './history.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { log } from '../util/log.js';
-import { bumpSeq } from '../util/seq.js';
+import { bumpSeq, isSeqImplausible } from '../util/seq.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from '../api/sync.js';
 import { enqueueMediaJob } from '../files/media/job-queue.js';
 import { resolveInputFormat } from '../files/converters/pipeline.js';
@@ -843,6 +843,16 @@ async function pullFromPeer(
       for (const item of items) {
         if ('deletedAt' in item && (item as { deletedAt?: string }).deletedAt) continue;
         const doc = item as T;
+        // Refuse a document whose seq is too close to the protocol ceiling:
+        // ingesting it would drag the counter there via the bumpSeq below,
+        // eventually making our own writes unsyncable (see util/seq.ts).
+        if (isSeqImplausible((doc as MemoryDoc).seq)) {
+          log.warn(
+            `Pull ${urlSuffix} from ${member.label}: skipped doc '${(doc as MemoryDoc)._id}' ` +
+            `with implausible seq ${(doc as MemoryDoc).seq} in space '${spaceId}'.`,
+          );
+          continue;
+        }
         await upsertFn(spaceId, doc);
         count++;
         if ((doc as MemoryDoc).seq > maxSeq) maxSeq = (doc as MemoryDoc).seq;

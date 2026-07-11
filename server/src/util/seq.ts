@@ -18,13 +18,67 @@ export async function nextSeq(spaceId: string): Promise<number> {
   return result.seq;
 }
 
+/** Read the current counter for a space (0 when it does not exist yet). */
+export async function currentSeq(spaceId: string): Promise<number> {
+  const doc = await col<SpaceCounterDoc>('ythril_counters')
+    .findOne(mFilter<SpaceCounterDoc>({ _id: spaceId })) as SpaceCounterDoc | null;
+  return doc?.seq ?? 0;
+}
+
+/**
+ * The protocol sequence ceiling (mirrors `MAX_SYNC_SEQ` in api/sync.ts, where
+ * incoming docs are Zod-validated to `<= 2^50`). A document at or above this
+ * cannot be represented, so it is never a legitimate value on the wire.
+ */
+export const MAX_SYNC_SEQ = 2 ** 50;
+
+/**
+ * Headroom kept below `MAX_SYNC_SEQ`. Ingesting a document advances the space
+ * counter (`bumpSeq`) so local writes always sort above synced ones — so a peer
+ * that pushes one document with `seq` near the ceiling drags the counter there,
+ * and the space's *next* local write exceeds `MAX_SYNC_SEQ` and is rejected by
+ * every peer: silent, unrecoverable write loss.
+ *
+ * The guard is absolute rather than relative to the current counter: legitimate
+ * seqs are small monotonic counters (`nextSeq` increments by 1), so they sit far
+ * below `MAX_SYNC_SEQ - SEQ_CEILING_RESERVE` regardless of a space's history,
+ * while the poisoning value (near 2^50) is caught. A relative "max jump" guard
+ * would instead false-positive on the initial sync of a high-volume space to a
+ * fresh peer. 2^40 (~1.1e12) of reserve leaves an unreachable number of future
+ * writes before the ceiling.
+ */
+export const SEQ_CEILING_RESERVE = 2 ** 40;
+
+/** The highest `seq` an ingested document may carry. */
+export const MAX_INGEST_SEQ = MAX_SYNC_SEQ - SEQ_CEILING_RESERVE;
+
+/**
+ * True when `seq` is out of range or so close to the protocol ceiling that
+ * ingesting it would strand the space's counter. Callers reject such documents.
+ * Synchronous — the bound does not depend on the current counter.
+ */
+export function isSeqImplausible(seq: number): boolean {
+  return !Number.isFinite(seq) || seq < 0 || seq > MAX_INGEST_SEQ;
+}
+
 /**
  * Ensure the space counter is at least `minSeq`.
  * Called after receiving remote documents via sync so that subsequent local
  * writes always get a seq higher than any synced document.
  * Uses $max — only advances the counter, never decreases it.
+ *
+ * The advance is CLAMPED to `MAX_INGEST_SEQ`: ingest paths already refuse
+ * documents above it, and this is the backstop that keeps a stray value from
+ * stranding the counter within `SEQ_CEILING_RESERVE` of the ceiling.
  */
 export async function bumpSeq(spaceId: string, minSeq: number): Promise<void> {
+  if (minSeq > MAX_INGEST_SEQ) {
+    log.warn(
+      `Clamped seq bump for space '${spaceId}': requested ${minSeq} exceeds ` +
+      `MAX_INGEST_SEQ (${MAX_INGEST_SEQ}) — advancing to the ceiling reserve instead.`,
+    );
+    minSeq = MAX_INGEST_SEQ;
+  }
   await col<SpaceCounterDoc>('ythril_counters').updateOne(
     mFilter<SpaceCounterDoc>({ _id: spaceId }),
     mUpdate<SpaceCounterDoc>({ $max: { seq: minSeq } }),

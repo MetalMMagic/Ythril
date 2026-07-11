@@ -30,6 +30,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Sync data endpoints now verify network membership, not just space scope** — a peer-bound token
+  was authorised against the calling token's space allow-list alone, so two networks sharing a space
+  but with **disjoint membership** leaked into each other: a member of network X could read/write that
+  space by naming network Y (which it does not belong to). A token carrying a `peerInstanceId` may now
+  reach a space only through a network that peer is actually a member of. Manually-provisioned peer
+  tokens and asymmetric (single-side-configured) networks are unaffected — they fall back to plain
+  token-space scoping. (M3)
+
+- **Sync sequence-counter poisoning is bounded** — every ingested document advances the space's `seq`
+  counter (so local writes always sort above synced ones). A peer could push a single document with a
+  `seq` near the protocol ceiling (2^50), dragging the counter there; once local writes reach the
+  ceiling, peers reject them and the space silently loses the ability to sync new writes. Documents
+  whose `seq` falls within a reserved band below the ceiling (`MAX_INGEST_SEQ = 2^50 − 2^40`) are now
+  refused on every ingest path (single upsert → 400, batch → dropped with a warning, engine pull →
+  skipped), and `bumpSeq` clamps the advance as a backstop. The bound is absolute rather than relative
+  to the current counter, so it never false-positives on a legitimate high-volume space syncing to a
+  fresh peer. (M5)
+
+- **Merkle verification now hashes document content** — leaves were
+  `SHA-256("doc:<type>:<id>:<seq>")`, so a peer serving *altered* content under the same `_id`/`seq`
+  produced the same root: divergence detection caught missing or version-skewed documents but never
+  tampered ones. Leaves now include a canonical content hash (keys sorted, embedding vectors excluded
+  so peers running different models don't false-positive). Files were already content-hashed. Merkle
+  remains advisory (opt-in per network; a mismatch is reported, not blocking). Covered by
+  `testing/standalone/merkle-content-hash.test.js`. (M6)
+
+- **Invite reparent bundles are bound to their target instance** — a braintree *reparent* invite
+  rewrites one existing member's record (including its inbound `tokenHash`) at finalize. `apply` never
+  compared the applying `instanceId` to the session's reparent target, so a holder of a reparent
+  bundle could apply as an unrelated instance and have finalize hand them the victim's member record —
+  a member takeover. `apply` (and finalize, as a TOCTOU backstop) now refuse a mismatch, and the
+  normal join path re-checks membership at finalize. A new optional `expectedInstanceId` on
+  `POST /api/invite/generate` pins any invite to a single instance so a leaked bundle can't be
+  redeemed by someone else. (M10)
+
 - **A `?token=` query parameter is now accepted only on the SSE endpoints** — the Bearer-token
   query-string fallback exists because the browser `EventSource` API cannot set headers, but it was
   wired into the shared auth path and therefore honoured on **every route and every method**. A token

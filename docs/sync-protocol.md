@@ -388,8 +388,14 @@ On the **receiving** end of a `member_removed` event:
 2. The network entry is removed from `cfg.networks`.
 3. Config is saved.
 
-Subsequently, any sync request to `/api/sync/networks/:networkId` for an ejected network ID returns `401 { "error": "ejected" }` via an early-exit middleware, preventing stale sync attempts.
+Subsequently, any sync request scoped to an ejected network ID returns `401 { "error": "ejected" }` via early-exit middleware — both the gossip endpoints (`/api/sync/networks/:networkId/*`, network ID in the path) and the data endpoints (`/api/sync/memories`, `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/manifest`, `/files`, tombstones, merkle — network ID in the query string or body). Without the data-endpoint guard, ex-peers could keep syncing after an ejection because the network config is deleted locally and the space-scope check falls back to "space exists".
 
-> **Note on peer token lifecycle**: peer tokens (stored in `secrets.peerTokens`) are *infrastructure-level* credentials representing a trusted peering relationship and are not automatically revoked when a member leaves or is removed from a network. Token revocation is a separate, explicit administrative action.
+> **Peer credential lifecycle**: when a member is removed (direct club/pubsub removal, a concluded
+> remove vote, a `member_departed` announcement, or deleting a network) — and, on the ejected side,
+> when `member_removed` is processed — the instance revokes the departed peer's credentials: any PAT
+> bound to it via `peerInstanceId` and the outbound token in `secrets.peerTokens`. Revocation only
+> happens once the peer no longer shares **any** network with this instance; membership in another
+> common network (or a pending join round) preserves the credentials
+> (`revokePeerCredentialsIfOrphaned` in `auth/tokens.ts`).
 
 

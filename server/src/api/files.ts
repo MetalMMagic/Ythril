@@ -170,12 +170,23 @@ filesRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, res)
     const bytes = await readFileBytes(foundMid, normalised);
     const ext = path.extname(normalised).toLowerCase();
     const contentType = MIME_MAP[ext] ?? 'application/octet-stream';
+    // Stored XSS guard: user-uploaded HTML/SVG/XML rendered inline would run
+    // script in this origin (token theft from the web UI). Active-content
+    // types are forced to download and get a sandbox CSP so nothing executes
+    // even if a browser renders them anyway. Passive types (images, pdf,
+    // plain text) stay inline so previews keep working.
+    const filename = path.basename(normalised).replace(/[\r\n"\\]/g, '_');
+    const isActive = ACTIVE_CONTENT_EXTS.has(ext);
     res
       .status(200)
       .setHeader('Content-Type', contentType)
       .setHeader('Content-Length', bytes.length)
       .setHeader('X-Content-Type-Options', 'nosniff')
-      .send(bytes);
+      .setHeader('Content-Disposition', `${isActive ? 'attachment' : 'inline'}; filename="${filename}"`);
+    if (isActive) {
+      res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'");
+    }
+    res.send(bytes);
   } catch (err) {
     log.warn(`readFileBytes error for space ${foundMid}, path ${normalised}: ${err}`);
     res.status(500).json({ error: 'Failed to read file' });
@@ -277,6 +288,29 @@ filesRouter.post(
         res.status(400).json({ error: `Chunk size mismatch: Content-Range says ${expectedLen} bytes but body is ${req.body.length}` });
         return;
       }
+
+      // Bound the declared assembled size — Content-Range totals were previously
+      // unlimited, letting a client stage arbitrarily large uploads.
+      const maxChunkedTotal = cfg.maxChunkedUploadBytes ?? 10 * 1024 ** 3;
+      if (range.total > maxChunkedTotal) {
+        res.status(413).json({ error: `Declared upload size ${range.total} exceeds the maximum of ${maxChunkedTotal} bytes` });
+        return;
+      }
+
+      // Storage quota check on every chunk (mirrors the single-request path —
+      // each chunk is its own POST). The first chunk projects the full declared
+      // total for early rejection; later chunks project their own size, and
+      // staged bytes under .chunks are counted in measured usage.
+      try {
+        await checkQuota('files', range.start === 0 ? range.total : req.body.length);
+      } catch (err) {
+        if (err instanceof QuotaError) {
+          res.status(507).json({ error: err.message, storageExceeded: true });
+          return;
+        }
+        throw err;
+      }
+
       try {
         const { received, complete } = await storeChunk(
           targetSpace, filePath, req.body, range.start, range.end, range.total,
@@ -361,7 +395,7 @@ filesRouter.post(
       // Storage quota check — rejects with 507 if hard limit exceeded
       let quotaResult;
       try {
-        quotaResult = await checkQuota('files');
+        quotaResult = await checkQuota('files', incomingBytes);
       } catch (err) {
         if (err instanceof QuotaError) {
           res.status(507).json({ error: err.message, storageExceeded: true });
@@ -662,6 +696,10 @@ filesRouter.patch('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly, 
     res.status(500).json({ error: 'Failed to move path' });
   }
 });
+
+// Extensions whose content can execute script when rendered inline by a
+// browser — always served as attachments (stored-XSS guard).
+const ACTIVE_CONTENT_EXTS = new Set(['.html', '.htm', '.svg', '.xml', '.xhtml']);
 
 // ── MIME type lookup (basic set) ─────────────────────────────────────────────
 const MIME_MAP: Record<string, string> = {

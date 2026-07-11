@@ -17,6 +17,7 @@ import { normaliseMarkdown } from './normaliser.js';
 import { sectionChunk } from './section-chunker.js';
 import { paragraphChunk } from './paragraph-chunker.js';
 import type { Chunk } from './types.js';
+import { ConversionUnavailableError } from './types.js';
 import { writeFile, writeFileBytes } from '../files.js';
 import { col, mFilter, mDoc } from '../../db/mongo.js';
 import { embed } from '../../brain/embedding.js';
@@ -145,6 +146,11 @@ export interface ConversionResult {
  *  3. Chunk
  *  Returns the produced chunks and the full converted Markdown (null for md/txt).
  */
+// Conversion runs in-process (jsdom for HTML) or ships the whole file to the
+// sidecar — an unbounded input pins CPU/RAM for the duration. Documents over
+// the cap are rejected up front with reason 'too_large' (never retried).
+const DEFAULT_MAX_CONVERSION_BYTES = 100 * 1024 * 1024;
+
 export async function runConversionPipeline(
   fileBytes: Buffer,
   filePath: string,
@@ -154,6 +160,16 @@ export async function runConversionPipeline(
   const fileName = path.basename(filePath);
   let markdown: string;
   let convertedMarkdown: string | null = null;
+
+  if (format !== 'text' && !isMediaFormat(format)) {
+    const cap = getConfig().maxDocumentConversionBytes ?? DEFAULT_MAX_CONVERSION_BYTES;
+    if (fileBytes.length > cap) {
+      throw new ConversionUnavailableError(
+        'too_large',
+        `Document is ${fileBytes.length} bytes; conversion is capped at ${cap} bytes`,
+      );
+    }
+  }
 
   switch (format) {
     case 'text':
@@ -262,13 +278,27 @@ export async function storeConversionResults(
     await col<FileMetaDoc>(`${spaceId}_files`).insertOne(mDoc<FileMetaDoc>(convertedDoc));
   }
 
-  // 2. Write extracted image subfiles and enqueue for media pipeline
+  // 2. Write extracted image subfiles and enqueue for media pipeline.
+  // Bounded: a crafted document can embed thousands of images — cap the count
+  // and the aggregate decoded size so conversion cannot flood storage.
+  const MAX_EXTRACTED_IMAGES = 50;
+  const MAX_EXTRACTED_IMAGE_BYTES = 100 * 1024 * 1024;
+  if (extractedImages.length > MAX_EXTRACTED_IMAGES) {
+    log.warn(`Conversion of ${spaceId}/${originalId} extracted ${extractedImages.length} images; storing only the first ${MAX_EXTRACTED_IMAGES}`);
+    extractedImages = extractedImages.slice(0, MAX_EXTRACTED_IMAGES);
+  }
+  let extractedBytesTotal = 0;
   if (extractedImages.length > 0) {
     for (const img of extractedImages) {
       const imgPath = `_extracted/${originalId}/image-${img.index}.${img.ext}`;
       const imgId = normPath(imgPath);
       try {
         const imgBytes = Buffer.from(img.base64, 'base64');
+        if (extractedBytesTotal + imgBytes.length > MAX_EXTRACTED_IMAGE_BYTES) {
+          log.warn(`Extracted-image size budget (${MAX_EXTRACTED_IMAGE_BYTES} bytes) reached for ${spaceId}/${originalId}; skipping remaining images`);
+          break;
+        }
+        extractedBytesTotal += imgBytes.length;
         await writeFileBytes(spaceId, imgPath, imgBytes);
 
         const imgDoc: FileMetaDoc = {

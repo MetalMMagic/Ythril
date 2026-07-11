@@ -1429,7 +1429,7 @@ The final chunk (where `end === total - 1`) returns **201** with the full file h
 { "path": "large-file.zip", "sha256": "a1b2c3..." }
 ```
 
-Duplicate ranges are silently accepted (idempotent). The `maxUploadBodyBytes` config limit applies per-chunk, not per-file.
+Duplicate ranges are silently accepted (idempotent). The `maxUploadBodyBytes` config limit applies per-chunk; the declared `Content-Range` total is bounded by `maxChunkedUploadBytes` (default 10 GiB → **413** when exceeded). Every chunk is also checked against the storage quota — the first chunk projects the full declared total — and returns **507** when the files hard limit would be exceeded. Bytes staged under `.chunks` count toward measured file usage.
 
 ### Check Upload Progress
 
@@ -1454,6 +1454,8 @@ GET /api/files/:spaceId?path=reports/q1.pdf
 ```
 
 Returns raw file bytes. Works with any file type — PDFs, images, archives, source code, etc. If `path` is a directory, returns a JSON listing.
+
+Active-content types that can execute script when rendered in the browser (`.html`, `.htm`, `.svg`, `.xml`, `.xhtml`) are served with `Content-Disposition: attachment` and a `sandbox` Content-Security-Policy (stored-XSS guard). Passive types — images, PDF, plain text — are served `inline` and preview normally.
 
 ---
 
@@ -1596,6 +1598,8 @@ Recall results (`recall`, `recall_global`, `find_similar`) **do** include chunk 
 #### Resilience
 
 If the unstructured sidecar is unavailable, `write_file` still succeeds. The original file is stored as-is and `conversionError` is set on the filemeta record. No HTTP 5xx is returned to the caller.
+
+Conversion input is size-bounded: documents over `maxDocumentConversionBytes` in `config.json` (default 100 MiB; HTML additionally capped at 25 MiB because jsdom parses it in-process) are stored as-is with `embeddingStatus: "skipped"` — the conversion job fails permanently rather than retrying. Images extracted during hi-res conversion are capped at 50 per document / 100 MiB aggregate.
 
 To disable the conversion pipeline entirely, set `CONVERSION_SIDECAR_URL=""` in Ythril's environment — all uploads fall back to the `"text"` bypass regardless of `inputFormat`.
 

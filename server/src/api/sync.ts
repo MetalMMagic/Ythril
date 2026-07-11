@@ -17,6 +17,7 @@ import { syncRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, getSecrets, getDataRoot, loadConfig, saveConfig } from '../config/loader.js';
 import { listTombstones, applyRemoteTombstone } from '../brain/tombstones.js';
 import { requireAuth, denyReadOnly } from '../auth/middleware.js';
+import { revokePeerCredentialsIfOrphaned } from '../auth/tokens.js';
 import { log } from '../util/log.js';
 import { nextSeq, bumpSeq } from '../util/seq.js';
 import { updateSpace } from '../spaces/spaces.js';
@@ -41,6 +42,21 @@ import type {
 } from '../config/types.js';
 
 export const syncRouter = Router();
+
+// ── Ejection guard (all sync endpoints) ─────────────────────────────────────
+// If this instance has been removed from a network by vote, refuse every sync
+// request scoped to that network — data endpoints carry the networkId in the
+// query string or body, gossip endpoints in the path (guarded again below).
+// Without this, ex-peers could keep syncing data because the network config is
+// deleted on ejection and the space-scope check falls back to "space exists".
+syncRouter.use((req, res, next) => {
+  const nid = (req.query['networkId'] ?? (req.body as Record<string, unknown> | undefined)?.['networkId']) as string | undefined;
+  if (nid && typeof nid === 'string' && getConfig().ejectedFromNetworks?.includes(nid)) {
+    res.status(401).json({ error: 'ejected' });
+    return;
+  }
+  next();
+});
 
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -1427,6 +1443,16 @@ function concludeRoundIfReady(
     if (round.type === 'remove') {
       const idx = net.members.findIndex(m => m.instanceId === round.subjectInstanceId);
       if (idx >= 0) net.members.splice(idx, 1);
+      // Revoke the ejected peer's credentials once it holds no membership anywhere.
+      // Deferred a tick so the caller's saveConfig (and the member_removed notify,
+      // which still needs our outbound token) run first.
+      const ejectedId = round.subjectInstanceId;
+      if (ejectedId) {
+        setImmediate(() => {
+          revokePeerCredentialsIfOrphaned(ejectedId)
+            .catch(err => log.error(`peer credential revocation for ${ejectedId}: ${err}`));
+        });
+      }
     }
     // On meta_change round pass: apply the pending meta to the space
     if (round.type === 'meta_change' && round.spaceId && round.pendingMeta) {

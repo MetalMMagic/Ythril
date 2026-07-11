@@ -596,6 +596,13 @@ export interface Config {
   /** Optional media embedding pipeline (image / audio / video). Off by default. */
   mediaEmbedding?: MediaEmbeddingConfig;
   maxUploadBodyBytes?: number;
+  /** Max total size (bytes) a chunked upload may declare via Content-Range.
+   *  Default 10 GiB. The storage quota (if configured) applies on top. */
+  maxChunkedUploadBytes?: number;
+  /** Max input size (bytes) accepted by the document conversion pipeline
+   *  (pdf/docx/epub/html/md/txt → markdown chunks). Default 100 MiB; HTML is
+   *  additionally capped at 25 MiB because jsdom parses it in-process. */
+  maxDocumentConversionBytes?: number;
   allowInsecurePlaintext?: boolean;
   /** Max redirect hops followed (and re-validated) during webhook delivery.
    *  Default 3; clamped to [0, 20]. Env var WEBHOOK_MAX_REDIRECTS overrides. */

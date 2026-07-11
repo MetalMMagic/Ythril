@@ -89,9 +89,13 @@ export async function dirSizeBytes(dirPath: string): Promise<number> {
 export async function measureUsage(): Promise<UsageGiB> {
   const dataRoot = getDataRoot();
   const filesDir = path.join(dataRoot, 'files');
+  // In-progress chunked uploads stage under .chunks — count them toward the
+  // files quota so partial uploads cannot fill the disk invisibly.
+  const chunksDir = path.join(dataRoot, '.chunks');
 
   const [fileBytes, brainBytes] = await Promise.all([
-    dirSizeBytes(filesDir),
+    Promise.all([dirSizeBytes(filesDir), dirSizeBytes(chunksDir)])
+      .then(([a, b]) => a + b),
     (async () => {
       try {
         const db = getDb();
@@ -117,10 +121,13 @@ export async function measureUsage(): Promise<UsageGiB> {
  * Check quota limits for a write operation.
  *
  * @param area  'files' for file writes; 'brain' for memory/entity/edge writes
+ * @param incomingBytes  projected size of the write being checked — added to
+ *        current usage before hard-limit comparison so an upload that would
+ *        push usage past the limit is rejected up front, not after landing
  * @throws QuotaError if any hard limit is exceeded — caller should return HTTP 507
  * @returns QuotaCheckResult — caller should surface `warning` to the user if softBreached
  */
-export async function checkQuota(area: 'files' | 'brain'): Promise<QuotaCheckResult> {
+export async function checkQuota(area: 'files' | 'brain', incomingBytes = 0): Promise<QuotaCheckResult> {
   const cfg = getConfig();
   const storage = cfg.storage;
 
@@ -130,21 +137,22 @@ export async function checkQuota(area: 'files' | 'brain'): Promise<QuotaCheckRes
   }
 
   const usage = await measureUsage();
+  const incomingGiB = incomingBytes / GiB;
   const warnings: string[] = [];
   let softBreached = false;
 
   // ── Hard limits (throw on exceed) ─────────────────────────────────────
 
-  if (storage.total?.hardLimitGiB != null && usage.total >= storage.total.hardLimitGiB) {
-    throw new QuotaError('total', usage.total, storage.total.hardLimitGiB);
+  if (storage.total?.hardLimitGiB != null && usage.total + incomingGiB >= storage.total.hardLimitGiB) {
+    throw new QuotaError('total', usage.total + incomingGiB, storage.total.hardLimitGiB);
   }
 
-  if (area === 'files' && storage.files?.hardLimitGiB != null && usage.files >= storage.files.hardLimitGiB) {
-    throw new QuotaError('files', usage.files, storage.files.hardLimitGiB);
+  if (area === 'files' && storage.files?.hardLimitGiB != null && usage.files + incomingGiB >= storage.files.hardLimitGiB) {
+    throw new QuotaError('files', usage.files + incomingGiB, storage.files.hardLimitGiB);
   }
 
-  if (area === 'brain' && storage.brain?.hardLimitGiB != null && usage.brain >= storage.brain.hardLimitGiB) {
-    throw new QuotaError('brain', usage.brain, storage.brain.hardLimitGiB);
+  if (area === 'brain' && storage.brain?.hardLimitGiB != null && usage.brain + incomingGiB >= storage.brain.hardLimitGiB) {
+    throw new QuotaError('brain', usage.brain + incomingGiB, storage.brain.hardLimitGiB);
   }
 
   // ── Soft limits (warn, do not reject) ─────────────────────────────────

@@ -19,9 +19,10 @@ export interface FileConverter {
  *   reason = 'no_content'   → blank/corrupted document
  *   reason = 'sidecar_down' → unstructured sidecar unreachable
  *   reason = 'sidecar_error'→ sidecar returned non-200
+ *   reason = 'too_large'    → input exceeds the conversion size cap (never retried)
  */
 export class ConversionUnavailableError extends Error {
-  readonly reason: 'no_content' | 'sidecar_down' | 'sidecar_error' | 'unknown';
+  readonly reason: 'no_content' | 'sidecar_down' | 'sidecar_error' | 'too_large' | 'unknown';
 
   constructor(reason: ConversionUnavailableError['reason'], message?: string) {
     super(message ?? reason);

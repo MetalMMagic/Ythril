@@ -5027,15 +5027,70 @@ When connecting with a `readOnly` token, mutating tools (`remember`, `update_mem
 
 ### Connecting
 
-```
-GET /mcp
-Authorization: Bearer <token>
-Accept: text/event-stream
-```
+Ythril accepts MCP over two transports, and two ways to authenticate.
 
-Returns an SSE stream with a `sessionId`.
+**Transports**
+
+- **Streamable HTTP** (recommended) — a single stateless endpoint:
+  ```
+  POST /mcp
+  Authorization: Bearer <token>
+  Content-Type: application/json
+  Accept: application/json, text/event-stream
+  ```
+  Each request is self-contained; no persistent connection or `sessionId` is needed. Works through standard HTTP proxies.
+
+- **SSE** (legacy) — open a stream, then post messages to it:
+  ```
+  GET /mcp
+  Authorization: Bearer <token>
+  Accept: text/event-stream
+  ```
+  Returns an SSE stream with a `sessionId`. Send tool calls to `POST /mcp/messages?sessionId=<sessionId>`.
+
+**Authentication**
+
+- **Static bearer token** — clients that let you set an `Authorization` header (Claude Desktop, Cursor, VS Code, custom scripts) simply send a Ythril PAT: `Authorization: Bearer ythril_…`. Nothing else is required.
+
+- **OAuth 2.1** — browser-based connectors that cannot store a static header (e.g. the **claude.ai custom connector**) use the standard [MCP authorization flow](https://modelcontextprotocol.io/specification/basic/authorization) (OAuth 2.1 + PKCE + Dynamic Client Registration). Ythril is both the resource server and its own authorization server — **no external IdP is required**. See [MCP OAuth for browser connectors](#mcp-oauth-for-browser-connectors) below.
+
+### MCP OAuth for browser connectors
+
+When an OAuth client hits `/mcp` without a token, Ythril returns `401` with a `WWW-Authenticate: Bearer resource_metadata="…"` header that points at the RFC 9728 protected-resource metadata. The client then discovers the authorization server, registers itself (DCR), and drives the user through an authorization + consent step. On approval it receives a Ythril PAT as its OAuth access token.
+
+**Configure the public URL.** OAuth metadata must advertise absolute, externally-reachable URLs. Set the instance's public base URL to your HTTPS address:
+
+- `config.publicUrl` = `https://brain.example.com` (or the `PUBLIC_BASE_URL` env var, which takes precedence), then **restart** the server.
+- The URL **must be HTTPS** for any non-loopback host (OAuth is refused otherwise, and only the static-bearer flow is offered — a warning is logged at startup). `http://localhost` / `http://127.0.0.1` are allowed for local testing.
+
+Discovery + grant endpoints (mounted at the application root):
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /.well-known/oauth-protected-resource/mcp` | RFC 9728 protected-resource metadata |
+| `GET /.well-known/oauth-authorization-server` | RFC 8414 authorization-server metadata |
+| `POST /register` | RFC 7591 Dynamic Client Registration |
+| `GET /authorize` | Authorization endpoint — renders the consent page |
+| `POST /mcp-oauth/consent` | Consent submission (internal; posted to by the consent page) |
+| `POST /token` | Token endpoint — exchanges an auth code (+ PKCE) for an access token |
+
+**The consent step.** The user is shown a page asking them to paste a Ythril access token to approve the connection. The connector is then issued a **new** PAT with **the same permissions** (admin / space scope / read-only) as the token that approved it. That connector token is named `MCP connector: <client>` and can be revoked independently under **Settings → Tokens** (or `DELETE /api/tokens/:id`). Only someone who already holds a valid Ythril token can approve a connection — there is no way to gain access without one.
+
+Access tokens are non-expiring PATs, so no refresh-token flow is used.
+
+**Connecting from claude.ai (or another browser connector).** End-to-end operator steps:
+
+1. Set `config.publicUrl` (or the `PUBLIC_BASE_URL` env var) to your external HTTPS URL — e.g. `https://brain.example.com` — and **restart** the server. Confirm the startup log shows `MCP OAuth authorization server enabled (issuer https://…)` rather than the "OAuth disabled" warning.
+2. Create (or copy) a Ythril access token with the scope you want the connector to have — an admin PAT for full access, or a space-scoped / read-only PAT to limit it. Get it from **Settings → Tokens**.
+3. In claude.ai, go to **Settings → Connectors → Add custom connector** and enter the MCP URL: `https://brain.example.com/mcp`. Claude discovers the authorization server and opens Ythril's consent page.
+4. On the consent page, paste the token from step 2 and click **Approve access**. Claude receives a new connector token and the connection goes live.
+5. To disconnect later, revoke the `MCP connector: <client>` token under **Settings → Tokens** (revoking the token you pasted in step 2 does *not* disconnect it — the connector holds its own minted token).
+
+> Clients that let you set a header directly (Claude Desktop, Cursor, VS Code) skip all of the above — just paste a `ythril_…` PAT into their MCP server config. No `publicUrl` or OAuth setup is required for them.
 
 ### Sending Tool Calls
+
+For the SSE transport:
 
 ```
 POST /mcp/messages?sessionId=<sessionId>

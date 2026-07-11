@@ -611,6 +611,25 @@ export interface Config {
   };
   /** Optional audit log configuration. */
   audit?: AuditConfig;
+  /** Dynamically-registered OAuth clients (RFC 7591) for the MCP browser
+   *  authorization flow. Populated automatically when a client registers; not
+   *  meant to be hand-edited. See mcp/oauth.ts. */
+  oauthClients?: OAuthClientRecord[];
+}
+
+/** A dynamically-registered OAuth client for the MCP OAuth flow.
+ *  Mirrors the subset of RFC 7591 client metadata Ythril persists; additional
+ *  fields returned by the client registration are retained via the index signature. */
+export interface OAuthClientRecord {
+  client_id: string;
+  client_id_issued_at?: number;
+  client_name?: string;
+  redirect_uris: string[];
+  grant_types?: string[];
+  response_types?: string[];
+  token_endpoint_auth_method?: string;
+  scope?: string;
+  [key: string]: unknown;
 }
 
 export interface SecretsFile {

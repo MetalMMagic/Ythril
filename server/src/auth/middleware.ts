@@ -7,6 +7,7 @@ import type { OidcTokenRecord } from './oidc.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { authAttemptsTotal } from '../metrics/registry.js';
 import { logAuthFailure } from '../audit/middleware.js';
+import { mcpResourceMetadataUrl } from '../mcp/oauth.js';
 
 // Augment Express Request type
 declare global {
@@ -82,8 +83,38 @@ export async function requireAuth(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
+  return performAuth(req, res, next);
+}
+
+/**
+ * Like {@link requireAuth}, but on a 401 it also emits an RFC 9728
+ * `WWW-Authenticate: Bearer resource_metadata="…"` header pointing at the MCP
+ * protected-resource metadata. This is what lets OAuth-only browser MCP clients
+ * (e.g. the claude.ai custom connector) discover Ythril's authorization server
+ * and begin the OAuth flow. Static bearer-token clients are unaffected.
+ */
+export async function requireMcpAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  return performAuth(req, res, next, (r) => {
+    // Imported lazily to avoid a load-order dependency on the MCP OAuth module.
+    r.setHeader('WWW-Authenticate', `Bearer resource_metadata="${mcpResourceMetadataUrl()}"`);
+  });
+}
+
+/** Shared auth core for requireAuth / requireMcpAuth. `onChallenge` (if given)
+ *  runs immediately before a 401 is written, to attach a challenge header. */
+async function performAuth(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  onChallenge?: (res: Response) => void,
+): Promise<void> {
   const bearer = extractBearer(req);
   if (!bearer) {
+    if (onChallenge) onChallenge(res);
     res.status(401).json({ error: 'Missing Authorization header' });
     return;
   }
@@ -92,6 +123,7 @@ export async function requireAuth(
   if (!record) {
     authAttemptsTotal.inc({ result: 'invalid' });
     logAuthFailure(req);
+    if (onChallenge) onChallenge(res);
     res.status(401).json({ error: 'Invalid or expired token' });
     return;
   }

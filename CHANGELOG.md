@@ -84,6 +84,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `testing/red-team-tests/ssrf-encoding.test.js`.
 ### Added
 
+- **MCP OAuth for browser connectors** — Ythril now speaks the standard MCP authorization flow
+  (OAuth 2.1 + PKCE + RFC 7591 Dynamic Client Registration) so browser-only clients that cannot send a
+  static `Authorization` header — notably the **claude.ai custom connector** — can connect to `/mcp`.
+  An unauthenticated `/mcp` request now returns `401` with an RFC 9728 `WWW-Authenticate`
+  `resource_metadata` header; Ythril serves the protected-resource + authorization-server metadata and
+  acts as its own authorization server (**no external IdP required**). During consent the user pastes a
+  Ythril token to approve; the connector is issued a **new PAT with the same permissions**, named
+  `MCP connector: <client>` and independently revocable under Settings → Tokens. Access tokens are
+  non-expiring PATs (no refresh flow). Requires `config.publicUrl` / `PUBLIC_BASE_URL` to be set to the
+  instance's external **HTTPS** URL (OAuth is disabled with a startup warning for plaintext non-loopback
+  hosts; the static bearer-token flow is unaffected). Clients that can set a header (Claude Desktop,
+  Cursor, VS Code) continue to use a static `ythril_…` bearer with no change. Covered by
+  `testing/integration/mcp-oauth.test.js` (full handshake + PKCE, single-use-code, redirect, and
+  invalid-token negative paths).
+
 - **Cryptographically signed governance votes** — every brain now owns a persistent Ed25519 signing
   keypair (private half in `secrets.json`, public half in `config.json`, generated at setup / first
   boot). Each governance vote cast is signed over a canonical message binding `network | round |

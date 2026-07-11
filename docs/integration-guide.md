@@ -3300,6 +3300,13 @@ Authorization: Bearer <admin-token>
 { "networkId": "net-uuid" }
 ```
 
+Optional fields:
+
+| Field | Purpose |
+|---|---|
+| `expectedInstanceId` | Pin the invite to one `instanceId`. Only that instance may `apply` the bundle — a leaked or forwarded invite link cannot be redeemed by anyone else. |
+| `reparentInstanceId` | Braintree reparent (not a new join): move this already-existing member under this instance. The invite is bound to that `instanceId` — applying it as any other instance is refused, so a reparent bundle cannot seize a different member's record. |
+
 **Response** `201`:
 
 ```json
@@ -3542,6 +3549,8 @@ GET /api/sync/merkle?spaceId=general&networkId=net-uuid
   "networkId": "net-uuid"
 }
 ```
+
+Each brain-document leaf hashes the document's **content** (canonical JSON, keys sorted, embedding vectors excluded so peers running different embedding models don't diverge), not just its `_id`/`seq` — so a mismatch detects tampered content, not only missing or version-skewed documents. File leaves hash the file's SHA-256. The check is advisory: a root mismatch is reported as `MERKLE_DIVERGENCE`, it does not block sync.
 
 ### Gossip Endpoints
 

@@ -245,7 +245,25 @@ async function detectDuplicateEdges(
 // ── Resolution application ─────────────────────────────────────────────────
 
 /**
+ * Property keys that must never be written through a computed index, or they
+ * would mutate the object prototype instead of adding a data property.
+ */
+const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** True when `key` is safe to assign as a plain data property. */
+function isSafeKey(key: string): boolean {
+  return !PROTO_KEYS.has(key);
+}
+
+/**
  * Apply resolved property values and return the final merged properties.
+ *
+ * Prototype-polluting keys (`__proto__`, `constructor`, `prototype`) are
+ * rejected before assignment. Object spread copies data properties (it does not
+ * invoke the `__proto__` setter), so the danger is only the computed
+ * `result[key] = value` writes below — which `isSafeKey` guards. Merge property
+ * values are only scalars today, so the blast radius was small, but this keeps
+ * the pattern out of a path that assigns user/peer-supplied keys.
  */
 export function applyResolutions(
   survivorProps: Record<string, string | number | boolean>,
@@ -257,11 +275,19 @@ export function applyResolutions(
 
   // Apply absorbed-only properties
   for (const p of absorbedOnly) {
+    if (!isSafeKey(p.key)) {
+      log.warn(`merge: skipping prototype-polluting property key '${p.key}'`);
+      continue;
+    }
     result[p.key] = p.value as string | number | boolean;
   }
 
   // Apply conflict resolutions
   for (const c of conflicts) {
+    if (!isSafeKey(c.key)) {
+      log.warn(`merge: skipping prototype-polluting property key '${c.key}'`);
+      continue;
+    }
     const resolution = c.resolution!;
     if (resolution === 'survivor') {
       // Keep survivor value (already in result)

@@ -813,18 +813,51 @@ export async function queryBrain(
   const safeFilter = sanitizeFilter(filter) as Record<string, never>;
   const safeMaxTime = Math.min(maxTimeMS, 10_000);
   const collName = `${spaceId}_${collectionName}`;
-  let cursor = col(collName)
+  const cursor = col(collName)
     .find(safeFilter)
     .maxTimeMS(safeMaxTime)
     // Deterministic newest-first ordering keeps recent writes visible under
     // the default limit even when historical datasets grow large.
     .sort({ seq: -1, updatedAt: -1, createdAt: -1, _id: -1 })
-    .limit(Math.min(limit, 100));
-
-  if (projection) {
-    cursor = cursor.project(projection as Record<string, never>);
-  }
-  // Always exclude embedding vectors from query results
-  cursor = cursor.project({ embedding: 0 });
+    .limit(Math.min(limit, 100))
+    // The embedding vector is never returned. This is MERGED with the caller's
+    // projection rather than applied as a second `.project()` — a second call
+    // replaces the first in the MongoDB driver, which previously discarded the
+    // caller's projection entirely.
+    .project(mergeEmbeddingExclusion(projection) as Record<string, never>);
   return cursor.toArray();
+}
+
+/**
+ * Merge the mandatory `embedding` exclusion with a caller-supplied projection.
+ *
+ * MongoDB forbids mixing inclusion and exclusion (except for `_id`), so we
+ * cannot blindly add `embedding: 0` to an inclusion projection:
+ *  - No projection → `{ embedding: 0 }`.
+ *  - Inclusion projection (`{ field: 1 }`) → embedding is already excluded by
+ *    omission; we just strip any explicit `embedding: 1` so the vector can never
+ *    be opted back in.
+ *  - Exclusion projection (`{ field: 0 }`) → add `embedding: 0`.
+ */
+export function mergeEmbeddingExclusion(
+  projection?: Record<string, unknown>,
+): Record<string, 0 | 1> {
+  if (!projection || Object.keys(projection).length === 0) {
+    return { embedding: 0 };
+  }
+  // Inclusion vs exclusion is decided by the non-_id fields.
+  const isInclusion = Object.entries(projection)
+    .some(([k, v]) => k !== '_id' && (v === 1 || v === true));
+
+  const out: Record<string, 0 | 1> = {};
+  if (isInclusion) {
+    for (const [k, v] of Object.entries(projection)) {
+      if (k === 'embedding') continue; // never allow the vector to be included
+      out[k] = (v === 1 || v === true) ? 1 : 0;
+    }
+  } else {
+    for (const k of Object.keys(projection)) out[k] = 0;
+    out['embedding'] = 0;
+  }
+  return out;
 }

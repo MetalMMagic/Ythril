@@ -7,10 +7,9 @@
  */
 
 import fs from 'fs/promises';
-import { createReadStream, createWriteStream } from 'fs';
+import { createWriteStream } from 'fs';
 import path from 'path';
 import { createHash } from 'crypto';
-import { pipeline } from 'stream/promises';
 import { getDataRoot } from '../config/loader.js';
 import { log } from '../util/log.js';
 
@@ -86,6 +85,18 @@ export async function storeChunk(
  * Assemble all chunks into the target file.
  * Returns the sha256 of the assembled file.
  * Cleans up the chunk directory after assembly.
+ *
+ * Before writing anything, the chunks are verified to tile `[0, total)`
+ * exactly — contiguous, no gaps, no overlaps, summing to `total`. Previously
+ * only the aggregate byte count was checked (in storeChunk), so a set of
+ * chunks with a gap and a compensating overlap could report "complete" and
+ * assemble into silently corrupt content.
+ *
+ * The sha256 is computed from the same buffers that are written, in order, so
+ * it always matches the file on disk. The prior implementation hashed via a
+ * `data` listener attached alongside `stream.pipeline`, which put the stream in
+ * flowing mode and raced the pipeline's own consumption — the hash could cover
+ * a different byte view than what was written.
  */
 export async function assembleChunks(
   spaceId: string,
@@ -96,31 +107,51 @@ export async function assembleChunks(
   const id = uploadId(spaceId, filePath, total);
   const dir = uploadDir(spaceId, id);
 
-  // List and sort chunk files by their start offset
+  // List and sort chunk files by their start offset.
   const entries = await fs.readdir(dir);
   const chunkFiles = entries
     .filter(n => n.endsWith('.bin'))
     .map(n => ({ name: n, start: parseInt(n.replace('.bin', ''), 10) }))
+    .filter(c => Number.isInteger(c.start) && c.start >= 0)
     .sort((a, b) => a.start - b.start);
 
-  // Ensure target directory exists
+  // Verify the chunks tile [0, total) exactly before touching the target file.
+  let expected = 0;
+  const sized: { name: string; size: number }[] = [];
+  for (const cf of chunkFiles) {
+    if (cf.start !== expected) {
+      throw new RangeError(
+        `Chunk coverage error for '${filePath}': expected a chunk at offset ${expected}, ` +
+        `found one at ${cf.start} (gap or overlap).`,
+      );
+    }
+    const st = await fs.stat(path.join(dir, cf.name));
+    sized.push({ name: cf.name, size: st.size });
+    expected += st.size;
+  }
+  if (expected !== total) {
+    throw new RangeError(
+      `Chunk coverage error for '${filePath}': assembled size ${expected} does not match ` +
+      `the declared total ${total}.`,
+    );
+  }
+
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
 
-  // Assemble into target file
+  // Assemble sequentially: read each chunk, hash it, then write it. One chunk is
+  // held in memory at a time (chunk size is bounded by the upload body limit).
   const hash = createHash('sha256');
   const out = createWriteStream(targetPath);
-
   try {
-    for (const cf of chunkFiles) {
-      const chunkPath = path.join(dir, cf.name);
-      const rs = createReadStream(chunkPath);
-      rs.on('data', (chunk) => hash.update(chunk));
-      await pipeline(rs, out, { end: false });
+    for (const cf of sized) {
+      const buf = await fs.readFile(path.join(dir, cf.name));
+      hash.update(buf);
+      await new Promise<void>((resolve, reject) => {
+        out.write(buf, err => (err ? reject(err) : resolve()));
+      });
     }
-
-    out.end();
     await new Promise<void>((resolve, reject) => {
-      out.on('finish', resolve);
+      out.end(() => resolve());
       out.on('error', reject);
     });
   } catch (err) {

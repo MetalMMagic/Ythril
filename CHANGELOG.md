@@ -30,6 +30,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **File paths are re-checked against symlink escapes before every filesystem operation** — the
+  sandbox boundary check was purely lexical (string prefix), so a symlink component anywhere along a
+  path could point outside the space root while the string still looked contained — a TOCTOU that a
+  recursive directory delete would follow out of the sandbox. Every read/write/delete/move/list now
+  canonicalises the path with `realpath` (walking to the nearest existing ancestor for not-yet-created
+  files) and re-asserts the real location is inside the space root; the recursive-delete endpoint does
+  the same before `fs.rm`. (M1)
+
+- **Chunked uploads verify full, non-overlapping coverage before assembly** — `assembleChunks` only
+  checked the aggregate byte count, so a set of chunks with a gap and a compensating overlap could
+  report "complete" and assemble into silently corrupt content. Assembly now verifies the chunks tile
+  `[0, total)` exactly (contiguous, no gaps, no overlaps) before writing, and the returned sha256 is
+  computed from the same buffers that are written in order — the previous hash was produced by a
+  `data` listener racing `stream.pipeline`, so it could cover a different byte view than the file on
+  disk. (M11)
+
+- **File paths are no longer double-URL-decoded** — `resolveSafePath` ran `decodeURIComponent` on a
+  value the HTTP layer had already decoded once. A filename containing a literal `%` (e.g. `50%.png`)
+  therefore threw `URIError` → HTTP 500, and the on-disk path could diverge from the file-meta `_id`.
+  The redundant decode is removed; the disk path now matches the stored `_id` byte-for-byte. (L3)
+
+- **Prototype-polluting property keys are rejected in entity-merge resolution** — `applyResolutions`
+  wrote resolved property values through a computed index; a `__proto__` / `constructor` / `prototype`
+  key would mutate the object prototype instead of adding a data property. Such keys are now skipped.
+  (Impact was limited — merge values are scalars — but it removes the footgun from a path that assigns
+  user/peer-supplied keys.) (L4)
+
+- **The `query` tool no longer silently discards a caller's projection** — the mandatory
+  `embedding`-vector exclusion was applied as a second `.project()` call, which in the MongoDB driver
+  *replaces* the first, dropping any projection the caller supplied. The exclusion is now merged with
+  the caller's projection (respecting MongoDB's inclusion/exclusion rules), and an explicit request to
+  include `embedding` is still stripped so the vector can never leak. (L5)
+
 - **Sync data endpoints now verify network membership, not just space scope** — a peer-bound token
   was authorised against the calling token's space allow-list alone, so two networks sharing a space
   but with **disjoint membership** leaked into each other: a member of network X could read/write that

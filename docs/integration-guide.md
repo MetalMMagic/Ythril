@@ -692,6 +692,7 @@ Available as both:
 | `types` | — | all types | Restrict result knowledge types |
 | `minScore` | — | none | Filter out low-similarity matches |
 | `filter` | — | none | Property equality/comparison filter (see below) |
+| `traverse` | — | `0` | Graph-expansion depth (integer 0–5). `0` = classic recall; > 0 follows edges from each match (see [Graph-Augmented Recall](#graph-augmented-recall-traverse-parameter)) |
 
 **Response** `200`:
 
@@ -705,6 +706,69 @@ Available as both:
 ```
 
 Searches **all knowledge types** (memories, entities, edges, chrono entries, and files) using the built-in embedding model and MongoDB Atlas `$vectorSearch`. Results are ranked by vector similarity across all types and include a `type` discriminator field. No extra configuration needed.
+
+#### Graph-Augmented Recall (`traverse` parameter)
+
+By default `recall` returns matches in isolation — the knowledge-graph edges between records are not consulted. Set `traverse` to an integer between `1` and `5` to follow the graph outward from every match: for each seed, the server walks edges (in **both** directions) up to `traverse` hops and returns the connected entities alongside the matches. This turns semantic search into context-aware retrieval — "recall the Vault service **and everything connected to it**" in one call, instead of a recall followed by manual `traverse`/`query` calls.
+
+`traverse: 0` (the default) is behaviourally identical to classic recall and returns the classic response shape above. When `traverse > 0` the response shape changes: each result is annotated, and a `traverseDepth` field is added.
+
+```json
+{
+  "query": "authentication token scoping",
+  "types": ["entity"],
+  "traverse": 2
+}
+```
+
+**Response** `200` (when `traverse > 0`):
+
+```json
+{
+  "results": [
+    {
+      "score": 0.91,
+      "source": "recall",
+      "hops": 0,
+      "path": [],
+      "spaceId": "adrs",
+      "type": "entity",
+      "record": { "_id": "adr-0042", "name": "Token Scoping", "type": "decision" }
+    },
+    {
+      "score": null,
+      "source": "traverse",
+      "hops": 1,
+      "path": [{ "from": "adr-0042", "label": "implements", "to": "adr-0079" }],
+      "spaceId": "adrs",
+      "type": "entity",
+      "record": { "_id": "adr-0079", "name": "Vault Integration", "type": "decision" }
+    }
+  ],
+  "count": 2,
+  "traverseDepth": 2
+}
+```
+
+Per-result annotations:
+
+| Field | Meaning |
+|-------|---------|
+| `source` | `"recall"` for a direct semantic match (seed), `"traverse"` for a record reached via the graph |
+| `hops` | Distance from the nearest seed — `0` for a seed, `1` for a direct neighbour, etc. |
+| `path` | The edge chain connecting this record to its seed (`[]` for seeds). Each element is `{ from, label, to }` |
+| `score` | Vector similarity for seeds; `null` for traversal-reached records (they were not ranked by the search) |
+| `record` | Seed records carry the full recall result; traversal records carry the reached **entity** document |
+
+**Guard rails:**
+
+- **Depth cap:** `traverse` must be `0`–`5`. A value of `6` or higher (or a negative/non-integer value) returns `400` — it is rejected, not clamped.
+- **Result cap:** the combined output (seeds + traversal) is capped at `topK × (traverse + 1) × 4`. On dense graphs the traversal is truncated to this budget, preferring lower-hop records.
+- **Cycle-safe:** each record is visited once, so a circular graph (A→B→C→A) never loops or produces duplicates. A record reachable by multiple paths keeps its **shortest** path.
+- **Space-scoped:** traversal stays within the spaces the calling token may access. An edge pointing at a record in a space the token cannot see (or at an id that is not an entity) is silently skipped — no data and no `403` leak.
+- Only **entities** are returned by traversal (edges connect entities); memories, chrono entries, and files still appear as seeds when they match semantically.
+
+**Performance:** traversal issues roughly two batched (`$in`) MongoDB queries per hop, not one query per node. Even so, `traverse > 2` on a densely-connected graph can fan out quickly — pair it with `filter`, `tags`, or a low `topK` to keep the seed set (and therefore the traversal frontier) tight.
 
 #### Prefiltered Recall (`filter` parameter)
 

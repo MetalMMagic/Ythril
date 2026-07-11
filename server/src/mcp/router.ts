@@ -17,7 +17,7 @@ import { updateSpace, wipeSpace, WIPE_COLLECTION_TYPES, type WipeCollectionType 
 import { remember, recall, recallGlobal, findSimilar, queryBrain, updateMemory, deleteMemory, validateFilterExpression, type RecallKnowledgeType, type RecallResult, type FilterExpression } from '../brain/memory.js';
 import { col, mFilter, mDoc } from '../db/mongo.js';
 import { upsertEntity, updateEntityById, findEntitiesByName } from '../brain/entities.js';
-import { upsertEdge, traverseGraph, updateEdgeById } from '../brain/edges.js';
+import { upsertEdge, traverseGraph, updateEdgeById, traverseRecallSeeds, MAX_RECALL_TRAVERSE } from '../brain/edges.js';
 import { computeMergePlan, applyResolutions, executeMerge, validateResolution, type PropertyResolution } from '../brain/merge.js';
 import { validateDeleteFields } from '../brain/delete-fields.js';
 
@@ -85,6 +85,31 @@ function toRecallRecord(r: RecallResult): Record<string, unknown> {
     case 'file':
       return { ...common, path: r.path, ...(r.sizeBytes !== undefined ? { sizeBytes: r.sizeBytes } : {}), ...(r.parentFileId !== undefined ? { parentFileId: r.parentFileId } : {}), ...(r.chunkIndex !== undefined ? { chunkIndex: r.chunkIndex } : {}), ...(r.headingText !== undefined ? { headingText: r.headingText } : {}), ...(r.content !== undefined ? { content: r.content } : {}) };
   }
+}
+
+/** Build the `record` object for a traversal-reached entity (embedding already excluded). */
+function entityDocToRecord(e: import('../config/types.js').EntityDoc): Record<string, unknown> {
+  const rec: Record<string, unknown> = { _id: e._id, name: e.name, type: e.type };
+  if (e.createdAt !== undefined) rec['createdAt'] = e.createdAt;
+  if (e.updatedAt !== undefined) rec['updatedAt'] = e.updatedAt;
+  if (e.seq !== undefined) rec['seq'] = e.seq;
+  if (e.tags !== undefined) rec['tags'] = e.tags;
+  if (e.description !== undefined) rec['description'] = e.description;
+  if (e.properties !== undefined) rec['properties'] = e.properties;
+  if (e.embeddingModel !== undefined) rec['embeddingModel'] = e.embeddingModel;
+  return rec;
+}
+
+/** One entry in a graph-augmented recall response (traverse > 0). */
+interface McpRecallTraverseItem {
+  score: number | null;
+  source: 'recall' | 'traverse';
+  hops: number;
+  path: { from: string; label: string; to: string }[];
+  spaceId: string;
+  type: string;
+  matchedText: string;
+  record: Record<string, unknown>;
 }
 
 const MUTATING_TOOLS = new Set([
@@ -196,6 +221,12 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
           minScore: {
             type: 'number',
             description: 'Minimum cosine similarity score (0.0–1.0). Results below this threshold are excluded.',
+          },
+          traverse: {
+            type: 'number',
+            minimum: 0,
+            maximum: 5,
+            description: 'Optional graph expansion depth (integer 0–5, default 0). When > 0, each semantic match is expanded along knowledge-graph edges up to this many hops, and the connected entities are returned alongside the matches. Each result is annotated with source ("recall" or "traverse"), hops (0 = seed), and path (the connecting edge chain). Use with filter/tags to narrow the seed set — traverse > 2 on dense graphs can be slow. Example: recall "auth token scoping" with traverse: 1 returns the matching records plus everything one edge away.',
           },
           filter: {
             type: 'object',
@@ -953,6 +984,15 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
             : undefined;
           const minScore = typeof a['minScore'] === 'number' ? a['minScore'] : undefined;
 
+          // Graph-traversal expansion depth. 0 (default) = classic recall, unchanged.
+          let traverse = 0;
+          if (a['traverse'] != null) {
+            if (typeof a['traverse'] !== 'number' || !Number.isInteger(a['traverse']) || a['traverse'] < 0 || a['traverse'] > MAX_RECALL_TRAVERSE) {
+              throw new Error(`traverse must be an integer between 0 and ${MAX_RECALL_TRAVERSE}`);
+            }
+            traverse = a['traverse'];
+          }
+
           let filter: FilterExpression | undefined;
           if (a['filter'] != null) {
             if (typeof a['filter'] !== 'object' || Array.isArray(a['filter'])) {
@@ -963,42 +1003,48 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
             filter = a['filter'] as FilterExpression;
           }
 
+          // Resolve the seed set and the authorized space set (same guard for both).
+          let seeds: RecallResult[];
+          let traverseSpaces: string[];
           if (callSpace) {
-            // Search specific space
             const memberIds = resolveMemberSpaces(callSpace);
             const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore, filter)))).flat();
             all.sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
-            const results = all.slice(0, topK);
-            const output = {
-              results: results.map(r => ({
-                score: r.score,
-                spaceId: r.spaceId,
-                type: r.type,
-                matchedText: r.matchedText ?? formatRecallSummary(r),
-                record: toRecallRecord(r),
-              })),
-              count: results.length,
-            };
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }],
-            };
+            seeds = all.slice(0, topK);
+            traverseSpaces = memberIds;
           } else {
-            // Cross-space search across all accessible spaces
-            const results = await recallGlobal(accessibleSpaceIds, query, topK, tags, types, minPerType, minScore, filter);
+            seeds = await recallGlobal(accessibleSpaceIds, query, topK, tags, types, minPerType, minScore, filter);
+            traverseSpaces = accessibleSpaceIds;
+          }
+
+          if (traverse === 0) {
             const output = {
-              results: results.map(r => ({
+              results: seeds.map(r => ({
                 score: r.score,
                 spaceId: r.spaceId,
                 type: r.type,
                 matchedText: r.matchedText ?? formatRecallSummary(r),
                 record: toRecallRecord(r),
               })),
-              count: results.length,
+              count: seeds.length,
             };
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }],
-            };
+            return { content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }] };
           }
+
+          // Graph-augmented recall: expand seeds along edges, cap the combined output.
+          const totalCap = topK * (traverse + 1) * 4;
+          const neighbours = await traverseRecallSeeds(
+            traverseSpaces,
+            seeds.map(s => ({ _id: s._id, spaceId: s.spaceId })),
+            traverse,
+            Math.max(0, totalCap - seeds.length),
+          );
+          const results: McpRecallTraverseItem[] = [
+            ...seeds.map(r => ({ score: r.score, source: 'recall' as const, hops: 0, path: [], spaceId: r.spaceId, type: r.type, matchedText: r.matchedText ?? formatRecallSummary(r), record: toRecallRecord(r) })),
+            ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity', matchedText: `${n.record.name} (${n.record.type})`, record: entityDocToRecord(n.record) })),
+          ];
+          const output = { results, count: results.length, traverseDepth: traverse };
+          return { content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }] };
         }
 
         case 'find_similar': {

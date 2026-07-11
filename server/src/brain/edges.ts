@@ -432,3 +432,121 @@ export async function traverseGraph(
 
   return { nodes: resultNodes, edges: resultEdges, truncated: false };
 }
+
+// ── Recall-augmenting traversal ──────────────────────────────────────────────
+
+/** Hard cap on the `traverse` depth accepted by graph-augmented recall. */
+export const MAX_RECALL_TRAVERSE = 5;
+
+/** A neighbour reached by following the edge graph out from a recall seed set. */
+export interface SeedTraverseNeighbor {
+  _id: string;
+  spaceId: string;
+  /** Hop distance from the nearest seed (1 = directly connected to a seed). */
+  hops: number;
+  /** Edge chain connecting the nearest seed to this neighbour (shortest path). */
+  path: { from: string; label: string; to: string }[];
+  /** Hydrated entity document (embedding stripped). */
+  record: EntityDoc;
+}
+
+/**
+ * Multi-source, depth-limited BFS over the edge graph of a SINGLE space, seeded
+ * from a set of recall-match IDs. Follows edges in BOTH directions, records the
+ * shortest path to each neighbour (BFS visit order guarantees shortest-first),
+ * and detects cycles via a visited set so a circular graph never loops or
+ * duplicates. Neighbours are hydrated as entities within THIS space only — an
+ * edge pointing at an id absent from the space (e.g. a cross-space edge to a
+ * space the caller can't see) yields no neighbour and is silently skipped.
+ * Batched `$in` lookups keep this to ~2 queries per hop regardless of fan-out.
+ */
+export async function traverseFromSeeds(
+  spaceId: string,
+  seedIds: string[],
+  maxDepth: number,
+  limit: number,
+): Promise<SeedTraverseNeighbor[]> {
+  if (seedIds.length === 0 || maxDepth < 1 || limit < 1) return [];
+
+  const visited = new Set<string>(seedIds);
+  const pathTo = new Map<string, { from: string; label: string; to: string }[]>();
+  for (const id of seedIds) pathTo.set(id, []);
+
+  let frontier: string[] = [...new Set(seedIds)];
+  let frontierSet = new Set<string>(frontier);
+  let depth = 0;
+  const results: SeedTraverseNeighbor[] = [];
+
+  while (frontier.length > 0 && depth < maxDepth) {
+    const edges = await col<EdgeDoc>(`${spaceId}_edges`)
+      .find(mFilter<EdgeDoc>({ $or: [{ from: { $in: frontier } }, { to: { $in: frontier } }] }))
+      .toArray() as EdgeDoc[];
+
+    const newNeighborIds: string[] = [];
+    for (const edge of edges) {
+      // Same-level edge (both ends already in the frontier) — introduces no new node.
+      if (frontierSet.has(edge.from) && frontierSet.has(edge.to)) continue;
+      const frontierEnd = frontierSet.has(edge.from) ? edge.from : edge.to;
+      const neighborId = frontierEnd === edge.from ? edge.to : edge.from;
+      if (visited.has(neighborId)) continue;
+      visited.add(neighborId);
+      pathTo.set(neighborId, [...(pathTo.get(frontierEnd) ?? []), { from: edge.from, label: edge.label, to: edge.to }]);
+      newNeighborIds.push(neighborId);
+    }
+
+    if (newNeighborIds.length === 0) break;
+
+    const entities = await col<EntityDoc>(`${spaceId}_entities`)
+      .find(mFilter<EntityDoc>({ _id: { $in: newNeighborIds }, spaceId }))
+      .project({ embedding: 0 })
+      .toArray() as EntityDoc[];
+    const entityMap = new Map<string, EntityDoc>();
+    for (const e of entities) entityMap.set(e._id, e);
+
+    const nextFrontier: string[] = [];
+    for (const neighborId of newNeighborIds) {
+      const entity = entityMap.get(neighborId);
+      if (!entity) continue; // not an entity in this space (e.g. cross-space edge target) — skip
+      results.push({ _id: entity._id, spaceId, hops: depth + 1, path: pathTo.get(neighborId) ?? [], record: entity });
+      if (results.length >= limit) return results;
+      nextFrontier.push(neighborId);
+    }
+
+    frontier = nextFrontier;
+    frontierSet = new Set<string>(frontier);
+    depth++;
+  }
+
+  return results;
+}
+
+/**
+ * Expand a set of recall seeds into their graph neighbours across the caller's
+ * authorized spaces. Seeds are grouped by space (only spaces in `memberIds` are
+ * traversed — the cross-space access guard), each space is BFS-expanded via
+ * `traverseFromSeeds`, and the merged neighbours are truncated to `limit` with
+ * lower-hop results preferred. Never touches a space outside `memberIds`.
+ */
+export async function traverseRecallSeeds(
+  memberIds: string[],
+  seeds: { _id: string; spaceId: string }[],
+  maxDepth: number,
+  limit: number,
+): Promise<SeedTraverseNeighbor[]> {
+  if (seeds.length === 0 || maxDepth < 1 || limit < 1) return [];
+  const allowed = new Set(memberIds);
+  const bySpace = new Map<string, string[]>();
+  for (const s of seeds) {
+    if (!allowed.has(s.spaceId)) continue;
+    const arr = bySpace.get(s.spaceId) ?? [];
+    arr.push(s._id);
+    bySpace.set(s.spaceId, arr);
+  }
+
+  const collected: SeedTraverseNeighbor[] = [];
+  for (const [sid, ids] of bySpace) {
+    collected.push(...await traverseFromSeeds(sid, ids, maxDepth, limit));
+  }
+  collected.sort((a, b) => a.hops - b.hops); // prefer lower-hop neighbours when truncating
+  return collected.slice(0, limit);
+}

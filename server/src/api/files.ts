@@ -40,7 +40,7 @@ import {
   getUploadReceived,
 } from '../files/chunks.js';
 import { checkQuota, QuotaError } from '../quota/quota.js';
-import { resolveSafePath, spaceRoot } from '../files/sandbox.js';
+import { resolveSafePath, assertNoSymlinkEscape, spaceRoot } from '../files/sandbox.js';
 import { col, mFilter, mDoc } from '../db/mongo.js';
 import type { FileTombstoneDoc, FileMetaDoc } from '../config/types.js';
 import { upsertFileMeta, deleteFileMeta, deleteFileMetaByPrefix, renameFileMeta, renameFileMetaByPrefix } from '../files/file-meta.js';
@@ -317,8 +317,9 @@ filesRouter.post(
         );
 
         if (complete) {
-          // Assemble final file
+          // Assemble final file (symlink-checked before writing the target).
           const absTarget = resolveSafePath(targetSpace, filePath);
+          await assertNoSymlinkEscape(targetSpace, absTarget);
           const sha256 = await assembleChunks(targetSpace, filePath, range.total, absTarget);
           await upsertFileMeta(targetSpace, filePath, range.total).catch(err => {
             log.warn(`upsertFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
@@ -569,6 +570,9 @@ filesRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly,
   let absPath: string;
   try {
     absPath = resolveSafePath(targetSpace, filePath);
+    // Symlink-aware boundary re-check before a recursive delete: the lexical
+    // path may stay under the root while a symlink component points outside it.
+    await assertNoSymlinkEscape(targetSpace, absPath);
   } catch (err) {
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     return;

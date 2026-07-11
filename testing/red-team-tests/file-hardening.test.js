@@ -234,4 +234,27 @@ describe('File hardening (H8 + H9)', () => {
       await deleteFile(p);
     });
   });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // L3 — a filename with a literal % round-trips (no double URL-decode)
+  // ══════════════════════════════════════════════════════════════════════════
+
+  describe('Literal % in filenames (L3)', () => {
+    const run = Date.now();
+
+    it('uploads and downloads a file named with a literal % (previously 500)', async () => {
+      const p = `pct-test-${run}/50%.png`;
+      // Before the fix, resolveSafePath ran decodeURIComponent again on the
+      // already-decoded path — '50%.png' → URIError → HTTP 500.
+      const up = await uploadRaw(p, Buffer.from('percent'), 'application/octet-stream');
+      assert.ok(up.status === 201 || up.status === 202, `upload: ${up.status} ${JSON.stringify(up.body)}`);
+
+      const url = `${INSTANCES.a}/api/files/general?path=${encodeURIComponent(p)}`;
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+      const body = await r.text();
+      assert.equal(r.status, 200, `download of a %-named file must not 500: got ${r.status}`);
+      assert.equal(body, 'percent');
+      await deleteFile(p);
+    });
+  });
 });

@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { createHash } from 'crypto';
-import { resolveSafePath, spaceRoot } from './sandbox.js';
+import { resolveSafePathChecked, spaceRoot } from './sandbox.js';
 import { getConfig, getDataRoot } from '../config/loader.js';
 
 export interface FileEntry {
@@ -18,20 +18,20 @@ export async function ensureSpaceFilesDir(spaceId: string): Promise<void> {
 
 /** Read a text file — rejects if it's a directory or doesn't exist */
 export async function readFile(spaceId: string, filePath: string): Promise<string> {
-  const abs = resolveSafePath(spaceId, filePath);
+  const abs = await resolveSafePathChecked(spaceId, filePath);
   const content = await fs.readFile(abs, 'utf8');
   return content;
 }
 
 /** Read a file as a Buffer (for binary files) */
 export async function readFileBytes(spaceId: string, filePath: string): Promise<Buffer> {
-  const abs = resolveSafePath(spaceId, filePath);
+  const abs = await resolveSafePathChecked(spaceId, filePath);
   return fs.readFile(abs);
 }
 
 /** Write a text file, creating parent directories as needed */
 export async function writeFile(spaceId: string, filePath: string, content: string): Promise<{ sha256: string }> {
-  const abs = resolveSafePath(spaceId, filePath);
+  const abs = await resolveSafePathChecked(spaceId, filePath);
   await fs.mkdir(path.dirname(abs), { recursive: true });
   await fs.writeFile(abs, content, 'utf8');
   const sha256 = createHash('sha256').update(content, 'utf8').digest('hex');
@@ -44,7 +44,7 @@ export async function writeFileBytes(
   filePath: string,
   data: Buffer,
 ): Promise<{ sha256: string }> {
-  const abs = resolveSafePath(spaceId, filePath);
+  const abs = await resolveSafePathChecked(spaceId, filePath);
   await fs.mkdir(path.dirname(abs), { recursive: true });
   await fs.writeFile(abs, data);
   const sha256 = createHash('sha256').update(data).digest('hex');
@@ -53,7 +53,7 @@ export async function writeFileBytes(
 
 /** List entries in a directory (non-recursive) */
 export async function listDir(spaceId: string, dirPath: string): Promise<FileEntry[]> {
-  const abs = resolveSafePath(spaceId, dirPath);
+  const abs = await resolveSafePathChecked(spaceId, dirPath);
   const entries = await fs.readdir(abs, { withFileTypes: true });
   const result: FileEntry[] = [];
   for (const e of entries) {
@@ -75,13 +75,13 @@ export async function listDir(spaceId: string, dirPath: string): Promise<FileEnt
 
 /** Delete a file (not a directory) */
 export async function deleteFile(spaceId: string, filePath: string): Promise<void> {
-  const abs = resolveSafePath(spaceId, filePath);
+  const abs = await resolveSafePathChecked(spaceId, filePath);
   await fs.unlink(abs);
 }
 
 /** Create a directory (including parents) */
 export async function createDir(spaceId: string, dirPath: string): Promise<void> {
-  const abs = resolveSafePath(spaceId, dirPath);
+  const abs = await resolveSafePathChecked(spaceId, dirPath);
   await fs.mkdir(abs, { recursive: true });
 }
 
@@ -91,8 +91,8 @@ export async function moveFile(
   srcPath: string,
   dstPath: string,
 ): Promise<void> {
-  const srcAbs = resolveSafePath(spaceId, srcPath);
-  const dstAbs = resolveSafePath(spaceId, dstPath);
+  const srcAbs = await resolveSafePathChecked(spaceId, srcPath);
+  const dstAbs = await resolveSafePathChecked(spaceId, dstPath);
   await fs.mkdir(path.dirname(dstAbs), { recursive: true });
   await fs.rename(srcAbs, dstAbs);
 }

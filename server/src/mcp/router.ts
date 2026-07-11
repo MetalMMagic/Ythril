@@ -96,6 +96,17 @@ const MUTATING_TOOLS = new Set([
   'bulk_write',
 ]);
 
+/**
+ * Tools that require an admin token. `list_peers` exposes the full peer
+ * topology (instance IDs, URLs, network membership) and `sync_now` drives
+ * outbound connections to every peer — both are instance-level operations with
+ * no space scoping, so a plain space-scoped token must not reach them. The REST
+ * equivalents (`/api/networks*`) are all `requireAdmin`; this closes the gap.
+ */
+const ADMIN_TOOLS = new Set([
+  'list_peers', 'sync_now', 'update_space', 'wipe_space',
+]);
+
 /** Tools that require a non-empty `space` parameter in global-mode tool calls.
  * When adding a new tool, update this set and the allTools schema accordingly. */
 const SPACE_REQUIRED_TOOLS = new Set([
@@ -773,7 +784,10 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
   ];
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: readOnly ? allTools.filter(t => !MUTATING_TOOLS.has(t.name)) : allTools,
+    tools: allTools.filter(t =>
+      !(readOnly && MUTATING_TOOLS.has(t.name)) &&
+      !(!isAdmin && ADMIN_TOOLS.has(t.name)),
+    ),
   }));
 
   // ── tools/call ────────────────────────────────────────────────────────────
@@ -785,6 +799,15 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
     if (readOnly && MUTATING_TOOLS.has(name)) {
       return {
         content: [{ type: 'text' as const, text: 'Error: this token has read-only access' }],
+        isError: true,
+      };
+    }
+
+    // Block instance-level tools for non-admin tokens (filtering them out of
+    // tools/list is advisory — the dispatcher is the enforcement point).
+    if (!isAdmin && ADMIN_TOOLS.has(name)) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: tool '${name}' requires an admin token` }],
         isError: true,
       };
     }

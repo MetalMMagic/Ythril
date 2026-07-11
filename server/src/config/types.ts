@@ -529,6 +529,11 @@ export interface OidcConfig {
   /** Scopes to request during the authorization code flow.
    *  Defaults to ["openid", "profile", "email"]. */
   scopes?: string[];
+  /** JWS algorithms accepted when verifying ID tokens. Defaults to the
+   *  asymmetric set in `DEFAULT_OIDC_ALGORITHMS` (RS/PS/ES/EdDSA). Override only
+   *  to NARROW it (e.g. ["RS256"]); adding an HMAC alg would let anyone holding
+   *  the shared secret mint tokens. */
+  allowedAlgorithms?: string[];
   /** Maps IdP JWT claims to Ythril permission flags. */
   claimMapping?: OidcClaimMapping;
   /**
@@ -642,6 +647,10 @@ export interface OAuthClientRecord {
 export interface SecretsFile {
   peerTokens: Record<string, string>;
   totpSecret?: string;              // base32 TOTP secret; absent = MFA disabled
+  /** Highest TOTP step counter already consumed. A code is accepted only for a
+   *  step strictly greater than this, so a code observed in transit cannot be
+   *  replayed within its ±1-step validity window. Reset when MFA is re-enrolled. */
+  totpLastStep?: number;
   webhookEncryptionKey?: string;    // hex-encoded AES-256 key for webhook secret encryption
   signingPrivateKey?: string;       // Ed25519 private key (PKCS8 PEM) for signing governance votes
   /**

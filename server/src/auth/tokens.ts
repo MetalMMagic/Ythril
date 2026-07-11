@@ -7,6 +7,8 @@ import type { TokenRecord } from '../config/types.js';
 
 const BCRYPT_ROUNDS = 12;
 const BASE62 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+const TOKEN_PREFIX = 'ythril_';
+const PREFIX_LOOKUP_LENGTH = 8;
 
 function toBase62(bytes: Buffer): string {
   let num = BigInt('0x' + bytes.toString('hex'));
@@ -22,7 +24,26 @@ function toBase62(bytes: Buffer): string {
 
 /** Generate a new PAT plaintext: `ythril_<base62(32 random bytes)>` */
 export function generateToken(): string {
-  return `ythril_${toBase62(randomBytes(32))}`;
+  return `${TOKEN_PREFIX}${toBase62(randomBytes(32))}`;
+}
+
+/**
+ * Lookup prefix for a plaintext token: 8 chars taken from the RANDOM part,
+ * i.e. AFTER the literal `ythril_`.
+ *
+ * The prefix is a pre-filter for the bcrypt scan, so it wants entropy. Slicing
+ * from offset 0 captured `ythril_` + a single random char — about 1 char of
+ * entropy, so ~1/62 of all tokens shared a bucket and a large deployment ran
+ * many bcrypt compares per auth (and the value leaked nothing useful either
+ * way). Slicing from offset 7 gives the intended 62^8.
+ */
+function tokenPrefix(plaintext: string): string {
+  return plaintext.slice(TOKEN_PREFIX.length, TOKEN_PREFIX.length + PREFIX_LOOKUP_LENGTH);
+}
+
+/** The pre-fix format used before the entropy fix — still matched on lookup. */
+function legacyTokenPrefix(plaintext: string): string {
+  return plaintext.slice(0, PREFIX_LOOKUP_LENGTH);
 }
 
 /** Hash a plaintext token for storage */
@@ -75,16 +96,17 @@ export async function findMatchingToken(
   }
 
   // Prefix-filtered path: only bcrypt-compare records whose prefix matches.
-  // `prefix` is the first 8 chars of the plaintext token, stored in the record
-  // at creation time — this allows O(small n) pre-filtering so we virtually
-  // never run more than 1 bcrypt compare.
-  const prefix = plaintext.slice(0, 8);
-  const candidates = config.tokens.filter(t => t.prefix === prefix);
+  // Records may carry either prefix format (see tokenPrefix) — match both, then
+  // self-heal the record to the current format on a successful verify.
+  const prefix = tokenPrefix(plaintext);
+  const legacyPrefix = legacyTokenPrefix(plaintext);
+  const candidates = config.tokens.filter(t => t.prefix === prefix || t.prefix === legacyPrefix);
 
   for (const record of candidates) {
     const ok = await verifyToken(plaintext, record.hash);
     if (!ok) continue;
     if (record.expiresAt && new Date(record.expiresAt) < new Date()) continue;
+    healPrefix(config, record, prefix);
     _tokenCache.set(plaintext, { tokenId: record.id, expiresAt: Date.now() + CACHE_TTL_MS });
     return record;
   }
@@ -100,15 +122,21 @@ export async function findMatchingToken(
     const ok = await verifyToken(plaintext, record.hash);
     if (!ok) continue;
     if (record.expiresAt && new Date(record.expiresAt) < new Date()) continue;
-    record.prefix = prefix; // self-heal
-    try {
-      saveConfig(config);
-      log.info(`Backfilled prefix for legacy token '${record.name}' (${record.id}) on first use.`);
-    } catch { /* best-effort — will persist on the next config save */ }
+    healPrefix(config, record, prefix);
     _tokenCache.set(plaintext, { tokenId: record.id, expiresAt: Date.now() + CACHE_TTL_MS });
     return record;
   }
   return null;
+}
+
+/** Rewrite a record's prefix to the current format (best-effort persist). */
+function healPrefix(config: ReturnType<typeof getConfig>, record: TokenRecord, prefix: string): void {
+  if (record.prefix === prefix) return;
+  record.prefix = prefix;
+  try {
+    saveConfig(config);
+    log.info(`Migrated lookup prefix for token '${record.name}' (${record.id}) on first use.`);
+  } catch { /* best-effort — will persist on the next config save */ }
 }
 
 /** Update lastUsed timestamp for a token (best-effort, non-blocking).
@@ -140,7 +168,7 @@ export async function createToken(opts: {
     id: uuidv4(),
     name: opts.name,
     hash,
-    prefix: plaintext.slice(0, 8),
+    prefix: tokenPrefix(plaintext),
     createdAt: new Date().toISOString(),
     lastUsed: null,
     expiresAt: opts.expiresAt ?? null,
@@ -235,7 +263,7 @@ export async function regenerateToken(id: string): Promise<string | null> {
   const plaintext = generateToken();
   const hash = await hashToken(plaintext);
   config.tokens[idx]!.hash = hash;
-  config.tokens[idx]!.prefix = plaintext.slice(0, 8);
+  config.tokens[idx]!.prefix = tokenPrefix(plaintext);
   saveConfig(config);
   // Evict any cached entry for the old plaintext by scanning the cache
   for (const [key, val] of _tokenCache) {

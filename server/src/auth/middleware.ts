@@ -63,12 +63,34 @@ export function denyReadOnly(req: Request, res: Response, next: NextFunction): v
   next();
 }
 
+/**
+ * Endpoints where a `?token=` query parameter is accepted in place of the
+ * Authorization header. Only the SSE streams qualify: the browser `EventSource`
+ * API cannot set headers, so there is no alternative there.
+ *
+ * A token in a query string leaks into access logs, proxy logs, browser history
+ * and `Referer` headers, so the fallback must NOT be available instance-wide —
+ * it previously was, on every route and every method.
+ */
+const QUERY_TOKEN_PATHS = new Set([
+  '/api/about/logs/stream',  // audit-log live tail (EventSource)
+  '/mcp',                    // MCP SSE transport (EventSource)
+]);
+
+function allowsQueryToken(req: Request): boolean {
+  if (req.method !== 'GET') return false;
+  const pathOnly = (req.originalUrl.split('?')[0] ?? '').replace(/\/+$/, '');
+  return QUERY_TOKEN_PATHS.has(pathOnly || '/');
+}
+
 function extractBearer(req: Request): string | null {
   const auth = req.headers.authorization;
   if (auth && auth.startsWith('Bearer ')) return auth.slice('Bearer '.length).trim();
-  // Fallback: query parameter (used by EventSource / SSE which cannot set headers)
-  const queryToken = req.query['token'];
-  if (typeof queryToken === 'string' && queryToken.trim()) return queryToken.trim();
+  // Fallback: query parameter — SSE endpoints only (EventSource cannot set headers)
+  if (allowsQueryToken(req)) {
+    const queryToken = req.query['token'];
+    if (typeof queryToken === 'string' && queryToken.trim()) return queryToken.trim();
+  }
   return null;
 }
 

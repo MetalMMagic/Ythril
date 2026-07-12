@@ -35,7 +35,7 @@ For non-directional networks (`closed`, `democratic`, `club`), pull and push alw
 
 Sync can be triggered two ways:
 
-- **Scheduled** — `syncSchedule` on the network config (e.g. `"*/5 minutes"`, `"every 1h"`) starts a cron timer per network at startup. Format supports `*/N minutes|hours` and `every Nm|Nh`.
+- **Scheduled** — `syncSchedule` on the network config starts a node-cron task per network at startup. Accepts a standard cron expression (e.g. `"*/5 * * * *"`, `"0 * * * *"`); the legacy shorthands `"*/N minutes|hours"` and `"every Nm|Nh"` are also accepted and translated to cron.
 - **Manual** — `POST /api/notify/trigger { networkId }` runs the cycle immediately and returns `{ synced, errors }`.
 
 ---

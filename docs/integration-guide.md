@@ -124,7 +124,7 @@ Ythril requires a MongoDB instance that supports the `$vectorSearch` aggregation
 | `mongodb/mongodb-atlas-local` (default) | ✓ | Bundled in `docker-compose.yml`; zero-config for new deployments |
 | Managed MongoDB Atlas (M10+) | ✓ | Set `MONGO_URI` to your Atlas connection string |
 | MongoDB 8.2+ (community / enterprise) | ✓ | Native support — no `mongot` sidecar required |
-| MongoDB < 8.2 (vanilla) | ✗ | `recall` / `recall_global` tools disabled; all other features work |
+| MongoDB < 8.2 (vanilla) | ✗ | `recall` tool disabled; all other features work |
 
 **Using an existing MongoDB 8.2+ cluster** — remove the `ythril-mongo` service from `docker-compose.yml` and point `MONGO_URI` at your cluster. Include the database name in the URI path (recommended):
 
@@ -155,7 +155,7 @@ or, if unavailable:
     Upgrade to MongoDB 8.2+, use Atlas Local, or connect to managed Atlas
 ```
 
-If `$vectorSearch` is unavailable, all non-search operations (storing memories, entities, edges, files, sync) continue to work normally.  Only the `recall` and `recall_global` MCP tools return an error until a supported MongoDB is connected.
+If `$vectorSearch` is unavailable, all non-search operations (storing memories, entities, edges, files, sync) continue to work normally.  Only the `recall` MCP tool returns an error until a supported MongoDB is connected.
 
 ### Startup Output
 
@@ -453,7 +453,7 @@ docker compose start
 
 ## Authentication
 
-Every API request (except `/health`, `/setup`, and `/api/invite/apply`) requires a Bearer token:
+Every API request requires a Bearer token, except a handful of public routes: `/health`, `/ready`, `/api/theme`, `/api/setup/status`, `/setup`, `/api/invite/apply`, `/api/auth/oidc-info`, and `GET /api/about`:
 
 ```
 Authorization: Bearer ythril_<base62-encoded-token>
@@ -656,19 +656,6 @@ Content-Type: application/json
 
 **Response** `200` `{ deleted: <count> }`. Rate-limited to 5 requests/minute.
 
----
-
-### Alternative prefix: `/spaces/:spaceId/` memory routes
-
-The following routes are equivalent to the `/:spaceId/` forms above and use the same `/spaces/:spaceId/` prefix as entities, edges, and chrono:
-
-```
-GET    /api/brain/spaces/:spaceId/memories?limit=100&skip=0
-DELETE /api/brain/spaces/:spaceId/memories/:id
-DELETE /api/brain/spaces/:spaceId/memories
-```
-
-Responses and query parameters are identical to the `/:spaceId/` versions. Note that **write** (`POST`) uses only the `/:spaceId/` prefix.
 
 ---
 
@@ -1076,7 +1063,7 @@ Merge two entities into one. The **survivor** keeps its identity (ID, name, type
 | `boolean` | `"survivor"`, `"absorbed"`, `"fn:and"`, `"fn:or"`, `"fn:xor"` |
 | `string` / other | `"survivor"`, `"absorbed"`, `"custom"` (with `customValue`) |
 
-**Relinking:** All edges, memories, and chrono entries referencing the absorbed entity are unconditionally rewritten to reference the survivor. Edges where `(from, to, label)` become identical after relinking appear in `duplicateEdgeWarnings[]` — the agent resolves them via `DELETE /api/spaces/:spaceId/edges/:id`.
+**Relinking:** All edges, memories, and chrono entries referencing the absorbed entity are unconditionally rewritten to reference the survivor. Edges where `(from, to, label)` become identical after relinking appear in `duplicateEdgeWarnings[]` — the agent resolves them via `DELETE /api/brain/spaces/:spaceId/edges/:id`.
 
 **`suggestedFn`:** When `propertySchemas` includes a `mergeFn` for a conflicting property, it appears as `suggestedFn` in the conflict. The agent may accept or override it.
 
@@ -1746,7 +1733,7 @@ Chunk records and `_converted/` file records carry a `parentFileId` field. The f
 - **`GET /api/brain/spaces/:spaceId/files`** — omits records where `parentFileId` is set. Pass `?includeChunks=true` to include all records.
 - **`GET /api/brain/spaces/:spaceId/stats`** — the `files` count reflects only top-level files.
 
-Recall results (`recall`, `recall_global`, `find_similar`) **do** include chunk records by design. When a result has `parentFileId` set, the caller can follow it to retrieve the original file record.
+Recall results (`recall`, `find_similar`) **do** include chunk records by design. When a result has `parentFileId` set, the caller can follow it to retrieve the original file record.
 
 #### Resilience
 
@@ -1853,7 +1840,7 @@ While processing, the filemeta record on the file (accessible via `GET /api/brai
 
 #### Recall Results
 
-Recall queries (`recall`, `recall_global`, `find_similar`) include embedded media chunks. Each media chunk result has additional fields:
+Recall queries (`recall`, `find_similar`) include embedded media chunks. Each media chunk result has additional fields:
 
 ```json
 {
@@ -2106,7 +2093,7 @@ POST /api/spaces
 **Write operations** (POST memories, write_file, upsert_entity, etc.) require a `targetSpace` query parameter:
 
 ```
-POST /api/brain/all-research/memories?targetSpace=bio-research
+POST /api/brain/spaces/all-research/memories?targetSpace=bio-research
 ```
 
 ```json
@@ -4920,6 +4907,7 @@ Webhooks allow external systems to receive real-time HTTP POST notifications whe
 | `edge.created` | A new edge is created |
 | `edge.updated` | An existing edge is updated |
 | `edge.deleted` | An edge is deleted |
+| `link_violation.created` | A strict-linkage reference violation is recorded |
 | `chrono.created` | A new chrono entry is created |
 | `chrono.updated` | A chrono entry is updated |
 | `chrono.deleted` | A chrono entry is deleted |
@@ -5316,7 +5304,7 @@ Discovery + grant endpoints (mounted at the application root):
 
 Connector tokens **expire** after `MCP_OAUTH_TOKEN_TTL_DAYS` (default 90 days) so an abandoned connector never leaves a permanent credential behind — the exchange advertises `expires_in`, and the connector re-runs consent when its token lapses. Re-consenting **rotates** the single token held for that client rather than appending a new one, so `config.json` does not grow with every reconnect, and the total connector-token count is capped. Set `MCP_OAUTH_TOKEN_TTL_DAYS=0` to opt out of expiry.
 
-Access tokens are non-expiring PATs, so no refresh-token flow is used.
+No refresh-token flow is used: when a connector token expires (see above), the connector simply re-runs the authorization + consent flow to mint a new one.
 
 **Connecting from claude.ai (or another browser connector).** End-to-end operator steps:
 

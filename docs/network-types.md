@@ -35,7 +35,7 @@ A brain's spaces are isolated from each other. A network is scoped to specific s
 | Type | Who approves joins | Who approves removals | Veto |
 |------|-------------------|-----------------------|------|
 | **Closed** | All members (unanimous) | All members (unanimous) | Implicit — any no = fail |
-| **Democratic** | ≥ 50% + zero vetoes | ≥ 50% + zero vetoes | Explicit — any member may veto |
+| **Democratic** | > 50% + zero vetoes | > 50% + zero vetoes | Explicit — any member may veto |
 | **Club** | The member who issued the key | The member who proposed removal | None |
 | **Braintree** | All ancestors from inviter to root | All ancestors from target to root | Implicit per ancestor |
 | **Pub/Sub** | Automatic (no approval needed) | Publisher only | None |
@@ -92,7 +92,7 @@ Any member voting **no** → round fails, key consumed, D not added.
 
 ## Democratic network
 
-Majority (≥50%) is enough — but any single member can cast an explicit **veto** to block the outcome regardless of count. Suited to collaborative groups where one bad actor cannot be autocratically admitted.
+Strict majority (more than 50%) is enough — but any single member can cast an explicit **veto** to block the outcome regardless of count. Suited to collaborative groups where one bad actor cannot be autocratically admitted.
 
 ```mermaid
 graph LR

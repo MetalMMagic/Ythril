@@ -63,6 +63,10 @@ Default stack from `docker-compose.yml`:
 
 - `ythril` (app server)
 - `ythril-mongo` (MongoDB Atlas Local with vector search support)
+- `ythril-ollama` (vision model for image embedding — media stack)
+- `ythril-whisper` (speech-to-text for audio/video — media stack)
+
+The media containers (`ollama`, `whisper`) start by default; disable them with `docker compose up --scale ollama=0 --scale whisper=0`, or set `mediaEmbedding.enabled: false` in `config.json`.
 
 Option A: keep defaults (port 3200 + bundled MongoDB)
 
@@ -148,7 +152,7 @@ curl http://localhost:3200/ready
 
 What `docker compose ps` does:
 
-- Lists containers in this compose project (`ythril`, `ythril-mongo`).
+- Lists containers in this compose project (`ythril`, `ythril-mongo`, and — unless disabled — `ythril-ollama`, `ythril-whisper`).
 - Shows whether each container is running.
 - Shows health status when a healthcheck exists (`healthy`, `starting`, `unhealthy`).
 - Shows port bindings (for example host `3200` to container `3200`).
@@ -230,7 +234,7 @@ If you changed the host port, replace `3200` accordingly.
 
 Use endpoint:
 
-- `http://localhost:3200/mcp/general`
+- `http://localhost:3200/mcp`
 
 Example MCP config:
 
@@ -238,7 +242,7 @@ Example MCP config:
 {
   "mcpServers": {
     "ythril": {
-      "url": "http://localhost:3200/mcp/general",
+      "url": "http://localhost:3200/mcp",
       "headers": {
         "Authorization": "Bearer YOUR_TOKEN"
       }

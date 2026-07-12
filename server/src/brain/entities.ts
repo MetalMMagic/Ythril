@@ -4,6 +4,7 @@ import { nextSeq } from '../util/seq.js';
 import { embed } from './embedding.js';
 import { getConfig } from '../config/loader.js';
 import { applyDeleteFields } from './delete-fields.js';
+import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './memory.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc } from '../config/types.js';
 
 /** A backlink entry describing an item that references a given entity. */
@@ -15,6 +16,8 @@ export interface BacklinkEntry {
 export interface UpsertResult {
   entity: EntityDoc;
   warning?: string;
+  /** Near-duplicate entities surfaced by an opt-in insert-time similarity check. */
+  similar?: SimilarMatch[];
 }
 
 function authorRef() {
@@ -59,6 +62,7 @@ export async function upsertEntity(
   properties: Record<string, string | number | boolean> = {},
   description?: string,
   id?: string,
+  opts?: DupeCheckOpts,
 ): Promise<UpsertResult> {
   const collection = col<EntityDoc>(`${spaceId}_entities`);
 
@@ -103,6 +107,14 @@ export async function upsertEntity(
     }
   }
 
+  // Opt-in insert-time duplicate check, using the freshly computed vector
+  // BEFORE insert so it can never self-match.
+  let similar: SimilarMatch[] | undefined;
+  if (opts?.checkDuplicates && embeddingFields.embedding) {
+    const hits = await checkDuplicates(spaceId, 'entity', embeddingFields.embedding, opts.dupeThreshold, opts.dupeTopK);
+    if (hits.length > 0) similar = hits;
+  }
+
   const doc: EntityDoc = {
     _id: id ?? uuidv4(),
     spaceId,
@@ -118,7 +130,7 @@ export async function upsertEntity(
   };
   if (description !== undefined) doc.description = description;
   await collection.insertOne(mDoc<EntityDoc>(doc));
-  return { entity: doc, warning };
+  return { entity: doc, warning, similar };
 }
 
 /**

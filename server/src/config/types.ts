@@ -669,6 +669,17 @@ export interface Config {
    *  additionally capped at 25 MiB because jsdom parses it in-process. */
   maxDocumentConversionBytes?: number;
   allowInsecurePlaintext?: boolean;
+  /**
+   * Express `trust proxy` setting. Default `false` — the out-of-the-box compose
+   * deployment is exposed directly, so `req.ip` must come from the socket, not a
+   * client-supplied X-Forwarded-For (which would let an attacker spoof the IP
+   * that rate limiting and the audit log key on). Set to the exact number of
+   * proxy hops (NOT `true`) only when a known reverse proxy terminates client
+   * connections. Accepts Express's native values: boolean | hop count |
+   * 'loopback' | a comma-separated CIDR/IP list. Overridable via the
+   * TRUST_PROXY environment variable.
+   */
+  trustProxy?: boolean | number | string | string[];
   /** Max redirect hops followed (and re-validated) during webhook delivery.
    *  Default 3; clamped to [0, 20]. Env var WEBHOOK_MAX_REDIRECTS overrides. */
   webhookMaxRedirects?: number;

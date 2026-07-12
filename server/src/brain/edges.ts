@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { col, mFilter, mDoc, mUpdate, mBulk } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
+import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
 import { getConfig } from '../config/loader.js';
 import { applyDeleteFields } from './delete-fields.js';
@@ -157,8 +158,8 @@ export async function listEdges(
   return col<EdgeDoc>(`${spaceId}_edges`)
     .find(mFilter<EdgeDoc>(q))
     .sort({ seq: -1, createdAt: -1, _id: -1 })
-    .skip(skip)
-    .limit(limit)
+    .skip(parseSkip(skip))
+    .limit(parseLimit(limit, 20, 1000))
     .toArray() as Promise<EdgeDoc[]>;
 }
 

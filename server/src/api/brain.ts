@@ -19,6 +19,7 @@ import { col, mFilter, mDoc } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { needsReindex, clearReindexFlag } from '../spaces/spaces.js';
 import { log } from '../util/log.js';
+import { parseLimit, parseSkip, capPage } from '../util/pagination.js';
 import { checkQuota, QuotaError } from '../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget, findSpace, isProxySpace, isStrictLinkage } from '../spaces/proxy.js';
 import { validateEntity, validateEdge, validateMemory, validateChrono, resolveMetaRefs, getAllowedChronoTypes, type SchemaViolation } from '../spaces/schema-validation.js';
@@ -214,12 +215,12 @@ brainRouter.get('/:spaceId/memories', globalRateLimit, requireSpaceAuth, async (
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const limit = Math.min(Number(req.query['limit'] ?? 100), 500);
-  const skip = Number(req.query['skip'] ?? 0);
+  const limit = parseLimit(req.query['limit'], 100, 500);
+  const skip = parseSkip(req.query['skip']);
   const filter = buildMemoryFilter(req.query as Record<string, unknown>);
   const memberIds = resolveMemberSpaces(spaceId);
   const all = (await Promise.all(memberIds.map(mid => listMemories(mid, filter, limit, skip)))).flat();
-  res.json({ memories: all, limit, skip });
+  res.json({ memories: capPage(all, limit), limit, skip });
 });
 
 // GET /api/brain/:spaceId/memories/:id — get single memory
@@ -378,12 +379,12 @@ brainRouter.get('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAuth, 
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const limit = Math.min(Number(req.query['limit'] ?? 100), 500);
-  const skip = Number(req.query['skip'] ?? 0);
+  const limit = parseLimit(req.query['limit'], 100, 500);
+  const skip = parseSkip(req.query['skip']);
   const filter = buildMemoryFilter(req.query as Record<string, unknown>);
   const memberIds = resolveMemberSpaces(spaceId);
   const all = (await Promise.all(memberIds.map(mid => listMemories(mid, filter, limit, skip)))).flat();
-  res.json({ memories: all, limit, skip });
+  res.json({ memories: capPage(all, limit), limit, skip });
 });
 
 // DELETE /api/brain/spaces/:spaceId/memories/:id
@@ -635,15 +636,15 @@ brainRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAuth, 
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const limit = Math.min(Number(req.query['limit'] ?? 50), 500);
-  const skip = Number(req.query['skip'] ?? 0);
+  const limit = parseLimit(req.query['limit'], 50, 500);
+  const skip = parseSkip(req.query['skip']);
   const filter: Record<string, unknown> = {};
   if (typeof req.query['name'] === 'string') filter['name'] = req.query['name'];
   if (typeof req.query['type'] === 'string') filter['type'] = req.query['type'];
   if (typeof req.query['tag'] === 'string') filter['tags'] = req.query['tag'];
   const memberIds = resolveMemberSpaces(spaceId);
   const all = (await Promise.all(memberIds.map(mid => listEntities(mid, filter, limit, skip)))).flat();
-  res.json({ entities: all, limit, skip });
+  res.json({ entities: capPage(all, limit), limit, skip });
 });
 
 // GET /api/brain/spaces/:spaceId/entities/by-ids?ids=id1,id2,... — batch fetch up to 100 entities by ID
@@ -925,8 +926,8 @@ brainRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const limit = Math.min(Number(req.query['limit'] ?? 50), 200);
-  const skip = Number(req.query['skip'] ?? 0);
+  const limit = parseLimit(req.query['limit'], 50, 200);
+  const skip = parseSkip(req.query['skip']);
   const filter: { from?: string; to?: string; label?: string } = {};
   if (typeof req.query['from'] === 'string') filter.from = req.query['from'];
   if (typeof req.query['to'] === 'string') filter.to = req.query['to'];
@@ -945,7 +946,7 @@ brainRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
     }));
   }
   const enriched = all.map(e => ({ ...e, fromName: nameMap.get(e.from), toName: nameMap.get(e.to) }));
-  res.json({ edges: enriched, limit, skip });
+  res.json({ edges: capPage(enriched, limit), limit, skip });
 });
 
 // GET /api/brain/spaces/:spaceId/edges/:id
@@ -1315,8 +1316,8 @@ brainRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, as
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const limit = Math.min(Number(req.query['limit'] ?? 50), 500);
-  const skip = Number(req.query['skip'] ?? 0);
+  const limit = parseLimit(req.query['limit'], 50, 500);
+  const skip = parseSkip(req.query['skip']);
   const filter: ChronoFilter = {};
   if (typeof req.query['status'] === 'string') filter.status = req.query['status'];
   if (typeof req.query['type'] === 'string') filter.type = req.query['type'];
@@ -1343,7 +1344,7 @@ brainRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, as
 
   const memberIds = resolveMemberSpaces(spaceId);
   const all = (await Promise.all(memberIds.map(mid => listChrono(mid, filter, limit, skip)))).flat();
-  res.json({ chrono: all, limit, skip });
+  res.json({ chrono: capPage(all, limit), limit, skip });
 });
 
 // DELETE /api/brain/spaces/:spaceId/chrono/:id
@@ -1389,8 +1390,8 @@ brainRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, asy
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const limit = Math.min(Number(req.query['limit'] ?? 50), 200);
-  const skip = Number(req.query['skip'] ?? 0);
+  const limit = parseLimit(req.query['limit'], 50, 200);
+  const skip = parseSkip(req.query['skip']);
   // By default exclude chunk records (parentFileId set) so the file manager only shows
   // top-level files. Pass ?includeChunks=true to see all records (e.g. for debugging).
   const includeChunks = req.query['includeChunks'] === 'true';
@@ -1407,7 +1408,7 @@ brainRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, asy
       .limit(limit)
       .toArray(),
   ))).flat();
-  res.json({ files: all, limit, skip });
+  res.json({ files: capPage(all, limit), limit, skip });
 });
 
 // DELETE /api/brain/spaces/:spaceId/files — delete file metadata record by path (does NOT delete the file on disk)

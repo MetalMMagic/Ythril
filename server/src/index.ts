@@ -112,6 +112,9 @@ async function main(): Promise<void> {
     startMediaEmbeddingWorker();
   }
 
+  const { warnRateLimitBypass } = await import('./rate-limit/middleware.js');
+  warnRateLimitBypass();
+
   const app = createApp();
   const server = createServer(app);
 

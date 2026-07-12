@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { col, mFilter, mDoc, mUpdate, mBulk } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
+import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
 import { getConfig } from '../config/loader.js';
 import { applyDeleteFields } from './delete-fields.js';
@@ -255,8 +256,8 @@ export async function listEntities(
 ): Promise<EntityDoc[]> {
   return col<EntityDoc>(`${spaceId}_entities`)
     .find(mFilter<EntityDoc>({ ...filter, spaceId }))
-    .skip(skip)
-    .limit(limit)
+    .skip(parseSkip(skip))
+    .limit(parseLimit(limit, 20, 1000))
     .toArray() as Promise<EntityDoc[]>;
 }
 

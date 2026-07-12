@@ -7,6 +7,7 @@ import { resetStaleWatermarksIfNeeded } from './util/seq.js';
 import { createApp } from './app.js';
 import { startSyncScheduler, stopSyncScheduler } from './sync/engine.js';
 import { startBackupScheduler, stopBackupScheduler } from './db/backup-scheduler.js';
+import { startDupeScanner, stopDupeScanner } from './brain/dupe-scanner.js';
 import { cleanupStaleChunks } from './files/chunks.js';
 import { log } from './util/log.js';
 
@@ -103,6 +104,7 @@ async function main(): Promise<void> {
     await resetStaleWatermarksIfNeeded();
     startSyncScheduler();
     startBackupScheduler();
+    startDupeScanner();
     cleanupStaleChunks().catch(err => log.error(`Stale chunk cleanup failed: ${err}`));
 
     // Start media embedding worker unconditionally (enqueueing is skipped when disabled)
@@ -139,6 +141,7 @@ async function main(): Promise<void> {
     log.debug(`${signal} received — shutting down`);
     stopSyncScheduler();
     stopBackupScheduler();
+    stopDupeScanner();
     const { stopRetryWorker } = await import('./webhooks/dispatcher.js');
     stopRetryWorker();
     server.close(() => log.debug('HTTP server closed'));

@@ -5,7 +5,7 @@ import { getDb, col, mDoc } from '../db/mongo.js';
 import { getConfig, saveConfig, getEmbeddingConfig, getDataRoot, getFaceRecognitionConfig } from '../config/loader.js';
 import { ensureSpaceFilesDir, writeFile as writeSpaceFile } from '../files/files.js';
 import { log } from '../util/log.js';
-import type { SpaceConfig, SpaceMeta, MemoryDoc, KnowledgeType } from '../config/types.js';
+import type { SpaceConfig, SpaceMeta, MemoryDoc, KnowledgeType, DupeActionRule } from '../config/types.js';
 
 const SCHEMA_KTS: KnowledgeType[] = ['entity', 'edge', 'memory', 'chrono'];
 
@@ -37,7 +37,7 @@ export async function syncSchemaFiles(spaceId: string, meta: SpaceMeta | undefin
   }
 }
 
-const SPACE_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'tombstones', 'conflicts', 'files'] as const;
+const SPACE_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'tombstones', 'conflicts', 'files', 'dupe_candidates'] as const;
 
 // Collections that have vector search indexes for semantic recall
 const VECTOR_INDEXED_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
@@ -102,6 +102,8 @@ export async function initSpace(spaceId: string): Promise<void> {
   await chronoColl.createIndex({ spaceId: 1, seq: 1 });
   await tombstonesColl.createIndex({ spaceId: 1, seq: 1 });
   await db.collection(`${spaceId}_conflicts`).createIndex({ spaceId: 1, detectedAt: -1 });
+  const dupeColl = db.collection(`${spaceId}_dupe_candidates`);
+  await dupeColl.createIndex({ spaceId: 1, status: 1, detectedAt: -1 });
   const filesColl = db.collection(`${spaceId}_files`);
   await filesColl.createIndex({ spaceId: 1, tags: 1 });
   await filesColl.createIndex({ spaceId: 1, updatedAt: -1 });
@@ -437,6 +439,19 @@ export async function wipeSpace(spaceId: string, types?: WipeCollectionType[]): 
       await col(`${spaceId}_tombstones`).deleteMany({ type: { $in: tombstoneTypes } });
     }
   }
+  // Clear duplicate-scanner candidates that reference the wiped types.
+  if (isFullWipe) {
+    await col(`${spaceId}_dupe_candidates`).deleteMany({});
+  } else {
+    const DUPE_TYPE_MAP: Partial<Record<WipeCollectionType, string>> = {
+      memories: 'memory', entities: 'entity', edges: 'edge', chrono: 'chrono', files: 'file',
+    };
+    const dupeTypes = Array.from(targets).map(t => DUPE_TYPE_MAP[t]).filter((t): t is string => t !== undefined);
+    if (dupeTypes.length > 0) {
+      await col(`${spaceId}_dupe_candidates`).deleteMany({ type: { $in: dupeTypes } });
+    }
+  }
+
   // File tombstones live in a separate collection — clear them when files is wiped.
   if (targets.has('files')) {
     await col(`${spaceId}_file_tombstones`).deleteMany({});
@@ -479,7 +494,7 @@ const META_VERSION_CAP = 20;
  *  Returns the updated SpaceConfig, or null if the space was not found. */
 export function updateSpace(
   spaceId: string,
-  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta },
+  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer' },
 ): SpaceConfig | null {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
@@ -489,6 +504,13 @@ export function updateSpace(
   if (updates.maxGiB !== undefined) {
     // null or non-positive clears the cap (unlimited); positive number sets the cap
     space.maxGiB = updates.maxGiB !== null && updates.maxGiB > 0 ? updates.maxGiB : undefined;
+  }
+  // Duplicate-action rules are local (not governed) — apply immediately.
+  if (updates.dupeRules !== undefined) {
+    space.dupeRules = updates.dupeRules.length > 0 ? updates.dupeRules : undefined;
+  }
+  if (updates.dupeMergeSurvivor !== undefined) {
+    space.dupeMergeSurvivor = updates.dupeMergeSurvivor;
   }
 
   if (updates.meta !== undefined) {

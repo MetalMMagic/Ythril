@@ -10,6 +10,7 @@ import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { log } from '../util/log.js';
+import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import type { SpaceMeta, KnowledgeType, TypeSchema } from '../config/types.js';
 import { writeFile as writeSpaceFile } from '../files/files.js';
 
@@ -115,13 +116,22 @@ const RenameSpaceBody = z.object({
   newId: z.string().min(1).max(40).regex(/^[a-z0-9-]+$/),
 });
 
+const DupeActionRuleBody = z.object({
+  minScore: z.number().min(0).max(1),
+  action: z.enum(['flag', 'automerge', 'notify']),
+  types: z.array(z.enum(['memory', 'entity', 'edge', 'chrono', 'file'])).optional(),
+  webhookUrl: z.string().url().refine(isSsrfSafeUrl, { message: SSRF_SAFE_MESSAGE }).optional(),
+}).strict();
+
 const UpdateSpaceBody = z.object({
   label: z.string().min(1).max(200).optional(),
   description: z.string().max(4000).optional(),
   maxGiB: z.number().positive().nullable().optional(),
   meta: SpaceMetaBody.optional(),
-}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined, {
-  message: 'At least one of label, description, maxGiB, or meta must be provided',
+  dupeRules: z.array(DupeActionRuleBody).max(20).optional(),
+  dupeMergeSurvivor: z.enum(['older', 'newer']).optional(),
+}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined, {
+  message: 'At least one of label, description, maxGiB, meta, dupeRules, or dupeMergeSurvivor must be provided',
 });
 
 const ReorderSpacesBody = z.object({
@@ -267,11 +277,13 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     }
   }
 
-  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta }, idx) => ({
+  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor }, idx) => ({
     id, label, builtIn, folders, maxGiB, flex, description,
     usageGiB: usageGiBByIdx[idx],
     ...(proxyFor ? { proxyFor } : {}),
     ...(meta ? { meta: { ...meta, previousVersions: undefined } } : {}),
+    ...(dupeRules ? { dupeRules } : {}),
+    ...(dupeMergeSurvivor ? { dupeMergeSurvivor } : {}),
     ...(includeCounts && countsBySpaceId[id] ? { counts: countsBySpaceId[id] } : {}),
   }));
   // Include storage usage summary when quota is configured

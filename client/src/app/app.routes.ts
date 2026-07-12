@@ -99,6 +99,11 @@ export const routes: Routes = [
             loadComponent: () =>
               import('./pages/settings/models.component').then(m => m.ModelsComponent),
           },
+          {
+            path: 'duplicates',
+            loadComponent: () =>
+              import('./pages/settings/duplicates.component').then(m => m.DuplicatesComponent),
+          },
         ],
       },
     ],

@@ -4831,6 +4831,68 @@ Entries expire automatically after `retentionDays` (default 90). MongoDB's TTL d
 
 ---
 
+## Duplicate Scanner & Action Rules
+
+A background scanner can sweep a space for **semantically duplicate** records and act on them according to per-space rules. It complements the interactive insert-time check ([Duplicate Detection on Insert](#duplicate-detection-on-insert)) but is independent of it: the scanner finds duplicates among **all** records — including those inserted with `checkDuplicates` off — and re-evaluates a pair whenever either record changes.
+
+**Off by default.** Enable it in `config.json`:
+
+```jsonc
+{
+  "dupeScanner": {
+    "enabled": true,
+    "schedule": "0 3 * * *",   // cron — nightly at 03:00 (default)
+    "threshold": 0.92,          // cosine score at/above which a pair is a candidate
+    "batchSize": 200,           // records fetched per DB batch
+    "maxPerRun": 5000,          // max records scanned per space per run
+    "types": ["memory", "entity"]
+  }
+}
+```
+
+**How the sweep works.** Each run walks a space's records ordered by `seq` (the monotonic sequence number that advances on every create *and* update), resuming from a per-(space, type) cursor. For each record it runs a vector search using the record's **stored** embedding (no re-embedding) and, for every match at or above `threshold`, applies the space's rules. Because updates advance `seq`, an edited record is re-scanned automatically; because the cursor is `seq`-based (not time-based), a record inserted with insert-time checking disabled is still covered. `maxPerRun` bounds the work per run so the initial full pass spreads across nights rather than one heavy burst.
+
+### Action rules
+
+Rules live on the space (local, not synced/governed) and are edited under **Settings → Spaces → (a space) → Duplicates**, or via `PATCH /api/spaces/:id`:
+
+```jsonc
+{
+  "dupeRules": [
+    { "minScore": 0.98, "action": "automerge" },
+    { "minScore": 0.90, "action": "notify", "types": ["entity", "memory"] }
+  ],
+  "dupeMergeSurvivor": "older"   // which record survives an automerge (default: older = lower seq)
+}
+```
+
+Rules are evaluated **highest `minScore` first**; the first match decides the action. No matching rule ⇒ `flag`.
+
+| Action | Effect |
+|--------|--------|
+| `flag` | Record a reviewable candidate (default; non-destructive). |
+| `automerge` | **Entities only.** Merge losslessly using the existing entity merge (unions edges, tags, and non-conflicting properties). If the two records set the same property to *different* values, the merge is not lossless — it is **not** performed and the pair falls back to `flag`. The survivor is the older record by default (`dupeMergeSurvivor`). |
+| `notify` | Emit a `duplicate.detected` webhook with both full records + the score. By default this goes to your webhook **subscriptions** (subscribe your automation, e.g. an n8n workflow, to `duplicate.detected` for the space); set a rule-level `webhookUrl` to POST directly to a specific (SSRF-validated) endpoint instead. Your automation can then apply custom logic and call back the API (`merge_entities`, delete, etc.). |
+
+An action runs once per pair; it re-runs only after one of the records changes (a dismissed pair likewise re-opens after an edit).
+
+### Candidate review API
+
+Base path: `/api/duplicates`.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/duplicates?status=open&space=<id>` | any token (space-scoped) | List candidates. `status` = `open` (default), `dismissed`, or `all`. |
+| `POST` | `/api/duplicates/:id/dismiss` | non-read-only | Mark a pair reviewed / not-a-duplicate. |
+| `POST` | `/api/duplicates/:id/merge` | non-read-only | Merge an entity candidate losslessly. `409` with the merge plan if there is a value conflict. |
+| `POST` | `/api/duplicates/scan?space=<id>` | admin | Trigger an on-demand full re-scan (all accessible spaces, or one). |
+
+A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, score, status, resolution?, detectedAt, updatedAt }`. The web UI (**Settings → Duplicates**) lists candidates with dismiss / merge actions and a "Scan now" button.
+
+> **Cost note:** the initial full scan of a large existing space is O(N) vector searches — inherently the expensive part. It is bounded per run (`maxPerRun`) and runs off-hours; steady-state runs only touch new or edited records. Keep `notify` rules and automation idempotent, since an edited record re-fires its pair's action.
+
+---
+
 ## Webhooks API
 
 Base path: `/api/admin/webhooks` — **requires admin token** on all endpoints.
@@ -4858,6 +4920,7 @@ Webhooks allow external systems to receive real-time HTTP POST notifications whe
 | `file.created` | A file is written (new or overwrite) |
 | `file.updated` | A file is moved/renamed |
 | `file.deleted` | A file is deleted |
+| `duplicate.detected` | The duplicate scanner found a near-duplicate pair under a `notify` rule (see [Duplicate Scanner](#duplicate-scanner--action-rules)). Payload `entry` = `{ type, score, a: {record}, b: {record} }` |
 | `test.ping` | Synthetic test event sent via the test endpoint |
 
 ### Create Subscription

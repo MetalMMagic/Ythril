@@ -1,0 +1,192 @@
+/**
+ * Integration tests: background duplicate scanner + per-space action rules
+ *
+ * Covers:
+ *  - flag (default): scan records reviewable candidates with summaries + score
+ *  - list + status filter (open / dismissed / all)
+ *  - dismiss: candidate leaves the open list, appears under dismissed
+ *  - re-detect on change: editing a record (bumps seq) re-opens a dismissed pair
+ *  - automerge rule: a lossless entity pair is merged; candidate marked resolved
+ *  - merge via API: POST /:id/merge merges an open entity candidate
+ *
+ * Entities are created via the brain API so they are embedded + $vectorSearch
+ * visible; each pair uses a distinct topic so only intra-pair matches are found.
+ *
+ * Run: node --test testing/integration/dupe-scanner.test.js
+ */
+
+import { describe, it, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'url';
+import { INSTANCES, post, get } from '../sync/helpers.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
+const RUN = Date.now();
+const SPACE = `dupescan-${RUN}`;
+const SPACE_MERGE = `dupescan-merge-${RUN}`;
+
+let tokenA;
+let embeddingAvailable = false;
+
+function token() { return tokenA; }
+
+async function ensureReindexed(baseUrl, tok) {
+  const { body } = await get(baseUrl, tok, '/api/spaces');
+  for (const space of body?.spaces ?? []) {
+    const { body: st } = await get(baseUrl, tok, `/api/brain/spaces/${space.id}/reindex-status`);
+    if (st?.needsReindex) await post(baseUrl, tok, `/api/brain/spaces/${space.id}/reindex`, {});
+  }
+}
+
+async function raw(method, urlPath, body) {
+  const r = await fetch(`${INSTANCES.a}${urlPath}`, {
+    method,
+    headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  let parsed = null;
+  try { parsed = await r.json(); } catch { /* no body */ }
+  return { status: r.status, body: parsed };
+}
+
+async function createEntity(space, name, description) {
+  const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${space}/entities`, { name, type: 'service', description, tags: [] });
+  return r.status === 201 ? r.body._id : null;
+}
+
+async function waitForIndexed(space, ids, timeoutMs = 30_000) {
+  const pending = new Set(ids);
+  const deadline = Date.now() + timeoutMs;
+  while (pending.size > 0 && Date.now() < deadline) {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${space}/recall`, { query: 'probe', types: ['entity'], topK: 100 });
+    if (r.status === 200 && Array.isArray(r.body.results)) for (const x of r.body.results) pending.delete(x._id);
+    if (pending.size > 0) await new Promise(res => setTimeout(res, 500));
+  }
+  if (pending.size > 0) throw new Error(`Timed out indexing: ${[...pending].join(', ')}`);
+}
+
+async function scan(space) {
+  return raw('POST', `/api/duplicates/scan?space=${space}`);
+}
+async function listDupes(space, status = 'open') {
+  const r = await raw('GET', `/api/duplicates?space=${space}&status=${status}`);
+  return r.body?.duplicates ?? [];
+}
+
+// Fixed ids captured at setup
+const ids = {};
+
+before(async () => {
+  tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+  for (const [id, label] of [[SPACE, `Dupe Scan ${RUN}`], [SPACE_MERGE, `Dupe Merge ${RUN}`]]) {
+    const r = await post(INSTANCES.a, token(), '/api/spaces', { id, label });
+    assert.equal(r.status, 201, `create space ${id}: ${JSON.stringify(r.body)}`);
+  }
+  await ensureReindexed(INSTANCES.a, token());
+
+  // Pair V (vault) and pair T (telemetry) in SPACE — distinct topics.
+  ids.v1 = await createEntity(SPACE, `Vault Secret Service ${RUN}`, 'Vault secret storage service handling authentication token scoping and rotation on a schedule');
+  ids.v2 = await createEntity(SPACE, `Vault Secrets Service ${RUN}`, 'Vault secret storage service handling authentication token scoping and rotation on a fixed schedule');
+  ids.t1 = await createEntity(SPACE, `Telemetry Aggregator ${RUN}`, 'Telemetry aggregation pipeline collecting metrics from many downstream collectors continuously');
+  ids.t2 = await createEntity(SPACE, `Telemetry Aggregation ${RUN}`, 'Telemetry aggregation pipeline collecting metrics from many downstream collectors non-stop');
+  embeddingAvailable = !!(ids.v1 && ids.v2 && ids.t1 && ids.t2);
+
+  // Pair M (merge) in SPACE_MERGE for the automerge rule.
+  ids.m1 = await createEntity(SPACE_MERGE, `Billing Ledger ${RUN}`, 'Billing ledger service recording invoices and payment reconciliation for customer accounts');
+  ids.m2 = await createEntity(SPACE_MERGE, `Billing Ledgers ${RUN}`, 'Billing ledger service recording invoices and payment reconciliation for customer accounts daily');
+
+  if (embeddingAvailable) {
+    await waitForIndexed(SPACE, [ids.v1, ids.v2, ids.t1, ids.t2]);
+    await waitForIndexed(SPACE_MERGE, [ids.m1, ids.m2]);
+  }
+});
+
+after(async () => {
+  for (const space of [SPACE, SPACE_MERGE]) {
+    await fetch(`${INSTANCES.a}/api/spaces/${space}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) }).catch(() => {});
+  }
+});
+
+describe('Duplicate scanner — flag + review', () => {
+  it('scan records candidate pairs with summaries and score', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    const s = await scan(SPACE);
+    assert.equal(s.status, 200, JSON.stringify(s.body));
+    const open = await listDupes(SPACE, 'open');
+    // Expect the V pair and the T pair (2 distinct-topic candidates).
+    assert.ok(open.length >= 2, `expected >=2 candidates, got ${open.length}`);
+    const v = open.find(c => [c.aId, c.bId].sort().join() === [ids.v1, ids.v2].sort().join());
+    assert.ok(v, 'vault pair recorded');
+    assert.equal(v.type, 'entity');
+    assert.equal(v.status, 'open');
+    assert.ok(v.score >= 0.9, `score present (${v.score})`);
+    assert.ok(v.aSummary && v.bSummary, 'both summaries present');
+  });
+
+  it('dismiss removes a pair from the open list', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    const open = await listDupes(SPACE, 'open');
+    const v = open.find(c => [c.aId, c.bId].sort().join() === [ids.v1, ids.v2].sort().join());
+    const d = await raw('POST', `/api/duplicates/${encodeURIComponent(v.id)}/dismiss`);
+    assert.equal(d.status, 200, JSON.stringify(d.body));
+    const openAfter = await listDupes(SPACE, 'open');
+    assert.ok(!openAfter.some(c => c.id === v.id), 'dismissed pair not in open list');
+    const dismissed = await listDupes(SPACE, 'dismissed');
+    assert.ok(dismissed.some(c => c.id === v.id), 'dismissed pair in dismissed list');
+  });
+
+  it('editing a record re-opens a dismissed pair on the next scan', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    // Edit V1 (bumps its seq) — still near-duplicate of V2.
+    const u = await raw('PATCH', `/api/brain/spaces/${SPACE}/entities/${ids.v1}`, { description: 'Vault secret storage service handling authentication token scoping and rotation on a nightly schedule now' });
+    assert.equal(u.status, 200, JSON.stringify(u.body));
+    await scan(SPACE);
+    const open = await listDupes(SPACE, 'open');
+    const v = open.find(c => [c.aId, c.bId].sort().join() === [ids.v1, ids.v2].sort().join());
+    assert.ok(v, 'edited pair re-detected and re-opened');
+    assert.equal(v.status, 'open');
+  });
+
+  it('merge via API merges an open entity candidate', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    const open = await listDupes(SPACE, 'open');
+    const tPair = open.find(c => [c.aId, c.bId].sort().join() === [ids.t1, ids.t2].sort().join());
+    assert.ok(tPair, 'telemetry pair present');
+    const m = await raw('POST', `/api/duplicates/${encodeURIComponent(tPair.id)}/merge`);
+    assert.equal(m.status, 200, JSON.stringify(m.body));
+    assert.equal(m.body.status, 'merged');
+    // One of the two entities is now gone.
+    const e1 = await raw('GET', `/api/brain/spaces/${SPACE}/entities/${ids.t1}`);
+    const e2 = await raw('GET', `/api/brain/spaces/${SPACE}/entities/${ids.t2}`);
+    assert.ok((e1.status === 404) !== (e2.status === 404), 'exactly one telemetry entity survives');
+    const all = await listDupes(SPACE, 'all');
+    const resolved = all.find(c => c.id === tPair.id);
+    assert.equal(resolved?.status, 'resolved');
+  });
+});
+
+describe('Duplicate scanner — automerge rule', () => {
+  it('a lossless entity pair is auto-merged by the rule', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    // Set an automerge rule on the merge space.
+    const patch = await raw('PATCH', `/api/spaces/${SPACE_MERGE}`, { dupeRules: [{ minScore: 0.85, action: 'automerge' }] });
+    assert.equal(patch.status, 200, JSON.stringify(patch.body));
+
+    const s = await scan(SPACE_MERGE);
+    assert.equal(s.status, 200, JSON.stringify(s.body));
+
+    // Exactly one billing entity should survive the auto-merge.
+    const e1 = await raw('GET', `/api/brain/spaces/${SPACE_MERGE}/entities/${ids.m1}`);
+    const e2 = await raw('GET', `/api/brain/spaces/${SPACE_MERGE}/entities/${ids.m2}`);
+    assert.ok((e1.status === 404) !== (e2.status === 404), 'exactly one billing entity survives auto-merge');
+
+    const all = await listDupes(SPACE_MERGE, 'all');
+    const merged = all.find(c => [c.aId, c.bId].sort().join() === [ids.m1, ids.m2].sort().join());
+    assert.ok(merged, 'automerge candidate recorded');
+    assert.equal(merged.status, 'resolved');
+    assert.equal(merged.resolution, 'merged');
+  });
+});

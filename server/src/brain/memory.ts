@@ -330,7 +330,7 @@ export interface DupeCheckOpts {
 }
 
 /** One-line human summary of a recall result, for duplicate feedback. */
-function summariseRecall(r: RecallResult): string {
+export function summariseRecall(r: RecallResult): string {
   switch (r.type) {
     case 'memory': return r.fact.length > 120 ? `${r.fact.slice(0, 117)}…` : r.fact;
     case 'entity': return `${r.name} (${r.entityType})`;

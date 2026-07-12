@@ -1504,9 +1504,25 @@ function concludeRoundIfReady(
   // For unanimous-requirement types (closed, braintree): every remote voter must have voted yes
   // individually. A self/proposer yes vote counts as evidence of intent but does NOT short-circuit
   // the requirement for all listed members to vote.
+  //
+  // SECURITY: when there are no remote voters (the only member left is the round's
+  // subject), conclude ONLY if THIS instance itself voted yes — i.e. a local
+  // operator proposed the action. A self-initiated remove / space_deletion casts
+  // our own yes when the round opens, so legitimate solo actions still pass. An
+  // empty voter set was previously treated as vacuously "all voted yes", so a round
+  // ADOPTED via gossip (which never carries our vote) concluded on an empty
+  // quorum — letting a malicious peer in a small network force a
+  // remove / space_deletion / meta_change through with no legitimate vote. Forged
+  // casts are dropped by acceptVoteCast, so an adopted forged round holds no local
+  // yes and correctly never concludes here.
+  const localInstanceId = getConfig().instanceId;
+  const localVotedYes = round.votes.some(
+    c => c.instanceId === localInstanceId && c.vote === 'yes',
+  );
   const allRemoteVotedYes =
-    voters.length === 0 ||
-    voters.every(v => round.votes.some(c => c.instanceId === v.instanceId && c.vote === 'yes'));
+    voters.length === 0
+      ? localVotedYes
+      : voters.every(v => round.votes.some(c => c.instanceId === v.instanceId && c.vote === 'yes'));
 
   const yesCount = round.votes.filter(v => v.vote === 'yes').length;
 

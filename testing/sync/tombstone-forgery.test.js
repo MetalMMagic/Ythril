@@ -22,20 +22,15 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, delWithBody } from './helpers.js';
+import { INSTANCES, post, get, del, delWithBody, getInstanceId } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
 
 let tokenA, tokenB, instanceIdA, instanceIdB, peerTokenForB, networkId, testSpaceId;
-
-function getInstanceId(c) {
-  return execSync(`docker exec ${c} node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('/config/config.json','utf8'));process.stdout.write(j.instanceId)"`).toString().trim();
-}
 
 describe('Forged tombstone cross-instance deletion is refused', () => {
   before(async () => {

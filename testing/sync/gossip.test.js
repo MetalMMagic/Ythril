@@ -20,11 +20,10 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, delWithBody, reqJson, triggerSync, waitFor } from './helpers.js';
+import { dockerExec, INSTANCES, post, get, del, delWithBody, reqJson, triggerSync, waitFor } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
@@ -49,12 +48,12 @@ s.peerTokens['${instanceId}'] = '${token}';
 fs.writeFileSync(p, JSON.stringify(s, null, 2), { mode: 0o600 });
 process.stdout.write('ok');
 `.replace(/\n/g, ' ');
-  execSync(`docker exec ${container} node -e "${script}"`);
+  dockerExec(`docker exec ${container} node -e "${script}"`);
 }
 
 /** Read instanceId from a container's config.json */
 function getInstanceId(container) {
-  const out = execSync(
+  const out = dockerExec(
     `docker exec ${container} node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('/config/config.json','utf8'));process.stdout.write(c.instanceId)"`,
   ).toString().trim();
   return out;
@@ -62,7 +61,7 @@ function getInstanceId(container) {
 
 /** Read instanceLabel from a container's config.json */
 function getInstanceLabel(container) {
-  return execSync(
+  return dockerExec(
     `docker exec ${container} node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('/config/config.json','utf8'));process.stdout.write(c.instanceLabel)"`,
   ).toString().trim();
 }

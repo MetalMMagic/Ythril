@@ -3,6 +3,51 @@
  * Assumes instances are running at http://localhost:320{0,1,2}.
  */
 
+import { execSync } from 'node:child_process';
+
+/** Synchronous sleep (these container-config readers are called synchronously). */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Run a `docker exec` command, retrying on transient failure.
+ *
+ * The server persists config.json via an atomic temp-file + rename. Across a
+ * Docker bind mount (notably Docker Desktop on Windows), that rename has a brief
+ * non-atomic window where a concurrent read can observe the file as missing
+ * (ENOENT) or half-written. Because the sync engine calls saveConfig frequently
+ * (watermarks, gossip merges), a test that reads a container's config via
+ * `docker exec` can race a write — so we retry to ride out the window.
+ */
+export function dockerExec(cmd, { retries = 10, delayMs = 150 } = {}) {
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return execSync(cmd, { stdio: ['ignore', 'pipe', 'pipe'] }).toString();
+    } catch (err) {
+      lastErr = err;
+      if (i < retries) sleepSync(delayMs);
+    }
+  }
+  throw lastErr;
+}
+
+/** Read and parse a container's /config/config.json (resilient to write races). */
+export function readContainerConfig(container) {
+  return JSON.parse(dockerExec(`docker exec ${container} node -e "const fs=require('fs');process.stdout.write(fs.readFileSync('/config/config.json','utf8'))"`));
+}
+
+/** Read and parse a container's /config/secrets.json (resilient to write races). */
+export function readContainerSecrets(container) {
+  return JSON.parse(dockerExec(`docker exec ${container} node -e "const fs=require('fs');process.stdout.write(fs.readFileSync('/config/secrets.json','utf8'))"`));
+}
+
+/** Read a container's instanceId from its config (resilient to write races). */
+export function getInstanceId(container) {
+  return dockerExec(`docker exec ${container} node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('/config/config.json','utf8'));process.stdout.write(c.instanceId)"`).trim();
+}
+
 export const INSTANCES = {
   a: 'http://127.0.0.1:3200',
   b: 'http://127.0.0.1:3201',

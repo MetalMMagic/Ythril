@@ -22,11 +22,10 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, del, delWithBody, triggerSync, waitFor } from './helpers.js';
+import { INSTANCES, post, del, delWithBody, triggerSync, waitFor, dockerExec, readContainerConfig, getInstanceId } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
@@ -35,12 +34,6 @@ let tokenA, tokenB;
 let instanceIdA, instanceIdB;
 let peerTokenForA, peerTokenForB;
 let networkId, testSpaceId;
-
-function getInstanceId(container) {
-  return execSync(
-    `docker exec ${container} node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('/config/config.json','utf8'));process.stdout.write(c.instanceId)"`,
-  ).toString().trim();
-}
 
 function injectPeerToken(container, instanceId, token) {
   const script = [
@@ -52,14 +45,7 @@ function injectPeerToken(container, instanceId, token) {
     `fs.writeFileSync(p,JSON.stringify(s,null,2),{mode:0o600});`,
     `process.stdout.write('ok');`,
   ].join('');
-  execSync(`docker exec ${container} node -e "${script}"`);
-}
-
-function readContainerConfig(container) {
-  const out = execSync(
-    `docker exec ${container} node -e "const fs=require('fs');process.stdout.write(fs.readFileSync('/config/config.json','utf8'))"`,
-  ).toString();
-  return JSON.parse(out);
+  dockerExec(`docker exec ${container} node -e "${script}"`);
 }
 
 /** Inject a fabricated vote round into a container's network config. */
@@ -75,7 +61,7 @@ function injectRound(container, netId, round) {
     `fs.writeFileSync(p,JSON.stringify(c,null,2),{mode:0o600});`,
     `process.stdout.write('ok');`,
   ].join('');
-  execSync(`docker exec ${container} node -e "${script}"`);
+  dockerExec(`docker exec ${container} node -e "${script}"`);
 }
 
 describe('Vote forgery via gossip pull is rejected', () => {

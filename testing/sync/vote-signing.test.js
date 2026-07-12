@@ -16,11 +16,10 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, del, delWithBody, triggerSync, waitFor } from './helpers.js';
+import { dockerExec, INSTANCES, post, del, delWithBody, triggerSync, waitFor } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
@@ -28,19 +27,19 @@ const CONFIGS = path.join(__dirname, 'configs');
 let tokenA, tokenB, instanceIdA, instanceIdB, peerTokenForA, peerTokenForB, networkId, testSpaceId;
 
 function getInstanceId(c) {
-  return execSync(`docker exec ${c} node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('/config/config.json','utf8'));process.stdout.write(j.instanceId)"`).toString().trim();
+  return dockerExec(`docker exec ${c} node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync('/config/config.json','utf8'));process.stdout.write(j.instanceId)"`).toString().trim();
 }
 function injectPeerToken(c, id, tok) {
   const s = `const fs=require('fs');const p='/config/secrets.json';const s=JSON.parse(fs.readFileSync(p,'utf8'));s.peerTokens=s.peerTokens||{};s.peerTokens['${id}']='${tok}';fs.writeFileSync(p,JSON.stringify(s,null,2),{mode:0o600});process.stdout.write('ok');`;
-  execSync(`docker exec ${c} node -e "${s}"`);
+  dockerExec(`docker exec ${c} node -e "${s}"`);
 }
 function readConfig(c) {
-  return JSON.parse(execSync(`docker exec ${c} node -e "const fs=require('fs');process.stdout.write(fs.readFileSync('/config/config.json','utf8'))"`).toString());
+  return JSON.parse(dockerExec(`docker exec ${c} node -e "const fs=require('fs');process.stdout.write(fs.readFileSync('/config/config.json','utf8'))"`).toString());
 }
 /** Mutate a container's config.json for a network via a base64-encoded JS patch fn body. */
 function patchNetwork(c, netId, patchB64) {
   const s = `const fs=require('fs');const p='/config/config.json';const cfg=JSON.parse(fs.readFileSync(p,'utf8'));const n=cfg.networks.find(x=>x.id==='${netId}');const patch=new Function('n','cfg',Buffer.from('${patchB64}','base64').toString('utf8'));patch(n,cfg);fs.writeFileSync(p,JSON.stringify(cfg,null,2),{mode:0o600});process.stdout.write('ok');`;
-  execSync(`docker exec ${c} node -e "${s}"`);
+  dockerExec(`docker exec ${c} node -e "${s}"`);
 }
 function patch(c, netId, fnBody) {
   patchNetwork(c, netId, Buffer.from(fnBody, 'utf8').toString('base64'));

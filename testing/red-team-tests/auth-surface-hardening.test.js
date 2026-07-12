@@ -28,7 +28,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del } from '../sync/helpers.js';
+import { INSTANCES, post, get, del, dockerExec } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -41,7 +41,7 @@ before(() => {
 });
 
 function readContainerConfig(container = 'ythril-a') {
-  const out = execSync(
+  const out = dockerExec(
     `docker exec ${container} node -e "const fs=require('fs');` +
     `process.stdout.write(fs.readFileSync('/config/config.json','utf8'))"`,
   ).toString();
@@ -201,7 +201,7 @@ describe('L1 — token lookup prefix comes from the random part of the token', (
 
     // Rewrite the record to the pre-fix format, as an upgraded deployment has it.
     const oldPrefix = plaintext.slice(0, 8);
-    execSync(
+    dockerExec(
       `docker exec ythril-a node -e "const fs=require('fs');const p='/config/config.json';` +
       `const c=JSON.parse(fs.readFileSync(p,'utf8'));` +
       `const t=c.tokens.find(t=>t.id==='${id}');t.prefix='${oldPrefix}';` +
@@ -275,7 +275,7 @@ describe('M8 — a TOTP code cannot be replayed inside its validity window', () 
   // Break-glass disable: remove totpSecret from secrets.json + restart.
   // (Once MFA is on, reload-config itself demands a code.)
   function disableMfaViaRestart() {
-    execSync(
+    dockerExec(
       `docker exec ythril-a node -e "const fs=require('fs');const p='/config/secrets.json';` +
       `const s=JSON.parse(fs.readFileSync(p,'utf8'));delete s.totpSecret;delete s.totpLastStep;` +
       `fs.writeFileSync(p,JSON.stringify(s,null,2),{mode:0o600})"`,

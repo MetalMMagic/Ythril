@@ -22,12 +22,11 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del } from '../sync/helpers.js';
+import { INSTANCES, post, get, del, dockerExec } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -37,7 +36,7 @@ let adminToken;
 let instanceIdA;
 
 function getInstanceId(container = 'ythril-a') {
-  return execSync(
+  return dockerExec(
     `docker exec ${container} node -e "const fs=require('fs');` +
     `process.stdout.write(JSON.parse(fs.readFileSync('/config/config.json','utf8')).instanceId)"`,
   ).toString().trim();

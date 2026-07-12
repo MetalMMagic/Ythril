@@ -9,9 +9,8 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
-import {
+import { dockerExec,
   INSTANCES,
   post, get, del, delWithBody, triggerSync, waitFor,
 } from './helpers.js';
@@ -31,7 +30,7 @@ function loadTokens() {
 
 /** Read instanceId from a container's config.json */
 function getInstanceId(container) {
-  return execSync(
+  return dockerExec(
     `docker exec ${container} node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('/config/config.json','utf8'));process.stdout.write(c.instanceId)"`,
   ).toString().trim();
 }
@@ -47,7 +46,7 @@ s.peerTokens['${instanceId}'] = '${token}';
 fs.writeFileSync(p, JSON.stringify(s, null, 2), { mode: 0o600 });
 process.stdout.write('ok');
 `.replace(/\n/g, ' ');
-  execSync(`docker exec ${container} node -e "${script}"`);
+  dockerExec(`docker exec ${container} node -e "${script}"`);
 }
 
 // ── Setup ────────────────────────────────────────────────────────────────────

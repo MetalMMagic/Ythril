@@ -19,11 +19,10 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del } from './helpers.js';
+import { dockerExec, INSTANCES, post, get, del } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
@@ -32,7 +31,7 @@ const CONFIGS = path.join(__dirname, 'configs');
 
 /** Read a container's full config.json and return parsed object. */
 function readContainerConfig(container) {
-  const out = execSync(
+  const out = dockerExec(
     `docker exec ${container} node -e "const fs=require('fs');` +
     `process.stdout.write(fs.readFileSync('/config/config.json','utf8'))"`,
   ).toString();
@@ -221,7 +220,7 @@ describe('Off-grid / fork', () => {
 
     before(async () => {
       // Discover instance ID of ythril-a
-      instanceIdA = execSync(
+      instanceIdA = dockerExec(
         `docker exec ythril-a node -e "const fs=require('fs');` +
         `const c=JSON.parse(fs.readFileSync('/config/config.json','utf8'));` +
         `process.stdout.write(c.instanceId)"`,

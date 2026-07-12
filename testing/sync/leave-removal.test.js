@@ -17,11 +17,10 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, reqJson, waitFor } from './helpers.js';
+import { dockerExec, INSTANCES, post, get, del, reqJson, waitFor } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
@@ -36,7 +35,7 @@ let instanceIdA, instanceIdB;
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function getInstanceId(container) {
-  return execSync(
+  return dockerExec(
     `docker exec ${container} node -e "const fs=require('fs');` +
     `const c=JSON.parse(fs.readFileSync('/config/config.json','utf8'));` +
     `process.stdout.write(c.instanceId)"`,
@@ -53,7 +52,7 @@ function injectPeerToken(container, instanceId, token) {
     `fs.writeFileSync(p,JSON.stringify(s,null,2),{mode:0o600});`,
     `process.stdout.write('ok');`,
   ].join('');
-  execSync(`docker exec ${container} node -e "${script}"`);
+  dockerExec(`docker exec ${container} node -e "${script}"`);
 }
 
 /** Tag a token record in the container's config.tokens[] with peerInstanceId.
@@ -73,11 +72,11 @@ function tagPeerToken(container, tokenId, peerInstanceId) {
     `fs.writeFileSync(p,JSON.stringify(c,null,2),{mode:0o600});`,
     `process.stdout.write('ok');`,
   ].join('');
-  execSync(`docker exec ${container} node -e "${script}"`);
+  dockerExec(`docker exec ${container} node -e "${script}"`);
 }
 
 function readContainerConfig(container) {
-  const out = execSync(
+  const out = dockerExec(
     `docker exec ${container} node -e "const fs=require('fs');` +
     `process.stdout.write(fs.readFileSync('/config/config.json','utf8'))"`,
   ).toString();

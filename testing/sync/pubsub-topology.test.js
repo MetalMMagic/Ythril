@@ -11,11 +11,10 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execSync } from 'node:child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import {
+import { dockerExec,
   INSTANCES, post, postRetry429, get, del, delWithBody, triggerSync, waitFor,
 } from './helpers.js';
 
@@ -24,7 +23,7 @@ const CONFIGS = path.join(__dirname, 'configs');
 
 /** Read a container's real instanceId (a uuid) from its config. */
 function getInstanceId(container) {
-  return execSync(
+  return dockerExec(
     `docker exec ${container} node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('/config/config.json','utf8'));process.stdout.write(c.instanceId)"`,
   ).toString().trim();
 }

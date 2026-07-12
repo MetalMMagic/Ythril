@@ -94,6 +94,109 @@ function extractBearer(req: Request): string | null {
   return null;
 }
 
+// ── Shared auth core ─────────────────────────────────────────────────────────
+// The require* middlewares below share the same extract → resolve → attach
+// preamble, plus a couple of common predicates (admin, MFA, space scope). These
+// helpers hold each in one place so a change — a new metric, an audit hook, an
+// OIDC tweak — is made once instead of mirrored by hand across ~6 functions.
+
+/** Attach the resolved record to the request and refresh a PAT's lastUsed. */
+function attachToken(
+  req: Request,
+  record: Omit<TokenRecord, 'hash'> | OidcTokenRecord,
+  bearer: string,
+): void {
+  req.authToken = record;
+  // Update lastUsed asynchronously for PAT tokens — do not block the request.
+  if (isPat(bearer) && 'id' in record) touchToken(record.id);
+}
+
+/**
+ * Extract and resolve the bearer, writing the shared 401 responses. Returns the
+ * resolved record (and the raw bearer) on success, or null once a response has
+ * been sent — callers must `return` immediately on null.
+ *
+ * `onChallenge` runs just before a 401 (to attach a `WWW-Authenticate` header).
+ * `recordInvalidMetric` preserves the historical behaviour where only the
+ * non-admin paths increment `authAttemptsTotal{result="invalid"}`.
+ */
+async function resolveAuthOrFail(
+  req: Request,
+  res: Response,
+  opts: { onChallenge?: (res: Response) => void; recordInvalidMetric?: boolean } = {},
+): Promise<{ record: Omit<TokenRecord, 'hash'> | OidcTokenRecord; bearer: string } | null> {
+  const bearer = extractBearer(req);
+  if (!bearer) {
+    if (opts.onChallenge) opts.onChallenge(res);
+    res.status(401).json({ error: 'Missing Authorization header' });
+    return null;
+  }
+  const record = await resolveBearer(bearer);
+  if (!record) {
+    if (opts.recordInvalidMetric) authAttemptsTotal.inc({ result: 'invalid' });
+    logAuthFailure(req);
+    if (opts.onChallenge) opts.onChallenge(res);
+    res.status(401).json({ error: 'Invalid or expired token' });
+    return null;
+  }
+  return { record, bearer };
+}
+
+/** Enforce `admin: true`; writes 403 and returns false when the token is not admin. */
+function enforceAdmin(res: Response, record: Omit<TokenRecord, 'hash'> | OidcTokenRecord): boolean {
+  if (!record.admin) {
+    res.status(403).json({ error: 'Admin token required' });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Enforce a current TOTP code for PAT sessions when MFA is enabled. Writes the
+ * MFA_REQUIRED / MFA_INVALID 403 and returns false on failure. OIDC sessions are
+ * exempt (the IdP handles its own step-up auth).
+ */
+function enforceMfa(req: Request, res: Response, bearer: string): boolean {
+  if (isPat(bearer) && isMfaEnabled()) {
+    const code = (req.headers['x-totp-code'] as string | undefined ?? '').trim();
+    if (!code) {
+      res.status(403).json({ error: 'MFA_REQUIRED' });
+      return false;
+    }
+    if (!verifyMfaCode(code)) {
+      res.status(403).json({ error: 'MFA_INVALID' });
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Enforce the token's `spaces` allowlist against a space id (proxy-aware).
+ * Writes 403 and returns false when the token lacks access. Unrestricted tokens
+ * (no `spaces` allowlist) always pass.
+ */
+function enforceSpaceScope(
+  res: Response,
+  record: Omit<TokenRecord, 'hash'> | OidcTokenRecord,
+  spaceId: string | undefined,
+): boolean {
+  if (record.spaces && spaceId) {
+    // For proxy spaces, the token must have access to all member spaces.
+    // If the space doesn't exist in config, resolveMemberSpaces returns [].
+    // Fall back to [spaceId] so the scope check still rejects tokens that
+    // don't list this space — returning 403 instead of leaking a 404.
+    const memberIds = resolveMemberSpaces(spaceId);
+    const targets = memberIds.length > 0 ? memberIds : [spaceId];
+    const missing = targets.filter(sid => !record.spaces!.includes(sid));
+    if (missing.length > 0) {
+      res.status(403).json({ error: `Token does not have access to space '${spaceId}'` });
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Middleware that requires a valid Bearer PAT token.
  * Sets req.authToken on success.
@@ -134,21 +237,9 @@ async function performAuth(
   next: NextFunction,
   onChallenge?: (res: Response) => void,
 ): Promise<void> {
-  const bearer = extractBearer(req);
-  if (!bearer) {
-    if (onChallenge) onChallenge(res);
-    res.status(401).json({ error: 'Missing Authorization header' });
-    return;
-  }
-
-  const record = await resolveBearer(bearer);
-  if (!record) {
-    authAttemptsTotal.inc({ result: 'invalid' });
-    logAuthFailure(req);
-    if (onChallenge) onChallenge(res);
-    res.status(401).json({ error: 'Invalid or expired token' });
-    return;
-  }
+  const auth = await resolveAuthOrFail(req, res, { onChallenge, recordInvalidMetric: true });
+  if (!auth) return;
+  const { record, bearer } = auth;
 
   // schemaLibrary tokens have no space/admin access — reject them on all other routes
   if ('schemaLibrary' in record && record.schemaLibrary) {
@@ -157,11 +248,7 @@ async function performAuth(
   }
 
   authAttemptsTotal.inc({ result: 'success' });
-  req.authToken = record;
-
-  // Update lastUsed asynchronously for PAT tokens — do not block request
-  if (isPat(bearer) && 'id' in record) touchToken(record.id);
-
+  attachToken(req, record, bearer);
   next();
 }
 
@@ -195,8 +282,7 @@ export async function acceptSchemaLibraryToken(
   }
 
   authAttemptsTotal.inc({ result: 'success' });
-  req.authToken = record;
-  if (isPat(bearer) && 'id' in record) touchToken(record.id);
+  attachToken(req, record, bearer);
   next();
 }
 
@@ -209,39 +295,16 @@ export async function requireSpaceAuth(
   res: Response,
   next: NextFunction,
 ): Promise<void> {
-  const bearer = extractBearer(req);
-  if (!bearer) {
-    res.status(401).json({ error: 'Missing Authorization header' });
-    return;
-  }
-
-  const record = await resolveBearer(bearer);
-  if (!record) {
-    authAttemptsTotal.inc({ result: 'invalid' });
-    logAuthFailure(req);
-    res.status(401).json({ error: 'Invalid or expired token' });
-    return;
-  }
+  const auth = await resolveAuthOrFail(req, res, { recordInvalidMetric: true });
+  if (!auth) return;
+  const { record, bearer } = auth;
 
   const spaceId = req.params['spaceId'] as string | undefined;
-  if (record.spaces && spaceId) {
-    // For proxy spaces, the token must have access to all member spaces.
-    // If the space doesn't exist in config, resolveMemberSpaces returns [].
-    // Fall back to [spaceId] so the scope check still rejects tokens that
-    // don't list this space — returning 403 instead of leaking a 404.
-    const memberIds = resolveMemberSpaces(spaceId);
-    const targets = memberIds.length > 0 ? memberIds : [spaceId];
-    const missing = targets.filter(sid => !record.spaces!.includes(sid));
-    if (missing.length > 0) {
-      res.status(403).json({ error: `Token does not have access to space '${spaceId}'` });
-      return;
-    }
-  }
+  if (!enforceSpaceScope(res, record, spaceId)) return;
 
   authAttemptsTotal.inc({ result: 'success' });
-  req.authToken = record;
+  attachToken(req, record, bearer);
   req.resolvedSpaceId = spaceId;
-  if (isPat(bearer) && 'id' in record) touchToken(record.id);
   next();
 }
 
@@ -255,52 +318,19 @@ export async function requireSpaceAuth(
  */
 export function requireAdminMfaScoped(paramName: string) {
   return async function (req: Request, res: Response, next: NextFunction): Promise<void> {
-    const bearer = extractBearer(req);
-    if (!bearer) {
-      res.status(401).json({ error: 'Missing Authorization header' });
-      return;
-    }
+    const auth = await resolveAuthOrFail(req, res, {});
+    if (!auth) return;
+    const { record, bearer } = auth;
 
-    const record = await resolveBearer(bearer);
-    if (!record) {
-      logAuthFailure(req);
-      res.status(401).json({ error: 'Invalid or expired token' });
-      return;
-    }
-
-    if (!record.admin) {
-      res.status(403).json({ error: 'Admin token required' });
-      return;
-    }
-
-    // MFA check — same as requireAdminMfa
-    if (isPat(bearer) && isMfaEnabled()) {
-      const code = (req.headers['x-totp-code'] as string | undefined ?? '').trim();
-      if (!code) {
-        res.status(403).json({ error: 'MFA_REQUIRED' });
-        return;
-      }
-      if (!verifyMfaCode(code)) {
-        res.status(403).json({ error: 'MFA_INVALID' });
-        return;
-      }
-    }
+    if (!enforceAdmin(res, record)) return;
+    if (!enforceMfa(req, res, bearer)) return;
 
     // Space-scope enforcement for space-restricted admin tokens.
     // Tokens without a spaces allowlist (unrestricted admin) are always allowed.
     const spaceId = req.params[paramName] as string | undefined;
-    if (record.spaces && spaceId) {
-      const memberIds = resolveMemberSpaces(spaceId);
-      const targets = memberIds.length > 0 ? memberIds : [spaceId];
-      const missing = targets.filter(sid => !record.spaces!.includes(sid));
-      if (missing.length > 0) {
-        res.status(403).json({ error: `Token does not have access to space '${spaceId}'` });
-        return;
-      }
-    }
+    if (!enforceSpaceScope(res, record, spaceId)) return;
 
-    req.authToken = record;
-    if (isPat(bearer) && 'id' in record) touchToken(record.id);
+    attachToken(req, record, bearer);
     next();
   };
 }
@@ -313,26 +343,13 @@ export function requireAdminMfaScoped(paramName: string) {
  *  admin flag is derived from the configured claimMapping.admin rule.
  */
 export async function requireAdmin(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const bearer = extractBearer(req);
-  if (!bearer) {
-    res.status(401).json({ error: 'Missing Authorization header' });
-    return;
-  }
+  const auth = await resolveAuthOrFail(req, res, {});
+  if (!auth) return;
+  const { record, bearer } = auth;
 
-  const record = await resolveBearer(bearer);
-  if (!record) {
-    logAuthFailure(req);
-    res.status(401).json({ error: 'Invalid or expired token' });
-    return;
-  }
+  if (!enforceAdmin(res, record)) return;
 
-  if (!record.admin) {
-    res.status(403).json({ error: 'Admin token required' });
-    return;
-  }
-
-  req.authToken = record;
-  if (isPat(bearer) && 'id' in record) touchToken(record.id);
+  attachToken(req, record, bearer);
   next();
 }
 
@@ -351,38 +368,13 @@ export async function requireAdmin(req: Request, res: Response, next: NextFuncti
  *   403 { error: 'MFA_INVALID'  } — MFA enabled, code wrong / expired
  */
 export async function requireAdminMfa(req: Request, res: Response, next: NextFunction): Promise<void> {
-  const bearer = extractBearer(req);
-  if (!bearer) {
-    res.status(401).json({ error: 'Missing Authorization header' });
-    return;
-  }
+  const auth = await resolveAuthOrFail(req, res, {});
+  if (!auth) return;
+  const { record, bearer } = auth;
 
-  const record = await resolveBearer(bearer);
-  if (!record) {
-    logAuthFailure(req);
-    res.status(401).json({ error: 'Invalid or expired token' });
-    return;
-  }
+  if (!enforceAdmin(res, record)) return;
+  if (!enforceMfa(req, res, bearer)) return;
 
-  if (!record.admin) {
-    res.status(403).json({ error: 'Admin token required' });
-    return;
-  }
-
-  // MFA is only enforced for PAT sessions; OIDC sessions use IdP step-up auth.
-  if (isPat(bearer) && isMfaEnabled()) {
-    const code = (req.headers['x-totp-code'] as string | undefined ?? '').trim();
-    if (!code) {
-      res.status(403).json({ error: 'MFA_REQUIRED' });
-      return;
-    }
-    if (!verifyMfaCode(code)) {
-      res.status(403).json({ error: 'MFA_INVALID' });
-      return;
-    }
-  }
-
-  req.authToken = record;
-  if (isPat(bearer) && 'id' in record) touchToken(record.id);
+  attachToken(req, record, bearer);
   next();
 }

@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Auth middleware consolidated onto a shared core (internal, no behavior change).** The six
+  `require*` middlewares (`requireAuth`/`requireMcpAuth`, `requireSpaceAuth`, `requireAdmin`,
+  `requireAdminMfa`, `requireAdminMfaScoped`) each repeated the same bearer-extract → resolve →
+  attach-`req.authToken` preamble, and the space-scope and MFA checks were copy-pasted between pairs of
+  them — the kind of duplication where a guard added to one path silently misses another. They now
+  share `resolveAuthOrFail` + `enforceAdmin`/`enforceMfa`/`enforceSpaceScope`/`attachToken` helpers.
+  Exported names, signatures, status codes, error bodies, metrics, and the MCP `WWW-Authenticate`
+  challenge are all preserved exactly; verified against the auth red-team suites (`auth-bypass`,
+  `auth-escalation`, `auth-surface-hardening`, `space-boundary`, `mcp-security`).
+
 ### Removed
 
 - **BREAKING: the legacy `/api/brain/:spaceId/memories` route shape is removed.** Space memory

@@ -24,12 +24,43 @@ spec:
       labels:
         app: ythril
     spec:
+      # Pod-level hardening applied to every container. seccompProfile confines
+      # syscalls to the runtime default set; fsGroup makes the mounted volumes
+      # group-owned by gid 1000 so the non-root `node` user (uid/gid 1000, from
+      # the node:22-slim base) can write to them.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+        fsGroup: 1000
       containers:
         # ── Main Ythril container ────────────────────────────────────────────
         - name: ythril
-          image: ghcr.io/ythril-network/ythril:latest
+          # Pin by immutable digest in production — a mutable tag (`:latest` or a
+          # version tag) lets a compromised registry silently swap the image on the
+          # next pull. Resolve the digest with:
+          #   docker buildx imagetools inspect ghcr.io/ythril-network/ythril:1.4.4
+          # then replace the tag below with @sha256:<digest>.
+          image: ghcr.io/ythril-network/ythril:1.4.4
+          # The image already sets `USER node`; these settings *enforce* non-root at
+          # the cluster level and lock the container down further. readOnlyRootFilesystem
+          # is safe here because every path the server writes is backed by a volume:
+          #   /data   — DATA_ROOT: file bytes, upload chunks, face/media models (PVC)
+          #   /config — CONFIG_PATH: config.json, secrets.json, schema library (PVC)
+          #   /tmp    — os.tmpdir() scratch for audio/video embedding (emptyDir)
+          # The embedding model is baked into the image at /app/model-cache (read-only)
+          # and is loaded, never written, at runtime — so it must NOT be shadowed by a
+          # writable mount.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           ports:
-            - containerPort: 4100
+            - containerPort: 3200
           env:
             - name: DATA_ROOT
               value: /data
@@ -37,19 +68,33 @@ spec:
             # Ythril reaches it on the loopback interface.
             - name: CONVERSION_SIDECAR_URL
               value: http://localhost:8000
+          # The conversion/embedding pipeline is CPU- and memory-hungry; without a
+          # limit an unbounded main container is a node-level DoS. Requests reserve
+          # headroom for the embedding model (~274 MB) plus the Node heap.
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: config
+              mountPath: /config
+            - name: tmp
+              mountPath: /tmp
           readinessProbe:
             httpGet:
-              path: /api/ready
-              port: 4100
+              path: /ready
+              port: 3200
             initialDelaySeconds: 5
             periodSeconds: 10
           startupProbe:
             httpGet:
-              path: /api/ready
-              port: 4100
+              path: /ready
+              port: 3200
             failureThreshold: 30
             periodSeconds: 10
 
@@ -68,6 +113,14 @@ spec:
           # Pin to a specific tag and verify the LICENSE before upgrading.
           # Run `docker run --rm --entrypoint cat <image> /app/LICENSE` to confirm Apache-2.0.
           image: downloads.unstructured.io/unstructured-io/unstructured-api-full:0.0.75
+          # Lighter hardening than the main container: the OCR pipeline writes
+          # scratch files across its own filesystem, so readOnlyRootFilesystem is
+          # left off, but privilege escalation and added capabilities are still denied.
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8000
           resources:
@@ -97,3 +150,28 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: ythril-data
+        - name: config
+          persistentVolumeClaim:
+            claimName: ythril-config
+        # os.tmpdir() scratch (audio/video embedding). Ephemeral by design — nothing
+        # here must survive a restart, so an emptyDir satisfies readOnlyRootFilesystem
+        # without provisioning storage.
+        - name: tmp
+          emptyDir: {}
+---
+# Persistent config store. /config holds config.json (tokens, spaces, networks),
+# secrets.json, and the schema library — all runtime-mutable state that must
+# survive Pod restarts. Previously /config was unmounted, so this state was lost
+# on every restart; readOnlyRootFilesystem also requires it to be a real volume.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ythril-config
+  labels:
+    app: ythril
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

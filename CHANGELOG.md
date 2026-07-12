@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Kubernetes deployment is hardened and its probes/ports now actually work.** The stock
+  `kubernetes/manifests/ythril-deployment.yaml` had no `securityContext`, used the mutable
+  `:latest` image tag, set no resource limits on the main container, and targeted
+  `containerPort: 4100` with `/api/ready` probes — but the server listens on `3200` and the
+  readiness endpoint is `/ready`, so probes never passed and Service targeting hit a dead port.
+  The manifest now: enforces non-root (`runAsNonRoot`, uid/gid 1000) with
+  `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, all capabilities dropped, and
+  `seccompProfile: RuntimeDefault`; backs every writable path with a volume (`/data` and a new
+  `ythril-config` PVC for the previously-**unmounted** `/config`, plus an `emptyDir` for `/tmp`);
+  adds CPU/memory requests and limits to the main container; corrects the port to `3200` and the
+  probe path to `/ready`; and pins a concrete image version with inline guidance for digest
+  pinning. **Behavior change:** `/config` (tokens, spaces, networks, secrets) is now persisted on
+  its own PVC — previously this state was silently lost on every Pod restart. The `ythril-config`
+  PVC is created by the manifest; on clusters without a default StorageClass, provision it first.
 - **Sync connections are now SSRF-validated at connection time, and peer URL rewrites
   are re-validated.** Peer URLs were validated only at admission, but a peer can rewrite
   its own stored URL after admission (via gossip or the member self-update endpoint) with

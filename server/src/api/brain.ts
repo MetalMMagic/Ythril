@@ -6,7 +6,7 @@ import { globalRateLimit, bulkWipeRateLimit } from '../rate-limit/middleware.js'
 import { NotFoundError } from '../util/errors.js';
 import { listMemories, deleteMemory, countMemories, bulkDeleteMemories, remember, updateMemory, queryBrain, findSimilar, recall, validateFilterExpression, type RecallKnowledgeType, type FilterExpression } from '../brain/memory.js';
 import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityById, bulkDeleteEntities, findEntitiesByName, findEntityBacklinks } from '../brain/entities.js';
-import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges, traverseGraph } from '../brain/edges.js';
+import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges, traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE } from '../brain/edges.js';
 import { computeMergePlan, applyResolutions, executeMerge, validateResolution, type PropertyResolution } from '../brain/merge.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../brain/delete-fields.js';
 /** Regex that matches a UUID v4 (case-insensitive). */
@@ -1507,6 +1507,20 @@ brainRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, as
   }
 });
 
+/** One entry in a graph-augmented recall response (traverse > 0). */
+interface RecallTraverseItem {
+  /** Vector similarity score for seeds; null for traversal-reached records. */
+  score: number | null;
+  source: 'recall' | 'traverse';
+  /** 0 = seed, 1 = one edge away, etc. */
+  hops: number;
+  /** Edge chain connecting this record to its seed (empty for seeds). */
+  path: { from: string; label: string; to: string }[];
+  spaceId: string;
+  type: string;
+  record: unknown;
+}
+
 // POST /api/brain/spaces/:spaceId/recall — semantic vector search by natural language query
 brainRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
@@ -1515,7 +1529,7 @@ brainRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, a
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const { query, topK, types, minScore, filter } = req.body ?? {};
+  const { query, topK, types, minScore, filter, traverse } = req.body ?? {};
   if (!query || typeof query !== 'string' || !query.trim()) {
     res.status(400).json({ error: 'query must be a non-empty string' });
     return;
@@ -1523,6 +1537,17 @@ brainRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, a
   const safeTopK = typeof topK === 'number' ? Math.min(Math.max(topK, 1), 100) : 10;
   const safeTypes = Array.isArray(types) ? types.filter((t: unknown): t is RecallKnowledgeType => typeof t === 'string') : undefined;
   const safeMinScore = typeof minScore === 'number' ? minScore : undefined;
+
+  // Graph-traversal expansion depth. 0 (default) = classic recall, unchanged.
+  // Rejected rather than clamped past the cap so an obviously-wrong depth surfaces.
+  let safeTraverse = 0;
+  if (traverse != null) {
+    if (typeof traverse !== 'number' || !Number.isInteger(traverse) || traverse < 0 || traverse > MAX_RECALL_TRAVERSE) {
+      res.status(400).json({ error: `traverse must be an integer between 0 and ${MAX_RECALL_TRAVERSE}` });
+      return;
+    }
+    safeTraverse = traverse;
+  }
 
   let safeFilter: FilterExpression | undefined;
   if (filter != null) {
@@ -1544,8 +1569,26 @@ brainRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, a
       memberIds.map(mid => recall(mid, query.trim(), safeTopK, undefined, safeTypes, undefined, safeMinScore, safeFilter)),
     )).flat();
     all.sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
-    const results = all.slice(0, safeTopK);
-    res.json({ results, count: results.length });
+    const seeds = all.slice(0, safeTopK);
+
+    if (safeTraverse === 0) {
+      res.json({ results: seeds, count: seeds.length });
+      return;
+    }
+
+    // Graph-augmented recall: expand seeds along edges, cap the combined output.
+    const totalCap = safeTopK * (safeTraverse + 1) * 4;
+    const neighbours = await traverseRecallSeeds(
+      memberIds,
+      seeds.map(s => ({ _id: s._id, spaceId: s.spaceId })),
+      safeTraverse,
+      Math.max(0, totalCap - seeds.length),
+    );
+    const results: RecallTraverseItem[] = [
+      ...seeds.map(s => ({ score: s.score, source: 'recall' as const, hops: 0, path: [], spaceId: s.spaceId, type: s.type, record: s })),
+      ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity' as const, record: n.record })),
+    ];
+    res.json({ results, count: results.length, traverseDepth: safeTraverse });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(400).json({ error: msg });

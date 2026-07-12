@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Sync scheduling now uses real cron (and honours cron expressions that were silently ignored).**
+  The per-network `syncSchedule` was parsed by a bespoke `*/N minutes|hours` / `every Nm|Nh` regex on
+  top of `setInterval`, so a **standard cron expression — the format the integration guide documents,
+  e.g. `*/5 * * * *`** — was not recognised and the network silently fell back to manual-sync only.
+  The scheduler now runs on `node-cron` (the same engine backups and the duplicate scanner already
+  use): a cron expression is used directly, and the two legacy shorthands are translated to cron for
+  backward compatibility (values cron can't express, e.g. `every 90m`, now warn instead of silently
+  scheduling). Covered by `testing/standalone/sync-cron.test.js`.
+
 ### Removed
 
 - **BREAKING: the legacy `/api/brain/:spaceId/memories` route shape is removed.** Space memory

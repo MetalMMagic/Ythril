@@ -46,11 +46,11 @@ ythril/
 │   ├── integration/ API scenario tests
 │   ├── red-team-tests/ Security attack simulations
 │   ├── standalone/  Unit-level tests (no Docker)
-│   └── sync/        Multi-instance sync tests (3 containers)
+│   └── sync/        Multi-instance sync tests (4 containers)
 ├── config/          Runtime config (bind-mounted into container)
 ├── docs/            Project documentation
 ├── docker-compose.yml          Production compose
-├── testing/docker-compose.test.yml  Test compose (3 instances)
+├── testing/docker-compose.test.yml  Test compose (4 instances — a/b/c + migration-lock d)
 ├── Dockerfile       Multi-stage build (client → server → production)
 ├── package.json     Root workspace manifest
 └── tsconfig.base.json  Shared TypeScript config
@@ -151,10 +151,10 @@ npm run test:integration
 
 Covers: setup gating, auth, files, spaces, brain CRUD (memories, entities, edges, chrono), schema validation (strict/warn/off, bulk, dry-run), networks, voting, invite handshake, MCP tools (including bulk_write), notifications, about endpoint, sync history, space rename, space deletion, space export, space wipe, conflict resolution, proxy spaces.
 
-### Sync tests (three Docker instances)
+### Sync tests (four Docker instances)
 
 ```bash
-# Start all three instances + provision tokens
+# Start all four instances + provision tokens
 npm run test:up
 
 # Run sync suite

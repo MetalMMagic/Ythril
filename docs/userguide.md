@@ -427,7 +427,7 @@ Click **+ Create network**. Enter a label, choose a type, enter the space IDs to
 2. Copy the invite bundle (a JSON blob).
 3. Send it to the other admin out-of-band (email, chat, etc.).
 
-The invite expires after 24 hours.
+The invite expires after 1 hour.
 
 ### Joining a network
 

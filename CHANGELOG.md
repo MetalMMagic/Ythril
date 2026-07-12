@@ -41,6 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Governance rounds no longer conclude on an empty voter set.** `concludeRoundIfReady` treated
+  "no remote voters" (the only member left is the round's subject) as vacuously "everyone voted yes",
+  so a `closed`/braintree round with **zero votes** passed. Combined with gossip round adoption, a
+  malicious peer in a small network could serve a **forged `remove` / `space_deletion` / `meta_change`
+  round** and the victim would conclude it — ejecting a member or deleting a space **without any
+  legitimate vote**. (The per-cast forgery guard correctly rejected the forged votes, but the round
+  needed none to pass.) An empty voter set now concludes only when **this instance itself voted yes**,
+  i.e. a locally-proposed action — a gossip-adopted round carries no local vote and never concludes.
+  Legitimate solo actions (self-initiated remove / space deletion, which cast our own yes) are
+  unaffected. Regression-guarded by `testing/sync/vote-forgery.test.js` and `governance.test.js`.
 - **Kubernetes deployment is hardened and its probes/ports now actually work.** The stock
   `kubernetes/manifests/ythril-deployment.yaml` had no `securityContext`, used the mutable
   `:latest` image tag, set no resource limits on the main container, and targeted

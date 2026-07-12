@@ -19,6 +19,7 @@ import { listTombstones, applyRemoteTombstone } from '../brain/tombstones.js';
 import { requireAuth, denyReadOnly } from '../auth/middleware.js';
 import { revokePeerCredentialsIfOrphaned } from '../auth/tokens.js';
 import { log } from '../util/log.js';
+import { isPeerUrlAllowed } from '../sync/peer-fetch.js';
 import { nextSeq, bumpSeq, isSeqImplausible, MAX_INGEST_SEQ } from '../util/seq.js';
 import { updateSpace } from '../spaces/spaces.js';
 import { isStrictLinkage } from '../spaces/proxy.js';
@@ -1313,10 +1314,17 @@ syncRouter.post('/networks/:networkId/members', syncRateLimit, requireAuth, deny
     if (freshNet) {
       const idx = freshNet.members.findIndex(m => m.instanceId === incoming.instanceId);
       if (idx >= 0) {
+        // Re-validate a peer-supplied URL before accepting it — a peer must not be
+        // able to move itself onto a blocked/internal address post-admission (SSRF).
+        let nextUrl = freshNet.members[idx]!.url;
+        if (incoming.url && incoming.url !== nextUrl) {
+          if (isPeerUrlAllowed(incoming.url)) nextUrl = incoming.url;
+          else log.warn(`Member self-update: rejected unsafe URL from ${incoming.instanceId}: ${incoming.url}`);
+        }
         const updated = {
           ...freshNet.members[idx]!,
           label: incoming.label ?? freshNet.members[idx]!.label,
-          url: incoming.url ?? freshNet.members[idx]!.url,
+          url: nextUrl,
           children: incoming.children ?? freshNet.members[idx]!.children,
           lastSyncAt: new Date().toISOString(),
         };

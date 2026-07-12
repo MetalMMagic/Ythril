@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Sync connections are now SSRF-validated at connection time, and peer URL rewrites
+  are re-validated.** Peer URLs were validated only at admission, but a peer can rewrite
+  its own stored URL after admission (via gossip or the member self-update endpoint) with
+  no re-check, and the sync engine connected with a bare `fetch` (no DNS pin). An
+  admitted-but-malicious member could therefore point itself at `http://169.254.169.254/`
+  (cloud IMDS), loopback, or an internal host, and the victim would connect there with peer
+  auth headers attached. All 15 outbound sync connections now go through an SSRF-safe fetch
+  (DNS-resolve → pin the socket to the validated IP → re-validate each redirect), and the
+  three URL-merge paths re-validate before persisting. **Same-host / LAN deployments** whose
+  peers use private addresses set the new `allowPrivatePeers` config key (or the
+  `SYNC_ALLOW_PRIVATE_PEERS` env var); even then, crown-jewel addresses (loopback,
+  link-local/IMDS, unspecified) stay blocked. Covered by `testing/red-team-tests/sync-peer-ssrf.test.js`
+  and `testing/standalone/peer-ssrf-policy.test.js`.
+
 - **`trust proxy` now defaults to `false` (was hardcoded to `1`).** The default compose
   deployment is exposed directly with no reverse proxy, so trusting the first hop meant
   `req.ip` came from the client-supplied `X-Forwarded-For` header — attacker-controllable.

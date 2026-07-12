@@ -79,9 +79,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pronunciation and browser hyphenation stayed English for German and Polish users even though the UI
   was fully translated. The document language is now set on startup and updated on every language
   switch.
-- **Accent "dim" colors are back on-brand.** The active-nav highlight and dimmed accent chips were
-  driven by leftover purple/cyan tokens from an earlier palette. Both are now derived from `--accent`
-  via `color-mix()`, so they can't drift off-brand again.
 - **Close/remove buttons use a consistent icon everywhere.** Close and remove controls across the app
   rendered a mix of raw `✕` and `×` glyphs at different weights/baselines than the `ph-icon` used
   elsewhere. Every one — dialog close buttons, chip/tag remove buttons, and danger remove actions in
@@ -97,8 +94,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the migration. Covered by `testing/integration/auth.test.js`.
 ### Added
 
-- **`prefers-reduced-motion` support** — a global stylesheet rule collapses animations and transitions
-  when the OS "reduce motion" setting is on, for users with vestibular sensitivity.
 - **Per-route browser tab titles** — every page now sets a localized `<Page> · Ythril` title via a
   Transloco-aware `TitleStrategy`, so tabs, history entries, and bookmarks are distinguishable instead
   of all reading "Ythril".

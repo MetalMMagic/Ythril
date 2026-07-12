@@ -11,6 +11,7 @@ export interface TokenRecord {
   readOnly?: boolean;   // true = read-only access; all mutations blocked
   peerInstanceId?: string; // set on tokens created for network peers — links this PAT to the peer that uses it inbound
   schemaLibrary?: boolean; // true = only valid on GET /api/schema-library/public*; no space access
+  oauthClientId?: string;  // set on PATs minted by the MCP OAuth flow — links this token to the connector client that created it (for rotation, capping, and UI attribution)
 }
 
 // ── Space meta / schema types ──────────────────────────────────────────────

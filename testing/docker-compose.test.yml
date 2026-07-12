@@ -37,6 +37,7 @@ services:
       DATA_ROOT: /data
       MONGO_URI: mongodb://ythril-mongo-a:27017/?directConnection=true
       NODE_ENV: test
+      SYNC_ALLOW_PRIVATE_PEERS: "true"
       SKIP_AUTH_RATE_LIMIT: "true"
       SKIP_GLOBAL_RATE_LIMIT: "true"
       SKIP_SYNC_RATE_LIMIT: "true"
@@ -87,6 +88,7 @@ services:
       DATA_ROOT: /data
       MONGO_URI: mongodb://ythril-mongo-b:27017/?directConnection=true
       NODE_ENV: test
+      SYNC_ALLOW_PRIVATE_PEERS: "true"
       SKIP_AUTH_RATE_LIMIT: "true"
       SKIP_GLOBAL_RATE_LIMIT: "true"
       SKIP_SYNC_RATE_LIMIT: "true"
@@ -133,6 +135,7 @@ services:
       DATA_ROOT: /data
       MONGO_URI: mongodb://ythril-mongo-c:27017/?directConnection=true
       NODE_ENV: test
+      SYNC_ALLOW_PRIVATE_PEERS: "true"
     depends_on:
       ythril-mongo-c:
         condition: service_healthy
@@ -178,6 +181,7 @@ services:
       DATA_ROOT: /data
       MONGO_URI: mongodb://ythril-mongo-d:27017/?directConnection=true
       NODE_ENV: test
+      SYNC_ALLOW_PRIVATE_PEERS: "true"
       SKIP_AUTH_RATE_LIMIT: "true"
       SKIP_GLOBAL_RATE_LIMIT: "true"
       SKIP_SYNC_RATE_LIMIT: "true"

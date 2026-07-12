@@ -108,6 +108,24 @@ function isBlockedIpv4Int(n: number): boolean {
   return BLOCKED_IPV4_CIDRS.some(([base, mask]) => ((u & mask) >>> 0) === (base >>> 0));
 }
 
+/**
+ * "Crown-jewel" IPv4 ranges that are blocked even for peers allowed to use private
+ * addresses (`allowPrivatePeers`): loopback, link-local incl. cloud IMDS, the
+ * unspecified address, and broadcast. No legitimate peer ever lives on these, and
+ * they are the highest-value SSRF targets (169.254.169.254 → cloud credentials).
+ */
+const ALWAYS_BLOCKED_IPV4_CIDRS: ReadonlyArray<readonly [number, number]> = [
+  [0x00000000, 0xff000000], // 0.0.0.0/8      unspecified
+  [0x7f000000, 0xff000000], // 127.0.0.0/8    loopback
+  [0xa9fe0000, 0xffff0000], // 169.254.0.0/16 link-local incl. IMDS
+  [0xffffffff, 0xffffffff], // 255.255.255.255 broadcast
+];
+
+function isCrownJewelIpv4Int(n: number): boolean {
+  const u = n >>> 0;
+  return ALWAYS_BLOCKED_IPV4_CIDRS.some(([base, mask]) => ((u & mask) >>> 0) === (base >>> 0));
+}
+
 // ── IPv6 helpers ─────────────────────────────────────────────────────────────
 
 /**
@@ -166,6 +184,22 @@ function isBlockedIpv6Expanded(h: number[]): boolean {
   return false;
 }
 
+/** Crown-jewel IPv6: loopback ::1, unspecified ::, link-local fe80::/10, and any
+ *  embedded IPv4 that is itself a crown jewel. ULA (fc00::/7) is NOT a crown jewel
+ *  — it is a private range, allowable under `allowPrivatePeers`. */
+function isCrownJewelIpv6Expanded(h: number[]): boolean {
+  if (h.every(x => x === 0)) return true;                             // ::
+  if (h.slice(0, 7).every(x => x === 0) && h[7] === 1) return true;   // ::1 loopback
+  if ((h[0]! & 0xffc0) === 0xfe80) return true;                       // fe80::/10 link-local
+  if (h[0] === 0 && h[1] === 0 && h[2] === 0 && h[3] === 0 && h[4] === 0 && h[5] === 0xffff) {
+    return isCrownJewelIpv4Int((((h[6]! << 16) >>> 0) | h[7]!) >>> 0);
+  }
+  if (h.slice(0, 6).every(x => x === 0) && (h[6] !== 0 || h[7] !== 0)) {
+    return isCrownJewelIpv4Int((((h[6]! << 16) >>> 0) | h[7]!) >>> 0);
+  }
+  return false;
+}
+
 // ── Host classification ──────────────────────────────────────────────────────
 
 /**
@@ -173,18 +207,31 @@ function isBlockedIpv6Expanded(h: number[]): boolean {
  * blocked address. Returns false for plain hostnames — those must be resolved
  * via `assertUrlSafeResolved` before use.
  */
-export function isBlockedIp(host: string): boolean {
+function checkBlockedIp(host: string, ipv4: (n: number) => boolean, ipv6: (h: number[]) => boolean): boolean {
   let stripped = host.trim().toLowerCase();
   if (stripped.startsWith('[') && stripped.endsWith(']')) stripped = stripped.slice(1, -1);
   stripped = stripped.replace(/\.$/, ''); // tolerate a single trailing dot
   if (stripped.includes(':')) {
     const h = expandIpv6(stripped);
-    return h ? isBlockedIpv6Expanded(h) : false;
+    return h ? ipv6(h) : false;
   }
-  if (net.isIPv4(stripped)) return isBlockedIpv4Int(dottedIpv4ToInt(stripped)!);
+  if (net.isIPv4(stripped)) return ipv4(dottedIpv4ToInt(stripped)!);
   const canon = canonicalizeIpv4(stripped);
-  if (canon) return isBlockedIpv4Int(dottedIpv4ToInt(canon)!);
+  if (canon) return ipv4(dottedIpv4ToInt(canon)!);
   return false;
+}
+
+export function isBlockedIp(host: string): boolean {
+  return checkBlockedIp(host, isBlockedIpv4Int, isBlockedIpv6Expanded);
+}
+
+/**
+ * Block check for a peer target. Crown-jewel ranges (loopback, link-local/IMDS,
+ * unspecified) are always blocked; other private ranges (RFC-1918, CGNAT, ULA)
+ * are blocked unless `allowPrivate` is set (opt-in for same-host / LAN sync).
+ */
+export function isPeerBlockedIp(host: string, allowPrivate: boolean): boolean {
+  return allowPrivate ? checkBlockedIp(host, isCrownJewelIpv4Int, isCrownJewelIpv6Expanded) : isBlockedIp(host);
 }
 
 /** Normalise a URL hostname: lowercase, strip IPv6 brackets and a trailing dot. */
@@ -227,6 +274,22 @@ export function isSsrfSafeUrl(raw: string): boolean {
   return true;
 }
 
+/**
+ * Peer-aware synchronous validator (config-time, no DNS). Like `isSsrfSafeUrl`
+ * but honours `allowPrivate`. `localhost` and the cloud-metadata hostname are
+ * rejected regardless (they always resolve to crown-jewel addresses).
+ */
+export function isPeerUrlSafe(raw: string, allowPrivate: boolean): boolean {
+  let parsed: URL;
+  try { parsed = new URL(raw); } catch { return false; }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  if (parsed.username || parsed.password) return false;
+  const host = normaliseHost(parsed.hostname);
+  if (host === 'localhost' || host === 'metadata.google.internal') return false;
+  if (isPeerBlockedIp(host, allowPrivate)) return false;
+  return true;
+}
+
 /** Zod refinement message for SSRF-safe URL fields. */
 export const SSRF_SAFE_MESSAGE =
   'Peer URL must use http(s) and must not target private IPs, loopback, ' +
@@ -257,15 +320,16 @@ const defaultLookup: DnsLookup = async (hostname) => {
  */
 export async function assertUrlSafeResolved(
   raw: string,
-  opts: { lookup?: DnsLookup } = {},
+  opts: { lookup?: DnsLookup; allowPrivate?: boolean } = {},
 ): Promise<{ url: URL; addresses: string[] }> {
-  if (!isSsrfSafeUrl(raw)) {
+  const allowPrivate = opts.allowPrivate ?? false;
+  if (!isPeerUrlSafe(raw, allowPrivate)) {
     throw new SsrfBlockedError(`Blocked SSRF target (unsafe URL): ${raw}`);
   }
   const url = new URL(raw);
   const host = normaliseHost(url.hostname);
 
-  // IP literals were already validated by isSsrfSafeUrl — no DNS needed.
+  // IP literals were already validated above — no DNS needed.
   if (isIpLiteral(host)) return { url, addresses: [host] };
 
   const lookup = opts.lookup ?? defaultLookup;
@@ -274,7 +338,7 @@ export async function assertUrlSafeResolved(
     throw new SsrfBlockedError(`Blocked SSRF target (DNS returned no records): ${host}`);
   }
   for (const a of results) {
-    if (isBlockedIp(a.address)) {
+    if (isPeerBlockedIp(a.address, allowPrivate)) {
       throw new SsrfBlockedError(`Blocked SSRF target (${host} resolves to blocked address ${a.address})`);
     }
   }
@@ -320,14 +384,14 @@ export function pinnedAgent(ip: string): Agent {
 export async function ssrfSafeFetch(
   rawUrl: string,
   init: RequestInit = {},
-  opts: { maxRedirects?: number; lookup?: DnsLookup; fetchImpl?: typeof fetch } = {},
+  opts: { maxRedirects?: number; lookup?: DnsLookup; fetchImpl?: typeof fetch; allowPrivate?: boolean } = {},
 ): Promise<Response> {
   const maxRedirects = opts.maxRedirects ?? 3;
   const injected = opts.fetchImpl;
   let current = rawUrl;
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
-    const { addresses } = await assertUrlSafeResolved(current, { lookup: opts.lookup });
+    const { addresses } = await assertUrlSafeResolved(current, { lookup: opts.lookup, allowPrivate: opts.allowPrivate });
 
     let resp: Response;
     let agent: Agent | undefined;

@@ -696,6 +696,13 @@ export interface Config {
   audit?: AuditConfig;
   /** Optional background semantic-duplicate scanner. Off by default. */
   dupeScanner?: DupeScannerConfig;
+  /**
+   * Allow sync peers to live on private/reserved addresses (RFC-1918, CGNAT,
+   * IPv6 ULA) — for same-host or LAN deployments. Default false (public peers
+   * only). Even when true, crown-jewel addresses (loopback, link-local/IMDS,
+   * unspecified) stay blocked. Overridable via SYNC_ALLOW_PRIVATE_PEERS.
+   */
+  allowPrivatePeers?: boolean;
   /** Dynamically-registered OAuth clients (RFC 7591) for the MCP browser
    *  authorization flow. Populated automatically when a client registers; not
    *  meant to be hand-edited. See mcp/oauth.ts. */

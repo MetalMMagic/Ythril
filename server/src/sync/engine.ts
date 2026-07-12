@@ -22,6 +22,7 @@ import { recordSyncResult, type SyncCounts } from './history.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { log } from '../util/log.js';
 import { bumpSeq, isSeqImplausible } from '../util/seq.js';
+import { peerSafeFetch, isPeerUrlAllowed } from './peer-fetch.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from '../api/sync.js';
 import { enqueueMediaJob } from '../files/media/job-queue.js';
 import { resolveInputFormat } from '../files/converters/pipeline.js';
@@ -405,7 +406,7 @@ async function runSyncForMember(
   // In parallel, warm our own local MongoDB collections.
   {
     const _tw = Date.now();
-    const peerWarm = fetch(`${member.url}/api/sync/warm`, {
+    const peerWarm = peerSafeFetch(`${member.url}/api/sync/warm`, {
       ...fetchOpts(),
       method: 'POST',
       body: JSON.stringify({ networkId: net.id, spaces: net.spaces }),
@@ -552,7 +553,7 @@ async function gossipWithPeer(
     if (ownSigningKey) selfRecord['signingPublicKey'] = ownSigningKey;
     const ownRotation = getSigningKeyRotation();
     if (ownRotation) selfRecord['signingKeyRotation'] = ownRotation;
-    const resp = await fetch(`${base}/members`, {
+    const resp = await peerSafeFetch(`${base}/members`, {
       ...opts(),
       method: 'POST',
       body: JSON.stringify(selfRecord),
@@ -569,7 +570,10 @@ async function gossipWithPeer(
             const local = freshNet.members.find(m => m.instanceId === member.instanceId);
             if (local) {
               let changed = false;
-              if (peerSelf.url && peerSelf.url !== local.url) { local.url = peerSelf.url; changed = true; }
+              if (peerSelf.url && peerSelf.url !== local.url) {
+                if (isPeerUrlAllowed(peerSelf.url)) { local.url = peerSelf.url; changed = true; }
+                else log.warn(`Gossip: rejected unsafe self-URL from ${member.label} (${member.instanceId}): ${peerSelf.url}`);
+              }
               if (peerSelf.label && peerSelf.label !== local.label) { local.label = peerSelf.label; changed = true; }
               if (pinMemberSigningKey(local, peerSelf.signingPublicKey, peerSelf.signingKeyRotation)) changed = true;
               if (changed) {
@@ -589,7 +593,7 @@ async function gossipWithPeer(
 
   // 2. Pull peer's member view and merge into our config
   try {
-    const resp = await fetch(`${base}/members`, opts());
+    const resp = await peerSafeFetch(`${base}/members`, opts());
     if (!resp.ok) {
       log.warn(`Gossip pull from ${member.label}: HTTP ${resp.status}`);
       return;
@@ -610,7 +614,7 @@ async function gossipWithPeer(
       if (!local) continue; // unknown member — do not auto-add
       // Merge: only update mutable identity fields (url, label, children)
       let updated = false;
-      if (peerRecord.url && peerRecord.url !== local.url) {
+      if (peerRecord.url && peerRecord.url !== local.url && isPeerUrlAllowed(peerRecord.url)) {
         local.url = peerRecord.url;
         updated = true;
       }
@@ -662,7 +666,7 @@ async function propagateVotesWithPeer(
     const roundsToPush = localNet?.pendingRounds ?? [];
     for (const round of roundsToPush) {
       for (const cast of round.votes) {
-        await fetch(`${base}/votes/${encodeURIComponent(round.roundId)}`, {
+        await peerSafeFetch(`${base}/votes/${encodeURIComponent(round.roundId)}`, {
           ...opts(),
           method: 'POST',
           // Forward the signature (and castAt) so the peer can verify and, when
@@ -677,7 +681,7 @@ async function propagateVotesWithPeer(
 
   // 2. Pull peer's open rounds; create new ones locally and merge vote casts
   try {
-    const resp = await fetch(`${base}/votes`, opts());
+    const resp = await peerSafeFetch(`${base}/votes`, opts());
     if (!resp.ok) {
       log.warn(`Vote pull from ${member.label}: HTTP ${resp.status}`);
       return;
@@ -803,7 +807,7 @@ async function pullFromPeer(
   // Pull tombstones first — so deletions apply before we potentially upsert deleted docs
   try {
     const tombsUrl = `${member.url}/api/sync/tombstones?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}&sinceSeq=${sinceSeq}`;
-    const resp = await fetch(tombsUrl, opts());
+    const resp = await peerSafeFetch(tombsUrl, opts());
     if (resp.ok) {
       const data = await resp.json() as { memories?: TombstoneDoc[]; entities?: TombstoneDoc[]; edges?: TombstoneDoc[]; chrono?: TombstoneDoc[] };
       const all = [...(data.memories ?? []), ...(data.entities ?? []), ...(data.edges ?? []), ...(data.chrono ?? [])];
@@ -835,7 +839,7 @@ async function pullFromPeer(
         spaceId: remoteSpaceId, networkId, sinceSeq: String(sinceSeq), limit: '200', full: 'true',
         ...(cur ? { cursor: cur } : {}),
       });
-      const resp = await fetch(`${member.url}/api/sync/${urlSuffix}?${params}`, batchOpts());
+      const resp = await peerSafeFetch(`${member.url}/api/sync/${urlSuffix}?${params}`, batchOpts());
       if (!resp.ok) { log.warn(`Pull ${urlSuffix} from ${member.label} returned ${resp.status}`); break; }
       const { items, nextCursor } = await resp.json() as {
         items: (T | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null;
@@ -928,7 +932,7 @@ async function pushToPeer(
     while (true) {
       const page = await listTombstones(spaceId, tsCursor, 500);
       if (page.length === 0) break;
-      const resp = await fetch(tsEndpoint, {
+      const resp = await peerSafeFetch(tsEndpoint, {
         ...opts(),
         method: 'POST',
         body: JSON.stringify({ tombstones: page }),
@@ -968,7 +972,7 @@ async function pushToPeer(
         .limit(PUSH_BATCH_SIZE)
         .toArray() as T[];
       if (batch.length === 0) break;
-      const resp = await fetch(batchEndpoint, {
+      const resp = await peerSafeFetch(batchEndpoint, {
         ...batchOpts(), method: 'POST',
         body: JSON.stringify({ [payloadKey]: batch }),
       });
@@ -1032,7 +1036,7 @@ async function syncFiles(
     // Fetch tombstones before the manifest so that files deleted on the peer
     // are removed locally before the manifest comparison runs.
     if (doPull) try {
-      const tsResp = await fetch(
+      const tsResp = await peerSafeFetch(
         `${member.url}/api/sync/file-tombstones?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}`,
         opts(),
       );
@@ -1065,7 +1069,7 @@ async function syncFiles(
         .find(mFilter<FileTombstoneDoc>({ spaceId }))
         .toArray();
       if (ourTombstones.length > 0) {
-        await fetch(
+        await peerSafeFetch(
           `${member.url}/api/sync/file-tombstones?networkId=${encodeURIComponent(networkId)}`,
           {
             ...opts(),
@@ -1083,7 +1087,7 @@ async function syncFiles(
     // Only fetch the peer manifest if we need to pull or push (manifest comparison
     // drives both directions). When neither direction needs manifest, skip entirely.
     if (!doPull && !doPush) return { pulledFiles, pushedFiles, pulledPaths };
-    const resp = await fetch(`${member.url}/api/sync/manifest?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}`, opts());
+    const resp = await peerSafeFetch(`${member.url}/api/sync/manifest?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(networkId)}`, opts());
     if (!resp.ok) { log.warn(`File manifest from ${member.label}: ${resp.status}`); return { pulledFiles, pushedFiles, pulledPaths }; }
     const { manifest } = await resp.json() as { manifest: { path: string; sha256: string; size: number; modifiedAt: string }[] };
 
@@ -1099,7 +1103,7 @@ async function syncFiles(
       if (local && local.sha256 === remote.sha256) continue; // already in sync
 
       try {
-        const dl = await fetch(
+        const dl = await peerSafeFetch(
           `${member.url}/api/files/${encodeURIComponent(remoteSpaceId)}?path=${encodeURIComponent(remote.path)}`,
           opts(),
         );
@@ -1170,7 +1174,7 @@ async function syncFiles(
       try {
         const absPath = path.join(spaceRoot, localPath);
         const bytes = await fs.readFile(absPath);
-        const pushResp = await fetch(
+        const pushResp = await peerSafeFetch(
           `${member.url}/api/files/${encodeURIComponent(remoteSpaceId)}?path=${encodeURIComponent(localPath)}`,
           {
             method: 'POST',
@@ -1253,7 +1257,7 @@ async function checkMerkleWithPeer(
     const { computeMerkleRoot } = await import('../brain/merkle.js');
     const [localResult, peerResp] = await Promise.all([
       computeMerkleRoot(spaceId),
-      fetch(
+      peerSafeFetch(
         `${member.url}/api/sync/merkle?spaceId=${encodeURIComponent(remoteSpaceId)}&networkId=${encodeURIComponent(net.id)}`,
         opts(),
       ),

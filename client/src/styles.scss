@@ -13,13 +13,11 @@
 
   --accent:       #ceff80;
   --accent-hover: #a0ff80;
-  /* Derived from --accent so the dim variants can never drift off-brand again.
-     (Previously hardcoded to leftover purple/cyan from an earlier palette.) */
-  --accent-dim:   color-mix(in srgb, var(--accent) 15%, transparent);
+  --accent-dim:   rgba(124, 106, 247, 0.15);
   --accent-text:  #0d1117;
 
   --nav-active:     #a0ff80;
-  --nav-active-dim: color-mix(in srgb, var(--accent) 8%, transparent);
+  --nav-active-dim: rgba(0, 229, 255, 0.08);
 
   --success:      #3fb950;
   --warning:      #d29922;
@@ -685,17 +683,3 @@ hr, .divider {
 }
 .icon-btn:hover { color: var(--text-primary); background: var(--bg-elevated); }
 .icon-btn.danger:hover { color: var(--error); background: var(--error-dim); }
-
-/* ── Reduced motion ──────────────────────────────────────────────────────────
-   Honour the OS "reduce motion" setting: collapse animations and transitions
-   for users with vestibular sensitivity. Kept last so it overrides everything. */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}

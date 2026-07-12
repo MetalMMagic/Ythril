@@ -9,6 +9,7 @@ import {
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, getMediaEmbeddingConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
+import { createHash } from 'node:crypto';
 import { checkQuota, QuotaError } from '../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage } from '../spaces/proxy.js';
 import { updateSpace, wipeSpace, WIPE_COLLECTION_TYPES, type WipeCollectionType } from '../spaces/spaces.js';
@@ -44,6 +45,34 @@ import type { InputFormat } from '../files/converters/pipeline.js';
 
 // Session map: sessionId → transport
 const transports = new Map<string, SSEServerTransport>();
+
+// Identity binding for SSE sessions (S2). Each open SSE session is pinned to the
+// id of the token that opened it and a signature of that token's authorization
+// scopes. `POST /mcp/messages?sessionId=…` must present the *same* token id, and
+// that token's *current* scopes must still match — otherwise the request is
+// rejected. Without this, any valid token that learns another session's id (it
+// travels as a query parameter, so it lands in proxy logs and browser history)
+// could drive tool calls with the opening session's privileges.
+interface SessionBinding {
+  tokenId: string;
+  scopeSig: string;
+}
+const sessionBindings = new Map<string, SessionBinding>();
+
+/** Stable signature of a token's authorization scopes, order-independent. */
+function scopeSignature(t: { admin?: boolean; readOnly?: boolean; spaces?: string[] } | undefined): string {
+  return JSON.stringify([
+    Boolean(t?.admin),
+    Boolean(t?.readOnly),
+    [...(t?.spaces ?? [])].sort(),
+  ]);
+}
+
+/** Short, non-reversible tag for correlating an SSE session in logs without
+ *  emitting the raw sessionId (which is a bearer-equivalent routing secret). */
+function sessionTag(sessionId: string): string {
+  return createHash('sha256').update(sessionId).digest('hex').slice(0, 12);
+}
 
 /** Format a RecallResult as a single human-readable summary line. */
 function formatRecallSummary(r: RecallResult): string {
@@ -2141,16 +2170,21 @@ mcpRouter.get('/', globalRateLimit, async (req, res) => {
   const postEndpoint = '/mcp/messages';
   const transport = new SSEServerTransport(postEndpoint, res);
   transports.set(transport.sessionId, transport);
+  sessionBindings.set(transport.sessionId, {
+    tokenId: req.authToken?.id ?? '',
+    scopeSig: scopeSignature(req.authToken),
+  });
   mcpConnectionsActive.inc();
 
   res.on('close', () => {
     transports.delete(transport.sessionId);
+    sessionBindings.delete(transport.sessionId);
     mcpConnectionsActive.dec();
-    log.debug(`MCP global session ${transport.sessionId} closed`);
+    log.debug(`MCP global session ${sessionTag(transport.sessionId)} closed`);
   });
 
   const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin);
-  log.debug(`MCP global session ${transport.sessionId} opened`);
+  log.debug(`MCP global session ${sessionTag(transport.sessionId)} opened`);
   await server.connect(transport);
 });
 
@@ -2160,6 +2194,16 @@ mcpRouter.post('/messages', globalRateLimit, async (req, res) => {
   const transport = transports.get(sessionId);
   if (!transport) {
     res.status(404).json({ error: 'Unknown MCP session. Open an SSE connection first.' });
+    return;
+  }
+  // S2: the POST must be driven by the *same* token that opened the SSE session,
+  // and that token's scopes must not have changed since. requireMcpAuth has
+  // already re-validated the bearer (a revoked/expired token never reaches here),
+  // so this closes cross-token hijacking and mid-session privilege staleness.
+  const binding = sessionBindings.get(sessionId);
+  if (!binding || binding.tokenId !== (req.authToken?.id ?? '') || binding.scopeSig !== scopeSignature(req.authToken)) {
+    log.warn(`MCP session ${sessionTag(sessionId)} rejected: token does not match the identity that opened it`);
+    res.status(403).json({ error: 'This MCP session is bound to a different identity. Open your own SSE connection.' });
     return;
   }
   await transport.handlePostMessage(req, res, req.body);

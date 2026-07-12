@@ -159,6 +159,103 @@ function openMcpSession(instance, bearerToken, spaceId = 'general', timeoutMs = 
   });
 }
 
+/**
+ * Open a raw MCP SSE session and expose its sessionId so a test can drive
+ * `/mcp/messages` with an arbitrary bearer (not necessarily the opener's).
+ * Returns { status, sessionId, close }.
+ */
+function openRawSession(instance, bearerToken, timeoutMs = 15_000) {
+  const parsed = new URL(instance);
+  const host = parsed.hostname;
+  const port = parseInt(parsed.port || '80', 10);
+  return new Promise((resolve) => {
+    const req = http.request(
+      { host, port, path: '/mcp', method: 'GET',
+        headers: { ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}), Accept: 'text/event-stream' } },
+      (res) => {
+        if (res.statusCode !== 200) { res.resume(); resolve({ status: res.statusCode, sessionId: null, close: () => {} }); return; }
+        let buffer = '';
+        let sessionId = null;
+        res.setEncoding('utf8');
+        res.on('data', chunk => {
+          buffer += chunk;
+          const parts = buffer.split('\n\n');
+          buffer = parts.pop() ?? '';
+          for (const part of parts) {
+            if (!part.trim()) continue;
+            let eventType = 'message', data = '';
+            for (const line of part.split('\n')) {
+              if (line.startsWith('event:')) eventType = line.slice(6).trim();
+              else if (line.startsWith('data:')) data = line.slice(5).trim();
+            }
+            if (eventType === 'endpoint') {
+              const m = data.match(/sessionId=([^&\s]+)/);
+              if (m) sessionId = m[1];
+            }
+          }
+        });
+        const deadline = Date.now() + timeoutMs;
+        const poll = setInterval(() => {
+          if (sessionId) { clearInterval(poll); resolve({ status: 200, sessionId, close: () => req.destroy() }); }
+          else if (Date.now() > deadline) { clearInterval(poll); req.destroy(); resolve({ status: 200, sessionId: null, close: () => {} }); }
+        }, 50);
+      },
+    );
+    req.on('error', () => resolve({ status: 0, sessionId: null, close: () => {} }));
+    req.end();
+  });
+}
+
+/** POST a tool call to an existing session id with a chosen bearer; resolves the HTTP status. */
+function rawPostToSession(instance, sessionId, bearerToken, toolName, toolArgs) {
+  const parsed = new URL(instance);
+  const host = parsed.hostname;
+  const port = parseInt(parsed.port || '80', 10);
+  const payload = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: toolName, arguments: toolArgs } });
+  return new Promise((resolve, reject) => {
+    const pr = http.request(
+      { host, port, path: `/mcp/messages?sessionId=${sessionId}`, method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload),
+          ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}) } },
+      pres => { let txt = ''; pres.setEncoding('utf8'); pres.on('data', c => { txt += c; }); pres.on('end', () => resolve({ status: pres.statusCode, body: txt })); },
+    );
+    pr.on('error', reject);
+    pr.write(payload);
+    pr.end();
+  });
+}
+
+// ── S2: SSE session is bound to the opening identity ───────────────────────
+
+describe('MCP security — SSE session identity binding (S2)', () => {
+  let readOnlyToken;
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    // Mint a second, distinct token (different id) valid on instance A.
+    const r = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `s2-readonly-${Date.now()}`, readOnly: true });
+    readOnlyToken = r?.body?.plaintext;
+  });
+
+  it('POST /mcp/messages with a DIFFERENT token than opened the session returns 403', async () => {
+    assert.ok(readOnlyToken && readOnlyToken.startsWith('ythril_'), 'second token must be minted');
+    const sess = await openRawSession(INSTANCES.a, tokenA);
+    try {
+      assert.equal(sess.status, 200);
+      assert.ok(sess.sessionId, 'SSE session must open and yield a sessionId');
+
+      // Attacker holds a valid (read-only) token and learns the admin session id.
+      const hijack = await rawPostToSession(INSTANCES.a, sess.sessionId, readOnlyToken, 'remember', { fact: 'S2-hijack-attempt', space: 'general' });
+      assert.equal(hijack.status, 403,
+        `VULNERABILITY: a different token drove the session (got ${hijack.status}). ` +
+        `The SSE session must be bound to the id of the token that opened it.`);
+
+      // Control: the opening token itself is still accepted (202/200).
+      const legit = await rawPostToSession(INSTANCES.a, sess.sessionId, tokenA, 'recall', { query: 'anything' });
+      assert.ok([200, 202].includes(legit.status), `opening token must still drive its own session (got ${legit.status})`);
+    } finally { sess.close(); }
+  });
+});
+
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe('MCP security — authentication', () => {

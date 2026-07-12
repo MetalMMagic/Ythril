@@ -38,7 +38,7 @@ import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/serv
 import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getConfig, saveConfig } from '../config/loader.js';
-import { createToken, findMatchingToken } from '../auth/tokens.js';
+import { createOAuthToken, findMatchingToken } from '../auth/tokens.js';
 import { authRateLimit } from '../rate-limit/middleware.js';
 import { log } from '../util/log.js';
 
@@ -78,6 +78,17 @@ export function mcpResourceMetadataUrl(): string {
 // Cap the number of stored DCR clients so a client that re-registers on every
 // connect cannot grow config.json without bound. Oldest entries are evicted.
 const MAX_OAUTH_CLIENTS = 50;
+
+// Connector-token lifecycle (S5). OAuth-minted PATs expire by default so
+// abandoned connectors don't leave permanent credentials behind, and the total
+// count is capped as a backstop. Both are overridable via env; a TTL of 0 opts
+// out of expiry (tokens never expire) for operators who need long-lived ones.
+const OAUTH_TOKEN_TTL_DAYS = (() => {
+  const raw = Number(process.env['MCP_OAUTH_TOKEN_TTL_DAYS']);
+  return Number.isFinite(raw) && raw >= 0 ? raw : 90;
+})();
+const OAUTH_TOKEN_TTL_MS: number | null = OAUTH_TOKEN_TTL_DAYS === 0 ? null : OAUTH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
+const MAX_OAUTH_TOKENS = 50;
 
 const clientsStore: OAuthRegisteredClientsStore = {
   getClient(clientId: string): OAuthClientInformationFull | undefined {
@@ -170,19 +181,25 @@ const provider: OAuthServerProvider = {
       throw new InvalidGrantError('redirect_uri does not match the authorization request');
     }
 
-    const { plaintext } = await createToken({
+    const { plaintext } = await createOAuthToken({
+      clientId: client.client_id,
       name: `MCP connector: ${sanitizeName(client.client_name) ?? client.client_id}`,
       admin: entry.identity.admin,
       spaces: entry.identity.spaces,
       readOnly: entry.identity.readOnly,
+      ttlMs: OAUTH_TOKEN_TTL_MS,
+      maxTokens: MAX_OAUTH_TOKENS,
     });
-    log.info(`Issued MCP OAuth access token for client ${client.client_id} (admin=${entry.identity.admin}, readOnly=${entry.identity.readOnly})`);
+    log.info(`Issued MCP OAuth access token for client ${client.client_id} (admin=${entry.identity.admin}, readOnly=${entry.identity.readOnly}, ttlDays=${OAUTH_TOKEN_TTL_DAYS || 'never'})`);
 
-    // No expires_in and no refresh_token: the PAT does not expire, so the
-    // client treats the access token as long-lived and never attempts refresh.
+    // We rotate one PAT per client and issue no refresh token. When the PAT
+    // expires the client re-runs the authorization flow (re-consent) rather than
+    // refreshing. Advertise expires_in when the token is time-limited so clients
+    // can anticipate re-authorization.
     return {
       access_token: plaintext,
       token_type: 'Bearer',
+      ...(OAUTH_TOKEN_TTL_MS !== null ? { expires_in: Math.floor(OAUTH_TOKEN_TTL_MS / 1000) } : {}),
       ...(entry.scopes.length ? { scope: entry.scopes.join(' ') } : {}),
     };
   },

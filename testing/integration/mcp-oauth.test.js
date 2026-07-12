@@ -243,3 +243,43 @@ describe('MCP OAuth: token exchange', () => {
     assert.equal(replay.body.error, 'invalid_grant');
   });
 });
+
+describe('MCP OAuth: connector-token lifecycle (S5)', () => {
+  before(() => {
+    adminToken = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+  });
+
+  // Full authorize → consent → exchange for a given client.
+  async function fullExchange(clientId) {
+    const { verifier, challenge } = pkce();
+    const consent = await submitConsent({ clientId, redirectUri: REDIRECT, challenge, token: adminToken });
+    const code = new URL(consent.headers.get('location')).searchParams.get('code');
+    return exchangeCode({ clientId, code, verifier, redirectUri: REDIRECT });
+  }
+
+  it('minted token carries an expiry (expires_in advertised, expiresAt persisted)', async () => {
+    const { clientId } = await registerClient(REDIRECT);
+    const { status, body } = await fullExchange(clientId);
+    assert.equal(status, 200, `exchange failed: ${JSON.stringify(body)}`);
+    assert.equal(typeof body.expires_in, 'number', 'a time-limited token must advertise expires_in');
+    assert.ok(body.expires_in > 0, 'expires_in must be positive');
+
+    const list = await get(BASE, adminToken, '/api/tokens');
+    const tok = list.body.tokens.find(t => t.oauthClientId === clientId);
+    assert.ok(tok, 'connector token must be listed with its oauthClientId');
+    assert.ok(tok.expiresAt, 'connector token must carry expiresAt (no permanent PATs)');
+    assert.ok(new Date(tok.expiresAt).getTime() > Date.now(), 'expiresAt must be in the future');
+  });
+
+  it('repeat consent for the same client rotates rather than accumulates tokens', async () => {
+    const { clientId } = await registerClient(REDIRECT);
+    await fullExchange(clientId);
+    await fullExchange(clientId);
+    await fullExchange(clientId);
+    const list = await get(BASE, adminToken, '/api/tokens');
+    const forClient = list.body.tokens.filter(t => t.oauthClientId === clientId);
+    assert.equal(forClient.length, 1,
+      `VULNERABILITY: re-consent must keep exactly one token per client (rotation); found ${forClient.length}. ` +
+      `config.tokens grows without bound otherwise.`);
+  });
+});

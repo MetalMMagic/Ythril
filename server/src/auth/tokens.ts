@@ -184,6 +184,68 @@ export async function createToken(opts: {
   return { record, plaintext };
 }
 
+/**
+ * Mint a PAT for an MCP OAuth connector (S5). Unlike {@link createToken} this
+ * bounds token growth in a single config write:
+ *  - carries an `expiresAt` so abandoned connector tokens self-expire;
+ *  - rotates — any prior token for the same `clientId` is revoked, so a
+ *    connector that re-consents on every reconnect never accumulates tokens;
+ *  - caps the total number of connector tokens, evicting the oldest beyond
+ *    `maxTokens` as a belt-and-braces bound across all clients.
+ */
+export async function createOAuthToken(opts: {
+  clientId: string;
+  name: string;
+  spaces?: string[];
+  admin?: boolean;
+  readOnly?: boolean;
+  ttlMs: number | null; // null = never expires
+  maxTokens: number;
+}): Promise<{ record: TokenRecord; plaintext: string }> {
+  const plaintext = generateToken();
+  const hash = await hashToken(plaintext);
+  const record: TokenRecord = {
+    id: uuidv4(),
+    name: opts.name,
+    hash,
+    prefix: tokenPrefix(plaintext),
+    createdAt: new Date().toISOString(),
+    lastUsed: null,
+    expiresAt: opts.ttlMs === null ? null : new Date(Date.now() + opts.ttlMs).toISOString(),
+    spaces: opts.spaces,
+    admin: opts.admin ?? false,
+    readOnly: opts.readOnly ?? false,
+    oauthClientId: opts.clientId,
+  };
+  const config = getConfig();
+  const removedIds: string[] = [];
+  // Rotate: drop any prior token for this client.
+  config.tokens = config.tokens.filter(t => {
+    if (t.oauthClientId === opts.clientId) { removedIds.push(t.id); return false; }
+    return true;
+  });
+  config.tokens.push(record);
+  // Cap: keep only the newest `maxTokens` connector tokens overall.
+  const oauthTokens = config.tokens.filter(t => t.oauthClientId);
+  if (oauthTokens.length > opts.maxTokens) {
+    const byAge = [...oauthTokens].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const evict = new Set(byAge.slice(0, oauthTokens.length - opts.maxTokens).map(t => t.id));
+    config.tokens = config.tokens.filter(t => {
+      if (evict.has(t.id)) { removedIds.push(t.id); return false; }
+      return true;
+    });
+  }
+  saveConfig(config);
+  // Evict any cached entries for revoked tokens so bcrypt compare is never skipped.
+  if (removedIds.length) {
+    const gone = new Set(removedIds);
+    for (const [key, val] of _tokenCache) {
+      if (gone.has(val.tokenId)) _tokenCache.delete(key);
+    }
+  }
+  return { record, plaintext };
+}
+
 /** List all token records (hashes excluded) */
 export function listTokens(): Omit<TokenRecord, 'hash'>[] {
   return getConfig().tokens.map(({ hash: _h, ...rest }) => rest);

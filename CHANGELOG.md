@@ -38,6 +38,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Rate-limit kill-switches (`SKIP_*_RATE_LIMIT`) are ignored in production.** These test-only
   env vars are now honoured outside `NODE_ENV=production` only, so a leaked flag can't silently
   disable rate limiting on a live deployment. A loud warning is logged at startup if one is set.
+- **MCP SSE sessions are now bound to the identity that opened them.** An MCP `GET /mcp` SSE
+  session was authorized once, at open time, and `POST /mcp/messages?sessionId=…` then dispatched
+  into it keyed by `sessionId` **alone** — never re-checking whose token drove the call. Because the
+  `sessionId` travels as a query parameter (it lands in reverse-proxy access logs, browser history,
+  and referrers) it is not a secret; any holder of a valid token — even a read-only, single-space
+  one — who learned another session's id could POST tool calls that executed with that session's
+  privileges. Each session is now pinned to the opening token's **id and scope signature**; a
+  `POST` whose token id differs, or whose scopes have since changed, is rejected with `403`. This
+  also fixes privilege staleness (a mid-session scope downgrade now forces reconnect). Raw session
+  ids are no longer logged — only a short non-reversible tag. Covered by
+  `testing/red-team-tests/mcp-security.test.js`.
+- **MCP OAuth connector tokens now expire and rotate instead of accumulating.** Every browser-connector
+  consent minted a **permanent** PAT with no cap, so a connector that re-authorized on each reconnect
+  grew `config.json` without bound and left a trail of orphaned, long-lived credentials (and every
+  `saveConfig` rewrites the whole file). OAuth-minted tokens now carry a default **90-day expiry**
+  (`MCP_OAUTH_TOKEN_TTL_DAYS`, `0` = never), a fresh consent **rotates** the single token held for that
+  client rather than appending, and the total connector-token count is capped (oldest evicted). The
+  token exchange advertises `expires_in` so clients can anticipate re-consent. **Behavior change:**
+  connectors will need to re-authorize when their token expires. Covered by
+  `testing/integration/mcp-oauth.test.js`.
 
 ### Fixed
 

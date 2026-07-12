@@ -192,6 +192,7 @@ DEBUG=1 docker compose up
 | `METRICS_TOKEN` | (unset) | When set, `GET /metrics` requires this exact value as a Bearer token — the recommended path for Prometheus scrape configs. If unset, the endpoint falls back to requiring a valid admin PAT. |
 | `TRUST_PROXY` | `false` | Express `trust proxy` setting (overrides the `trustProxy` config key). Default `false` — `req.ip` comes from the socket. **Set this when running behind a reverse proxy**, to the exact number of proxy hops (e.g. `1`), *not* `true` (which trusts the whole `X-Forwarded-For` chain and is client-spoofable). Also accepts `loopback` or a comma-separated CIDR/IP list. Rate limiting and the audit log key on `req.ip`, so a wrong value here is a security setting. |
 | `SYNC_ALLOW_PRIVATE_PEERS` | `false` | Allow sync **peer URLs** to resolve to private/reserved addresses (RFC-1918, CGNAT, IPv6 ULA) — for same-host or LAN networks (overrides the `allowPrivatePeers` config key). Default `false`: sync connects only to public peers, and any peer that tries to move its URL onto a private address is refused. Even when `true`, crown-jewel addresses (loopback, link-local / cloud IMDS `169.254.169.254`, unspecified) stay blocked. |
+| `MCP_OAUTH_TOKEN_TTL_DAYS` | `90` | Lifetime (in days) of PATs minted by the MCP OAuth browser-connector flow. Tokens expire after this many days, so an abandoned connector leaves no permanent credential behind; the connector re-consents when its token lapses. Each connector holds **one** token that a fresh consent rotates (never accumulates), and the total connector-token count is capped. Set to `0` to disable expiry (tokens never expire) if you need long-lived connector credentials. |
 
 ### Data Persistence
 
@@ -5311,6 +5312,8 @@ Discovery + grant endpoints (mounted at the application root):
 | `POST /token` | Token endpoint — exchanges an auth code (+ PKCE) for an access token |
 
 **The consent step.** The user is shown a page asking them to paste a Ythril access token to approve the connection. The connector is then issued a **new** PAT with **the same permissions** (admin / space scope / read-only) as the token that approved it. That connector token is named `MCP connector: <client>` and can be revoked independently under **Settings → Tokens** (or `DELETE /api/tokens/:id`). Only someone who already holds a valid Ythril token can approve a connection — there is no way to gain access without one.
+
+Connector tokens **expire** after `MCP_OAUTH_TOKEN_TTL_DAYS` (default 90 days) so an abandoned connector never leaves a permanent credential behind — the exchange advertises `expires_in`, and the connector re-runs consent when its token lapses. Re-consenting **rotates** the single token held for that client rather than appending a new one, so `config.json` does not grow with every reconnect, and the total connector-token count is capped. Set `MCP_OAUTH_TOKEN_TTL_DAYS=0` to opt out of expiry.
 
 Access tokens are non-expiring PATs, so no refresh-token flow is used.
 

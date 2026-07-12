@@ -56,14 +56,46 @@ const clientDist =
   process.env['CLIENT_DIST'] ??
   path.resolve(__dirname, '..', '..', 'client', 'dist', 'browser');
 
+/**
+ * Resolve the Express `trust proxy` setting from the TRUST_PROXY env var (takes
+ * precedence) or `config.trustProxy`. Defaults to `false` so a directly-exposed
+ * deployment derives `req.ip` from the socket, not a spoofable X-Forwarded-For.
+ */
+function resolveTrustProxy(): boolean | number | string {
+  let raw: unknown = process.env['TRUST_PROXY'];
+  if (raw === undefined) {
+    try { raw = getConfig().trustProxy; } catch { raw = undefined; } // config not loaded on first run
+  }
+  if (raw === undefined || raw === null || raw === false || raw === '') return false;
+  if (raw === true) return true;
+  if (typeof raw === 'number') return raw;
+  if (Array.isArray(raw)) return raw.join(',');
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (s === 'true') return true;
+    if (s === 'false' || s === '') return false;
+    if (/^\d+$/.test(s)) return Number(s);
+    return s; // 'loopback' or a comma-separated CIDR/IP list — Express parses these
+  }
+  return false;
+}
+
 export function createApp() {
   const app = express();
 
   // ── Proxy trust ──────────────────────────────────────────────────────────
-  // Trust the first proxy hop (Traefik / nginx) so req.ip reflects the real
-  // client address.  Without this, rate-limit and audit log all share the
-  // Docker-gateway IP.
-  app.set('trust proxy', 1);
+  // Default false: the server is exposed directly in the default deployment, so
+  // req.ip must come from the socket. Trusting a client-supplied X-Forwarded-For
+  // would let an attacker spoof the IP that rate limiting and the audit log key
+  // on — bypassing the only throttle in front of admin TOTP. Set trustProxy to
+  // the exact hop count only when a known reverse proxy terminates connections.
+  const trustProxy = resolveTrustProxy();
+  app.set('trust proxy', trustProxy);
+  if (trustProxy === true) {
+    log.warn('trust proxy = true trusts the ENTIRE X-Forwarded-For chain (client-spoofable). Set it to the exact proxy hop count instead.');
+  } else {
+    log.debug(`trust proxy = ${JSON.stringify(trustProxy)}`);
+  }
 
   // ── Request body parsers ─────────────────────────────────────────────────
   app.use(express.json({ limit: '10mb' }));

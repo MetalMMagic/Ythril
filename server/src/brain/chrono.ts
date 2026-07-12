@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { col, mFilter, mDoc, mUpdate, mBulk } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
+import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
 import { getConfig } from '../config/loader.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
@@ -191,8 +192,8 @@ export async function listChrono(
   return col<ChronoEntry>(`${spaceId}_chrono`)
     .find(mFilter<ChronoEntry>(query))
     .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit)
+    .skip(parseSkip(skip))
+    .limit(parseLimit(limit, 20, 1000))
     .toArray() as Promise<ChronoEntry[]>;
 }
 

@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { col, isVectorSearchAvailable, mFilter, mDoc, mUpdate, mBulk } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
+import { parseLimit, parseSkip } from '../util/pagination.js';
 import { NotFoundError } from '../util/errors.js';
 import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
 import { embed } from './embedding.js';
@@ -775,8 +776,8 @@ export async function listMemories(
     .find(mFilter<MemoryDoc>(filter))
     .project({ embedding: 0 })
     .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit)
+    .skip(parseSkip(skip))
+    .limit(parseLimit(limit, 20, 1000))
     .toArray();
 }
 

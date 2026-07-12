@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`trust proxy` now defaults to `false` (was hardcoded to `1`).** The default compose
+  deployment is exposed directly with no reverse proxy, so trusting the first hop meant
+  `req.ip` came from the client-supplied `X-Forwarded-For` header — attacker-controllable.
+  That let a client rotate `X-Forwarded-For` to defeat every rate limiter (including the only
+  throttle in front of admin TOTP verification) and to forge client IPs in the audit log.
+  `req.ip` is now derived from the socket by default. **Behavior change:** if you run behind
+  a reverse proxy (nginx/Traefik/ingress), set the new `trustProxy` config key — or the
+  `TRUST_PROXY` env var — to the **exact number of proxy hops** (e.g. `1`), not `true`.
+  Accepts Express's native values (`false` | hop count | `'loopback'` | CIDR list).
+- **`?limit`/`?skip` on brain list endpoints are clamped.** A non-numeric value
+  (`?limit=abc`) previously became `NaN` and flowed unbounded into MongoDB. Values are now
+  coerced to a safe bounded integer, the list helpers clamp internally as defense-in-depth,
+  and proxy-space results are re-limited to the requested page size.
+- **Rate-limit kill-switches (`SKIP_*_RATE_LIMIT`) are ignored in production.** These test-only
+  env vars are now honoured outside `NODE_ENV=production` only, so a leaked flag can't silently
+  disable rate limiting on a live deployment. A loud warning is logged at startup if one is set.
+
 ### Fixed
 
 - **Legacy tokens are no longer silently invalidated on upgrade** — a startup/reload migration

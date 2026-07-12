@@ -116,10 +116,20 @@ export async function remember(
   properties?: Record<string, string | number | boolean>,
   entityNames?: string[],
   type?: string,
-): Promise<MemoryDoc> {
+  opts?: DupeCheckOpts,
+): Promise<MemoryDoc & { similar?: SimilarMatch[] }> {
   const names = entityNames ?? await resolveEntityNames(spaceId, entityIds);
   const embedText = memoryEmbedText(fact, tags, names, description, properties);
   const embResult = await embed(embedText);
+
+  // Opt-in insert-time duplicate check, using the freshly computed vector
+  // BEFORE insert so it can never self-match.
+  let similar: SimilarMatch[] | undefined;
+  if (opts?.checkDuplicates) {
+    const hits = await checkDuplicates(spaceId, 'memory', embResult.vector, opts.dupeThreshold, opts.dupeTopK);
+    if (hits.length > 0) similar = hits;
+  }
+
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();
   const doc: MemoryDoc = {
@@ -140,7 +150,7 @@ export async function remember(
   if (description !== undefined) doc.description = description;
   if (properties !== undefined) doc.properties = properties;
   await col<MemoryDoc>(`${spaceId}_memories`).insertOne(mDoc<MemoryDoc>(doc));
-  return doc;
+  return similar ? { ...doc, similar } : doc;
 }
 
 export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
@@ -296,6 +306,66 @@ export async function recall(
   await enrichFileChunksWithParent(spaceId, final);
 
   return final;
+}
+
+// ── Insert-time duplicate detection ──────────────────────────────────────────
+
+/** A near-duplicate surfaced by an insert-time similarity check. */
+export interface SimilarMatch {
+  _id: string;
+  type: RecallKnowledgeType;
+  score: number;
+  summary: string;
+}
+
+/** Default cosine-similarity threshold at/above which an insert is flagged as a likely duplicate. */
+export const DEFAULT_DUPE_THRESHOLD = 0.92;
+const DEFAULT_DUPE_TOPK = 3;
+
+/** Options controlling the optional insert-time duplicate check on remember/upsertEntity. */
+export interface DupeCheckOpts {
+  checkDuplicates?: boolean;
+  dupeThreshold?: number;
+  dupeTopK?: number;
+}
+
+/** One-line human summary of a recall result, for duplicate feedback. */
+function summariseRecall(r: RecallResult): string {
+  switch (r.type) {
+    case 'memory': return r.fact.length > 120 ? `${r.fact.slice(0, 117)}…` : r.fact;
+    case 'entity': return `${r.name} (${r.entityType})`;
+    case 'edge': return `${r.from} → ${r.label} → ${r.to}`;
+    case 'chrono': return r.title;
+    case 'file': return r.path;
+  }
+}
+
+/**
+ * Insert-time near-duplicate check: run an ANN vector search with a freshly
+ * computed embedding and return existing records of the same type scoring at or
+ * above `threshold`. Best-effort — returns `[]` (never throws) when vector
+ * search is unavailable, the space needs reindexing, or the search fails, so it
+ * can never block a write. Passes no tags/filter, keeping the search on the fast
+ * ANN path. Supply `excludeId` to drop a self-match when called post-insert.
+ */
+export async function checkDuplicates(
+  spaceId: string,
+  type: RecallKnowledgeType,
+  vector: number[],
+  threshold = DEFAULT_DUPE_THRESHOLD,
+  topK = DEFAULT_DUPE_TOPK,
+  excludeId?: string,
+): Promise<SimilarMatch[]> {
+  if (!vector || vector.length === 0) return [];
+  if (!isVectorSearchAvailable() || needsReindex(spaceId)) return [];
+  try {
+    const hits = await recallByType(spaceId, type, vector, topK);
+    return hits
+      .filter(h => h._id !== excludeId && (h.score ?? 0) >= threshold)
+      .map(h => ({ _id: h._id, type: h.type, score: h.score, summary: summariseRecall(h) }));
+  } catch {
+    return [];
+  }
 }
 
 /** Maps knowledge types to their MongoDB collection suffixes. */

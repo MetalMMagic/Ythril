@@ -5323,6 +5323,21 @@ Content-Type: application/json
 }
 ```
 
+### Duplicate Detection on Insert
+
+The `remember` and `upsert_entity` tools run a **semantic near-duplicate check** before storing, using the same embedding the new record is stored with — so it costs one extra ANN vector search, not a re-embed. When a highly similar record already exists, the tool's response flags it (id, a short summary, and the cosine score) so an agent can update or merge the existing record instead of accumulating redundant ones:
+
+```text
+Stored memory (seq 1284, ID 7f3c…).
+⚠️ Possible duplicate — 1 existing memory is highly similar: "The Vault service stores secrets and rotates auth tokens" (ID 9a1b…, 0.97). This memory was still stored; pass checkDuplicates:false to skip this check, or update the existing one instead.
+```
+
+- **The write always succeeds** — the check is advisory, never blocking. It also never fails an insert: if vector search is unavailable or the space needs reindexing, the check is silently skipped.
+- **Default on** for both tools. Pass `checkDuplicates: false` to skip it, or `dupeThreshold` (0–1, default ~0.92) to tune sensitivity — lower flags looser matches.
+- For `upsert_entity` the check fires only on a **new insert** (no `id`, or an `id` that does not yet exist), not on updates.
+- Because `$vectorSearch` has indexing latency, a record inserted moments earlier may not yet be visible to the check — duplicates are detected against the already-indexed corpus.
+- Not applied by `bulk_write` (it would add a search per item); use single-item `remember`/`upsert_entity` when you want duplicate feedback.
+
 ### Example: recall
 
 ```json

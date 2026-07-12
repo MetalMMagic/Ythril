@@ -194,6 +194,8 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
             additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
           },
           targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+          checkDuplicates: { type: 'boolean', description: 'Run a semantic near-duplicate check before storing (default true). When a highly similar memory already exists, the response flags it (id + summary + score) so you can update it instead of creating a redundant one. The memory is still stored regardless. Set false to skip the check.' },
+          dupeThreshold: { type: 'number', description: 'Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.' },
         },
         required: ['space', 'fact'],
       },
@@ -399,6 +401,8 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
             additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
           },
           targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+          checkDuplicates: { type: 'boolean', description: 'On a NEW entity insert (no id / unknown id), run a semantic near-duplicate check first (default true). Flags highly similar existing entities (id + summary + score) so you can merge or update instead of creating a duplicate. Does not fire on updates. Set false to skip.' },
+          dupeThreshold: { type: 'number', description: 'Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.' },
         },
         required: ['space', 'name', 'type'],
       },
@@ -955,8 +959,15 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
           }
 
           const resolvedNames = entityNames.filter(n => !unresolvedNames.includes(n));
-          const mem = await remember(ts, fact, entityIds, tags, description, props, resolvedNames);
+          // Insert-time duplicate check defaults ON for the interactive remember tool.
+          const remDupeCheck = a['checkDuplicates'] !== false;
+          const remDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
+          const mem = await remember(ts, fact, entityIds, tags, description, props, resolvedNames, undefined,
+            { checkDuplicates: remDupeCheck, dupeThreshold: remDupeThreshold });
           const warnings: string[] = [];
+          if (mem.similar && mem.similar.length > 0) {
+            warnings.push(`⚠️ Possible duplicate — ${mem.similar.length} existing memor${mem.similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${mem.similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. This memory was still stored; pass checkDuplicates:false to skip this check, or update the existing one instead.`);
+          }
           if (unresolvedNames.length > 0) {
             warnings.push(`⚠️ Unresolved entity names (not linked — create them first): ${unresolvedNames.map(n => `'${n}'`).join(', ')}`);
           }
@@ -1359,8 +1370,16 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
             return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(entSchemaViolations, null, 2)}` }], isError: true };
           }
 
-          const { entity, warning } = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId);
+          // Insert-time duplicate check defaults ON for the interactive upsert tool
+          // (only fires on inserts, not updates — see upsertEntity).
+          const entDupeCheck = a['checkDuplicates'] !== false;
+          const entDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
+          const { entity, warning, similar } = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId,
+            { checkDuplicates: entDupeCheck, dupeThreshold: entDupeThreshold });
           let msg = `Entity '${entity.name}' (${entity.type}) upserted (ID ${entity._id}).${warning ? `\n⚠️ ${warning}` : ''}`;
+          if (similar && similar.length > 0) {
+            msg += `\n⚠️ Possible duplicate — ${similar.length} existing entit${similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. Pass checkDuplicates:false to skip, or provide the existing id to update it instead.`;
+          }
           // Schema warnings (reuse violations from pre-write check)
           if (entMeta?.validationMode === 'warn') {
             for (const v of entSchemaViolations) msg += `\n⚠️ Schema: ${v.field} — ${v.reason}`;

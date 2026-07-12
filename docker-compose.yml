@@ -103,9 +103,10 @@
     volumes:
       - ythril-whisper-cache:/root/.cache
     healthcheck:
-      # faster-whisper-server is python-based; use the bundled python rather
-      # than relying on curl/wget being present in the slim base image.
-      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8000/health',timeout=3).read() or sys.exit(1)"]
+      # faster-whisper-server is python-based; use the bundled interpreter rather
+      # than relying on curl/wget being present in the slim base image. The image
+      # exposes `python3` (not a bare `python`), so probe with that.
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8000/health',timeout=3).read() or sys.exit(1)"]
       interval: 15s
       timeout: 5s
       retries: 3

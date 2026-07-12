@@ -107,6 +107,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the migration. Covered by `testing/integration/auth.test.js`.
 ### Added
 
+- **`prefers-reduced-motion` support (spinner-aware)** — when the OS "reduce motion" setting is on, a
+  global rule collapses decorative animations and transitions for users with vestibular sensitivity.
+  The loading spinner is deliberately exempted so it keeps rotating — it is informative motion, and
+  freezing it mid-spin reads as broken rather than calmer.
 - **Per-route browser tab titles** — every page now sets a localized `<Page> · Ythril` title via a
   Transloco-aware `TitleStrategy`, so tabs, history entries, and bookmarks are distinguishable instead
   of all reading "Ythril".

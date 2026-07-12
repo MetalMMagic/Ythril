@@ -365,6 +365,13 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     }
   }
 
+  // Duplicate rules are local (never governed) — apply them now, so they are
+  // not silently dropped when a meta change on the same request opens a
+  // network vote and returns 202 below.
+  if (parsed.data.dupeRules !== undefined || parsed.data.dupeMergeSurvivor !== undefined) {
+    updateSpace(id, { dupeRules: parsed.data.dupeRules, dupeMergeSurvivor: parsed.data.dupeMergeSurvivor });
+  }
+
   // Merge the incoming meta with the existing meta so that PATCH has true
   // RFC-7396 semantics: scalar fields overwrite, typeSchemas entries are
   // added/updated, and types *not* mentioned in the body are preserved.

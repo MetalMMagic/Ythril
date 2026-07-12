@@ -965,5 +965,11 @@
   "duplicates.merge": "Merge",
   "duplicates.dismiss": "Dismiss",
   "duplicates.confirmMerge": "Merge these two entities? The older record is kept and the other is absorbed. This cannot be undone.",
-  "duplicates.mergeError": "Merge failed."
+  "duplicates.mergeError": "Merge failed.",
+  "spaces.dupe.automergeWarning": "Auto-merge permanently absorbs one record of each matching entity pair with no review, choosing the survivor by the Merge survivor setting above. Use a high threshold and be sure your rules are correct.",
+  "spaces.dupe.automergeConfirm": "This space has an auto-merge rule. Matching entity pairs will be merged automatically and unattended, permanently absorbing one record of each pair. Save these rules?",
+  "spaces.dupe.invalidUrl": "A notify rule has an invalid webhook URL.",
+  "spaces.dupe.saveError": "Failed to save rules.",
+  "duplicates.scanForbidden": "You do not have permission to run a scan (admin only).",
+  "duplicates.dismissError": "Could not dismiss this candidate."
 }

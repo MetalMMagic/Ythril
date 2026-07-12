@@ -595,6 +595,13 @@ interface TypeSchemaState {
                   <ph-icon name="plus" [size]="14"/> {{ 'spaces.dupe.addRule' | transloco }}
                 </button>
 
+                @if (hasAutomergeRule()) {
+                  <div class="alert alert-warning" style="margin-top:16px;display:flex;gap:8px;align-items:flex-start;">
+                    <ph-icon name="warning" [size]="18"/>
+                    <span>{{ 'spaces.dupe.automergeWarning' | transloco }}</span>
+                  </div>
+                }
+
                 @if (dupeError()) { <div class="alert alert-error" style="margin-top:12px;">{{ dupeError() }}</div> }
 
                 <div style="margin-top:20px;display:flex;gap:8px;align-items:center;">
@@ -1057,9 +1064,22 @@ export class SpacesComponent implements OnInit {
     this.dupeSaved.set(false);
   }
 
+  hasAutomergeRule(): boolean {
+    return this.dupeRulesState.some(r => r.action === 'automerge');
+  }
+
   saveDupeRules(): void {
     const target = this.settingsSpace();
     if (!target) return;
+    // Validate notify override URLs client-side (the field is not inside a <form>).
+    for (const r of this.dupeRulesState) {
+      if (r.action === 'notify' && r.webhookUrl?.trim()) {
+        try { new URL(r.webhookUrl.trim()); }
+        catch { this.dupeError.set(this.transloco.translate('spaces.dupe.invalidUrl')); return; }
+      }
+    }
+    // Auto-merge is destructive and unattended — confirm before enabling it.
+    if (this.hasAutomergeRule() && !confirm(this.transloco.translate('spaces.dupe.automergeConfirm'))) return;
     // Normalise: clamp scores, drop empty override URLs.
     const rules: DupeActionRule[] = this.dupeRulesState.map(r => ({
       minScore: Math.min(Math.max(Number(r.minScore) || 0, 0), 1),
@@ -1078,7 +1098,7 @@ export class SpacesComponent implements OnInit {
         this.settingsSpace.set(space);
         this.spaces.update(list => list.map(x => x.id === space.id ? space : x));
       },
-      error: (e) => { this.dupeSaving.set(false); this.dupeError.set(e?.error?.error || 'Failed to save rules'); },
+      error: (e) => { this.dupeSaving.set(false); this.dupeError.set(e?.error?.error || this.transloco.translate('spaces.dupe.saveError')); },
     });
   }
 

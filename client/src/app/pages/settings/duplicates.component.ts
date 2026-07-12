@@ -113,7 +113,10 @@ export class DuplicatesComponent implements OnInit {
     this.scanning.set(true);
     this.api.scanDuplicates().subscribe({
       next: () => { this.scanning.set(false); this.load(); },
-      error: () => { this.scanning.set(false); alert(this.transloco.translate('duplicates.scanError')); },
+      error: (e) => {
+        this.scanning.set(false);
+        alert(this.transloco.translate(e?.status === 403 ? 'duplicates.scanForbidden' : 'duplicates.scanError'));
+      },
     });
   }
 
@@ -121,7 +124,7 @@ export class DuplicatesComponent implements OnInit {
     this.busy.set(d.id);
     this.api.dismissDuplicate(d.id).subscribe({
       next: () => { this.rows.update(list => this.statusFilter === 'open' ? list.filter(x => x.id !== d.id) : list.map(x => x.id === d.id ? { ...x, status: 'dismissed' } : x)); this.busy.set(null); },
-      error: () => this.busy.set(null),
+      error: (e) => { this.busy.set(null); alert(e?.error?.error || this.transloco.translate('duplicates.dismissError')); },
     });
   }
 

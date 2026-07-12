@@ -54,6 +54,12 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.min(Math.max(n, lo), hi);
 }
 
+/** Canonical, collision-resistant candidate key. Length-prefixing aId disambiguates
+ *  ids that themselves contain the ':' separator. */
+function pairKey(type: DupeScanType, aId: string, bId: string): string {
+  return `${type}:${aId.length}:${aId}:${bId}`;
+}
+
 // ── Cursor state ─────────────────────────────────────────────────────────────
 
 async function getCursor(spaceId: string, type: DupeScanType): Promise<number> {
@@ -86,7 +92,7 @@ async function upsertCandidate(
   aSeq: number, bSeq: number, score: number,
   status: DupeCandidateDoc['status'], resolution?: DupeCandidateDoc['resolution'],
 ): Promise<void> {
-  const _id = `${type}:${a._id}:${b._id}`;
+  const _id = pairKey(type, a._id, b._id);
   const now = new Date().toISOString();
   await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).updateOne(
     mFilter<DupeCandidateDoc>({ _id }),
@@ -156,7 +162,7 @@ async function handlePair(spaceId: string, type: DupeScanType, seed: RecallResul
   const [a, b] = seed._id < match._id ? [seed, match] : [match, seed];
   const aSeq = a.seq ?? 0;
   const bSeq = b.seq ?? 0;
-  const _id = `${type}:${a._id}:${b._id}`;
+  const _id = pairKey(type, a._id, b._id);
 
   const existing = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).findOne(mFilter<DupeCandidateDoc>({ _id }));
   if (existing) {
@@ -222,7 +228,9 @@ export async function scanSpace(spaceId: string, opts?: { reset?: boolean }): Pr
     while (scanned < maxPerRun) {
       const take = Math.min(batchSize, maxPerRun - scanned);
       const batch = await col<{ _id: string; seq?: number }>(coll)
-        .find(mFilter<{ _id: string; seq?: number }>({ seq: { $gt: cursor } }), { projection: { _id: 1, seq: 1 } })
+        // spaceId pins the leading field of the {spaceId,seq} index so this is an
+        // indexed range scan + sorted output, not a collection scan + blocking sort.
+        .find(mFilter<{ _id: string; seq?: number }>({ spaceId, seq: { $gt: cursor } }), { projection: { _id: 1, seq: 1 } })
         .sort({ seq: 1 })
         .limit(take)
         .toArray();

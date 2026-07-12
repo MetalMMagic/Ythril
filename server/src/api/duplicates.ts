@@ -9,7 +9,7 @@
  */
 
 import { Router } from 'express';
-import { requireAuth, requireAdmin, denyReadOnly } from '../auth/middleware.js';
+import { requireAuth, requireAdminMfa, denyReadOnly } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { col, mFilter, mUpdate } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
@@ -70,7 +70,8 @@ duplicatesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
 
     const results: DupeCandidateDoc[] = [];
     for (const spaceId of spaces) {
-      const q = status === 'all' ? {} : { status };
+      // spaceId pins the leading index field; status matches the {spaceId,status,score,detectedAt} index.
+      const q = status === 'all' ? { spaceId } : { spaceId, status };
       const docs = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`)
         .find(mFilter<DupeCandidateDoc>(q))
         .sort({ score: -1, detectedAt: -1 })
@@ -79,7 +80,8 @@ duplicatesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
       results.push(...docs);
     }
     results.sort((a, b) => (b.score - a.score) || b.detectedAt.localeCompare(a.detectedAt));
-    res.json({ duplicates: results.map(toRecord) });
+    // Cap the merged cross-space result so a many-space token can't materialise 500×spaces rows.
+    res.json({ duplicates: results.slice(0, 500).map(toRecord) });
   } catch (err) {
     log.error(`GET /api/duplicates: ${err}`);
     res.status(500).json({ error: 'Internal error' });
@@ -143,14 +145,18 @@ duplicatesRouter.post('/:id/merge', globalRateLimit, requireAuth, denyReadOnly, 
 
 // POST /api/duplicates/scan?space=<id> — trigger an on-demand full re-scan.
 // Admin + non-read-only: it is write-heavy (populates the candidates collection).
-duplicatesRouter.post('/scan', globalRateLimit, requireAdmin, denyReadOnly, async (req, res) => {
+duplicatesRouter.post('/scan', globalRateLimit, requireAdminMfa, denyReadOnly, async (req, res) => {
   try {
     const spaceFilter = typeof req.query['space'] === 'string' ? req.query['space'] : undefined;
     const cfg = getConfig();
-    const targets = (spaceFilter ? cfg.spaces.filter(s => s.id === spaceFilter) : cfg.spaces)
-      .filter(s => !s.proxyFor)
+    // Intersect with the token's space allowlist — a space-restricted admin must
+    // not be able to trigger destructive rules (automerge/notify) on spaces it
+    // cannot access.
+    const allowed = new Set(accessibleSpaces(req.authToken?.spaces));
+    const targets = cfg.spaces
+      .filter(s => !s.proxyFor && allowed.has(s.id) && (!spaceFilter || s.id === spaceFilter))
       .map(s => s.id);
-    if (spaceFilter && targets.length === 0) { res.status(404).json({ error: `Space '${spaceFilter}' not found` }); return; }
+    if (spaceFilter && targets.length === 0) { res.status(404).json({ error: `Space '${spaceFilter}' not found or not accessible` }); return; }
 
     let scanned = 0;
     let pairs = 0;

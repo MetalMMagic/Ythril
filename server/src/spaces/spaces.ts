@@ -103,7 +103,8 @@ export async function initSpace(spaceId: string): Promise<void> {
   await tombstonesColl.createIndex({ spaceId: 1, seq: 1 });
   await db.collection(`${spaceId}_conflicts`).createIndex({ spaceId: 1, detectedAt: -1 });
   const dupeColl = db.collection(`${spaceId}_dupe_candidates`);
-  await dupeColl.createIndex({ spaceId: 1, status: 1, detectedAt: -1 });
+  // Serves the list query: equality on (spaceId, status) + sort by (score desc, detectedAt desc).
+  await dupeColl.createIndex({ spaceId: 1, status: 1, score: -1, detectedAt: -1 });
   const filesColl = db.collection(`${spaceId}_files`);
   await filesColl.createIndex({ spaceId: 1, tags: 1 });
   await filesColl.createIndex({ spaceId: 1, updatedAt: -1 });

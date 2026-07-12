@@ -547,7 +547,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
             <div class="sch-sub">{{ 'spaces.schema.tagSuggestions' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.tagSuggestionsHint' | transloco }}</span></div>
             <div class="chip-wrap" (click)="tagChipInput?.focus()">
               @for (tag of form.schemaState.tagSuggestions; track tag) {
-                <span class="chip">{{ tag }} <button class="chip-rm" type="button" (mousedown)="removeTag(tag)">×</button></span>
+                <span class="chip">{{ tag }} <button class="chip-rm" type="button" (mousedown)="removeTag(tag)"><ph-icon name="x" [size]="12"/></button></span>
               }
               <input #tagChipInput class="chip-field" [(ngModel)]="form.schemaState._newTagInput"
                      [placeholder]="form.schemaState.tagSuggestions.length ? '' : ('spaces.schema.addTagPlaceholder' | transloco)"

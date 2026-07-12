@@ -1,17 +1,18 @@
 import { Component, Input, Output, EventEmitter, signal, computed, ElementRef, ViewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
+import { PhIconComponent } from './ph-icon.component';
 
 @Component({
   selector: 'app-tag-input',
   standalone: true,
-  imports: [FormsModule, TranslocoPipe],
+  imports: [FormsModule, TranslocoPipe, PhIconComponent],
   template: `
     <div class="tag-input-wrap" (click)="focusInput()">
       @for (tag of value; track tag) {
         <span class="tag-pill">
           {{ tag }}
-          <button type="button" class="tag-remove" (click)="remove(tag); $event.stopPropagation()" [attr.aria-label]="'tagInput.removeAriaLabel' | transloco">×</button>
+          <button type="button" class="tag-remove" (click)="remove(tag); $event.stopPropagation()" [attr.aria-label]="'tagInput.removeAriaLabel' | transloco"><ph-icon name="x" [size]="12"/></button>
         </span>
       }
       <div class="tag-input-inner" style="position:relative; flex:1; min-width:80px;">

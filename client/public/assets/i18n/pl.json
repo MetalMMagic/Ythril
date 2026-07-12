@@ -974,5 +974,7 @@
   "duplicates.merge": "Scal",
   "duplicates.dismiss": "Odrzu\u0107",
   "duplicates.confirmMerge": "Scali\u0107 te dwie encje? Starszy rekord zostanie zachowany, a drugi wch\u0142oni\u0119ty. Tej operacji nie mo\u017cna cofn\u0105\u0107.",
-  "duplicates.mergeError": "Scalanie nie powiod\u0142o si\u0119."
+  "duplicates.mergeError": "Scalanie nie powiod\u0142o si\u0119.",
+  "titles.models": "Modele",
+  "titles.setup": "Konfiguracja"
 }

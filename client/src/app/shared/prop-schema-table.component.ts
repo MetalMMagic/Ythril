@@ -2,6 +2,7 @@ import { Component, Input, Output, EventEmitter, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PropertySchema } from '../core/api.service';
+import { PhIconComponent } from './ph-icon.component';
 
 export interface PropSchemaRow {
   key: string;
@@ -12,7 +13,7 @@ export interface PropSchemaRow {
 @Component({
   selector: 'app-prop-schema-table',
   standalone: true,
-  imports: [FormsModule, TranslocoPipe],
+  imports: [FormsModule, TranslocoPipe, PhIconComponent],
   styles: [`
     .prop-table { width:100%; border-collapse:collapse; font-size:13px; }
     .prop-table th { text-align:left; font-size:11px; font-weight:600; color:var(--text-muted); padding:5px 8px; border-bottom:1px solid var(--border); }
@@ -66,7 +67,7 @@ export interface PropSchemaRow {
               </td>
               <td>
                 <div style="display:flex;gap:4px;justify-content:flex-end;">
-                  <button class="icon-btn danger" type="button" (click)="removeRow(p.key); $event.stopPropagation()" [attr.title]="'common.remove' | transloco">✕</button>
+                  <button class="icon-btn danger" type="button" (click)="removeRow(p.key); $event.stopPropagation()" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
                 </div>
               </td>
             </tr>
@@ -122,7 +123,7 @@ export interface PropSchemaRow {
                           <label>{{ 'spaces.schema.propDetail.enumValues' | transloco }} <span style="font-size:11px;font-weight:normal;color:var(--text-muted);">{{ 'spaces.schema.propDetail.enumHint' | transloco }}</span></label>
                           <div class="chip-wrap">
                             @for (ev of (p.s.enum ?? []); track ev) {
-                              <span class="chip">{{ ev }}<button type="button" class="chip-rm" (click)="removeEnumVal(p, ev)">×</button></span>
+                              <span class="chip">{{ ev }}<button type="button" class="chip-rm" (click)="removeEnumVal(p, ev)"><ph-icon name="x" [size]="12"/></button></span>
                             }
                             <input type="text" class="chip-field" [(ngModel)]="p._enumInput"
                               [placeholder]="'spaces.schema.propDetail.enumPlaceholder' | transloco"

@@ -2,6 +2,7 @@ import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { PropertySchema } from '../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
+import { PhIconComponent } from './ph-icon.component';
 
 interface PropRow {
   key: string;
@@ -12,7 +13,7 @@ interface PropRow {
 @Component({
   selector: 'app-properties-editor',
   standalone: true,
-  imports: [FormsModule, TranslocoPipe],
+  imports: [FormsModule, TranslocoPipe, PhIconComponent],
   template: `
     <div class="prop-editor">
       @for (row of rows; track $index; let i = $index) {
@@ -43,7 +44,7 @@ interface PropRow {
               [placeholder]="'propertiesEditor.valuePlaceholder' | transloco" [name]="'propVal' + i" (ngModelChange)="emit()" />
           }
           @if (row.removable) {
-            <button type="button" class="prop-remove" [attr.title]="'propertiesEditor.removeTitle' | transloco" (click)="removeRow(i)">×</button>
+            <button type="button" class="prop-remove" [attr.title]="'propertiesEditor.removeTitle' | transloco" (click)="removeRow(i)"><ph-icon name="x" [size]="14"/></button>
           } @else {
             <span class="prop-req">{{ 'propertiesEditor.requiredBadge' | transloco }}</span>
           }

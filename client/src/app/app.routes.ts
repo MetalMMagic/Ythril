@@ -7,12 +7,14 @@ export const routes: Routes = [
   // Public routes
   {
     path: 'setup',
+    title: 'titles.setup',
     canActivate: [setupGuard],
     loadComponent: () =>
       import('./pages/setup/setup.component').then(m => m.SetupComponent),
   },
   {
     path: 'login',
+    title: 'login.signIn',
     loadComponent: () =>
       import('./pages/login/login.component').then(m => m.LoginComponent),
   },
@@ -35,16 +37,19 @@ export const routes: Routes = [
       { path: '', redirectTo: 'brain', pathMatch: 'full' },
       {
         path: 'brain',
+        title: 'nav.brain',
         loadComponent: () =>
           import('./pages/brain/brain.component').then(m => m.BrainComponent),
       },
       {
         path: 'files/conflicts',
+        title: 'nav.conflicts',
         loadComponent: () =>
           import('./pages/files/conflicts.component').then(m => m.ConflictsComponent),
       },
       {
         path: 'schema-library',
+        title: 'nav.schemaLibrary',
         loadComponent: () =>
           import('./pages/schema-library/schema-library.component').then(m => m.SchemaLibraryComponent),
       },
@@ -56,51 +61,61 @@ export const routes: Routes = [
           { path: '', redirectTo: 'tokens', pathMatch: 'full' },
           {
             path: 'preferences',
+            title: 'nav.settings',
             loadComponent: () =>
               import('./pages/settings/preferences.component').then(m => m.PreferencesComponent),
           },
           {
             path: 'tokens',
+            title: 'nav.tokens',
             loadComponent: () =>
               import('./pages/settings/tokens.component').then(m => m.TokensComponent),
           },
           {
             path: 'spaces',
+            title: 'nav.spaces',
             loadComponent: () =>
               import('./pages/settings/spaces.component').then(m => m.SpacesComponent),
           },
           {
             path: 'storage',
+            title: 'nav.metrics',
             loadComponent: () =>
               import('./pages/settings/storage.component').then(m => m.StorageComponent),
           },
           {
             path: 'networks',
+            title: 'nav.networks',
             loadComponent: () =>
               import('./pages/settings/networks.component').then(m => m.NetworksComponent),
           },
           {
             path: 'audit-log',
+            title: 'nav.logs',
             loadComponent: () =>
               import('./pages/settings/audit-log.component').then(m => m.AuditLogComponent),
           },
           {
             path: 'data',
+            title: 'nav.data',
             loadComponent: () =>
               import('./pages/settings/data.component').then(m => m.DataComponent),
           },
           {
             path: 'about',
+            title: 'nav.about',
             loadComponent: () =>
               import('./pages/settings/about.component').then(m => m.AboutComponent),
           },
           {
             path: 'models',
+            title: 'titles.models',
             loadComponent: () =>
               import('./pages/settings/models.component').then(m => m.ModelsComponent),
           },
           {
             path: 'duplicates',
+            title: 'nav.duplicates',
             loadComponent: () =>
               import('./pages/settings/duplicates.component').then(m => m.DuplicatesComponent),
           },

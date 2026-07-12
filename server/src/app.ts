@@ -8,6 +8,7 @@ import { brainRouter } from './api/brain.js';
 import { spacesRouter } from './api/spaces.js';
 import { filesRouter } from './api/files.js';
 import { conflictsRouter } from './api/conflicts.js';
+import { duplicatesRouter } from './api/duplicates.js';
 import { syncRouter } from './api/sync.js';
 import { networksRouter } from './api/networks.js';
 import { notifyRouter } from './api/notify.js';
@@ -174,6 +175,7 @@ export function createApp() {
   app.use('/api/spaces', spacesRouter);
   app.use('/api/files', filesRouter);
   app.use('/api/conflicts', conflictsRouter);
+  app.use('/api/duplicates', duplicatesRouter);
   app.use('/api/sync', syncRouter);
   app.use('/api/networks', networksRouter);
   app.use('/api/notify', notifyRouter);

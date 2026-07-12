@@ -184,6 +184,15 @@ export interface SpaceConfig {
   description?: string; // shown to MCP clients as space-level instructions
   proxyFor?: string[];  // virtual proxy space — aggregates reads, routes writes to member spaces
   meta?: SpaceMeta;     // structured schema and metadata — all fields optional
+  /** Local duplicate-action policy (not governed/synced — operational, per-instance).
+   *  Rules are evaluated highest-minScore first; the first match decides the action. */
+  dupeRules?: DupeActionRule[];
+  /** Which record survives an automerge. Default 'older' (lower seq). */
+  dupeMergeSurvivor?: 'older' | 'newer';
+  /** Also evaluate dupeRules in real time when a record is inserted, not only on
+   *  the scheduled scan. Default false (scan-time only). Applies to all inserts,
+   *  including bulk. */
+  dupeRulesOnInsert?: boolean;
 }
 
 export interface EmbeddingConfig {
@@ -562,6 +571,57 @@ export interface AuditConfig {
   retentionDays?: number;
 }
 
+/** Knowledge types the background duplicate scanner can sweep (same values as RecallKnowledgeType). */
+export type DupeScanType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
+
+/**
+ * Optional background semantic-duplicate scanner. Off by default (opt-in). When
+ * enabled, a cron-scheduled sweep walks each space by `seq` (so it covers every
+ * record — including those inserted with the interactive checkDuplicates turned
+ * off — and re-scans edited records, since updates advance `seq`), finds
+ * near-duplicate pairs via stored embeddings, and records them as reviewable
+ * candidates. It never modifies data — consolidation is a separate manual action.
+ */
+export interface DupeScannerConfig {
+  /** Master switch. Default: false. */
+  enabled?: boolean;
+  /** Cron schedule for the nightly sweep. Default: '0 3 * * *' (03:00 daily). */
+  schedule?: string;
+  /** Cosine-similarity threshold at/above which a pair is recorded. Default: 0.92. */
+  threshold?: number;
+  /** Records fetched per DB batch during a sweep. Default: 200. */
+  batchSize?: number;
+  /** Max records scanned per space per run (bounds resource use; the rest is picked up next run). Default: 5000. */
+  maxPerRun?: number;
+  /** Knowledge types to scan. Default: ['memory', 'entity']. */
+  types?: DupeScanType[];
+}
+
+/**
+ * A per-space duplicate-action rule. When the scanner finds a pair whose score
+ * is at or above `minScore` (and whose type is in `types`, if set), the rule's
+ * `action` decides what happens. Rules are evaluated highest-`minScore` first;
+ * the first match wins; no match falls back to `flag`.
+ */
+export interface DupeActionRule {
+  /** Apply this rule when the pair's cosine score is ≥ this. */
+  minScore: number;
+  /**
+   * - `flag`     — record a reviewable candidate (default, non-destructive).
+   * - `automerge`— entities only: merge losslessly when there is no value
+   *                conflict, else fall back to `flag`. Uses the existing entity merge.
+   * - `notify`   — emit a `duplicate.detected` webhook (both records + score).
+   */
+  action: 'flag' | 'automerge' | 'notify';
+  /** Restrict this rule to these knowledge types (default: any scanned type). */
+  types?: DupeScanType[];
+  /**
+   * `notify` only: POST directly to this URL (SSRF-validated) instead of the
+   * webhook-subscription system. Omit to use subscriptions (the default).
+   */
+  webhookUrl?: string;
+}
+
 export interface AuditLogEntry {
   _id: string;
   timestamp: string;       // ISO8601
@@ -623,6 +683,8 @@ export interface Config {
   };
   /** Optional audit log configuration. */
   audit?: AuditConfig;
+  /** Optional background semantic-duplicate scanner. Off by default. */
+  dupeScanner?: DupeScannerConfig;
   /** Dynamically-registered OAuth clients (RFC 7591) for the MCP browser
    *  authorization flow. Populated automatically when a client registers; not
    *  meant to be hand-edited. See mcp/oauth.ts. */
@@ -880,6 +942,43 @@ export interface LinkViolationDoc {
 export interface SpaceCounterDoc {
   _id: string;  // spaceId
   seq: number;
+}
+
+/**
+ * A semantically-duplicate pair recorded by the background scanner, stored in
+ * `${spaceId}_dupe_candidates`. The `_id` is a canonical pair key so the same
+ * pair is only ever recorded once regardless of which member is scanned first.
+ */
+export interface DupeCandidateDoc {
+  _id: string;            // canonical `${type}:${aId}:${bId}` with aId < bId
+  spaceId: string;
+  type: DupeScanType;
+  aId: string;            // lexicographically smaller record id
+  aSummary: string;       // short human summary of record a
+  aSeq: number;           // record a's seq at last detection (change → re-detect)
+  bId: string;            // lexicographically larger record id
+  bSummary: string;       // short human summary of record b
+  bSeq: number;           // record b's seq at last detection
+  score: number;          // cosine similarity at last detection
+  /** open = awaiting review; dismissed = reviewed/not-a-dup; resolved = auto-actioned (merged/notified). */
+  status: 'open' | 'dismissed' | 'resolved';
+  /** How a resolved candidate was actioned (present only when status = 'resolved'). */
+  resolution?: 'merged' | 'notified';
+  detectedAt: string;     // ISO8601 — first detection
+  updatedAt: string;      // ISO8601 — last re-detection
+}
+
+/**
+ * Per-(space, type) scan cursor for the duplicate scanner, stored in the global
+ * `ythril_dupe_scan_state` collection. `cursorSeq` is the highest `seq` already
+ * swept — the next run scans records with a greater `seq` (new or edited).
+ */
+export interface DupeScanStateDoc {
+  _id: string;            // `${spaceId}:${type}`
+  spaceId: string;
+  type: DupeScanType;
+  cursorSeq: number;
+  updatedAt: string;      // ISO8601
 }
 
 /**

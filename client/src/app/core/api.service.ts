@@ -15,6 +15,9 @@ export interface Space {
   description?: string;
   proxyFor?: string[];
   meta?: SpaceMeta;
+  dupeRules?: DupeActionRule[];
+  dupeMergeSurvivor?: 'older' | 'newer';
+  dupeRulesOnInsert?: boolean;
 }
 
 export type ValidationMode = 'off' | 'warn' | 'strict';
@@ -327,6 +330,28 @@ export interface ConflictRecord {
   peerInstanceLabel: string;
 }
 
+export interface DupeActionRule {
+  minScore: number;
+  action: 'flag' | 'automerge' | 'notify';
+  types?: string[];
+  webhookUrl?: string;
+}
+
+export interface DuplicateRecord {
+  id: string;
+  spaceId: string;
+  type: string;
+  aId: string;
+  aSummary: string;
+  bId: string;
+  bSummary: string;
+  score: number;
+  status: 'open' | 'dismissed' | 'resolved';
+  resolution?: 'merged' | 'notified';
+  detectedAt: string;
+  updatedAt: string;
+}
+
 export interface SyncHistoryRecord {
   _id: string;
   networkId: string;
@@ -522,7 +547,7 @@ export class ApiService {
     return this.http.post<{ space: Space }>('/api/spaces', body);
   }
 
-  updateSpace(id: string, body: { label?: string; description?: string; maxGiB?: number | null; meta?: Partial<SpaceMeta> }): Observable<{ space: Space }> {
+  updateSpace(id: string, body: { label?: string; description?: string; maxGiB?: number | null; meta?: Partial<SpaceMeta>; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean }): Observable<{ space: Space }> {
     return this.http.patch<{ space: Space }>(`/api/spaces/${id}`, body);
   }
 
@@ -918,6 +943,26 @@ export class ApiService {
 
   dismissConflict(id: string): Observable<void> {
     return this.http.delete<void>(`/api/conflicts/${id}`);
+  }
+
+  // ── Duplicate candidates ──────────────────────────────────────────────────
+
+  listDuplicates(status: 'open' | 'dismissed' | 'all' = 'open', space?: string): Observable<{ duplicates: DuplicateRecord[] }> {
+    const params = new URLSearchParams({ status });
+    if (space) params.set('space', space);
+    return this.http.get<{ duplicates: DuplicateRecord[] }>(`/api/duplicates?${params.toString()}`);
+  }
+
+  dismissDuplicate(id: string): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(`/api/duplicates/${encodeURIComponent(id)}/dismiss`, {});
+  }
+
+  mergeDuplicate(id: string): Observable<{ status: string; survivorId?: string }> {
+    return this.http.post<{ status: string; survivorId?: string }>(`/api/duplicates/${encodeURIComponent(id)}/merge`, {});
+  }
+
+  scanDuplicates(space?: string): Observable<{ scannedSpaces: number; scanned: number; pairs: number }> {
+    return this.http.post<{ scannedSpaces: number; scanned: number; pairs: number }>(`/api/duplicates/scan${space ? `?space=${encodeURIComponent(space)}` : ''}`, {});
   }
 
   // ── Networks ──────────────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import { finalize, timeout, TimeoutError } from 'rxjs';
 import {
   ApiService, Network, Space, SpaceMeta, SpaceStats,
   KnowledgeType, PropertySchema, TypeSchema, ValidationMode, SchemaLibraryEntry,
+  DupeActionRule,
 } from '../../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
@@ -206,6 +207,7 @@ interface TypeSchemaState {
           <div class="sp-tabs">
             <button class="sp-tab" [class.active]="settingsTab()==='settings'" (click)="settingsTab.set('settings')">{{ 'spaces.popup.tab.settings' | transloco }}</button>
             <button class="sp-tab" [class.active]="settingsTab()==='schema'"   (click)="settingsTab.set('schema')">{{ 'spaces.popup.tab.schema' | transloco }}</button>
+            <button class="sp-tab" [class.active]="settingsTab()==='duplicates'" (click)="settingsTab.set('duplicates')">{{ 'spaces.popup.tab.duplicates' | transloco }}</button>
             <button class="sp-tab danger-tab" [class.active]="settingsTab()==='danger'" (click)="settingsTab.set('danger')">{{ 'spaces.popup.tab.dangerZone' | transloco }}</button>
           </div>
           <div class="sp-body">
@@ -548,6 +550,75 @@ interface TypeSchemaState {
               </ng-template>
             }
 
+            <!-- DUPLICATES TAB -->
+            @if (settingsTab() === 'duplicates') {
+              <div style="max-width:760px;">
+                <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px;">{{ 'spaces.dupe.intro' | transloco }}</p>
+
+                <div class="field">
+                  <label>{{ 'spaces.dupe.survivor' | transloco }}</label>
+                  <select [(ngModel)]="dupeSurvivor" style="max-width:220px;">
+                    <option value="older">{{ 'spaces.dupe.survivorOlder' | transloco }}</option>
+                    <option value="newer">{{ 'spaces.dupe.survivorNewer' | transloco }}</option>
+                  </select>
+                </div>
+
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px;font-size:13px;">
+                  <input type="checkbox" [(ngModel)]="dupeOnInsert" />
+                  <span>{{ 'spaces.dupe.onInsert' | transloco }}</span>
+                </label>
+                <p style="font-size:12px;color:var(--text-muted);margin:-6px 0 16px;">{{ 'spaces.dupe.onInsertHint' | transloco }}</p>
+
+                <div class="dz-section-title" style="margin-top:8px;">{{ 'spaces.dupe.rulesTitle' | transloco }}</div>
+                <p style="font-size:12px;color:var(--text-muted);margin:4px 0 12px;">{{ 'spaces.dupe.rulesHint' | transloco }}</p>
+
+                @for (r of dupeRulesState; track $index) {
+                  <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:10px;background:var(--bg-secondary);border-radius:8px;margin-bottom:8px;">
+                    <div class="field" style="margin:0;width:120px;">
+                      <label style="font-size:11px;">{{ 'spaces.dupe.minScore' | transloco }}</label>
+                      <input type="number" min="0" max="1" step="0.01" [(ngModel)]="r.minScore" />
+                    </div>
+                    <div class="field" style="margin:0;width:150px;">
+                      <label style="font-size:11px;">{{ 'spaces.dupe.action' | transloco }}</label>
+                      <select [(ngModel)]="r.action">
+                        <option value="flag">{{ 'spaces.dupe.actionFlag' | transloco }}</option>
+                        <option value="automerge">{{ 'spaces.dupe.actionAutomerge' | transloco }}</option>
+                        <option value="notify">{{ 'spaces.dupe.actionNotify' | transloco }}</option>
+                      </select>
+                    </div>
+                    @if (r.action === 'notify') {
+                      <div class="field" style="margin:0;flex:1;min-width:220px;">
+                        <label style="font-size:11px;">{{ 'spaces.dupe.webhookUrl' | transloco }}</label>
+                        <input type="url" [(ngModel)]="r.webhookUrl" [placeholder]="'spaces.dupe.webhookPlaceholder' | transloco" />
+                      </div>
+                    }
+                    <button class="btn btn-secondary btn-sm" type="button" (click)="removeDupeRule($index)"
+                            [attr.aria-label]="'spaces.dupe.removeRule' | transloco"><ph-icon name="x" [size]="14"/></button>
+                  </div>
+                }
+
+                <button class="btn btn-secondary btn-sm" type="button" (click)="addDupeRule()" style="margin-top:4px;">
+                  <ph-icon name="plus" [size]="14"/> {{ 'spaces.dupe.addRule' | transloco }}
+                </button>
+
+                @if (hasAutomergeRule()) {
+                  <div class="alert alert-warning" style="margin-top:16px;display:flex;gap:8px;align-items:flex-start;">
+                    <ph-icon name="warning" [size]="18"/>
+                    <span>{{ 'spaces.dupe.automergeWarning' | transloco }}</span>
+                  </div>
+                }
+
+                @if (dupeError()) { <div class="alert alert-error" style="margin-top:12px;">{{ dupeError() }}</div> }
+
+                <div style="margin-top:20px;display:flex;gap:8px;align-items:center;">
+                  <button class="btn btn-primary" type="button" (click)="saveDupeRules()" [disabled]="dupeSaving()">
+                    @if (dupeSaving()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dupe.save' | transloco }}
+                  </button>
+                  @if (dupeSaved()) { <span style="font-size:13px;color:var(--success);">{{ 'spaces.dupe.saved' | transloco }}</span> }
+                </div>
+              </div>
+            }
+
             <!-- DANGER ZONE TAB -->
             @if (settingsTab() === 'danger') {
               <div class="dz-section">
@@ -618,7 +689,7 @@ interface TypeSchemaState {
             }
           </div><!-- sp-body -->
 
-          @if (settingsTab() !== 'danger') {
+          @if (settingsTab() !== 'danger' && settingsTab() !== 'duplicates') {
             <div class="sp-footer">
               @if (settingsError()) {
                 <div class="alert alert-error" style="flex:1;margin:0;padding:6px 12px;font-size:13px;">{{ settingsError() }}</div>
@@ -852,10 +923,18 @@ export class SpacesComponent implements OnInit {
 
   // settings popup
   settingsSpace  = signal<Space | null>(null);
-  settingsTab    = signal<'settings' | 'schema' | 'danger'>('settings');
+  settingsTab    = signal<'settings' | 'schema' | 'duplicates' | 'danger'>('settings');
   settingsSaving = signal(false);
   settingsError  = signal('');
   schemaCollTab  = signal<KnowledgeType>('entity');
+
+  // Duplicate-action rules tab
+  dupeRulesState: DupeActionRule[] = [];
+  dupeSurvivor: 'older' | 'newer' = 'older';
+  dupeOnInsert = false;
+  dupeSaving = signal(false);
+  dupeSaved  = signal(false);
+  dupeError  = signal('');
 
   stForm = { label: '', purpose: '', usageNotes: '', maxGiB: null as number | null };
 
@@ -982,6 +1061,54 @@ export class SpacesComponent implements OnInit {
     });
   }
 
+  addDupeRule(): void {
+    this.dupeRulesState = [...this.dupeRulesState, { minScore: 0.95, action: 'flag' }];
+    this.dupeSaved.set(false);
+  }
+
+  removeDupeRule(i: number): void {
+    this.dupeRulesState = this.dupeRulesState.filter((_, idx) => idx !== i);
+    this.dupeSaved.set(false);
+  }
+
+  hasAutomergeRule(): boolean {
+    return this.dupeRulesState.some(r => r.action === 'automerge');
+  }
+
+  saveDupeRules(): void {
+    const target = this.settingsSpace();
+    if (!target) return;
+    // Validate notify override URLs client-side (the field is not inside a <form>).
+    for (const r of this.dupeRulesState) {
+      if (r.action === 'notify' && r.webhookUrl?.trim()) {
+        try { new URL(r.webhookUrl.trim()); }
+        catch { this.dupeError.set(this.transloco.translate('spaces.dupe.invalidUrl')); return; }
+      }
+    }
+    // Auto-merge is destructive and unattended — confirm before enabling it.
+    if (this.hasAutomergeRule() && !confirm(this.transloco.translate('spaces.dupe.automergeConfirm'))) return;
+    // Normalise: clamp scores, drop empty override URLs.
+    const rules: DupeActionRule[] = this.dupeRulesState.map(r => ({
+      minScore: Math.min(Math.max(Number(r.minScore) || 0, 0), 1),
+      action: r.action,
+      ...(r.types && r.types.length > 0 ? { types: r.types } : {}),
+      ...(r.action === 'notify' && r.webhookUrl?.trim() ? { webhookUrl: r.webhookUrl.trim() } : {}),
+    }));
+    this.dupeSaving.set(true);
+    this.dupeError.set('');
+    this.dupeSaved.set(false);
+    this.api.updateSpace(target.id, { dupeRules: rules, dupeMergeSurvivor: this.dupeSurvivor, dupeRulesOnInsert: this.dupeOnInsert }).subscribe({
+      next: ({ space }) => {
+        this.dupeSaving.set(false);
+        this.dupeSaved.set(true);
+        // Reflect saved state back onto the space object.
+        this.settingsSpace.set(space);
+        this.spaces.update(list => list.map(x => x.id === space.id ? space : x));
+      },
+      error: (e) => { this.dupeSaving.set(false); this.dupeError.set(e?.error?.error || this.transloco.translate('spaces.dupe.saveError')); },
+    });
+  }
+
   openSettings(s: Space): void {
     this.settingsSpace.set(s);
     this.settingsTab.set('settings');
@@ -989,6 +1116,12 @@ export class SpacesComponent implements OnInit {
     this.settingsError.set('');
     this.settingsSaving.set(false);
     this.stForm = { label: s.label, purpose: s.meta?.purpose ?? '', usageNotes: s.meta?.usageNotes ?? '', maxGiB: s.maxGiB ?? null };
+    this.dupeRulesState = (s.dupeRules ?? []).map(r => ({ ...r }));
+    this.dupeSurvivor = s.dupeMergeSurvivor ?? 'older';
+    this.dupeOnInsert = s.dupeRulesOnInsert ?? false;
+    this.dupeSaving.set(false);
+    this.dupeSaved.set(false);
+    this.dupeError.set('');
     const meta = s.meta ?? {};
     this.schValidation     = meta.validationMode ?? 'off';
     this.schStrictLinkage  = meta.strictLinkage ?? false;

@@ -130,6 +130,11 @@ export async function upsertEntity(
   };
   if (description !== undefined) doc.description = description;
   await collection.insertOne(mDoc<EntityDoc>(doc));
+  // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
+  // dynamic import avoids a static cycle with dupe-scanner.js.
+  if (getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {
+    import('./dupe-scanner.js').then(m => m.evaluateRecordForDuplicates(spaceId, 'entity', doc._id)).catch(() => { /* best-effort */ });
+  }
   return { entity: doc, warning, similar };
 }
 

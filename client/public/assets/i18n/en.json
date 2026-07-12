@@ -474,7 +474,7 @@
   "networks.network.members.removeAriaLabel": "Remove member",
   "networks.network.votes.title": "Open votes",
   "networks.network.votes.yes": "\u2713 Yes",
-  "networks.network.votes.no": "\u2717 No",
+  "networks.network.votes.veto": "\u2717 Veto",
   "networks.network.leaveButton": "Leave network",
   "networks.dialog.create.title": "Create network",
   "networks.dialog.create.label": "Network label",

@@ -118,6 +118,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The governance vote "No" button now works (and casts a veto).** The Networks UI offered **Yes/No**
+  buttons, but the server accepts only `yes`/`veto` (`VoteValue`), so clicking **No** returned `400`
+  and there was no way to cast a blocking vote from the UI at all. The negative button now casts a
+  `veto` — the blocking vote the model and docs already describe ("a single no blocks it") — and is
+  relabelled **Veto** to match. Client-only fix.
 - **`<html lang>` now tracks the active UI language.** It was hardcoded to `en`, so screen-reader
   pronunciation and browser hyphenation stayed English for German and Polish users even though the UI
   was fully translated. The document language is now set on startup and updated on every language

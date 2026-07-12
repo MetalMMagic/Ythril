@@ -973,5 +973,7 @@
   "duplicates.scanForbidden": "You do not have permission to run a scan (admin only).",
   "duplicates.dismissError": "Could not dismiss this candidate.",
   "spaces.dupe.onInsert": "Evaluate rules in real time (on insert)",
-  "spaces.dupe.onInsertHint": "When on, rules also run the moment a record is inserted, not only during the scheduled scan. Applies to all inserts including bulk; leave off for scan-time only."
+  "spaces.dupe.onInsertHint": "When on, rules also run the moment a record is inserted, not only during the scheduled scan. Applies to all inserts including bulk; leave off for scan-time only.",
+  "titles.models": "Models",
+  "titles.setup": "Setup"
 }

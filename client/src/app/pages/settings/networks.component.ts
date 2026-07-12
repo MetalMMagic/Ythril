@@ -4,10 +4,11 @@ import { FormsModule } from '@angular/forms';
 import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound } from '../../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
+import { PhIconComponent } from '../../shared/ph-icon.component';
 @Component({
   selector: 'app-networks',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
   styles: [`
     .network-card {
       background: var(--bg-surface);
@@ -295,7 +296,7 @@ import { TranslocoService } from '@jsverse/transloco';
                     (click)="removeMember(net, m.instanceId, m.label)"
                     [attr.title]="'networks.network.members.removeTitle' | transloco"
                     [attr.aria-label]="'networks.network.members.removeAriaLabel' | transloco"
-                  >×</button>
+                  ><ph-icon name="x" [size]="14"/></button>
                 </div>
               }
 
@@ -329,7 +330,7 @@ import { TranslocoService } from '@jsverse/transloco';
         <div class="dialog" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'networks.dialog.create.title' | transloco }}</div>
-            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showCreateDialog.set(false)">✕</button>
+            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showCreateDialog.set(false)"><ph-icon name="x" [size]="14"/></button>
           </div>
 
           @if (createError()) { <div class="alert alert-error">{{ createError() }}</div> }
@@ -407,7 +408,7 @@ import { TranslocoService } from '@jsverse/transloco';
         <div class="dialog" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'networks.dialog.join.title' | transloco }}</div>
-            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showJoinDialog.set(false)">✕</button>
+            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showJoinDialog.set(false)"><ph-icon name="x" [size]="14"/></button>
           </div>
 
           @if (joinError()) { <div class="alert alert-error">{{ joinError() }}</div> }
@@ -481,7 +482,7 @@ import { TranslocoService } from '@jsverse/transloco';
         <div class="dialog" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'networks.wizard.title' | transloco }}</div>
-            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showEnableNetworksWizard.set(false)">✕</button>
+            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showEnableNetworksWizard.set(false)"><ph-icon name="x" [size]="14"/></button>
           </div>
 
           @if (enableWizardError()) { <div class="alert alert-error">{{ enableWizardError() }}</div> }

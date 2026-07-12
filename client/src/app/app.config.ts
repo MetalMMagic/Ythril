@@ -1,5 +1,5 @@
 import { ApplicationConfig, provideZoneChangeDetection, APP_INITIALIZER, inject } from '@angular/core';
-import { provideRouter, withComponentInputBinding } from '@angular/router';
+import { provideRouter, withComponentInputBinding, TitleStrategy } from '@angular/router';
 import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideTransloco, Translation, TranslocoLoader, TranslocoService } from '@jsverse/transloco';
@@ -8,6 +8,7 @@ import { routes } from './app.routes';
 import { authInterceptor } from './core/auth.interceptor';
 import { mfaInterceptor } from './core/mfa.interceptor';
 import { ThemeService } from './core/theme.service';
+import { TranslocoTitleStrategy } from './core/title-strategy';
 
 @Injectable({ providedIn: 'root' })
 export class TranslocoHttpLoader implements TranslocoLoader {
@@ -21,6 +22,7 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes, withComponentInputBinding()),
+    { provide: TitleStrategy, useClass: TranslocoTitleStrategy },
     provideHttpClient(withInterceptors([authInterceptor, mfaInterceptor])),
     provideAnimationsAsync(),
     {
@@ -36,6 +38,13 @@ export const appConfig: ApplicationConfig = {
         if (saved && ['en', 'de', 'pl'].includes(saved)) {
           transloco.setActiveLang(saved);
         }
+        // Keep <html lang> in sync so screen-reader pronunciation and browser
+        // hyphenation match the active UI language — on startup and on every
+        // switch (langChanges$ fires whenever setActiveLang is called).
+        document.documentElement.lang = transloco.getActiveLang();
+        transloco.langChanges$.subscribe(lang => {
+          document.documentElement.lang = lang;
+        });
       },
       deps: [TranslocoService],
       multi: true,

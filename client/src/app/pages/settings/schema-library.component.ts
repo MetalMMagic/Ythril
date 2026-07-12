@@ -244,7 +244,7 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
             <div class="card-title">
               {{ editingEntry() ? ('schemaLib.dialog.editTitle' | transloco) : ('schemaLib.dialog.createTitle' | transloco) }}
             </div>
-            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="closeDialog()">✕</button>
+            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="closeDialog()"><ph-icon name="x" [size]="14"/></button>
           </div>
 
           @if (dialogError()) {
@@ -310,7 +310,7 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
         <div class="dialog" style="max-width:400px;" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'schemaLib.delete.title' | transloco }}</div>
-            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="deletingEntry.set(null)">✕</button>
+            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="deletingEntry.set(null)"><ph-icon name="x" [size]="14"/></button>
           </div>
           <p style="font-size:13px; color:var(--text-secondary); margin:0 0 16px;">
             {{ 'schemaLib.delete.confirm' | transloco }} <strong>{{ deletingEntry()?.name }}</strong>?

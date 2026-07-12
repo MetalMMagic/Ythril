@@ -75,6 +75,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`<html lang>` now tracks the active UI language.** It was hardcoded to `en`, so screen-reader
+  pronunciation and browser hyphenation stayed English for German and Polish users even though the UI
+  was fully translated. The document language is now set on startup and updated on every language
+  switch.
+- **Accent "dim" colors are back on-brand.** The active-nav highlight and dimmed accent chips were
+  driven by leftover purple/cyan tokens from an earlier palette. Both are now derived from `--accent`
+  via `color-mix()`, so they can't drift off-brand again.
+- **Close/remove buttons use a consistent icon everywhere.** Close and remove controls across the app
+  rendered a mix of raw `✕` and `×` glyphs at different weights/baselines than the `ph-icon` used
+  elsewhere. Every one — dialog close buttons, chip/tag remove buttons, and danger remove actions in
+  networks, spaces, schema-library, tokens, and the shared property/tag editors — now uses the `x`
+  icon, and dialog close buttons that were missing an `aria-label` gained one.
 - **Legacy tokens are no longer silently invalidated on upgrade** — a startup/reload migration
   *deleted* any PAT created before the `prefix` field existed, on the assumption it "cannot be
   verified." In fact a prefix-less token can still be bcrypt-verified; the prefix is only a lookup
@@ -85,6 +97,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the migration. Covered by `testing/integration/auth.test.js`.
 ### Added
 
+- **`prefers-reduced-motion` support** — a global stylesheet rule collapses animations and transitions
+  when the OS "reduce motion" setting is on, for users with vestibular sensitivity.
+- **Per-route browser tab titles** — every page now sets a localized `<Page> · Ythril` title via a
+  Transloco-aware `TitleStrategy`, so tabs, history entries, and bookmarks are distinguishable instead
+  of all reading "Ythril".
 - **Governance signing-key rotation** — an instance can now rotate its Ed25519 vote-signing keypair
   via `POST /api/admin/rotate-signing-key` (unrestricted admin; +TOTP when MFA is enabled). Rotation
   produces a **continuity proof** signed by the old key over the new one; peers that had pinned the

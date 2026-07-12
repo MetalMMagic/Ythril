@@ -974,5 +974,7 @@
   "duplicates.merge": "Zusammenf\u00fchren",
   "duplicates.dismiss": "Verwerfen",
   "duplicates.confirmMerge": "Diese beiden Entit\u00e4ten zusammenf\u00fchren? Der \u00e4ltere Datensatz wird behalten und der andere absorbiert. Dies kann nicht r\u00fcckg\u00e4ngig gemacht werden.",
-  "duplicates.mergeError": "Zusammenf\u00fchren fehlgeschlagen."
+  "duplicates.mergeError": "Zusammenf\u00fchren fehlgeschlagen.",
+  "titles.models": "Modelle",
+  "titles.setup": "Einrichtung"
 }

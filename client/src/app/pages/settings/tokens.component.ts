@@ -4,11 +4,12 @@ import { FormsModule } from '@angular/forms';
 import { ApiService, Space, TokenRecord } from '../../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
+import { PhIconComponent } from '../../shared/ph-icon.component';
 
 @Component({
   selector: 'app-tokens',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
   styles: [`
     .new-token-banner {
       background: var(--success-dim);
@@ -273,7 +274,7 @@ import { TranslocoService } from '@jsverse/transloco';
         <div class="dialog" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'tokens.create.title' | transloco }}</div>
-            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showCreateDialog.set(false)">✕</button>
+            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showCreateDialog.set(false)"><ph-icon name="x" [size]="14"/></button>
           </div>
 
           @if (createError()) {
@@ -422,7 +423,7 @@ import { TranslocoService } from '@jsverse/transloco';
                   </td>
                   <td style="white-space:nowrap; display:flex; gap:6px; align-items:center;">
                     <button class="icon-btn" [attr.title]="'tokens.action.rotateTitle' | transloco" [attr.aria-label]="'tokens.action.rotateAriaLabel' | transloco" (click)="regenerate(t)" style="font-size:14px;">↺</button>
-                    <button class="icon-btn danger" [attr.title]="'tokens.action.revokeTitle' | transloco" [attr.aria-label]="'tokens.action.revokeAriaLabel' | transloco" (click)="revoke(t)">✕</button>
+                    <button class="icon-btn danger" [attr.title]="'tokens.action.revokeTitle' | transloco" [attr.aria-label]="'tokens.action.revokeAriaLabel' | transloco" (click)="revoke(t)"><ph-icon name="x" [size]="14"/></button>
                   </td>
                 </tr>
               } @empty {

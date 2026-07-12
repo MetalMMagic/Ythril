@@ -123,7 +123,7 @@ interface TypeSchemaState {
         <div class="dialog" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'spaces.create.title' | transloco }}</div>
-            <button class="icon-btn" (click)="showCreateDialog.set(false)">✕</button>
+            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showCreateDialog.set(false)"><ph-icon name="x" [size]="14"/></button>
           </div>
           @if (createError()) { <div class="alert alert-error">{{ createError() }}</div> }
           <form (ngSubmit)="createSpace()" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
@@ -202,7 +202,7 @@ interface TypeSchemaState {
               <div style="font-weight:600;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ settingsSpace()!.label }}</div>
               <div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">{{ settingsSpace()!.id }}</div>
             </div>
-            <button class="icon-btn" (click)="closeSettings()">✕</button>
+            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="closeSettings()"><ph-icon name="x" [size]="14"/></button>
           </div>
           <div class="sp-tabs">
             <button class="sp-tab" [class.active]="settingsTab()==='settings'" (click)="settingsTab.set('settings')">{{ 'spaces.popup.tab.settings' | transloco }}</button>
@@ -304,7 +304,7 @@ interface TypeSchemaState {
                   <div class="sch-sub" style="margin-top:28px;">{{ 'spaces.schema.globalTagSuggestions' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.globalTagSuggestionsHint' | transloco }}</span></div>
                   <div class="chip-wrap">
                     @for (t of schTagSuggestions; track t) {
-                      <span class="chip">{{ t }}<button type="button" class="chip-rm" (click)="schTagSuggestions=schTagSuggestions.filter(x=>x!==t)">×</button></span>
+                      <span class="chip">{{ t }}<button type="button" class="chip-rm" (click)="schTagSuggestions=schTagSuggestions.filter(x=>x!==t)"><ph-icon name="x" [size]="12"/></button></span>
                     }
                     <input type="text" class="chip-field" [(ngModel)]="schNewTagInput"
                       [placeholder]="schTagSuggestions.length ? '' : ('spaces.schema.addTagSuggestionPlaceholder' | transloco)"
@@ -355,7 +355,7 @@ interface TypeSchemaState {
                               }
                               <button class="btn btn-ghost btn-sm" type="button" (click)="toggleTypeExpand(kt,name)"
                                 style="font-size:10px;padding:2px 8px;min-width:28px;">{{ isTypeExpanded(kt,name) ? '▲' : '▼' }}</button>
-                              <button class="icon-btn danger" type="button" (click)="removeType(kt,name)" [attr.title]="'common.remove' | transloco">✕</button>
+                              <button class="icon-btn danger" type="button" (click)="removeType(kt,name)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
                             </div>
                           </td>
                         </tr>
@@ -385,7 +385,7 @@ interface TypeSchemaState {
                                     <label>{{ 'spaces.schema.tagSuggestions' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.tagSuggestionsHint' | transloco }}</span></label>
                                     <div class="chip-wrap">
                                       @for (tag of typeState(kt,name).tagSuggestions; track tag) {
-                                        <span class="chip">{{ tag }}<button type="button" class="chip-rm" (click)="typeState(kt,name).tagSuggestions=typeState(kt,name).tagSuggestions.filter(x=>x!==tag)">×</button></span>
+                                        <span class="chip">{{ tag }}<button type="button" class="chip-rm" (click)="typeState(kt,name).tagSuggestions=typeState(kt,name).tagSuggestions.filter(x=>x!==tag)"><ph-icon name="x" [size]="12"/></button></span>
                                       }
                                       <input type="text" class="chip-field" [(ngModel)]="typeState(kt,name)._newTagInput"
                                         [placeholder]="typeState(kt,name).tagSuggestions.length ? '' : ('spaces.schema.addTagPlaceholder' | transloco)"
@@ -429,7 +429,7 @@ interface TypeSchemaState {
                                           </td>
                                           <td (click)="$event.stopPropagation()">
                                             <div style="display:flex;gap:4px;justify-content:flex-end;">
-                                              <button class="icon-btn danger" type="button" (click)="removeProp(kt,name,p.key)" [attr.title]="'common.remove' | transloco">✕</button>
+                                              <button class="icon-btn danger" type="button" (click)="removeProp(kt,name,p.key)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
                                             </div>
                                           </td>
                                         </tr>
@@ -485,7 +485,7 @@ interface TypeSchemaState {
                                                       <label>{{ 'spaces.schema.propDetail.enumValues' | transloco }} <span style="font-size:11px;font-weight:normal;color:var(--text-muted);">{{ 'spaces.schema.propDetail.enumHint' | transloco }}</span></label>
                                                       <div class="chip-wrap">
                                                         @for (ev of (p.s.enum??[]); track ev) {
-                                                          <span class="chip">{{ ev }}<button type="button" class="chip-rm" (click)="removeEnumVal(kt,name,p.key,ev)">×</button></span>
+                                                          <span class="chip">{{ ev }}<button type="button" class="chip-rm" (click)="removeEnumVal(kt,name,p.key,ev)"><ph-icon name="x" [size]="12"/></button></span>
                                                         }
                                                         <input type="text" class="chip-field" [(ngModel)]="p._enumInput"
                                                           [placeholder]="'spaces.schema.propDetail.enumPlaceholder' | transloco" (keydown)="onEnumKey($event,kt,name,p.key)" />
@@ -730,7 +730,7 @@ interface TypeSchemaState {
         <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:560px;max-width:96vw;max-height:80vh;overflow-y:auto;" (click)="$event.stopPropagation()">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
             <strong>{{ 'spaces.schema.libPicker.title' | transloco }}</strong>
-            <button class="icon-btn" type="button" (click)="closeLibPicker()">✕</button>
+            <button class="icon-btn" type="button" [attr.aria-label]="'common.close' | transloco" (click)="closeLibPicker()"><ph-icon name="x" [size]="14"/></button>
           </div>
           @if (libPickerLoading()) {
             <div class="empty-state"><span class="spinner"></span></div>

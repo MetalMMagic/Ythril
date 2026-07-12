@@ -113,7 +113,7 @@ describe('Closed Network (A <-> B)', () => {
 
   it('A can write a memory and sync pushes it to B', async () => {
     // Write a memory on A
-    const write = await post(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories`, { fact: 'The quick brown fox', tags: ['test'] });
+    const write = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories`, { fact: 'The quick brown fox', tags: ['test'] });
     assert.equal(write.status, 201, `Write: ${JSON.stringify(write.body)}`);
     const memId = write.body._id ?? write.body.id;
     console.log(`  Wrote memory ${memId} on A`);
@@ -124,7 +124,7 @@ describe('Closed Network (A <-> B)', () => {
 
     // Wait for B to have the memory (lookup by direct ID to avoid pagination)
     await waitFor(async () => {
-      const r = await get(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories/${memId}`);
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${memId}`);
       return r.status === 200;
     });
 
@@ -132,7 +132,7 @@ describe('Closed Network (A <-> B)', () => {
   });
 
   it('B can write a memory and it syncs back to A', async () => {
-    const write = await post(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories`, { fact: 'Jumped over the lazy dog', tags: ['test'] });
+    const write = await post(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories`, { fact: 'Jumped over the lazy dog', tags: ['test'] });
     assert.equal(write.status, 201);
     const memId = write.body._id ?? write.body.id;
     console.log(`  Wrote memory ${memId} on B`);
@@ -146,7 +146,7 @@ describe('Closed Network (A <-> B)', () => {
 
     try {
       await waitFor(async () => {
-        const r = await get(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories/${memId}`);
+        const r = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories/${memId}`);
         return r.status === 200;
       }, 20_000);
     } finally {
@@ -158,19 +158,19 @@ describe('Closed Network (A <-> B)', () => {
 
   it('Deletion tombstone propagates from A to B', async () => {
     // Write and sync a memory
-    const write = await post(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories`, { fact: 'Memory to be deleted', tags: ['delete-test'] });
+    const write = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories`, { fact: 'Memory to be deleted', tags: ['delete-test'] });
     assert.equal(write.status, 201);
     const memId = write.body._id ?? write.body.id;
 
     await triggerSync(INSTANCES.a, tokenA, networkId);
     // Wait for B to have the memory (direct ID lookup)
     await waitFor(async () => {
-      const r = await get(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories/${memId}`);
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${memId}`);
       return r.status === 200;
     });
 
     // Delete on A
-    const del_ = await del(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories/${memId}`);
+    const del_ = await del(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories/${memId}`);
     assert.equal(del_.status, 204, `Delete: ${JSON.stringify(del_.body)}`);
     console.log(`  Deleted memory ${memId} on A`);
 
@@ -179,7 +179,7 @@ describe('Closed Network (A <-> B)', () => {
 
     // Wait for tombstone to arrive on B (memory disappears — direct ID lookup returns 404)
     await waitFor(async () => {
-      const r = await get(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories/${memId}`);
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${memId}`);
       return r.status === 404;
     });
 

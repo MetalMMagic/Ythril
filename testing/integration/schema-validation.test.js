@@ -150,7 +150,7 @@ describe('Schema validation — strict mode', () => {
   });
 
   it('rejects memory with missing required property', async () => {
-    const r = await post(INSTANCES.a, token(), `/api/brain/${TEST_SPACE}/memories`, {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/memories`, {
       fact: `Schema strict test ${RUN}`,
       type: 'note',
     });
@@ -160,7 +160,7 @@ describe('Schema validation — strict mode', () => {
   });
 
   it('accepts valid memory', async () => {
-    const r = await post(INSTANCES.a, token(), `/api/brain/${TEST_SPACE}/memories`, {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${TEST_SPACE}/memories`, {
       fact: `Schema strict test ${RUN} valid`,
       type: 'note',
       properties: { source: 'test-suite' },

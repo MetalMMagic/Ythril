@@ -121,11 +121,11 @@ describe('Token lifecycle', () => {
     const scopedToken = create.body.plaintext;
 
     // Should be rejected on general space
-    const wrongSpace = await get(INSTANCES.a, scopedToken, '/api/brain/general/memories');
+    const wrongSpace = await get(INSTANCES.a, scopedToken, '/api/brain/spaces/general/memories');
     assert.equal(wrongSpace.status, 403, 'Scoped token should be rejected on wrong space');
 
     // Should work on the scoped space
-    const rightSpace = await get(INSTANCES.a, scopedToken, `/api/brain/${spaceId}/memories`);
+    const rightSpace = await get(INSTANCES.a, scopedToken, `/api/brain/spaces/${spaceId}/memories`);
     assert.equal(rightSpace.status, 200, 'Scoped token should work on its own space');
 
     // Clean up

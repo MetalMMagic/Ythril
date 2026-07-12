@@ -163,7 +163,7 @@ export async function triggerSync(baseUrl, token, networkId) {
 
 /** Create a memory on an instance's general space */
 export async function createMemory(baseUrl, token, fact, tags = []) {
-  return post(baseUrl, token, '/api/brain/general/memories', { fact, tags });
+  return post(baseUrl, token, '/api/brain/spaces/general/memories', { fact, tags });
 }
 
 /**
@@ -176,7 +176,7 @@ export async function listMemories(baseUrl, token) {
   let skip = 0;
   const pageSize = 500;
   while (true) {
-    const r = await get(baseUrl, token, `/api/brain/general/memories?limit=${pageSize}&skip=${skip}`);
+    const r = await get(baseUrl, token, `/api/brain/spaces/general/memories?limit=${pageSize}&skip=${skip}`);
     if (r.status !== 200) return r; // surface errors to callers as-is
     const page = r.body.memories ?? [];
     all.push(...page);

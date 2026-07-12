@@ -62,7 +62,7 @@ describe('M2 — ?token= is accepted only on the SSE endpoints', () => {
     '/api/spaces',
     '/api/tokens',
     '/api/networks',
-    '/api/brain/general/memories',
+    '/api/brain/spaces/general/memories',
     '/api/files/general?path=.',
     '/api/about',
   ];

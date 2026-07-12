@@ -98,7 +98,7 @@ describe('Braintree topology (A -> B -> C)', () => {
   });
 
   it('Root A: write propagates down to B and then to C', async () => {
-    const write = await post(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories`, {
+    const write = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories`, {
       fact: 'Root fact from A',
       tags: ['braintree-test'],
     });
@@ -108,7 +108,7 @@ describe('Braintree topology (A -> B -> C)', () => {
     // A pushes to B
     await triggerSync(INSTANCES.a, tokenA, networkId);
     await waitFor(async () => {
-      const r = await get(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories/${memId}`);
+      const r = await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${memId}`);
       return r.status === 200;
     });
     console.log(`  Root fact appeared on B ✓`);
@@ -116,14 +116,14 @@ describe('Braintree topology (A -> B -> C)', () => {
     // B pushes to C
     await triggerSync(INSTANCES.b, tokenB, networkId);
     await waitFor(async () => {
-      const r = await get(INSTANCES.c, tokenC, `/api/brain/${testSpaceId}/memories/${memId}`);
+      const r = await get(INSTANCES.c, tokenC, `/api/brain/spaces/${testSpaceId}/memories/${memId}`);
       return r.status === 200;
     });
     console.log(`  Root fact appeared on C ✓`);
   });
 
   it('Leaf C: write does NOT propagate up to B (push-only)', async () => {
-    const write = await post(INSTANCES.c, tokenC, `/api/brain/${testSpaceId}/memories`, {
+    const write = await post(INSTANCES.c, tokenC, `/api/brain/spaces/${testSpaceId}/memories`, {
       fact: 'Leaf-only fact from C',
       tags: ['braintree-leaf'],
     });
@@ -136,13 +136,13 @@ describe('Braintree topology (A -> B -> C)', () => {
 
     // Wait a short time and verify this specific memory is NOT on B
     await new Promise(r => setTimeout(r, 3000));
-    const r = await get(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories/${leafMemId}`);
+    const r = await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${leafMemId}`);
     assert.equal(r.status, 404, 'Leaf fact should NOT have propagated to B');
     console.log(`  Leaf fact correctly absent from B ✓`);
   });
 
   it('Node B: write does NOT propagate up to A', async () => {
-    const write = await post(INSTANCES.b, tokenB, `/api/brain/${testSpaceId}/memories`, {
+    const write = await post(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories`, {
       fact: 'Node-only fact from B',
       tags: ['braintree-node'],
     });
@@ -153,7 +153,7 @@ describe('Braintree topology (A -> B -> C)', () => {
     await triggerSync(INSTANCES.a, tokenA, networkId);
 
     await new Promise(r => setTimeout(r, 3000));
-    const r = await get(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories/${nodeMemId}`);
+    const r = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories/${nodeMemId}`);
     assert.equal(r.status, 404, 'Node fact should NOT have propagated to A');
     console.log(`  Node fact correctly absent from A ✓`);
   });

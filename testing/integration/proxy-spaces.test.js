@@ -202,7 +202,7 @@ describe('Proxy spaces', () => {
     let memIdA, memIdB;
 
     it('Write to proxy without targetSpace returns 400', async () => {
-      const r = await post(BASE, tokenA, `/api/brain/${PROXY}/memories`, {
+      const r = await post(BASE, tokenA, `/api/brain/spaces/${PROXY}/memories`, {
         fact: 'Should fail',
       });
       assert.equal(r.status, 400);
@@ -210,7 +210,7 @@ describe('Proxy spaces', () => {
     });
 
     it('Write to proxy with invalid targetSpace returns 400', async () => {
-      const r = await post(BASE, tokenA, `/api/brain/${PROXY}/memories?targetSpace=non-member`, {
+      const r = await post(BASE, tokenA, `/api/brain/spaces/${PROXY}/memories?targetSpace=non-member`, {
         fact: 'Should fail',
       });
       assert.equal(r.status, 400);
@@ -218,7 +218,7 @@ describe('Proxy spaces', () => {
     });
 
     it('Write memory to alpha via proxy', async () => {
-      const r = await post(BASE, tokenA, `/api/brain/${PROXY}/memories?targetSpace=${SPACE_A}`, {
+      const r = await post(BASE, tokenA, `/api/brain/spaces/${PROXY}/memories?targetSpace=${SPACE_A}`, {
         fact: 'Alpha fact from proxy',
         tags: ['alpha'],
       });
@@ -228,7 +228,7 @@ describe('Proxy spaces', () => {
     });
 
     it('Write memory to beta via proxy', async () => {
-      const r = await post(BASE, tokenA, `/api/brain/${PROXY}/memories?targetSpace=${SPACE_B}`, {
+      const r = await post(BASE, tokenA, `/api/brain/spaces/${PROXY}/memories?targetSpace=${SPACE_B}`, {
         fact: 'Beta fact from proxy',
         tags: ['beta'],
       });
@@ -238,7 +238,7 @@ describe('Proxy spaces', () => {
     });
 
     it('List memories via proxy aggregates both spaces', async () => {
-      const r = await get(BASE, tokenA, `/api/brain/${PROXY}/memories?limit=100`);
+      const r = await get(BASE, tokenA, `/api/brain/spaces/${PROXY}/memories?limit=100`);
       assert.equal(r.status, 200);
       const facts = r.body.memories.map(m => m.fact);
       assert.ok(facts.includes('Alpha fact from proxy'), 'Should include alpha memory');
@@ -247,7 +247,7 @@ describe('Proxy spaces', () => {
 
     it('Get memory by ID via proxy finds it across members', async () => {
       // memIdA is in alpha, try to get via proxy
-      const r = await get(BASE, tokenA, `/api/brain/${PROXY}/memories/${memIdA}`);
+      const r = await get(BASE, tokenA, `/api/brain/spaces/${PROXY}/memories/${memIdA}`);
       assert.equal(r.status, 200);
       assert.equal(r.body.fact, 'Alpha fact from proxy');
     });
@@ -265,11 +265,11 @@ describe('Proxy spaces', () => {
     });
 
     it('Delete memory via proxy works (alpha memory)', async () => {
-      const r = await del(BASE, tokenA, `/api/brain/${PROXY}/memories/${memIdA}`);
+      const r = await del(BASE, tokenA, `/api/brain/spaces/${PROXY}/memories/${memIdA}`);
       assert.equal(r.status, 204);
 
       // Confirm it's gone
-      const r2 = await get(BASE, tokenA, `/api/brain/${PROXY}/memories/${memIdA}`);
+      const r2 = await get(BASE, tokenA, `/api/brain/spaces/${PROXY}/memories/${memIdA}`);
       assert.equal(r2.status, 404);
     });
 
@@ -417,7 +417,7 @@ describe('Proxy spaces', () => {
 
   describe('Regular spaces unaffected by proxy code', () => {
     it('Write memory to alpha directly (no targetSpace needed)', async () => {
-      const r = await post(BASE, tokenA, `/api/brain/${SPACE_A}/memories`, {
+      const r = await post(BASE, tokenA, `/api/brain/spaces/${SPACE_A}/memories`, {
         fact: 'Direct alpha fact',
       });
       assert.equal(r.status, 201, JSON.stringify(r.body));
@@ -437,11 +437,11 @@ describe('Proxy spaces', () => {
     let session;
     before(async () => {
       // Seed data: one memory in each member space for recall testing
-      await post(BASE, tokenA, `/api/brain/${SPACE_A}/memories`, {
+      await post(BASE, tokenA, `/api/brain/spaces/${SPACE_A}/memories`, {
         fact: 'Alpha MCP recall test fact about quantum physics',
         tags: ['mcp-test'],
       });
-      await post(BASE, tokenA, `/api/brain/${SPACE_B}/memories`, {
+      await post(BASE, tokenA, `/api/brain/spaces/${SPACE_B}/memories`, {
         fact: 'Beta MCP recall test fact about machine learning',
         tags: ['mcp-test'],
       });

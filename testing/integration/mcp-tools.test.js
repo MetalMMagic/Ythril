@@ -673,7 +673,7 @@ describe('MCP recall_global — space-scoped token must only see its own spaces'
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
 
     // Write a secret fact into the 'general' space using the full-access token
-    await post(INSTANCES.a, tokenA, '/api/brain/general/memories', {
+    await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories', {
       fact: secretFact,
       tags: ['scope-leak-test'],
     });
@@ -764,7 +764,7 @@ describe('MCP brain tools � update_memory / delete_memory / get_stats', () => 
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     session = await openMcpSession(tokenA);
     // Create a memory via REST API so we have an ID to update/delete
-    const res = await post(INSTANCES.a, tokenA, '/api/brain/general/memories', {
+    const res = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories', {
       fact: factText,
       tags: ['mcp-update-test'],
     });

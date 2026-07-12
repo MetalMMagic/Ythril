@@ -383,7 +383,7 @@ describe('Recall filter — numeric gt/gte/lt/lte on properties', () => {
 
   before(async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding not available');
-    const high = await post(INSTANCES.a, token(), `/api/brain/${SPACE}/memories`, {
+    const high = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
       fact: `${desc} high-count`,
       description: desc,
       properties: { count: 50, label: 'high' },
@@ -392,7 +392,7 @@ describe('Recall filter — numeric gt/gte/lt/lte on properties', () => {
     assert.equal(high.status, 201, `Create high-count memory failed: ${JSON.stringify(high.body)}`);
     highId = high.body._id;
 
-    const low = await post(INSTANCES.a, token(), `/api/brain/${SPACE}/memories`, {
+    const low = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
       fact: `${desc} low-count`,
       description: desc,
       properties: { count: 5, label: 'low' },
@@ -455,7 +455,7 @@ describe('Recall filter — tags in (any-of)', () => {
 
   before(async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding not available');
-    const sec = await post(INSTANCES.a, token(), `/api/brain/${SPACE}/memories`, {
+    const sec = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
       fact: `${desc} security-tagged`,
       description: desc,
       tags: ['security', 'auth'],
@@ -463,7 +463,7 @@ describe('Recall filter — tags in (any-of)', () => {
     assert.equal(sec.status, 201, `Create security memory failed: ${JSON.stringify(sec.body)}`);
     securityId = sec.body._id;
 
-    const infra = await post(INSTANCES.a, token(), `/api/brain/${SPACE}/memories`, {
+    const infra = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
       fact: `${desc} infra-tagged`,
       description: desc,
       tags: ['infra'],
@@ -471,7 +471,7 @@ describe('Recall filter — tags in (any-of)', () => {
     assert.equal(infra.status, 201, `Create infra memory failed: ${JSON.stringify(infra.body)}`);
     infraId = infra.body._id;
 
-    const unrel = await post(INSTANCES.a, token(), `/api/brain/${SPACE}/memories`, {
+    const unrel = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
       fact: `${desc} unrelated-tagged`,
       description: desc,
       tags: ['unrelated-tag-xyzzy'],
@@ -505,7 +505,7 @@ describe('Recall filter — exists operator', () => {
 
   before(async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding not available');
-    const withProp = await post(INSTANCES.a, token(), `/api/brain/${SPACE}/memories`, {
+    const withProp = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
       fact: `${desc} with-domain-prop`,
       description: desc,
       properties: { domain: 'infra' },
@@ -514,7 +514,7 @@ describe('Recall filter — exists operator', () => {
     assert.equal(withProp.status, 201, `Create with-prop memory failed: ${JSON.stringify(withProp.body)}`);
     withPropId = withProp.body._id;
 
-    const withoutProp = await post(INSTANCES.a, token(), `/api/brain/${SPACE}/memories`, {
+    const withoutProp = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
       fact: `${desc} without-domain-prop`,
       description: desc,
       tags: ['exists-test'],

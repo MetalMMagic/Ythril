@@ -80,7 +80,7 @@ describe('Space-scoped token enforcement', () => {
 
   it('Scoped token cannot access brain in a different space → 403', async () => {
     // Uses OUT_OF_SCOPE_SPACE (created in before()) so a 404 cannot mask enforcement.
-    const r = await fetch(`${INSTANCES.a}/api/brain/${OUT_OF_SCOPE_SPACE}/memories`, {
+    const r = await fetch(`${INSTANCES.a}/api/brain/spaces/${OUT_OF_SCOPE_SPACE}/memories`, {
       headers: { 'Authorization': `Bearer ${generalOnlyToken}` },
     });
     assert.equal(r.status, 403,

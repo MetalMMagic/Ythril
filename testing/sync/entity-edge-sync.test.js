@@ -174,7 +174,7 @@ describe('Entity/edge sync — cross-instance (A→B)', () => {
   it('GET /api/sync/memories cursor pagination works', async () => {
     // Write 3 memories to ensure we have data, then page with limit=2
     for (let i = 0; i < 3; i++) {
-      await post(INSTANCES.a, tokenA, '/api/brain/general/memories', { fact: `cursor-test-${RUN}-${i}`, tags: ['cursor'] });
+      await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories', { fact: `cursor-test-${RUN}-${i}`, tags: ['cursor'] });
     }
 
     const page1 = await reqJson(INSTANCES.a, tokenA, '/api/sync/memories?spaceId=general&limit=2');

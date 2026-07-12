@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING: the legacy `/api/brain/:spaceId/memories` route shape is removed.** Space memory
+  endpoints used to be registered under two URL shapes — canonical `/api/brain/spaces/:spaceId/…` and
+  legacy `/api/brain/:spaceId/…` — with the handler bodies **copy-pasted** between them (and the
+  canonical shape was even missing `POST` create and `GET` by-id). Each endpoint is now registered
+  **once**, under the canonical `/spaces/:spaceId/…` path; the two-segment legacy shape now returns
+  `404`. This halves the memory-route surface that has to be auth-checked and tested and removes the
+  footgun where a guard added to one shape could be missed on the other. **Migration:** replace
+  `/api/brain/:spaceId/memories…` with `/api/brain/spaces/:spaceId/memories…`. The web client already
+  uses the canonical paths. (All other brain resources — entities, edges, chrono, stats — were already
+  canonical-only and are unaffected.)
+
 ### Security
 
 - **Kubernetes deployment is hardened and its probes/ports now actually work.** The stock

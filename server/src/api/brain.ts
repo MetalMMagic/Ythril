@@ -52,8 +52,6 @@ function getSpaceMeta(spaceId: string): SpaceMeta | undefined {
   return resolveMetaRefs(meta);
 }
 
-
-
 /**
  * Apply schema validation to a write operation.
  * Returns { blocked: true, violations } when strict mode rejects the write.
@@ -77,8 +75,8 @@ function applyValidation(
 // ── Short-form memory CRUD  (/:spaceId/memories) ──────────────────────────
 // These are the primary REST endpoints used by API clients and integration tests.
 
-// POST /api/brain/:spaceId/memories — create a memory
-brainRouter.post('/:spaceId/memories', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+// POST /api/brain/spaces/:spaceId/memories — create a memory
+brainRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {
@@ -207,24 +205,8 @@ function buildMemoryFilter(query: Record<string, unknown>): Record<string, unkno
   return filter;
 }
 
-// GET /api/brain/:spaceId/memories — list memories
-brainRouter.get('/:spaceId/memories', globalRateLimit, requireSpaceAuth, async (req, res) => {
-  const spaceId = req.params['spaceId'] as string;
-  const cfg = getConfig();
-  if (!cfg.spaces.some(s => s.id === spaceId)) {
-    res.status(404).json({ error: `Space '${spaceId}' not found` });
-    return;
-  }
-  const limit = parseLimit(req.query['limit'], 100, 500);
-  const skip = parseSkip(req.query['skip']);
-  const filter = buildMemoryFilter(req.query as Record<string, unknown>);
-  const memberIds = resolveMemberSpaces(spaceId);
-  const all = (await Promise.all(memberIds.map(mid => listMemories(mid, filter, limit, skip)))).flat();
-  res.json({ memories: capPage(all, limit), limit, skip });
-});
-
-// GET /api/brain/:spaceId/memories/:id — get single memory
-brainRouter.get('/:spaceId/memories/:id', globalRateLimit, requireSpaceAuth, async (req, res) => {
+// GET /api/brain/spaces/:spaceId/memories/:id — get single memory
+brainRouter.get('/spaces/:spaceId/memories/:id', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
   const cfg = getConfig();
@@ -238,112 +220,6 @@ brainRouter.get('/:spaceId/memories/:id', globalRateLimit, requireSpaceAuth, asy
     if (doc) { res.json(doc); return; }
   }
   res.status(404).json({ error: 'Memory not found' });
-});
-
-// DELETE /api/brain/:spaceId/memories/:id — delete memory
-brainRouter.delete('/:spaceId/memories/:id', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
-  const spaceId = req.params['spaceId'] as string;
-  const id = req.params['id'] as string;
-  const memberIds = resolveMemberSpaces(spaceId);
-  for (const mid of memberIds) {
-    if (await deleteMemory(mid, id)) {
-      emitWebhookEvent({ event: 'memory.deleted', spaceId: mid, entry: { _id: id }, ...webhookToken(req) });
-      res.status(204).end();
-      return;
-    }
-  }
-  res.status(404).json({ error: 'Memory not found' });
-});
-
-// PATCH /api/brain/:spaceId/memories/:id — partial update a memory
-brainRouter.patch('/:spaceId/memories/:id', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
-  const spaceId = req.params['spaceId'] as string;
-  const id = req.params['id'] as string;
-  const cfg = getConfig();
-  if (!cfg.spaces.some(s => s.id === spaceId)) {
-    res.status(404).json({ error: `Space '${spaceId}' not found` });
-    return;
-  }
-  const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
-  if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
-  const { fact, tags, entityIds, description, properties, deleteFields } = req.body ?? {};
-  // Validate deleteFields
-  const dfResult = validateDeleteFields(deleteFields);
-  if (!dfResult.ok) { res.status(400).json({ error: dfResult.error }); return; }
-  const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
-  const updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean> } = {};
-  if (fact !== undefined) {
-    if (typeof fact !== 'string' || !fact.trim()) { res.status(400).json({ error: '`fact` must be a non-empty string' }); return; }
-    updates.fact = fact;
-  }
-  if (tags !== undefined) {
-    if (!Array.isArray(tags) || tags.some((t: unknown) => typeof t !== 'string')) { res.status(400).json({ error: '`tags` must be an array of strings' }); return; }
-    updates.tags = tags;
-  }
-  if (entityIds !== undefined) {
-    if (!Array.isArray(entityIds) || entityIds.some((t: unknown) => typeof t !== 'string')) { res.status(400).json({ error: '`entityIds` must be an array of strings' }); return; }
-    if (isStrictLinkage(wt.target)) {
-      const invalidIds = entityIds.filter((id: string) => !UUID_V4_RE.test(id));
-      if (invalidIds.length > 0) { res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidIds }); return; }
-    }
-    updates.entityIds = entityIds;
-  }
-  if (description !== undefined) {
-    if (typeof description !== 'string') { res.status(400).json({ error: '`description` must be a string' }); return; }
-    updates.description = description;
-  }
-  if (properties !== undefined) {
-    if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) { res.status(400).json({ error: '`properties` must be a plain object' }); return; }
-    updates.properties = properties as Record<string, string | number | boolean>;
-  }
-  if (Object.keys(updates).length === 0 && !dfPaths) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
-  const memberIds = resolveMemberSpaces(wt.target);
-  for (const mid of memberIds) {
-    // Schema validation after deleteFields + merge for memories
-    if (dfPaths) {
-      const existing = await listMemories(mid, { _id: id }, 1, 0);
-      if (existing.length === 0) continue;
-      const mem = existing[0]!;
-      const resultProps = updates.properties ?? (mem.properties != null ? { ...mem.properties } : {});
-      const sim: Record<string, unknown> = { properties: resultProps };
-      applyDeleteFieldsPaths(sim, dfPaths);
-      const simProps = (sim['properties'] ?? {}) as Record<string, unknown>;
-      const meta = getSpaceMeta(mid);
-      const violations = validateMemory(meta ?? {}, { properties: simProps });
-      const validation = applyValidation(meta, violations);
-      if (validation.blocked) {
-        res.status(422).json({ error: 'schema_violation', message: 'deleteFields + merge result violates required properties', violations: validation.warnings });
-        return;
-      }
-    }
-    const updated = await updateMemory(mid, id, updates, dfPaths);
-    if (updated) {
-      emitWebhookEvent({ event: 'memory.updated', spaceId: mid, entry: { ...updated, embedding: undefined }, ...webhookToken(req) });
-      res.json(updated);
-      return;
-    }
-  }
-  res.status(404).json({ error: 'Memory not found' });
-});
-
-// DELETE /api/brain/:spaceId/memories — bulk wipe all memories
-brainRouter.delete('/:spaceId/memories', bulkWipeRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
-  const spaceId = req.params['spaceId'] as string;
-  const cfg = getConfig();
-  if (!cfg.spaces.some(s => s.id === spaceId)) {
-    res.status(404).json({ error: `Space '${spaceId}' not found` });
-    return;
-  }
-  if (isProxySpace(spaceId)) {
-    res.status(400).json({ error: 'Bulk wipe not supported on proxy spaces — target member spaces individually' });
-    return;
-  }
-  if (req.body?.confirm !== true) {
-    res.status(400).json({ error: '`confirm: true` required in request body' });
-    return;
-  }
-  const deleted = await bulkDeleteMemories(spaceId);
-  res.json({ deleted });
 });
 
 // GET /api/brain/spaces/:spaceId/stats

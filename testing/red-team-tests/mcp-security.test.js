@@ -322,7 +322,7 @@ describe('MCP security — recall_global scope isolation', () => {
 
     // Write a secret memory into instance B's space using tokenB
     const secretFact = `SECRET-SCOPELEAK-${Date.now()}`;
-    await post(INSTANCES.b, tokenB, '/api/brain/general/memories', { fact: secretFact });
+    await post(INSTANCES.b, tokenB, '/api/brain/spaces/general/memories', { fact: secretFact });
 
     // Now open an MCP session on instance A with tokenA (scope: instance A only)
     const { status, callTool, close } = await openMcpSession(INSTANCES.a, tokenA);

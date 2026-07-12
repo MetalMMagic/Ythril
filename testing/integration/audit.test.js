@@ -48,7 +48,7 @@ describe('Audit Log', () => {
 
   it('Audit log returns entries after a write operation', async () => {
     // Perform a memory create
-    const memR = await post(INSTANCES.a, tokenA, '/api/brain/general/memories', {
+    const memR = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories', {
       fact: 'Audit test fact ' + Date.now(),
       tags: ['audit-test'],
     });

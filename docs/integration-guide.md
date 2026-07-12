@@ -523,7 +523,7 @@ Extended errors may include:
 | Global | 300 / min | All authenticated endpoints |
 | Sync | 2 000 / min | Sync API endpoints |
 | Notify | 60 / min | `POST /api/notify` |
-| Bulk wipe | 5 / min | `DELETE /api/brain/:spaceId/memories` |
+| Bulk wipe | 5 / min | `DELETE /api/brain/spaces/:spaceId/memories` |
 
 Rate limit headers are included in responses:
 
@@ -544,21 +544,20 @@ Base path: `/api/brain`
 
 > **Proxy spaces:** Read operations aggregate across all member spaces. Write operations require `?targetSpace=<member>` in the query string.
 
-### Route prefix variants
+### Route prefix
 
-Memory endpoints are available under two equivalent prefix forms:
+Every memory endpoint lives under the `/spaces/:spaceId/` prefix — the same prefix used by all other brain resource types (entities, edges, chrono, stats). For example:
 
-| Prefix | Example | Notes |
-|--------|---------|-------|
-| `/:spaceId/` | `GET /api/brain/general/memories` | Original form; supported for all memory operations |
-| `/spaces/:spaceId/` | `GET /api/brain/spaces/general/memories` | Preferred for new integrations; matches the prefix used by all other brain resource types (entities, edges, chrono, stats) |
+```
+GET /api/brain/spaces/general/memories
+```
 
-Both forms are fully supported and behave identically. The official web client uses `/spaces/:spaceId/` for list, delete, and bulk-wipe, and `/:spaceId/` for write.
+> **Breaking change (2.0):** the old two-segment shape `/api/brain/:spaceId/memories` (e.g. `/api/brain/general/memories`) has been **removed**. It previously duplicated these handlers under a second URL; it now returns `404`. Update any client still using it to the `/spaces/:spaceId/` prefix.
 
 ### Write a Memory
 
 ```
-POST /api/brain/:spaceId/memories
+POST /api/brain/spaces/:spaceId/memories
 ```
 
 ```json
@@ -598,7 +597,7 @@ POST /api/brain/:spaceId/memories
 ### Get a Memory by ID
 
 ```
-GET /api/brain/:spaceId/memories/:id
+GET /api/brain/spaces/:spaceId/memories/:id
 ```
 
 **Response** `200`: Full `MemoryDoc` (same shape as write response).
@@ -608,7 +607,7 @@ GET /api/brain/:spaceId/memories/:id
 ### List Memories
 
 ```
-GET /api/brain/:spaceId/memories?limit=100&skip=0
+GET /api/brain/spaces/:spaceId/memories?limit=100&skip=0
 ```
 
 Optional filters:
@@ -639,7 +638,7 @@ Default limit: 100, max: 500. Use `skip` for offset pagination.
 ### Delete a Memory
 
 ```
-DELETE /api/brain/:spaceId/memories/:id
+DELETE /api/brain/spaces/:spaceId/memories/:id
 ```
 
 **Response** `204` (no body).
@@ -649,7 +648,7 @@ DELETE /api/brain/:spaceId/memories/:id
 ### Wipe All Memories
 
 ```
-DELETE /api/brain/:spaceId/memories
+DELETE /api/brain/spaces/:spaceId/memories
 Content-Type: application/json
 
 { "confirm": true }
@@ -1467,7 +1466,7 @@ All `PATCH` update endpoints — entities, edges, and memories — accept an opt
 ```
 PATCH /api/brain/spaces/:spaceId/entities/:id
 PATCH /api/brain/spaces/:spaceId/edges/:id
-PATCH /api/brain/:spaceId/memories/:id
+PATCH /api/brain/spaces/:spaceId/memories/:id
 PATCH /api/brain/spaces/:spaceId/memories/:id
 ```
 
@@ -5674,7 +5673,7 @@ Configured in `config.json` under `storage`:
 All list endpoints accept `limit` and `skip`:
 
 ```
-GET /api/brain/general/memories?limit=100&skip=200
+GET /api/brain/spaces/general/memories?limit=100&skip=200
 ```
 
 ### Cursor Pagination (Sync API)

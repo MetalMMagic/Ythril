@@ -155,7 +155,7 @@ describe('POST /api/admin/reload-config — quota changes take effect', () => {
         await new Promise(resolve => setTimeout(resolve, 600));
         const reloadR = await post(INSTANCES.a, token, '/api/admin/reload-config', {});
         if (reloadR.status !== 200) { await new Promise(resolve => setTimeout(resolve, 400)); continue; }
-        const probe = await post(INSTANCES.a, token, '/api/brain/general/memories', {
+        const probe = await post(INSTANCES.a, token, '/api/brain/spaces/general/memories', {
           fact: `__quota-cleanup-probe-${Date.now()}__`,
         });
         if (probe.status === 201) break;
@@ -173,7 +173,7 @@ describe('POST /api/admin/reload-config — quota changes take effect', () => {
       },
     });
 
-    const r = await post(INSTANCES.a, token, '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token, '/api/brain/spaces/general/memories', {
       fact: `reload-config quota enforcement test ${Date.now()}`,
     });
     assert.equal(r.status, 507,
@@ -195,7 +195,7 @@ describe('POST /api/admin/reload-config — quota changes take effect', () => {
     let status = 507;
     let body = {};
     for (let attempt = 0; attempt < 20 && status !== 201; attempt++) {
-      const r = await post(INSTANCES.a, token, '/api/brain/general/memories', {
+      const r = await post(INSTANCES.a, token, '/api/brain/spaces/general/memories', {
         fact: `reload-config restore enforcement test ${Date.now()}`,
       });
       status = r.status;
@@ -229,7 +229,7 @@ describe('POST /api/admin/reload-config — space config changes take effect', (
     originalConfig = baseConfig;
     // Ensure the server is also free of quota enforcement before proceeding.
     for (let attempt = 0; attempt < 20; attempt++) {
-      const probe = await post(INSTANCES.a, token, '/api/brain/general/memories', {
+      const probe = await post(INSTANCES.a, token, '/api/brain/spaces/general/memories', {
         fact: `__space-suite-quota-guard-${Date.now()}__`,
       });
       if (probe.status === 201) break;
@@ -274,7 +274,7 @@ describe('POST /api/admin/reload-config — space config changes take effect', (
     }
     assert.ok(spaceVisible, `Space '${NEW_SPACE_ID}' should appear in /api/spaces after reload`);
 
-    const r = await post(INSTANCES.a, token, `/api/brain/${NEW_SPACE_ID}/memories`, {
+    const r = await post(INSTANCES.a, token, `/api/brain/spaces/${NEW_SPACE_ID}/memories`, {
       fact: `testing new space after reload ${RUN}`,
     });
     assert.equal(r.status, 201,
@@ -309,7 +309,7 @@ describe('POST /api/admin/reload-config — space config changes take effect', (
     }
     assert.ok(spaceGone, `Space '${NEW_SPACE_ID}' should be gone from /api/spaces after reload`);
 
-    const r = await post(INSTANCES.a, token, `/api/brain/${NEW_SPACE_ID}/memories`, {
+    const r = await post(INSTANCES.a, token, `/api/brain/spaces/${NEW_SPACE_ID}/memories`, {
       fact: 'should be rejected',
     });
     assert.equal(r.status, 404,

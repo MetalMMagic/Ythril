@@ -102,7 +102,7 @@ describe('seq injection — MAX_SAFE_INTEGER poisons the high-water mark', () =>
     // This validates that even if a poisoned doc slips through, the nextSeq()
     // function does not start returning MAX_SAFE + 1 (which would overflow).
     // After a fix, the poison doc is rejected, so nextSeq should still be healthy.
-    const r = await post(INSTANCES.a, token, '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token, '/api/brain/spaces/general/memories', {
       fact: `seq health check ${Date.now()}`,
     });
     assert.equal(r.status, 201, `Write after poison attempt: ${JSON.stringify(r.body)}`);

@@ -26,7 +26,7 @@ let token;
 
 /** POST to brain memories with arbitrary body */
 async function postMemory(body) {
-  const r = await fetch(`${INSTANCES.a}/api/brain/general/memories`, {
+  const r = await fetch(`${INSTANCES.a}/api/brain/spaces/general/memories`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify(body),

@@ -69,7 +69,7 @@ describe('Space export — basic export', () => {
     createdSpaceIds.push(spaceId);
 
     // Seed one of each type
-    const memR = await post(INSTANCES.a, adminToken, `/api/brain/${spaceId}/memories`, { fact: 'Export memory fact', tags: ['export-tag'] });
+    const memR = await post(INSTANCES.a, adminToken, `/api/brain/spaces/${spaceId}/memories`, { fact: 'Export memory fact', tags: ['export-tag'] });
     assert.equal(memR.status, 201);
 
     const entR = await post(INSTANCES.a, adminToken, `/api/brain/spaces/${spaceId}/entities`, { name: 'ExportEnt', type: 'concept' });
@@ -288,7 +288,7 @@ describe('Space export/import — round-trip (export → wipe → import)', () =
     roundTripSpaceIds.push(spaceId);
 
     // Seed diverse data
-    const memR = await post(INSTANCES.a, tok, `/api/brain/${spaceId}/memories`, { fact: 'Round-trip memory', tags: ['rt-tag'] });
+    const memR = await post(INSTANCES.a, tok, `/api/brain/spaces/${spaceId}/memories`, { fact: 'Round-trip memory', tags: ['rt-tag'] });
     assert.equal(memR.status, 201);
     const memId = memR.body._id;
 
@@ -345,7 +345,7 @@ describe('Space export/import — round-trip (export → wipe → import)', () =
     assert.ok(postImportStats.body.chrono >= 1, 'Chrono should be restored');
 
     // Verify the specific memory is restored with the same ID
-    const memCheck = await reqJson(INSTANCES.a, tok, `/api/brain/${spaceId}/memories/${memId}`);
+    const memCheck = await reqJson(INSTANCES.a, tok, `/api/brain/spaces/${spaceId}/memories/${memId}`);
     assert.equal(memCheck.status, 200, `Memory ${memId} should be retrievable after import`);
     assert.equal(memCheck.body.fact, 'Round-trip memory');
     assert.deepEqual(memCheck.body.tags, ['rt-tag']);

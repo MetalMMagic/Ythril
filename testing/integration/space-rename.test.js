@@ -58,7 +58,7 @@ describe('Space rename', () => {
     await post(INSTANCES.a, tokenA, '/api/spaces', { id: oldId, label: 'Data Rename' });
 
     // Write a memory
-    const writeR = await post(INSTANCES.a, tokenA, `/api/brain/${oldId}/memories`, {
+    const writeR = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${oldId}/memories`, {
       fact: 'Rename survival test fact',
       tags: ['rename-test'],
     });
@@ -71,11 +71,11 @@ describe('Space rename', () => {
     createdSpaceIds.push(newId);
 
     // Old ID should 404
-    const oldR = await get(INSTANCES.a, tokenA, `/api/brain/${oldId}/memories`);
+    const oldR = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${oldId}/memories`);
     assert.ok(oldR.status === 403 || oldR.status === 404, `Old space should be gone, got ${oldR.status}`);
 
     // New ID should have the memory
-    const newR = await get(INSTANCES.a, tokenA, `/api/brain/${newId}/memories`);
+    const newR = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${newId}/memories`);
     assert.equal(newR.status, 200);
     const found = newR.body.memories?.some(m => m._id === memId);
     assert.ok(found, 'Memory should exist under the renamed space');

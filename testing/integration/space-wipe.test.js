@@ -45,7 +45,7 @@ describe('Space wipe — full wipe', () => {
     createdSpaceIds.push(spaceId);
 
     // Seed data in every collection
-    const memR = await post(INSTANCES.a, adminToken, `/api/brain/${spaceId}/memories`, { fact: 'Memory to wipe', tags: ['wipe-test'] });
+    const memR = await post(INSTANCES.a, adminToken, `/api/brain/spaces/${spaceId}/memories`, { fact: 'Memory to wipe', tags: ['wipe-test'] });
     assert.equal(memR.status, 201, `Memory: ${JSON.stringify(memR.body)}`);
 
     const entR = await post(INSTANCES.a, adminToken, `/api/brain/spaces/${spaceId}/entities`, { name: 'WipeEnt', type: 'concept' });
@@ -152,7 +152,7 @@ describe('Space wipe — partial wipe (by type)', () => {
     partialWipeSpaceIds.push(spaceId);
 
     // Seed one of each type
-    await post(INSTANCES.a, adminTok, `/api/brain/${spaceId}/memories`, { fact: 'Mem to wipe', tags: [] });
+    await post(INSTANCES.a, adminTok, `/api/brain/spaces/${spaceId}/memories`, { fact: 'Mem to wipe', tags: [] });
     await post(INSTANCES.a, adminTok, `/api/brain/spaces/${spaceId}/entities`, { name: 'SurvivingEnt', type: 'concept' });
     await post(INSTANCES.a, adminTok, `/api/brain/spaces/${spaceId}/chrono`, { title: 'Surviving chrono', type: 'event', startsAt: new Date().toISOString() });
 
@@ -182,7 +182,7 @@ describe('Space wipe — partial wipe (by type)', () => {
     assert.equal(createR.status, 201);
     partialWipeSpaceIds.push(spaceId);
 
-    await post(INSTANCES.a, adminTok, `/api/brain/${spaceId}/memories`, { fact: 'Surviving memory', tags: [] });
+    await post(INSTANCES.a, adminTok, `/api/brain/spaces/${spaceId}/memories`, { fact: 'Surviving memory', tags: [] });
     await post(INSTANCES.a, adminTok, `/api/brain/spaces/${spaceId}/entities`, { name: 'EntToWipe', type: 'concept' });
 
     // Wipe entities only
@@ -211,7 +211,7 @@ describe('Space wipe — partial wipe (by type)', () => {
     assert.ok(fileR.status === 200 || fileR.status === 201 || fileR.status === 202, `Upload: ${fileR.status}`);
 
     // Seed a memory so we can check it survives
-    await post(INSTANCES.a, adminTok, `/api/brain/${spaceId}/memories`, { fact: 'Surviving memory', tags: [] });
+    await post(INSTANCES.a, adminTok, `/api/brain/spaces/${spaceId}/memories`, { fact: 'Surviving memory', tags: [] });
 
     const preStats = await get(INSTANCES.a, adminTok, `/api/brain/spaces/${spaceId}/stats`);
     assert.ok(preStats.body.files >= 1, 'Should have at least 1 file');
@@ -238,7 +238,7 @@ describe('Space wipe — partial wipe (by type)', () => {
     assert.equal(createR.status, 201);
     partialWipeSpaceIds.push(spaceId);
 
-    await post(INSTANCES.a, adminTok, `/api/brain/${spaceId}/memories`, { fact: 'Memory to wipe', tags: [] });
+    await post(INSTANCES.a, adminTok, `/api/brain/spaces/${spaceId}/memories`, { fact: 'Memory to wipe', tags: [] });
     await post(INSTANCES.a, adminTok, `/api/brain/spaces/${spaceId}/entities`, { name: 'EntToWipe', type: 'concept' });
     await post(INSTANCES.a, adminTok, `/api/brain/spaces/${spaceId}/chrono`, { title: 'Surviving chrono', type: 'event', startsAt: new Date().toISOString() });
 

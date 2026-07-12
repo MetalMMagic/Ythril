@@ -88,7 +88,7 @@ async function uploadFile(t, filePath, content = 'hello quota test') {
 }
 
 async function writeMemory(t, fact = 'quota test memory') {
-  return post(INSTANCES.a, t, '/api/brain/general/memories', { fact });
+  return post(INSTANCES.a, t, '/api/brain/spaces/general/memories', { fact });
 }
 
 // ── Test suite ────────────────────────────────────────────────────────────────

@@ -67,7 +67,7 @@ describe('Forged tombstone cross-instance deletion is refused', () => {
 
   it('B cannot delete A-authored content by forging a tombstone as A', async () => {
     // A authors a memory (author.instanceId = A).
-    const w = await post(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories`, {
+    const w = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories`, {
       fact: 'A-authored memory that B must not be able to delete', tags: ['victim'],
     });
     assert.equal(w.status, 201, JSON.stringify(w.body));
@@ -85,12 +85,12 @@ describe('Forged tombstone cross-instance deletion is refused', () => {
     assert.equal(forged.status, 200, JSON.stringify(forged.body));
 
     // The victim memory must still exist.
-    const check = await get(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories/${victimId}`);
+    const check = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories/${victimId}`);
     assert.equal(check.status, 200, 'VULNERABILITY: forged tombstone deleted A-authored content');
   });
 
   it('a trusted (admin) tombstone for the same author still deletes — endpoint is not simply broken', async () => {
-    const w = await post(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories`, {
+    const w = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories`, {
       fact: 'A-authored memory deleted via a trusted admin tombstone', tags: ['control'],
     });
     assert.equal(w.status, 201, JSON.stringify(w.body));
@@ -105,7 +105,7 @@ describe('Forged tombstone cross-instance deletion is refused', () => {
     });
     assert.equal(t.status, 200, JSON.stringify(t.body));
 
-    const check = await get(INSTANCES.a, tokenA, `/api/brain/${testSpaceId}/memories/${id}`);
+    const check = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories/${id}`);
     assert.equal(check.status, 404, 'trusted admin tombstone should have deleted the memory');
   });
 });

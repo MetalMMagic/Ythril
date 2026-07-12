@@ -43,7 +43,7 @@ describe('Space deletion — full cleanup', () => {
     assert.equal(createR.status, 201, `Create: ${JSON.stringify(createR.body)}`);
 
     // 2. Write a memory
-    const memR = await post(INSTANCES.a, token, `/api/brain/${spaceId}/memories`, {
+    const memR = await post(INSTANCES.a, token, `/api/brain/spaces/${spaceId}/memories`, {
       fact: 'Memory that should be deleted',
       tags: ['deletion-test'],
     });

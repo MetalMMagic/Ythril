@@ -135,28 +135,36 @@ describe('H2 — MFA cannot be rotated/disabled with just an admin PAT once enab
   // documented break-glass way: remove `totpSecret` from secrets.json on disk and
   // restart, which reloads the (now MFA-off) config from disk. Code-free and
   // reliable — no TOTP generation needed.
-  function disableMfaViaRestart() {
+  async function disableMfaViaRestart() {
     execSync(`docker exec ythril-a node -e "const fs=require('fs');const p='/config/secrets.json';const s=JSON.parse(fs.readFileSync(p,'utf8'));delete s.totpSecret;fs.writeFileSync(p,JSON.stringify(s,null,2),{mode:0o600})"`);
     execSync('docker restart ythril-a', { stdio: 'ignore' });
-    const sleep1s = () => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
-    for (let i = 0; i < 45; i++) {
+    // Wait for the API to actually serve again — poll the readiness endpoint
+    // (not just docker's health status), retrying through the stale keep-alive
+    // sockets still pointing at the dead process. Throw loudly on timeout so we
+    // never run assertions against a half-restarted server. The old 45s docker-
+    // health loop returned SILENTLY on timeout, so a slow restart left `before`
+    // hitting a dead server and the MFA request hung to its timeout — the flake.
+    const deadline = Date.now() + 90_000;
+    while (Date.now() < deadline) {
       try {
-        if (execSync('docker inspect -f "{{.State.Health.Status}}" ythril-a').toString().trim() === 'healthy') return;
-      } catch { /* container mid-restart */ }
-      sleep1s();
+        const r = await fetch(`${INSTANCES.a}/ready`);
+        if (r.ok) return;
+      } catch { /* container mid-restart / stale socket */ }
+      await new Promise(res => setTimeout(res, 500));
     }
+    throw new Error('instance A did not come back after MFA-disable restart');
   }
 
   before(async () => {
-    disableMfaViaRestart();                       // ensure a clean (MFA-off) start
+    await disableMfaViaRestart();                 // ensure a clean (MFA-off) start
     const setup = await post(INSTANCES.a, adminToken, '/api/mfa/setup', {});  // first-time enrol needs no code
     assert.equal(setup.status, 201, `enable MFA: ${JSON.stringify(setup.body)}`);
     const status = await get(INSTANCES.a, adminToken, '/api/mfa/status');
     assert.equal(status.body.enabled, true, 'MFA should be enabled after setup');
   });
 
-  after(() => {
-    disableMfaViaRestart();
+  after(async () => {
+    await disableMfaViaRestart();
   });
 
   it('POST /api/mfa/setup (rotate) with only an admin PAT is rejected once MFA is enabled', async () => {

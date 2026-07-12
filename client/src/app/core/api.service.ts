@@ -683,7 +683,7 @@ export class ApiService {
   }
 
   createMemory(spaceId: string, body: { fact: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean> }): Observable<Memory> {
-    return this.http.post<Memory>(`/api/brain/${spaceId}/memories`, body);
+    return this.http.post<Memory>(`/api/brain/spaces/${spaceId}/memories`, body);
   }
 
   updateMemory(spaceId: string, id: string, body: Partial<{ fact: string; tags: string[]; entityIds: string[]; description: string; properties: Record<string, string | number | boolean>; deleteFields: string[] }>): Observable<Memory> {
@@ -757,7 +757,7 @@ export class ApiService {
   }
 
   getMemory(spaceId: string, id: string): Observable<Memory> {
-    return this.http.get<Memory>(`/api/brain/${spaceId}/memories/${id}`);
+    return this.http.get<Memory>(`/api/brain/spaces/${spaceId}/memories/${id}`);
   }
 
   getChrono(spaceId: string, id: string): Observable<ChronoEntry> {

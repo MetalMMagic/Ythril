@@ -34,7 +34,7 @@ describe('Brain â€” memories', () => {
   });
 
   it('Write a memory returns 201 with _id and seq', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: 'The sky is blue',
       tags: ['science', 'color'],
     });
@@ -45,49 +45,49 @@ describe('Brain â€” memories', () => {
   });
 
   it('List memories returns written memory', async () => {
-    const write = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const write = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: 'Unique fact for list test',
       tags: ['list-test'],
     });
     const memId = write.body._id ?? write.body.id;
 
-    const r = await get(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`);
     assert.equal(r.status, 200, `Written memory should be retrievable by ID: ${JSON.stringify(r.body)}`);
   });
 
   it('Delete a memory returns 204 and it is gone', async () => {
-    const write = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const write = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: 'Memory to delete',
       tags: ['delete-test'],
     });
     const memId = write.body._id ?? write.body.id;
 
-    const delR = await del(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
+    const delR = await del(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`);
     assert.equal(delR.status, 204, `Delete: ${JSON.stringify(delR.body)}`);
 
     // Confirm deletion via direct ID lookup — 404 is the authoritative signal;
     // scanning a paginated list would give a false pass once >100 memories exist.
-    const lookup = await get(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
+    const lookup = await get(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`);
     assert.equal(lookup.status, 404, 'Deleted memory must return 404 on direct lookup');
   });
 
   it('Wipe all memories requires confirm:true in body', async () => {
     // No body → 400
-    const noBody = await del(INSTANCES.a, token(), '/api/brain/general/memories');
+    const noBody = await del(INSTANCES.a, token(), '/api/brain/spaces/general/memories');
     assert.equal(noBody.status, 400, `No body should 400, got ${noBody.status}`);
 
     // confirm:false → 400
-    const noConfirm = await delWithBody(INSTANCES.a, token(), '/api/brain/general/memories', { confirm: false });
+    const noConfirm = await delWithBody(INSTANCES.a, token(), '/api/brain/spaces/general/memories', { confirm: false });
     assert.equal(noConfirm.status, 400, `confirm:false should 400, got ${noConfirm.status}`);
   });
 
   it('Delete non-existent memory returns 404', async () => {
-    const r = await del(INSTANCES.a, token(), '/api/brain/general/memories/nonexistent-id');
+    const r = await del(INSTANCES.a, token(), '/api/brain/spaces/general/memories/nonexistent-id');
     assert.equal(r.status, 404);
   });
 
   it('Access memory in non-existent space returns 404', async () => {
-    const r = await get(INSTANCES.a, token(), '/api/brain/nonexistent-space/memories');
+    const r = await get(INSTANCES.a, token(), '/api/brain/spaces/nonexistent-space/memories');
     assert.equal(r.status, 404, `Got ${r.status}`);
   });
 });
@@ -104,7 +104,7 @@ describe('Brain â€” stats', () => {
 
 describe('Brain â€” conflicts protection', () => {
   it('Writing to a wrongly spelled spaceId returns error', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/GENERAL/memories', {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/GENERAL/memories', {
       fact: 'Case sensitivity test',
     });
     // Space IDs are lowercase â€” GENERAL should 404
@@ -387,7 +387,7 @@ describe('Brain — memory list filtering', () => {
   });
 
   it('Filter by tag returns only matching memories', async () => {
-    const r = await get(INSTANCES.a, tokenA, '/api/brain/general/memories?tag=physics&limit=500');
+    const r = await get(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories?tag=physics&limit=500');
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const ids = r.body.memories.map(m => m._id);
     assert.ok(ids.includes(`filt-${RUN}-1`), 'Alpha (physics) should match');
@@ -397,14 +397,14 @@ describe('Brain — memory list filtering', () => {
   });
 
   it('Tag filter is case-insensitive', async () => {
-    const r = await get(INSTANCES.a, tokenA, '/api/brain/general/memories?tag=PHYSICS&limit=500');
+    const r = await get(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories?tag=PHYSICS&limit=500');
     assert.equal(r.status, 200);
     const ids = r.body.memories.map(m => m._id);
     assert.ok(ids.includes(`filt-${RUN}-1`), 'Should match physics despite uppercase query');
   });
 
   it('Filter by entity returns only linked memories', async () => {
-    const r = await get(INSTANCES.a, tokenA, '/api/brain/general/memories?entity=ent-y&limit=500');
+    const r = await get(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories?entity=ent-y&limit=500');
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const ids = r.body.memories.map(m => m._id);
     assert.ok(ids.includes(`filt-${RUN}-2`), 'Beta (ent-y) should match');
@@ -415,7 +415,7 @@ describe('Brain — memory list filtering', () => {
 
   it('Combine tag + entity returns intersection', async () => {
     // tag=physics AND entity=ent-x → items 1 and 3
-    const r = await get(INSTANCES.a, tokenA, '/api/brain/general/memories?tag=physics&entity=ent-x&limit=500');
+    const r = await get(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories?tag=physics&entity=ent-x&limit=500');
     assert.equal(r.status, 200, JSON.stringify(r.body));
     const ids = r.body.memories.map(m => m._id);
     assert.ok(ids.includes(`filt-${RUN}-1`), 'Alpha (physics + ent-x) should match');
@@ -424,7 +424,7 @@ describe('Brain — memory list filtering', () => {
   });
 
   it('No filter returns all (at least our 5)', async () => {
-    const r = await get(INSTANCES.a, tokenA, '/api/brain/general/memories?limit=500');
+    const r = await get(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories?limit=500');
     assert.equal(r.status, 200);
     const ids = r.body.memories.map(m => m._id);
     for (let i = 1; i <= 5; i++) {
@@ -433,7 +433,7 @@ describe('Brain — memory list filtering', () => {
   });
 
   it('Filter with no matches returns empty array', async () => {
-    const r = await get(INSTANCES.a, tokenA, '/api/brain/general/memories?tag=nonexistent-tag-xyz&limit=500');
+    const r = await get(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories?tag=nonexistent-tag-xyz&limit=500');
     assert.equal(r.status, 200);
     assert.equal(r.body.memories.length, 0, 'Should return empty array for non-matching filter');
   });
@@ -458,15 +458,15 @@ describe('Brain â€” memory list limit/skip pagination', () => {
   });
 
   it('limit=3 returns at most 3 memories', async () => {
-    const r = await get(INSTANCES.a, token(), '/api/brain/general/memories?limit=3');
+    const r = await get(INSTANCES.a, token(), '/api/brain/spaces/general/memories?limit=3');
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.ok(Array.isArray(r.body.memories), 'memories must be array');
     assert.ok(r.body.memories.length <= 3, `Expected â‰¤3 items, got ${r.body.memories.length}`);
   });
 
   it('skip pagination returns disjoint results', async () => {
-    const page1 = await get(INSTANCES.a, token(), '/api/brain/general/memories?limit=3&skip=0');
-    const page2 = await get(INSTANCES.a, token(), '/api/brain/general/memories?limit=3&skip=3');
+    const page1 = await get(INSTANCES.a, token(), '/api/brain/spaces/general/memories?limit=3&skip=0');
+    const page2 = await get(INSTANCES.a, token(), '/api/brain/spaces/general/memories?limit=3&skip=3');
     assert.equal(page1.status, 200);
     assert.equal(page2.status, 200);
     const p1Ids = new Set(page1.body.memories.map(m => m._id));
@@ -476,7 +476,7 @@ describe('Brain â€” memory list limit/skip pagination', () => {
   });
 
   it('limit cap â€” limit > 500 is capped at 500', async () => {
-    const r = await get(INSTANCES.a, token(), '/api/brain/general/memories?limit=9999');
+    const r = await get(INSTANCES.a, token(), '/api/brain/spaces/general/memories?limit=9999');
     assert.equal(r.status, 200);
     assert.ok(r.body.limit <= 500, `Expected limit â‰¤500 in response, got ${r.body.limit}`);
   });
@@ -598,19 +598,19 @@ describe('Brain — POST /api/brain/spaces/:spaceId/reindex', () => {
 
 describe('Brain â€” memory fact validation', () => {
   it('Returns 400 if fact is missing', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', { tags: ['nofact'] });
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', { tags: ['nofact'] });
     assert.equal(r.status, 400);
   });
 
   it('Returns 400 if fact exceeds 50 000 characters', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: 'x'.repeat(50_001),
     });
     assert.equal(r.status, 400);
   });
 
   it('Returns 400 if tags contains non-string', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: 'valid fact',
       tags: [1, 2, 3],
     });
@@ -618,7 +618,7 @@ describe('Brain â€” memory fact validation', () => {
   });
 
   it('Returns 201 at exactly 50 000 character fact', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: 'a'.repeat(50_000),
     });
     assert.equal(r.status, 201, `Boundary-value fact should be accepted: ${JSON.stringify(r.body)}`);
@@ -652,38 +652,38 @@ describe('Brain — bulk memory wipe', () => {
     }
 
     // Create one more memory via brain API to capture the current seq counter
-    const marker = await post(INSTANCES.a, tokenA, `/api/brain/${WIPE_SPACE}/memories`, {
+    const marker = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${WIPE_SPACE}/memories`, {
       fact: 'Seq marker for wipe test', tags: ['wipe-marker'],
     });
     assert.equal(marker.status, 201);
     seqBefore = marker.body.seq;
 
     // Verify they exist
-    const list = await get(INSTANCES.a, tokenA, `/api/brain/${WIPE_SPACE}/memories?limit=500`);
+    const list = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${WIPE_SPACE}/memories?limit=500`);
     for (const id of seededIds) {
       assert.ok(list.body.memories.some(m => m._id === id), `Seeded ${id} should exist`);
     }
   });
 
   it('DELETE without body returns 400', async () => {
-    const r = await del(INSTANCES.a, tokenA, `/api/brain/${WIPE_SPACE}/memories`);
+    const r = await del(INSTANCES.a, tokenA, `/api/brain/spaces/${WIPE_SPACE}/memories`);
     assert.equal(r.status, 400, `expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
   });
 
   it('DELETE with confirm:false returns 400', async () => {
-    const r = await delWithBody(INSTANCES.a, tokenA, `/api/brain/${WIPE_SPACE}/memories`, { confirm: false });
+    const r = await delWithBody(INSTANCES.a, tokenA, `/api/brain/spaces/${WIPE_SPACE}/memories`, { confirm: false });
     assert.equal(r.status, 400, `expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
   });
 
   it('DELETE with confirm:true returns {deleted: N}', async () => {
-    const r = await delWithBody(INSTANCES.a, tokenA, `/api/brain/${WIPE_SPACE}/memories`, { confirm: true });
+    const r = await delWithBody(INSTANCES.a, tokenA, `/api/brain/spaces/${WIPE_SPACE}/memories`, { confirm: true });
     assert.equal(r.status, 200, `expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
     assert.ok(typeof r.body.deleted === 'number', 'deleted must be a number');
     assert.ok(r.body.deleted >= 10, `Should have deleted at least 10, got ${r.body.deleted}`);
   });
 
   it('Memories are gone after wipe', async () => {
-    const list = await get(INSTANCES.a, tokenA, `/api/brain/${WIPE_SPACE}/memories?limit=500`);
+    const list = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${WIPE_SPACE}/memories?limit=500`);
     assert.equal(list.status, 200);
     for (const id of seededIds) {
       const found = list.body.memories.some(m => m._id === id);
@@ -735,7 +735,7 @@ describe('Brain — bulk memory wipe', () => {
   });
 
   it('Wipe on unknown space returns 404', async () => {
-    const r = await delWithBody(INSTANCES.a, tokenA, '/api/brain/no-such-space/memories', { confirm: true });
+    const r = await delWithBody(INSTANCES.a, tokenA, '/api/brain/spaces/no-such-space/memories', { confirm: true });
     assert.equal(r.status, 404, `expected 404, got ${r.status}`);
   });
 });
@@ -979,7 +979,7 @@ describe('Brain — memory description and properties fields', () => {
   const RUN = Date.now();
 
   it('POST /memories with description and properties stores both fields', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `DescPropFact-${RUN}`,
       tags: ['desc-prop-test'],
       description: 'Context for this fact',
@@ -991,7 +991,7 @@ describe('Brain — memory description and properties fields', () => {
   });
 
   it('description and properties are retrievable by ID', async () => {
-    const write = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const write = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `DescPropRetrieve-${RUN}`,
       description: 'Retrievable description',
       properties: { key: 'val' },
@@ -999,14 +999,14 @@ describe('Brain — memory description and properties fields', () => {
     assert.equal(write.status, 201);
     const memId = write.body._id;
 
-    const r = await get(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
+    const r = await get(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`);
     assert.equal(r.status, 200);
     assert.equal(r.body.description, 'Retrievable description');
     assert.deepStrictEqual(r.body.properties, { key: 'val' });
   });
 
   it('memory without description/properties works (optional fields)', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `NoDescProp-${RUN}`,
     });
     assert.equal(r.status, 201, JSON.stringify(r.body));
@@ -1016,7 +1016,7 @@ describe('Brain — memory description and properties fields', () => {
 
   it('non-string description is ignored (coerced away)', async () => {
     // Server strips non-string description — must not crash
-    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `BadDesc-${RUN}`,
       description: 12345,
     });
@@ -1024,7 +1024,7 @@ describe('Brain — memory description and properties fields', () => {
   });
 
   it('non-object properties is ignored (coerced away)', async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `BadProps-${RUN}`,
       properties: 'not-an-object',
     });
@@ -1532,7 +1532,7 @@ describe('Brain — POST /spaces/:spaceId/query', () => {
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     // Seed a memory with a distinctive tag and fact for query tests
-    const r = await post(INSTANCES.a, tokenA, '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories', {
       fact: `QueryTest-${RUN} authentication service bootstrap`,
       tags: [`qtest-${RUN}`, 'auth'],
     });
@@ -1683,7 +1683,7 @@ describe('Brain — PATCH memory updates description and properties', () => {
   let memId;
 
   before(async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `PatchMemFact-${RUN}`,
       tags: ['patch-test'],
       description: 'Initial description',
@@ -1694,32 +1694,32 @@ describe('Brain — PATCH memory updates description and properties', () => {
   });
 
   it('PATCH memory updates description field', async () => {
-    const r = await patch(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`, {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`, {
       description: 'Updated description',
     });
     assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
     assert.equal(r.body.description, 'Updated description', 'description must be updated');
 
-    const get2 = await get(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
+    const get2 = await get(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`);
     assert.equal(get2.status, 200);
     assert.equal(get2.body.description, 'Updated description', 'description persisted to DB');
   });
 
   it('PATCH memory updates properties field', async () => {
-    const r = await patch(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`, {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`, {
       properties: { source: 'patched', extra: 'yes' },
     });
     assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
     assert.equal(r.body.properties?.source, 'patched', 'source property updated');
 
-    const get2 = await get(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`);
+    const get2 = await get(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`);
     assert.equal(get2.status, 200);
     assert.equal(get2.body.properties?.source, 'patched', 'properties persisted to DB');
     assert.equal(get2.body.properties?.extra, 'yes', 'new property persisted');
   });
 
   it('PATCH memory updates fact field', async () => {
-    const r = await patch(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`, {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`, {
       fact: `PatchMemFact-updated-${RUN}`,
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -1727,19 +1727,19 @@ describe('Brain — PATCH memory updates description and properties', () => {
   });
 
   it('PATCH memory with no fields returns 400', async () => {
-    const r = await patch(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`, {});
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`, {});
     assert.equal(r.status, 400, `Expected 400 for empty body`);
   });
 
   it('PATCH memory with unknown ID returns 404', async () => {
-    const r = await patch(INSTANCES.a, token(), `/api/brain/general/memories/nonexistent-id-${RUN}`, {
+    const r = await patch(INSTANCES.a, token(), `/api/brain/spaces/general/memories/nonexistent-id-${RUN}`, {
       description: 'should not matter',
     });
     assert.equal(r.status, 404, `Expected 404 for unknown ID`);
   });
 
   after(async () => {
-    if (memId) await del(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`).catch(() => {});
+    if (memId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`).catch(() => {});
   });
 });
 
@@ -1750,7 +1750,7 @@ describe('Brain — PATCH memory long-form path persists description and propert
   let memId;
 
   before(async () => {
-    const r = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `PatchMemLong-${RUN}`,
       description: 'Initial',
       properties: { v: 1 },
@@ -1770,7 +1770,7 @@ describe('Brain — PATCH memory long-form path persists description and propert
   });
 
   after(async () => {
-    if (memId) await del(INSTANCES.a, token(), `/api/brain/general/memories/${memId}`).catch(() => {});
+    if (memId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`).catch(() => {});
   });
 });
 
@@ -2102,7 +2102,7 @@ describe('Brain — read-only token blocked on REST write endpoints', () => {
     readOnlyTokenId = tokenRes.body.id;
 
     // Seed test objects using the admin token for later PATCH/DELETE tests
-    const memR = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const memR = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `ROTest-mem-${RUN}`,
     });
     testMemId = memR.body._id;
@@ -2130,7 +2130,7 @@ describe('Brain — read-only token blocked on REST write endpoints', () => {
 
   after(async () => {
     if (readOnlyTokenId) await del(INSTANCES.a, token(), `/api/tokens/${readOnlyTokenId}`).catch(() => {});
-    if (testMemId) await del(INSTANCES.a, token(), `/api/brain/general/memories/${testMemId}`).catch(() => {});
+    if (testMemId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${testMemId}`).catch(() => {});
     if (testEntId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${testEntId}`).catch(() => {});
     if (helperEntId2) await del(INSTANCES.a, token(), `/api/brain/spaces/general/entities/${helperEntId2}`).catch(() => {});
     if (testEdgeId) await del(INSTANCES.a, token(), `/api/brain/spaces/general/edges/${testEdgeId}`).catch(() => {});
@@ -2138,14 +2138,14 @@ describe('Brain — read-only token blocked on REST write endpoints', () => {
   });
 
   it('POST /memories blocked with read-only token (403)', async () => {
-    const r = await post(INSTANCES.a, readOnlyToken, '/api/brain/general/memories', {
+    const r = await post(INSTANCES.a, readOnlyToken, '/api/brain/spaces/general/memories', {
       fact: 'Should be blocked',
     });
     assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
   });
 
   it('PATCH /memories/:id blocked with read-only token (403)', async () => {
-    const r = await patch(INSTANCES.a, readOnlyToken, `/api/brain/general/memories/${testMemId}`, {
+    const r = await patch(INSTANCES.a, readOnlyToken, `/api/brain/spaces/general/memories/${testMemId}`, {
       fact: 'Should be blocked',
     });
     assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
@@ -2217,7 +2217,7 @@ describe('Brain — read-only token blocked on REST write endpoints', () => {
   });
 
   it('GET /memories allowed with read-only token', async () => {
-    const r = await get(INSTANCES.a, readOnlyToken, '/api/brain/general/memories?limit=1');
+    const r = await get(INSTANCES.a, readOnlyToken, '/api/brain/spaces/general/memories?limit=1');
     assert.equal(r.status, 200, `GET memories should be allowed, got ${r.status}`);
   });
 });
@@ -2292,11 +2292,11 @@ describe('Brain — find-similar', () => {
 
   it('POST /find-similar returns results for a valid memory', async () => {
     // Write two similar memories
-    const w1 = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const w1 = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `FindSimilar test: authentication and authorization ${RUN}`,
       tags: ['find-similar-test'],
     });
-    const w2 = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const w2 = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `FindSimilar test: auth and authz security ${RUN}`,
       tags: ['find-similar-test'],
     });
@@ -2322,7 +2322,7 @@ describe('Brain — find-similar', () => {
   });
 
   it('POST /find-similar respects targetTypes filter', async () => {
-    const w = await post(INSTANCES.a, token(), '/api/brain/general/memories', {
+    const w = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
       fact: `FindSimilar targetTypes test ${RUN}`,
     });
     const sourceId = w.body._id ?? w.body.id;
@@ -2346,5 +2346,30 @@ describe('Brain — find-similar', () => {
       entryType: 'memory',
     });
     assert.equal(r.status, 404, `Got ${r.status}`);
+  });
+});
+
+// ── A1: legacy /:spaceId route shape removed (breaking change for 2.0) ──────
+describe('Brain — legacy route shape removed (A1)', () => {
+  let tk;
+  before(() => {
+    tk = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+  });
+
+  it('legacy GET /:spaceId/memories is gone (404, not a redirect)', async () => {
+    const r = await get(INSTANCES.a, tk, '/api/brain/general/memories');
+    assert.equal(r.status, 404, 'the legacy /:spaceId shape must be removed (404)');
+  });
+
+  it('legacy POST /:spaceId/memories is gone (404)', async () => {
+    const r = await post(INSTANCES.a, tk, '/api/brain/general/memories', { fact: 'legacy gone' });
+    assert.equal(r.status, 404);
+  });
+
+  it('canonical /spaces/:spaceId/memories create + get-by-id still work', async () => {
+    const w = await post(INSTANCES.a, tk, '/api/brain/spaces/general/memories', { fact: 'a1 canonical ok' });
+    assert.equal(w.status, 201, `canonical create must work: ${JSON.stringify(w.body)}`);
+    const g = await get(INSTANCES.a, tk, `/api/brain/spaces/general/memories/${w.body._id}`);
+    assert.equal(g.status, 200, 'canonical get-by-id must work');
   });
 });

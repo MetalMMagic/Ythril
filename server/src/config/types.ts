@@ -189,6 +189,10 @@ export interface SpaceConfig {
   dupeRules?: DupeActionRule[];
   /** Which record survives an automerge. Default 'older' (lower seq). */
   dupeMergeSurvivor?: 'older' | 'newer';
+  /** Also evaluate dupeRules in real time when a record is inserted, not only on
+   *  the scheduled scan. Default false (scan-time only). Applies to all inserts,
+   *  including bulk. */
+  dupeRulesOnInsert?: boolean;
 }
 
 export interface EmbeddingConfig {

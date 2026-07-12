@@ -150,6 +150,11 @@ export async function remember(
   if (description !== undefined) doc.description = description;
   if (properties !== undefined) doc.properties = properties;
   await col<MemoryDoc>(`${spaceId}_memories`).insertOne(mDoc<MemoryDoc>(doc));
+  // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
+  // dynamic import avoids a static cycle with dupe-scanner.js.
+  if (getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {
+    import('./dupe-scanner.js').then(m => m.evaluateRecordForDuplicates(spaceId, 'memory', doc._id)).catch(() => { /* best-effort */ });
+  }
   return similar ? { ...doc, similar } : doc;
 }
 

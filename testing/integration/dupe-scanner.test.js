@@ -27,6 +27,7 @@ const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
 const RUN = Date.now();
 const SPACE = `dupescan-${RUN}`;
 const SPACE_MERGE = `dupescan-merge-${RUN}`;
+const SPACE_INSERT = `dupescan-insert-${RUN}`;
 
 let tokenA;
 let embeddingAvailable = false;
@@ -81,7 +82,7 @@ const ids = {};
 
 before(async () => {
   tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-  for (const [id, label] of [[SPACE, `Dupe Scan ${RUN}`], [SPACE_MERGE, `Dupe Merge ${RUN}`]]) {
+  for (const [id, label] of [[SPACE, `Dupe Scan ${RUN}`], [SPACE_MERGE, `Dupe Merge ${RUN}`], [SPACE_INSERT, `Dupe Insert ${RUN}`]]) {
     const r = await post(INSTANCES.a, token(), '/api/spaces', { id, label });
     assert.equal(r.status, 201, `create space ${id}: ${JSON.stringify(r.body)}`);
   }
@@ -105,7 +106,7 @@ before(async () => {
 });
 
 after(async () => {
-  for (const space of [SPACE, SPACE_MERGE]) {
+  for (const space of [SPACE, SPACE_MERGE, SPACE_INSERT]) {
     await fetch(`${INSTANCES.a}/api/spaces/${space}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true }) }).catch(() => {});
   }
 });
@@ -165,6 +166,34 @@ describe('Duplicate scanner — flag + review', () => {
     const all = await listDupes(SPACE, 'all');
     const resolved = all.find(c => c.id === tPair.id);
     assert.equal(resolved?.status, 'resolved');
+  });
+});
+
+describe('Duplicate scanner — real-time (on insert)', () => {
+  it('evaluates rules at insert time when dupeRulesOnInsert is enabled', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    // Enable real-time evaluation with a flag rule (no /scan will be called).
+    const patch = await raw('PATCH', `/api/spaces/${SPACE_INSERT}`, { dupeRulesOnInsert: true, dupeRules: [{ minScore: 0.85, action: 'flag' }] });
+    assert.equal(patch.status, 200, JSON.stringify(patch.body));
+
+    const i1 = await createEntity(SPACE_INSERT, `Support Ticket Router ${RUN}`, 'Support ticket routing service assigning incoming tickets to on-call engineers by topic');
+    assert.ok(i1, 'first entity created');
+    await waitForIndexed(SPACE_INSERT, [i1]);
+
+    // Insert a near-duplicate; the fire-and-forget insert-time hook should record it.
+    const i2 = await createEntity(SPACE_INSERT, `Support Ticket Routing ${RUN}`, 'Support ticket routing service assigning incoming tickets to on-call engineers based on topic');
+    assert.ok(i2, 'second entity created');
+
+    // Poll (the hook is async/fire-and-forget) — but crucially we never call /scan.
+    const deadline = Date.now() + 20_000;
+    let found = null;
+    while (Date.now() < deadline && !found) {
+      const open = await listDupes(SPACE_INSERT, 'open');
+      found = open.find(c => [c.aId, c.bId].sort().join() === [i1, i2].sort().join());
+      if (!found) await new Promise(r => setTimeout(r, 500));
+    }
+    assert.ok(found, 'insert-time evaluation recorded the candidate without a scan');
+    assert.equal(found.status, 'open');
   });
 });
 

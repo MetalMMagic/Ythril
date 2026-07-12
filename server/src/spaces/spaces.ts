@@ -495,7 +495,7 @@ const META_VERSION_CAP = 20;
  *  Returns the updated SpaceConfig, or null if the space was not found. */
 export function updateSpace(
   spaceId: string,
-  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer' },
+  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean },
 ): SpaceConfig | null {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
@@ -512,6 +512,9 @@ export function updateSpace(
   }
   if (updates.dupeMergeSurvivor !== undefined) {
     space.dupeMergeSurvivor = updates.dupeMergeSurvivor;
+  }
+  if (updates.dupeRulesOnInsert !== undefined) {
+    space.dupeRulesOnInsert = updates.dupeRulesOnInsert || undefined;
   }
 
   if (updates.meta !== undefined) {

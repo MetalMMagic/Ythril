@@ -193,6 +193,45 @@ async function handlePair(spaceId: string, type: DupeScanType, seed: RecallResul
   await upsertCandidate(spaceId, type, a, b, aSeq, bSeq, score, 'open');
 }
 
+/** Find and rule-process the near-duplicates of one record. Returns the pair count. */
+async function evalOneRecord(spaceId: string, type: DupeScanType, recordId: string, threshold: number): Promise<number> {
+  let n = 0;
+  try {
+    const { source, results } = await findSimilar(spaceId, recordId, type as RecallKnowledgeType, TOPK, [type as RecallKnowledgeType], threshold);
+    for (const match of results) {
+      if (match.type !== type) continue;
+      await handlePair(spaceId, type, source, match);
+      n++;
+    }
+  } catch { /* record lacks a stored vector, was merged away, or search failed — skip */ }
+  return n;
+}
+
+/** Effective detection threshold for a space: the scanner floor, lowered to the
+ *  lowest rule minScore so a rule can fire at its own threshold. */
+function effectiveThreshold(spaceId: string): number {
+  const cfg = getConfig();
+  const dc = cfg.dupeScanner ?? {};
+  const base = typeof dc.threshold === 'number' ? clamp(dc.threshold, 0, 1) : DEFAULT_DUPE_THRESHOLD;
+  const rules = cfg.spaces.find(s => s.id === spaceId)?.dupeRules ?? [];
+  return rules.length > 0 ? Math.min(base, ...rules.map(r => clamp(r.minScore, 0, 1))) : base;
+}
+
+/**
+ * Real-time hook: evaluate a single freshly-written record against the space's
+ * duplicate rules — only when `dupeRulesOnInsert` is enabled. Fire-and-forget
+ * safe (never throws). The scheduled scan covers everything else.
+ */
+export async function evaluateRecordForDuplicates(spaceId: string, type: DupeScanType, recordId: string): Promise<void> {
+  const cfg = getConfig();
+  const space = cfg.spaces.find(s => s.id === spaceId);
+  if (!space || space.proxyFor || !space.dupeRulesOnInsert) return;
+  if (!isVectorSearchAvailable() || needsReindex(spaceId)) return;
+  try {
+    await evalOneRecord(spaceId, type, recordId, effectiveThreshold(spaceId));
+  } catch { /* never let insert-time evaluation surface an error */ }
+}
+
 // ── Sweep ────────────────────────────────────────────────────────────────────
 
 export interface DupeScanResult {
@@ -211,7 +250,7 @@ export async function scanSpace(spaceId: string, opts?: { reset?: boolean }): Pr
   if (!space || space.proxyFor) return { scanned: 0, pairs: 0 };
   if (!isVectorSearchAvailable() || needsReindex(spaceId)) return { scanned: 0, pairs: 0 };
 
-  const threshold = typeof dc.threshold === 'number' ? clamp(dc.threshold, 0, 1) : DEFAULT_DUPE_THRESHOLD;
+  const threshold = effectiveThreshold(spaceId);
   const batchSize = clamp(dc.batchSize ?? DEFAULT_BATCH_SIZE, 1, 1000);
   const maxPerRun = clamp(dc.maxPerRun ?? DEFAULT_MAX_PER_RUN, 1, 1_000_000);
   const types = (dc.types && dc.types.length > 0 ? dc.types : DEFAULT_TYPES);
@@ -237,14 +276,7 @@ export async function scanSpace(spaceId: string, opts?: { reset?: boolean }): Pr
       if (batch.length === 0) break;
 
       for (const rec of batch) {
-        try {
-          const { source, results } = await findSimilar(spaceId, rec._id, type as RecallKnowledgeType, TOPK, [type as RecallKnowledgeType], threshold);
-          for (const match of results) {
-            if (match.type !== type) continue;
-            await handlePair(spaceId, type, source, match);
-            pairs++;
-          }
-        } catch { /* record lacks a stored vector, was merged away, or search failed — skip */ }
+        pairs += await evalOneRecord(spaceId, type, rec._id, threshold);
         if (typeof rec.seq === 'number' && rec.seq > cursor) cursor = rec.seq;
         scanned++;
       }

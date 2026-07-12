@@ -563,6 +563,12 @@ interface TypeSchemaState {
                   </select>
                 </div>
 
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px;font-size:13px;">
+                  <input type="checkbox" [(ngModel)]="dupeOnInsert" />
+                  <span>{{ 'spaces.dupe.onInsert' | transloco }}</span>
+                </label>
+                <p style="font-size:12px;color:var(--text-muted);margin:-6px 0 16px;">{{ 'spaces.dupe.onInsertHint' | transloco }}</p>
+
                 <div class="dz-section-title" style="margin-top:8px;">{{ 'spaces.dupe.rulesTitle' | transloco }}</div>
                 <p style="font-size:12px;color:var(--text-muted);margin:4px 0 12px;">{{ 'spaces.dupe.rulesHint' | transloco }}</p>
 
@@ -925,6 +931,7 @@ export class SpacesComponent implements OnInit {
   // Duplicate-action rules tab
   dupeRulesState: DupeActionRule[] = [];
   dupeSurvivor: 'older' | 'newer' = 'older';
+  dupeOnInsert = false;
   dupeSaving = signal(false);
   dupeSaved  = signal(false);
   dupeError  = signal('');
@@ -1090,7 +1097,7 @@ export class SpacesComponent implements OnInit {
     this.dupeSaving.set(true);
     this.dupeError.set('');
     this.dupeSaved.set(false);
-    this.api.updateSpace(target.id, { dupeRules: rules, dupeMergeSurvivor: this.dupeSurvivor }).subscribe({
+    this.api.updateSpace(target.id, { dupeRules: rules, dupeMergeSurvivor: this.dupeSurvivor, dupeRulesOnInsert: this.dupeOnInsert }).subscribe({
       next: ({ space }) => {
         this.dupeSaving.set(false);
         this.dupeSaved.set(true);
@@ -1111,6 +1118,7 @@ export class SpacesComponent implements OnInit {
     this.stForm = { label: s.label, purpose: s.meta?.purpose ?? '', usageNotes: s.meta?.usageNotes ?? '', maxGiB: s.maxGiB ?? null };
     this.dupeRulesState = (s.dupeRules ?? []).map(r => ({ ...r }));
     this.dupeSurvivor = s.dupeMergeSurvivor ?? 'older';
+    this.dupeOnInsert = s.dupeRulesOnInsert ?? false;
     this.dupeSaving.set(false);
     this.dupeSaved.set(false);
     this.dupeError.set('');

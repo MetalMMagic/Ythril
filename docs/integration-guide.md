@@ -4852,6 +4852,8 @@ A background scanner can sweep a space for **semantically duplicate** records an
 
 **How the sweep works.** Each run walks a space's records ordered by `seq` (the monotonic sequence number that advances on every create *and* update), resuming from a per-(space, type) cursor. For each record it runs a vector search using the record's **stored** embedding (no re-embedding) and, for every match at or above `threshold`, applies the space's rules. Because updates advance `seq`, an edited record is re-scanned automatically; because the cursor is `seq`-based (not time-based), a record inserted with insert-time checking disabled is still covered. `maxPerRun` bounds the work per run so the initial full pass spreads across nights rather than one heavy burst.
 
+**Real-time evaluation (optional).** Set `dupeRulesOnInsert: true` on a space (Settings → Spaces → Duplicates, or `PATCH /api/spaces/:id`) to also apply the rules the moment a record is inserted, not only on the scheduled scan. Evaluation is fire-and-forget (it never blocks or fails the write) and applies to **all** inserts, including bulk — leave it off for scan-time-only. Default off. Note that with an `automerge` rule, real-time evaluation can absorb a just-inserted entity moments after the write returns.
+
 ### Action rules
 
 Rules live on the space (local, not synced/governed) and are edited under **Settings → Spaces → (a space) → Duplicates**, or via `PATCH /api/spaces/:id`:

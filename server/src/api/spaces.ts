@@ -130,8 +130,9 @@ const UpdateSpaceBody = z.object({
   meta: SpaceMetaBody.optional(),
   dupeRules: z.array(DupeActionRuleBody).max(20).optional(),
   dupeMergeSurvivor: z.enum(['older', 'newer']).optional(),
-}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined, {
-  message: 'At least one of label, description, maxGiB, meta, dupeRules, or dupeMergeSurvivor must be provided',
+  dupeRulesOnInsert: z.boolean().optional(),
+}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined, {
+  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, or dupeRulesOnInsert must be provided',
 });
 
 const ReorderSpacesBody = z.object({
@@ -277,13 +278,14 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     }
   }
 
-  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor }, idx) => ({
+  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert }, idx) => ({
     id, label, builtIn, folders, maxGiB, flex, description,
     usageGiB: usageGiBByIdx[idx],
     ...(proxyFor ? { proxyFor } : {}),
     ...(meta ? { meta: { ...meta, previousVersions: undefined } } : {}),
     ...(dupeRules ? { dupeRules } : {}),
     ...(dupeMergeSurvivor ? { dupeMergeSurvivor } : {}),
+    ...(dupeRulesOnInsert ? { dupeRulesOnInsert } : {}),
     ...(includeCounts && countsBySpaceId[id] ? { counts: countsBySpaceId[id] } : {}),
   }));
   // Include storage usage summary when quota is configured
@@ -368,8 +370,8 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
   // Duplicate rules are local (never governed) — apply them now, so they are
   // not silently dropped when a meta change on the same request opens a
   // network vote and returns 202 below.
-  if (parsed.data.dupeRules !== undefined || parsed.data.dupeMergeSurvivor !== undefined) {
-    updateSpace(id, { dupeRules: parsed.data.dupeRules, dupeMergeSurvivor: parsed.data.dupeMergeSurvivor });
+  if (parsed.data.dupeRules !== undefined || parsed.data.dupeMergeSurvivor !== undefined || parsed.data.dupeRulesOnInsert !== undefined) {
+    updateSpace(id, { dupeRules: parsed.data.dupeRules, dupeMergeSurvivor: parsed.data.dupeMergeSurvivor, dupeRulesOnInsert: parsed.data.dupeRulesOnInsert });
   }
 
   // Merge the incoming meta with the existing meta so that PATCH has true

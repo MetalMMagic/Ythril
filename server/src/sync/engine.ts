@@ -26,6 +26,8 @@ import { peerSafeFetch, isPeerUrlAllowed } from './peer-fetch.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from '../api/sync.js';
 import { enqueueMediaJob } from '../files/media/job-queue.js';
 import { resolveInputFormat } from '../files/converters/pipeline.js';
+import { schedule as cronSchedule, type ScheduledTask } from 'node-cron';
+import { resolveSyncCron } from './schedule.js';
 import {
   syncCyclesTotal,
   syncItemsPulledTotal,
@@ -92,7 +94,7 @@ export function localToRemote(net: NetworkConfig, localId: string): string {
 
 // ── Cron scheduler ─────────────────────────────────────────────────────────
 
-const _scheduledTimers = new Map<string, ReturnType<typeof setInterval>>();
+const _scheduledTasks = new Map<string, ScheduledTask>();
 
 /** Start cron-based sync for all networks that have a syncSchedule.
  *  Call this from index.ts after spaces are initialised. */
@@ -104,50 +106,38 @@ export function startSyncScheduler(): void {
   log.debug(`Sync scheduler started (${cfg.networks.length} networks)`);
 }
 
-/** Stop all scheduled timers */
+/** Stop all scheduled tasks */
 export function stopSyncScheduler(): void {
-  for (const [id, timer] of _scheduledTimers) {
-    clearInterval(timer);
+  for (const [id, task] of _scheduledTasks) {
+    task.stop();
     log.debug(`Sync scheduler stopped for network ${id}`);
   }
-  _scheduledTimers.clear();
+  _scheduledTasks.clear();
 }
 
-/** Schedule (or reschedule) sync for a network */
+/** Schedule (or reschedule) sync for a network. `schedule` is a cron expression
+ *  (the documented format) or one of the legacy shorthands; see resolveSyncCron.
+ *  Uses node-cron — the same scheduler as backups and the duplicate scanner. */
 export function scheduleSyncForNetwork(networkId: string, schedule?: string): void {
-  const old = _scheduledTimers.get(networkId);
-  if (old) { clearInterval(old); _scheduledTimers.delete(networkId); }
+  const old = _scheduledTasks.get(networkId);
+  if (old) { old.stop(); _scheduledTasks.delete(networkId); }
 
   if (!schedule) return;
 
-  // Parse simple schedule: "*/N minutes" or "*/N hours"
-  // Full cron parsing out of scope — we parse the two most common patterns
-  const intervalMs = parseSyncSchedule(schedule);
-  if (!intervalMs) {
+  const cronExpr = resolveSyncCron(schedule);
+  if (!cronExpr) {
     log.warn(`Unrecognised sync schedule '${schedule}' for network ${networkId} — using manual sync only`);
     return;
   }
 
-  const timer = setInterval(() => {
+  const task = cronSchedule(cronExpr, () => {
     runSyncForNetwork(networkId).catch(err =>
       log.error(`Scheduled sync failed for network ${networkId}: ${err}`),
     );
-  }, intervalMs);
+  });
 
-  _scheduledTimers.set(networkId, timer);
-  log.info(`Sync scheduled for network ${networkId} every ${intervalMs / 1000}s`);
-}
-
-// Parse cron-style schedule patterns: "* /N minutes", "every Nm", "every Nh"
-// (space deliberately added above to avoid TS parsing as block comment end)
-function parseSyncSchedule(s: string): number | null {
-  const cronPattern = /\*\/(\d+)\s*(min(?:utes?)?|h(?:ours?)?)/i;
-  const m = cronPattern.exec(s) ?? /every\s+(\d+)\s*(m(?:in)?|h(?:r?)?)/i.exec(s);
-  if (!m) return null;
-  const n = parseInt(m[1]!, 10);
-  const unit = m[2]!.toLowerCase();
-  const isHours = unit.startsWith('h');
-  return n * (isHours ? 3_600_000 : 60_000);
+  _scheduledTasks.set(networkId, task);
+  log.info(`Sync scheduled for network ${networkId} (cron: "${cronExpr}")`);
 }
 
 // ── Per-network sync ────────────────────────────────────────────────────────

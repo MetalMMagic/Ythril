@@ -19,8 +19,11 @@
  *   `workerConcurrency: 0` (or restart the pod, which leaves any pending
  *   jobs in the queue for a future enable).
  *
- * Provider config is read ONCE at worker start (config hot-reload requires a
- * pod restart). This avoids fetching env vars on every tick.
+ * Provider/worker config is re-read on every tick, so a change made via
+ * PATCH /api/admin/media-config takes effect WITHOUT a restart. The read is an
+ * in-memory config lookup, not a network call. Providers are rebuilt only when the
+ * provider-relevant config actually changes, and the bundle is passed into each job,
+ * so a job always runs against one stable provider set (no mid-job swap).
  */
 
 import { getConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
@@ -75,22 +78,30 @@ export function stopMediaEmbeddingWorker(): void {
 
 // ── Internal ──────────────────────────────────────────────────────────────
 
-async function workerLoop(): Promise<void> {
-  const mediaCfg = getMediaEmbeddingConfig();
-  const stalledJobTimeoutMs = mediaCfg.stalledJobTimeoutMs ?? 300_000;
-  const workerConcurrency = mediaCfg.workerConcurrency ?? 2;
-  const workerPollIntervalMs = mediaCfg.workerPollIntervalMs ?? 1_000;
-  const workerMaxPollIntervalMs = mediaCfg.workerMaxPollIntervalMs ?? 30_000;
-  const visionProviderType: 'local' | 'external' = mediaCfg.visionProvider ?? 'local';
-  const sttProviderType: 'local' | 'external' = mediaCfg.sttProvider ?? 'local';
-  const fallbackToExternal = mediaCfg.fallbackToExternal ?? false;
+/**
+ * Signature of the provider-relevant config. Providers are rebuilt only when this
+ * changes, so hot-reloading does not churn provider clients on every tick.
+ */
+function providerSignature(cfg: ReturnType<typeof getMediaEmbeddingConfig>): string {
+  return JSON.stringify([
+    cfg.visionProvider ?? 'local',
+    cfg.sttProvider ?? 'local',
+    cfg.fallbackToExternal ?? false,
+    cfg.vision ?? {},
+    cfg.stt ?? {},
+  ]);
+}
 
-  let currentPollMs = workerPollIntervalMs;
+async function workerLoop(): Promise<void> {
+  const startupCfg = getMediaEmbeddingConfig();
+  const startupStalledTimeoutMs = startupCfg.stalledJobTimeoutMs ?? 300_000;
+
+  let currentPollMs = startupCfg.workerPollIntervalMs ?? 1_000;
 
   // On startup: reset any stalled jobs (crash recovery)
   const spaceIds = getLocalSpaceIds();
   if (spaceIds.length > 0) {
-    await resetStalledJobs(spaceIds, stalledJobTimeoutMs).catch(err =>
+    await resetStalledJobs(spaceIds, startupStalledTimeoutMs).catch(err =>
       log.warn(`Media worker: stalled job reset error: ${err instanceof Error ? err.message : String(err)}`),
     );
   }
@@ -98,27 +109,58 @@ async function workerLoop(): Promise<void> {
   // Schedule periodic stalled-job sweep so a pod crash mid-job is recovered
   // even when the worker loop is otherwise idle (no new uploads). Interval is
   // half the stall timeout so a job is recovered within ~1.5× the timeout.
-  const sweepIntervalMs = Math.max(30_000, Math.floor(stalledJobTimeoutMs / 2));
+  // The sweep re-reads the timeout each fire so a config change is honoured; the
+  // interval itself is fixed at startup (changing it would mean re-arming the timer).
+  const sweepIntervalMs = Math.max(30_000, Math.floor(startupStalledTimeoutMs / 2));
   stalledSweepTimer = setInterval(() => {
     if (!running) return;
     const ids = getLocalSpaceIds();
     if (ids.length === 0) return;
-    void resetStalledJobs(ids, stalledJobTimeoutMs).catch(err =>
+    const stalledTimeoutMs = getMediaEmbeddingConfig().stalledJobTimeoutMs ?? 300_000;
+    void resetStalledJobs(ids, stalledTimeoutMs).catch(err =>
       log.warn(`Media worker: periodic stalled reset error: ${err instanceof Error ? err.message : String(err)}`),
     );
   }, sweepIntervalMs);
   // Don't keep the event loop alive solely for the sweep timer
   if (typeof stalledSweepTimer.unref === 'function') stalledSweepTimer.unref();
 
-  const providers = createMediaProviders(
-    mediaCfg.vision ?? {},
-    mediaCfg.stt ?? {},
-    visionProviderType,
-    sttProviderType,
-    fallbackToExternal,
+  const buildProviders = (cfg: ReturnType<typeof getMediaEmbeddingConfig>) => createMediaProviders(
+    cfg.vision ?? {},
+    cfg.stt ?? {},
+    cfg.visionProvider ?? 'local',
+    cfg.sttProvider ?? 'local',
+    cfg.fallbackToExternal ?? false,
   );
 
+  let providerSig = providerSignature(startupCfg);
+  let providers = buildProviders(startupCfg);
+
   while (running) {
+    // A6: re-read the config every tick so an admin change via
+    // PATCH /api/admin/media-config takes effect WITHOUT a restart. This is an
+    // in-memory config read, not a network call, so it is cheap.
+    const mediaCfg = getMediaEmbeddingConfig();
+    const workerConcurrency = mediaCfg.workerConcurrency ?? 2;
+    const workerPollIntervalMs = mediaCfg.workerPollIntervalMs ?? 1_000;
+    const workerMaxPollIntervalMs = mediaCfg.workerMaxPollIntervalMs ?? 30_000;
+
+    // Rebuild the providers only when the provider config actually changed, so a
+    // hot-reload doesn't churn provider clients on every tick.
+    const sig = providerSignature(mediaCfg);
+    if (sig !== providerSig) {
+      providers = buildProviders(mediaCfg);
+      providerSig = sig;
+      log.info('Media worker: provider config changed — providers reloaded');
+    }
+
+    // Bind the provider bundle for this tick's jobs. A job therefore always runs
+    // against ONE stable provider set for its whole duration — a config change
+    // mid-job can never swap the provider out from under it.
+    const jobProviders = providers;
+
+    // A lowered max must take effect immediately, not only after the next reset.
+    currentPollMs = Math.min(currentPollMs, workerMaxPollIntervalMs);
+
     // Re-read space list on each tick (handles dynamic space creation/removal)
     const activeSpaceIds = getLocalSpaceIds();
 
@@ -149,7 +191,7 @@ async function workerLoop(): Promise<void> {
     currentPollMs = workerPollIntervalMs;
 
     // Process jobs concurrently
-    await Promise.allSettled(claimed.map(job => processJob(job, providers)));
+    await Promise.allSettled(claimed.map(job => processJob(job, jobProviders)));
 
     // Brief pause to prevent tight loop when constantly finding work
     await sleep(currentPollMs);

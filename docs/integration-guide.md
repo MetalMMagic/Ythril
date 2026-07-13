@@ -1877,6 +1877,8 @@ Authorization: Bearer ythril_…
 
 All settings can be managed at `GET/PATCH /api/admin/media-config` or via **Settings → Models** in the web UI. Fields set via environment variables are locked (the UI shows an `env` badge; PATCH returns `403` for those fields).
 
+**Changes take effect without a restart.** The media worker re-reads this config on each poll tick, so switching a provider (or changing a model/endpoint, concurrency, or poll interval) applies to the *next* job — no pod restart required. A job already in flight keeps the provider it started with, so a swap can never happen mid-job. Because an idle worker backs off its poll interval (up to `workerMaxPollIntervalMs`, default 30 s), a change can take up to that long to be picked up when the queue is empty.
+
 | Field | Env var | Default | Description |
 |---|---|---|---|
 | `enabled` | `MEDIA_EMBEDDING_ENABLED` | `true` | Master on/off switch |

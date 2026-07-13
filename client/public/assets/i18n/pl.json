@@ -475,7 +475,7 @@
   "networks.network.members.removeAriaLabel": "Usu\u0144 cz\u0142onka",
   "networks.network.votes.title": "Otwarte g\u0142osowanie",
   "networks.network.votes.yes": "\u2713 Tak",
-  "networks.network.votes.no": "\u2717 Nie",
+  "networks.network.votes.veto": "\u2717 Weto",
   "networks.network.leaveButton": "Opu\u015b\u0107 sie\u0107",
   "networks.dialog.create.title": "Utw\u00f3rz sie\u0107",
   "networks.dialog.create.label": "Etykieta sieciowa",

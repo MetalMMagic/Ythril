@@ -308,7 +308,7 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
                     <div class="vote-row">
                       <span style="flex:1;">{{ round.type }}: {{ round.subject }}</span>
                       <button class="btn-primary btn btn-sm" (click)="castVote(net.id, round.id, 'yes')">{{ 'networks.network.votes.yes' | transloco }}</button>
-                      <button class="btn-danger btn btn-sm" (click)="castVote(net.id, round.id, 'no')">{{ 'networks.network.votes.no' | transloco }}</button>
+                      <button class="btn-danger btn btn-sm" (click)="castVote(net.id, round.id, 'veto')">{{ 'networks.network.votes.veto' | transloco }}</button>
                     </div>
                   }
                 </div>
@@ -1210,7 +1210,7 @@ export class NetworksComponent implements OnInit {
     return this.votesByNetwork[networkId] ?? [];
   }
 
-  castVote(networkId: string, roundId: string, vote: 'yes' | 'no'): void {
+  castVote(networkId: string, roundId: string, vote: 'yes' | 'veto'): void {
     this.api.castVote(networkId, roundId, vote).subscribe({
       next: () => this.loadVotes(networkId),
       error: (err) => alert(err.error?.error ?? this.transloco.translate('networks.error.castVoteFailed')),

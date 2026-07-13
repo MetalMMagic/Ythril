@@ -109,7 +109,7 @@ graph LR
     style D fill:#2a3a1a,color:#eee,stroke:#66aa44
 ```
 
-**5-member network, join vote (3 yes, 1 no, 1 veto):**
+**5-member network, join vote (3 yes, 1 abstain, 1 veto):**
 
 ```mermaid
 sequenceDiagram
@@ -118,7 +118,7 @@ sequenceDiagram
 
     E->>Net: join request
     Net-->>Net: voting round opens (48h deadline)
-    Note over Net: A → yes<br/>B → yes<br/>C → yes<br/>D → no<br/>F → VETO
+    Note over Net: A → yes<br/>B → yes<br/>C → yes<br/>D → abstains<br/>F → VETO
     Net-->>E: ✗ blocked by veto — not admitted
 ```
 

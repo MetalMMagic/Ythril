@@ -317,7 +317,7 @@ export interface VoteRound {
   openedAt: string;
   deadline: string;
   status: 'open' | 'passed' | 'failed';
-  votes: { instanceId: string; vote: 'yes' | 'no'; }[];
+  votes: { instanceId: string; vote: 'yes' | 'veto'; }[];
 }
 
 export interface ConflictRecord {
@@ -1026,7 +1026,7 @@ export class ApiService {
     return this.http.post<{ ok: boolean }>(`/api/networks/${networkId}/sync`, {});
   }
 
-  castVote(networkId: string, roundId: string, vote: 'yes' | 'no'): Observable<void> {
+  castVote(networkId: string, roundId: string, vote: 'yes' | 'veto'): Observable<void> {
     return this.http.post<void>(`/api/networks/${networkId}/votes/${roundId}`, { vote });
   }
 

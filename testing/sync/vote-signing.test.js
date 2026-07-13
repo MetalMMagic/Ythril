@@ -132,7 +132,7 @@ describe('Signed governance votes and safe relay', () => {
       const rb = readConfig('ythril-b').networks.find(n => n.id === networkId)?.pendingRounds.find(r => r.roundId === roundId);
       const bCast = rb?.votes?.find(v => v.instanceId === instanceIdA);
       return bCast?.sig === aCast.sig;
-    }, 30_000, 2_000);
+    }, 90_000, 2_000);
   });
 
   it('peers pin each other\'s signing public keys via gossip', async () => {
@@ -142,7 +142,7 @@ describe('Signed governance votes and safe relay', () => {
       const aSeesB = readConfig('ythril-a').networks.find(n => n.id === networkId)?.members.find(m => m.instanceId === instanceIdB)?.signingPublicKey;
       const bSeesA = readConfig('ythril-b').networks.find(n => n.id === networkId)?.members.find(m => m.instanceId === instanceIdA)?.signingPublicKey;
       return !!aSeesB && !!bSeesA;
-    }, 30_000, 2_000);
+    }, 90_000, 2_000);
   });
 
   it('a VALID signed cast from a third instance is accepted when relayed by B; a tampered one is rejected', async () => {
@@ -170,13 +170,17 @@ describe('Signed governance votes and safe relay', () => {
     await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
 
     // A pulls from B (relay). Re-trigger each poll so the relay converges even when
-    // a loaded CI runner's gossip cycle lags well past a single up-front trigger.
+    // a loaded CI runner's gossip cycle lags. runSyncForNetwork coalesces concurrent
+    // triggers (one in-flight cycle + one queued rerun), so a re-trigger only guarantees
+    // ONE more full cycle — and under full-suite load a cycle can take tens of seconds.
+    // The window must fit a few of those cycles, hence 90s (it still exits as soon as the
+    // relay lands — usually within seconds when the stack isn't saturated).
     await waitFor(async () => {
       await triggerSync(INSTANCES.a, tokenA, networkId).catch(() => {});
       const nets = readConfig('ythril-a').networks.find(n => n.id === networkId);
       const ok = nets?.pendingRounds?.find(r => r.roundId === validRid);
       return ok?.votes?.some(v => v.instanceId === instanceIdC && v.vote === 'yes');
-    }, 30_000, 2_000);
+    }, 90_000, 2_000);
 
     const netA = readConfig('ythril-a').networks.find(n => n.id === networkId);
     const validRound = netA.pendingRounds.find(r => r.roundId === validRid);

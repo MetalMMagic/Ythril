@@ -269,8 +269,9 @@ export interface FileMeta {
   updatedAt: string;
   /** Async embedding lifecycle status (text documents and media files).
    *  "pending" → queued; "processing" → being embedded; "complete" → done;
+   *  "partial" → stored but some chunks failed to embed (retry-eligible);
    *  "failed" → all retries exhausted; "skipped" / "disabled" → media-only states. */
-  embeddingStatus?: 'pending' | 'processing' | 'complete' | 'failed' | 'skipped' | 'disabled';
+  embeddingStatus?: 'pending' | 'processing' | 'complete' | 'partial' | 'failed' | 'skipped' | 'disabled';
   /** Error message when embeddingStatus is "failed". */
   mediaJobError?: string;
   chunkCount?: number;
@@ -920,6 +921,12 @@ export class ApiService {
   updateFileMeta(spaceId: string, path: string, body: Partial<{ description: string; tags: string[]; entityIds: string[]; chronoIds: string[]; memoryIds: string[]; properties: Record<string, string | number | boolean> }>): Observable<FileMeta> {
     const params = new HttpParams().set('path', path);
     return this.http.patch<FileMeta>(`/api/brain/spaces/${spaceId}/files`, body, { params });
+  }
+
+  /** Re-queue embedding for a file whose embedding failed or is only partial. */
+  retryEmbedding(spaceId: string, path: string): Observable<{ queued: boolean }> {
+    const params = new HttpParams().set('path', path);
+    return this.http.post<{ queued: boolean }>(`/api/files/${spaceId}/retry_embedding`, {}, { params });
   }
 
   deleteFileMeta(spaceId: string, path: string): Observable<void> {

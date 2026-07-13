@@ -209,7 +209,15 @@ export async function claimNextJob(
 
 // ── Complete / fail ────────────────────────────────────────────────────────
 
-export async function completeJob(spaceId: string, fileId: string): Promise<void> {
+/** Mark a job done. The job itself is always `complete` (no more retries), but the
+ *  FILE's embeddingStatus reflects whether every chunk actually embedded: pass
+ *  'partial' when some chunks stored without a vector so the file stays distinguishable
+ *  and retry-eligible instead of masquerading as fully embedded (B3). */
+export async function completeJob(
+  spaceId: string,
+  fileId: string,
+  fileEmbeddingStatus: 'complete' | 'partial' = 'complete',
+): Promise<void> {
   const now = new Date().toISOString();
   await jobCollection(spaceId).updateOne(
     asFilter<MediaJobDoc>({ _id: fileId }),
@@ -217,7 +225,7 @@ export async function completeJob(spaceId: string, fileId: string): Promise<void
   );
   await fileCollection(spaceId).updateOne(
     asFilter<FileMetaDoc>({ _id: fileId }),
-    { $set: { embeddingStatus: 'complete', updatedAt: now } },
+    { $set: { embeddingStatus: fileEmbeddingStatus, updatedAt: now } },
   );
 }
 

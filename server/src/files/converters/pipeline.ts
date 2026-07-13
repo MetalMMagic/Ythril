@@ -251,9 +251,10 @@ export async function storeConversionResults(
   chunks: Chunk[],
   convertedMarkdown: string | null,
   extractedImages: ExtractedImage[] = [],
-): Promise<{ chunkCount: number; convertedFileId: string | null }> {
+): Promise<{ chunkCount: number; convertedFileId: string | null; embedFailures: number }> {
   const originalId = normPath(originalFilePath);
   const now = new Date().toISOString();
+  let embedFailures = 0;
 
   // 1. Write the full converted Markdown to disk (binary formats only)
   let convertedFileId: string | null = null;
@@ -340,8 +341,12 @@ export async function storeConversionResults(
         embeddingModel: embResult.model,
         matchedText: embedText,
       };
-    } catch {
-      // best-effort — chunk stored without vector if embedding unavailable
+    } catch (err) {
+      // The chunk is still stored (its text is preserved) but without a vector, so it
+      // is invisible to $vectorSearch. Count and log it so the caller can report the
+      // job as failed/partial instead of silently "complete" (B3).
+      embedFailures++;
+      log.warn(`Chunk embed failed for ${spaceId}/${chunkId}: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     const chunkDoc: FileMetaDoc = {
@@ -363,7 +368,7 @@ export async function storeConversionResults(
     await col<FileMetaDoc>(`${spaceId}_files`).insertOne(asDoc<FileMetaDoc>(chunkDoc));
   }
 
-  return { chunkCount: chunks.length, convertedFileId };
+  return { chunkCount: chunks.length, convertedFileId, embedFailures };
 }
 
 /** Delete all chunk records and the _converted/ file for a given original file. */

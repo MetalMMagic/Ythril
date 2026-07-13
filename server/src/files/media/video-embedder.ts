@@ -13,7 +13,7 @@ import { spawn } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { col, mFilter, mUpdate } from '../../db/mongo.js';
+import { col, asFilter, asUpdate } from '../../db/mongo.js';
 import { embed } from '../../brain/embedding.js';
 import type { FileMetaDoc } from '../../config/types.js';
 import type { VisionProvider, SttProvider } from './providers.js';
@@ -181,8 +181,8 @@ export async function embedVideo(
       try {
         const embResult = await embed(combined);
         await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
-          mFilter<FileMetaDoc>({ _id: chunk.chunkId }),
-          mUpdate<FileMetaDoc>({
+          asFilter<FileMetaDoc>({ _id: chunk.chunkId }),
+          asUpdate<FileMetaDoc>({
             $set: {
               content: combined,
               matchedText: combined,

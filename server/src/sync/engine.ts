@@ -16,7 +16,7 @@
  */
 
 import { getConfig, saveConfig, getSecrets, getFaceRecognitionConfig } from '../config/loader.js';
-import { col, mFilter, mDoc } from '../db/mongo.js';
+import { col, asFilter, asDoc } from '../db/mongo.js';
 import { applyRemoteTombstone, listTombstones } from '../brain/tombstones.js';
 import { recordSyncResult, type SyncCounts } from './history.js';
 import { buildFileManifest } from '../files/manifest.js';
@@ -405,16 +405,16 @@ async function runSyncForMember(
     const localWarm = Promise.all(
       net.spaces.flatMap(sid => [
         col<MemoryDoc>(`${sid}_memories`)
-          .findOne(mFilter({}), { projection: { _id: 1 } })
+          .findOne(asFilter({}), { projection: { _id: 1 } })
           .catch(() => {}),
         col<EntityDoc>(`${sid}_entities`)
-          .findOne(mFilter({}), { projection: { _id: 1 } })
+          .findOne(asFilter({}), { projection: { _id: 1 } })
           .catch(() => {}),
         col<EdgeDoc>(`${sid}_edges`)
-          .findOne(mFilter({}), { projection: { _id: 1 } })
+          .findOne(asFilter({}), { projection: { _id: 1 } })
           .catch(() => {}),
         col<ChronoEntry>(`${sid}_chrono`)
-          .findOne(mFilter({}), { projection: { _id: 1 } })
+          .findOne(asFilter({}), { projection: { _id: 1 } })
           .catch(() => {}),
       ]),
     );
@@ -957,7 +957,7 @@ async function pushToPeer(
     let seqCursor = lastSeqPushed;
     while (true) {
       const batch = await col<T>(collName)
-        .find(mFilter<T>({ seq: { $gt: seqCursor }, ...ownedFilter }))
+        .find(asFilter<T>({ seq: { $gt: seqCursor }, ...ownedFilter }))
         .sort({ seq: 1 })
         .limit(PUSH_BATCH_SIZE)
         .toArray() as T[];
@@ -1056,7 +1056,7 @@ async function syncFiles(
     // Files we deleted locally must be propagated to the peer so they disappear there too.
     if (doPush) try {
       const ourTombstones = await col<FileTombstoneDoc>(`${spaceId}_file_tombstones`)
-        .find(mFilter<FileTombstoneDoc>({ spaceId }))
+        .find(asFilter<FileTombstoneDoc>({ spaceId }))
         .toArray();
       if (ourTombstones.length > 0) {
         await peerSafeFetch(
@@ -1136,7 +1136,7 @@ async function syncFiles(
             peerInstanceLabel: member.label,
             detectedAt: new Date().toISOString(),
           };
-          await col<ConflictDoc>(`${spaceId}_conflicts`).insertOne(mDoc<ConflictDoc>(conflictDoc));
+          await col<ConflictDoc>(`${spaceId}_conflicts`).insertOne(asDoc<ConflictDoc>(conflictDoc));
 
           log.warn(
             `FILE_CONFLICT: '${remote.path}' from peer '${member.label}' differs from local copy. ` +
@@ -1196,30 +1196,30 @@ async function syncFiles(
 // ── Local upsert helpers ────────────────────────────────────────────────────
 
 async function upsertMemory(spaceId: string, incoming: MemoryDoc): Promise<void> {
-  const existing = await col<MemoryDoc>(`${spaceId}_memories`).findOne(mFilter<MemoryDoc>({ _id: incoming._id })) as MemoryDoc | null;
+  const existing = await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: incoming._id })) as MemoryDoc | null;
   if (!existing || incoming.seq > existing.seq) {
-    await col<MemoryDoc>(`${spaceId}_memories`).replaceOne(mFilter<MemoryDoc>({ _id: incoming._id }), mDoc<MemoryDoc>(incoming), { upsert: true });
+    await col<MemoryDoc>(`${spaceId}_memories`).replaceOne(asFilter<MemoryDoc>({ _id: incoming._id }), asDoc<MemoryDoc>(incoming), { upsert: true });
   }
 }
 
 async function upsertEntity(spaceId: string, incoming: EntityDoc): Promise<void> {
-  const existing = await col<EntityDoc>(`${spaceId}_entities`).findOne(mFilter<EntityDoc>({ _id: incoming._id })) as EntityDoc | null;
+  const existing = await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: incoming._id })) as EntityDoc | null;
   if (!existing || incoming.seq > existing.seq) {
-    await col<EntityDoc>(`${spaceId}_entities`).replaceOne(mFilter<EntityDoc>({ _id: incoming._id }), mDoc<EntityDoc>(incoming), { upsert: true });
+    await col<EntityDoc>(`${spaceId}_entities`).replaceOne(asFilter<EntityDoc>({ _id: incoming._id }), asDoc<EntityDoc>(incoming), { upsert: true });
   }
 }
 
 async function upsertEdge(spaceId: string, incoming: EdgeDoc): Promise<void> {
-  const existing = await col<EdgeDoc>(`${spaceId}_edges`).findOne(mFilter<EdgeDoc>({ _id: incoming._id })) as EdgeDoc | null;
+  const existing = await col<EdgeDoc>(`${spaceId}_edges`).findOne(asFilter<EdgeDoc>({ _id: incoming._id })) as EdgeDoc | null;
   if (!existing || incoming.seq > existing.seq) {
-    await col<EdgeDoc>(`${spaceId}_edges`).replaceOne(mFilter<EdgeDoc>({ _id: incoming._id }), mDoc<EdgeDoc>(incoming), { upsert: true });
+    await col<EdgeDoc>(`${spaceId}_edges`).replaceOne(asFilter<EdgeDoc>({ _id: incoming._id }), asDoc<EdgeDoc>(incoming), { upsert: true });
   }
 }
 
 async function upsertChrono(spaceId: string, incoming: ChronoEntry): Promise<void> {
-  const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(mFilter<ChronoEntry>({ _id: incoming._id })) as ChronoEntry | null;
+  const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: incoming._id })) as ChronoEntry | null;
   if (!existing || incoming.seq > existing.seq) {
-    await col<ChronoEntry>(`${spaceId}_chrono`).replaceOne(mFilter<ChronoEntry>({ _id: incoming._id }), mDoc<ChronoEntry>(incoming), { upsert: true });
+    await col<ChronoEntry>(`${spaceId}_chrono`).replaceOne(asFilter<ChronoEntry>({ _id: incoming._id }), asDoc<ChronoEntry>(incoming), { upsert: true });
   }
 }
 

@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs/promises';
 import path from 'path';
-import { getDb, col, mDoc } from '../db/mongo.js';
+import { getDb, col, asDoc } from '../db/mongo.js';
 import { getConfig, saveConfig, getEmbeddingConfig, getDataRoot, getFaceRecognitionConfig } from '../config/loader.js';
 import { ensureSpaceFilesDir, writeFile as writeSpaceFile } from '../files/files.js';
 import { log } from '../util/log.js';
@@ -192,7 +192,7 @@ async function ensureVectorSearchIndex(
 
   log.debug(`Creating vector search index ${indexName} (${numDimensions}d, ${similarity}, path: ${vectorPath})`);
   try {
-    await coll.createSearchIndex(mDoc({
+    await coll.createSearchIndex(asDoc({
       name: indexName,
       type: 'vectorSearch',
       definition: {

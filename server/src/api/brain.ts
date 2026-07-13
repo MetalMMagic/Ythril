@@ -15,7 +15,7 @@ import { createChrono, updateChrono, getChronoById, listChrono, deleteChrono, bu
 import { embed } from '../brain/embedding.js';
 import { updateFileMeta, deleteFileMeta } from '../files/file-meta.js';
 import { getConfig } from '../config/loader.js';
-import { col, mFilter, mDoc } from '../db/mongo.js';
+import { col, asFilter, asDoc } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { needsReindex, clearReindexFlag } from '../spaces/spaces.js';
 import { log } from '../util/log.js';
@@ -142,7 +142,7 @@ brainRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAuth,
   if (safeEntityIds.length > 0) {
     try {
       const entityDocs = await col<EntityDoc>(`${targetSpace}_entities`)
-        .find(mFilter<EntityDoc>({ _id: { $in: safeEntityIds } }), { projection: { name: 1 } })
+        .find(asFilter<EntityDoc>({ _id: { $in: safeEntityIds } }), { projection: { name: 1 } })
         .toArray() as Array<{ name: string }>;
       entityNames = entityDocs.map(e => e.name);
     } catch { /* ignore — entity names are best-effort */ }
@@ -187,7 +187,7 @@ brainRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAuth,
   if (safeDesc !== undefined) doc.description = safeDesc;
   if (safeProps !== undefined) doc.properties = safeProps;
   if (safeMemoryType !== undefined) doc.type = safeMemoryType;
-  await col<MemoryDoc>(`${targetSpace}_memories`).insertOne(mDoc<MemoryDoc>(doc));
+  await col<MemoryDoc>(`${targetSpace}_memories`).insertOne(asDoc<MemoryDoc>(doc));
   emitWebhookEvent({ event: 'memory.created', spaceId: targetSpace, entry: { ...doc, embedding: undefined }, ...webhookToken(req) });
   const body: Record<string, unknown> = { ...doc };
   if (quotaResult?.softBreached) body['storageWarning'] = true;
@@ -216,7 +216,7 @@ brainRouter.get('/spaces/:spaceId/memories/:id', globalRateLimit, requireSpaceAu
   }
   const memberIds = resolveMemberSpaces(spaceId);
   for (const mid of memberIds) {
-    const doc = await col<MemoryDoc>(`${mid}_memories`).findOne(mFilter<MemoryDoc>({ _id: id })) as MemoryDoc | null;
+    const doc = await col<MemoryDoc>(`${mid}_memories`).findOne(asFilter<MemoryDoc>({ _id: id })) as MemoryDoc | null;
     if (doc) { res.json(doc); return; }
   }
   res.status(404).json({ error: 'Memory not found' });
@@ -816,7 +816,7 @@ brainRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
   if (allEntityIds.length) {
     await Promise.all(memberIds.map(async (mid) => {
       const docs = await col<{ _id: string; name: string }>(`${mid}_entities`)
-        .find(mFilter<{ _id: string; name: string }>({ _id: { $in: allEntityIds } }), { projection: { _id: 1, name: 1 } })
+        .find(asFilter<{ _id: string; name: string }>({ _id: { $in: allEntityIds } }), { projection: { _id: 1, name: 1 } })
         .toArray();
       for (const d of docs) nameMap.set(String(d._id), d.name);
     }));
@@ -1278,7 +1278,7 @@ brainRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, asy
   const memberIds = resolveMemberSpaces(spaceId);
   const all = (await Promise.all(memberIds.map(mid =>
     col(`${mid}_files`)
-      .find(mFilter(filter))
+      .find(asFilter(filter))
       .sort({ updatedAt: -1 })
       .skip(skip)
       .limit(limit)
@@ -1581,7 +1581,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
           while (true) {
             const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
             const batch: MemoryDoc[] = await col<MemoryDoc>(`${mid}_memories`)
-              .find(mFilter<MemoryDoc>(q), { projection: { _id: 1, fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1 } })
+              .find(asFilter<MemoryDoc>(q), { projection: { _id: 1, fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1 } })
               .sort({ _id: 1 })
               .limit(BATCH)
               .toArray() as MemoryDoc[];
@@ -1591,7 +1591,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
                 const entityIds: string[] = Array.isArray(doc.entityIds) ? doc.entityIds : [];
                 const entityDocs = entityIds.length > 0
                   ? await col<EntityDoc>(`${mid}_entities`)
-                      .find(mFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
+                      .find(asFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
                       .toArray() as Array<{ name: string }>
                   : [];
                 const entityNames = entityDocs.map(e => e.name);
@@ -1625,7 +1625,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
           while (true) {
             const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
             const batch: EntityDoc[] = await col<EntityDoc>(`${mid}_entities`)
-              .find(mFilter<EntityDoc>(q), { projection: { _id: 1, name: 1, type: 1, tags: 1, description: 1, properties: 1 } })
+              .find(asFilter<EntityDoc>(q), { projection: { _id: 1, name: 1, type: 1, tags: 1, description: 1, properties: 1 } })
               .sort({ _id: 1 })
               .limit(BATCH)
               .toArray() as EntityDoc[];
@@ -1659,7 +1659,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
           while (true) {
             const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
             const batch: EdgeDoc[] = await col<EdgeDoc>(`${mid}_edges`)
-              .find(mFilter<EdgeDoc>(q), { projection: { _id: 1, from: 1, label: 1, to: 1, type: 1, tags: 1, description: 1 } })
+              .find(asFilter<EdgeDoc>(q), { projection: { _id: 1, from: 1, label: 1, to: 1, type: 1, tags: 1, description: 1 } })
               .sort({ _id: 1 })
               .limit(BATCH)
               .toArray() as EdgeDoc[];
@@ -1691,7 +1691,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
           while (true) {
             const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
             const batch: ChronoEntry[] = await col<ChronoEntry>(`${mid}_chrono`)
-              .find(mFilter<ChronoEntry>(q), { projection: { _id: 1, title: 1, type: 1, status: 1, description: 1, tags: 1 } })
+              .find(asFilter<ChronoEntry>(q), { projection: { _id: 1, title: 1, type: 1, status: 1, description: 1, tags: 1 } })
               .sort({ _id: 1 })
               .limit(BATCH)
               .toArray() as ChronoEntry[];
@@ -1724,7 +1724,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
               ? { _id: { $gt: cursor }, parentFileId: { $exists: false } }
               : { parentFileId: { $exists: false } };
             const batch: FileMetaDoc[] = await col<FileMetaDoc>(`${mid}_files`)
-              .find(mFilter<FileMetaDoc>(q), { projection: { _id: 1, path: 1, tags: 1, description: 1, properties: 1, entityIds: 1 } })
+              .find(asFilter<FileMetaDoc>(q), { projection: { _id: 1, path: 1, tags: 1, description: 1, properties: 1, entityIds: 1 } })
               .sort({ _id: 1 })
               .limit(BATCH)
               .toArray() as FileMetaDoc[];
@@ -1735,7 +1735,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
                 const entityIds: string[] = Array.isArray(doc.entityIds) ? doc.entityIds : [];
                 const entityDocs = entityIds.length > 0
                   ? await col<EntityDoc>(`${mid}_entities`)
-                      .find(mFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
+                      .find(asFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
                       .toArray() as Array<{ name: string }>
                   : [];
                 const entityNames = entityDocs.map(e => e.name);
@@ -1882,7 +1882,7 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
       }
       // Check for existing entity by ID (if supplied) to determine inserted vs updated
       const existing = rawId
-        ? await col<EntityDoc>(`${targetSpace}_entities`).findOne(mFilter<EntityDoc>({ _id: rawId, spaceId: targetSpace }))
+        ? await col<EntityDoc>(`${targetSpace}_entities`).findOne(asFilter<EntityDoc>({ _id: rawId, spaceId: targetSpace }))
         : null;
       const result = await upsertEntity(targetSpace, name, type, tags, properties, description, rawId);
       if (existing) { updated.entities++; } else { inserted.entities++; }
@@ -1920,7 +1920,7 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
           for (const v of sv) errors.push({ type: 'edge', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
         }
       }
-      const existing = await col<EdgeDoc>(`${targetSpace}_edges`).findOne(mFilter<EdgeDoc>({ spaceId: targetSpace, from, to, label }));
+      const existing = await col<EdgeDoc>(`${targetSpace}_edges`).findOne(asFilter<EdgeDoc>({ spaceId: targetSpace, from, to, label }));
       await upsertEdge(targetSpace, from, to, label, weight, edgeType, description, properties, tags);
       if (existing) { updated.edges++; } else { inserted.edges++; }
     } catch (err) {

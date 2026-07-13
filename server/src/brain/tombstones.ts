@@ -1,4 +1,4 @@
-import { col, mFilter, mDoc, mUpdate } from '../db/mongo.js';
+import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { log } from '../util/log.js';
 import type { TombstoneDoc } from '../config/types.js';
 
@@ -21,7 +21,7 @@ export async function listTombstones(
   const filter: Record<string, unknown> = { seq: { $gt: sinceSeq } };
   if (type) filter['type'] = type;
   return col<TombstoneDoc>(`${spaceId}_tombstones`)
-    .find(mFilter<TombstoneDoc>(filter))
+    .find(asFilter<TombstoneDoc>(filter))
     .sort({ seq: 1 })
     .limit(limit)
     .toArray() as Promise<TombstoneDoc[]>;
@@ -33,14 +33,14 @@ export async function applyRemoteTombstone(tombstone: TombstoneDoc, auth: Tombst
 
   // Idempotent upsert — only insert if not present or remote seq is higher
   await col<TombstoneDoc>(`${spaceId}_tombstones`).updateOne(
-    mFilter<TombstoneDoc>({ _id }),
-    mUpdate<TombstoneDoc>({ $setOnInsert: tombstone }),
+    asFilter<TombstoneDoc>({ _id }),
+    asUpdate<TombstoneDoc>({ $setOnInsert: tombstone }),
     { upsert: true },
   );
 
   // If the doc already exists locally with a strictly higher seq, the remote tombstone is stale — skip
   // Note: equal seq means we just inserted it above (or it already existed at same seq), so still apply.
-  const existing = await col<TombstoneDoc>(`${spaceId}_tombstones`).findOne(mFilter<TombstoneDoc>({ _id }));
+  const existing = await col<TombstoneDoc>(`${spaceId}_tombstones`).findOne(asFilter<TombstoneDoc>({ _id }));
   if (existing && (existing as TombstoneDoc).seq > seq) return;
 
   // Delete the underlying document — but only if it was authored by the same
@@ -55,7 +55,7 @@ export async function applyRemoteTombstone(tombstone: TombstoneDoc, auth: Tombst
   };
   const targetColl = collMap[type];
   if (targetColl) {
-    const localDoc = await col(targetColl).findOne(mFilter({ _id })) as { author?: { instanceId?: string } } | null;
+    const localDoc = await col(targetColl).findOne(asFilter({ _id })) as { author?: { instanceId?: string } } | null;
     if (localDoc?.author?.instanceId) {
       const issuer = tombstone.instanceId;
       // The tombstone may only delete a document authored by its own issuer.
@@ -81,6 +81,6 @@ export async function applyRemoteTombstone(tombstone: TombstoneDoc, auth: Tombst
       }
     }
     // Documents without author metadata (legacy) carry nothing to protect — delete as before.
-    await col(targetColl).deleteOne(mFilter({ _id }));
+    await col(targetColl).deleteOne(asFilter({ _id }));
   }
 }

@@ -6,7 +6,7 @@
  * on the {spaceId}_files collection with `derivedText` = caption.
  */
 
-import { col, mDoc, mFilter } from '../../db/mongo.js';
+import { col, asDoc, asFilter } from '../../db/mongo.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
 import { log } from '../../util/log.js';
@@ -60,8 +60,8 @@ export async function embedImage(
 
   // Upsert: a retry may re-run this after a partial failure
   await col<FileMetaDoc>(`${spaceId}_files`).replaceOne(
-    mFilter<FileMetaDoc>({ _id: chunkId }),
-    mDoc<FileMetaDoc>(chunkDoc),
+    asFilter<FileMetaDoc>({ _id: chunkId }),
+    asDoc<FileMetaDoc>(chunkDoc),
     { upsert: true },
   );
 

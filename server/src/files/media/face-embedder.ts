@@ -30,7 +30,7 @@
 
 import path from 'path';
 import sharp from 'sharp';
-import { col, mDoc, mFilter } from '../../db/mongo.js';
+import { col, asDoc, asFilter } from '../../db/mongo.js';
 import { getConfig, getDataRoot, getFaceRecognitionConfig } from '../../config/loader.js';
 import { updateFileMeta } from '../file-meta.js';
 import { log } from '../../util/log.js';
@@ -303,8 +303,8 @@ export async function embedFaces(
     };
 
     await col<FileMetaDoc>(`${spaceId}_files`).replaceOne(
-      mFilter<FileMetaDoc>({ _id: chunkId }),
-      mDoc<FileMetaDoc>(chunkDoc as FileMetaDoc),
+      asFilter<FileMetaDoc>({ _id: chunkId }),
+      asDoc<FileMetaDoc>(chunkDoc as FileMetaDoc),
       { upsert: true },
     );
   }
@@ -313,7 +313,7 @@ export async function embedFaces(
   if (autoLabelEntityId) {
     try {
       const parent = await col<FileMetaDoc>(`${spaceId}_files`).findOne(
-        mFilter<FileMetaDoc>({ _id: fileId }),
+        asFilter<FileMetaDoc>({ _id: fileId }),
         { projection: { entityIds: 1 } },
       ) as FileMetaDoc | null;
 
@@ -349,7 +349,7 @@ export async function propagateFaceLabel(
   try {
     const now = new Date().toISOString();
     await col<FileMetaDoc>(`${spaceId}_files`).updateMany(
-      mFilter<FileMetaDoc>({ parentFileId: fileId, faceEmbedding: { $exists: true } }),
+      asFilter<FileMetaDoc>({ parentFileId: fileId, faceEmbedding: { $exists: true } }),
       { $set: { faceEntityId: entityId, updatedAt: now } },
     );
   } catch (err) {

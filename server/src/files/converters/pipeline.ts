@@ -19,7 +19,7 @@ import { paragraphChunk } from './paragraph-chunker.js';
 import type { Chunk } from './types.js';
 import { ConversionUnavailableError } from './types.js';
 import { writeFile, writeFileBytes } from '../files.js';
-import { col, mFilter, mDoc } from '../../db/mongo.js';
+import { col, asFilter, asDoc } from '../../db/mongo.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
 import type { FileMetaDoc, AuthorRef } from '../../config/types.js';
@@ -275,7 +275,7 @@ export async function storeConversionResults(
       author: authorRef(),
       parentFileId: originalId,
     };
-    await col<FileMetaDoc>(`${spaceId}_files`).insertOne(mDoc<FileMetaDoc>(convertedDoc));
+    await col<FileMetaDoc>(`${spaceId}_files`).insertOne(asDoc<FileMetaDoc>(convertedDoc));
   }
 
   // 2. Write extracted image subfiles and enqueue for media pipeline.
@@ -312,7 +312,7 @@ export async function storeConversionResults(
           author: authorRef(),
           parentFileId: originalId,
         };
-        await col<FileMetaDoc>(`${spaceId}_files`).insertOne(mDoc<FileMetaDoc>(imgDoc));
+        await col<FileMetaDoc>(`${spaceId}_files`).insertOne(asDoc<FileMetaDoc>(imgDoc));
 
         // Enqueue for media pipeline (caption + face recognition)
         const mimeType = `image/${img.ext === 'jpg' ? 'jpeg' : img.ext}`;
@@ -360,7 +360,7 @@ export async function storeConversionResults(
       ...embeddingFields,
     };
 
-    await col<FileMetaDoc>(`${spaceId}_files`).insertOne(mDoc<FileMetaDoc>(chunkDoc));
+    await col<FileMetaDoc>(`${spaceId}_files`).insertOne(asDoc<FileMetaDoc>(chunkDoc));
   }
 
   return { chunkCount: chunks.length, convertedFileId };
@@ -375,7 +375,7 @@ export async function deleteConversionArtifacts(
 
   // Delete all filemeta records with parentFileId = originalId
   await col<FileMetaDoc>(`${spaceId}_files`).deleteMany(
-    mFilter<FileMetaDoc>({ parentFileId: originalId }),
+    asFilter<FileMetaDoc>({ parentFileId: originalId }),
   );
 
   log.info(`Deleted conversion artifacts for ${spaceId}/${originalId}`);

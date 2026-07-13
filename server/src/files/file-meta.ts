@@ -13,7 +13,7 @@
  */
 
 import path from 'node:path';
-import { col, mFilter, mDoc, mUpdate } from '../db/mongo.js';
+import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { embed } from '../brain/embedding.js';
 import { getConfig } from '../config/loader.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../config/types.js';
@@ -52,7 +52,7 @@ async function resolveEntityNames(spaceId: string, entityIds: string[]): Promise
   if (entityIds.length === 0) return [];
   try {
     const docs = await col<EntityDoc>(`${spaceId}_entities`)
-      .find(mFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
+      .find(asFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
       .toArray() as Array<{ name: string }>;
     return docs.map(d => d.name);
   } catch { return []; }
@@ -73,7 +73,7 @@ export async function upsertFileMeta(
   const now = new Date().toISOString();
 
   const existing = await col<FileMetaDoc>(`${spaceId}_files`).findOne(
-    mFilter<FileMetaDoc>({ _id: normalised }),
+    asFilter<FileMetaDoc>({ _id: normalised }),
   );
 
   // Embed path + entity names + tags + description + property values — best-effort, never blocks write
@@ -95,8 +95,8 @@ export async function upsertFileMeta(
     if (opts.tags !== undefined) $set['tags'] = opts.tags;
     if (opts.properties !== undefined) $set['properties'] = opts.properties;
     await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
-      mFilter<FileMetaDoc>({ _id: normalised }),
-      mUpdate<FileMetaDoc>({ $set }),
+      asFilter<FileMetaDoc>({ _id: normalised }),
+      asUpdate<FileMetaDoc>({ $set }),
     );
   } else {
     const doc: FileMetaDoc = {
@@ -112,7 +112,7 @@ export async function upsertFileMeta(
       author: authorRef(),
       ...embeddingFields,
     };
-    await col<FileMetaDoc>(`${spaceId}_files`).insertOne(mDoc<FileMetaDoc>(doc));
+    await col<FileMetaDoc>(`${spaceId}_files`).insertOne(asDoc<FileMetaDoc>(doc));
   }
 }
 
@@ -135,7 +135,7 @@ export async function updateFileMeta(
   },
 ): Promise<FileMetaDoc | null> {
   const normalised = normPath(filePath);
-  const existing = await col<FileMetaDoc>(`${spaceId}_files`).findOne(mFilter<FileMetaDoc>({ _id: normalised })) as FileMetaDoc | null;
+  const existing = await col<FileMetaDoc>(`${spaceId}_files`).findOne(asFilter<FileMetaDoc>({ _id: normalised })) as FileMetaDoc | null;
   if (!existing) return null;
 
   const now = new Date().toISOString();
@@ -161,8 +161,8 @@ export async function updateFileMeta(
   if (opts.properties !== undefined) $set['properties'] = opts.properties;
 
   await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
-    mFilter<FileMetaDoc>({ _id: normalised }),
-    mUpdate<FileMetaDoc>({ $set }),
+    asFilter<FileMetaDoc>({ _id: normalised }),
+    asUpdate<FileMetaDoc>({ $set }),
   );
 
   // Face recognition side-effects when entity links change.
@@ -186,7 +186,7 @@ export async function updateFileMeta(
       const faceCfg = getFaceRecognitionConfig();
       if (faceCfg.enabled) {
         const faceChunkCount = await col<FileMetaDoc>(`${spaceId}_files`).countDocuments(
-          mFilter<FileMetaDoc>({ parentFileId: normalised, faceEmbedding: { $exists: true } }),
+          asFilter<FileMetaDoc>({ parentFileId: normalised, faceEmbedding: { $exists: true } }),
         );
 
         if (faceChunkCount === 0 && faceCfg.reprocessSyncedImages) {
@@ -203,7 +203,7 @@ export async function updateFileMeta(
         } else if (faceChunkCount === 1) {
           // Case B: face chunks exist — propagate label if exactly 1 person entity.
           const entities = await col<EntityDoc>(`${spaceId}_entities`)
-            .find(mFilter<EntityDoc>({ _id: { $in: opts.entityIds } }), { projection: { _id: 1, type: 1 } })
+            .find(asFilter<EntityDoc>({ _id: { $in: opts.entityIds } }), { projection: { _id: 1, type: 1 } })
             .toArray() as Array<{ _id: string; type: string }>;
           const personEntities = entities.filter(e =>
             faceCfg.personEntityTypes.some(t => t.toLowerCase() === e.type.toLowerCase()),
@@ -217,7 +217,7 @@ export async function updateFileMeta(
     } catch { /* non-fatal — face side-effects must never block file meta write */ }
   }
 
-  return col<FileMetaDoc>(`${spaceId}_files`).findOne(mFilter<FileMetaDoc>({ _id: normalised })) as Promise<FileMetaDoc | null>;
+  return col<FileMetaDoc>(`${spaceId}_files`).findOne(asFilter<FileMetaDoc>({ _id: normalised })) as Promise<FileMetaDoc | null>;
 }
 
 /** Remove the metadata record when a file is deleted. */
@@ -227,7 +227,7 @@ export async function deleteFileMeta(
 ): Promise<void> {
   const normalised = normPath(filePath);
   await col<FileMetaDoc>(`${spaceId}_files`).deleteOne(
-    mFilter<FileMetaDoc>({ _id: normalised }),
+    asFilter<FileMetaDoc>({ _id: normalised }),
   );
 }
 
@@ -246,7 +246,7 @@ export async function deleteFileMetaByPrefix(
   // doesn't accidentally match "myXdir/" etc.
   const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   await col<FileMetaDoc>(`${spaceId}_files`).deleteMany(
-    mFilter<FileMetaDoc>({ _id: { $regex: `^${escaped}` } }),
+    asFilter<FileMetaDoc>({ _id: { $regex: `^${escaped}` } }),
   );
 }
 
@@ -265,14 +265,14 @@ export async function renameFileMeta(
   if (normSrc === normDst) return;
 
   const existing = await col<FileMetaDoc>(`${spaceId}_files`).findOne(
-    mFilter<FileMetaDoc>({ _id: normSrc }),
+    asFilter<FileMetaDoc>({ _id: normSrc }),
   );
   if (!existing) return;
 
   const now = new Date().toISOString();
   // MongoDB does not allow updating _id; delete + re-insert with new path.
-  await col<FileMetaDoc>(`${spaceId}_files`).deleteOne(mFilter<FileMetaDoc>({ _id: normSrc }));
-  await col<FileMetaDoc>(`${spaceId}_files`).insertOne(mDoc<FileMetaDoc>({
+  await col<FileMetaDoc>(`${spaceId}_files`).deleteOne(asFilter<FileMetaDoc>({ _id: normSrc }));
+  await col<FileMetaDoc>(`${spaceId}_files`).insertOne(asDoc<FileMetaDoc>({
     ...existing,
     _id: normDst,
     path: normDst,
@@ -304,7 +304,7 @@ export async function renameFileMetaByPrefix(
 
   const escaped = srcPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const docs = await col<FileMetaDoc>(`${spaceId}_files`)
-    .find(mFilter<FileMetaDoc>({ _id: { $regex: `^${escaped}` } }))
+    .find(asFilter<FileMetaDoc>({ _id: { $regex: `^${escaped}` } }))
     .toArray() as FileMetaDoc[];
 
   if (docs.length === 0) return;
@@ -313,7 +313,7 @@ export async function renameFileMetaByPrefix(
   // Delete existing records and re-insert with updated paths.
   const oldIds = docs.map(d => d._id);
   await col<FileMetaDoc>(`${spaceId}_files`).deleteMany(
-    mFilter<FileMetaDoc>({ _id: { $in: oldIds } }),
+    asFilter<FileMetaDoc>({ _id: { $in: oldIds } }),
   );
   const updated = docs.map(d => ({
     ...d,
@@ -321,5 +321,5 @@ export async function renameFileMetaByPrefix(
     path: dstPrefix + d.path.slice(srcPrefix.length),
     updatedAt: now,
   }));
-  await col<FileMetaDoc>(`${spaceId}_files`).insertMany(updated.map(d => mDoc<FileMetaDoc>(d)));
+  await col<FileMetaDoc>(`${spaceId}_files`).insertMany(updated.map(d => asDoc<FileMetaDoc>(d)));
 }

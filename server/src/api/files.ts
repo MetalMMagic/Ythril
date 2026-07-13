@@ -41,7 +41,7 @@ import {
 } from '../files/chunks.js';
 import { checkQuota, QuotaError } from '../quota/quota.js';
 import { resolveSafePath, assertNoSymlinkEscape, spaceRoot } from '../files/sandbox.js';
-import { col, mFilter, mDoc } from '../db/mongo.js';
+import { col, asFilter, asDoc } from '../db/mongo.js';
 import type { FileTombstoneDoc, FileMetaDoc } from '../config/types.js';
 import { upsertFileMeta, deleteFileMeta, deleteFileMetaByPrefix, renameFileMeta, renameFileMetaByPrefix } from '../files/file-meta.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -333,7 +333,7 @@ filesRouter.post(
             const mediaCfg = getMediaEmbeddingConfig();
             if (mediaCfg.enabled && range.total <= (mediaCfg.maxFileSizeBytes ?? 524_288_000)) {
               await col<FileMetaDoc>(`${targetSpace}_files`).updateOne(
-                mFilter<FileMetaDoc>({ _id: filePath.replace(/\\/g, '/').replace(/^\/+/, '') }),
+                asFilter<FileMetaDoc>({ _id: filePath.replace(/\\/g, '/').replace(/^\/+/, '') }),
                 { $set: { mediaType: resolvedFmt, embeddingStatus: 'pending' } },
               );
               await enqueueMediaJob(targetSpace, filePath, chunkedMimeType, resolvedFmt).catch(err => {
@@ -438,20 +438,20 @@ filesRouter.post(
         if (!mediaCfg.enabled) {
           embeddingStatusForResponse = 'disabled';
           await col<FileMetaDoc>(`${targetSpace}_files`).updateOne(
-            mFilter<FileMetaDoc>({ _id: normId }),
+            asFilter<FileMetaDoc>({ _id: normId }),
             { $set: { mediaType: resolvedFormat, embeddingStatus: 'disabled' } },
           );
         } else if (incomingBytes > (mediaCfg.maxFileSizeBytes ?? 524_288_000)) {
           embeddingStatusForResponse = 'skipped';
           await col<FileMetaDoc>(`${targetSpace}_files`).updateOne(
-            mFilter<FileMetaDoc>({ _id: normId }),
+            asFilter<FileMetaDoc>({ _id: normId }),
             { $set: { mediaType: resolvedFormat, embeddingStatus: 'skipped' } },
           );
           log.info(`Media file ${targetSpace}/${filePath} skipped: ${incomingBytes} bytes exceeds maxFileSizeBytes (${mediaCfg.maxFileSizeBytes})`);
         } else {
           embeddingStatusForResponse = 'pending';
           await col<FileMetaDoc>(`${targetSpace}_files`).updateOne(
-            mFilter<FileMetaDoc>({ _id: normId }),
+            asFilter<FileMetaDoc>({ _id: normId }),
             { $set: { mediaType: resolvedFormat, embeddingStatus: 'pending' } },
           );
           await enqueueMediaJob(targetSpace, filePath, mimeType, resolvedFormat).catch(err => {
@@ -589,7 +589,7 @@ filesRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly,
       // If there is none, the path was never known — return 404.
       const normalisedPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
       const orphan = await col<FileMetaDoc>(`${targetSpace}_files`).findOne(
-        mFilter<FileMetaDoc>({ _id: normalisedPath }),
+        asFilter<FileMetaDoc>({ _id: normalisedPath }),
       );
       if (orphan) {
         await deleteFileMeta(targetSpace, filePath).catch(err => {
@@ -639,7 +639,7 @@ filesRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly,
       path: filePath.replace(/\\/g, '/'),
       deletedAt: new Date().toISOString(),
     };
-    await col<FileTombstoneDoc>(`${targetSpace}_file_tombstones`).insertOne(mDoc<FileTombstoneDoc>(tombstone));
+    await col<FileTombstoneDoc>(`${targetSpace}_file_tombstones`).insertOne(asDoc<FileTombstoneDoc>(tombstone));
     await deleteFileMeta(targetSpace, filePath).catch(err => {
       log.warn(`deleteFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
     });

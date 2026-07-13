@@ -6,7 +6,7 @@ import { MAX_RECALL_TRAVERSE, traverseRecallSeeds, upsertEdge } from '../../brai
 import { findEntitiesByName, upsertEntity } from '../../brain/entities.js';
 import { type FilterExpression, type RecallKnowledgeType, type RecallResult, deleteMemory, findSimilar, queryBrain, recall, recallGlobal, remember, updateMemory, validateFilterExpression } from '../../brain/memory.js';
 import { getConfig } from '../../config/loader.js';
-import { col, mFilter } from '../../db/mongo.js';
+import { col, asFilter } from '../../db/mongo.js';
 import { QuotaError, checkQuota } from '../../quota/quota.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
 import { getAllowedChronoTypes, resolveMetaRefs, validateChrono, validateEdge, validateEntity, validateMemory } from '../../spaces/schema-validation.js';
@@ -629,7 +629,7 @@ export const bulk_writeTool: ToolHandler = {
         }
         // Check for existing entity by ID (if supplied) to determine inserted vs updated
         const existing = rawId
-          ? await col<import('../../config/types.js').EntityDoc>(`${ts}_entities`).findOne(mFilter({ _id: rawId, spaceId: ts }))
+          ? await col<import('../../config/types.js').EntityDoc>(`${ts}_entities`).findOne(asFilter({ _id: rawId, spaceId: ts }))
           : null;
         const result = await upsertEntity(ts, eName, eType, tags, props, description, rawId);
         if (existing) { updated.entities++; } else { inserted.entities++; }
@@ -665,7 +665,7 @@ export const bulk_writeTool: ToolHandler = {
             for (const v of sv) errors.push({ type: 'edge', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
           }
         }
-        const existing = await col<import('../../config/types.js').EdgeDoc>(`${ts}_edges`).findOne(mFilter({ spaceId: ts, from, to, label }));
+        const existing = await col<import('../../config/types.js').EdgeDoc>(`${ts}_edges`).findOne(asFilter({ spaceId: ts, from, to, label }));
         await upsertEdge(ts, from, to, label, weight, edgeType, description, props, tags);
         if (existing) { updated.edges++; } else { inserted.edges++; }
       } catch (err) {

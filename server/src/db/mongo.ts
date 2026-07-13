@@ -117,36 +117,50 @@ export function col<T extends object>(name: string): Collection<T> {
   return getDb().collection<T>(name);
 }
 
+// ── Typing bridges (NOT validators) ─────────────────────────────────────────
+//
+// The helpers below are pure `as unknown as` casts that bridge our plain document
+// interfaces to MongoDB's strict generics (which expect an index signature). They
+// perform NO sanitisation and NO validation: an object that is hostile going in is
+// still hostile coming out.
+//
+// This matters because a lot of peer-supplied sync data passes through them. Real
+// validation of ingested documents happens at the call sites, via the Zod
+// `Incoming*Doc` schemas in `api/sync.ts` — not here.
+//
+// They are named `as*` precisely so they read as casts. The previous `m`-prefixed
+// names read like "sanitise for Mongo", which is exactly the wrong assumption to
+// invite for code on the sync-ingest path.
+
 /**
- * Cast a plain object to MongoDB's `Filter<T>` without `as never`.
- * Used at call sites where MongoDB's strict Filter generic typing conflicts with
- * TypeScript document interfaces that don't carry an index signature.
+ * Cast a plain object to MongoDB's `Filter<T>`. A typing bridge, not a sanitiser.
  * The cast is semantically correct: the object IS intended as a filter for T.
  */
-export function mFilter<T extends object>(f: Record<string, unknown>): Filter<T> {
+export function asFilter<T extends object>(f: Record<string, unknown>): Filter<T> {
   return f as unknown as Filter<T>;
 }
 
 /**
- * Cast a document value to `OptionalUnlessRequiredId<T>` for insertOne / replaceOne
- * without `as never`. Semantically correct: d is the document being inserted.
+ * Cast a document value to `OptionalUnlessRequiredId<T>` for insertOne / replaceOne.
+ * A typing bridge, not a sanitiser: d is the document being inserted.
  */
-export function mDoc<T extends object>(d: T | Record<string, unknown>): OptionalUnlessRequiredId<T> {
+export function asDoc<T extends object>(d: T | Record<string, unknown>): OptionalUnlessRequiredId<T> {
   return d as unknown as OptionalUnlessRequiredId<T>;
 }
 
 /**
- * Cast a plain update-operator object to MongoDB's `UpdateFilter<T>` without `as never`.
- * Semantically correct: u is an update descriptor (`{ $set: {...} }` etc.) for T.
+ * Cast a plain update-operator object to MongoDB's `UpdateFilter<T>`.
+ * A typing bridge, not a sanitiser: u is an update descriptor (`{ $set: {...} }`) for T.
  */
-export function mUpdate<T extends object>(u: Record<string, unknown>): UpdateFilter<T> {
+export function asUpdate<T extends object>(u: Record<string, unknown>): UpdateFilter<T> {
   return u as unknown as UpdateFilter<T>;
 }
 
 /**
- * Cast a bulk-write operations array to `AnyBulkWriteOperation<T>[]` without `as never`.
+ * Cast a bulk-write operations array to `AnyBulkWriteOperation<T>[]`.
+ * A typing bridge, not a sanitiser.
  */
-export function mBulk<T extends object>(ops: unknown[]): AnyBulkWriteOperation<T>[] {
+export function asBulk<T extends object>(ops: unknown[]): AnyBulkWriteOperation<T>[] {
   return ops as unknown as AnyBulkWriteOperation<T>[];
 }
 

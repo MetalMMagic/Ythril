@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { col, mFilter, mDoc, mUpdate, mBulk } from '../db/mongo.js';
+import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
@@ -69,7 +69,7 @@ export async function upsertEntity(
 
   // When an id is provided, attempt to find the existing record by primary key.
   const existing: EntityDoc | null = id
-    ? (await collection.findOne(mFilter<EntityDoc>({ _id: id, spaceId })) as EntityDoc | null)
+    ? (await collection.findOne(asFilter<EntityDoc>({ _id: id, spaceId })) as EntityDoc | null)
     : null;
 
   const seq = await nextSeq(spaceId);
@@ -92,8 +92,8 @@ export async function upsertEntity(
     const $set: Record<string, unknown> = { name, type, tags: updatedTags, properties: mergedProps, updatedAt: now, seq, ...embeddingFields };
     if (description !== undefined) $set['description'] = description;
     await collection.updateOne(
-      mFilter<EntityDoc>({ _id: existing._id }),
-      mUpdate<EntityDoc>({ $set }),
+      asFilter<EntityDoc>({ _id: existing._id }),
+      asUpdate<EntityDoc>({ $set }),
     );
     const entity: EntityDoc = { ...existing, name, type, tags: updatedTags, properties: mergedProps, updatedAt: now, seq, ...embeddingFields, ...(description !== undefined ? { description } : {}) };
     return { entity };
@@ -102,7 +102,7 @@ export async function upsertEntity(
   // Warn when inserting without an explicit id and duplicates already exist
   let warning: string | undefined;
   if (!id) {
-    const existingCount = await collection.countDocuments(mFilter<EntityDoc>({ spaceId, name, type }));
+    const existingCount = await collection.countDocuments(asFilter<EntityDoc>({ spaceId, name, type }));
     if (existingCount > 0) {
       warning = `${existingCount} existing entit${existingCount === 1 ? 'y' : 'ies'} with name '${name}' and type '${type}' already exist in this space. A new entity was created because no id was supplied. To update an existing entity, provide its id.`;
     }
@@ -130,7 +130,7 @@ export async function upsertEntity(
     ...embeddingFields,
   };
   if (description !== undefined) doc.description = description;
-  await collection.insertOne(mDoc<EntityDoc>(doc));
+  await collection.insertOne(asDoc<EntityDoc>(doc));
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
   if (getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {
@@ -146,13 +146,13 @@ export async function upsertEntity(
  */
 export async function findEntitiesByName(spaceId: string, name: string): Promise<EntityDoc[]> {
   return col<EntityDoc>(`${spaceId}_entities`)
-    .find(mFilter<EntityDoc>({ spaceId, name }))
+    .find(asFilter<EntityDoc>({ spaceId, name }))
     .toArray() as Promise<EntityDoc[]>;
 }
 
 /** Find an entity by exact ID */
 export async function getEntityById(spaceId: string, id: string): Promise<EntityDoc | null> {
-  return col<EntityDoc>(`${spaceId}_entities`).findOne(mFilter<EntityDoc>({ _id: id, spaceId })) as Promise<EntityDoc | null>;
+  return col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: id, spaceId })) as Promise<EntityDoc | null>;
 }
 
 /** Update an existing entity by ID. Partial update — only supplied fields are changed. Re-embeds when any content field changes. */
@@ -163,7 +163,7 @@ export async function updateEntityById(
   deleteFieldsPaths?: string[],
 ): Promise<EntityDoc | null> {
   const collection = col<EntityDoc>(`${spaceId}_entities`);
-  const existing = await collection.findOne(mFilter<EntityDoc>({ _id: id, spaceId })) as EntityDoc | null;
+  const existing = await collection.findOne(asFilter<EntityDoc>({ _id: id, spaceId })) as EntityDoc | null;
   if (!existing) return null;
 
   const seq = await nextSeq(spaceId);
@@ -225,7 +225,7 @@ export async function updateEntityById(
 
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
-  await collection.updateOne(mFilter<EntityDoc>({ _id: id }), mUpdate<EntityDoc>(updateOp));
+  await collection.updateOne(asFilter<EntityDoc>({ _id: id }), asUpdate<EntityDoc>(updateOp));
 
   const result = {
     ...existing,
@@ -255,7 +255,7 @@ export async function listEntities(
   skip = 0,
 ): Promise<EntityDoc[]> {
   return col<EntityDoc>(`${spaceId}_entities`)
-    .find(mFilter<EntityDoc>({ ...filter, spaceId }))
+    .find(asFilter<EntityDoc>({ ...filter, spaceId }))
     .skip(parseSkip(skip))
     .limit(parseLimit(limit, 20, 1000))
     .toArray() as Promise<EntityDoc[]>;
@@ -267,7 +267,7 @@ export async function deleteEntity(
   entityId: string,
 ): Promise<boolean> {
   const existing = await col<EntityDoc>(`${spaceId}_entities`)
-    .findOne(mFilter<EntityDoc>({ _id: entityId, spaceId }), { projection: { seq: 1 } }) as { seq?: number } | null;
+    .findOne(asFilter<EntityDoc>({ _id: entityId, spaceId }), { projection: { seq: 1 } }) as { seq?: number } | null;
   const seq = await nextSeq(spaceId);
   const result = await col<EntityDoc>(`${spaceId}_entities`).deleteOne({
     _id: entityId,
@@ -285,8 +285,8 @@ export async function deleteEntity(
     ...(existing?.seq !== undefined ? { originalSeq: existing.seq } : {}),
   };
   await col<TombstoneDoc>(`${spaceId}_tombstones`).replaceOne(
-    mFilter<TombstoneDoc>({ _id: entityId }),
-    mDoc<TombstoneDoc>(tombstone),
+    asFilter<TombstoneDoc>({ _id: entityId }),
+    asDoc<TombstoneDoc>(tombstone),
     { upsert: true },
   );
   return true;
@@ -318,7 +318,7 @@ export async function bulkDeleteEntities(spaceId: string): Promise<number> {
   const ops = tombstones.map(t => ({
     replaceOne: { filter: { _id: t._id }, replacement: t, upsert: true },
   }));
-  await col<TombstoneDoc>(`${spaceId}_tombstones`).bulkWrite(mBulk<TombstoneDoc>(ops));
+  await col<TombstoneDoc>(`${spaceId}_tombstones`).bulkWrite(asBulk<TombstoneDoc>(ops));
   await coll.deleteMany({});
   return ids.length;
 }
@@ -333,19 +333,19 @@ export async function findEntityBacklinks(spaceId: string, entityId: string): Pr
 
   // Edges referencing this entity as from or to
   const edges = await col<EdgeDoc>(`${spaceId}_edges`)
-    .find(mFilter<EdgeDoc>({ spaceId, $or: [{ from: entityId }, { to: entityId }] }), { projection: { _id: 1 } })
+    .find(asFilter<EdgeDoc>({ spaceId, $or: [{ from: entityId }, { to: entityId }] }), { projection: { _id: 1 } })
     .toArray() as Array<{ _id: string }>;
   for (const e of edges) backlinks.push({ type: 'edge', _id: e._id });
 
   // Memories referencing this entity in entityIds
   const memories = await col<MemoryDoc>(`${spaceId}_memories`)
-    .find(mFilter<MemoryDoc>({ spaceId, entityIds: entityId }), { projection: { _id: 1 } })
+    .find(asFilter<MemoryDoc>({ spaceId, entityIds: entityId }), { projection: { _id: 1 } })
     .toArray() as Array<{ _id: string }>;
   for (const m of memories) backlinks.push({ type: 'memory', _id: m._id });
 
   // Chrono entries referencing this entity in entityIds
   const chronos = await col<ChronoEntry>(`${spaceId}_chrono`)
-    .find(mFilter<ChronoEntry>({ spaceId, entityIds: entityId }), { projection: { _id: 1 } })
+    .find(asFilter<ChronoEntry>({ spaceId, entityIds: entityId }), { projection: { _id: 1 } })
     .toArray() as Array<{ _id: string }>;
   for (const c of chronos) backlinks.push({ type: 'chrono', _id: c._id });
 

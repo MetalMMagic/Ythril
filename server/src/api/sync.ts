@@ -11,7 +11,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
-import { col, mFilter, mDoc, mUpdate } from '../db/mongo.js';
+import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { warmEmbeddingModel } from '../brain/embedding.js';
 import { syncRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, getSecrets, getDataRoot, loadConfig, saveConfig } from '../config/loader.js';
@@ -86,7 +86,7 @@ async function recordLinkViolation(
       peerInstanceId,
       detectedAt: new Date().toISOString(),
     };
-    await col<LinkViolationDoc>(`${spaceId}_link_violations`).insertOne(mDoc<LinkViolationDoc>(doc));
+    await col<LinkViolationDoc>(`${spaceId}_link_violations`).insertOne(asDoc<LinkViolationDoc>(doc));
     emitWebhookEvent({ event: 'link_violation.created', spaceId, entry: doc as unknown as Record<string, unknown> });
   } catch (err) {
     log.error(`Failed to record link violation for ${docType} ${docId}: ${err}`);
@@ -110,7 +110,7 @@ async function checkEdgeLinkViolations(
       await recordLinkViolation(spaceId, edge._id, 'edge', field,
         `${field} '${val}' is not a valid UUID v4`, peerInstanceId);
     } else {
-      const exists = await col<EntityDoc>(`${spaceId}_entities`).findOne(mFilter<EntityDoc>({ _id: val }));
+      const exists = await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: val }));
       if (!exists) {
         await recordLinkViolation(spaceId, edge._id, 'edge', field,
           `${field} references non-existent entity '${val}'`, peerInstanceId);
@@ -136,7 +136,7 @@ async function checkEntityIdLinkViolations(
       await recordLinkViolation(spaceId, docId, docType, 'entityIds',
         `entityIds contains non-UUID value '${eid}'`, peerInstanceId);
     } else {
-      const exists = await col<EntityDoc>(`${spaceId}_entities`).findOne(mFilter<EntityDoc>({ _id: eid }));
+      const exists = await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: eid }));
       if (!exists) {
         await recordLinkViolation(spaceId, docId, docType, 'entityIds',
           `entityIds references non-existent entity '${eid}'`, peerInstanceId);
@@ -280,7 +280,7 @@ async function forkChainDepth(spaceId: string, docId: string | undefined): Promi
   while (currentId && depth <= MAX_FORK_DEPTH) {
     if (visited.has(currentId)) break; // cycle guard
     visited.add(currentId);
-    const doc = await coll.findOne(mFilter<MemoryDoc>({ _id: currentId })) as MemoryDoc | null;
+    const doc = await coll.findOne(asFilter<MemoryDoc>({ _id: currentId })) as MemoryDoc | null;
     if (!doc?.forkOf) break;
     depth++;
     currentId = doc.forkOf;
@@ -431,8 +431,8 @@ syncRouter.get('/memories', syncRateLimit, requireAuth, async (req, res) => {
     const returnFull = fullParam === 'true';
 
     const rawDocs = returnFull
-      ? await col<MemoryDoc>(`${spaceId}_memories`).find(mFilter<MemoryDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as MemoryDoc[]
-      : await col<MemoryDoc>(`${spaceId}_memories`).find(mFilter<MemoryDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
+      ? await col<MemoryDoc>(`${spaceId}_memories`).find(asFilter<MemoryDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as MemoryDoc[]
+      : await col<MemoryDoc>(`${spaceId}_memories`).find(asFilter<MemoryDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
 
     const hasMore = rawDocs.length > pageSize;
     const items: typeof rawDocs = hasMore ? rawDocs.slice(0, pageSize) : rawDocs;
@@ -472,7 +472,7 @@ syncRouter.get('/memories/:id', syncRateLimit, requireAuth, async (req, res) => 
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
-    const doc = await col<MemoryDoc>(`${spaceId}_memories`).findOne(mFilter<MemoryDoc>({ _id: req.params['id'] }));
+    const doc = await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: req.params['id'] }));
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
     res.json(doc);
   } catch (err) {
@@ -503,22 +503,22 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async (re
 
     // Check for tombstone â€” if a tombstone with >= seq exists, skip
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
-      .findOne(mFilter<TombstoneDoc>({ _id: incoming._id, type: 'memory' })) as TombstoneDoc | null;
+      .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'memory' })) as TombstoneDoc | null;
     if (tombstone && tombstone.seq >= incoming.seq) {
       res.status(200).json({ status: 'tombstoned' });
       return;
     }
     // Clean up stale tombstone superseded by the incoming document
     if (tombstone) {
-      await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(mFilter<TombstoneDoc>({ _id: incoming._id }));
+      await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(asFilter<TombstoneDoc>({ _id: incoming._id }));
     }
 
     const existing = await col<MemoryDoc>(`${spaceId}_memories`)
-      .findOne(mFilter<MemoryDoc>({ _id: incoming._id })) as MemoryDoc | null;
+      .findOne(asFilter<MemoryDoc>({ _id: incoming._id })) as MemoryDoc | null;
 
     if (!existing) {
       // No local copy â€” insert directly
-      await col<MemoryDoc>(`${spaceId}_memories`).insertOne(mDoc<MemoryDoc>(incoming));
+      await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(incoming));
       const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
       checkEntityIdLinkViolations(spaceId, incoming._id, 'memory', incoming.entityIds, peerInst).catch(() => {});
       res.status(200).json({ status: 'inserted' });
@@ -527,7 +527,7 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async (re
 
     if (incoming.seq > existing.seq) {
       // Remote is newer â€” overwrite
-      await col<MemoryDoc>(`${spaceId}_memories`).replaceOne(mFilter<MemoryDoc>({ _id: incoming._id }), mDoc<MemoryDoc>(incoming));
+      await col<MemoryDoc>(`${spaceId}_memories`).replaceOne(asFilter<MemoryDoc>({ _id: incoming._id }), asDoc<MemoryDoc>(incoming));
       const peerInst = (req.authToken as Record<string, unknown>)?.['peerInstanceId'] as string ?? 'unknown';
       checkEntityIdLinkViolations(spaceId, incoming._id, 'memory', incoming.entityIds, peerInst).catch(() => {});
       res.status(200).json({ status: 'updated' });
@@ -543,7 +543,7 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async (re
       }
       // Also cap fan-out: count how many forks already point to this document.
       const siblingCount = await col<MemoryDoc>(`${spaceId}_memories`)
-        .countDocuments(mFilter<MemoryDoc>({ forkOf: incoming._id }), { limit: MAX_FORK_DEPTH + 1 });
+        .countDocuments(asFilter<MemoryDoc>({ forkOf: incoming._id }), { limit: MAX_FORK_DEPTH + 1 });
       if (siblingCount >= MAX_FORK_DEPTH) {
         res.status(400).json({ error: `Fork depth limit (${MAX_FORK_DEPTH}) exceeded for _id '${incoming._id}'` });
         return;
@@ -557,7 +557,7 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async (re
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      await col<MemoryDoc>(`${spaceId}_memories`).insertOne(mDoc<MemoryDoc>(fork));
+      await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(fork));
       res.status(200).json({ status: 'forked', forkId: fork._id });
       return;
     }
@@ -584,8 +584,8 @@ syncRouter.get('/entities', syncRateLimit, requireAuth, async (req, res) => {
     const returnFull = fullParam === 'true';
 
     const rawDocs = returnFull
-      ? await col<EntityDoc>(`${spaceId}_entities`).find(mFilter<EntityDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as EntityDoc[]
-      : await col<EntityDoc>(`${spaceId}_entities`).find(mFilter<EntityDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
+      ? await col<EntityDoc>(`${spaceId}_entities`).find(asFilter<EntityDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as EntityDoc[]
+      : await col<EntityDoc>(`${spaceId}_entities`).find(asFilter<EntityDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
 
     const hasMore = rawDocs.length > pageSize;
     const items: typeof rawDocs = hasMore ? rawDocs.slice(0, pageSize) : rawDocs;
@@ -616,7 +616,7 @@ syncRouter.get('/entities/:id', syncRateLimit, requireAuth, async (req, res) => 
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
-    const doc = await col<EntityDoc>(`${spaceId}_entities`).findOne(mFilter<EntityDoc>({ _id: req.params['id'] }));
+    const doc = await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: req.params['id'] }));
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
     res.json(doc);
   } catch (err) {
@@ -640,25 +640,25 @@ syncRouter.post('/entities', syncRateLimit, requireAuth, denyReadOnly, async (re
     if (rejectImplausibleSeq(spaceId, incoming.seq, res, callerPeerId(req.authToken as Record<string, unknown>))) return;
 
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
-      .findOne(mFilter<TombstoneDoc>({ _id: incoming._id, type: 'entity' })) as TombstoneDoc | null;
+      .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'entity' })) as TombstoneDoc | null;
     if (tombstone && tombstone.seq >= incoming.seq) {
       res.status(200).json({ status: 'tombstoned' });
       return;
     }
     if (tombstone) {
-      await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(mFilter<TombstoneDoc>({ _id: incoming._id }));
+      await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(asFilter<TombstoneDoc>({ _id: incoming._id }));
     }
 
     await col<EntityDoc>(`${spaceId}_entities`).updateOne(
-      mFilter<EntityDoc>({ _id: incoming._id }),
-      mUpdate<EntityDoc>({ $setOnInsert: incoming }),
+      asFilter<EntityDoc>({ _id: incoming._id }),
+      asUpdate<EntityDoc>({ $setOnInsert: incoming }),
       { upsert: true },
     );
 
     // Merge tags on conflict
-    const existing = await col<EntityDoc>(`${spaceId}_entities`).findOne(mFilter<EntityDoc>({ _id: incoming._id })) as EntityDoc;
+    const existing = await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: incoming._id })) as EntityDoc;
     if (existing && incoming.seq > existing.seq) {
-      await col<EntityDoc>(`${spaceId}_entities`).replaceOne(mFilter<EntityDoc>({ _id: incoming._id }), mDoc<EntityDoc>(incoming));
+      await col<EntityDoc>(`${spaceId}_entities`).replaceOne(asFilter<EntityDoc>({ _id: incoming._id }), asDoc<EntityDoc>(incoming));
     }
 
     res.status(200).json({ status: 'ok' });
@@ -683,8 +683,8 @@ syncRouter.get('/edges', syncRateLimit, requireAuth, async (req, res) => {
     const returnFull = fullParam === 'true';
 
     const rawDocs = returnFull
-      ? await col<EdgeDoc>(`${spaceId}_edges`).find(mFilter<EdgeDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as EdgeDoc[]
-      : await col<EdgeDoc>(`${spaceId}_edges`).find(mFilter<EdgeDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
+      ? await col<EdgeDoc>(`${spaceId}_edges`).find(asFilter<EdgeDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as EdgeDoc[]
+      : await col<EdgeDoc>(`${spaceId}_edges`).find(asFilter<EdgeDoc>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
 
     const hasMore = rawDocs.length > pageSize;
     const items: typeof rawDocs = hasMore ? rawDocs.slice(0, pageSize) : rawDocs;
@@ -715,7 +715,7 @@ syncRouter.get('/edges/:id', syncRateLimit, requireAuth, async (req, res) => {
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
-    const doc = await col<EdgeDoc>(`${spaceId}_edges`).findOne(mFilter<EdgeDoc>({ _id: req.params['id'] }));
+    const doc = await col<EdgeDoc>(`${spaceId}_edges`).findOne(asFilter<EdgeDoc>({ _id: req.params['id'] }));
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
     res.json(doc);
   } catch (err) {
@@ -739,20 +739,20 @@ syncRouter.post('/edges', syncRateLimit, requireAuth, denyReadOnly, async (req, 
     if (rejectImplausibleSeq(spaceId, incoming.seq, res, callerPeerId(req.authToken as Record<string, unknown>))) return;
 
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
-      .findOne(mFilter<TombstoneDoc>({ _id: incoming._id, type: 'edge' })) as TombstoneDoc | null;
+      .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'edge' })) as TombstoneDoc | null;
     if (tombstone && tombstone.seq >= incoming.seq) {
       res.status(200).json({ status: 'tombstoned' });
       return;
     }
     if (tombstone) {
-      await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(mFilter<TombstoneDoc>({ _id: incoming._id }));
+      await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(asFilter<TombstoneDoc>({ _id: incoming._id }));
     }
 
-    const existing = await col<EdgeDoc>(`${spaceId}_edges`).findOne(mFilter<EdgeDoc>({ _id: incoming._id })) as EdgeDoc | null;
+    const existing = await col<EdgeDoc>(`${spaceId}_edges`).findOne(asFilter<EdgeDoc>({ _id: incoming._id })) as EdgeDoc | null;
     if (!existing || incoming.seq > existing.seq) {
       await col<EdgeDoc>(`${spaceId}_edges`).replaceOne(
-        mFilter<EdgeDoc>({ _id: incoming._id }),
-        mDoc<EdgeDoc>(incoming),
+        asFilter<EdgeDoc>({ _id: incoming._id }),
+        asDoc<EdgeDoc>(incoming),
         { upsert: true },
       );
     }
@@ -783,8 +783,8 @@ syncRouter.get('/chrono', syncRateLimit, requireAuth, async (req, res) => {
     const returnFull = fullParam === 'true';
 
     const rawDocs = returnFull
-      ? await col<ChronoEntry>(`${spaceId}_chrono`).find(mFilter<ChronoEntry>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as ChronoEntry[]
-      : await col<ChronoEntry>(`${spaceId}_chrono`).find(mFilter<ChronoEntry>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
+      ? await col<ChronoEntry>(`${spaceId}_chrono`).find(asFilter<ChronoEntry>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).toArray() as ChronoEntry[]
+      : await col<ChronoEntry>(`${spaceId}_chrono`).find(asFilter<ChronoEntry>({ seq: { $gt: sinceVal } })).sort({ seq: 1 }).limit(pageSize + 1).project({ _id: 1, seq: 1 }).toArray() as { _id: string; seq: number }[];
 
     const hasMore = rawDocs.length > pageSize;
     const items: typeof rawDocs = hasMore ? rawDocs.slice(0, pageSize) : rawDocs;
@@ -815,7 +815,7 @@ syncRouter.get('/chrono/:id', syncRateLimit, requireAuth, async (req, res) => {
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
 
-    const doc = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(mFilter<ChronoEntry>({ _id: req.params['id'] }));
+    const doc = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: req.params['id'] }));
     if (!doc) { res.status(404).json({ error: 'Not found' }); return; }
     res.json(doc);
   } catch (err) {
@@ -844,20 +844,20 @@ syncRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (req,
     }
 
     const tombstone = await col<TombstoneDoc>(`${spaceId}_tombstones`)
-      .findOne(mFilter<TombstoneDoc>({ _id: incoming._id, type: 'chrono' })) as TombstoneDoc | null;
+      .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'chrono' })) as TombstoneDoc | null;
     if (tombstone && tombstone.seq >= incoming.seq) {
       res.status(200).json({ status: 'tombstoned' });
       return;
     }
     if (tombstone) {
-      await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(mFilter<TombstoneDoc>({ _id: incoming._id }));
+      await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(asFilter<TombstoneDoc>({ _id: incoming._id }));
     }
 
-    const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(mFilter<ChronoEntry>({ _id: incoming._id })) as ChronoEntry | null;
+    const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: incoming._id })) as ChronoEntry | null;
     if (!existing || incoming.seq > existing.seq) {
       await col<ChronoEntry>(`${spaceId}_chrono`).replaceOne(
-        mFilter<ChronoEntry>({ _id: incoming._id }),
-        mDoc<ChronoEntry>(incoming),
+        asFilter<ChronoEntry>({ _id: incoming._id }),
+        asDoc<ChronoEntry>(incoming),
         { upsert: true },
       );
     }
@@ -923,17 +923,17 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, async
     const memStats = { inserted: 0, updated: 0, forked: 0, skipped: 0, tombstoned: 0 };
     for (const incoming of memories) {
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
-        .findOne(mFilter<TombstoneDoc>({ _id: incoming._id, type: 'memory' })) as TombstoneDoc | null;
+        .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'memory' })) as TombstoneDoc | null;
       if (tomb && tomb.seq >= incoming.seq) { memStats.tombstoned++; continue; }
-      if (tomb) await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(mFilter<TombstoneDoc>({ _id: incoming._id }));
+      if (tomb) await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(asFilter<TombstoneDoc>({ _id: incoming._id }));
 
       const existing = await col<MemoryDoc>(`${spaceId}_memories`)
-        .findOne(mFilter<MemoryDoc>({ _id: incoming._id })) as MemoryDoc | null;
+        .findOne(asFilter<MemoryDoc>({ _id: incoming._id })) as MemoryDoc | null;
       if (!existing) {
-        await col<MemoryDoc>(`${spaceId}_memories`).insertOne(mDoc<MemoryDoc>(incoming));
+        await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(incoming));
         memStats.inserted++;
       } else if (incoming.seq > existing.seq) {
-        await col<MemoryDoc>(`${spaceId}_memories`).replaceOne(mFilter<MemoryDoc>({ _id: incoming._id }), mDoc<MemoryDoc>(incoming));
+        await col<MemoryDoc>(`${spaceId}_memories`).replaceOne(asFilter<MemoryDoc>({ _id: incoming._id }), asDoc<MemoryDoc>(incoming));
         memStats.updated++;
       } else if (incoming.seq === existing.seq && incoming.fact !== existing.fact) {
         // Cap fork chains to prevent unbounded growth
@@ -945,7 +945,7 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, async
           ...incoming, _id: uuidv4(), forkOf: incoming._id, seq: forkSeq,
           createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
         };
-        await col<MemoryDoc>(`${spaceId}_memories`).insertOne(mDoc<MemoryDoc>(fork));
+        await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(fork));
         memStats.forked++;
       } else {
         memStats.skipped++;
@@ -956,15 +956,15 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, async
     const entStats = { upserted: 0, skipped: 0, tombstoned: 0 };
     for (const incoming of entities) {
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
-        .findOne(mFilter<TombstoneDoc>({ _id: incoming._id, type: 'entity' })) as TombstoneDoc | null;
+        .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'entity' })) as TombstoneDoc | null;
       if (tomb && tomb.seq >= incoming.seq) { entStats.tombstoned++; continue; }
-      if (tomb) await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(mFilter<TombstoneDoc>({ _id: incoming._id }));
+      if (tomb) await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(asFilter<TombstoneDoc>({ _id: incoming._id }));
 
       const existing = await col<EntityDoc>(`${spaceId}_entities`)
-        .findOne(mFilter<EntityDoc>({ _id: incoming._id })) as EntityDoc | null;
+        .findOne(asFilter<EntityDoc>({ _id: incoming._id })) as EntityDoc | null;
       if (!existing || incoming.seq > existing.seq) {
         await col<EntityDoc>(`${spaceId}_entities`).replaceOne(
-          mFilter<EntityDoc>({ _id: incoming._id }), mDoc<EntityDoc>(incoming), { upsert: true },
+          asFilter<EntityDoc>({ _id: incoming._id }), asDoc<EntityDoc>(incoming), { upsert: true },
         );
         entStats.upserted++;
       } else {
@@ -976,15 +976,15 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, async
     const edgeStats = { upserted: 0, skipped: 0, tombstoned: 0 };
     for (const incoming of edges) {
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
-        .findOne(mFilter<TombstoneDoc>({ _id: incoming._id, type: 'edge' })) as TombstoneDoc | null;
+        .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'edge' })) as TombstoneDoc | null;
       if (tomb && tomb.seq >= incoming.seq) { edgeStats.tombstoned++; continue; }
-      if (tomb) await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(mFilter<TombstoneDoc>({ _id: incoming._id }));
+      if (tomb) await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(asFilter<TombstoneDoc>({ _id: incoming._id }));
 
       const existing = await col<EdgeDoc>(`${spaceId}_edges`)
-        .findOne(mFilter<EdgeDoc>({ _id: incoming._id })) as EdgeDoc | null;
+        .findOne(asFilter<EdgeDoc>({ _id: incoming._id })) as EdgeDoc | null;
       if (!existing || incoming.seq > existing.seq) {
         await col<EdgeDoc>(`${spaceId}_edges`).replaceOne(
-          mFilter<EdgeDoc>({ _id: incoming._id }), mDoc<EdgeDoc>(incoming), { upsert: true },
+          asFilter<EdgeDoc>({ _id: incoming._id }), asDoc<EdgeDoc>(incoming), { upsert: true },
         );
         edgeStats.upserted++;
       } else {
@@ -996,15 +996,15 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, async
     const chronoStats = { upserted: 0, skipped: 0, tombstoned: 0 };
     for (const incoming of chrono) {
       const tomb = await col<TombstoneDoc>(`${spaceId}_tombstones`)
-        .findOne(mFilter<TombstoneDoc>({ _id: incoming._id, type: 'chrono' })) as TombstoneDoc | null;
+        .findOne(asFilter<TombstoneDoc>({ _id: incoming._id, type: 'chrono' })) as TombstoneDoc | null;
       if (tomb && tomb.seq >= incoming.seq) { chronoStats.tombstoned++; continue; }
-      if (tomb) await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(mFilter<TombstoneDoc>({ _id: incoming._id }));
+      if (tomb) await col<TombstoneDoc>(`${spaceId}_tombstones`).deleteOne(asFilter<TombstoneDoc>({ _id: incoming._id }));
 
       const existing = await col<ChronoEntry>(`${spaceId}_chrono`)
-        .findOne(mFilter<ChronoEntry>({ _id: incoming._id })) as ChronoEntry | null;
+        .findOne(asFilter<ChronoEntry>({ _id: incoming._id })) as ChronoEntry | null;
       if (!existing || incoming.seq > existing.seq) {
         await col<ChronoEntry>(`${spaceId}_chrono`).replaceOne(
-          mFilter<ChronoEntry>({ _id: incoming._id }), mDoc<ChronoEntry>(incoming), { upsert: true },
+          asFilter<ChronoEntry>({ _id: incoming._id }), asDoc<ChronoEntry>(incoming), { upsert: true },
         );
         chronoStats.upserted++;
       } else {
@@ -1142,7 +1142,7 @@ syncRouter.get('/file-tombstones', syncRateLimit, requireAuth, async (req, res) 
       ? { spaceId, deletedAt: { $gt: since } }
       : { spaceId };
     const tombstones = await col<FileTombstoneDoc>(`${spaceId}_file_tombstones`)
-      .find(mFilter<FileTombstoneDoc>(filter))
+      .find(asFilter<FileTombstoneDoc>(filter))
       .sort({ deletedAt: 1 })
       .limit(5000)
       .toArray();
@@ -1192,8 +1192,8 @@ syncRouter.post('/file-tombstones', syncRateLimit, requireAuth, denyReadOnly, as
         deletedAt: typeof ts.deletedAt === 'string' ? ts.deletedAt : new Date().toISOString(),
       };
       await col<FileTombstoneDoc>(`${spaceId}_file_tombstones`).updateOne(
-        mFilter<FileTombstoneDoc>({ _id: doc._id }),
-        mUpdate<FileTombstoneDoc>({ $setOnInsert: doc }),
+        asFilter<FileTombstoneDoc>({ _id: doc._id }),
+        asUpdate<FileTombstoneDoc>({ $setOnInsert: doc }),
         { upsert: true },
       );
       applied++;
@@ -1643,10 +1643,10 @@ syncRouter.post('/warm', syncRateLimit, requireAuth, async (req, res) => {
         log.warn(`Warm: embedding model failed: ${err}`),
       ),
       ...body.spaces.flatMap(sid => [
-        col(`${sid}_memories`).findOne(mFilter({}), { projection: { _id: 1 } }).catch(() => {}),
-        col(`${sid}_entities`).findOne(mFilter({}), { projection: { _id: 1 } }).catch(() => {}),
-        col(`${sid}_edges`).findOne(mFilter({}), { projection: { _id: 1 } }).catch(() => {}),
-        col(`${sid}_chrono`).findOne(mFilter({}), { projection: { _id: 1 } }).catch(() => {}),
+        col(`${sid}_memories`).findOne(asFilter({}), { projection: { _id: 1 } }).catch(() => {}),
+        col(`${sid}_entities`).findOne(asFilter({}), { projection: { _id: 1 } }).catch(() => {}),
+        col(`${sid}_edges`).findOne(asFilter({}), { projection: { _id: 1 } }).catch(() => {}),
+        col(`${sid}_chrono`).findOne(asFilter({}), { projection: { _id: 1 } }).catch(() => {}),
       ]),
     ]);
 

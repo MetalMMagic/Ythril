@@ -19,11 +19,15 @@
  *   `workerConcurrency: 0` (or restart the pod, which leaves any pending
  *   jobs in the queue for a future enable).
  *
- * Provider/worker config is re-read on every tick, so a change made via
- * PATCH /api/admin/media-config takes effect WITHOUT a restart. The read is an
- * in-memory config lookup, not a network call. Providers are rebuilt only when the
- * provider-relevant config actually changes, and the bundle is passed into each job,
- * so a job always runs against one stable provider set (no mid-job swap).
+ * Provider/worker config is hot-reloaded WITHOUT a restart. A dedicated timer
+ * (`providerRefreshTimer`) re-reads the config and rebuilds the provider bundle
+ * when the provider-relevant config actually changes. It runs on its own interval,
+ * decoupled from the job loop *on purpose*: a job can block the loop for up to the
+ * provider timeout (image 120 s, audio 300 s), and a config change — often made
+ * precisely because a provider is hanging — must not have to wait for that job to
+ * drain. The read is an in-memory config lookup, not a network call. Each tick
+ * snapshots the current bundle for its jobs, so a job always runs against one stable
+ * provider set (no mid-job swap).
  */
 
 import { getConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
@@ -31,6 +35,7 @@ import { isProxySpace } from '../../spaces/proxy.js';
 import type { MediaJobDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { createMediaProviders } from './providers.js';
+import type { MediaProviderBundle } from './providers.js';
 import { claimNextJob, completeJob, failJob, resetStalledJobs } from './job-queue.js';
 import { embedImage } from './image-embedder.js';
 import { embedAudio } from './audio-embedder.js';
@@ -57,6 +62,10 @@ import {
 
 let running = false;
 let stalledSweepTimer: NodeJS.Timeout | null = null;
+let providerRefreshTimer: NodeJS.Timeout | null = null;
+
+/** How often the provider-refresh timer re-reads config to pick up a hot change. */
+const PROVIDER_REFRESH_MS = 2_000;
 
 /** Start the media embedding worker loop. Idempotent — safe to call multiple times. */
 export function startMediaEmbeddingWorker(): void {
@@ -72,6 +81,10 @@ export function stopMediaEmbeddingWorker(): void {
   if (stalledSweepTimer) {
     clearInterval(stalledSweepTimer);
     stalledSweepTimer = null;
+  }
+  if (providerRefreshTimer) {
+    clearInterval(providerRefreshTimer);
+    providerRefreshTimer = null;
   }
   log.info('Media embedding worker: stop requested');
 }
@@ -92,14 +105,43 @@ export function providerSignature(cfg: ReturnType<typeof getMediaEmbeddingConfig
   ]);
 }
 
-/** Signature of the providers the worker is CURRENTLY running. */
+// Provider bundle the worker is CURRENTLY running, plus the signature it was built
+// from. Hoisted to module scope so the provider-refresh timer can rebuild them even
+// while the job loop is blocked on a slow job — a hung provider call must never
+// freeze config hot-reload.
+let activeProviders: MediaProviderBundle | null = null;
 let activeProviderSig = '';
+
+function buildProviders(cfg: ReturnType<typeof getMediaEmbeddingConfig>): MediaProviderBundle {
+  return createMediaProviders(
+    cfg.vision ?? {},
+    cfg.stt ?? {},
+    cfg.visionProvider ?? 'local',
+    cfg.sttProvider ?? 'local',
+    cfg.fallbackToExternal ?? false,
+  );
+}
+
+/**
+ * Re-read the media config and rebuild the provider bundle if the provider-relevant
+ * config changed. Cheap (an in-memory config read + a rebuild only on real change),
+ * so it is safe to call on a short timer. Runs independently of the job loop.
+ */
+function refreshProviders(): void {
+  const cfg = getMediaEmbeddingConfig();
+  const sig = providerSignature(cfg);
+  if (activeProviders && sig === activeProviderSig) return;
+  const firstBuild = activeProviders === null;
+  activeProviders = buildProviders(cfg);
+  activeProviderSig = sig;
+  if (!firstBuild) log.info('Media worker: provider config changed — providers reloaded');
+}
 
 /**
  * The provider signature the worker is actually running right now. Compare it
  * against `providerSignature(getMediaEmbeddingConfig())` to tell whether a saved
- * config change has been picked up yet — the worker applies it on its next poll
- * tick, so the answer flips on its own, with no restart.
+ * config change has been picked up yet — the refresh timer applies it on its own,
+ * with no restart, even while a slow job is in flight.
  */
 export function getActiveProviderSignature(): string {
   return activeProviderSig;
@@ -137,41 +179,33 @@ async function workerLoop(): Promise<void> {
   // Don't keep the event loop alive solely for the sweep timer
   if (typeof stalledSweepTimer.unref === 'function') stalledSweepTimer.unref();
 
-  const buildProviders = (cfg: ReturnType<typeof getMediaEmbeddingConfig>) => createMediaProviders(
-    cfg.vision ?? {},
-    cfg.stt ?? {},
-    cfg.visionProvider ?? 'local',
-    cfg.sttProvider ?? 'local',
-    cfg.fallbackToExternal ?? false,
-  );
-
-  let providerSig = providerSignature(startupCfg);
-  let providers = buildProviders(startupCfg);
-  activeProviderSig = providerSig;
+  // Build the initial provider bundle, then keep it fresh on a dedicated timer.
+  // A6: this is what makes provider config hot-reload without a restart. The timer
+  // runs independently of the job loop below, so a config change is picked up even
+  // while a slow job holds the loop (see the file header).
+  refreshProviders();
+  providerRefreshTimer = setInterval(() => {
+    if (!running) return;
+    refreshProviders();
+  }, PROVIDER_REFRESH_MS);
+  if (typeof providerRefreshTimer.unref === 'function') providerRefreshTimer.unref();
 
   while (running) {
-    // A6: re-read the config every tick so an admin change via
+    // A6: re-read the worker-tuning config every tick so an admin change via
     // PATCH /api/admin/media-config takes effect WITHOUT a restart. This is an
-    // in-memory config read, not a network call, so it is cheap.
+    // in-memory config read, not a network call, so it is cheap. (Provider config
+    // is applied by the refresh timer above, not here.)
     const mediaCfg = getMediaEmbeddingConfig();
     const workerConcurrency = mediaCfg.workerConcurrency ?? 2;
     const workerPollIntervalMs = mediaCfg.workerPollIntervalMs ?? 1_000;
     const workerMaxPollIntervalMs = mediaCfg.workerMaxPollIntervalMs ?? 30_000;
 
-    // Rebuild the providers only when the provider config actually changed, so a
-    // hot-reload doesn't churn provider clients on every tick.
-    const sig = providerSignature(mediaCfg);
-    if (sig !== providerSig) {
-      providers = buildProviders(mediaCfg);
-      providerSig = sig;
-      activeProviderSig = sig;
-      log.info('Media worker: provider config changed — providers reloaded');
-    }
-
-    // Bind the provider bundle for this tick's jobs. A job therefore always runs
-    // against ONE stable provider set for its whole duration — a config change
-    // mid-job can never swap the provider out from under it.
-    const jobProviders = providers;
+    // Snapshot the current provider bundle for this tick's jobs. A job therefore
+    // always runs against ONE stable provider set for its whole duration — a config
+    // change mid-job can never swap the provider out from under it. The bundle is
+    // guaranteed non-null: refreshProviders() ran before the loop and the timer only
+    // ever replaces it.
+    const jobProviders = activeProviders ?? buildProviders(mediaCfg);
 
     // A lowered max must take effect immediately, not only after the next reset.
     currentPollMs = Math.min(currentPollMs, workerMaxPollIntervalMs);

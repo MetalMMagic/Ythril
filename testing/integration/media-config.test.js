@@ -68,10 +68,10 @@ describe('Media config hot-reload (A6)', () => {
     assert.equal(r.status, 200, `PATCH media-config failed: ${JSON.stringify(r.body)}`);
     assert.equal(r.body?.config?.vision?.model, probeModel, 'PATCH should echo the new model');
 
-    // The worker applies the change on its next poll tick. Pickup latency is bounded
-    // by that tick — while idle it backs off (default max 30s), and a tick that is
-    // busy processing jobs takes as long as the batch — so allow real headroom.
-    const applied = await waitForWorkerToApplyConfig(90_000);
+    // A dedicated refresh timer (not the job loop) applies provider config, so the
+    // change is picked up within a couple of seconds even when the worker is busy
+    // processing a slow job. Allow generous headroom for a loaded CI runner anyway.
+    const applied = await waitForWorkerToApplyConfig(60_000);
     assert.ok(
       applied,
       'The media worker never picked up the media-config change (providerReloadPending stayed true). ' +

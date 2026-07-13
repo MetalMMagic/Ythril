@@ -5,7 +5,7 @@ import { getDb, col, asDoc } from '../db/mongo.js';
 import { getConfig, saveConfig, getEmbeddingConfig, getDataRoot, getFaceRecognitionConfig } from '../config/loader.js';
 import { ensureSpaceFilesDir, writeFile as writeSpaceFile } from '../files/files.js';
 import { log } from '../util/log.js';
-import type { SpaceConfig, SpaceMeta, MemoryDoc, KnowledgeType, DupeActionRule } from '../config/types.js';
+import type { Config, SpaceConfig, SpaceMeta, MemoryDoc, KnowledgeType, DupeActionRule, PendingSpaceOp } from '../config/types.js';
 
 const SCHEMA_KTS: KnowledgeType[] = ['entity', 'edge', 'memory', 'chrono'];
 
@@ -285,85 +285,114 @@ export async function createSpace(opts: {
   return space;
 }
 
-/** Delete a space: drops all MongoDB collections, removes files, then removes from config.
- *  Data cleanup runs first — config is only updated after all cleanup succeeds.
- *  If any cleanup step fails, the space remains in config so the operator can retry. */
+/** Physically drop a real space's MongoDB collections, vector indexes, and file
+ *  directories. Idempotent — re-running after a partial run is safe (dropping a
+ *  missing collection / removing an absent directory are both no-ops). Returns the
+ *  list of hard errors encountered (empty on full success). */
+async function dropSpaceData(spaceId: string): Promise<string[]> {
+  const db = getDb();
+  const errors: string[] = [];
+
+  // 1. Drop vector search indexes on all indexed collections (best-effort)
+  for (const suffix of VECTOR_INDEXED_COLLECTIONS) {
+    const indexName = `${spaceId}_${suffix}_embedding`;
+    try {
+      const coll = db.collection(`${spaceId}_${suffix}`);
+      const indexes = await coll.listSearchIndexes().toArray() as Array<{ name?: string }>;
+      if (indexes.some(i => i.name === indexName)) {
+        await coll.dropSearchIndex(indexName);
+        log.debug(`Dropped vector search index ${indexName}`);
+      }
+    } catch (err) {
+      log.warn(`Could not drop vector search index ${indexName}: ${err}`);
+      // Vector index failure is non-fatal — the collection drop below will clean it up
+    }
+  }
+
+  // 2. Drop all MongoDB collections associated with this space
+  const prefix = `${spaceId}_`;
+  const existingColls = await db.listCollections().toArray();
+  for (const coll of existingColls.filter(c => c.name.startsWith(prefix))) {
+    try {
+      await db.collection(coll.name).drop();
+      log.debug(`Dropped collection ${coll.name}`);
+    } catch (err) {
+      const msg = `Could not drop collection ${coll.name}: ${err}`;
+      log.warn(msg);
+      errors.push(msg);
+    }
+  }
+
+  // 3. Delete the space files directory
+  const filesDir = path.resolve(getDataRoot(), 'files', spaceId);
+  try {
+    await fs.rm(filesDir, { recursive: true, force: true });
+    log.debug(`Deleted files directory ${filesDir}`);
+  } catch (err) {
+    const msg = `Could not delete files directory ${filesDir}: ${err}`;
+    log.warn(msg);
+    errors.push(msg);
+  }
+
+  // 4. Delete any stale chunked-upload directories for this space
+  const chunksDir = path.resolve(getDataRoot(), '.chunks', spaceId);
+  try {
+    await fs.rm(chunksDir, { recursive: true, force: true });
+    log.debug(`Deleted chunk uploads directory ${chunksDir}`);
+  } catch (err) {
+    const msg = `Could not delete chunk uploads directory ${chunksDir}: ${err}`;
+    log.warn(msg);
+    errors.push(msg);
+  }
+
+  return errors;
+}
+
+/** Delete a space: drops all MongoDB collections and files, then removes it from
+ *  config. Crash-safe: a `pendingSpaceOp` marker is persisted BEFORE the drops and
+ *  cleared only once the space leaves config, so a crash mid-delete is completed on
+ *  the next boot by reconcilePendingSpaceOp() (deletion is forward-only — the data
+ *  is already going away). If any drop fails, the marker is kept so the operator can
+ *  retry (or the next boot resumes) rather than leaving a half-deleted space silently. */
 export async function removeSpace(spaceId: string): Promise<boolean> {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
   if (!space) return false;
   if (space.builtIn) throw new Error(`Cannot delete built-in space '${spaceId}'`);
 
-  // Only real (non-proxy) spaces have DB collections and files
-  if (!space.proxyFor) {
-    const db = getDb();
-    const errors: string[] = [];
-
-    // 1. Drop vector search indexes on all indexed collections (best-effort)
-    for (const suffix of VECTOR_INDEXED_COLLECTIONS) {
-      const indexName = `${spaceId}_${suffix}_embedding`;
-      try {
-        const coll = db.collection(`${spaceId}_${suffix}`);
-        const indexes = await coll.listSearchIndexes().toArray() as Array<{ name?: string }>;
-        if (indexes.some(i => i.name === indexName)) {
-          await coll.dropSearchIndex(indexName);
-          log.debug(`Dropped vector search index ${indexName}`);
-        }
-      } catch (err) {
-        log.warn(`Could not drop vector search index ${indexName}: ${err}`);
-        // Vector index failure is non-fatal — the collection drop below will clean it up
-      }
-    }
-
-    // 2. Drop all MongoDB collections associated with this space
-    const prefix = `${spaceId}_`;
-    const existingColls = await db.listCollections().toArray();
-    for (const coll of existingColls.filter(c => c.name.startsWith(prefix))) {
-      try {
-        await db.collection(coll.name).drop();
-        log.debug(`Dropped collection ${coll.name}`);
-      } catch (err) {
-        const msg = `Could not drop collection ${coll.name}: ${err}`;
-        log.warn(msg);
-        errors.push(msg);
-      }
-    }
-
-    // 3. Delete the space files directory
-    const filesDir = path.resolve(getDataRoot(), 'files', spaceId);
-    try {
-      await fs.rm(filesDir, { recursive: true, force: true });
-      log.debug(`Deleted files directory ${filesDir}`);
-    } catch (err) {
-      const msg = `Could not delete files directory ${filesDir}: ${err}`;
-      log.warn(msg);
-      errors.push(msg);
-    }
-
-    // 4. Delete any stale chunked-upload directories for this space
-    const chunksDir = path.resolve(getDataRoot(), '.chunks', spaceId);
-    try {
-      await fs.rm(chunksDir, { recursive: true, force: true });
-      log.debug(`Deleted chunk uploads directory ${chunksDir}`);
-    } catch (err) {
-      const msg = `Could not delete chunk uploads directory ${chunksDir}: ${err}`;
-      log.warn(msg);
-      errors.push(msg);
-    }
-
-    // If any collection drops or file deletions failed, abort — leave the
-    // space in config so the operator can investigate and retry.
-    if (errors.length > 0) {
-      throw new Error(
-        `Space '${spaceId}' cleanup incomplete (${errors.length} error(s)). ` +
-        `Space was NOT removed from config. Fix the underlying issue and retry. ` +
-        `Errors: ${errors.join('; ')}`,
-      );
-    }
+  // Proxy spaces have no DB collections or files — a pure config removal, atomic
+  // via the single saveConfig, so no write-ahead marker is needed.
+  if (space.proxyFor) {
+    cfg.spaces = cfg.spaces.filter(s => s.id !== spaceId);
+    saveConfig(cfg);
+    return true;
   }
 
-  // 5. Remove the space from config — only reached when all cleanup succeeded
+  const resuming = cfg.pendingSpaceOp?.type === 'delete' && cfg.pendingSpaceOp.spaceId === spaceId;
+  if (cfg.pendingSpaceOp && !resuming) {
+    throw new Error(pendingOpConflictMessage(cfg.pendingSpaceOp, `delete space '${spaceId}'`));
+  }
+
+  // Write-ahead: record the intent (atomically) before touching MongoDB/fs.
+  if (!resuming) {
+    cfg.pendingSpaceOp = { type: 'delete', spaceId, startedAt: new Date().toISOString() };
+    saveConfig(cfg);
+  }
+
+  const errors = await dropSpaceData(spaceId);
+  if (errors.length > 0) {
+    // Keep the marker — the delete is incomplete and forward-only, so a retry or the
+    // next boot resumes it. Do NOT remove the space from config yet.
+    throw new Error(
+      `Space '${spaceId}' cleanup incomplete (${errors.length} error(s)). ` +
+      `Deletion will be resumed on retry or next restart. ` +
+      `Errors: ${errors.join('; ')}`,
+    );
+  }
+
+  // Commit: drop done — remove from config and clear the marker in one atomic write.
   cfg.spaces = cfg.spaces.filter(s => s.id !== spaceId);
+  delete cfg.pendingSpaceOp;
   saveConfig(cfg);
   return true;
 }
@@ -578,20 +607,16 @@ export function slugify(label: string): string {
     .slice(0, 40) || uuidv4().slice(0, 8);
 }
 
-/** Rename a space: renames all MongoDB collections, moves file directory,
- *  updates config references (networks, tokens, proxy spaces).
- *  Returns the updated SpaceConfig on success. */
-export async function renameSpace(oldId: string, newId: string): Promise<SpaceConfig> {
-  const cfg = getConfig();
-  const space = cfg.spaces.find(s => s.id === oldId);
-  if (!space) throw new Error(`Space '${oldId}' not found`);
-  if (space.builtIn) throw new Error(`Cannot rename built-in space '${oldId}'`);
-  if (cfg.spaces.some(s => s.id === newId)) throw new Error(`Space '${newId}' already exists`);
-
+/** Physically move a space's MongoDB collections and file directories from
+ *  {oldId}_* / files/oldId to {newId}_* / files/newId. Idempotent — after a partial
+ *  run, only the collections/dirs still under `oldId` remain to move, so re-running
+ *  completes it. Returns hard errors (empty on full success). */
+async function moveSpaceData(oldId: string, newId: string): Promise<string[]> {
   const db = getDb();
   const errors: string[] = [];
 
-  // 1. Rename MongoDB collections ({oldId}_* → {newId}_*)
+  // 1. Rename MongoDB collections ({oldId}_* → {newId}_*). Only collections still
+  //    under the old prefix remain after a partial run, so this is idempotent.
   const existingColls = await db.listCollections().toArray();
   const prefix = `${oldId}_`;
   for (const coll of existingColls.filter(c => c.name.startsWith(prefix))) {
@@ -607,7 +632,7 @@ export async function renameSpace(oldId: string, newId: string): Promise<SpaceCo
     }
   }
 
-  // 2. Move the files directory
+  // 2. Move the files directory (skip if already moved — old dir gone)
   const dataRoot = getDataRoot();
   const oldDir = path.resolve(dataRoot, 'files', oldId);
   const newDir = path.resolve(dataRoot, 'files', newId);
@@ -616,7 +641,7 @@ export async function renameSpace(oldId: string, newId: string): Promise<SpaceCo
     await fs.rename(oldDir, newDir);
     log.debug(`Moved files directory ${oldDir} → ${newDir}`);
   } catch (err) {
-    // If old dir doesn't exist, that's fine — space might have no files
+    // If old dir doesn't exist, that's fine — space had no files, or it was already moved.
     const code = (err as NodeJS.ErrnoException).code;
     if (code !== 'ENOENT') {
       const msg = `Could not move files directory: ${err}`;
@@ -631,41 +656,35 @@ export async function renameSpace(oldId: string, newId: string): Promise<SpaceCo
   try {
     await fs.access(oldChunks);
     await fs.rename(oldChunks, newChunks);
-  } catch { /* ignore — chunks dir may not exist */ }
+  } catch { /* ignore — chunks dir may not exist / already moved */ }
 
-  if (errors.length > 0) {
-    throw new Error(
-      `Space '${oldId}' rename incomplete (${errors.length} error(s)). ` +
-      `Config was NOT updated. Fix the underlying issue and retry. ` +
-      `Errors: ${errors.join('; ')}`,
-    );
-  }
+  return errors;
+}
 
-  // 4. Update the space config entry
+/** Apply the logical config changes of a rename: point the space entry at `newId`
+ *  and rewrite every reference (networks, spaceMap, member watermarks, token scopes,
+ *  proxy targets). Pure/synchronous — the caller persists with a single saveConfig. */
+function applySpaceRenameToConfig(cfg: Config, space: SpaceConfig, oldId: string, newId: string): void {
+  // Update the space config entry
   space.id = newId;
 
-  // 5. Update spaceId in all docs within renamed collections
-  //    (embedded spaceId field stays as-is — it's the space the doc was
-  //    originally written in, which is fine for provenance tracking.
-  //    Local lookups use collection names, not the embedded field.)
+  // Embedded spaceId fields in docs stay as-is — that's the space the doc was
+  // originally written in (provenance). Local lookups use collection names.
 
-  // 6. Update network references
+  // Update network references
   for (const net of cfg.networks) {
     const idx = net.spaces.indexOf(oldId);
     if (idx !== -1) {
       net.spaces[idx] = newId;
       // Record in spaceMap so peers using the old ID can still sync.
-      // If a mapping already pointed at oldId, update its target.
       if (!net.spaceMap) net.spaceMap = {};
-      // Check if there's an existing mapping where oldId is already the value (rare: chained renames)
+      // Update any existing mapping whose target was oldId (rare: chained renames)
       for (const [remote, local] of Object.entries(net.spaceMap)) {
         if (local === oldId) {
           net.spaceMap[remote] = newId;
         }
       }
-      // Add direct mapping: oldId → newId (an old ID in peer spoke may reference this)
-      // Only add if oldId isn't already the target of another mapping AND
-      // doesn't conflict with an existing remote key that maps elsewhere.
+      // Add direct mapping oldId → newId (a peer spoke may still reference the old ID)
       if (!net.spaceMap[oldId] || net.spaceMap[oldId] === oldId) {
         net.spaceMap[oldId] = newId;
       }
@@ -684,7 +703,7 @@ export async function renameSpace(oldId: string, newId: string): Promise<SpaceCo
     }
   }
 
-  // 7. Update token scopes
+  // Update token scopes
   for (const tok of cfg.tokens) {
     if (tok.spaces) {
       const idx = tok.spaces.indexOf(oldId);
@@ -692,15 +711,121 @@ export async function renameSpace(oldId: string, newId: string): Promise<SpaceCo
     }
   }
 
-  // 8. Update proxy space references
+  // Update proxy space references
   for (const s of cfg.spaces) {
     if (s.proxyFor) {
       const idx = s.proxyFor.indexOf(oldId);
       if (idx !== -1) s.proxyFor[idx] = newId;
     }
   }
+}
 
+/** Rename a space: renames all MongoDB collections, moves the file directory, and
+ *  updates config references (networks, tokens, proxy spaces).
+ *
+ *  Crash-safe: a `pendingSpaceOp` marker is persisted BEFORE any MongoDB/fs change
+ *  and cleared only once the logical config change commits. The physical move is
+ *  idempotent, so a crash mid-rename is completed on the next boot by
+ *  reconcilePendingSpaceOp(); a caught error keeps the marker so the operator can
+ *  retry (the retry resumes the same op rather than starting over).
+ *  Returns the updated SpaceConfig on success. */
+export async function renameSpace(oldId: string, newId: string): Promise<SpaceConfig> {
+  const cfg = getConfig();
+  const space = cfg.spaces.find(s => s.id === oldId);
+  if (!space) throw new Error(`Space '${oldId}' not found`);
+  if (space.builtIn) throw new Error(`Cannot rename built-in space '${oldId}'`);
+  if (cfg.spaces.some(s => s.id === newId)) throw new Error(`Space '${newId}' already exists`);
+
+  const resuming = cfg.pendingSpaceOp?.type === 'rename'
+    && cfg.pendingSpaceOp.spaceId === oldId
+    && cfg.pendingSpaceOp.newId === newId;
+  if (cfg.pendingSpaceOp && !resuming) {
+    throw new Error(pendingOpConflictMessage(cfg.pendingSpaceOp, `rename space '${oldId}'`));
+  }
+
+  // Write-ahead: record the intent (atomically) before touching MongoDB/fs.
+  if (!resuming) {
+    cfg.pendingSpaceOp = { type: 'rename', spaceId: oldId, newId, startedAt: new Date().toISOString() };
+    saveConfig(cfg);
+  }
+
+  const errors = await moveSpaceData(oldId, newId);
+  if (errors.length > 0) {
+    // Keep the marker — the rename is incomplete but idempotent, so a retry or the
+    // next boot resumes it. Config still points at the old id until it commits.
+    throw new Error(
+      `Space '${oldId}' rename incomplete (${errors.length} error(s)). ` +
+      `Rename will be resumed on retry or next restart. ` +
+      `Errors: ${errors.join('; ')}`,
+    );
+  }
+
+  // Commit: physical move done — apply the logical config change and clear the
+  // marker in one atomic write.
+  applySpaceRenameToConfig(cfg, space, oldId, newId);
+  delete cfg.pendingSpaceOp;
   saveConfig(cfg);
   log.info(`Renamed space '${oldId}' → '${newId}'`);
   return space;
+}
+
+/** Human-readable rejection when a different space op is already mid-flight. */
+function pendingOpConflictMessage(pending: PendingSpaceOp, attempted: string): string {
+  const target = pending.type === 'rename' ? `${pending.spaceId} → ${pending.newId}` : pending.spaceId;
+  return `Cannot ${attempted}: a ${pending.type} of '${target}' is still pending ` +
+    `(started ${pending.startedAt}). It resumes automatically on restart; retry once it clears.`;
+}
+
+/** Complete a space rename/delete that was interrupted (e.g. by a crash or restart)
+ *  after its `pendingSpaceOp` marker was written but before it committed. Called once
+ *  at startup, before the workers start. Rolls the operation FORWARD — the operator
+ *  asked for it and the physical steps are idempotent — then clears the marker. If a
+ *  step still fails, the marker is kept and a loud error is logged for the operator;
+ *  the next boot tries again. */
+export async function reconcilePendingSpaceOp(): Promise<void> {
+  const cfg = getConfig();
+  const op = cfg.pendingSpaceOp;
+  if (!op) return;
+
+  const target = op.type === 'rename' ? `'${op.spaceId}' → '${op.newId}'` : `'${op.spaceId}'`;
+  log.warn(`Resuming interrupted space ${op.type} ${target} (started ${op.startedAt})`);
+
+  try {
+    if (op.type === 'rename' && op.newId) {
+      const space = cfg.spaces.find(s => s.id === op.spaceId);
+      if (!space) {
+        // The space is no longer under its old id — the commit already happened and
+        // only the marker survived. Just clear it.
+        log.warn(`Pending rename target '${op.spaceId}' not found in config — clearing stale marker`);
+        delete cfg.pendingSpaceOp;
+        saveConfig(cfg);
+        return;
+      }
+      const errors = await moveSpaceData(op.spaceId, op.newId);
+      if (errors.length > 0) {
+        log.error(`Could not complete pending rename ${target}; marker kept for next restart. Errors: ${errors.join('; ')}`);
+        return;
+      }
+      applySpaceRenameToConfig(cfg, space, op.spaceId, op.newId);
+      delete cfg.pendingSpaceOp;
+      saveConfig(cfg);
+      log.info(`Completed interrupted rename ${target}`);
+    } else if (op.type === 'delete') {
+      const errors = await dropSpaceData(op.spaceId);
+      if (errors.length > 0) {
+        log.error(`Could not complete pending delete ${target}; marker kept for next restart. Errors: ${errors.join('; ')}`);
+        return;
+      }
+      cfg.spaces = cfg.spaces.filter(s => s.id !== op.spaceId);
+      delete cfg.pendingSpaceOp;
+      saveConfig(cfg);
+      log.info(`Completed interrupted deletion ${target}`);
+    } else {
+      log.error(`Unknown pendingSpaceOp type '${op.type}' — clearing marker`);
+      delete cfg.pendingSpaceOp;
+      saveConfig(cfg);
+    }
+  } catch (err) {
+    log.error(`reconcilePendingSpaceOp for ${target} failed; marker kept for next restart: ${err}`);
+  }
 }

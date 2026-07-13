@@ -708,6 +708,24 @@ export interface Config {
    *  authorization flow. Populated automatically when a client registers; not
    *  meant to be hand-edited. See mcp/oauth.ts. */
   oauthClients?: OAuthClientRecord[];
+  /** Write-ahead marker for a multi-step space operation (rename/delete) that
+   *  spans config + MongoDB + the filesystem and therefore cannot be atomic.
+   *  Written (and persisted) BEFORE the physical steps and cleared once the op
+   *  commits, so a crash mid-operation is detected on the next boot and completed
+   *  idempotently (see reconcilePendingSpaceOp in spaces.ts). Not hand-edited. */
+  pendingSpaceOp?: PendingSpaceOp;
+}
+
+/** Records an in-flight space rename/delete so it survives a crash. See the
+ *  `pendingSpaceOp` field on {@link Config}. */
+export interface PendingSpaceOp {
+  type: 'rename' | 'delete';
+  /** The space being operated on (its current, pre-commit id). */
+  spaceId: string;
+  /** Target id for a rename. Absent for a delete. */
+  newId?: string;
+  /** ISO timestamp the operation began, for diagnostics. */
+  startedAt: string;
 }
 
 /** A dynamically-registered OAuth client for the MCP OAuth flow.

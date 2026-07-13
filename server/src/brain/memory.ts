@@ -467,9 +467,13 @@ async function recallByType(
     return docs.map(d => mapToRecallResult(d, knowledgeType));
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // Only swallow "index not found" errors (e.g. new space with no data yet).
-    // All other errors are rethrown so they surface to the caller.
-    if (/index.*not.*found|no.*such.*index|search.*index/i.test(msg)) {
+    // Treat a missing OR not-yet-queryable vector index as "no results from this
+    // collection" rather than failing the whole recall. A newly created space builds
+    // its vector indexes asynchronously (createSpace / B1), and Atlas refuses queries
+    // against an index that is still building — e.g. "cannot query vector index … while
+    // in state INITIAL_SYNC". That is a transient empty state, not an error to surface.
+    // All other errors are rethrown so real failures still reach the caller.
+    if (/index.*not.*found|no.*such.*index|search.*index|cannot query.*vector index|while in state (INITIAL_SYNC|PENDING|BUILDING|STARTING)/i.test(msg)) {
       return [];
     }
     throw err;

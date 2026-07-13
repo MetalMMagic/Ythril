@@ -278,9 +278,10 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     }
   }
 
-  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert }, idx) => ({
+  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, indexStatus }, idx) => ({
     id, label, builtIn, folders, maxGiB, flex, description,
     usageGiB: usageGiBByIdx[idx],
+    ...(indexStatus ? { indexStatus } : {}),
     ...(proxyFor ? { proxyFor } : {}),
     ...(meta ? { meta: { ...meta, previousVersions: undefined } } : {}),
     ...(dupeRules ? { dupeRules } : {}),

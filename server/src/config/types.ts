@@ -194,6 +194,13 @@ export interface SpaceConfig {
    *  the scheduled scan. Default false (scan-time only). Applies to all inserts,
    *  including bulk. */
   dupeRulesOnInsert?: boolean;
+  /** Vector-search index lifecycle for a newly created space (B1). Creation now
+   *  returns immediately with 'building' and the (slow, up-to-minutes) Atlas index
+   *  builds finish asynchronously — flipping this to 'ready', or 'failed' if a build
+   *  errored. Absent on spaces created before B1 and on proxy spaces (no indexes);
+   *  treat absent as 'ready'. The space is writable while 'building'; only semantic
+   *  recall waits for READY. */
+  indexStatus?: 'building' | 'ready' | 'failed';
 }
 
 export interface EmbeddingConfig {

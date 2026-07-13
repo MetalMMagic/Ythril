@@ -788,7 +788,13 @@ interface TypeSchemaState {
                 @let bar = storageInfo(s);
                 <tr cdkDrag cdkDragLockAxis="y" [cdkDragDisabled]="sortMode() !== 'custom'">
                   <td><span class="drag-handle" cdkDragHandle [class.drag-handle-disabled]="sortMode() !== 'custom'" [attr.title]="'spaces.table.dragHandleTitle' | transloco">⠿</span></td>
-                  <td style="font-weight:500;">{{ s.label }}</td>
+                  <td style="font-weight:500;">{{ s.label }}
+                    @if (s.indexStatus === 'building') {
+                      <span class="badge badge-blue" style="font-size:10px;margin-left:6px;font-weight:normal;" [attr.title]="'spaces.indexBuildingTitle' | transloco"><span class="spinner" style="width:8px;height:8px;border-width:1.5px;display:inline-block;vertical-align:middle;margin-right:3px;"></span>{{ 'spaces.indexBuilding' | transloco }}</span>
+                    } @else if (s.indexStatus === 'failed') {
+                      <span class="badge badge-red" style="font-size:10px;margin-left:6px;font-weight:normal;" [attr.title]="'spaces.indexFailedTitle' | transloco">{{ 'spaces.indexFailed' | transloco }}</span>
+                    }
+                  </td>
                   <td><span class="badge badge-gray mono">{{ s.id }}</span></td>
                   <td style="min-width:140px;">
                     @if (bar.label !== '—') {
@@ -1051,14 +1057,38 @@ export class SpacesComponent implements OnInit {
         this.form = { label: '', id: '', maxGiB: null, purpose: SpacesComponent.DEFAULT_PURPOSE, validationMode: 'off', strictLinkage: false };
         this.proxyForSelected = [];
         this.proxyForAll = false;
+        // Vector indexes finish building server-side (B1); poll so the "preparing
+        // indexes" badge clears on its own when the space is ready.
+        if (space.indexStatus === 'building') this.pollIndexStatus();
       },
       error: (err) => {
-        const msg = err instanceof TimeoutError
-          ? this.transloco.translate('spaces.error.createTimeout')
-          : (err.error?.error ?? this.transloco.translate('spaces.error.createFailed'));
-        this.createError.set(msg);
+        if (err instanceof TimeoutError) {
+          // The server persists the space even if the response was slow — refetch so
+          // it appears instead of silently vanishing, and show a soft note.
+          this.createError.set(this.transloco.translate('spaces.error.createTimeout'));
+          this.load();
+          this.pollIndexStatus();
+        } else {
+          this.createError.set(err.error?.error ?? this.transloco.translate('spaces.error.createFailed'));
+        }
       },
     });
+  }
+
+  /** Refetch the space list every few seconds while any space is still building its
+   *  vector indexes, so the "preparing indexes" badge clears without a manual reload.
+   *  Bounded so it always stops. */
+  private pollIndexStatus(attempt = 0): void {
+    if (attempt > 40) return; // ~2 min cap
+    setTimeout(() => {
+      this.api.listSpaces().subscribe({
+        next: ({ spaces }) => {
+          this.spaces.set(spaces);
+          if (spaces.some(s => s.indexStatus === 'building')) this.pollIndexStatus(attempt + 1);
+        },
+        error: () => {},
+      });
+    }, 3000);
   }
 
   addDupeRule(): void {

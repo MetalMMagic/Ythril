@@ -18,6 +18,9 @@ export interface Space {
   dupeRules?: DupeActionRule[];
   dupeMergeSurvivor?: 'older' | 'newer';
   dupeRulesOnInsert?: boolean;
+  /** Vector-index build state for a newly created space (B1). 'building' while the
+   *  Atlas indexes finish; absent means ready. Semantic recall waits for READY. */
+  indexStatus?: 'building' | 'ready' | 'failed';
 }
 
 export type ValidationMode = 'off' | 'warn' | 'strict';

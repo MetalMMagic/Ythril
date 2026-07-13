@@ -57,8 +57,15 @@ export function clearReindexFlag(spaceId: string): void {
   _reindexNeeded.delete(spaceId);
 }
 
-/** Create all required MongoDB collections and indexes for a space */
-export async function initSpace(spaceId: string): Promise<void> {
+/** Create all required MongoDB collections and indexes for a space.
+ *  With `waitForVectorReady: false` the (slow) $vectorSearch indexes are created but
+ *  the READY poll is skipped, so the call returns in ~seconds — used by createSpace so
+ *  the API can respond immediately (B1). Defaults to waiting (boot / reload paths). */
+export async function initSpace(
+  spaceId: string,
+  opts: { waitForVectorReady?: boolean } = {},
+): Promise<void> {
+  const waitForVectorReady = opts.waitForVectorReady ?? true;
   const db = getDb();
   const embCfg = getEmbeddingConfig();
 
@@ -110,16 +117,9 @@ export async function initSpace(spaceId: string): Promise<void> {
   await filesColl.createIndex({ spaceId: 1, tags: 1 });
   await filesColl.createIndex({ spaceId: 1, updatedAt: -1 });
 
-  // Vector search indexes (Atlas Local / Atlas)
-  for (const suffix of VECTOR_INDEXED_COLLECTIONS) {
-    await ensureVectorSearchIndex(spaceId, suffix, embCfg.dimensions, embCfg.similarity);
-  }
-
-  // Face recognition vector index (separate path + index on the files collection)
-  const faceCfg = getFaceRecognitionConfig();
-  if (faceCfg.enabled) {
-    await ensureVectorSearchIndex(spaceId, 'files', 128, 'cosine', 'faceEmbedding', 'faceEmbedding');
-  }
+  // Vector search indexes (Atlas Local / Atlas). Created here; READY is polled unless
+  // the caller defers it (createSpace, so the API responds without waiting — B1).
+  await buildSpaceVectorIndexes(spaceId, waitForVectorReady);
 
   // Ensure files directory exists
   await ensureSpaceFilesDir(spaceId);
@@ -145,7 +145,9 @@ export async function initSpace(spaceId: string): Promise<void> {
 
 /**
  * Create or validate the $vectorSearch index for a space collection.
- * Polls for READY status up to 60 seconds.
+ * When `waitForReady` (default), polls for READY status up to 60 seconds; pass false
+ * to create the index and return immediately, letting Atlas finish the build in the
+ * background (B1 — the caller confirms READY asynchronously via pollVectorIndexReady).
  */
 async function ensureVectorSearchIndex(
   spaceId: string,
@@ -154,6 +156,7 @@ async function ensureVectorSearchIndex(
   similarity: string,
   vectorPath: string = 'embedding',
   indexSuffix: string = 'embedding',
+  waitForReady: boolean = true,
 ): Promise<void> {
   const db = getDb();
   const coll = db.collection(`${spaceId}_${collectionSuffix}`);
@@ -212,27 +215,94 @@ async function ensureVectorSearchIndex(
     return;
   }
 
-  // Poll for READY status (up to 60 seconds)
+  // Poll for READY status (unless the caller will confirm asynchronously — B1).
+  if (waitForReady) {
+    const ready = await pollVectorIndexReady(spaceId, collectionSuffix, indexName);
+    if (!ready) log.warn(`Vector search index ${indexName} did not reach READY state within 60 seconds`);
+  }
+}
+
+/** Poll a single vector-search index for READY status, up to ~60 seconds.
+ *  Returns true once READY, false if it never became READY in the window. */
+async function pollVectorIndexReady(
+  spaceId: string,
+  collectionSuffix: VectorIndexedCollection,
+  indexName: string,
+): Promise<boolean> {
+  const coll = getDb().collection(`${spaceId}_${collectionSuffix}`);
   for (let attempt = 0; attempt < 60; attempt++) {
     await new Promise(r => setTimeout(r, 1000));
     try {
-      const current = await coll.listSearchIndexes(indexName).toArray() as typeof indexes;
+      const current = await coll.listSearchIndexes(indexName).toArray() as Array<{ status?: string }>;
       if (current[0]?.status === 'READY') {
         log.debug(`Vector search index ${indexName} is READY`);
-        return;
+        return true;
       }
     } catch { /* ignore intermittent errors during polling */ }
   }
-  log.warn(`Vector search index ${indexName} did not reach READY state within 60 seconds`);
+  return false;
+}
+
+/** Create every $vectorSearch index a space needs (per-type embedding indexes plus
+ *  the optional face index). `waitForReady` is threaded to each — false creates them
+ *  and returns without polling (B1). */
+async function buildSpaceVectorIndexes(spaceId: string, waitForReady: boolean): Promise<void> {
+  const embCfg = getEmbeddingConfig();
+  for (const suffix of VECTOR_INDEXED_COLLECTIONS) {
+    await ensureVectorSearchIndex(spaceId, suffix, embCfg.dimensions, embCfg.similarity, 'embedding', 'embedding', waitForReady);
+  }
+  const faceCfg = getFaceRecognitionConfig();
+  if (faceCfg.enabled) {
+    await ensureVectorSearchIndex(spaceId, 'files', 128, 'cosine', 'faceEmbedding', 'faceEmbedding', waitForReady);
+  }
+}
+
+/** Poll all of a space's vector-search indexes until READY. Returns true only if every
+ *  expected index reached READY within the window. */
+async function waitForSpaceIndexesReady(spaceId: string): Promise<boolean> {
+  let allReady = true;
+  for (const suffix of VECTOR_INDEXED_COLLECTIONS) {
+    if (!(await pollVectorIndexReady(spaceId, suffix, `${spaceId}_${suffix}_embedding`))) allReady = false;
+  }
+  if (getFaceRecognitionConfig().enabled) {
+    if (!(await pollVectorIndexReady(spaceId, 'files', `${spaceId}_files_faceEmbedding`))) allReady = false;
+  }
+  return allReady;
+}
+
+/** Background step kicked off by createSpace: wait for the deferred vector-index
+ *  builds to reach READY, then flip the space's indexStatus to 'ready' (or 'failed').
+ *  A crash before this completes is recovered on the next boot by initAllSpaces. */
+async function finalizeSpaceIndexReady(spaceId: string): Promise<void> {
+  let ok = false;
+  try {
+    ok = await waitForSpaceIndexesReady(spaceId);
+  } catch (err) {
+    log.warn(`Space '${spaceId}': error awaiting vector index readiness: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const cfg = getConfig();
+  const space = cfg.spaces.find(s => s.id === spaceId);
+  if (!space) return; // space was deleted while its indexes built
+  space.indexStatus = ok ? 'ready' : 'failed';
+  saveConfig(cfg);
+  log.info(`Space '${spaceId}': vector indexes ${ok ? 'ready' : 'did not reach READY (marked failed)'}`);
 }
 
 /** Initialise all spaces defined in config */
 export async function initAllSpaces(): Promise<void> {
   const cfg = getConfig();
+  let dirty = false;
   for (const space of cfg.spaces) {
     log.debug(`Initialising space: ${space.id}`);
     await initSpace(space.id);
+    // initSpace waited for READY here, so a space left mid-build by a crash during
+    // createSpace's async finalize (B1) is now ready — clear the stale marker.
+    if (space.indexStatus === 'building' || space.indexStatus === 'failed') {
+      space.indexStatus = 'ready';
+      dirty = true;
+    }
   }
+  if (dirty) saveConfig(cfg);
 }
 
 /** Ensure the built-in 'general' space exists in config and MongoDB */
@@ -274,15 +344,21 @@ export async function createSpace(opts: {
     ...(opts.proxyFor ? { proxyFor: opts.proxyFor } : {}),
     ...(opts.meta ? { meta: opts.meta } : {}),
   };
-  // Initialize MongoDB collections/indexes before committing to config.
-  // This ensures the server always responds (success or error) and prevents
-  // a race where saveConfig succeeds but initSpace hangs, leaving the space
-  // in config with no backing DB — which caused the "spinner forever" bug.
+  // Initialize MongoDB collections/indexes before committing to config so the space
+  // always has a backing DB (prevents the old "in config but no collections" race).
+  // The (slow) $vectorSearch READY poll is DEFERRED so the API responds in seconds
+  // instead of blocking up to minutes past the client timeout (B1): the indexes are
+  // created here, the space is returned as indexStatus 'building', and a background
+  // task flips it to 'ready'/'failed' once the builds finish.
   if (!opts.proxyFor) {
-    await initSpace(opts.id);
+    await initSpace(opts.id, { waitForVectorReady: false });
+    space.indexStatus = 'building';
   }
   cfg.spaces.push(space);
   saveConfig(cfg);
+  if (!opts.proxyFor) {
+    void finalizeSpaceIndexReady(opts.id);
+  }
   return space;
 }
 

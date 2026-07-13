@@ -69,6 +69,21 @@ describe('Space creation is asynchronous (B1)', () => {
     assert.equal(mem.status, 201, `space must accept writes while building: ${JSON.stringify(mem.body)}`);
   });
 
+  it('recall on a just-created space (indexes still building) returns 200, not an error', async () => {
+    // Atlas refuses queries against a vector index still in INITIAL_SYNC; recall must
+    // treat a building index as "no results yet" (200), not surface a 400 — otherwise
+    // recall is broken for the whole window B1 opened.
+    const id = `b1-recall-building-${RUN_ID}`;
+    const r = await post(INSTANCES.a, tokenA, '/api/spaces', { id, label: 'B1 Recall Building' });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    created.push(id);
+
+    const rec = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${id}/recall`,
+      { query: 'anything', topK: 5 });
+    assert.equal(rec.status, 200,
+      `recall on a still-building space must return 200, got ${rec.status}: ${JSON.stringify(rec.body)}`);
+  });
+
   it('converges to indexStatus=ready once the vector indexes finish', async () => {
     const id = `b1-ready-${RUN_ID}`;
     const r = await post(INSTANCES.a, tokenA, '/api/spaces', { id, label: 'B1 Ready Converge' });

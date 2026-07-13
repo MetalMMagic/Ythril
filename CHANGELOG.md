@@ -161,6 +161,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Recall no longer errors while a new space's vector indexes are still building.** Space creation now
+  builds its `$vectorSearch` indexes asynchronously (see the space-creation fix above), and Atlas
+  refuses queries against an index still in `INITIAL_SYNC` — so a recall during that brief window
+  failed the whole request with a `400` ("cannot query vector index … while in state INITIAL_SYNC")
+  instead of returning results from the collections that were ready. Recall now treats a
+  not-yet-queryable index like a missing one — no results from that collection — so it degrades to a
+  partial/empty result during the build window instead of erroring. Covered by
+  `testing/integration/space-creation-async.test.js`.
 - **Creating a space no longer times out or "appears only after a reload".** `createSpace` awaited the
   build of a space's 5+ Atlas `$vectorSearch` indexes, each polling for READY up to 60 s (worst case
   minutes) — so the `201` landed far past the client's 30 s timeout, on a dead subscription, and the

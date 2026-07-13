@@ -1,0 +1,284 @@
+import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { UUID_V4_RE } from './shared.js';
+import { validateDeleteFields } from '../../brain/delete-fields.js';
+import { findEntitiesByName, updateEntityById, upsertEntity } from '../../brain/entities.js';
+import { type PropertyResolution, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
+import { getConfig } from '../../config/loader.js';
+import { isProxySpace, resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
+import { resolveMetaRefs, validateEntity } from '../../spaces/schema-validation.js';
+
+export const upsert_entityTool: ToolHandler = {
+  name: 'upsert_entity',
+  description: 'Create or update a named entity in the knowledge graph. Identity is by `id` — if `id` is supplied the matching record is updated (or a new record with that ID is created); if `id` is omitted a new record is always inserted regardless of name.',
+  mutating: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+          type: 'object',
+          properties: {
+            space: s.requiredSpace,
+            id: { type: 'string', description: 'Optional UUID v4 — if provided, updates the entity with this ID (or inserts with this ID if it does not exist). If omitted, a new entity is always inserted.' },
+            name: { type: 'string', description: 'Entity name.' },
+            type: { type: 'string', description: 'Entity type (person, place, concept, …).' },
+            tags: { type: 'array', items: { type: 'string' } },
+            description: { type: 'string', description: 'Optional prose description or summary of this entity.' },
+            properties: {
+              type: 'object',
+              description: 'Key-value properties (e.g. {"wheels": 4, "color": "red"}). Values must be string, number, or boolean.',
+              additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+            },
+            targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+            checkDuplicates: { type: 'boolean', description: 'On a NEW entity insert (no id / unknown id), run a semantic near-duplicate check first (default true). Flags highly similar existing entities (id + summary + score) so you can merge or update instead of creating a duplicate. Does not fire on updates. Set false to skip.' },
+            dupeThreshold: { type: 'number', description: 'Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.' },
+          },
+          required: ['space', 'name', 'type'],
+        }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace, name } = ctx;
+    const eName = String(a['name'] ?? '');
+    const eType = String(a['type'] ?? '');
+    if (!eName.trim()) throw new Error('name must not be empty');
+    if (!eType.trim()) throw new Error('type must not be empty');
+    const tags = Array.isArray(a['tags']) ? (a['tags'] as string[]) : [];
+    const props = (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties']))
+      ? (a['properties'] as Record<string, string | number | boolean>)
+      : {};
+    const description = typeof a['description'] === 'string' ? a['description'] : undefined;
+    const rawId = typeof a['id'] === 'string' ? a['id'].trim() : undefined;
+    if (rawId !== undefined && !UUID_V4_RE.test(rawId)) throw new Error('id must be a valid UUID v4');
+    const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
+    if (!wt.ok) throw new Error(wt.error);
+
+    // Schema validation (single pass)
+    const entMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
+    const entMeta = entMetaRaw ? resolveMetaRefs(entMetaRaw) : undefined;
+    const entSchemaViolations = entMeta ? validateEntity(entMeta, { name: eName.trim(), type: eType.trim(), properties: props }) : [];
+    if (entSchemaViolations.length > 0 && entMeta?.validationMode === 'strict') {
+      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(entSchemaViolations, null, 2)}` }], isError: true };
+    }
+
+    // Insert-time duplicate check defaults ON for the interactive upsert tool
+    // (only fires on inserts, not updates — see upsertEntity).
+    const entDupeCheck = a['checkDuplicates'] !== false;
+    const entDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
+    const { entity, warning, similar } = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId,
+      { checkDuplicates: entDupeCheck, dupeThreshold: entDupeThreshold });
+    let msg = `Entity '${entity.name}' (${entity.type}) upserted (ID ${entity._id}).${warning ? `\n⚠️ ${warning}` : ''}`;
+    if (similar && similar.length > 0) {
+      msg += `\n⚠️ Possible duplicate — ${similar.length} existing entit${similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. Pass checkDuplicates:false to skip, or provide the existing id to update it instead.`;
+    }
+    // Schema warnings (reuse violations from pre-write check)
+    if (entMeta?.validationMode === 'warn') {
+      for (const v of entSchemaViolations) msg += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
+    }
+    return {
+      content: [{ type: 'text' as const, text: msg }],
+    };
+  },
+};
+
+export const update_entityTool: ToolHandler = {
+  name: 'update_entity',
+  description: 'Update an existing entity by its ID. All fields are optional — only supplied fields are changed.',
+  mutating: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+          type: 'object',
+          properties: {
+            space: s.requiredSpace,
+            id: { type: 'string', description: 'Entity ID to update.' },
+            name: { type: 'string', description: 'New entity name.' },
+            type: { type: 'string', description: 'New entity type.' },
+            description: { type: 'string', description: 'New prose description or summary.' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Tags to merge with existing tags.' },
+            properties: {
+              type: 'object',
+              description: 'Key-value properties to merge with existing (e.g. {"wheels": 4}). Values must be string, number, or boolean.',
+              additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+            },
+            targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+            deleteFields: { type: 'array', items: { type: 'string' }, description: 'Dot-notation paths to delete from the entity (e.g. ["properties.oldKey", "description"]). System fields (id, name, type, spaceId, createdAt, updatedAt) cannot be deleted. Deletions are permanent.' },
+          },
+          required: ['space', 'id'],
+        }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace, name } = ctx;
+    const id = String(a['id'] ?? '').trim();
+    if (!id) throw new Error('id must not be empty');
+    const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
+    if (!wt.ok) throw new Error(wt.error);
+    // Validate deleteFields
+    const dfResult = validateDeleteFields(a['deleteFields']);
+    if (!dfResult.ok) throw new Error(dfResult.error);
+    const dfPaths: string[] | undefined = Array.isArray(a['deleteFields']) && (a['deleteFields'] as string[]).length > 0 ? a['deleteFields'] as string[] : undefined;
+    const updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> } = {};
+    if (typeof a['name'] === 'string') updates.name = a['name'].trim();
+    if (typeof a['type'] === 'string') updates.type = (a['type'] as string).trim();
+    if (typeof a['description'] === 'string') updates.description = a['description'] as string;
+    if (Array.isArray(a['tags'])) updates.tags = a['tags'] as string[];
+    if (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties'])) {
+      updates.properties = a['properties'] as Record<string, string | number | boolean>;
+    }
+    if (Object.keys(updates).length === 0 && !dfPaths) throw new Error('At least one of name, type, description, tags, properties, or deleteFields must be provided');
+    const memberIds = resolveMemberSpaces(wt.target);
+    let updatedEnt = null;
+    for (const mid of memberIds) {
+      updatedEnt = await updateEntityById(mid, id, updates, dfPaths);
+      if (updatedEnt) break;
+    }
+    if (!updatedEnt) throw new Error(`Entity '${id}' not found`);
+    return {
+      content: [{ type: 'text' as const, text: `Entity '${updatedEnt.name}' (${updatedEnt.type}) updated (ID ${updatedEnt._id}, seq ${updatedEnt.seq}).` }],
+    };
+  },
+};
+
+export const merge_entitiesTool: ToolHandler = {
+  name: 'merge_entities',
+  description: 'Merge two entities into one. The survivor keeps its identity; the absorbed entity is deleted after relinking all references. Call with an empty or partial resolution map to get a conflict plan (409), or with a fully resolved map to execute. Numeric properties support fn:<avg|min|max|sum>, boolean properties support fn:<and|or|xor>, strings require "survivor", "absorbed", or "custom" with customValue.',
+  mutating: true,
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+          type: 'object',
+          properties: {
+            space: s.requiredSpace,
+            survivorId: { type: 'string', description: 'UUID of the entity to keep.' },
+            absorbedId: { type: 'string', description: 'UUID of the entity to absorb and delete.' },
+            resolutions: {
+              type: 'array',
+              description: 'Per-property conflict resolutions. Each entry: { key, resolution, customValue? }.',
+              items: {
+                type: 'object',
+                properties: {
+                  key: { type: 'string', description: 'Property key to resolve.' },
+                  resolution: { type: 'string', description: 'One of: "survivor", "absorbed", "custom", or "fn:<name>".' },
+                  customValue: { description: 'Required when resolution is "custom".' },
+                },
+                required: ['key', 'resolution'],
+              },
+            },
+            targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+          },
+          required: ['space', 'survivorId', 'absorbedId'],
+        }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace } = ctx;
+    const survivorId = String(a['survivorId'] ?? '').trim();
+    const absorbedId = String(a['absorbedId'] ?? '').trim();
+    if (!survivorId || !UUID_V4_RE.test(survivorId)) throw new Error('survivorId must be a valid UUID v4');
+    if (!absorbedId || !UUID_V4_RE.test(absorbedId)) throw new Error('absorbedId must be a valid UUID v4');
+    if (survivorId === absorbedId) throw new Error('Cannot merge an entity with itself');
+
+    const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
+    if (!wt.ok) throw new Error(wt.error);
+
+    if (isProxySpace(callSpace)) throw new Error('Entity merge not supported on proxy spaces');
+
+    const resolutions: PropertyResolution[] = [];
+    if (Array.isArray(a['resolutions'])) {
+      for (const r of a['resolutions'] as Array<Record<string, unknown>>) {
+        if (typeof r?.key !== 'string' || typeof r?.resolution !== 'string') {
+          throw new Error('Each resolution must have key (string) and resolution (string)');
+        }
+        resolutions.push({
+          key: r.key,
+          resolution: r.resolution,
+          ...(r.customValue !== undefined ? { customValue: r.customValue } : {}),
+        });
+      }
+    }
+
+    const result = await computeMergePlan(wt.target, survivorId, absorbedId, resolutions);
+    if ('error' in result) throw new Error(result.error);
+
+    const { plan, fullyResolved, survivor, absorbed } = result;
+
+    // Validate resolutions
+    for (const c of plan.propertyConflicts) {
+      if (!c.resolved) continue;
+      const err = validateResolution(c.resolution!, c.type, c.customValue !== undefined);
+      if (err) throw new Error(`Invalid resolution for '${c.key}': ${err}`);
+    }
+
+    if (!fullyResolved) {
+      const lines: string[] = ['Merge plan — unresolved conflicts remain:'];
+      for (const c of plan.propertyConflicts) {
+        const status = c.resolved ? '✓' : '✗';
+        lines.push(`  ${status} ${c.key} (${c.type}): survivor=${JSON.stringify(c.survivorValue)}, absorbed=${JSON.stringify(c.absorbedValue)}${c.suggestedFn ? ` [suggested: fn:${c.suggestedFn}]` : ''}`);
+      }
+      if (plan.absorbedOnlyProperties.length > 0) {
+        lines.push('Absorbed-only properties (auto-added):');
+        for (const p of plan.absorbedOnlyProperties) {
+          lines.push(`  + ${p.key}=${JSON.stringify(p.value)}`);
+        }
+      }
+      if (plan.duplicateEdgeWarnings.length > 0) {
+        lines.push('Duplicate edge warnings:');
+        for (const w of plan.duplicateEdgeWarnings) {
+          lines.push(`  ⚠ (${w.from} → ${w.to} [${w.label}]) survivor edge: ${w.survivorEdgeId}, absorbed edge: ${w.absorbedEdgeId}`);
+        }
+      }
+      return {
+        content: [{ type: 'text' as const, text: lines.join('\n') }],
+        isError: true,
+      };
+    }
+
+    // Execute merge
+    const mergedProperties = applyResolutions(
+      survivor.properties ?? {},
+      absorbed.properties ?? {},
+      plan.propertyConflicts,
+      plan.absorbedOnlyProperties,
+    );
+
+    const mergeResult = await executeMerge(wt.target, survivor, absorbed, mergedProperties);
+    const mergedEntity = mergeResult.entity;
+
+    const lines: string[] = [
+      `Entities merged successfully.`,
+      `Survivor: ${mergedEntity._id} (${mergedEntity.name})`,
+      `Absorbed: ${absorbed._id} (${absorbed.name}) — deleted`,
+    ];
+    if (mergeResult.deletedDuplicateEdgeIds.length > 0) {
+      lines.push(`🗑 ${mergeResult.deletedDuplicateEdgeIds.length} duplicate edge(s) auto-deleted after relinking.`);
+    }
+    if (plan.duplicateEdgeWarnings.length > mergeResult.deletedDuplicateEdgeIds.length) {
+      const remaining = plan.duplicateEdgeWarnings.length - mergeResult.deletedDuplicateEdgeIds.length;
+      lines.push(`⚠ ${remaining} near-duplicate edge(s) remain (differing properties/tags) — resolve via delete_edge.`);
+    }
+    return {
+      content: [{ type: 'text' as const, text: lines.join('\n') }],
+    };
+  },
+};
+
+export const find_entities_by_nameTool: ToolHandler = {
+  name: 'find_entities_by_name',
+  description: 'Find all entities in the space that match the given name (exact, case-sensitive). Returns a list — multiple entities may share a name. Prefer this over querying by name + type to avoid missing entities with unexpected types.',
+  spaceRequired: true,
+  inputSchema: (s: ToolSchemas) => ({
+          type: 'object',
+          properties: {
+            space: s.requiredSpace,
+            name: { type: 'string', description: 'Exact entity name to look up.' },
+          },
+          required: ['space', 'name'],
+        }),
+  async handle(ctx: ToolContext): Promise<ToolResult> {
+    const { args: a, callSpace, name } = ctx;
+    const searchName = String(a['name'] ?? '').trim();
+    if (!searchName) throw new Error('name must not be empty');
+    const memberIds = resolveMemberSpaces(callSpace);
+    const all = (await Promise.all(memberIds.map(mid => findEntitiesByName(mid, searchName)))).flat();
+    if (all.length === 0) {
+      return { content: [{ type: 'text' as const, text: `No entities found with name '${searchName}'.` }] };
+    }
+    return {
+      content: [{
+        type: 'text' as const,
+        text: `Found ${all.length} entit${all.length === 1 ? 'y' : 'ies'} with name '${searchName}':\n` +
+          all.map((e, i) => `[${i + 1}] ${e.name} (${e.type}) — ID ${e._id}`).join('\n'),
+      }],
+    };
+  },
+};

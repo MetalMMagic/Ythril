@@ -161,6 +161,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Importing a schema no longer fails silently.** In **Settings → Spaces → Schema → Import JSON**, a
+  valid-JSON file that contained none of the recognised `entity`/`edge`/`memory`/`chrono` keys — which
+  includes Ythril's **own** per-type export shape `{knowledgeType, typeName, schema}` — fell straight
+  through the import loop and then *cleared the error field*, so it looked like it worked while doing
+  nothing. Import now: (1) also accepts the `{knowledgeType, typeName, schema}` export shape; (2) shows a
+  specific error listing the expected keys and what the file actually contained when nothing is
+  recognised; and (3) confirms success with a note that the imported types are **staged — press Save to
+  apply**. Client-only.
 - **Record properties are now fully embedded, so semantic recall can use them.** The text embedded for
   a record mishandled `properties`: memory and entity embedded only the property **values** and dropped
   the **keys**, while **edge and chrono embedded properties not at all**. So recall couldn't match on a

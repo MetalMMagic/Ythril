@@ -264,19 +264,19 @@ interface TypeSchemaState {
               </div>
               <!-- collection tabs -->
               <div class="sch-coll-tabs">
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='entity'" (click)="schemaCollTab.set('entity');schImportError=''">
+                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='entity'" (click)="schemaCollTab.set('entity');schImportError='';schImportInfo=''">
                   {{ 'spaces.schema.tab.entities' | transloco }}
                   @if (typeCount('entity')) { <span class="sch-cnt-badge">{{ typeCount('entity') }}</span> }
                 </button>
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='edge'" (click)="schemaCollTab.set('edge');schImportError=''">
+                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='edge'" (click)="schemaCollTab.set('edge');schImportError='';schImportInfo=''">
                   {{ 'spaces.schema.tab.edges' | transloco }}
                   @if (typeCount('edge')) { <span class="sch-cnt-badge">{{ typeCount('edge') }}</span> }
                 </button>
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='memory'" (click)="schemaCollTab.set('memory');schImportError=''">
+                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='memory'" (click)="schemaCollTab.set('memory');schImportError='';schImportInfo=''">
                   {{ 'spaces.schema.tab.memories' | transloco }}
                   @if (typeCount('memory')) { <span class="sch-cnt-badge">{{ typeCount('memory') }}</span> }
                 </button>
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='chrono'" (click)="schemaCollTab.set('chrono');schImportError=''">
+                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='chrono'" (click)="schemaCollTab.set('chrono');schImportError='';schImportInfo=''">
                   {{ 'spaces.schema.tab.chrono' | transloco }}
                   @if (typeCount('chrono')) { <span class="sch-cnt-badge">{{ typeCount('chrono') }}</span> }
                 </button>
@@ -546,6 +546,9 @@ interface TypeSchemaState {
                 </div>
                 @if (schImportError) {
                   <div style="font-size:12px;color:var(--error);margin-top:4px;">{{ schImportError }}</div>
+                }
+                @if (schImportInfo) {
+                  <div style="font-size:12px;color:var(--success);margin-top:4px;">{{ schImportInfo }}</div>
                 }
               </ng-template>
             }
@@ -955,6 +958,8 @@ export class SpacesComponent implements OnInit {
   schExpandedType:   { kt: KnowledgeType; name: string } | null = null;
   schExpandedProp:   { kt: KnowledgeType; typeName: string; propKey: string } | null = null;
   schImportError     = '';
+  /** Success/info note after a schema import stages types (cleared on the next action). */
+  schImportInfo      = '';
   /** Pending import conflict: holds the parsed state waiting for user resolution. */
   importConflict = signal<{ kt: KnowledgeType; name: string; state: TypeSchemaState; allowAddAs: boolean } | null>(null);
   importConflictAddAsName = signal('');
@@ -1298,48 +1303,83 @@ export class SpacesComponent implements OnInit {
     this.schImportInputRef?.nativeElement.click();
   }
 
+  /** Map one raw type-schema object (as exported / stored) into editor state. */
+  private mapImportedTypeSchema(ts2: Record<string, unknown>): TypeSchemaState {
+    return {
+      namingPattern:   typeof ts2['namingPattern'] === 'string' ? ts2['namingPattern'] : '',
+      tagSuggestions:  Array.isArray(ts2['tagSuggestions']) ? [...ts2['tagSuggestions'] as string[]] : [],
+      propertySchemas: (() => {
+        const ps = ts2['propertySchemas'];
+        if (!ps || typeof ps !== 'object' || Array.isArray(ps)) return [];
+        // Spread preserves every field, including `$ref` (library references).
+        return Object.entries(ps as Record<string, unknown>).map(([k, v]) => ({
+          key: k,
+          s:   { ...(v as PropertySchema) },
+          _enumInput: '',
+        }));
+      })(),
+      _newPropInput: '',
+      _newTagInput:  '',
+    };
+  }
+
   onImportSchemaFile(event: Event): void {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (!file) return;
+    this.schImportError = '';
+    this.schImportInfo = '';
     const reader = new FileReader();
     reader.onload = () => {
       try {
         const raw = JSON.parse(reader.result as string);
-        // Accept either { typeSchemas: {...} } wrapper or bare typeSchemas object
+        // Accept either { typeSchemas: {...} } wrapper or a bare typeSchemas object.
         const ts: unknown = raw?.typeSchemas ?? raw;
         if (!ts || typeof ts !== 'object' || Array.isArray(ts)) {
           this.schImportError = this.transloco.translate('spaces.schema.import.invalidFile');
           return;
         }
+        const tsObj = ts as Record<string, unknown>;
         const KINDS: KnowledgeType[] = ['entity', 'edge', 'memory', 'chrono'];
         const merged = { ...this.schTypeSchemas };
-        for (const kt of KINDS) {
-          const ktRaw = (ts as Record<string, unknown>)[kt];
-          if (!ktRaw || typeof ktRaw !== 'object' || Array.isArray(ktRaw)) continue;
-          const ktMap = ktRaw as Record<string, unknown>;
-          const existing = { ...(merged[kt] ?? {}) };
-          for (const [typeName, tsRaw] of Object.entries(ktMap)) {
-            const ts2 = tsRaw as Record<string, unknown>;
-            existing[typeName] = {
-              namingPattern:   typeof ts2['namingPattern'] === 'string' ? ts2['namingPattern'] : '',
-              tagSuggestions:  Array.isArray(ts2['tagSuggestions']) ? [...ts2['tagSuggestions'] as string[]] : [],
-              propertySchemas: (() => {
-                const ps = ts2['propertySchemas'];
-                if (!ps || typeof ps !== 'object' || Array.isArray(ps)) return [];
-                return Object.entries(ps as Record<string, unknown>).map(([k, v]) => ({
-                  key: k,
-                  s:   { ...(v as PropertySchema) },
-                  _enumInput: '',
-                }));
-              })(),
-              _newPropInput: '',
-              _newTagInput:  '',
-            };
+        let imported = 0;
+
+        if (typeof tsObj['knowledgeType'] === 'string'
+            && typeof tsObj['typeName'] === 'string'
+            && tsObj['schema'] && typeof tsObj['schema'] === 'object' && !Array.isArray(tsObj['schema'])) {
+          // Shape 1: Ythril's own per-type export — { knowledgeType, typeName, schema }.
+          const kt = tsObj['knowledgeType'] as KnowledgeType;
+          if (KINDS.includes(kt)) {
+            const existing = { ...(merged[kt] ?? {}) };
+            existing[tsObj['typeName'] as string] = this.mapImportedTypeSchema(tsObj['schema'] as Record<string, unknown>);
+            merged[kt] = existing;
+            imported++;
           }
-          merged[kt] = existing;
+        } else {
+          // Shape 2: { entity: { <typeName>: <schema>, ... }, edge: {...}, ... }.
+          for (const kt of KINDS) {
+            const ktRaw = tsObj[kt];
+            if (!ktRaw || typeof ktRaw !== 'object' || Array.isArray(ktRaw)) continue;
+            const existing = { ...(merged[kt] ?? {}) };
+            for (const [typeName, tsRaw] of Object.entries(ktRaw as Record<string, unknown>)) {
+              existing[typeName] = this.mapImportedTypeSchema(tsRaw as Record<string, unknown>);
+              imported++;
+            }
+            merged[kt] = existing;
+          }
         }
+
+        if (imported === 0) {
+          // Valid JSON, but nothing recognisable — tell the user instead of silently
+          // clearing the error and appearing to succeed (B2).
+          const foundKeys = Object.keys(tsObj).slice(0, 12).join(', ') || '(none)';
+          this.schImportError = this.transloco.translate('spaces.schema.import.noTypesFound', { keys: foundKeys });
+          return;
+        }
+
         this.schTypeSchemas = merged;
         this.schImportError = '';
+        // Import only STAGES the schemas — they aren't persisted until Save is pressed.
+        this.schImportInfo = this.transloco.translate('spaces.schema.import.staged', { count: imported });
       } catch {
         this.schImportError = this.transloco.translate('spaces.schema.import.parseFailed');
       } finally {

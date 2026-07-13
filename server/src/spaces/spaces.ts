@@ -4,6 +4,7 @@ import path from 'path';
 import { getDb, col, asDoc } from '../db/mongo.js';
 import { getConfig, saveConfig, getEmbeddingConfig, getDataRoot, getFaceRecognitionConfig } from '../config/loader.js';
 import { ensureSpaceFilesDir, writeFile as writeSpaceFile } from '../files/files.js';
+import { invalidateUsageCache } from '../quota/quota.js';
 import { log } from '../util/log.js';
 import type { Config, SpaceConfig, SpaceMeta, MemoryDoc, KnowledgeType, DupeActionRule, PendingSpaceOp } from '../config/types.js';
 
@@ -345,6 +346,7 @@ async function dropSpaceData(spaceId: string): Promise<string[]> {
     errors.push(msg);
   }
 
+  invalidateUsageCache(); // a dropped space frees disk — honour it in the next quota check
   return errors;
 }
 
@@ -502,6 +504,7 @@ export async function wipeSpace(spaceId: string, types?: WipeCollectionType[]): 
       log.warn(`wipeSpace: could not clear files directory for '${spaceId}': ${err}`);
     }
   }
+  invalidateUsageCache(); // a wipe frees disk + shrinks brain — honour it in the next quota check
 
   const result: WipeResult = {
     memories: memRes.deletedCount ?? 0,

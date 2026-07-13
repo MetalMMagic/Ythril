@@ -39,7 +39,7 @@ import {
   assembleChunks,
   getUploadReceived,
 } from '../files/chunks.js';
-import { checkQuota, QuotaError } from '../quota/quota.js';
+import { checkQuota, QuotaError, invalidateUsageCache } from '../quota/quota.js';
 import { resolveSafePath, assertNoSymlinkEscape, spaceRoot } from '../files/sandbox.js';
 import { col, asFilter, asDoc } from '../db/mongo.js';
 import type { FileTombstoneDoc, FileMetaDoc } from '../config/types.js';
@@ -298,11 +298,18 @@ filesRouter.post(
       }
 
       // Storage quota check on every chunk (mirrors the single-request path —
-      // each chunk is its own POST). The first chunk projects the full declared
-      // total for early rejection; later chunks project their own size, and
-      // staged bytes under .chunks are counted in measured usage.
+      // each chunk is its own POST). The FIRST chunk projects the full declared
+      // total against an EXACT measurement for precise early rejection; later chunks
+      // project their own size and may read a cached usage (P1) — the full-total
+      // check on chunk 0 already validated the whole upload fits, so re-walking the
+      // files tree per chunk is pure overhead.
+      const firstChunk = range.start === 0;
       try {
-        await checkQuota('files', range.start === 0 ? range.total : req.body.length);
+        await checkQuota(
+          'files',
+          firstChunk ? range.total : req.body.length,
+          firstChunk ? {} : { maxAgeMs: 10_000 },
+        );
       } catch (err) {
         if (err instanceof QuotaError) {
           res.status(507).json({ error: err.message, storageExceeded: true });
@@ -620,6 +627,7 @@ filesRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly,
     try {
       await fs.rm(absPath, { recursive: true, force: false });
       log.info(`Deleted directory ${absPath} (space: ${targetSpace})`);
+      invalidateUsageCache(); // freed disk — reflect it in the next quota check
       await deleteFileMetaByPrefix(targetSpace, filePath).catch(err => {
         log.warn(`deleteFileMetaByPrefix error for space ${targetSpace}, path ${filePath}: ${err}`);
       });
@@ -633,6 +641,7 @@ filesRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly,
 
   try {
     await deleteFile(targetSpace, filePath);
+    invalidateUsageCache(); // freed disk — reflect it in the next quota check
     const tombstone: FileTombstoneDoc = {
       _id: uuidv4(),
       spaceId: targetSpace,

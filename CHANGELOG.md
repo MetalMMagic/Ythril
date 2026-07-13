@@ -169,6 +169,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Governance votes and member gossip now converge even when data sync is slow or failing.** In each
+  sync cycle, gossip (member list, signing-key pinning) and vote propagation ran **after** the per-space
+  data and file sync for a peer — and that data loop is not isolated, so any timed-out pull, unreachable
+  member, or slow file transfer threw out of the member's sync and **skipped governance entirely for that
+  cycle**. On a lightly loaded system the data plane is fast so this never showed, but under heavy load a
+  saturated peer could starve time-sensitive vote propagation (rounds have deadlines) for many cycles in
+  a row — the root cause behind the intermittently-timing-out signed-vote relay test. Governance now runs
+  **first**, ahead of the data loop, so it converges promptly and independently of data-plane health. The
+  two calls remain internally best-effort and are additionally wrapped so a later data-plane failure can
+  never mask governance progress. Covered by the existing sync/vote suites.
 - **Importing a schema no longer fails silently.** In **Settings → Spaces → Schema → Import JSON**, a
   valid-JSON file that contained none of the recognised `entity`/`edge`/`memory`/`chrono` keys — which
   includes Ythril's **own** per-type export shape `{knowledgeType, typeName, schema}` — fell straight

@@ -1,6 +1,6 @@
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { AuthService } from '../../core/auth.service';
+import { AuthService, OIDC_SILENT_STATE_PREFIX } from '../../core/auth.service';
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -65,11 +65,14 @@ export class OidcCallbackComponent implements OnInit {
     const errorParam = params.get('error');
     const errorDescription = params.get('error_description');
 
-    // ── Silent refresh: running inside a hidden iframe ──────────────────────
-    // When the parent window performs a silent refresh it creates a hidden
-    // iframe that navigates here.  Post the result back via postMessage so the
-    // parent can exchange the code without any visible navigation.
-    if (window.self !== window.top) {
+    // ── Silent refresh: running inside the hidden refresh iframe ────────────
+    // AuthService.silentRefresh() creates a hidden iframe and marks its request
+    // with OIDC_SILENT_STATE_PREFIX on the `state`. Recognise the silent flow by
+    // that marker — NOT by merely being framed. Inferring it from framing broke
+    // when the whole SPA is embedded in a portal iframe: the interactive redirect
+    // callback is then also framed, but window.parent is the portal's origin, so
+    // this postMessage (targeted at location.origin) is refused and sign-in hangs.
+    if (state?.startsWith(OIDC_SILENT_STATE_PREFIX)) {
       window.parent.postMessage(
         { type: 'oidc_silent_callback', code, state, error: errorParam ?? null },
         location.origin,

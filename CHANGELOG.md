@@ -52,6 +52,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Exported names, signatures, status codes, error bodies, metrics, and the MCP `WWW-Authenticate`
   challenge are all preserved exactly; verified against the auth red-team suites (`auth-bypass`,
   `auth-escalation`, `auth-surface-hardening`, `space-boundary`, `mcp-security`).
+- **Storage-quota checks no longer re-walk the whole file tree on every upload chunk.** `checkQuota`
+  runs on every chunk, and `measureUsage` recursively stat-summed all of `/data/files` **and** ran a
+  `dbStats` command with no cache — so a chunked upload was `O(total_files × chunks)` and got slower as
+  the store grew. A short-TTL cache now backs the measurement: exact callers (single writes, brain
+  writes, metrics, and the **first** chunk — which validates the full declared total) re-measure and
+  refresh it, while later chunks read the cached value, turning a 2,000-chunk upload from ~2,000 tree
+  walks into ~1. Freed space (delete, wipe, space removal) invalidates the cache immediately.
+  Enforcement is unchanged. Covered by `testing/standalone/quota.test.js`.
 
 ### Removed
 
@@ -145,6 +153,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Creating a space no longer times out or "appears only after a reload".** `createSpace` awaited the
+  build of a space's 5+ Atlas `$vectorSearch` indexes, each polling for READY up to 60 s (worst case
+  minutes) — so the `201` landed far past the client's 30 s timeout, on a dead subscription, and the
+  space seemed to vanish until the page was refreshed. Creation now returns in seconds: collections and
+  regular indexes are created synchronously (the space always has a backing DB), the vector-index READY
+  wait is **deferred**, and the space is returned with `indexStatus: 'building'` and finalized to
+  `ready`/`failed` by a background task. The space is writable immediately; only semantic recall waits
+  for READY. The UI shows a "Preparing indexes…" badge until it clears. `GET /api/spaces` surfaces
+  `indexStatus`. Covered by `testing/integration/space-creation-async.test.js`.
+- **Document embedding failures are reported instead of faked as success.** When a text/document
+  upload's chunks failed to embed, an empty `catch` swallowed the error and the job still reported
+  `embeddingStatus: 'complete'` — so a file that was permanently invisible to `$vectorSearch` looked
+  fully indexed, with no failure signal and never engaging the existing retry/backoff machinery. A
+  total failure now routes into that retry path (ending `failed` if it can't recover); a partial
+  failure is recorded as `embeddingStatus: 'partial'` (new state) and is retriable. A **Retry** button
+  and a "Partly embedded" badge were added to the file list, wiring the previously-unused
+  `retry_embedding` endpoint. Covered by `testing/standalone/embedding-failure-reporting.test.js`.
+- **Space rename/delete are now crash-safe.** A rename or delete spans `config.json`, MongoDB
+  collections, and the filesystem and cannot be atomic — a crash mid-operation (after renaming some
+  collections, or after moving files but before the config write) could leave them permanently
+  inconsistent with no recovery. A `pendingSpaceOp` write-ahead marker is now persisted before any
+  physical change and cleared only on commit; the physical steps are idempotent, and an interrupted
+  operation is completed on the next boot (and on `reload-config`). Covered by
+  `testing/standalone/space-op-recovery.test.js`.
 - **The governance vote "No" button now works (and casts a veto).** The Networks UI offered **Yes/No**
   buttons, but the server accepts only `yes`/`veto` (`VoteValue`), so clicking **No** returned `400`
   and there was no way to cast a blocking vote from the UI at all. The negative button now casts a

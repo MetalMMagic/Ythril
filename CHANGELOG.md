@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The embedding model is no longer re-downloaded from HuggingFace on every CI build.** The Dockerfile
+  fetched the ~274 MB `nomic-embed-text-v1.5` model in a layer that sat *after* the app-source copy, so any
+  source change invalidated it — and CI runners start with a cold build cache, so effectively every CI run
+  re-downloaded it anonymously. HuggingFace rate-limits anonymous downloads per-IP, and the shared CI
+  egress IP was intermittently getting `403 Forbidden`, failing the image build before any test ran. The
+  model download now runs as a **cache-stable early layer** (it depends only on the npm package, not our
+  source), CI builds the image **once** with a **persistent GitHub Actions layer cache** (`type=gha`) and
+  every compose instance reuses that tag, and the download has **retry/backoff** to ride through a
+  transient 403 on the rare build that must actually fetch. Build/CI only — no runtime change.
 - **File sync no longer re-hashes every file on every round.** The file manifest read and SHA-256-hashed
   **every file** each time it was built, and it is built twice per sync round (once for the file diff,
   once for the Merkle root) per peer — so a space holding tens of GB re-read and re-hashed all of it on

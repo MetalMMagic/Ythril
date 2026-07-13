@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **File sync no longer re-hashes every file on every round.** The file manifest read and SHA-256-hashed
+  **every file** each time it was built, and it is built twice per sync round (once for the file diff,
+  once for the Merkle root) per peer — so a space holding tens of GB re-read and re-hashed all of it on
+  every cycle, pure CPU and disk for a result that is almost always identical to last time. Hashes are
+  now cached per space (a local `<spaceId>_file_hashes` collection keyed by path with the size+mtime they
+  were hashed at); an unchanged file reuses its stored hash and only new or modified files are re-read. A
+  `force` option re-reads everything for reconciliation. The cache is never synced and is dropped with the
+  space. Covered by the existing file-sync suites (write / overwrite / delete / `since`).
 - **Sync pull applies each page in a bounded number of round trips instead of 2×N.** Pulling docs from
   a peer ran a `findOne` + conditional `replaceOne` **per document** — so a 50k-memory backfill was
   ~100k sequential MongoDB round trips even though the data already arrived in 200-doc pages, and on a

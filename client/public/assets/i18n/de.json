@@ -718,6 +718,8 @@
   "spaces.schema.removePropertyTitle": "Eigenschaft entfernen",
   "spaces.schema.import.invalidFile": "Ung\u00fcltige Schemadatei \u2014 ein typeSchemas-Objekt wird erwartet.",
   "spaces.schema.import.parseFailed": "JSON-Datei konnte nicht geparst werden.",
+  "spaces.schema.import.noTypesFound": "Keine Schematypen in der Datei gefunden. Erwartet wurden die Schl\u00fcssel entity/edge/memory/chrono, ein typeSchemas-Wrapper oder ein {knowledgeType, typeName, schema}-Export \u2014 gefunden: {{keys}}.",
+  "spaces.schema.import.staged": "{{count}} Typschema(s) importiert. Zum Anwenden auf Speichern klicken.",
   "spaces.stats.memories": "Erinnerungen",
   "spaces.stats.entities": "Entit\u00e4ten",
   "spaces.stats.edges": "Kanten",

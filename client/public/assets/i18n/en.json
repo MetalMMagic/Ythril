@@ -713,6 +713,8 @@
   "spaces.schema.removePropertyTitle": "Remove property",
   "spaces.schema.import.invalidFile": "Invalid schema file \u2014 expected a typeSchemas object.",
   "spaces.schema.import.parseFailed": "Could not parse JSON file.",
+  "spaces.schema.import.noTypesFound": "No schema types found in the file. Expected keys entity/edge/memory/chrono, a typeSchemas wrapper, or a {knowledgeType, typeName, schema} export \u2014 got: {{keys}}.",
+  "spaces.schema.import.staged": "Imported {{count}} type schema(s). Press Save to apply them.",
   "spaces.stats.memories": "Memories",
   "spaces.stats.entities": "Entities",
   "spaces.stats.edges": "Edges",

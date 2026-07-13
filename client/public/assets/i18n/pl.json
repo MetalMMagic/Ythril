@@ -714,6 +714,8 @@
   "spaces.schema.removePropertyTitle": "Usu\u0144 w\u0142a\u015bciwo\u015b\u0107",
   "spaces.schema.import.invalidFile": "Nieprawid\u0142owy plik schematu \u2014 oczekiwano obiektu typeSchemas.",
   "spaces.schema.import.parseFailed": "Nie uda\u0142o si\u0119 odczyta\u0107 pliku JSON.",
+  "spaces.schema.import.noTypesFound": "Nie znaleziono typ\u00f3w schematu w pliku. Oczekiwano kluczy entity/edge/memory/chrono, obiektu typeSchemas lub eksportu {knowledgeType, typeName, schema} \u2014 znaleziono: {{keys}}.",
+  "spaces.schema.import.staged": "Zaimportowano {{count}} schemat(\u00f3w) typ\u00f3w. Naci\u015bnij Zapisz, aby je zastosowa\u0107.",
   "spaces.stats.memories": "Wspomnienia",
   "spaces.stats.entities": "Podmioty",
   "spaces.stats.edges": "Kraw\u0119dzie",

@@ -3,6 +3,7 @@ import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
+import { propsEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { getEntityById } from './entities.js';
@@ -50,12 +51,15 @@ function edgeEmbedText(
   tags: string[] = [],
   type?: string,
   description?: string,
+  properties?: Record<string, string | number | boolean>,
 ): string {
   const parts: string[] = [];
   if (tags.length > 0) parts.push(tags.join(' '));
   parts.push(from, label, to);
   if (type?.trim()) parts.push(type.trim());
   if (description?.trim()) parts.push(description.trim());
+  const propsText = propsEmbedText(properties);
+  if (propsText) parts.push(propsText);
   return parts.join(' ');
 }
 
@@ -85,12 +89,15 @@ export async function upsertEdge(
   const effectiveTags = tags !== undefined
     ? Array.from(new Set([...((existing as EdgeDoc | null)?.tags ?? []), ...tags]))
     : ((existing as EdgeDoc | null)?.tags ?? []);
+  const effectiveProps = properties !== undefined
+    ? { ...((existing as EdgeDoc | null)?.properties ?? {}), ...properties }
+    : (existing as EdgeDoc | null)?.properties;
 
   // Embed the edge text (best-effort) — resolve entity names so the vector captures semantics
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
     const [fromName, toName] = await resolveEdgeEntityNames(spaceId, from, to);
-    const embedText = edgeEmbedText(fromName, label, toName, effectiveTags, effectiveType, effectiveDesc);
+    const embedText = edgeEmbedText(fromName, label, toName, effectiveTags, effectiveType, effectiveDesc, effectiveProps);
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* embedding unavailable — edge stored without vector */ }
@@ -269,7 +276,7 @@ export async function updateEdgeById(
   // Re-embed whenever any content field changes — resolve entity names for semantic signal
   try {
     const [fromName, toName] = await resolveEdgeEntityNames(spaceId, existing.from, existing.to);
-    const embedText = edgeEmbedText(fromName, newLabel, toName, newTags, newType, newDesc);
+    const embedText = edgeEmbedText(fromName, newLabel, toName, newTags, newType, newDesc, newProps);
     const embResult = await embed(embedText);
     $set['embedding'] = embResult.vector;
     $set['embeddingModel'] = embResult.model;

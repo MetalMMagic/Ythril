@@ -161,6 +161,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Record properties are now fully embedded, so semantic recall can use them.** The text embedded for
+  a record mishandled `properties`: memory and entity embedded only the property **values** and dropped
+  the **keys**, while **edge and chrono embedded properties not at all**. So recall couldn't match on a
+  property name (a query about "role" had no "role" signal), and values lost their field context —
+  `{birthplace: "Paris"}` and `{currentCity: "Paris"}` embedded identically. All five builders (memory,
+  entity, edge, chrono, and the entity-merge copy) now fold `key value` pairs into the embedded text
+  via a single shared `propsEmbedText` helper, and chrono re-embeds when only its properties change.
+  Existing records keep their old (weaker) vectors until re-embedded — run
+  `POST /api/brain/spaces/:id/reindex` to rebuild them with property keys. Covered by
+  `testing/integration/embed-properties.test.js`.
 - **Recall no longer errors while a new space's vector indexes are still building.** Space creation now
   builds its `$vectorSearch` indexes asynchronously (see the space-creation fix above), and Atlas
   refuses queries against an index still in `INITIAL_SYNC` — so a recall during that brief window

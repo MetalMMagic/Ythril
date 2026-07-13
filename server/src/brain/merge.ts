@@ -12,6 +12,7 @@
 import { col, getMongo, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { embed } from './embedding.js';
+import { propsEmbedText } from './embed-text.js';
 import { getEntityById } from './entities.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
@@ -111,10 +112,8 @@ function entityEmbedText(
   const parts: string[] = [name, type];
   if (tags.length > 0) parts.push(tags.join(' '));
   if (description?.trim()) parts.push(description.trim());
-  const propEntries = Object.entries(properties);
-  if (propEntries.length > 0) {
-    parts.push(propEntries.map(([_k, v]) => String(v)).join(' '));
-  }
+  const propsText = propsEmbedText(properties);
+  if (propsText) parts.push(propsText);
   return parts.join(' ');
 }
 

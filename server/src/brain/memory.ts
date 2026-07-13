@@ -5,6 +5,7 @@ import { parseLimit, parseSkip } from '../util/pagination.js';
 import { NotFoundError } from '../util/errors.js';
 import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
 import { embed } from './embedding.js';
+import { propsEmbedText } from './embed-text.js';
 import { getConfig, getEmbeddingConfig } from '../config/loader.js';
 import { needsReindex } from '../spaces/spaces.js';
 import { applyDeleteFields } from './delete-fields.js';
@@ -89,12 +90,8 @@ function memoryEmbedText(
   if (entityNames.length > 0) parts.push(entityNames.join(' '));
   parts.push(fact);
   if (description?.trim()) parts.push(description.trim());
-  if (properties) {
-    const propEntries = Object.entries(properties);
-    if (propEntries.length > 0) {
-      parts.push(propEntries.map(([_k, v]) => String(v)).join(' '));
-    }
-  }
+  const propsText = propsEmbedText(properties);
+  if (propsText) parts.push(propsText);
   return parts.join(' ');
 }
 

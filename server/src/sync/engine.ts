@@ -16,7 +16,7 @@
  */
 
 import { getConfig, saveConfig, getSecrets, getFaceRecognitionConfig } from '../config/loader.js';
-import { col, asFilter, asDoc } from '../db/mongo.js';
+import { col, asFilter, asDoc, asBulk } from '../db/mongo.js';
 import { applyRemoteTombstone, listTombstones } from '../brain/tombstones.js';
 import { recordSyncResult, type SyncCounts } from './history.js';
 import { buildFileManifest } from '../files/manifest.js';
@@ -819,7 +819,6 @@ async function pullFromPeer(
   type PullResult = { count: number; highSeq: number; maxSeq: number };
   async function pullType<T extends MemoryDoc | EntityDoc | EdgeDoc | ChronoEntry>(
     urlSuffix: string,
-    upsertFn: (sid: string, doc: T) => Promise<void>,
   ): Promise<PullResult> {
     let count = 0, highSeq = sinceSeq, maxSeq = 0;
     let cur: string | null = null;
@@ -834,6 +833,8 @@ async function pullFromPeer(
       const { items, nextCursor } = await resp.json() as {
         items: (T | { _id: string; seq: number; deletedAt: string })[]; nextCursor: string | null;
       };
+      // Collect the applyable docs for this page, then upsert them in one batch (P3).
+      const pageDocs: T[] = [];
       for (const item of items) {
         if ('deletedAt' in item && (item as { deletedAt?: string }).deletedAt) continue;
         const doc = item as T;
@@ -847,22 +848,23 @@ async function pullFromPeer(
           );
           continue;
         }
-        await upsertFn(spaceId, doc);
+        pageDocs.push(doc);
         count++;
         if ((doc as MemoryDoc).seq > maxSeq) maxSeq = (doc as MemoryDoc).seq;
         if ((doc as MemoryDoc).seq > highSeq && (doc as MemoryDoc).author?.instanceId === member.instanceId) {
           highSeq = (doc as MemoryDoc).seq;
         }
       }
+      await batchUpsertBySeq<T>(`${spaceId}_${urlSuffix}`, pageDocs);
       cur = nextCursor; pg++;
     } while (cur && pg < 50);
     return { count, highSeq, maxSeq };
   }
 
-  const memR = await pullType<MemoryDoc>('memories', upsertMemory);
-  const entR = await pullType<EntityDoc>('entities', upsertEntity);
-  const edgeR = await pullType<EdgeDoc>('edges', upsertEdge);
-  const chronoR = await pullType<ChronoEntry>('chrono', upsertChrono);
+  const memR = await pullType<MemoryDoc>('memories');
+  const entR = await pullType<EntityDoc>('entities');
+  const edgeR = await pullType<EdgeDoc>('edges');
+  const chronoR = await pullType<ChronoEntry>('chrono');
 
   pulledMemories = memR.count;
   pulledEntities = entR.count;
@@ -1195,31 +1197,34 @@ async function syncFiles(
 
 // ── Local upsert helpers ────────────────────────────────────────────────────
 
-async function upsertMemory(spaceId: string, incoming: MemoryDoc): Promise<void> {
-  const existing = await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: incoming._id })) as MemoryDoc | null;
-  if (!existing || incoming.seq > existing.seq) {
-    await col<MemoryDoc>(`${spaceId}_memories`).replaceOne(asFilter<MemoryDoc>({ _id: incoming._id }), asDoc<MemoryDoc>(incoming), { upsert: true });
-  }
-}
+/**
+ * Apply a page of pulled docs to a local collection with last-writer-wins-by-seq
+ * semantics, in a bounded number of round trips (P3). Instead of a findOne+replaceOne
+ * per doc (2×N round trips per page), this loads every existing seq for the page in one
+ * `find({_id: {$in}})` and applies the survivors in one `bulkWrite`. The seq comparison
+ * stays strictly greater-than, so conflict resolution is identical to the old per-doc path.
+ */
+async function batchUpsertBySeq<T extends { _id: string; seq: number }>(
+  collName: string,
+  docs: T[],
+): Promise<void> {
+  if (docs.length === 0) return;
+  const collection = col<T>(collName);
+  const ids = docs.map(d => d._id);
+  const existing = await collection
+    .find(asFilter<T>({ _id: { $in: ids } as unknown as string }), { projection: { _id: 1, seq: 1 } })
+    .toArray() as Array<{ _id: string; seq: number }>;
+  const existingSeq = new Map(existing.map(e => [e._id, e.seq]));
 
-async function upsertEntity(spaceId: string, incoming: EntityDoc): Promise<void> {
-  const existing = await col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: incoming._id })) as EntityDoc | null;
-  if (!existing || incoming.seq > existing.seq) {
-    await col<EntityDoc>(`${spaceId}_entities`).replaceOne(asFilter<EntityDoc>({ _id: incoming._id }), asDoc<EntityDoc>(incoming), { upsert: true });
+  const ops = [];
+  for (const doc of docs) {
+    const prev = existingSeq.get(doc._id);
+    if (prev === undefined || doc.seq > prev) {
+      ops.push({ replaceOne: { filter: { _id: doc._id }, replacement: doc, upsert: true } });
+    }
   }
-}
-
-async function upsertEdge(spaceId: string, incoming: EdgeDoc): Promise<void> {
-  const existing = await col<EdgeDoc>(`${spaceId}_edges`).findOne(asFilter<EdgeDoc>({ _id: incoming._id })) as EdgeDoc | null;
-  if (!existing || incoming.seq > existing.seq) {
-    await col<EdgeDoc>(`${spaceId}_edges`).replaceOne(asFilter<EdgeDoc>({ _id: incoming._id }), asDoc<EdgeDoc>(incoming), { upsert: true });
-  }
-}
-
-async function upsertChrono(spaceId: string, incoming: ChronoEntry): Promise<void> {
-  const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: incoming._id })) as ChronoEntry | null;
-  if (!existing || incoming.seq > existing.seq) {
-    await col<ChronoEntry>(`${spaceId}_chrono`).replaceOne(asFilter<ChronoEntry>({ _id: incoming._id }), asDoc<ChronoEntry>(incoming), { upsert: true });
+  if (ops.length > 0) {
+    await collection.bulkWrite(asBulk<T>(ops));
   }
 }
 

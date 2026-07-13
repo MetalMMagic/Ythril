@@ -1877,7 +1877,11 @@ Authorization: Bearer ythril_…
 
 All settings can be managed at `GET/PATCH /api/admin/media-config` or via **Settings → Models** in the web UI. Fields set via environment variables are locked (the UI shows an `env` badge; PATCH returns `403` for those fields).
 
-**Changes take effect without a restart.** The media worker re-reads this config on each poll tick, so switching a provider (or changing a model/endpoint, concurrency, or poll interval) applies to the *next* job — no pod restart required. A job already in flight keeps the provider it started with, so a swap can never happen mid-job. Because an idle worker backs off its poll interval (up to `workerMaxPollIntervalMs`, default 30 s), a change can take up to that long to be picked up when the queue is empty.
+**Changes take effect without a restart.** Provider settings — `visionProvider`/`sttProvider`, the `vision.*`/`stt.*` endpoint, model, and API key, and `fallbackToExternal` — are applied by a dedicated refresh timer that re-reads the config every ~2 s, independent of the job loop. A provider or model switch is therefore picked up within a couple of seconds **even when the queue is empty or a job is stuck on a slow/unreachable provider** — which matters because you often change providers precisely because one is hanging. A job already in flight keeps the provider it started with, so a swap can never happen mid-job.
+
+The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `workerMaxPollIntervalMs`, `stalledJobTimeoutMs` — are re-read on the worker's poll tick instead. When the queue is idle the worker backs off its poll interval (up to `workerMaxPollIntervalMs`, default 30 s), so a change to one of these can take up to that long to be picked up while idle.
+
+`GET /api/admin/media-config` returns a `providerReloadPending` boolean: `true` briefly after a provider change is saved and before the refresh timer has applied it, then `false`. Use it to show an "applying…" state in a UI.
 
 | Field | Env var | Default | Description |
 |---|---|---|---|
@@ -4161,7 +4165,7 @@ X-TOTP-Code: <code>   # required when MFA is enabled
 
 **Requires admin token** (and TOTP code when MFA is enabled). Re-reads `config.json` from disk. Useful after manual edits. Any spaces added to the config since the last load are automatically initialized (MongoDB collections, indexes, vector search index, and file directories created). The built-in `general` space is ensured to exist.
 
-After reloading, the endpoint also runs a **token migration pass**: any tokens that lack a `prefix` field (legacy format) are removed from config and the cleaned config is persisted back to disk. This ensures that stale or manually-created tokens without a proper prefix do not survive a reload.
+Reloading also flushes the token and OIDC caches, so a token revoked by a manual edit — or an updated OIDC block — takes effect immediately rather than after the cache expires. Legacy tokens that lack a `prefix` field are **not** removed: `findMatchingToken()` verifies them via a fallback scan and backfills the prefix on first use, so a reload never invalidates existing tokens.
 
 **Response** `200`:
 

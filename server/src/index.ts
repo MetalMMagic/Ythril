@@ -2,12 +2,11 @@
 import os from 'os';
 import { configExists, loadConfig, loadSecrets, loadSchemaLibrary, getMongoUri } from './config/loader.js';
 import { connectMongo, closeMongo, checkVectorSearchAvailability } from './db/mongo.js';
-import { initAllSpaces } from './spaces/spaces.js';
-import { resetStaleWatermarksIfNeeded } from './util/seq.js';
 import { createApp } from './app.js';
-import { startSyncScheduler, stopSyncScheduler } from './sync/engine.js';
-import { startBackupScheduler, stopBackupScheduler } from './db/backup-scheduler.js';
-import { startDupeScanner, stopDupeScanner } from './brain/dupe-scanner.js';
+import { startConfiguredInstanceServices } from './bootstrap.js';
+import { stopSyncScheduler } from './sync/engine.js';
+import { stopBackupScheduler } from './db/backup-scheduler.js';
+import { stopDupeScanner } from './brain/dupe-scanner.js';
 import { cleanupStaleChunks } from './files/chunks.js';
 import { log } from './util/log.js';
 
@@ -83,33 +82,11 @@ async function main(): Promise<void> {
   }
 
   if (!isFirstRun) {
-    // Ensure the built-in general space exists even if config was manually
-    // edited or a previous test run left it missing.  Must run BEFORE
-    // initAllSpaces() so the general space collections get created.
-    const { ensureGeneralSpace } = await import('./spaces/spaces.js');
-    await ensureGeneralSpace();
-
-    await initAllSpaces();
-
-    // Initialise the audit log collection and indexes
-    const { initAuditCollection } = await import('./audit/audit.js');
-    await initAuditCollection();
-
-    // Initialise webhook delivery indexes and start retry worker
-    const { initWebhookDeliveryIndexes } = await import('./webhooks/store.js');
-    await initWebhookDeliveryIndexes();
-    const { startRetryWorker } = await import('./webhooks/dispatcher.js');
-    startRetryWorker();
-
-    await resetStaleWatermarksIfNeeded();
-    startSyncScheduler();
-    startBackupScheduler();
-    startDupeScanner();
-    cleanupStaleChunks().catch(err => log.error(`Stale chunk cleanup failed: ${err}`));
-
-    // Start media embedding worker unconditionally (enqueueing is skipped when disabled)
-    const { startMediaEmbeddingWorker } = await import('./files/media/worker.js');
-    startMediaEmbeddingWorker();
+    // Initialise spaces/indexes and start all background services. On a FIRST-run
+    // boot this is skipped (config isn't written yet) — the setup route calls the
+    // same function once it writes the config, so a freshly set-up instance is fully
+    // operational without a restart. See startConfiguredInstanceServices().
+    await startConfiguredInstanceServices();
   }
 
   const { warnRateLimitBypass } = await import('./rate-limit/middleware.js');

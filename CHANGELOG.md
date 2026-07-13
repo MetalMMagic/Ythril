@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Media/embedding provider config now hot-reloads — no restart required.** The media worker read its
+  provider config **once at startup**, so a change made through `PATCH /api/admin/media-config` (or
+  **Settings → Models**) was invisible until the pod restarted — the endpoint would happily accept a
+  new vision/STT provider that the worker then ignored. The worker now re-reads the config on each poll
+  tick (an in-memory read, not a network call) and rebuilds its provider bundle **only when the
+  provider config actually changes**, so it doesn't churn clients every tick. The bundle is bound for
+  the duration of a job, so a config change can never swap a provider out mid-job. Worker concurrency
+  and poll intervals hot-reload too. Note an idle worker backs off its poll interval (up to
+  `workerMaxPollIntervalMs`, default 30 s), so a change can take up to that long to apply when the
+  queue is empty. Covered by `testing/integration/media-config.test.js`.
 - **The MongoDB cast helpers are renamed `mFilter`/`mDoc`/`mUpdate`/`mBulk` → `asFilter`/`asDoc`/
   `asUpdate`/`asBulk` (internal, no behavior change).** The `m`-prefixed names read like "sanitise for
   Mongo", but the bodies are pure `as unknown as` casts that bridge our document interfaces to

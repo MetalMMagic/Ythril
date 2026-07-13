@@ -2,9 +2,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import { authRateLimit } from '../rate-limit/middleware.js';
 import { configExists, saveConfig, saveSecrets, loadSecrets, loadConfig } from '../config/loader.js';
-import { ensureGeneralSpace } from '../spaces/spaces.js';
 import { createToken } from '../auth/tokens.js';
 import { ensureInstanceKeypair } from '../util/signing.js';
+import { startConfiguredInstanceServices } from '../bootstrap.js';
 import { log } from '../util/log.js';
 import type { Config, SecretsFile } from '../config/types.js';
 
@@ -115,10 +115,13 @@ setupRouter.post('/', authRateLimit, async (req, res) => {
   loadSecrets();
   ensureInstanceKeypair();
 
+  // Initialise spaces and start all background services now, so this freshly set-up
+  // instance is fully operational without a restart. Tolerant of failure: setup still
+  // succeeds (a restart would start the services) rather than blocking on it.
   try {
-    await ensureGeneralSpace();
+    await startConfiguredInstanceServices();
   } catch (err) {
-    log.warn(`Could not initialise general space during setup: ${err}`);
+    log.warn(`Could not start background services during setup: ${err}`);
   }
 
   // Create the initial admin PAT
@@ -179,10 +182,13 @@ setupRouter.post('/json', authRateLimit, async (req, res) => {
   loadSecrets();
   ensureInstanceKeypair();
 
+  // Initialise spaces and start all background services now, so this freshly set-up
+  // instance is fully operational without a restart. Tolerant of failure: setup still
+  // succeeds (a restart would start the services) rather than blocking on it.
   try {
-    await ensureGeneralSpace();
+    await startConfiguredInstanceServices();
   } catch (err) {
-    log.warn(`Could not initialise general space during JSON setup: ${err}`);
+    log.warn(`Could not start background services during JSON setup: ${err}`);
   }
 
   // Create the initial admin PAT so the Angular app can log in immediately

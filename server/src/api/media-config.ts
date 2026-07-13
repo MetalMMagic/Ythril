@@ -15,6 +15,7 @@ import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl } from '../util/ssrf.js';
 import { log } from '../util/log.js';
+import { providerSignature, getActiveProviderSignature } from '../files/media/worker.js';
 
 export const mediaConfigRouter = Router();
 
@@ -28,7 +29,12 @@ mediaConfigRouter.use(globalRateLimit);
 mediaConfigRouter.get('/', requireAdmin, (req, res) => {
   const cfg = getMediaEmbeddingConfig();
   // Never return API keys in plaintext — mask them
-  const masked = maskSecrets(cfg);
+  const masked = maskSecrets(cfg) as Record<string, unknown>;
+  // Is the media worker still running the PREVIOUS providers? It re-reads this
+  // config on its next poll tick, so a pending change applies on its own — no
+  // restart. Surfacing it lets the UI show "applying…" instead of leaving the
+  // operator guessing whether their provider switch is live yet.
+  masked['providerReloadPending'] = getActiveProviderSignature() !== providerSignature(cfg);
   res.json(masked);
 });
 

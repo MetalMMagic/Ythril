@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **MCP tools are now a registry instead of a 1,200-line `switch` (internal, no behavior change).**
+  Every tool used to be spread across **four** places that had to be kept in sync by hand: a schema in a
+  big `allTools` array, a `case` in one giant `switch`, and membership in three separate `Set`s
+  (`MUTATING_TOOLS` / `ADMIN_TOOLS` / `SPACE_REQUIRED_TOOLS`) — so a tool could easily be added to the
+  dispatch but forgotten in a gate. Each tool is now one entry (`name`, `description`, `inputSchema`,
+  `mutating`/`admin`/`spaceRequired` flags, `handle`) in `server/src/mcp/tools/`, grouped by domain
+  (memory, entity, edge, chrono, file, spaces, sync). `tools/list` **and** every authorization gate are
+  derived from those flags, so there is **one source of truth per tool**, and each handler is
+  independently testable. `mcp/router.ts` drops from **2,241 to 258 lines** and is now just transport +
+  dispatch. Tool names, schemas, `tools/list` ordering, gate behavior and error strings are unchanged.
 - **Sync scheduling now uses real cron (and honours cron expressions that were silently ignored).**
   The per-network `syncSchedule` was parsed by a bespoke `*/N minutes|hours` / `every Nm|Nh` regex on
   top of `setInterval`, so a **standard cron expression — the format the integration guide documents,

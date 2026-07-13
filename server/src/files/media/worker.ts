@@ -82,7 +82,7 @@ export function stopMediaEmbeddingWorker(): void {
  * Signature of the provider-relevant config. Providers are rebuilt only when this
  * changes, so hot-reloading does not churn provider clients on every tick.
  */
-function providerSignature(cfg: ReturnType<typeof getMediaEmbeddingConfig>): string {
+export function providerSignature(cfg: ReturnType<typeof getMediaEmbeddingConfig>): string {
   return JSON.stringify([
     cfg.visionProvider ?? 'local',
     cfg.sttProvider ?? 'local',
@@ -90,6 +90,19 @@ function providerSignature(cfg: ReturnType<typeof getMediaEmbeddingConfig>): str
     cfg.vision ?? {},
     cfg.stt ?? {},
   ]);
+}
+
+/** Signature of the providers the worker is CURRENTLY running. */
+let activeProviderSig = '';
+
+/**
+ * The provider signature the worker is actually running right now. Compare it
+ * against `providerSignature(getMediaEmbeddingConfig())` to tell whether a saved
+ * config change has been picked up yet — the worker applies it on its next poll
+ * tick, so the answer flips on its own, with no restart.
+ */
+export function getActiveProviderSignature(): string {
+  return activeProviderSig;
 }
 
 async function workerLoop(): Promise<void> {
@@ -134,6 +147,7 @@ async function workerLoop(): Promise<void> {
 
   let providerSig = providerSignature(startupCfg);
   let providers = buildProviders(startupCfg);
+  activeProviderSig = providerSig;
 
   while (running) {
     // A6: re-read the config every tick so an admin change via
@@ -150,6 +164,7 @@ async function workerLoop(): Promise<void> {
     if (sig !== providerSig) {
       providers = buildProviders(mediaCfg);
       providerSig = sig;
+      activeProviderSig = sig;
       log.info('Media worker: provider config changed — providers reloaded');
     }
 

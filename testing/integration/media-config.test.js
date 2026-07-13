@@ -26,13 +26,20 @@ const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
 let tokenA;
 let originalModel;
 
-/** Poll the admin server-log ring buffer until `needle` shows up (or we time out). */
-async function waitForLogLine(needle, timeoutMs) {
+/**
+ * Poll until the worker reports it is running the saved provider config.
+ *
+ * We deliberately do NOT scrape the server log ring buffer for this: the media
+ * worker retries failing jobs and floods that buffer, so on a slow runner the
+ * "providers reloaded" line gets pushed out of the window between polls — which
+ * made this test flaky in CI. `providerReloadPending` is a direct read of the
+ * worker's live state, so it cannot be raced or evicted.
+ */
+async function waitForWorkerToApplyConfig(timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const r = await get(INSTANCES.a, tokenA, '/api/about/logs?lines=500');
-    const lines = r.body?.lines ?? [];
-    if (lines.some(l => String(l).includes(needle))) return true;
+    const r = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
+    if (r.status === 200 && r.body?.providerReloadPending === false) return true;
     await new Promise(res => setTimeout(res, 1000));
   }
   return false;
@@ -61,13 +68,14 @@ describe('Media config hot-reload (A6)', () => {
     assert.equal(r.status, 200, `PATCH media-config failed: ${JSON.stringify(r.body)}`);
     assert.equal(r.body?.config?.vision?.model, probeModel, 'PATCH should echo the new model');
 
-    // The worker only notices on its next tick. While idle it backs off to
-    // workerMaxPollIntervalMs (default 30s), so allow generous headroom.
-    const reloaded = await waitForLogLine('providers reloaded', 45_000);
+    // The worker applies the change on its next poll tick. Pickup latency is bounded
+    // by that tick — while idle it backs off (default max 30s), and a tick that is
+    // busy processing jobs takes as long as the batch — so allow real headroom.
+    const applied = await waitForWorkerToApplyConfig(90_000);
     assert.ok(
-      reloaded,
-      'The media worker never reloaded its providers after a media-config change. ' +
-      'Provider config is being cached at worker start again — it now requires a restart to take effect (A6 regression).',
+      applied,
+      'The media worker never picked up the media-config change (providerReloadPending stayed true). ' +
+      'Provider config is being cached at worker start again — it would now need a restart to take effect (A6 regression).',
     );
   });
 });

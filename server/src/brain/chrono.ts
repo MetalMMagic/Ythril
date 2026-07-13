@@ -3,6 +3,7 @@ import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
+import { propsEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
 
@@ -18,10 +19,13 @@ function chronoEmbedText(
   status: string,
   description?: string,
   tags: string[] = [],
+  properties?: Record<string, string | number | boolean>,
 ): string {
   const parts: string[] = [type, status, title];
   if (tags.length > 0) parts.push(tags.join(' '));
   if (description?.trim()) parts.push(description.trim());
+  const propsText = propsEmbedText(properties);
+  if (propsText) parts.push(propsText);
   return parts.join(' ');
 }
 
@@ -47,10 +51,10 @@ export async function createChrono(
   const status = fields.status ?? 'upcoming';
   const tags = fields.tags ?? [];
 
-  // Embed kind + status + title + description + tags (best-effort)
+  // Embed kind + status + title + description + tags + properties (best-effort)
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
-    const embedText = chronoEmbedText(fields.title, fields.type, status, fields.description, tags);
+    const embedText = chronoEmbedText(fields.title, fields.type, status, fields.description, tags, fields.properties);
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* embedding unavailable — chrono stored without vector */ }
@@ -102,15 +106,17 @@ export async function updateChrono(
     updates.description !== undefined ||
     updates.type !== undefined ||
     updates.status !== undefined ||
-    updates.tags !== undefined
+    updates.tags !== undefined ||
+    updates.properties !== undefined
   ) {
     const newTitle = updates.title ?? existing.title;
     const newKind = updates.type ?? existing.type;
     const newStatus = updates.status ?? existing.status;
     const newDesc = updates.description !== undefined ? updates.description : existing.description;
     const newTags = updates.tags ?? existing.tags;
+    const newProps = updates.properties !== undefined ? updates.properties : existing.properties;
     try {
-      const embedText = chronoEmbedText(newTitle, newKind, newStatus, newDesc, newTags);
+      const embedText = chronoEmbedText(newTitle, newKind, newStatus, newDesc, newTags, newProps);
       const embResult = await embed(embedText);
       $set['embedding'] = embResult.vector;
       $set['embeddingModel'] = embResult.model;

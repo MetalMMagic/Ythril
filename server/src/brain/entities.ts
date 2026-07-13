@@ -3,6 +3,7 @@ import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
+import { propsEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './memory.js';
@@ -37,10 +38,8 @@ function entityEmbedText(
   const parts: string[] = [name, type];
   if (tags.length > 0) parts.push(tags.join(' '));
   if (description?.trim()) parts.push(description.trim());
-  const propEntries = Object.entries(properties);
-  if (propEntries.length > 0) {
-    parts.push(propEntries.map(([_k, v]) => String(v)).join(' '));
-  }
+  const propsText = propsEmbedText(properties);
+  if (propsText) parts.push(propsText);
   return parts.join(' ');
 }
 

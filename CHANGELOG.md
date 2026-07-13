@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sync pull applies each page in a bounded number of round trips instead of 2×N.** Pulling docs from
+  a peer ran a `findOne` + conditional `replaceOne` **per document** — so a 50k-memory backfill was
+  ~100k sequential MongoDB round trips even though the data already arrived in 200-doc pages, and on a
+  WAN-separated Mongo that dominated the whole sync. Each page now loads every existing seq in one
+  `find({_id: {$in: […]}})` and applies the survivors in one `bulkWrite`, turning 2×N round trips into
+  ~2 per page. Last-writer-wins-by-seq is unchanged (the comparison stays strictly greater-than), so
+  conflict resolution and watermarks behave identically; covered by the existing sync suites.
+
 - **Media/embedding provider config now hot-reloads — no restart required.** The media worker read its
   provider config **once at startup**, so a change made through `PATCH /api/admin/media-config` (or
   **Settings → Models**) was invisible until the pod restarted — the endpoint would happily accept a

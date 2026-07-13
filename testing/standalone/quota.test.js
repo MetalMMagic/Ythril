@@ -91,6 +91,21 @@ async function writeMemory(t, fact = 'quota test memory') {
   return post(INSTANCES.a, t, '/api/brain/spaces/general/memories', { fact });
 }
 
+/** Upload one chunk of a Content-Range chunked upload (raw bytes). */
+async function uploadChunk(t, filePath, buffer, start, end, total) {
+  const url = `${INSTANCES.a}/api/files/general?path=${encodeURIComponent(filePath)}`;
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/octet-stream',
+      'Content-Range': `bytes ${start}-${end}/${total}`,
+      'Authorization': `Bearer ${t}`,
+    },
+    body: buffer,
+  });
+  return { status: r.status, body: await r.json().catch(() => null) };
+}
+
 // ── Test suite ────────────────────────────────────────────────────────────────
 
 describe('Storage quota enforcement', () => {
@@ -163,6 +178,41 @@ describe('Storage quota enforcement', () => {
     const r = await uploadFile(token, `quota-hard-total-${Date.now()}.txt`);
     assert.equal(r.status, 507, `Expected 507 got ${r.status}: ${JSON.stringify(r.body)}`);
     assert.ok(r.body?.storageExceeded);
+  });
+
+  // ── Chunked upload quota (P1: usage cache must not weaken enforcement) ───────
+
+  it('Chunked upload over the hard limit is rejected 507 on the first chunk', async () => {
+    // The first chunk projects the FULL declared total against an exact measurement,
+    // so a chunked upload that would cross the limit is rejected up front — before
+    // any bytes are staged. hardLimitGiB:0 guarantees the declared total exceeds it.
+    await applyConfig({ ...originalConfig, storage: { files: { softLimitGiB: 0, hardLimitGiB: 0 } } });
+
+    const total = 15 * 1024;
+    const chunk = Buffer.alloc(5 * 1024, 7);
+    const r = await uploadChunk(token, `quota-chunked-reject-${Date.now()}.bin`, chunk, 0, chunk.length - 1, total);
+    assert.equal(r.status, 507, `first chunk should be rejected 507, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(r.body?.storageExceeded, 'storageExceeded flag required in 507 body');
+  });
+
+  it('Chunked upload under the limit completes across chunks (cached later-chunk path)', async () => {
+    // Generous limit so the upload is allowed. Later chunks read a cached usage value
+    // instead of re-walking the files tree (P1) — assert the upload still assembles.
+    await applyConfig({ ...originalConfig, storage: { files: { softLimitGiB: 9999, hardLimitGiB: 9999 } } });
+
+    const filePath = `quota-chunked-ok-${Date.now()}.bin`;
+    const CHUNK = 5 * 1024;
+    const TOTAL = 15 * 1024;
+    const buf = Buffer.alloc(TOTAL);
+    for (let i = 0; i < TOTAL; i++) buf[i] = i % 256;
+
+    const c1 = await uploadChunk(token, filePath, buf.subarray(0, CHUNK), 0, CHUNK - 1, TOTAL);
+    assert.equal(c1.status, 202, `chunk 1: ${JSON.stringify(c1.body)}`);
+    const c2 = await uploadChunk(token, filePath, buf.subarray(CHUNK, 2 * CHUNK), CHUNK, 2 * CHUNK - 1, TOTAL);
+    assert.equal(c2.status, 202, `chunk 2: ${JSON.stringify(c2.body)}`);
+    const c3 = await uploadChunk(token, filePath, buf.subarray(2 * CHUNK, TOTAL), 2 * CHUNK, TOTAL - 1, TOTAL);
+    assert.equal(c3.status, 201, `final chunk should assemble (201): ${JSON.stringify(c3.body)}`);
+    assert.ok(c3.body?.sha256, 'assembled file should report a sha256');
   });
 
   // ── Soft limit: warn but allow ────────────────────────────────────────────

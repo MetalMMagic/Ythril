@@ -85,8 +85,44 @@ export async function dirSizeBytes(dirPath: string): Promise<number> {
   return total;
 }
 
-/** Measure current storage usage synchronously. */
-export async function measureUsage(): Promise<UsageGiB> {
+// ── Usage cache ──────────────────────────────────────────────────────────────
+// measureUsage() recursively stat-sums the whole files tree AND runs a dbStats
+// command — seconds of I/O on a large store. checkQuota() runs on EVERY upload
+// chunk, so an uncached measure made a chunked upload O(total_files × chunks). This
+// short-TTL cache collapses that: exact callers (first chunk, single writes, brain
+// checks, metrics) re-measure and refresh it, so later chunks in the same burst read
+// a fresh value instead of re-walking. See measureUsage(maxAgeMs).
+let usageCache: { usage: UsageGiB; at: number } | null = null;
+// Date.now() is fine here (not inside a workflow script); monotonic enough for a TTL.
+const nowMs = (): number => Date.now();
+
+/** Drop the cached usage so the next measureUsage() re-reads from disk/DB. Call
+ *  after an operation that frees space (delete, wipe) so freed capacity is honoured
+ *  immediately instead of after the TTL. Writes need no explicit call — the next
+ *  exact check re-measures anyway. */
+export function invalidateUsageCache(): void {
+  usageCache = null;
+}
+
+/**
+ * Measure current storage usage.
+ *
+ * @param maxAgeMs  Reuse a cached measurement if it is younger than this many ms.
+ *   Default 0 → always measure fresh (and refresh the cache). Pass a small window
+ *   (e.g. 10_000) on hot, repeated checks like per-chunk quota enforcement where an
+ *   exact re-walk per chunk is the bottleneck and a slightly stale value is safe.
+ */
+export async function measureUsage(maxAgeMs = 0): Promise<UsageGiB> {
+  if (maxAgeMs > 0 && usageCache && nowMs() - usageCache.at < maxAgeMs) {
+    return usageCache.usage;
+  }
+  const usage = await measureUsageUncached();
+  usageCache = { usage, at: nowMs() };
+  return usage;
+}
+
+/** Measure current storage usage synchronously (uncached). */
+async function measureUsageUncached(): Promise<UsageGiB> {
   const dataRoot = getDataRoot();
   const filesDir = path.join(dataRoot, 'files');
   // In-progress chunked uploads stage under .chunks — count them toward the
@@ -126,8 +162,15 @@ export async function measureUsage(): Promise<UsageGiB> {
  *        push usage past the limit is rejected up front, not after landing
  * @throws QuotaError if any hard limit is exceeded — caller should return HTTP 507
  * @returns QuotaCheckResult — caller should surface `warning` to the user if softBreached
+ * @param opts.maxAgeMs  reuse a usage measurement younger than this (default 0 = exact).
+ *   Only pass a window on a hot repeated check (later upload chunks) where the first
+ *   chunk already validated the full declared total exactly.
  */
-export async function checkQuota(area: 'files' | 'brain', incomingBytes = 0): Promise<QuotaCheckResult> {
+export async function checkQuota(
+  area: 'files' | 'brain',
+  incomingBytes = 0,
+  opts: { maxAgeMs?: number } = {},
+): Promise<QuotaCheckResult> {
   const cfg = getConfig();
   const storage = cfg.storage;
 
@@ -136,7 +179,7 @@ export async function checkQuota(area: 'files' | 'brain', incomingBytes = 0): Pr
     return { usage: { files: 0, brain: 0, total: 0 }, softBreached: false };
   }
 
-  const usage = await measureUsage();
+  const usage = await measureUsage(opts.maxAgeMs ?? 0);
   const incomingGiB = incomingBytes / GiB;
   const warnings: string[] = [];
   let softBreached = false;

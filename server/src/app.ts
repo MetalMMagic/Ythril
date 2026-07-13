@@ -34,7 +34,7 @@ import { configExists, reloadConfig, getConfig, saveConfig, loadSecrets } from '
 import { requireAuth, requireAdminMfa, requireAdminMfaScoped } from './auth/middleware.js';
 import { clearTokenCache } from './auth/tokens.js';
 import { clearOidcCache } from './auth/oidc.js';
-import { initSpace, ensureGeneralSpace, wipeSpace, WIPE_COLLECTION_TYPES, type WipeCollectionType } from './spaces/spaces.js';
+import { initSpace, ensureGeneralSpace, wipeSpace, reconcilePendingSpaceOp, WIPE_COLLECTION_TYPES, type WipeCollectionType } from './spaces/spaces.js';
 import { col, asFilter, asDoc } from './db/mongo.js';
 import { log } from './util/log.js';
 import { getReadiness } from './ready.js';
@@ -399,6 +399,11 @@ export function createApp() {
       clearOidcCache();
       // Ensure the built-in general space survives config edits
       await ensureGeneralSpace();
+      // Complete any space rename/delete interrupted by a crash whose marker is
+      // present in the (re)loaded config. Idempotent and a no-op without a marker;
+      // gives operators a restart-free way to finish a stuck op. Runs before the
+      // new-space init below so a rename isn't shadowed by re-creating its old id.
+      await reconcilePendingSpaceOp();
       // Initialise any spaces that were added to the config file
       const newCfg = getConfig();
       for (const space of newCfg.spaces) {

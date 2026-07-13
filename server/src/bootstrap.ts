@@ -26,8 +26,11 @@ export async function startConfiguredInstanceServices(): Promise<void> {
   try {
     // Ensure the built-in general space exists BEFORE initAllSpaces() so its
     // collections get created.
-    const { ensureGeneralSpace, initAllSpaces } = await import('./spaces/spaces.js');
+    const { ensureGeneralSpace, initAllSpaces, reconcilePendingSpaceOp } = await import('./spaces/spaces.js');
     await ensureGeneralSpace();
+    // Complete any space rename/delete interrupted by a crash BEFORE initAllSpaces()
+    // — otherwise init could recreate empty collections under the pre-rename id.
+    await reconcilePendingSpaceOp();
     await initAllSpaces();
 
     const { initAuditCollection } = await import('./audit/audit.js');

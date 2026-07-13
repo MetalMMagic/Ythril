@@ -1,7 +1,7 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { recall } from '../../brain/memory.js';
 import { getMediaEmbeddingConfig } from '../../config/loader.js';
-import { col, mFilter } from '../../db/mongo.js';
+import { col, asFilter } from '../../db/mongo.js';
 import { type InputFormat, isMediaFormat, resolveInputFormat, runConversionPipeline, storeConversionResults } from '../../files/converters/pipeline.js';
 import { ConversionUnavailableError } from '../../files/converters/types.js';
 import { deleteFileMeta, renameFileMeta, upsertFileMeta } from '../../files/file-meta.js';
@@ -94,18 +94,18 @@ export const write_fileTool: ToolHandler = {
       const mediaCfg = getMediaEmbeddingConfig();
       if (!mediaCfg.enabled) {
         await col<import('../../config/types.js').FileMetaDoc>(`${wt.target}_files`).updateOne(
-          mFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
+          asFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
           { $set: { mediaType: resolvedFmt, embeddingStatus: 'disabled' } },
         );
       } else if (sizeBytes > (mediaCfg.maxFileSizeBytes ?? 524_288_000)) {
         await col<import('../../config/types.js').FileMetaDoc>(`${wt.target}_files`).updateOne(
-          mFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
+          asFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
           { $set: { mediaType: resolvedFmt, embeddingStatus: 'skipped' } },
         );
       } else {
         const mimeType = 'application/octet-stream';
         await col<import('../../config/types.js').FileMetaDoc>(`${wt.target}_files`).updateOne(
-          mFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
+          asFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
           { $set: { mediaType: resolvedFmt, embeddingStatus: 'pending' } },
         );
         await enqueueMediaJob(wt.target, filePath, mimeType, resolvedFmt).catch(err => {
@@ -120,7 +120,7 @@ export const write_fileTool: ToolHandler = {
           const metaUpdate: Record<string, unknown> = { chunkCount };
           if (convertedFileId) metaUpdate['convertedFileId'] = convertedFileId;
           await col<import('../../config/types.js').FileMetaDoc>(`${wt.target}_files`).updateOne(
-            mFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
+            asFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
             { $set: metaUpdate },
           );
         }
@@ -128,7 +128,7 @@ export const write_fileTool: ToolHandler = {
         if (err instanceof ConversionUnavailableError) {
           log.warn(`write_file conversion failed for ${wt.target}/${filePath}: ${err.message}`);
           await col<import('../../config/types.js').FileMetaDoc>(`${wt.target}_files`).updateOne(
-            mFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
+            asFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
             { $set: { conversionError: err.message } },
           );
         }

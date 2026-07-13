@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { col, isVectorSearchAvailable, mFilter, mDoc, mUpdate, mBulk } from '../db/mongo.js';
+import { col, isVectorSearchAvailable, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { NotFoundError } from '../util/errors.js';
@@ -102,7 +102,7 @@ function memoryEmbedText(
 async function resolveEntityNames(spaceId: string, entityIds: string[]): Promise<string[]> {
   if (entityIds.length === 0) return [];
   const docs = await col<EntityDoc>(`${spaceId}_entities`)
-    .find(mFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
+    .find(asFilter<EntityDoc>({ _id: { $in: entityIds } }), { projection: { name: 1 } })
     .toArray() as Array<{ name: string }>;
   return docs.map(d => d.name);
 }
@@ -150,7 +150,7 @@ export async function remember(
   if (type !== undefined) doc.type = type;
   if (description !== undefined) doc.description = description;
   if (properties !== undefined) doc.properties = properties;
-  await col<MemoryDoc>(`${spaceId}_memories`).insertOne(mDoc<MemoryDoc>(doc));
+  await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(doc));
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
   if (getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {
@@ -519,7 +519,7 @@ async function enrichFileChunksWithParent(spaceId: string, results: RecallResult
 
   // Batch-fetch parent file docs — projection only (no embedding field)
   const parents = (await col(`${spaceId}_files`)
-    .find(mFilter({ _id: { $in: parentIds } }), { projection: { path: 1, description: 1, tags: 1 } })
+    .find(asFilter({ _id: { $in: parentIds } }), { projection: { path: 1, description: 1, tags: 1 } })
     .toArray()) as unknown as Array<{ _id: string; path?: string; description?: string; tags?: string[] }>;
 
   const parentMap = new Map(parents.map(p => [p._id, p]));
@@ -570,7 +570,7 @@ async function getEntryEmbedding(
   const collSuffix = KNOWLEDGE_COLLECTION[entryType];
   const collName = `${spaceId}_${collSuffix}`;
   const doc = await col(collName).findOne(
-    mFilter({ _id: entryId, spaceId }),
+    asFilter({ _id: entryId, spaceId }),
     { projection: { embedding: 1, _id: 1, spaceId: 1, name: 1, fact: 1, label: 1, title: 1, path: 1, type: 1, description: 1 } },
   ) as Record<string, unknown> | null;
   if (!doc) return null;
@@ -655,7 +655,7 @@ export async function updateMemory(
   updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; type?: string },
   deleteFieldsPaths?: string[],
 ): Promise<MemoryDoc | null> {
-  const existing = await col<MemoryDoc>(`${spaceId}_memories`).findOne(mFilter<MemoryDoc>({ _id: memoryId, spaceId })) as MemoryDoc | null;
+  const existing = await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: memoryId, spaceId })) as MemoryDoc | null;
   if (!existing) return null;
 
   const seq = await nextSeq(spaceId);
@@ -720,8 +720,8 @@ export async function updateMemory(
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   await col<MemoryDoc>(`${spaceId}_memories`).updateOne(
-    mFilter<MemoryDoc>({ _id: memoryId }),
-    mUpdate<MemoryDoc>(updateOp),
+    asFilter<MemoryDoc>({ _id: memoryId }),
+    asUpdate<MemoryDoc>(updateOp),
   );
 
   const result = { ...existing, ...($set as Partial<MemoryDoc>) } as MemoryDoc;
@@ -740,7 +740,7 @@ export async function deleteMemory(
   memoryId: string,
 ): Promise<boolean> {
   const existing = await col<MemoryDoc>(`${spaceId}_memories`)
-    .findOne(mFilter<MemoryDoc>({ _id: memoryId, spaceId }), { projection: { seq: 1 } }) as { seq?: number } | null;
+    .findOne(asFilter<MemoryDoc>({ _id: memoryId, spaceId }), { projection: { seq: 1 } }) as { seq?: number } | null;
   const seq = await nextSeq(spaceId);
   const result = await col<MemoryDoc>(`${spaceId}_memories`).deleteOne({
     _id: memoryId,
@@ -758,8 +758,8 @@ export async function deleteMemory(
     ...(existing?.seq !== undefined ? { originalSeq: existing.seq } : {}),
   };
   await col<TombstoneDoc>(`${spaceId}_tombstones`).replaceOne(
-    mFilter<TombstoneDoc>({ _id: memoryId }),
-    mDoc<TombstoneDoc>(tombstone),
+    asFilter<TombstoneDoc>({ _id: memoryId }),
+    asDoc<TombstoneDoc>(tombstone),
     { upsert: true },
   );
   return true;
@@ -773,7 +773,7 @@ export async function listMemories(
   skip = 0,
 ) {
   return col<MemoryDoc>(`${spaceId}_memories`)
-    .find(mFilter<MemoryDoc>(filter))
+    .find(asFilter<MemoryDoc>(filter))
     .project({ embedding: 0 })
     .sort({ createdAt: -1 })
     .skip(parseSkip(skip))
@@ -817,7 +817,7 @@ export async function bulkDeleteMemories(spaceId: string): Promise<number> {
   const ops = tombstones.map(t => ({
     replaceOne: { filter: { _id: t._id }, replacement: t, upsert: true },
   }));
-  await col<TombstoneDoc>(`${spaceId}_tombstones`).bulkWrite(mBulk<TombstoneDoc>(ops));
+  await col<TombstoneDoc>(`${spaceId}_tombstones`).bulkWrite(asBulk<TombstoneDoc>(ops));
   await coll.deleteMany({});
   return ids.length;
 }

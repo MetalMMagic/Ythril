@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The MongoDB cast helpers are renamed `mFilter`/`mDoc`/`mUpdate`/`mBulk` → `asFilter`/`asDoc`/
+  `asUpdate`/`asBulk` (internal, no behavior change).** The `m`-prefixed names read like "sanitise for
+  Mongo", but the bodies are pure `as unknown as` casts that bridge our document interfaces to
+  MongoDB's strict generics — they validate nothing. That is a dangerous thing to misread on the
+  sync-ingest path, where a lot of peer-supplied data flows through them. The `as*` names say plainly
+  that these are type casts, and the module now states where the real validation lives (the Zod
+  `Incoming*Doc` schemas in `api/sync.ts`).
 - **MCP tools are now a registry instead of a 1,200-line `switch` (internal, no behavior change).**
   Every tool used to be spread across **four** places that had to be kept in sync by hand: a schema in a
   big `allTools` array, a `case` in one giant `switch`, and membership in three separate `Set`s

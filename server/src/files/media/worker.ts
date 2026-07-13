@@ -32,7 +32,7 @@ import { claimNextJob, completeJob, failJob, resetStalledJobs } from './job-queu
 import { embedImage } from './image-embedder.js';
 import { embedAudio } from './audio-embedder.js';
 import { embedVideo } from './video-embedder.js';
-import { col, mFilter } from '../../db/mongo.js';
+import { col, asFilter } from '../../db/mongo.js';
 import type { FileMetaDoc } from '../../config/types.js';
 import { updateFileMeta } from '../file-meta.js';
 import {
@@ -176,7 +176,7 @@ async function processJob(
     // Mark file as "processing" in file meta
     const now = new Date().toISOString();
     await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
-      mFilter<FileMetaDoc>({ _id: fileId }),
+      asFilter<FileMetaDoc>({ _id: fileId }),
       { $set: { embeddingStatus: 'processing', updatedAt: now } },
     ).catch(() => {}); // non-fatal — job tracking is the source of truth
 
@@ -207,7 +207,7 @@ async function processJob(
           const metaUpdate: Record<string, unknown> = { chunkCount };
           if (convertedFileId) metaUpdate['convertedFileId'] = convertedFileId;
           await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
-            mFilter<FileMetaDoc>({ _id: fileId }),
+            asFilter<FileMetaDoc>({ _id: fileId }),
             { $set: metaUpdate },
           ).catch(() => {});
         }
@@ -221,7 +221,7 @@ async function processJob(
     // This also re-embeds the parent file meta so the caption is searchable on the file itself.
     if (derivedDescription) {
       const parentMeta = await col<FileMetaDoc>(`${spaceId}_files`).findOne(
-        mFilter<FileMetaDoc>({ _id: fileId }),
+        asFilter<FileMetaDoc>({ _id: fileId }),
         { projection: { description: 1 } },
       );
       if (!parentMeta?.description?.trim()) {
@@ -242,7 +242,7 @@ async function processJob(
     const permanent = err instanceof ConversionUnavailableError && err.reason === 'too_large';
     if (permanent) {
       await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
-        mFilter<FileMetaDoc>({ _id: fileId }),
+        asFilter<FileMetaDoc>({ _id: fileId }),
         { $set: { embeddingStatus: 'skipped' } },
       ).catch(() => {});
     }

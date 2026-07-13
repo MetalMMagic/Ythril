@@ -16,7 +16,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { col, mDoc, mFilter } from '../../db/mongo.js';
+import { col, asDoc, asFilter } from '../../db/mongo.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
 import type { FileMetaDoc, AuthorRef } from '../../config/types.js';
@@ -267,8 +267,8 @@ export async function embedAudio(
         };
 
         await col<FileMetaDoc>(`${spaceId}_files`).replaceOne(
-          mFilter<FileMetaDoc>({ _id: chunkId }),
-          mDoc<FileMetaDoc>(chunkDoc),
+          asFilter<FileMetaDoc>({ _id: chunkId }),
+          asDoc<FileMetaDoc>(chunkDoc),
           { upsert: true },
         );
 

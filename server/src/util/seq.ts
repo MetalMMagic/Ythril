@@ -1,4 +1,4 @@
-import { col, mFilter, mUpdate } from '../db/mongo.js';
+import { col, asFilter, asUpdate } from '../db/mongo.js';
 import { getConfig, saveConfig } from '../config/loader.js';
 import { log } from './log.js';
 import type { SpaceCounterDoc } from '../config/types.js';
@@ -21,7 +21,7 @@ export async function nextSeq(spaceId: string): Promise<number> {
 /** Read the current counter for a space (0 when it does not exist yet). */
 export async function currentSeq(spaceId: string): Promise<number> {
   const doc = await col<SpaceCounterDoc>('ythril_counters')
-    .findOne(mFilter<SpaceCounterDoc>({ _id: spaceId })) as SpaceCounterDoc | null;
+    .findOne(asFilter<SpaceCounterDoc>({ _id: spaceId })) as SpaceCounterDoc | null;
   return doc?.seq ?? 0;
 }
 
@@ -80,8 +80,8 @@ export async function bumpSeq(spaceId: string, minSeq: number): Promise<void> {
     minSeq = MAX_INGEST_SEQ;
   }
   await col<SpaceCounterDoc>('ythril_counters').updateOne(
-    mFilter<SpaceCounterDoc>({ _id: spaceId }),
-    mUpdate<SpaceCounterDoc>({ $max: { seq: minSeq } }),
+    asFilter<SpaceCounterDoc>({ _id: spaceId }),
+    asUpdate<SpaceCounterDoc>({ $max: { seq: minSeq } }),
     { upsert: true },
   );
 }

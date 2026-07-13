@@ -35,7 +35,7 @@ import { requireAuth, requireAdminMfa, requireAdminMfaScoped } from './auth/midd
 import { clearTokenCache } from './auth/tokens.js';
 import { clearOidcCache } from './auth/oidc.js';
 import { initSpace, ensureGeneralSpace, wipeSpace, WIPE_COLLECTION_TYPES, type WipeCollectionType } from './spaces/spaces.js';
-import { col, mFilter, mDoc } from './db/mongo.js';
+import { col, asFilter, asDoc } from './db/mongo.js';
 import { log } from './util/log.js';
 import { getReadiness } from './ready.js';
 import {
@@ -361,8 +361,8 @@ export function createApp() {
         const docId = String((doc as Record<string, unknown>)['_id']);
         try {
           const r = await col(collName).replaceOne(
-            mFilter({ _id: docId }),
-            mDoc(doc as Record<string, unknown>),
+            asFilter({ _id: docId }),
+            asDoc(doc as Record<string, unknown>),
             { upsert: true },
           );
           if (r.upsertedCount > 0) {

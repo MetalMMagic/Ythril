@@ -23,7 +23,7 @@
  */
 
 import { schedule, validate, type ScheduledTask } from 'node-cron';
-import { col, mFilter, mUpdate, isVectorSearchAvailable } from '../db/mongo.js';
+import { col, asFilter, asUpdate, isVectorSearchAvailable } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { needsReindex } from '../spaces/spaces.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
@@ -63,14 +63,14 @@ function pairKey(type: DupeScanType, aId: string, bId: string): string {
 // ── Cursor state ─────────────────────────────────────────────────────────────
 
 async function getCursor(spaceId: string, type: DupeScanType): Promise<number> {
-  const doc = await col<DupeScanStateDoc>(SCAN_STATE).findOne(mFilter<DupeScanStateDoc>({ _id: `${spaceId}:${type}` }));
+  const doc = await col<DupeScanStateDoc>(SCAN_STATE).findOne(asFilter<DupeScanStateDoc>({ _id: `${spaceId}:${type}` }));
   return doc?.cursorSeq ?? 0;
 }
 
 async function setCursor(spaceId: string, type: DupeScanType, cursorSeq: number): Promise<void> {
   await col<DupeScanStateDoc>(SCAN_STATE).updateOne(
-    mFilter<DupeScanStateDoc>({ _id: `${spaceId}:${type}` }),
-    mUpdate<DupeScanStateDoc>({ $set: { spaceId, type, cursorSeq, updatedAt: new Date().toISOString() } }),
+    asFilter<DupeScanStateDoc>({ _id: `${spaceId}:${type}` }),
+    asUpdate<DupeScanStateDoc>({ $set: { spaceId, type, cursorSeq, updatedAt: new Date().toISOString() } }),
     { upsert: true },
   );
 }
@@ -95,8 +95,8 @@ async function upsertCandidate(
   const _id = pairKey(type, a._id, b._id);
   const now = new Date().toISOString();
   await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).updateOne(
-    mFilter<DupeCandidateDoc>({ _id }),
-    mUpdate<DupeCandidateDoc>({
+    asFilter<DupeCandidateDoc>({ _id }),
+    asUpdate<DupeCandidateDoc>({
       $setOnInsert: { spaceId, type, aId: a._id, bId: b._id, detectedAt: now },
       $set: {
         aSummary: summariseRecall(a), bSummary: summariseRecall(b),
@@ -164,7 +164,7 @@ async function handlePair(spaceId: string, type: DupeScanType, seed: RecallResul
   const bSeq = b.seq ?? 0;
   const _id = pairKey(type, a._id, b._id);
 
-  const existing = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).findOne(mFilter<DupeCandidateDoc>({ _id }));
+  const existing = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).findOne(asFilter<DupeCandidateDoc>({ _id }));
   if (existing) {
     if (existing.status === 'resolved' && existing.resolution === 'merged') return; // absorbed record gone
     if (existing.aSeq === aSeq && existing.bSeq === bSeq) return;                    // unchanged since last seen
@@ -269,7 +269,7 @@ export async function scanSpace(spaceId: string, opts?: { reset?: boolean }): Pr
       const batch = await col<{ _id: string; seq?: number }>(coll)
         // spaceId pins the leading field of the {spaceId,seq} index so this is an
         // indexed range scan + sorted output, not a collection scan + blocking sort.
-        .find(mFilter<{ _id: string; seq?: number }>({ spaceId, seq: { $gt: cursor } }), { projection: { _id: 1, seq: 1 } })
+        .find(asFilter<{ _id: string; seq?: number }>({ spaceId, seq: { $gt: cursor } }), { projection: { _id: 1, seq: 1 } })
         .sort({ seq: 1 })
         .limit(take)
         .toArray();

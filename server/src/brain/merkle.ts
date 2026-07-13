@@ -25,7 +25,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { col, mFilter } from '../db/mongo.js';
+import { col, asFilter } from '../db/mongo.js';
 import { buildFileManifest } from '../files/manifest.js';
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ export async function computeMerkleRoot(spaceId: string): Promise<MerkleResult> 
   for (const collType of ['memories', 'entities', 'edges', 'chrono'] as const) {
     const collName = `${spaceId}_${collType}`;
     const cursor = col<Record<string, unknown>>(collName)
-      .find(mFilter({}))
+      .find(asFilter({}))
       .project({ embedding: 0, embeddingModel: 0, matchedText: 0 });
 
     for await (const doc of cursor) {

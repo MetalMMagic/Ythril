@@ -5,7 +5,7 @@
  * collection.  The worker claims jobs atomically via findOneAndUpdate.
  */
 
-import { col, mFilter, mDoc, mUpdate } from '../../db/mongo.js';
+import { col, asFilter, asDoc, asUpdate } from '../../db/mongo.js';
 import type { MediaJobDoc, FileMetaDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
 
@@ -57,7 +57,7 @@ export async function enqueueMediaJob(
   const now = new Date().toISOString();
 
   const existing = await jobCollection(spaceId).findOne(
-    mFilter<MediaJobDoc>({ _id: id }),
+    asFilter<MediaJobDoc>({ _id: id }),
   ) as MediaJobDoc | null;
 
   if (existing && (existing.status === 'pending' || existing.status === 'processing')) {
@@ -68,8 +68,8 @@ export async function enqueueMediaJob(
   if (existing) {
     // Terminal state (complete/failed) — reset so re-upload triggers re-processing
     await jobCollection(spaceId).updateOne(
-      mFilter<MediaJobDoc>({ _id: id }),
-      mUpdate<MediaJobDoc>({
+      asFilter<MediaJobDoc>({ _id: id }),
+      asUpdate<MediaJobDoc>({
         $set: {
           status: 'pending',
           attempts: 0,
@@ -98,7 +98,7 @@ export async function enqueueMediaJob(
       createdAt: now,
       updatedAt: now,
     };
-    await jobCollection(spaceId).insertOne(mDoc<MediaJobDoc>(doc));
+    await jobCollection(spaceId).insertOne(asDoc<MediaJobDoc>(doc));
   }
 }
 
@@ -121,14 +121,14 @@ export async function enqueueTextJob(
   const now = new Date().toISOString();
 
   const existing = await jobCollection(spaceId).findOne(
-    mFilter<MediaJobDoc>({ _id: id }),
+    asFilter<MediaJobDoc>({ _id: id }),
   ) as MediaJobDoc | null;
 
   if (existing) {
     // Always reset — new upload supersedes any previous or in-progress job
     await jobCollection(spaceId).updateOne(
-      mFilter<MediaJobDoc>({ _id: id }),
-      mUpdate<MediaJobDoc>({
+      asFilter<MediaJobDoc>({ _id: id }),
+      asUpdate<MediaJobDoc>({
         $set: {
           status: 'pending',
           attempts: 0,
@@ -159,13 +159,13 @@ export async function enqueueTextJob(
       createdAt: now,
       updatedAt: now,
     };
-    await jobCollection(spaceId).insertOne(mDoc<MediaJobDoc>(doc));
+    await jobCollection(spaceId).insertOne(asDoc<MediaJobDoc>(doc));
   }
 
   // Reflect pending status on the file meta record immediately so the UI
   // can show an "embedding" indicator without waiting for the worker.
   await fileCollection(spaceId).updateOne(
-    mFilter<FileMetaDoc>({ _id: id }),
+    asFilter<FileMetaDoc>({ _id: id }),
     { $set: { embeddingStatus: 'pending', updatedAt: now } },
   ).catch(err => {
     log.debug(`enqueueTextJob: could not set embeddingStatus on file meta ${spaceId}/${id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -187,7 +187,7 @@ export async function claimNextJob(
   const now = new Date().toISOString();
   for (const spaceId of spaceIds) {
     const claimed = await jobCollection(spaceId).findOneAndUpdate(
-      mFilter<MediaJobDoc>({
+      asFilter<MediaJobDoc>({
         status: 'pending',
         // Either no backoff set, or backoff has elapsed.
         $or: [
@@ -196,7 +196,7 @@ export async function claimNextJob(
           { claimableAfter: { $lte: now } as unknown as string },
         ],
       }),
-      mUpdate<MediaJobDoc>({
+      asUpdate<MediaJobDoc>({
         $set: { status: 'processing', claimedAt: now, claimableAfter: null, updatedAt: now },
         $inc: { attempts: 1 },
       }),
@@ -212,11 +212,11 @@ export async function claimNextJob(
 export async function completeJob(spaceId: string, fileId: string): Promise<void> {
   const now = new Date().toISOString();
   await jobCollection(spaceId).updateOne(
-    mFilter<MediaJobDoc>({ _id: fileId }),
-    mUpdate<MediaJobDoc>({ $set: { status: 'complete', claimedAt: null, updatedAt: now } }),
+    asFilter<MediaJobDoc>({ _id: fileId }),
+    asUpdate<MediaJobDoc>({ $set: { status: 'complete', claimedAt: null, updatedAt: now } }),
   );
   await fileCollection(spaceId).updateOne(
-    mFilter<FileMetaDoc>({ _id: fileId }),
+    asFilter<FileMetaDoc>({ _id: fileId }),
     { $set: { embeddingStatus: 'complete', updatedAt: now } },
   );
 }
@@ -238,8 +238,8 @@ export async function failJob(
     // the claim). Schedule the *next* claim for `attempts + 1` slots out.
     const claimableAfter = nextClaimableAfter(attempts + 1);
     await jobCollection(spaceId).updateOne(
-      mFilter<MediaJobDoc>({ _id: fileId }),
-      mUpdate<MediaJobDoc>({
+      asFilter<MediaJobDoc>({ _id: fileId }),
+      asUpdate<MediaJobDoc>({
         $set: {
           status: 'pending',
           claimedAt: null,
@@ -253,8 +253,8 @@ export async function failJob(
   } else {
     // Exhausted retries
     await jobCollection(spaceId).updateOne(
-      mFilter<MediaJobDoc>({ _id: fileId }),
-      mUpdate<MediaJobDoc>({
+      asFilter<MediaJobDoc>({ _id: fileId }),
+      asUpdate<MediaJobDoc>({
         $set: {
           status: 'failed',
           claimedAt: null,
@@ -264,7 +264,7 @@ export async function failJob(
       }),
     );
     await fileCollection(spaceId).updateOne(
-      mFilter<FileMetaDoc>({ _id: fileId }),
+      asFilter<FileMetaDoc>({ _id: fileId }),
       { $set: { embeddingStatus: 'failed', mediaJobError: safeError || undefined, updatedAt: now } },
     );
     log.warn(`Media job ${spaceId}/${fileId} exhausted retries: ${errorMessage}`);
@@ -295,7 +295,7 @@ export async function resetStalledJobs(
     for (let i = 0; i < maxPerSpace; i++) {
       const now = new Date().toISOString();
       const claimed = await jobCollection(spaceId).findOneAndUpdate(
-        mFilter<MediaJobDoc>({
+        asFilter<MediaJobDoc>({
           status: 'processing',
           claimedAt: { $lt: cutoff } as unknown as string,
         }),
@@ -330,7 +330,7 @@ export async function retryJob(
   fileId: string,
 ): Promise<'ok' | 'not_found' | 'processing'> {
   const existing = await jobCollection(spaceId).findOne(
-    mFilter<MediaJobDoc>({ _id: fileId }),
+    asFilter<MediaJobDoc>({ _id: fileId }),
   ) as MediaJobDoc | null;
 
   if (!existing) return 'not_found';
@@ -338,8 +338,8 @@ export async function retryJob(
 
   const now = new Date().toISOString();
   await jobCollection(spaceId).updateOne(
-    mFilter<MediaJobDoc>({ _id: fileId }),
-    mUpdate<MediaJobDoc>({
+    asFilter<MediaJobDoc>({ _id: fileId }),
+    asUpdate<MediaJobDoc>({
       $set: {
         status: 'pending',
         attempts: 0,
@@ -351,7 +351,7 @@ export async function retryJob(
     }),
   );
   await fileCollection(spaceId).updateOne(
-    mFilter<FileMetaDoc>({ _id: fileId }),
+    asFilter<FileMetaDoc>({ _id: fileId }),
     { $set: { embeddingStatus: 'pending', mediaJobError: undefined, updatedAt: now } },
   );
   return 'ok';

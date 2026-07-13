@@ -3,7 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { requireAuth, requireAdmin, denyReadOnly } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
-import { col, mFilter, mDoc } from '../db/mongo.js';
+import { col, asFilter, asDoc } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { resolveSafePath, spaceRoot } from '../files/sandbox.js';
@@ -29,7 +29,7 @@ async function findConflict(
 ): Promise<{ doc: ConflictDoc; spaceId: string } | null> {
   for (const spaceId of spaces) {
     const doc = await col<ConflictDoc>(`${spaceId}_conflicts`)
-      .findOne(mFilter<ConflictDoc>({ _id: conflictId })) as ConflictDoc | null;
+      .findOne(asFilter<ConflictDoc>({ _id: conflictId })) as ConflictDoc | null;
     if (doc) return { doc, spaceId };
   }
   return null;
@@ -90,7 +90,7 @@ async function executeResolve(
 
   // Remove the conflict record
   await col<ConflictDoc>(`${spaceId}_conflicts`)
-    .deleteOne(mFilter<ConflictDoc>({ _id: doc._id }));
+    .deleteOne(asFilter<ConflictDoc>({ _id: doc._id }));
 }
 
 // GET /api/conflicts — list unresolved conflicts for all accessible spaces
@@ -155,7 +155,7 @@ conflictsRouter.delete('/link-violations/:id', globalRateLimit, requireAuth, asy
     const spaces = accessibleSpaces(req.authToken?.spaces);
     for (const spaceId of spaces) {
       const result = await col<LinkViolationDoc>(`${spaceId}_link_violations`)
-        .deleteOne(mFilter<LinkViolationDoc>({ _id: req.params['id'] }));
+        .deleteOne(asFilter<LinkViolationDoc>({ _id: req.params['id'] }));
       if (result.deletedCount > 0) {
         res.status(204).end();
         return;
@@ -190,7 +190,7 @@ conflictsRouter.get('/:id', globalRateLimit, requireAuth, async (req, res) => {
     const spaces = accessibleSpaces(req.authToken?.spaces);
     for (const spaceId of spaces) {
       const doc = await col<ConflictDoc>(`${spaceId}_conflicts`)
-        .findOne(mFilter<ConflictDoc>({ _id: req.params['id'] })) as ConflictDoc | null;
+        .findOne(asFilter<ConflictDoc>({ _id: req.params['id'] })) as ConflictDoc | null;
       if (doc) {
         res.json({
           id: doc._id,
@@ -217,7 +217,7 @@ conflictsRouter.delete('/:id', globalRateLimit, requireAuth, async (req, res) =>
     const spaces = accessibleSpaces(req.authToken?.spaces);
     for (const spaceId of spaces) {
       const result = await col<ConflictDoc>(`${spaceId}_conflicts`)
-        .deleteOne(mFilter<ConflictDoc>({ _id: req.params['id'] }));
+        .deleteOne(asFilter<ConflictDoc>({ _id: req.params['id'] }));
       if (result.deletedCount > 0) {
         res.status(204).end();
         return;
@@ -304,7 +304,7 @@ conflictsRouter.post('/seed', globalRateLimit, requireAdmin, denyReadOnly, async
       peerInstanceLabel: peerInstanceLabel || 'Unknown',
       detectedAt: detectedAt || new Date().toISOString(),
     };
-    await col<ConflictDoc>(`${spaceId}_conflicts`).insertOne(mDoc<ConflictDoc>(doc));
+    await col<ConflictDoc>(`${spaceId}_conflicts`).insertOne(asDoc<ConflictDoc>(doc));
     res.status(201).json({ id: _id });
   } catch (err) {
     log.error(`POST /api/conflicts/seed: ${err}`);

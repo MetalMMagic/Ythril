@@ -11,7 +11,7 @@
 import { Router } from 'express';
 import { requireAuth, requireAdminMfa, denyReadOnly } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
-import { col, mFilter, mUpdate } from '../db/mongo.js';
+import { col, asFilter, asUpdate } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { scanSpace } from '../brain/dupe-scanner.js';
@@ -25,7 +25,7 @@ async function findCandidate(id: string, tokenSpaces?: string[]): Promise<{ doc:
   const all = cfg.spaces.map(s => s.id);
   const spaces = !tokenSpaces || tokenSpaces.length === 0 ? all : all.filter(s => tokenSpaces.includes(s));
   for (const spaceId of spaces) {
-    const doc = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).findOne(mFilter<DupeCandidateDoc>({ _id: id })) as DupeCandidateDoc | null;
+    const doc = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).findOne(asFilter<DupeCandidateDoc>({ _id: id })) as DupeCandidateDoc | null;
     if (doc) return { doc, spaceId };
   }
   return null;
@@ -73,7 +73,7 @@ duplicatesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
       // spaceId pins the leading index field; status matches the {spaceId,status,score,detectedAt} index.
       const q = status === 'all' ? { spaceId } : { spaceId, status };
       const docs = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`)
-        .find(mFilter<DupeCandidateDoc>(q))
+        .find(asFilter<DupeCandidateDoc>(q))
         .sort({ score: -1, detectedAt: -1 })
         .limit(500)
         .toArray() as DupeCandidateDoc[];
@@ -95,8 +95,8 @@ duplicatesRouter.post('/:id/dismiss', globalRateLimit, requireAuth, denyReadOnly
     const spaces = accessibleSpaces(req.authToken?.spaces);
     for (const spaceId of spaces) {
       const r = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).updateOne(
-        mFilter<DupeCandidateDoc>({ _id: id }),
-        mUpdate<DupeCandidateDoc>({ $set: { status: 'dismissed', updatedAt: new Date().toISOString() } }),
+        asFilter<DupeCandidateDoc>({ _id: id }),
+        asUpdate<DupeCandidateDoc>({ $set: { status: 'dismissed', updatedAt: new Date().toISOString() } }),
       );
       if (r.matchedCount > 0) { res.json({ status: 'dismissed' }); return; }
     }
@@ -133,8 +133,8 @@ duplicatesRouter.post('/:id/merge', globalRateLimit, requireAuth, denyReadOnly, 
     emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...result.entity, embedding: undefined } });
 
     await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).updateOne(
-      mFilter<DupeCandidateDoc>({ _id: doc._id }),
-      mUpdate<DupeCandidateDoc>({ $set: { status: 'resolved', resolution: 'merged', updatedAt: new Date().toISOString() } }),
+      asFilter<DupeCandidateDoc>({ _id: doc._id }),
+      asUpdate<DupeCandidateDoc>({ $set: { status: 'resolved', resolution: 'merged', updatedAt: new Date().toISOString() } }),
     );
     res.json({ status: 'merged', survivorId: result.entity._id });
   } catch (err) {

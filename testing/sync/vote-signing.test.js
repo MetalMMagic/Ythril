@@ -124,23 +124,25 @@ describe('Signed governance votes and safe relay', () => {
     const aCast = roundOnA.votes.find(v => v.instanceId === instanceIdA);
     assert.ok(aCast?.sig, 'A\'s vote cast must be signed');
 
-    // Propagate to B and confirm the signature survived unchanged.
-    await triggerSync(INSTANCES.b, tokenB, networkId);
+    // Propagate to B and confirm the signature survived unchanged. Re-trigger the
+    // sync on each poll so a slow gossip cycle on a loaded CI runner still converges
+    // (a single up-front trigger raced the injection and made this test flaky).
     await waitFor(async () => {
+      await triggerSync(INSTANCES.b, tokenB, networkId).catch(() => {});
       const rb = readConfig('ythril-b').networks.find(n => n.id === networkId)?.pendingRounds.find(r => r.roundId === roundId);
       const bCast = rb?.votes?.find(v => v.instanceId === instanceIdA);
       return bCast?.sig === aCast.sig;
-    }, 10_000);
+    }, 30_000, 2_000);
   });
 
   it('peers pin each other\'s signing public keys via gossip', async () => {
-    await triggerSync(INSTANCES.a, tokenA, networkId);
-    await triggerSync(INSTANCES.b, tokenB, networkId);
     await waitFor(async () => {
+      await triggerSync(INSTANCES.a, tokenA, networkId).catch(() => {});
+      await triggerSync(INSTANCES.b, tokenB, networkId).catch(() => {});
       const aSeesB = readConfig('ythril-a').networks.find(n => n.id === networkId)?.members.find(m => m.instanceId === instanceIdB)?.signingPublicKey;
       const bSeesA = readConfig('ythril-b').networks.find(n => n.id === networkId)?.members.find(m => m.instanceId === instanceIdA)?.signingPublicKey;
       return !!aSeesB && !!bSeesA;
-    }, 12_000);
+    }, 30_000, 2_000);
   });
 
   it('a VALID signed cast from a third instance is accepted when relayed by B; a tampered one is rejected', async () => {
@@ -167,15 +169,14 @@ describe('Signed governance votes and safe relay', () => {
     patch('ythril-b', networkId, `n.pendingRounds=n.pendingRounds||[];n.pendingRounds.push(${JSON.stringify(mkRound(validRid, 'yes', validSig))});n.pendingRounds.push(${JSON.stringify(mkRound(tamperRid, 'veto', tamperSig))});`);
     await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
 
-    // A pulls from B (relay).
-    await triggerSync(INSTANCES.a, tokenA, networkId);
-    await triggerSync(INSTANCES.a, tokenA, networkId);
-
+    // A pulls from B (relay). Re-trigger each poll so the relay converges even when
+    // a loaded CI runner's gossip cycle lags well past a single up-front trigger.
     await waitFor(async () => {
+      await triggerSync(INSTANCES.a, tokenA, networkId).catch(() => {});
       const nets = readConfig('ythril-a').networks.find(n => n.id === networkId);
       const ok = nets?.pendingRounds?.find(r => r.roundId === validRid);
       return ok?.votes?.some(v => v.instanceId === instanceIdC && v.vote === 'yes');
-    }, 12_000);
+    }, 30_000, 2_000);
 
     const netA = readConfig('ythril-a').networks.find(n => n.id === networkId);
     const validRound = netA.pendingRounds.find(r => r.roundId === validRid);

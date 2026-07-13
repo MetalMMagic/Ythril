@@ -312,6 +312,8 @@
   "brain.fileMeta.openInFilesTabTitle": "Otw\u00f3rz w karcie Pliki",
   "brain.fileMeta.embedding": "Osadzanie\u2026",
   "brain.fileMeta.embeddingFailed": "Osadzanie nie powiod\u0142o si\u0119",
+  "brain.fileMeta.embeddingPartial": "Cz\u0119\u015bciowo osadzone",
+  "brain.fileMeta.retryEmbedding": "Pon\u00f3w",
   "brain.fileMeta.picker.searchMemories": "Szukaj wspomnie\u0144\u2026",
   "brain.fileMeta.picker.searchChrono": "Szukaj chrono\u2026",
   "graph.toolbar.depth": "G\u0142\u0119boko\u015b\u0107",

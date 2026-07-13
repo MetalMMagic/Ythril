@@ -922,12 +922,14 @@ export interface FileMetaDoc {
   /** Async embedding lifecycle for binary media:
    *   "pending"    → enqueued, not yet processed
    *   "processing" → claimed by a worker
-   *   "complete"   → all chunk records produced
+   *   "complete"   → all chunk records produced AND embedded
+   *   "partial"    → chunks produced but some failed to embed; searchable but incomplete.
+   *                  Re-runnable via POST /api/files/:spaceId/retry_embedding.
    *   "failed"     → exhausted retries; mediaJobError carries the reason
    *   "skipped"    → file too large (> maxFileSizeBytes) — original kept, no embedding
    *   "disabled"   → mediaEmbedding.enabled=false at upload time
    */
-  embeddingStatus?: 'pending' | 'processing' | 'complete' | 'failed' | 'skipped' | 'disabled';
+  embeddingStatus?: 'pending' | 'processing' | 'complete' | 'partial' | 'failed' | 'skipped' | 'disabled';
   /** For audio/video chunk records: start offset within the parent media file. */
   chunkOffsetMs?: number;
   /** For audio/video chunk records: duration covered by this chunk. */

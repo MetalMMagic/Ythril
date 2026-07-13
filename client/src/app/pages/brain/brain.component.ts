@@ -1463,6 +1463,11 @@ interface SpaceView {
                               <span class="badge badge-blue" style="font-size:10px;" title="Embedding in progress…"><span class="spinner" style="width:8px;height:8px;border-width:1.5px;display:inline-block;vertical-align:middle;margin-right:3px;"></span>{{ 'brain.fileMeta.embedding' | transloco }}</span>
                             } @else if (fm.embeddingStatus === 'failed') {
                               <span class="badge badge-red" style="font-size:10px;" [title]="fm.mediaJobError || 'Embedding failed'">{{ 'brain.fileMeta.embeddingFailed' | transloco }}</span>
+                            } @else if (fm.embeddingStatus === 'partial') {
+                              <span class="badge badge-yellow" style="font-size:10px;" title="Some chunks could not be embedded — retry to complete">{{ 'brain.fileMeta.embeddingPartial' | transloco }}</span>
+                            }
+                            @if (fm.embeddingStatus === 'failed' || fm.embeddingStatus === 'partial') {
+                              <button class="link-btn" style="font-size:10px;" [disabled]="retryingEmbedding().has(fm.path)" (click)="retryFileEmbedding(fm)">{{ 'brain.fileMeta.retryEmbedding' | transloco }}</button>
                             }
                           </div>
                         </td>
@@ -1983,6 +1988,8 @@ export class BrainComponent implements OnInit {
   fileMetas = signal<FileMeta[]>([]);
   fileMetaSkip = signal(0);
   fileMetaSearch = signal('');
+  /** Paths whose embedding retry is currently in flight (disables the Retry button). */
+  retryingEmbedding = signal<Set<string>>(new Set());
   fileManagerNavPath = signal('');
 
   editFileMeta = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };
@@ -2484,6 +2491,19 @@ export class BrainComponent implements OnInit {
         });
         break;
     }
+  }
+
+  /** Re-queue embedding for a file whose embedding failed or is only partial,
+   *  then refresh the file-meta list so the badge updates. */
+  retryFileEmbedding(fm: FileMeta): void {
+    const spaceId = this.activeSpaceId();
+    if (!spaceId || this.retryingEmbedding().has(fm.path)) return;
+    this.retryingEmbedding.update(s => new Set(s).add(fm.path));
+    const done = () => {
+      this.retryingEmbedding.update(s => { const n = new Set(s); n.delete(fm.path); return n; });
+      this.loadCurrentTab(spaceId);
+    };
+    this.api.retryEmbedding(spaceId, fm.path).subscribe({ next: done, error: done });
   }
 
   applyFilter(type: 'tag' | 'entity', value: string): void {

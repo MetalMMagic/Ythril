@@ -273,6 +273,10 @@ async function processJob(
 
     // Run the appropriate embedder
     let derivedDescription: string | undefined;
+    // Final file embeddingStatus for a job that completes without retrying. Text
+    // conversion may embed some chunks and fail others; a partial result is recorded
+    // as 'partial' (not 'complete') so it stays visible and retry-eligible (B3).
+    let fileEmbeddingStatus: 'complete' | 'partial' = 'complete';
     switch (mediaType) {
       case 'image':
         derivedDescription = await embedImage(spaceId, fileId, fileBytes, mimeType, providers.vision);
@@ -292,7 +296,7 @@ async function processJob(
           fileBytes, filePath, resolvedFmt,
         );
         if (chunks.length > 0 || extractedImages.length > 0) {
-          const { chunkCount, convertedFileId } = await storeConversionResults(
+          const { chunkCount, convertedFileId, embedFailures } = await storeConversionResults(
             spaceId, filePath, chunks, convertedMarkdown, extractedImages,
           );
           const metaUpdate: Record<string, unknown> = { chunkCount };
@@ -301,6 +305,18 @@ async function processJob(
             asFilter<FileMetaDoc>({ _id: fileId }),
             { $set: metaUpdate },
           ).catch(() => {});
+
+          // Embedding outcome drives the job result (B3): a total failure throws so
+          // the existing failJob → backoff → retry path handles a transient embedder
+          // outage; a partial failure is recorded but not retried (the embedded chunks
+          // are useful and a retry re-embeds everything).
+          if (chunkCount > 0 && embedFailures === chunkCount) {
+            throw new Error(`All ${chunkCount} chunk(s) failed to embed`);
+          }
+          if (embedFailures > 0) {
+            fileEmbeddingStatus = 'partial';
+            log.warn(`Media worker: ${spaceId}/${fileId} embedded with ${embedFailures}/${chunkCount} chunk failure(s) — marked partial`);
+          }
         }
         break;
       }
@@ -322,9 +338,9 @@ async function processJob(
       }
     }
 
-    await completeJob(spaceId, fileId);
+    await completeJob(spaceId, fileId, fileEmbeddingStatus);
     mediaJobsCompletedTotal.labels({ space: spaceId, media_type: mediaType }).inc();
-    log.info(`Media worker: completed ${mediaType} job ${spaceId}/${fileId}`);
+    log.info(`Media worker: completed ${mediaType} job ${spaceId}/${fileId} (${fileEmbeddingStatus})`);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(`Media worker: job ${spaceId}/${fileId} failed: ${message}`);

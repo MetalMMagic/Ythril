@@ -26,6 +26,7 @@ services:
   # ──────────────────────────────────────────
   ythril-a:
     build: ..
+    image: ythril-test:latest  # fixed tag so CI pre-builds once (shared layer cache) and every instance reuses it
     container_name: ythril-a
     ports:
       - "3200:3200"
@@ -77,6 +78,7 @@ services:
   # ──────────────────────────────────────────
   ythril-b:
     build: ..
+    image: ythril-test:latest  # fixed tag so CI pre-builds once (shared layer cache) and every instance reuses it
     container_name: ythril-b
     ports:
       - "3201:3200"
@@ -124,6 +126,7 @@ services:
   # ──────────────────────────────────────────
   ythril-c:
     build: ..
+    image: ythril-test:latest  # fixed tag so CI pre-builds once (shared layer cache) and every instance reuses it
     container_name: ythril-c
     ports:
       - "3202:3200"
@@ -170,6 +173,7 @@ services:
   # ──────────────────────────────────────────
   ythril-d:
     build: ..
+    image: ythril-test:latest  # fixed tag so CI pre-builds once (shared layer cache) and every instance reuses it
     container_name: ythril-d
     ports:
       - "3203:3200"

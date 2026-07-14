@@ -34,9 +34,26 @@ jobs:
         run: npm run build:server
         # Required by testing/standalone/oidc.test.js which imports server/dist/
 
-      - name: Build test stack
-        run: docker compose -p ythril-test -f testing/docker-compose.test.yml build
-        # Single build (all services in one pass) is fine on CI — no VS Code to crash.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Expose GitHub Actions cache to Buildx
+        # Sets ACTIONS_CACHE_URL / ACTIONS_RUNTIME_TOKEN so `--cache-to type=gha` works.
+        uses: crazy-max/ghaction-github-runtime@v3
+
+      - name: Build test image (shared GHA layer cache)
+        # Build the image ONCE with a persistent GitHub Actions layer cache and tag it
+        # ythril-test:latest — every compose service reuses that tag (see the compose
+        # file), so the stack is not rebuilt per instance. The cache means the embedding
+        # model (a cache-stable early layer in the Dockerfile) is restored across runs
+        # instead of re-downloaded from HuggingFace, whose anonymous per-IP rate limit
+        # was intermittently 403-ing shared CI runners at build time.
+        run: |
+          docker buildx build \
+            --cache-from type=gha,scope=ythril-test \
+            --cache-to type=gha,mode=max,scope=ythril-test \
+            --load -t ythril-test:latest \
+            -f Dockerfile .
 
       - name: Start test containers
         run: |

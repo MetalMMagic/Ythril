@@ -122,12 +122,67 @@ describe('Space wipe — full wipe', () => {
     assert.ok(r.body?.error?.toLowerCase().includes('types'), `Error should mention 'types': ${r.body?.error}`);
   });
 
-  it('wipe requires admin token — non-admin token is rejected', async () => {
-    // Create a non-admin token by checking that a space-scoped or read-only token is rejected.
-    // We use a random invalid token to simulate the 401 case.
-    const fakeToken = 'ythril_notavalidtoken';
-    const r = await post(INSTANCES.a, fakeToken, '/api/admin/spaces/general/wipe', {});
-    assert.ok(r.status === 401 || r.status === 403, `Expected 401 or 403, got ${r.status}`);
+  it('wipe requires admin — a VALID non-admin token is rejected (403)', async () => {
+    // Regression: this used to POST a random invalid token, which only exercises requireAuth's
+    // 401 — so it would still pass if the ADMIN gate were removed (a valid non-admin token
+    // would then wipe the space). Use a real, valid, non-admin token so the 403 proves the
+    // admin gate itself, not merely "unauthenticated is rejected".
+    const t = await post(INSTANCES.a, adminToken, '/api/tokens', { name: `wipe-nonadmin-${RUN_ID}`, admin: false });
+    assert.equal(t.status, 201, JSON.stringify(t.body));
+    const nonAdmin = t.body.plaintext;
+    try {
+      const r = await post(INSTANCES.a, nonAdmin, '/api/admin/spaces/general/wipe', { confirm: true });
+      assert.equal(r.status, 403, `a valid non-admin token must be rejected by the admin gate, got ${r.status}`);
+    } finally {
+      await del(INSTANCES.a, adminToken, `/api/tokens/${t.body.token.id}`).catch(() => {});
+    }
+  });
+
+  it('a SPACE-SCOPED admin token cannot wipe / rename / delete an OUT-OF-SCOPE space (403)', async () => {
+    // Highest-blast-radius gap the vacuous-test audit found: requireAdminMfaScoped's
+    // enforceSpaceScope() call is the ONLY thing stopping a `{admin:true, spaces:[A]}` token
+    // from wiping/renaming/deleting space B. The guard logic was correct but UNTESTED — a
+    // regression that dropped the scope check would have let a scoped admin operate on ANY
+    // space, and nothing would have failed. This pins the behaviour.
+    const inScope = `scoped-in-${RUN_ID}`;
+    const outScope = `scoped-out-${RUN_ID}`;
+    for (const id of [inScope, outScope]) {
+      const c = await post(INSTANCES.a, adminToken, '/api/spaces', { id, label: id });
+      assert.equal(c.status, 201, JSON.stringify(c.body));
+      createdSpaceIds.push(id);
+    }
+
+    const t = await post(INSTANCES.a, adminToken, '/api/tokens', {
+      name: `scoped-admin-${RUN_ID}`, admin: true, spaces: [inScope],
+    });
+    assert.equal(t.status, 201, JSON.stringify(t.body));
+    const scopedAdmin = t.body.plaintext;
+
+    try {
+      // Positive control: the in-scope space IS operable (proves the token is a working admin,
+      // so the 403s below are the SCOPE check, not a broken token).
+      const okWipe = await post(INSTANCES.a, scopedAdmin, `/api/admin/spaces/${inScope}/wipe`, { confirm: true });
+      assert.equal(okWipe.status, 200, `in-scope wipe should succeed: ${okWipe.status} ${JSON.stringify(okWipe.body)}`);
+
+      // The actual assertions: every space-targeting admin op on the OUT-of-scope space is 403.
+      const wipe = await post(INSTANCES.a, scopedAdmin, `/api/admin/spaces/${outScope}/wipe`, { confirm: true });
+      assert.equal(wipe.status, 403, `out-of-scope WIPE must be 403, got ${wipe.status} — privilege escalation`);
+
+      const rename = await reqJson(INSTANCES.a, scopedAdmin, `/api/spaces/${outScope}/rename`, {
+        method: 'PATCH', body: JSON.stringify({ newId: `${outScope}-x` }),
+      });
+      assert.equal(rename.status, 403, `out-of-scope RENAME must be 403, got ${rename.status}`);
+
+      const schema = await reqJson(INSTANCES.a, scopedAdmin, `/api/spaces/${outScope}/schema`, {
+        method: 'PUT', body: JSON.stringify({ typeSchemas: {} }),
+      });
+      assert.equal(schema.status, 403, `out-of-scope SCHEMA write must be 403, got ${schema.status}`);
+
+      const delR = await delWithBody(INSTANCES.a, scopedAdmin, `/api/spaces/${outScope}`, { confirm: true });
+      assert.equal(delR.status, 403, `out-of-scope DELETE must be 403, got ${delR.status}`);
+    } finally {
+      await del(INSTANCES.a, adminToken, `/api/tokens/${t.body.token.id}`).catch(() => {});
+    }
   });
 });
 

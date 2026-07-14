@@ -172,19 +172,51 @@ export async function queryAuditLog(params: AuditQueryParams): Promise<AuditQuer
   const limit = Math.min(Math.max(params.limit ?? 100, 1), 1000);
   const offset = Math.max(params.offset ?? 0, 0);
 
-  const [entries, total] = await Promise.all([
-    col()
-      .find(filter)
-      .sort({ timestamp: -1 } as Sort)
-      .skip(offset)
-      .limit(limit)
-      .toArray(),
-    col().countDocuments(filter),
-  ]);
+  // Fetch ONE extra row to decide `hasMore` (P11).
+  //
+  // This used to run a full filtered countDocuments() on EVERY page load, purely so that
+  // `hasMore` could be derived from `total`. The audit log is append-only and therefore only
+  // ever grows, so that count gets steadily more expensive forever — and it was being paid on
+  // every click of "next". The extra row answers the question exactly, for free.
+  const rows = await col()
+    .find(filter)
+    .sort({ timestamp: -1 } as Sort)
+    .skip(offset)
+    .limit(limit + 1)
+    .toArray();
 
-  return {
-    entries,
-    total,
-    hasMore: offset + entries.length < total,
-  };
+  const hasMore = rows.length > limit;
+  const entries = hasMore ? rows.slice(0, limit) : rows;
+
+  // `total` is only used to render "showing N of M", so it does not need to be exact to the
+  // millisecond — but it DID need a full scan. Cache it briefly per filter: paging through a
+  // result set now counts once instead of once per page.
+  const total = await cachedTotal(filter);
+
+  return { entries, total, hasMore };
+}
+
+// ── Cached totals ───────────────────────────────────────────────────────────
+// Keyed by the serialised filter. Bounded so a caller cannot grow it without limit by
+// sending endless distinct filters.
+const TOTAL_TTL_MS = 30_000;
+const TOTAL_CACHE_MAX = 64;
+const _totalCache = new Map<string, { total: number; at: number }>();
+
+async function cachedTotal(filter: Filter<AuditLogEntry>): Promise<number> {
+  const key = JSON.stringify(filter);
+  const now = Date.now();
+
+  const hit = _totalCache.get(key);
+  if (hit && now - hit.at < TOTAL_TTL_MS) return hit.total;
+
+  const total = await col().countDocuments(filter);
+
+  // Simple bound: drop the oldest insertion when full. Map preserves insertion order.
+  if (_totalCache.size >= TOTAL_CACHE_MAX) {
+    const oldest = _totalCache.keys().next();
+    if (!oldest.done) _totalCache.delete(oldest.value);
+  }
+  _totalCache.set(key, { total, at: now });
+  return total;
 }

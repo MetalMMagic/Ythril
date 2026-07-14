@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The audit log no longer counts the whole table on every page (P11).** Listing audit entries ran a full
+  filtered `countDocuments()` on **every page load**, purely so `hasMore` could be derived from the total.
+  The audit log is append-only and therefore only ever grows, so that count got steadily more expensive
+  forever — and it was paid on every click of "next". `hasMore` now comes from fetching one extra row, which
+  answers the question exactly and for free, and the total (only used to render "showing N of M") is cached
+  briefly per filter, so paging through a result set counts once instead of once per page.
+- **An upload into an idle system no longer waits up to 30 seconds before embedding starts.** On an empty
+  queue the media worker backs its poll interval off to `workerMaxPollIntervalMs` (30 s by default) and
+  slept on an uninterruptible timer — so a file uploaded into an otherwise-idle instance sat in `pending`
+  for up to half a minute before the worker even woke to look at it. Every path that creates claimable work
+  already announces it, so that announcement now **wakes the worker**: the idle wait is interruptible, and
+  the backoff resets as soon as real work arrives. Measured on a cold worker: **~32 s → ~2 s**. A shutdown
+  also wakes it, so stopping is no longer delayed by a parked backoff.
+- **The media worker no longer walks every space on every claim (P12).** Job collections are per-space, so
+  claiming walked the spaces one `findOneAndUpdate` at a time. On an idle queue — the normal state — each
+  claim paid a full N-space walk just to learn there was nothing to do, and the worker does that
+  (`workerConcurrency + 1`) times per tick: at 100 spaces, ~300 useless sequential round trips per tick. The
+  walk now visits only spaces a pending-work hint says might hold a job. The hint is an optimisation, never
+  the source of truth: everything that makes a job claimable announces it, and a periodic full scan re-seeds
+  it — which specifically covers a job whose retry backoff has not yet elapsed (it is `pending` but not
+  claimable, so the probe finds nothing and the hint is dropped; the scan puts it back). Covered by a new
+  test asserting the worker actually **claims** work — the existing conversion tests only ever asserted that
+  a job reached `pending` and never waited for the worker at all, so a queue that claimed *nothing* would
+  have passed.
+
+### Changed
+
 - **Bulk deletes no longer make one database round trip per document (P9).** Wiping a collection writes a
   tombstone per deleted document, and the seq for each was fetched with its own `nextSeq()` call — so
   clearing 100k memories cost **100k sequential round trips before the delete even started**. All four bulk

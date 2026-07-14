@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
-import { nextSeq } from '../util/seq.js';
+import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
 import { propsEmbedText } from './embed-text.js';
@@ -293,8 +293,15 @@ export async function bulkDeleteChrono(spaceId: string): Promise<number> {
   const instanceId = getConfig().instanceId;
   const tombstones: TombstoneDoc[] = [];
 
+  // Reserve the whole tombstone seq range in ONE round trip. This used to call nextSeq()
+  // per document — a sequential round trip each — so a 100k-document wipe paid 100k awaited
+  // round trips before the delete even began. Gaps are harmless (sync compares seqs with `>`);
+  // reuse would not be, which is why the block is reserved up-front and never rolled back.
+  const firstSeq = await reserveSeqBlock(spaceId, ids.length);
+  let seqCursor = firstSeq;
+
   for (const doc of ids) {
-    const seq = await nextSeq(spaceId);
+    const seq = seqCursor++;
     tombstones.push({
       _id: doc._id,
       type: 'chrono',

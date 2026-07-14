@@ -18,6 +18,36 @@ export async function nextSeq(spaceId: string): Promise<number> {
   return result.seq;
 }
 
+/**
+ * Reserve a contiguous block of `count` sequence numbers in ONE round trip.
+ *
+ * Returns the FIRST seq of the block; the caller owns `[first, first + count - 1]`.
+ *
+ * The bulk-delete paths write one tombstone per document and used to call `nextSeq()` inside
+ * the loop — a sequential round trip per document, so wiping 100k memories cost 100k awaited
+ * round trips *before the delete even started*. A single `$inc` by `count` reserves the whole
+ * range atomically.
+ *
+ * Gaps are safe, reuse is NOT. If the caller fails after reserving, the block is simply never
+ * used — sync compares seqs with `>`, so a hole in the sequence is harmless, whereas handing
+ * the same seq to two documents would corrupt the watermark logic. That is why this reserves
+ * up-front rather than rolling back on error.
+ */
+export async function reserveSeqBlock(spaceId: string, count: number): Promise<number> {
+  if (!Number.isInteger(count) || count < 1) {
+    throw new Error(`reserveSeqBlock: count must be a positive integer, got ${count}`);
+  }
+  const counters = col<SpaceCounterDoc>('ythril_counters');
+  const result = await counters.findOneAndUpdate(
+    { _id: spaceId },
+    { $inc: { seq: count } },
+    { upsert: true, returnDocument: 'after' },
+  );
+  if (!result) throw new Error(`Failed to reserve ${count} sequence numbers for space ${spaceId}`);
+  // `result.seq` is the counter AFTER the increment, i.e. the LAST seq of our block.
+  return result.seq - count + 1;
+}
+
 /** Read the current counter for a space (0 when it does not exist yet). */
 export async function currentSeq(spaceId: string): Promise<number> {
   const doc = await col<SpaceCounterDoc>('ythril_counters')

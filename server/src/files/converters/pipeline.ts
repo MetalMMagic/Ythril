@@ -326,46 +326,77 @@ export async function storeConversionResults(
     log.info(`Stored ${extractedImages.length} extracted image(s) from ${spaceId}/${originalId}`);
   }
 
-  // 3. Insert chunk records
-  for (const chunk of chunks) {
-    const chunkId = `${originalId}#chunk${chunk.chunkIndex}`;
-    const embedText = chunk.headingText
-      ? `${chunk.headingText} ${chunk.content}`
-      : chunk.content;
+  // 3. Embed and insert chunk records.
+  //
+  // This used to embed ONE chunk at a time and insertOne() each — a 500-chunk PDF meant 1000
+  // sequential awaits, and the embed call dominates. Chunks are independent, so they are now
+  // embedded with bounded concurrency and inserted with insertMany.
+  //
+  // Concurrency is bounded rather than unbounded: a large document would otherwise fire
+  // hundreds of simultaneous requests at the embedding provider (or at the bundled ONNX
+  // model), which throttles or OOMs rather than going faster.
+  //
+  // Per-chunk failure isolation is preserved (B3): one chunk failing to embed must not poison
+  // the batch. It is still stored WITHOUT a vector — its text is preserved but it is invisible
+  // to $vectorSearch — and counted, so the caller reports the job as partial/failed rather
+  // than silently "complete".
+  const EMBED_CONCURRENCY = 8;
+  const INSERT_BATCH = 200;
 
-    let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
-    try {
-      const embResult = await embed(embedText);
-      embeddingFields = {
-        embedding: embResult.vector,
-        embeddingModel: embResult.model,
-        matchedText: embedText,
+  const chunkDocs: FileMetaDoc[] = new Array(chunks.length);
+
+  let cursor = 0;
+  async function embedWorker(): Promise<void> {
+    for (;;) {
+      const i = cursor++;
+      if (i >= chunks.length) return;
+      const chunk = chunks[i]!;
+      const chunkId = `${originalId}#chunk${chunk.chunkIndex}`;
+      const embedText = chunk.headingText
+        ? `${chunk.headingText} ${chunk.content}`
+        : chunk.content;
+
+      let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
+      try {
+        const embResult = await embed(embedText);
+        embeddingFields = {
+          embedding: embResult.vector,
+          embeddingModel: embResult.model,
+          matchedText: embedText,
+        };
+      } catch (err) {
+        embedFailures++;
+        log.warn(`Chunk embed failed for ${spaceId}/${chunkId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
+      chunkDocs[i] = {
+        _id: chunkId,
+        spaceId,
+        path: chunkId,
+        tags: [],
+        createdAt: now,
+        updatedAt: now,
+        sizeBytes: Buffer.byteLength(chunk.content, 'utf8'),
+        author: authorRef(),
+        parentFileId: originalId,
+        chunkIndex: chunk.chunkIndex,
+        headingText: chunk.headingText,
+        content: chunk.content,
+        ...embeddingFields,
       };
-    } catch (err) {
-      // The chunk is still stored (its text is preserved) but without a vector, so it
-      // is invisible to $vectorSearch. Count and log it so the caller can report the
-      // job as failed/partial instead of silently "complete" (B3).
-      embedFailures++;
-      log.warn(`Chunk embed failed for ${spaceId}/${chunkId}: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
 
-    const chunkDoc: FileMetaDoc = {
-      _id: chunkId,
-      spaceId,
-      path: chunkId,
-      tags: [],
-      createdAt: now,
-      updatedAt: now,
-      sizeBytes: Buffer.byteLength(chunk.content, 'utf8'),
-      author: authorRef(),
-      parentFileId: originalId,
-      chunkIndex: chunk.chunkIndex,
-      headingText: chunk.headingText,
-      content: chunk.content,
-      ...embeddingFields,
-    };
+  await Promise.all(
+    Array.from({ length: Math.min(EMBED_CONCURRENCY, chunks.length) }, () => embedWorker()),
+  );
 
-    await col<FileMetaDoc>(`${spaceId}_files`).insertOne(asDoc<FileMetaDoc>(chunkDoc));
+  for (let i = 0; i < chunkDocs.length; i += INSERT_BATCH) {
+    const batch = chunkDocs.slice(i, i + INSERT_BATCH);
+    if (batch.length === 0) continue;
+    // ordered:false — one duplicate/invalid chunk must not abort the rest of the batch.
+    await col<FileMetaDoc>(`${spaceId}_files`)
+      .insertMany(batch.map(d => asDoc<FileMetaDoc>(d)), { ordered: false });
   }
 
   return { chunkCount: chunks.length, convertedFileId, embedFailures };

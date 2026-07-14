@@ -7,7 +7,7 @@ import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
 import { embed } from './embedding.js';
 import { propsEmbedText } from './embed-text.js';
 import { getConfig, getEmbeddingConfig } from '../config/loader.js';
-import { needsReindex } from '../spaces/spaces.js';
+import { needsReindex, vectorFilterFieldsFor } from '../spaces/spaces.js';
 import { applyDeleteFields } from './delete-fields.js';
 import type { MemoryDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
 
@@ -30,11 +30,11 @@ export interface FilterOperator {
 
 /**
  * Map of dot-notation field paths to their filter operator(s).
- * Keys must start with `properties.`, `tags`, `type`, or `name`.
+ * Keys must start with `properties.`, `tags`, `type`, `name`, `status`, or `label`.
  */
 export type FilterExpression = Record<string, FilterOperator>;
 
-const ALLOWED_FILTER_KEY_PREFIXES = ['properties.', 'tags', 'type', 'name'] as const;
+const ALLOWED_FILTER_KEY_PREFIXES = ['properties.', 'tags', 'type', 'name', 'status', 'label'] as const;
 
 /**
  * Validate that all filter keys use allowed prefixes (injection prevention).
@@ -70,6 +70,55 @@ export function buildMongoFilter(filter: FilterExpression): Record<string, unkno
     }
   }
   return result;
+}
+
+/**
+ * Operators we are confident `$vectorSearch` accepts inside its native `filter`. `$ne`/`$nin` and
+ * `$exists` are deliberately excluded — a filter using them routes to the exhaustive-scan path
+ * instead (correct, just slower), which avoids a wasted native attempt that Atlas would reject.
+ */
+const NATIVE_VECTOR_FILTER_OPS = ['eq', 'in', 'gt', 'gte', 'lt', 'lte'] as const;
+
+/**
+ * Build a `$vectorSearch` native `filter` document from the recall `tags` + `filter` inputs — but
+ * ONLY if every referenced field is a declared filter field on the index and every operator is
+ * natively supported (P6). Returns `null` when the request can't be fully expressed natively, in
+ * which case the caller falls back to the exhaustive `exact:true` scan + post-`$match`.
+ *
+ * `tags` uses "must contain all" semantics; on an array filter field an equality match means
+ * "array contains this value", so N tags become an `$and` of N equalities.
+ */
+export function toNativeVectorFilter(
+  tags: string[] | undefined,
+  filter: FilterExpression | undefined,
+  declaredFields: Set<string>,
+): Record<string, unknown> | null {
+  const clauses: Record<string, unknown>[] = [];
+
+  if (tags && tags.length > 0) {
+    if (!declaredFields.has('tags')) return null;
+    for (const t of tags) clauses.push({ tags: { $eq: t } });
+  }
+
+  if (filter) {
+    for (const [key, op] of Object.entries(filter)) {
+      if (!declaredFields.has(key)) return null;
+      const mongoOp: Record<string, unknown> = {};
+      for (const name of NATIVE_VECTOR_FILTER_OPS) {
+        const v = (op as Record<string, unknown>)[name];
+        if (v !== undefined) mongoOp['$' + name] = v;
+      }
+      // An operator we can't push natively (e.g. `ne`, `exists`) → whole request is non-native.
+      const requestedOps = Object.keys(op).filter(k => (op as Record<string, unknown>)[k] !== undefined);
+      if (requestedOps.some(k => !NATIVE_VECTOR_FILTER_OPS.includes(k as typeof NATIVE_VECTOR_FILTER_OPS[number]))) {
+        return null;
+      }
+      if (Object.keys(mongoOp).length > 0) clauses.push({ [key]: mongoOp });
+    }
+  }
+
+  if (clauses.length === 0) return null;
+  return clauses.length === 1 ? clauses[0] : { $and: clauses };
 }
 
 function authorRef() {
@@ -393,57 +442,10 @@ async function recallByType(
   const collName = `${spaceId}_${collSuffix}`;
   const indexName = `${spaceId}_${collSuffix}_embedding`;
 
-  // $vectorSearch native `filter` requires each field to be declared as type:"filter"
-  // in the index definition — infeasible for dynamic properties.* fields.
-  //
-  // When filtering, use ENN (exact: true): MongoDB exhaustively scores ALL documents,
-  // then we $match the full scored set, then re-limit to topK.
-  // ANN + post-$match is wrong: it discards matching docs that fall below ANN's topK
-  // before filtering even runs. MongoDB docs recommend ENN for selective pre-filter cases.
-  //
-  // When no filter/tags: standard ANN for performance (unchanged behaviour).
   const hasFilter = filter != null && Object.keys(filter).length > 0;
   const hasTags = tags != null && tags.length > 0;
-  const needsPostMatch = hasFilter || hasTags;
 
-  const pipeline: object[] = [];
-
-  if (needsPostMatch) {
-    // ENN: exhaustive search across all documents. limit is set high enough to
-    // pass all candidates through to the $match stages; topK is re-applied after.
-    const ennLimit = Math.min(10000, Math.max(topK * 100, 1000));
-    pipeline.push({
-      $vectorSearch: {
-        index: indexName,
-        path: 'embedding',
-        queryVector,
-        exact: true,
-        limit: ennLimit,
-      },
-    });
-    if (hasTags) {
-      pipeline.push({ $match: { tags: { $all: tags } } });
-    }
-    if (hasFilter) {
-      pipeline.push({ $match: buildMongoFilter(filter!) });
-    }
-    pipeline.push({ $limit: topK });
-  } else {
-    // ANN: approximate search, no post-filtering needed.
-    pipeline.push({
-      $vectorSearch: {
-        index: indexName,
-        path: 'embedding',
-        queryVector,
-        numCandidates: Math.min(topK * 15, 1000),
-        limit: topK,
-      },
-    });
-  }
-
-  pipeline.push({ $addFields: { _knowledgeType: knowledgeType, score: { $meta: 'vectorSearchScore' } } });
-
-  // Project type-specific fields, always exclude embedding vector
+  // Shared tail: attach score/type, then project type-specific fields (always dropping the vector).
   const commonProject = { _id: 1, spaceId: 1, _knowledgeType: 1, score: 1, createdAt: 1, updatedAt: 1, seq: 1, embeddingModel: 1, matchedText: 1 };
   let typeProject: Record<string, number> = {};
   if (knowledgeType === 'memory') {
@@ -457,23 +459,80 @@ async function recallByType(
   } else if (knowledgeType === 'file') {
     typeProject = { path: 1, description: 1, tags: 1, sizeBytes: 1, properties: 1, headingText: 1, content: 1, parentFileId: 1, chunkIndex: 1, mediaType: 1, embeddingStatus: 1, chunkOffsetMs: 1, chunkDurationMs: 1 };
   }
-  pipeline.push({ $project: { ...commonProject, ...typeProject } });
+  const tail: object[] = [
+    { $addFields: { _knowledgeType: knowledgeType, score: { $meta: 'vectorSearchScore' } } },
+    { $project: { ...commonProject, ...typeProject } },
+  ];
 
-  try {
-    const docs = await col(collName).aggregate<Record<string, unknown>>(pipeline).toArray();
-    return docs.map(d => mapToRecallResult(d, knowledgeType));
-  } catch (err) {
+  /** ANN: approximate nearest-neighbour, no filtering. Used when nothing is filtered. */
+  const annStage = () => ({
+    $vectorSearch: { index: indexName, path: 'embedding', queryVector, numCandidates: Math.min(topK * 15, 1000), limit: topK },
+  });
+
+  /**
+   * Exhaustive fallback: `exact:true` scores ALL vectors, then post-`$match` filters and re-limits.
+   * Correct for any filter (including dynamic `properties.*` and `$exists`), but pays O(N) scoring.
+   * The historical path — used only when a filter can't be pushed into the index natively.
+   */
+  const exhaustivePipeline = (): object[] => {
+    const ennLimit = Math.min(10000, Math.max(topK * 100, 1000));
+    const p: object[] = [{ $vectorSearch: { index: indexName, path: 'embedding', queryVector, exact: true, limit: ennLimit } }];
+    if (hasTags) p.push({ $match: { tags: { $all: tags } } });
+    if (hasFilter) p.push({ $match: buildMongoFilter(filter!) });
+    p.push({ $limit: topK });
+    return [...p, ...tail];
+  };
+
+  // Decide the primary path (P6).
+  //  - no filter  → ANN (unchanged).
+  //  - declarable filter → `exact:true` + native `filter`: Atlas restricts to the matching subset
+  //    FIRST, then exhaustively scores only that subset. Exact results, cost ∝ matching set, not N.
+  //  - non-declarable filter (dynamic properties / $exists) → exhaustive scan + post-$match.
+  let primary: object[];
+  let usedNativeFilter = false;
+  if (!hasFilter && !hasTags) {
+    primary = [annStage(), ...tail];
+  } else {
+    const declared = new Set(vectorFilterFieldsFor(spaceId, collSuffix));
+    const nativeFilter = toNativeVectorFilter(tags, filter, declared);
+    if (nativeFilter) {
+      usedNativeFilter = true;
+      primary = [
+        { $vectorSearch: { index: indexName, path: 'embedding', queryVector, exact: true, filter: nativeFilter, limit: topK } },
+        ...tail,
+      ];
+    } else {
+      primary = exhaustivePipeline();
+    }
+  }
+
+  const swallowIndexError = (err: unknown): RecallResult[] => {
     const msg = err instanceof Error ? err.message : String(err);
-    // Treat a missing OR not-yet-queryable vector index as "no results from this
-    // collection" rather than failing the whole recall. A newly created space builds
-    // its vector indexes asynchronously (createSpace / B1), and Atlas refuses queries
-    // against an index that is still building — e.g. "cannot query vector index … while
-    // in state INITIAL_SYNC". That is a transient empty state, not an error to surface.
-    // All other errors are rethrown so real failures still reach the caller.
+    // A missing OR not-yet-queryable vector index means "no results from this collection", not a
+    // failure: a new space builds its indexes asynchronously (B1) and Atlas refuses queries against
+    // an index still in INITIAL_SYNC. Transient empty state, not an error to surface.
     if (/index.*not.*found|no.*such.*index|search.*index|cannot query.*vector index|while in state (INITIAL_SYNC|PENDING|BUILDING|STARTING)/i.test(msg)) {
       return [];
     }
     throw err;
+  };
+
+  try {
+    const docs = await col(collName).aggregate<Record<string, unknown>>(primary).toArray();
+    return docs.map(d => mapToRecallResult(d, knowledgeType));
+  } catch (err) {
+    // If the native-filter query failed — e.g. the index has not yet been rebuilt with a
+    // just-added filter field — retry on the exhaustive path, which needs no declared fields. This
+    // keeps recall correct through the brief window after a schema change while the index rebuilds.
+    if (usedNativeFilter) {
+      try {
+        const docs = await col(collName).aggregate<Record<string, unknown>>(exhaustivePipeline()).toArray();
+        return docs.map(d => mapToRecallResult(d, knowledgeType));
+      } catch (err2) {
+        return swallowIndexError(err2);
+      }
+    }
+    return swallowIndexError(err);
   }
 }
 

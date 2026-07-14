@@ -554,6 +554,119 @@ describe('Recall filter — exists operator', () => {
   });
 });
 
+// Space-parameterized variant of waitForIndexed (the schema test uses a second space).
+async function waitForIndexedIn(spaceId, ids, types = ['entity', 'memory'], timeoutMs = 30_000) {
+  const pending = new Set(ids);
+  const deadline = Date.now() + timeoutMs;
+  while (pending.size > 0 && Date.now() < deadline) {
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${spaceId}/recall`, {
+      query: 'indexing probe query', types, topK: 100,
+    });
+    if (r.status === 200 && Array.isArray(r.body.results)) {
+      for (const result of r.body.results) pending.delete(result.record?._id ?? result._id);
+    }
+    if (pending.size > 0) await new Promise(res => setTimeout(res, 500));
+  }
+  if (pending.size > 0) throw new Error(`Timed out waiting for indexing of: ${[...pending].join(', ')}`);
+}
+
+// ── P6: tags param uses ALL-of semantics on the native filter fast path ────────
+describe('Recall filter — tags param (must contain ALL; native fast path)', () => {
+  const desc = `tags-all-test-${RUN}`;
+  let bothId;
+  let oneId;
+
+  before(async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding not available');
+    // `tags` is a fixed declared filter field, so the `tags` recall param is pushed into the
+    // $vectorSearch native filter as an $and of equalities — i.e. the record must carry EVERY tag.
+    const both = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
+      fact: `${desc} has-both-tags`, description: desc, tags: ['alpha-all', 'beta-all'],
+    });
+    assert.equal(both.status, 201, `create both-tags: ${JSON.stringify(both.body)}`);
+    bothId = both.body._id;
+
+    const one = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/memories`, {
+      fact: `${desc} has-one-tag`, description: desc, tags: ['alpha-all'],
+    });
+    assert.equal(one.status, 201, `create one-tag: ${JSON.stringify(one.body)}`);
+    oneId = one.body._id;
+
+    await waitForIndexed([bothId, oneId], ['memory']);
+  });
+
+  it('tags:[alpha,beta] returns only the record carrying BOTH tags', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding not available');
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SPACE}/recall`, {
+      query: desc, types: ['memory'], topK: 20, tags: ['alpha-all', 'beta-all'],
+    });
+    assert.equal(r.status, 200, `recall ${r.status}: ${JSON.stringify(r.body)}`);
+    const ids = r.body.results.map(x => x.record?._id ?? x._id);
+    assert.ok(ids.includes(bothId), 'record with BOTH tags must appear');
+    assert.ok(!ids.includes(oneId), 'record with only one of the tags must NOT appear (ALL semantics)');
+  });
+});
+
+// ── P6/Q1: a schema-declared property becomes a native filter field ───────────
+describe('Recall filter — schema-declared property (native path via typeSchemas)', () => {
+  const SCHEMA_SPACE = `filter-schema-${RUN}`;
+  const desc = `schema-prop-filter-region-${RUN}`;
+  let northId;
+  let southId;
+
+  before(async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding not available');
+    const cr = await post(INSTANCES.a, token(), '/api/spaces', { id: SCHEMA_SPACE, label: `Schema Filter ${RUN}` });
+    assert.equal(cr.status, 201, `create schema space: ${JSON.stringify(cr.body)}`);
+    await ensureReindexed(INSTANCES.a, token());
+
+    // Declaring entity.site.propertySchemas.region makes `properties.region` a $vectorSearch filter
+    // field (P6), so a recall filtering on it takes the native prefilter path. (Correctness holds
+    // via the ENN fallback even before the index finishes rebuilding, so this test never flakes on
+    // rebuild timing — it asserts the RESULT, which both paths must produce identically.)
+    const patch = await fetch(`${INSTANCES.a}/api/spaces/${SCHEMA_SPACE}`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ meta: { typeSchemas: { entity: { site: { propertySchemas: { region: { type: 'string' } } } } } } }),
+    });
+    assert.ok(patch.ok, `schema PATCH failed: ${patch.status}`);
+
+    // Identical description → identical similarity; only the declared property distinguishes them.
+    const north = await post(INSTANCES.a, token(), `/api/brain/spaces/${SCHEMA_SPACE}/entities`, {
+      name: `site-north-${RUN}`, type: 'site', description: desc, properties: { region: 'north' },
+    });
+    assert.equal(north.status, 201, `create north: ${JSON.stringify(north.body)}`);
+    northId = north.body._id;
+
+    const south = await post(INSTANCES.a, token(), `/api/brain/spaces/${SCHEMA_SPACE}/entities`, {
+      name: `site-south-${RUN}`, type: 'site', description: desc, properties: { region: 'south' },
+    });
+    assert.equal(south.status, 201, `create south: ${JSON.stringify(south.body)}`);
+    southId = south.body._id;
+
+    await waitForIndexedIn(SCHEMA_SPACE, [northId, southId], ['entity']);
+  });
+
+  after(async () => {
+    await fetch(`${INSTANCES.a}/api/spaces/${SCHEMA_SPACE}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirm: true }),
+    }).catch(() => {});
+  });
+
+  it('filter properties.region eq north returns only the north site', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding not available');
+    const r = await post(INSTANCES.a, token(), `/api/brain/spaces/${SCHEMA_SPACE}/recall`, {
+      query: desc, types: ['entity'], topK: 20, filter: { 'properties.region': { eq: 'north' } },
+    });
+    assert.equal(r.status, 200, `recall ${r.status}: ${JSON.stringify(r.body)}`);
+    const ids = r.body.results.map(x => x.record?._id ?? x._id);
+    assert.ok(ids.includes(northId), 'north site must appear');
+    assert.ok(!ids.includes(southId), 'south site must NOT appear');
+  });
+});
+
 describe('Recall filter — MCP recall tool accepts filter', () => {
   let session;
   const sharedDesc = `mcp-filter-test-auth-decision-${RUN}`;

@@ -99,6 +99,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Filtered semantic recall now pre-filters instead of scanning everything (P6), and per-space
+  indexes shed their redundant `spaceId` key (P10) — one index migration for the major release.**
+  Two changes that both rewrite live-space indexes, bundled into a single boot migration.
+  - **P6 — native `$vectorSearch` pre-filtering.** Previously, *any* tag or filter forced recall onto
+    an exhaustive `exact:true` scan that scored **every** vector in the collection and then dropped
+    non-matches — O(all documents) even for a highly selective filter. The `$vectorSearch` index now
+    declares the fixed filterable fields (`tags`, `type`, `name`, `status`, `label`) plus, on a
+    schema-defined space, each declared `properties.<key>` path. A recall whose filter uses only
+    declared fields runs `exact:true` **with a native `filter`**: Atlas restricts to the matching
+    subset first, then exhaustively scores only that subset — **exact results, cost proportional to
+    the matching set, not the whole collection.** A filter on a field no schema declares (dynamic
+    `properties.*`, or `$exists`) still uses the full-scan path, which stays correct. The recall
+    filter API gains `status` and `label` as filterable keys. Schema edits rebuild the affected
+    vector indexes automatically (in place, so recall never goes dark), and a recall issued during
+    that brief rebuild window falls back to the exhaustive path, so it is always correct.
+  - **P10 — de-prefixed compound indexes.** Per-space collections (`{spaceId}_memories`, …) already
+    isolate by collection name, so leading `spaceId` in every compound index added write cost and
+    index bytes with zero selectivity. All of them drop the prefix (`{seq:1}`, `{from:1,to:1,label:1}`
+    unique, `{status:1,score:-1,detectedAt:-1}`, …); a boot migration removes the old
+    `spaceId`-leading indexes and builds the new shape, idempotently. The edge-uniqueness guarantee is
+    unchanged (a constant leading field distinguished no documents).
+  - **Migration & compatibility.** Both run on boot in `initSpace`, per space, and are self-healing —
+    an upgraded install re-shapes its indexes on first start with no manual step. Filtered recall
+    moves from exact-but-exhaustive to exact-and-pre-filtered: **no accuracy change**, only speed.
+    Covered by `testing/integration/recall-filter.test.js` (fixed-field and schema-declared-property
+    filters, tags ALL-of semantics, and the unchanged dynamic-property / `$exists` fallback).
+
 - **`OnPush` change detection on the graph page (P5, final slice).** The graph view — a cytoscape
   canvas whose event handlers fire outside Angular — was the highest-value and highest-risk `OnPush`
   target, and completes the P5 pass over the app's heavy pages. Audited safe: the four handlers that

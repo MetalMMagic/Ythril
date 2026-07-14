@@ -1,9 +1,11 @@
+import type { Collection } from 'mongodb';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs/promises';
 import path from 'path';
 import { getDb, col, asDoc, asFilter, asUpdate } from '../db/mongo.js';
 import { getConfig, saveConfig, getEmbeddingConfig, getDataRoot, getFaceRecognitionConfig } from '../config/loader.js';
 import { ensureSpaceFilesDir, writeFile as writeSpaceFile } from '../files/files.js';
+import { resolveMetaRefs } from './schema-validation.js';
 import { invalidateUsageCache } from '../quota/quota.js';
 import { log } from '../util/log.js';
 import type { Config, SpaceConfig, SpaceMeta, MemoryDoc, KnowledgeType, DupeActionRule, PendingSpaceOp } from '../config/types.js';
@@ -135,6 +137,32 @@ export async function repairStaleSpaceIds(spaceId: string): Promise<number> {
   return repaired;
 }
 
+/**
+ * P10 migration helper: drop any regular index on a per-space collection whose leading key is
+ * `spaceId`. These collections are already per-space, so a leading `spaceId` key has zero
+ * selectivity; the de-prefixed indexes created in `initSpace` replace them. Idempotent — once the
+ * legacy indexes are gone this finds nothing and returns immediately. Never drops `_id_`, and never
+ * touches an index that does not lead with `spaceId` (so the new de-prefixed indexes are safe).
+ */
+async function dropLegacyPrefixedIndexes(coll: Collection): Promise<void> {
+  let indexes: Array<{ name?: string; key?: Record<string, unknown> }>;
+  try {
+    indexes = await coll.listIndexes().toArray();
+  } catch {
+    return; // collection may not exist yet — createIndex will build the new shape
+  }
+  for (const idx of indexes) {
+    if (!idx.name || idx.name === '_id_') continue;
+    if (Object.keys(idx.key ?? {})[0] === 'spaceId') {
+      try {
+        await coll.dropIndex(idx.name);
+      } catch (err) {
+        log.warn(`P10: could not drop legacy index ${idx.name} on ${coll.collectionName}: ${err}`);
+      }
+    }
+  }
+}
+
 export async function initSpace(
   spaceId: string,
   opts: { waitForVectorReady?: boolean } = {},
@@ -159,40 +187,51 @@ export async function initSpace(
   // Self-heal data left invisible by an older rename / aliased sync (see above).
   await repairStaleSpaceIds(spaceId);
 
-  // Regular indexes
+  // Regular indexes.
+  //
+  // P10 migration: these collections are ALREADY per-space (`{spaceId}_memories`, …), so every
+  // document in them carries the same `spaceId` value. Leading that field in a compound index adds
+  // write cost and index bytes with zero selectivity. The indexes below are de-prefixed
+  // (`{seq:1}` not `{spaceId:1, seq:1}`); `dropLegacyPrefixedIndexes` removes any old
+  // `spaceId`-leading index left over from before the migration. It is idempotent: after the first
+  // boot rebuilds them, no `spaceId`-leading index remains, so the drop loop finds nothing and the
+  // `createIndex` calls are no-ops. (The former standalone entity-unique-index migration is folded
+  // in here — a stale `spaceId_1_name_1_type_1` unique index simply gets dropped like any other.)
   const memoriesColl = db.collection(`${spaceId}_memories`);
   const entitiesColl = db.collection(`${spaceId}_entities`);
   const edgesColl = db.collection(`${spaceId}_edges`);
   const chronoColl = db.collection(`${spaceId}_chrono`);
   const tombstonesColl = db.collection(`${spaceId}_tombstones`);
-
-  await memoriesColl.createIndex({ spaceId: 1, seq: 1 });
-  await memoriesColl.createIndex({ spaceId: 1, tags: 1 });
-  await memoriesColl.createIndex({ spaceId: 1, entityIds: 1 });
-  // Migration: drop the old unique entity index if it exists (name+type is not unique).
-  // Uses listIndexes() once to check — after migration the non-unique index passes
-  // createIndex() as a no-op, so zero overhead on subsequent boots.
-  try {
-    const indexes = await entitiesColl.listIndexes().toArray();
-    if (indexes.some(i => i.name === 'spaceId_1_name_1_type_1' && i.unique)) {
-      await entitiesColl.dropIndex('spaceId_1_name_1_type_1');
-    }
-  } catch { /* collection may not exist yet — createIndex below will handle it */ }
-  await entitiesColl.createIndex({ spaceId: 1, name: 1, type: 1 });
-  await entitiesColl.createIndex({ spaceId: 1, seq: 1 });
-  await edgesColl.createIndex({ spaceId: 1, from: 1, to: 1, label: 1 }, { unique: true });
-  await edgesColl.createIndex({ spaceId: 1, seq: 1 });
-  await chronoColl.createIndex({ spaceId: 1, startsAt: 1 });
-  await chronoColl.createIndex({ spaceId: 1, status: 1 });
-  await chronoColl.createIndex({ spaceId: 1, seq: 1 });
-  await tombstonesColl.createIndex({ spaceId: 1, seq: 1 });
-  await db.collection(`${spaceId}_conflicts`).createIndex({ spaceId: 1, detectedAt: -1 });
+  const conflictsColl = db.collection(`${spaceId}_conflicts`);
   const dupeColl = db.collection(`${spaceId}_dupe_candidates`);
-  // Serves the list query: equality on (spaceId, status) + sort by (score desc, detectedAt desc).
-  await dupeColl.createIndex({ spaceId: 1, status: 1, score: -1, detectedAt: -1 });
   const filesColl = db.collection(`${spaceId}_files`);
-  await filesColl.createIndex({ spaceId: 1, tags: 1 });
-  await filesColl.createIndex({ spaceId: 1, updatedAt: -1 });
+
+  await Promise.all([
+    dropLegacyPrefixedIndexes(memoriesColl), dropLegacyPrefixedIndexes(entitiesColl),
+    dropLegacyPrefixedIndexes(edgesColl), dropLegacyPrefixedIndexes(chronoColl),
+    dropLegacyPrefixedIndexes(tombstonesColl), dropLegacyPrefixedIndexes(conflictsColl),
+    dropLegacyPrefixedIndexes(dupeColl), dropLegacyPrefixedIndexes(filesColl),
+  ]);
+
+  await memoriesColl.createIndex({ seq: 1 });
+  await memoriesColl.createIndex({ tags: 1 });
+  await memoriesColl.createIndex({ entityIds: 1 });
+  await entitiesColl.createIndex({ name: 1, type: 1 });
+  await entitiesColl.createIndex({ seq: 1 });
+  // Unique within the (already per-space) collection: (from, to, label) — the leading constant
+  // `spaceId` distinguished no documents, so dropping it preserves the identical guarantee.
+  await edgesColl.createIndex({ from: 1, to: 1, label: 1 }, { unique: true });
+  await edgesColl.createIndex({ seq: 1 });
+  await chronoColl.createIndex({ startsAt: 1 });
+  await chronoColl.createIndex({ status: 1 });
+  await chronoColl.createIndex({ seq: 1 });
+  await tombstonesColl.createIndex({ seq: 1 });
+  await conflictsColl.createIndex({ detectedAt: -1 });
+  // Serves the list query: equality on `status` (now the leading field) + sort by (score desc,
+  // detectedAt desc).
+  await dupeColl.createIndex({ status: 1, score: -1, detectedAt: -1 });
+  await filesColl.createIndex({ tags: 1 });
+  await filesColl.createIndex({ updatedAt: -1 });
 
   // Vector search indexes (Atlas Local / Atlas). Created here; READY is polled unless
   // the caller defers it (createSpace, so the API responds without waiting — B1).
@@ -221,10 +260,80 @@ export async function initSpace(
 }
 
 /**
+ * The fixed (non-`properties`) fields declared as `$vectorSearch` filter fields per collection, so
+ * that a recall filtering on them uses native ANN pre-filtering instead of the exhaustive ENN scan
+ * (P6). Only fields that (a) exist on the document type and (b) are reachable through the recall
+ * filter API (`ALLOWED_FILTER_KEY_PREFIXES` in brain/memory.ts: tags/type/name/status/label) are
+ * listed. `properties.<key>` paths are added dynamically from the space's schema — see
+ * `deriveVectorFilterFields`.
+ */
+const FIXED_VECTOR_FILTER_FIELDS: Record<VectorIndexedCollection, string[]> = {
+  memories: ['tags', 'type'],
+  entities: ['tags', 'type', 'name'],
+  edges: ['tags', 'type', 'label'],
+  chrono: ['tags', 'type', 'status'],
+  files: ['tags'],
+};
+
+/** Map a per-space collection suffix to the KnowledgeType whose schema governs its `properties`. */
+const COLLECTION_KNOWLEDGE_TYPE: Partial<Record<VectorIndexedCollection, KnowledgeType>> = {
+  memories: 'memory',
+  entities: 'entity',
+  edges: 'edge',
+  chrono: 'chrono',
+  // files carry no per-type schema (file is not a KnowledgeType), so no `properties.*` filter paths
+};
+
+/**
+ * The full set of `$vectorSearch` filter-field paths for a collection: the fixed fields above, plus
+ * one `properties.<key>` path for every property key declared in the space's schema for the
+ * matching knowledge type (union across sub-types). Declaring the schema property paths is what lets
+ * a `properties.*` filter take the fast ANN path on a schema-defined space — dynamic property keys
+ * that no schema declares still fall back to ENN, which is correct, just slower.
+ */
+function deriveVectorFilterFields(spaceId: string, collectionSuffix: VectorIndexedCollection): string[] {
+  const fields = [...(FIXED_VECTOR_FILTER_FIELDS[collectionSuffix] ?? [])];
+  const kt = COLLECTION_KNOWLEDGE_TYPE[collectionSuffix];
+  if (!kt) return fields;
+
+  const rawMeta = getConfig().spaces.find(s => s.id === spaceId)?.meta;
+  if (!rawMeta?.typeSchemas) return fields;
+  const meta = resolveMetaRefs(rawMeta);
+  const ktMap = meta.typeSchemas?.[kt];
+  if (!ktMap) return fields;
+
+  const propKeys = new Set<string>();
+  for (const typeSchema of Object.values(ktMap)) {
+    for (const key of Object.keys(typeSchema.propertySchemas ?? {})) {
+      // Guard against a schema key that would break the dot-path or duplicate a fixed field.
+      if (key && !key.includes('.') && !key.includes('$')) propKeys.add(`properties.${key}`);
+    }
+  }
+  return [...fields, ...propKeys];
+}
+
+/** The exported list of filter fields a recall query may safely push into `$vectorSearch.filter`
+ *  for a given collection. Mirrors what `ensureVectorSearchIndex` declares, so recall routing and
+ *  index definition never drift. */
+export function vectorFilterFieldsFor(spaceId: string, collectionSuffix: string): string[] {
+  if (!(VECTOR_INDEXED_COLLECTIONS as readonly string[]).includes(collectionSuffix)) return [];
+  return deriveVectorFilterFields(spaceId, collectionSuffix as VectorIndexedCollection);
+}
+
+interface SearchIndexField { type?: string; path?: string; numDimensions?: number }
+
+/**
  * Create or validate the $vectorSearch index for a space collection.
- * When `waitForReady` (default), polls for READY status up to 60 seconds; pass false
- * to create the index and return immediately, letting Atlas finish the build in the
- * background (B1 — the caller confirms READY asynchronously via pollVectorIndexReady).
+ *
+ * The index declares the vector field plus a set of `type:"filter"` fields (P6) so recall can
+ * pre-filter natively on the ANN path. When an index already exists, its live definition is compared
+ * against the desired one (dimensions AND the filter-field set); a difference triggers an in-place
+ * `updateSearchIndex` (falling back to drop+recreate), so a schema change that adds/removes a
+ * filterable property re-shapes the index without manual intervention.
+ *
+ * When `waitForReady` (default), polls for READY status up to 60 seconds; pass false to return
+ * immediately and let Atlas finish the build in the background (B1 — the caller confirms READY
+ * asynchronously via pollVectorIndexReady).
  */
 async function ensureVectorSearchIndex(
   spaceId: string,
@@ -234,13 +343,21 @@ async function ensureVectorSearchIndex(
   vectorPath: string = 'embedding',
   indexSuffix: string = 'embedding',
   waitForReady: boolean = true,
+  filterFields: string[] = [],
 ): Promise<void> {
   const db = getDb();
   const coll = db.collection(`${spaceId}_${collectionSuffix}`);
   const indexName = `${spaceId}_${collectionSuffix}_${indexSuffix}`;
 
+  const definition = {
+    fields: [
+      { type: 'vector', path: vectorPath, numDimensions, similarity },
+      ...filterFields.map(path => ({ type: 'filter', path })),
+    ],
+  };
+
   // List existing search indexes
-  let indexes: Array<{ name: string; status?: string; latestDefinition?: { fields?: Array<{ numDimensions?: number }> } }> = [];
+  let indexes: Array<{ name: string; status?: string; latestDefinition?: { fields?: SearchIndexField[] } }> = [];
   try {
     indexes = await coll.listSearchIndexes().toArray() as typeof indexes;
   } catch {
@@ -255,37 +372,53 @@ async function ensureVectorSearchIndex(
   const existing = indexes.find(i => i.name === indexName);
 
   if (existing) {
-    const existingDims = existing.latestDefinition?.fields?.[0]?.numDimensions;
-    if (existingDims === numDimensions) {
-      log.debug(`Vector search index ${indexName} already exists`);
+    const existingFields = existing.latestDefinition?.fields ?? [];
+    const existingDims = existingFields.find(f => f.type === 'vector')?.numDimensions
+      ?? existingFields[0]?.numDimensions; // tolerate older single-field definitions
+    const existingFilters = new Set(existingFields.filter(f => f.type === 'filter').map(f => f.path));
+    const desiredFilters = new Set(filterFields);
+    const dimsMatch = existingDims === numDimensions;
+    const filtersMatch = existingFilters.size === desiredFilters.size
+      && [...desiredFilters].every(p => existingFilters.has(p));
+    if (dimsMatch && filtersMatch) {
+      log.debug(`Vector search index ${indexName} already up to date`);
       return;
     }
-    // Dimensions changed — drop and recreate
-    log.warn(`Recreating vector search index ${indexName} (dimensions changed: ${existingDims} → ${numDimensions})`);
+
+    // Definition changed (dimensions or filter fields). Prefer an in-place update — Atlas keeps
+    // serving the old definition until the rebuilt one is READY, so recall never goes dark.
+    log.warn(
+      `Updating vector search index ${indexName} (dims ${existingDims}→${numDimensions}, ` +
+      `filter fields ${existingFilters.size}→${desiredFilters.size})`,
+    );
     try {
-      await coll.dropSearchIndex(indexName);
-      // Wait for drop to propagate
-      await new Promise(r => setTimeout(r, 2000));
+      await coll.updateSearchIndex(indexName, definition);
+      if (waitForReady) {
+        const ready = await pollVectorIndexReady(spaceId, collectionSuffix, indexName);
+        if (!ready) log.warn(`Vector search index ${indexName} did not reach READY within 60s after update`);
+      }
+      return;
     } catch (err) {
-      log.warn(`Failed to drop vector search index ${indexName}: ${err}`);
+      // updateSearchIndex may be unsupported (older Atlas Local) or reject a dims change — fall
+      // back to drop + recreate. This one path DOES leave a brief INITIAL_SYNC gap during which
+      // recall on this collection returns empty (handled by the recall error-swallow), which is
+      // acceptable for the rare dims change.
+      log.warn(`updateSearchIndex failed for ${indexName} (${err}); dropping and recreating`);
+      try {
+        await coll.dropSearchIndex(indexName);
+        await new Promise(r => setTimeout(r, 2000));
+      } catch (dropErr) {
+        log.warn(`Failed to drop vector search index ${indexName}: ${dropErr}`);
+      }
     }
   }
 
-  log.debug(`Creating vector search index ${indexName} (${numDimensions}d, ${similarity}, path: ${vectorPath})`);
+  log.debug(`Creating vector search index ${indexName} (${numDimensions}d, ${similarity}, path: ${vectorPath}, ${filterFields.length} filter field(s))`);
   try {
     await coll.createSearchIndex(asDoc({
       name: indexName,
       type: 'vectorSearch',
-      definition: {
-        fields: [
-          {
-            type: 'vector',
-            path: vectorPath,
-            numDimensions,
-            similarity,
-          },
-        ],
-      },
+      definition,
     }));
   } catch (err) {
     log.warn(`Failed to create vector search index ${indexName}: ${err}. Semantic recall will be unavailable.`);
@@ -326,7 +459,8 @@ async function pollVectorIndexReady(
 async function buildSpaceVectorIndexes(spaceId: string, waitForReady: boolean): Promise<void> {
   const embCfg = getEmbeddingConfig();
   for (const suffix of VECTOR_INDEXED_COLLECTIONS) {
-    await ensureVectorSearchIndex(spaceId, suffix, embCfg.dimensions, embCfg.similarity, 'embedding', 'embedding', waitForReady);
+    const filterFields = deriveVectorFilterFields(spaceId, suffix);
+    await ensureVectorSearchIndex(spaceId, suffix, embCfg.dimensions, embCfg.similarity, 'embedding', 'embedding', waitForReady, filterFields);
   }
   const faceCfg = getFaceRecognitionConfig();
   if (faceCfg.enabled) {
@@ -723,6 +857,17 @@ export function updateSpace(
       updatedAt: now,
       previousVersions: history.length > 0 ? history : undefined,
     };
+
+    // P6: a change to the type schemas may add or remove filterable `properties.*` paths, so the
+    // $vectorSearch indexes must be re-shaped to match. Rebuild off the request path
+    // (`waitForReady:false`); `ensureVectorSearchIndex` diffs each index's definition and only
+    // touches the ones whose filter-field set actually changed. Gated on the schema genuinely
+    // changing so an unrelated meta edit (purpose, tag suggestions) does no index work.
+    const schemaChanged = JSON.stringify(prev?.typeSchemas ?? null) !== JSON.stringify(updates.meta.typeSchemas ?? null);
+    if (schemaChanged) {
+      buildSpaceVectorIndexes(spaceId, false).catch(err =>
+        log.warn(`P6: vector filter-field rebuild after schema change on '${spaceId}': ${err}`));
+    }
   }
 
   saveConfig(cfg);

@@ -70,7 +70,9 @@ duplicatesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
 
     const results: DupeCandidateDoc[] = [];
     for (const spaceId of spaces) {
-      // spaceId pins the leading index field; status matches the {spaceId,status,score,detectedAt} index.
+      // Served by the {status, score, detectedAt} index (de-prefixed in P10): `status` is the
+      // leading equality field and the sort by (score desc, detectedAt desc) follows it. The
+      // redundant `spaceId` equality is a harmless residual (the collection is already per-space).
       const q = status === 'all' ? { spaceId } : { spaceId, status };
       const docs = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`)
         .find(asFilter<DupeCandidateDoc>(q))

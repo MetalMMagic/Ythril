@@ -350,4 +350,59 @@ describe('Space export/import — round-trip (export → wipe → import)', () =
     assert.equal(memCheck.body.fact, 'Round-trip memory');
     assert.deepEqual(memCheck.body.tags, ['rt-tag']);
   });
+
+  it('CROSS-SPACE import — entities/edges/chrono are LISTED in the target space', async () => {
+    // The export embeds the SOURCE space's id in every document, and listEntities/listEdges/
+    // listChrono filter on that field. Importing space A's export into space B while keeping
+    // `spaceId: "A"` wrote documents that were counted but INVISIBLE to every list — the
+    // import reported success and the data looked lost.
+    //
+    // The whole import suite missed this because it only ever round-trips into the SAME space
+    // (so spaceId stays consistent) and only ever asserts via /stats (counts) and
+    // GET /memories/:id — the three read paths that do NOT filter on spaceId. Exactly the
+    // trap that hid the space-rename bug.
+    const srcId = `xspace-src-${RUN_ID}`;
+    const dstId = `xspace-dst-${RUN_ID}`;
+    for (const id of [srcId, dstId]) {
+      const c = await post(INSTANCES.a, tok, '/api/spaces', { id, label: `Cross ${id}` });
+      assert.equal(c.status, 201, JSON.stringify(c.body));
+      roundTripSpaceIds.push(id);
+    }
+
+    const e1 = await post(INSTANCES.a, tok, `/api/brain/spaces/${srcId}/entities`, { name: 'Ada', type: 'person' });
+    const e2 = await post(INSTANCES.a, tok, `/api/brain/spaces/${srcId}/entities`, { name: 'Grace', type: 'person' });
+    assert.equal(e1.status, 201, JSON.stringify(e1.body));
+    assert.equal(e2.status, 201, JSON.stringify(e2.body));
+    const ed = await post(INSTANCES.a, tok, `/api/brain/spaces/${srcId}/edges`, {
+      from: e1.body._id, to: e2.body._id, label: 'knows',
+    });
+    assert.equal(ed.status, 201, JSON.stringify(ed.body));
+    const ch = await post(INSTANCES.a, tok, `/api/brain/spaces/${srcId}/chrono`, {
+      title: 'Cross import milestone', type: 'milestone', startsAt: new Date().toISOString(),
+    });
+    assert.equal(ch.status, 201, JSON.stringify(ch.body));
+
+    const exp = await get(INSTANCES.a, tok, `/api/admin/spaces/${srcId}/export`);
+    assert.equal(exp.status, 200, JSON.stringify(exp.body));
+
+    // Import SOURCE's export into a DIFFERENT space.
+    const imp = await post(INSTANCES.a, tok, `/api/admin/spaces/${dstId}/import`, exp.body);
+    assert.ok([200, 201].includes(imp.status), JSON.stringify(imp.body));
+
+    const ents = await get(INSTANCES.a, tok, `/api/brain/spaces/${dstId}/entities`);
+    assert.equal(ents.status, 200);
+    assert.equal(
+      ents.body.entities?.length, 2,
+      'imported entities must be LISTED in the TARGET space — they were being written with the ' +
+      'source space id, which made them invisible to every list while still being counted',
+    );
+
+    const edges = await get(INSTANCES.a, tok, `/api/brain/spaces/${dstId}/edges`);
+    assert.equal(edges.status, 200);
+    assert.equal(edges.body.edges?.length, 1, 'imported edges must be LISTED in the target space');
+
+    const chrono = await get(INSTANCES.a, tok, `/api/brain/spaces/${dstId}/chrono`);
+    assert.equal(chrono.status, 200);
+    assert.equal(chrono.body.chrono?.length, 1, 'imported chrono entries must be LISTED in the target space');
+  });
 });

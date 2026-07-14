@@ -128,6 +128,64 @@ describe('Space rename', () => {
     );
   });
 
+  it('Data survives rename — chrono entries are still LISTED under the new ID', async () => {
+    // `listChrono` filters on the spaceId FIELD (brain/chrono.ts), exactly like entities and
+    // edges — so a rename hid chrono entries too. Nothing covered it: the rename suite only
+    // ever created memories, which are the ONE read path that does not filter on spaceId.
+    const oldId = `chrono-rename-${RUN_ID}`;
+    const newId = `chrono-renamed-${RUN_ID}`;
+    await post(INSTANCES.a, tokenA, '/api/spaces', { id: oldId, label: 'Chrono Rename' });
+
+    const cR = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${oldId}/chrono`, {
+      title: 'Launch', type: 'milestone', startsAt: new Date().toISOString(),
+    });
+    assert.equal(cR.status, 201, JSON.stringify(cR.body));
+
+    const renameR = await patch(INSTANCES.a, tokenA, `/api/spaces/${oldId}/rename`, { newId });
+    assert.equal(renameR.status, 200, JSON.stringify(renameR.body));
+    createdSpaceIds.push(newId);
+
+    const listR = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${newId}/chrono`);
+    assert.equal(listR.status, 200);
+    assert.equal(
+      listR.body.chrono?.length, 1,
+      'chrono entries must still be LISTED after a rename (listChrono filters on the spaceId field)',
+    );
+  });
+
+  it('Rename carries the seq counter forward — new writes still sync to peers', async () => {
+    // The seq counter lives in the GLOBAL `ythril_counters` collection keyed by `_id: spaceId`,
+    // so the prefix-based collection rename missed it and nextSeq() restarted at 1 — while the
+    // rename deliberately carries the OLD, high sync watermarks over to the new id. Every new
+    // write then got a seq BELOW the watermark and was never pushed: the space kept working
+    // locally while silently never syncing again.
+    const oldId = `seq-rename-${RUN_ID}`;
+    const newId = `seq-renamed-${RUN_ID}`;
+    await post(INSTANCES.a, tokenA, '/api/spaces', { id: oldId, label: 'Seq Rename' });
+
+    // Burn some sequence numbers so the counter is unambiguously > 1.
+    for (let i = 0; i < 3; i++) {
+      const w = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${oldId}/memories`, { fact: `seq burn ${i}` });
+      assert.equal(w.status, 201, JSON.stringify(w.body));
+    }
+    const beforeR = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${oldId}/memories`);
+    const seqBefore = Math.max(...beforeR.body.memories.map(m => m.seq));
+    assert.ok(seqBefore >= 3, `expected a burned-in seq, got ${seqBefore}`);
+
+    const renameR = await patch(INSTANCES.a, tokenA, `/api/spaces/${oldId}/rename`, { newId });
+    assert.equal(renameR.status, 200, JSON.stringify(renameR.body));
+    createdSpaceIds.push(newId);
+
+    // The next write must continue the sequence, NOT restart at 1.
+    const afterW = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${newId}/memories`, { fact: 'after rename' });
+    assert.equal(afterW.status, 201, JSON.stringify(afterW.body));
+    assert.ok(
+      afterW.body.seq > seqBefore,
+      `seq must keep climbing across a rename (was ${seqBefore}, got ${afterW.body.seq}) — a reset to 1 ` +
+      'silently strands every later write below the sync watermark',
+    );
+  });
+
   it('Files survive rename — accessible under new path', async () => {
     const oldId = `file-rename-${RUN_ID}`;
     const newId = `file-renamed-${RUN_ID}`;

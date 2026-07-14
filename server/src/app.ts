@@ -366,9 +366,19 @@ export function createApp() {
         // Extract and coerce the _id to a plain string to prevent any operator injection.
         const docId = String((doc as Record<string, unknown>)['_id']);
         try {
+          // Re-tag the document to the TARGET space.
+          //
+          // The export embeds the source space's id in every document, and the read paths
+          // filter on that field (listEntities, listEdges, listChrono, entity lookup-by-name,
+          // the edge-dedup lookup). Importing space A's export into space B while keeping
+          // `spaceId: "A"` writes documents that are counted but INVISIBLE to every list —
+          // the import looks like it worked, and the data appears to be missing. The
+          // collection name is the only real scope, so a document we write into
+          // `{spaceId}_*` belongs to `spaceId` by definition.
+          const retagged = { ...(doc as Record<string, unknown>), spaceId };
           const r = await col(collName).replaceOne(
             asFilter({ _id: docId }),
-            asDoc(doc as Record<string, unknown>),
+            asDoc(retagged),
             { upsert: true },
           );
           if (r.upsertedCount > 0) {

@@ -83,24 +83,53 @@ export function clearReindexFlag(spaceId: string): void {
  * disagree, and there is nothing it could wrongly "fix".
  */
 export async function repairStaleSpaceIds(spaceId: string): Promise<number> {
+  const db = getDb();
+  const prefix = `${spaceId}_`;
+
+  // Discover the space's collections rather than iterating a hardcoded list.
+  //
+  // The original repair walked SPACE_COLLECTIONS, which covers only the 8 collections
+  // initSpace creates — and so it MISSED `{spaceId}_file_tombstones`, whose readers DO
+  // filter on the spaceId field (api/sync.ts, sync/engine.ts). After a rename, every
+  // pre-rename file deletion became invisible to sync, and peers that still held the file
+  // pushed it straight back: deleted files resurrected. Scanning by prefix fixes that and
+  // means any per-space collection added in future is covered automatically — the hardcoded
+  // list was itself the bug.
+  let collections: string[];
+  try {
+    collections = (await db.listCollections().toArray())
+      .map(c => c.name)
+      .filter(n => n.startsWith(prefix));
+  } catch (err) {
+    log.warn(`Stale-spaceId repair: could not list collections for '${spaceId}': ${err}`);
+    return 0;
+  }
+
   let repaired = 0;
-  for (const suffix of SPACE_COLLECTIONS) {
+  for (const name of collections) {
     try {
-      const res = await col<{ spaceId?: string }>(`${spaceId}_${suffix}`).updateMany(
-        asFilter<{ spaceId?: string }>({ spaceId: { $ne: spaceId } }),
-        asUpdate<{ spaceId?: string }>({ $set: { spaceId } }),
+      // `$exists: true` is load-bearing: only rewrite a spaceId that is present but WRONG.
+      // Some per-space collections legitimately carry no spaceId field at all — notably
+      // `{spaceId}_file_hashes` (the manifest hash cache, keyed by path, one document per
+      // file). A bare `$ne` also matches missing fields, so without this guard the repair
+      // would ADD a spaceId to every cached file hash on every boot: pointless writes,
+      // potentially hundreds of thousands of them on a file-heavy space.
+      const res = await db.collection(name).updateMany(
+        { spaceId: { $exists: true, $ne: spaceId } },
+        { $set: { spaceId } },
       );
       repaired += res.modifiedCount ?? 0;
     } catch (err) {
       // Never let a repair failure block startup — the space is still usable.
-      log.warn(`Stale-spaceId repair failed for ${spaceId}_${suffix}: ${err}`);
+      log.warn(`Stale-spaceId repair failed for ${name}: ${err}`);
     }
   }
+
   if (repaired > 0) {
     log.warn(
       `Space '${spaceId}': repaired ${repaired} document(s) carrying a stale spaceId ` +
-      `(left behind by a space rename or an aliased sync). They were present but invisible ` +
-      `to list/lookup queries; they are now visible again.`,
+      `(left behind by a space rename, a cross-space import, or an aliased sync). They were ` +
+      `present but invisible to list/lookup queries; they are now visible again.`,
     );
   }
   return repaired;
@@ -777,6 +806,57 @@ async function moveSpaceData(oldId: string, newId: string): Promise<string[]> {
     const msg = `Could not rewrite spaceId field for renamed space ${newId}: ${err}`;
     log.warn(msg);
     errors.push(msg);
+  }
+
+  // 1c. Migrate the GLOBAL collections that are keyed by space id.
+  //
+  // These are not under the `{oldId}_` prefix, so the collection rename above misses them
+  // entirely — and for the seq counter that is dangerous, not cosmetic:
+  //
+  //   `ythril_counters` stores the space's monotonic seq as `_id: <spaceId>`. Losing it
+  //   means nextSeq() restarts at 1 — while applySpaceRenameToConfig deliberately carries
+  //   the OLD, high `lastSeqPushed` / `lastSeqReceived` watermarks over to the new id. Every
+  //   subsequent local write would then get a seq BELOW the watermark, and sync would skip
+  //   it forever: the space keeps working locally while silently never pushing to peers.
+  //
+  // `_id` is immutable in MongoDB, so these are copy-then-delete. Take the MAX of old and
+  // any pre-existing counter so a re-run can never move the sequence backwards.
+  try {
+    const counters = col<{ _id: string; seq: number }>('ythril_counters');
+    const oldCounter = await counters.findOne(asFilter<{ _id: string; seq: number }>({ _id: oldId }));
+    if (oldCounter) {
+      const newCounter = await counters.findOne(asFilter<{ _id: string; seq: number }>({ _id: newId }));
+      const seq = Math.max(oldCounter.seq ?? 0, newCounter?.seq ?? 0);
+      await counters.replaceOne(
+        asFilter<{ _id: string; seq: number }>({ _id: newId }),
+        asDoc({ _id: newId, seq }),
+        { upsert: true },
+      );
+      await counters.deleteOne(asFilter<{ _id: string; seq: number }>({ _id: oldId }));
+      log.debug(`Migrated seq counter ${oldId} → ${newId} (seq=${seq})`);
+    }
+  } catch (err) {
+    const msg = `Could not migrate the seq counter ${oldId} → ${newId}: ${err}`;
+    log.warn(msg);
+    errors.push(msg);
+  }
+
+  // The duplicate-scanner cursor is keyed `${spaceId}:${type}`. Losing it is harmless
+  // (the space simply re-scans from the start) but it leaves orphaned rows behind, so
+  // move it across rather than stranding it.
+  try {
+    const scanState = col<{ _id: string }>('ythril_dupe_scan_state');
+    const stale = await scanState
+      .find(asFilter<{ _id: string }>({ _id: { $regex: `^${oldId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:` } }))
+      .toArray() as Array<Record<string, unknown> & { _id: string }>;
+    for (const doc of stale) {
+      const moved = { ...doc, _id: `${newId}:${doc._id.slice(oldId.length + 1)}` };
+      await scanState.replaceOne(asFilter<{ _id: string }>({ _id: moved._id }), asDoc(moved), { upsert: true });
+      await scanState.deleteOne(asFilter<{ _id: string }>({ _id: doc._id }));
+    }
+  } catch (err) {
+    // Non-fatal: worst case the renamed space re-scans for duplicates from scratch.
+    log.warn(`Could not migrate the dupe-scan cursor ${oldId} → ${newId}: ${err}`);
   }
 
   // 2. Move the files directory (skip if already moved — old dir gone)

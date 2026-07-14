@@ -872,7 +872,7 @@ async function pullFromPeer(
           highSeq = (doc as MemoryDoc).seq;
         }
       }
-      await batchUpsertBySeq<T>(`${spaceId}_${urlSuffix}`, pageDocs);
+      await batchUpsertBySeq<T>(`${spaceId}_${urlSuffix}`, pageDocs, spaceId);
       cur = nextCursor; pg++;
     } while (cur && pg < 50);
     return { count, highSeq, maxSeq };
@@ -1230,8 +1230,23 @@ async function syncFiles(
 async function batchUpsertBySeq<T extends { _id: string; seq: number }>(
   collName: string,
   docs: T[],
+  localSpaceId: string,
 ): Promise<void> {
   if (docs.length === 0) return;
+
+  // Re-tag incoming documents to the LOCAL space.
+  //
+  // A peer's document carries ITS space id, and with `spaceMap` aliasing that is not our
+  // space id — but we store it in OUR collection. The read paths filter on this field
+  // (listEntities, findEntityByName, the edge-dedup lookup, cascade deletes), so leaving
+  // the remote id in place would make every synced document invisible to list and lookup
+  // while still being counted: the data looks lost, and `findEntityByName` stops matching,
+  // so `remember` starts creating duplicates. The collection name is the only real scope,
+  // so a document we write into `{localSpaceId}_*` belongs to `localSpaceId` by definition.
+  for (const doc of docs) {
+    (doc as unknown as { spaceId?: string }).spaceId = localSpaceId;
+  }
+
   const collection = col<T>(collName);
   const ids = docs.map(d => d._id);
   const existing = await collection

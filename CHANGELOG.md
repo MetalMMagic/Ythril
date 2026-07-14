@@ -242,6 +242,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Renaming a space no longer makes its entities and edges vanish from the UI.** `moveSpaceData`
+  renamed the collections (`{old}_entities` → `{new}_entities`) but never rewrote the `spaceId` field
+  *inside* the documents, so every one still pointed at the OLD space id. `listEntities`, `listEdges`,
+  entity lookup-by-name, the edge-dedup lookup and the cascade deletes all filter on that field — so a
+  renamed space looked **catastrophic but was actually intact**: the entry counts still showed the data
+  (counts read the collection) while every list came back **empty**. Worse, because lookup-by-name
+  stopped matching, `remember` would start creating **duplicate entities** instead of linking to the
+  existing one. Memories were unaffected (`listMemories` does not filter on `spaceId`) — which is
+  exactly why the existing rename test, which only checked memories, never caught this. The rename now
+  rewrites the field, and **existing affected databases self-heal on boot** (`repairStaleSpaceIds`,
+  run from `initSpace`): documents living in `{spaceId}_*` belong to `spaceId` by definition, so the
+  repair is safe and idempotent. Sync had the same flaw — a `spaceMap`-aliased pull wrote peer documents
+  into the local collection while keeping the *remote* space id — and now re-tags them to the local
+  space. Regression test added covering entities, edges and lookup-by-name across a rename.
+
 - **The test stack no longer races four concurrent builds onto one image tag.** Giving every instance the
   shared `ythril-test:latest` tag (so CI can pre-build once against a layer cache) made `docker compose
   build` build the *same* tag from four services simultaneously, which races on the image export and could

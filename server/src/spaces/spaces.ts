@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs/promises';
 import path from 'path';
-import { getDb, col, asDoc } from '../db/mongo.js';
+import { getDb, col, asDoc, asFilter, asUpdate } from '../db/mongo.js';
 import { getConfig, saveConfig, getEmbeddingConfig, getDataRoot, getFaceRecognitionConfig } from '../config/loader.js';
 import { ensureSpaceFilesDir, writeFile as writeSpaceFile } from '../files/files.js';
 import { invalidateUsageCache } from '../quota/quota.js';
@@ -61,6 +61,51 @@ export function clearReindexFlag(spaceId: string): void {
  *  With `waitForVectorReady: false` the (slow) $vectorSearch indexes are created but
  *  the READY poll is skipped, so the call returns in ~seconds — used by createSpace so
  *  the API can respond immediately (B1). Defaults to waiting (boot / reload paths). */
+/**
+ * Repair documents whose `spaceId` field disagrees with the collection they live in.
+ *
+ * Collections are already per-space (`{spaceId}_entities`), so the `spaceId` field inside
+ * each document is redundant — but the read paths filter on it (`listEntities`,
+ * `findEntityByName`, the edge-dedup lookup, the cascade deletes). If the field goes stale,
+ * the data is still counted (counts read the collection) but becomes INVISIBLE to every
+ * list and lookup — and worse, `findEntityByName` stops matching, so `remember` starts
+ * creating duplicate entities instead of linking to the existing one.
+ *
+ * Two paths used to leave it stale:
+ *   1. renaming a space — `moveSpaceData` renamed the collections but never rewrote the
+ *      field, so every document kept the OLD space id;
+ *   2. syncing with `spaceMap` aliasing — pulled documents were written into the local
+ *      collection while keeping the REMOTE space id.
+ *
+ * Both are fixed at the source, but existing databases are already affected, so this runs
+ * on every `initSpace` (boot). A document living in `{spaceId}_*` belongs to `spaceId` by
+ * definition, which makes this safe and idempotent: it only touches documents that
+ * disagree, and there is nothing it could wrongly "fix".
+ */
+export async function repairStaleSpaceIds(spaceId: string): Promise<number> {
+  let repaired = 0;
+  for (const suffix of SPACE_COLLECTIONS) {
+    try {
+      const res = await col<{ spaceId?: string }>(`${spaceId}_${suffix}`).updateMany(
+        asFilter<{ spaceId?: string }>({ spaceId: { $ne: spaceId } }),
+        asUpdate<{ spaceId?: string }>({ $set: { spaceId } }),
+      );
+      repaired += res.modifiedCount ?? 0;
+    } catch (err) {
+      // Never let a repair failure block startup — the space is still usable.
+      log.warn(`Stale-spaceId repair failed for ${spaceId}_${suffix}: ${err}`);
+    }
+  }
+  if (repaired > 0) {
+    log.warn(
+      `Space '${spaceId}': repaired ${repaired} document(s) carrying a stale spaceId ` +
+      `(left behind by a space rename or an aliased sync). They were present but invisible ` +
+      `to list/lookup queries; they are now visible again.`,
+    );
+  }
+  return repaired;
+}
+
 export async function initSpace(
   spaceId: string,
   opts: { waitForVectorReady?: boolean } = {},
@@ -81,6 +126,9 @@ export async function initSpace(
       log.debug(`Created collection ${name}`);
     }
   }
+
+  // Self-heal data left invisible by an older rename / aliased sync (see above).
+  await repairStaleSpaceIds(spaceId);
 
   // Regular indexes
   const memoriesColl = db.collection(`${spaceId}_memories`);
@@ -709,6 +757,26 @@ async function moveSpaceData(oldId: string, newId: string): Promise<string[]> {
       log.warn(msg);
       errors.push(msg);
     }
+  }
+
+  // 1b. Rewrite the `spaceId` field inside the moved documents.
+  //
+  // Renaming the collection is NOT enough: every document still carries the OLD space id,
+  // and the read paths filter on that field (listEntities, findEntityByName, the edge-dedup
+  // lookup, the cascade deletes). Without this the renamed space looks CATASTROPHIC but is
+  // actually intact — counts still show the documents (counts read the collection) while
+  // every list comes back empty, and `findEntityByName` stops matching, so `remember` starts
+  // creating duplicates instead of linking to the existing entity.
+  //
+  // Idempotent, and safe on a partial re-run: a document living in `{newId}_*` belongs to
+  // `newId` by definition, so we only touch the ones that disagree.
+  try {
+    const repaired = await repairStaleSpaceIds(newId);
+    if (repaired > 0) log.debug(`Rewrote spaceId on ${repaired} document(s) for renamed space ${newId}`);
+  } catch (err) {
+    const msg = `Could not rewrite spaceId field for renamed space ${newId}: ${err}`;
+    log.warn(msg);
+    errors.push(msg);
   }
 
   // 2. Move the files directory (skip if already moved — old dir gone)

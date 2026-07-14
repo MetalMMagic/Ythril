@@ -81,6 +81,53 @@ describe('Space rename', () => {
     assert.ok(found, 'Memory should exist under the renamed space');
   });
 
+  it('Data survives rename — entities and edges are still LISTED under the new ID', async () => {
+    // Regression: renaming a space renamed its collections but left the `spaceId` field
+    // inside every document pointing at the OLD id. `listEntities` / `listEdges` filter on
+    // that field, so the data silently vanished from the UI — while the counts (which read
+    // the collection) still showed it. `listMemories` does NOT filter on spaceId, which is
+    // exactly why the memory-only test above kept passing and this went unnoticed.
+    const oldId = `ee-rename-${RUN_ID}`;
+    const newId = `ee-renamed-${RUN_ID}`;
+    await post(INSTANCES.a, tokenA, '/api/spaces', { id: oldId, label: 'Entity Edge Rename' });
+
+    const aR = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${oldId}/entities`, { name: 'Ada', type: 'person' });
+    const bR = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${oldId}/entities`, { name: 'Grace', type: 'person' });
+    assert.equal(aR.status, 201, JSON.stringify(aR.body));
+    assert.equal(bR.status, 201, JSON.stringify(bR.body));
+
+    const edgeR = await post(INSTANCES.a, tokenA, `/api/brain/spaces/${oldId}/edges`, {
+      from: aR.body._id, to: bR.body._id, label: 'knows',
+    });
+    assert.equal(edgeR.status, 201, JSON.stringify(edgeR.body));
+
+    const renameR = await patch(INSTANCES.a, tokenA, `/api/spaces/${oldId}/rename`, { newId });
+    assert.equal(renameR.status, 200, JSON.stringify(renameR.body));
+    createdSpaceIds.push(newId);
+
+    const entR = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${newId}/entities`);
+    assert.equal(entR.status, 200);
+    assert.equal(
+      entR.body.entities?.length, 2,
+      'entities must still be LISTED after a rename (they were present but invisible: the ' +
+      'spaceId field inside each document still pointed at the old space id)',
+    );
+
+    const edgR = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${newId}/edges`);
+    assert.equal(edgR.status, 200);
+    assert.equal(edgR.body.edges?.length, 1, 'edges must still be LISTED after a rename');
+
+    // The stale field also broke entity lookup BY NAME (the same spaceId filter), which is
+    // what `remember` uses to link to an existing entity rather than creating a duplicate.
+    const byName = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${newId}/entities?name=Ada`);
+    assert.equal(byName.status, 200);
+    assert.equal(
+      byName.body.entities?.length, 1,
+      'entity lookup by name must still work after a rename — otherwise `remember` stops ' +
+      'matching existing entities and starts creating duplicates',
+    );
+  });
+
   it('Files survive rename — accessible under new path', async () => {
     const oldId = `file-rename-${RUN_ID}`;
     const newId = `file-renamed-${RUN_ID}`;

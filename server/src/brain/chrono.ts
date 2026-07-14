@@ -12,6 +12,56 @@ function authorRef() {
   return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
 }
 
+const RECURRENCE_FREQ = ['daily', 'weekly', 'monthly', 'yearly'] as const;
+
+/**
+ * Validate and normalise a `recurrence` block.
+ *
+ * Shared by REST and MCP. REST previously destructured `recurrence` straight out of the
+ * request body and handed it to createChrono with NO shape check — unlike every sibling
+ * field — so an arbitrary object could be persisted and later fed to date logic. MCP did
+ * not expose it at all, so recurring entries were unreachable for agents.
+ *
+ * Returns `{ ok: true, value }` (value `undefined` when absent), or `{ ok: false, error }`.
+ */
+export function parseRecurrence(
+  raw: unknown,
+): { ok: true; value: ChronoEntry['recurrence'] } | { ok: false; error: string } {
+  if (raw == null) return { ok: true, value: undefined };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: 'recurrence must be an object' };
+  }
+  const r = raw as Record<string, unknown>;
+
+  const freq = r['freq'];
+  if (typeof freq !== 'string' || !(RECURRENCE_FREQ as readonly string[]).includes(freq)) {
+    return { ok: false, error: `recurrence.freq must be one of: ${RECURRENCE_FREQ.join(', ')}` };
+  }
+
+  // `interval` is required by the type. Default it rather than persisting a half-formed
+  // block that would later read as NaN.
+  let interval = 1;
+  if (r['interval'] !== undefined) {
+    if (typeof r['interval'] !== 'number' || !Number.isInteger(r['interval']) || r['interval'] < 1) {
+      return { ok: false, error: 'recurrence.interval must be a positive integer' };
+    }
+    interval = r['interval'];
+  }
+
+  let until: string | undefined;
+  if (r['until'] !== undefined) {
+    if (typeof r['until'] !== 'string' || Number.isNaN(Date.parse(r['until']))) {
+      return { ok: false, error: 'recurrence.until must be an ISO 8601 date string' };
+    }
+    until = r['until'];
+  }
+
+  return {
+    ok: true,
+    value: { freq: freq as 'daily' | 'weekly' | 'monthly' | 'yearly', interval, ...(until ? { until } : {}) },
+  };
+}
+
 /** Derive the text to embed for a chrono entry (type + status + title + description + tags). */
 function chronoEmbedText(
   title: string,

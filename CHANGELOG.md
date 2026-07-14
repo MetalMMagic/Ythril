@@ -262,6 +262,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Schema validation was a total no-op on MCP — the surface agents actually use.** `validateMemory()` keys
+  the whole per-type schema lookup off `memory.type`, but the MCP `remember` and `bulk_write` tools never
+  exposed `type` and passed `undefined` to the engine. With no type there is no schema, so validation always
+  returned **zero violations** and the `validationMode: 'strict'` gate **could never fire**. A space that
+  enforces required memory properties enforced them over REST and **silently ignored them over MCP**. Both
+  tools now accept `type`, forward it to the validator and persist it. (The existing schema-validation suite
+  set up exactly this scenario and asserted a 400 — but **only through REST**: the one surface that could
+  fail was never tested. Same shape as the space-rename bug.)
+- **MCP `bulk_write` never validated edge `properties`.** It called `validateEdge(meta, { label })`, omitting
+  `properties`, so required/typed edge properties were never checked and strict mode was unenforceable on
+  that path — while MCP `upsert_edge` and REST both got it right.
+- **Chrono `recurrence` was unreachable from MCP and unvalidated over REST.** The engine has supported it all
+  along, but no MCP tool declared it, so agents could not create or modify recurring entries. Meanwhile REST
+  destructured it straight out of the request body and persisted it **with no shape check at all** — unlike
+  every sibling field — so an arbitrary object could be stored and later read as a recurrence rule. Both
+  surfaces now share one validator (`freq` enum, positive integer `interval`, ISO `until`).
+
 - **Completed the space-rename data-integrity fix — three more instances of the same bug.** The audit that
   followed the rename fix found the same "stale `spaceId`" flaw in places the first pass missed:
   - **Deleted files could resurrect.** `{spaceId}_file_tombstones` carries a `spaceId` field and its readers

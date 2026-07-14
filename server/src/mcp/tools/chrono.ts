@@ -1,6 +1,6 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE } from './shared.js';
-import { ChronoFilter, createChrono, listChrono, updateChrono } from '../../brain/chrono.js';
+import { ChronoFilter, createChrono, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
@@ -29,6 +29,16 @@ export const create_chronoTool: ToolHandler = {
               type: 'object',
               description: 'Optional structured key-value metadata for this entry.',
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+            },
+            recurrence: {
+              type: 'object',
+              description: 'Optional recurrence rule, e.g. { freq: "weekly", interval: 1, until: "2027-01-01T00:00:00Z" }.',
+              properties: {
+                freq: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'] },
+                interval: { type: 'number', description: 'Repeat every N periods (positive integer, default 1).' },
+                until: { type: 'string', description: 'Optional ISO 8601 end date.' },
+              },
+              required: ['freq'],
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
@@ -80,6 +90,9 @@ export const create_chronoTool: ToolHandler = {
       }
     }
 
+    const rec = parseRecurrence(a['recurrence']);
+    if (!rec.ok) throw new Error(rec.error);
+
     const entry = await createChrono(wt.target, {
       title,
       type: chronoType,
@@ -92,6 +105,7 @@ export const create_chronoTool: ToolHandler = {
       entityIds: chronoEntityIds,
       memoryIds: chronoMemoryIds,
       properties: chronoProps,
+      ...(rec.value ? { recurrence: rec.value } : {}),
     });
     let text = `Chrono entry '${entry.title}' (${entry.type}) created (ID ${entry._id}, seq ${entry.seq}).`
       + (remQuota.softBreached ? `\n⚠️ Storage warning: ${remQuota.warning}` : '');
@@ -126,6 +140,16 @@ export const update_chronoTool: ToolHandler = {
               type: 'object',
               description: 'Optional structured key-value metadata for this entry.',
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
+            },
+            recurrence: {
+              type: 'object',
+              description: 'Recurrence rule, e.g. { freq: "weekly", interval: 1, until: "2027-01-01T00:00:00Z" }.',
+              properties: {
+                freq: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'] },
+                interval: { type: 'number', description: 'Repeat every N periods (positive integer, default 1).' },
+                until: { type: 'string', description: 'Optional ISO 8601 end date.' },
+              },
+              required: ['freq'],
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
@@ -165,6 +189,11 @@ export const update_chronoTool: ToolHandler = {
     }
     if (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties'])) {
       updates['properties'] = a['properties'];
+    }
+    if (a['recurrence'] !== undefined) {
+      const rec = parseRecurrence(a['recurrence']);
+      if (!rec.ok) throw new Error(rec.error);
+      updates['recurrence'] = rec.value;
     }
 
     const entry = await updateChrono(wt.target, id, updates as Parameters<typeof updateChrono>[2]);

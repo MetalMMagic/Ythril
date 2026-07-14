@@ -38,7 +38,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, delWithBody } from '../sync/helpers.js';
+import { INSTANCES, post, get, del, patch, delWithBody } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -1598,5 +1598,86 @@ describe('MCP file tools � write_file with properties metadata', () => {
     const docs = JSON.parse(queryResult?.content?.[0]?.text ?? '[]');
     assert.ok(docs.length > 0, `Expected metadata record for ${filePath}`);
     assert.deepStrictEqual(docs[0].properties, { owner: 'infra-team', version: 3, archived: false }, 'properties stored in file metadata');
+  });
+});
+
+describe('MCP schema validation — strict mode must actually block (parity with REST)', () => {
+  // Regression: MCP `remember` had no `type` parameter, and validateMemory() keys the entire
+  // per-type schema lookup off `memory.type`. With no type it found no schema and returned
+  // ZERO violations — so the strict-mode gate could never fire and schema validation was a
+  // total NO-OP on MCP, the surface agents actually use. REST enforced it all along.
+  //
+  // The existing schema-validation suite set up exactly this scenario and asserted 400 —
+  // but only through REST. Same shape as the space-rename bug: the one surface that could
+  // fail was never tested.
+  let session;
+  const spaceId = `mcp-schema-${Date.now()}`;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    const c = await post(INSTANCES.a, tokenA, '/api/spaces', { id: spaceId, label: 'MCP Schema Test' });
+    assert.equal(c.status, 201, JSON.stringify(c.body));
+
+    // memory type "note" requires properties.source; strict mode rejects violations.
+    const meta = await patch(INSTANCES.a, tokenA, `/api/spaces/${spaceId}`, {
+      meta: {
+        validationMode: 'strict',
+        typeSchemas: {
+          memory: { note: { propertySchemas: { source: { type: 'string', required: true } } } },
+        },
+      },
+    });
+    assert.equal(meta.status, 200, JSON.stringify(meta.body));
+    session = await openMcpSession(tokenA);
+  });
+
+  after(async () => {
+    session?.close();
+    await delWithBody(INSTANCES.a, tokenA, `/api/spaces/${spaceId}`, { confirm: true }).catch(() => {});
+  });
+
+  it('remember with a typed memory MISSING a required property is REJECTED', async () => {
+    const r = await session.callTool('remember', {
+      space: spaceId,
+      fact: `mcp strict missing source ${Date.now()}`,
+      type: 'note',
+    });
+    const text = JSON.stringify(r);
+    assert.ok(
+      r.isError === true || /schema_violation/.test(text),
+      `strict mode must block this on MCP too — schema validation was a no-op here because ` +
+      `\`type\` was never forwarded. Got: ${text}`,
+    );
+    assert.match(text, /source/, 'the violation should name the missing required property');
+  });
+
+  it('remember with the required property is ACCEPTED, and the type is persisted', async () => {
+    const fact = `mcp strict valid ${Date.now()}`;
+    const r = await session.callTool('remember', {
+      space: spaceId,
+      fact,
+      type: 'note',
+      properties: { source: 'mcp-test' },
+    });
+    assert.notEqual(r.isError, true, `valid write must succeed: ${JSON.stringify(r)}`);
+
+    // Effect assertion, not a status check: the type must actually be stored — otherwise
+    // `type` is accepted and silently dropped, which is the bug in a different costume.
+    const list = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${spaceId}/memories`);
+    assert.equal(list.status, 200);
+    const stored = list.body.memories.find(m => m.fact === fact);
+    assert.ok(stored, 'the memory should have been stored');
+    assert.equal(stored.type, 'note', '`type` must be persisted, not silently dropped');
+  });
+
+  it('bulk_write enforces the same schema (its memory items had no type either)', async () => {
+    const r = await session.callTool('bulk_write', {
+      space: spaceId,
+      memories: [{ fact: `mcp bulk strict ${Date.now()}`, type: 'note' }],
+    });
+    assert.match(
+      JSON.stringify(r), /schema_violation|source/,
+      'bulk_write must enforce strict schema validation for typed memories too',
+    );
   });
 });

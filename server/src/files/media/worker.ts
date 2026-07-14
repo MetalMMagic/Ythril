@@ -36,7 +36,7 @@ import type { MediaJobDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { createMediaProviders } from './providers.js';
 import type { MediaProviderBundle } from './providers.js';
-import { claimNextJob, completeJob, failJob, resetStalledJobs } from './job-queue.js';
+import { claimNextJob, completeJob, failJob, resetStalledJobs, currentWorkEpoch, waitForWork, wakeWorkers } from './job-queue.js';
 import { embedImage } from './image-embedder.js';
 import { embedAudio } from './audio-embedder.js';
 import { embedVideo } from './video-embedder.js';
@@ -86,6 +86,9 @@ export function stopMediaEmbeddingWorker(): void {
     clearInterval(providerRefreshTimer);
     providerRefreshTimer = null;
   }
+  // The idle wait is interruptible, so wake it: otherwise a worker parked on a 30s backoff
+  // would keep the process alive for up to that long after a stop request.
+  wakeWorkers();
   log.info('Media embedding worker: stop requested');
 }
 
@@ -218,6 +221,11 @@ async function workerLoop(): Promise<void> {
       continue;
     }
 
+    // Sample the work epoch BEFORE claiming. If something is enqueued while we are claiming
+    // (or between the failed claim and the sleep below), the epoch moves and waitForWork()
+    // returns immediately instead of letting that job wait out the whole backoff.
+    const epochBeforeClaim = currentWorkEpoch();
+
     // Claim up to `workerConcurrency` jobs
     const claimed: MediaJobDoc[] = [];
     for (let i = 0; i < workerConcurrency; i++) {
@@ -230,9 +238,20 @@ async function workerLoop(): Promise<void> {
     }
 
     if (claimed.length === 0) {
-      // Exponential backoff on empty queue
+      // Exponential backoff on an empty queue — but INTERRUPTIBLE.
+      //
+      // The backoff is right for CPU and wrong for latency: it stretches to
+      // workerMaxPollIntervalMs (30s by default), so an upload into an idle system used to
+      // wait up to 30 SECONDS before embedding even started, with the file sitting in
+      // "pending" the whole time. Every path that creates claimable work already announces
+      // it, so that announcement now wakes us.
       currentPollMs = Math.min(currentPollMs * 2, workerMaxPollIntervalMs);
-      await sleep(currentPollMs);
+      const wokenByWork = await waitForWork(currentPollMs, epochBeforeClaim);
+      if (wokenByWork) {
+        // Real work arrived — drop straight back to the fast poll interval rather than
+        // carrying the idle backoff into a now-busy queue.
+        currentPollMs = workerPollIntervalMs;
+      }
       continue;
     }
 

@@ -100,6 +100,9 @@ export async function enqueueMediaJob(
     };
     await jobCollection(spaceId).insertOne(asDoc<MediaJobDoc>(doc));
   }
+  // The claim walk only probes spaces the hint knows about (P12) — so anything that CREATES
+  // claimable work must announce it, or the job would sit unclaimed until the next full scan.
+  markSpaceMayHaveWork(spaceId);
 }
 
 /**
@@ -162,6 +165,9 @@ export async function enqueueTextJob(
     await jobCollection(spaceId).insertOne(asDoc<MediaJobDoc>(doc));
   }
 
+  // Same as enqueueMediaJob: announce the work, or the claim walk will not probe this space.
+  markSpaceMayHaveWork(spaceId);
+
   // Reflect pending status on the file meta record immediately so the UI
   // can show an "embedding" indicator without waiting for the worker.
   await fileCollection(spaceId).updateOne(
@@ -181,11 +187,105 @@ export async function enqueueTextJob(
  * Skips jobs whose `claimableAfter` is still in the future (exponential
  * retry backoff) so a fast-failing job cannot starve siblings.
  */
+// ── Pending-work hint (P12) ─────────────────────────────────────────────────
+//
+// Media job collections are PER SPACE, so there is no single cross-space query: claiming
+// walks the spaces one findOneAndUpdate at a time and returns on the first hit. When the queue
+// is empty — the normal state — every claim paid a full N-space walk just to discover there
+// was nothing to do, and the worker does that (workerConcurrency + 1) times per tick. At 100
+// spaces that is ~300 sequential round trips per tick, all of them useless.
+//
+// The hint records which spaces MIGHT hold claimable work, so the walk visits only those.
+// It is an optimisation, never the source of truth: a stale hint can only cause an extra
+// (harmless) probe, and work is never lost, because...
+//
+// ...a periodic FULL scan re-seeds it. That matters for one specific case: a job whose retry
+// backoff (`claimableAfter`) has not yet elapsed is `pending` but not claimable, so the claim
+// returns null and the hint is dropped — and when the backoff DOES elapse, nothing would
+// re-add it. The full scan bounds how long such a job can sit unnoticed.
+const _pendingHint = new Set<string>();
+let _lastFullScan = 0;
+const FULL_SCAN_INTERVAL_MS = 30_000;
+
+// ── Worker wake-up ──────────────────────────────────────────────────────────
+//
+// On an empty queue the worker backs its poll interval off to workerMaxPollIntervalMs (30s by
+// default) and sleeps on a plain setTimeout. That is right for CPU, and wrong for latency: an
+// upload into an idle system then waits up to 30 SECONDS before embedding even starts, while
+// the user watches the file sit in "pending".
+//
+// Since every path that creates claimable work already announces it (below), the announcement
+// can simply wake the worker. The epoch counter closes the obvious race — work enqueued
+// *between* the worker's failed claim and the start of its sleep would otherwise be missed and
+// wait out the full backoff anyway. The worker samples the epoch BEFORE claiming and passes it
+// to waitForWork(), which returns immediately if it has since moved.
+let _workEpoch = 0;
+let _wakeWaiters: Array<() => void> = [];
+
+/** Monotonic counter bumped every time claimable work is announced. */
+export function currentWorkEpoch(): number {
+  return _workEpoch;
+}
+
+/**
+ * Sleep up to `ms`, returning early if work is announced.
+ * Returns true if woken by work, false if it timed out.
+ *
+ * `sinceEpoch` must be sampled BEFORE the caller's claim attempt.
+ */
+export function waitForWork(ms: number, sinceEpoch: number): Promise<boolean> {
+  // Work already arrived while the caller was claiming — do not sleep at all.
+  if (_workEpoch !== sinceEpoch) return Promise.resolve(true);
+
+  return new Promise<boolean>(resolve => {
+    let settled = false;
+    const finish = (woken: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      _wakeWaiters = _wakeWaiters.filter(w => w !== wake);
+      resolve(woken);
+    };
+    const wake = () => finish(true);
+    const timer = setTimeout(() => finish(false), ms);
+    if (typeof timer.unref === 'function') timer.unref();
+    _wakeWaiters.push(wake);
+  });
+}
+
+/** Wake every waiter — used on announcement, and on shutdown so stopping is not delayed. */
+export function wakeWorkers(): void {
+  const waiters = _wakeWaiters;
+  _wakeWaiters = [];
+  for (const w of waiters) w();
+}
+
+/** Record that a space may have claimable work (enqueue, requeue-on-failure, stall reset). */
+export function markSpaceMayHaveWork(spaceId: string): void {
+  _pendingHint.add(spaceId);
+  _workEpoch++;
+  wakeWorkers();
+}
+
+/** Test seam: forget everything the hint knows, forcing the next claim to do a full scan. */
+export function resetPendingHint(): void {
+  _pendingHint.clear();
+  _lastFullScan = 0;
+}
+
 export async function claimNextJob(
   spaceIds: string[],
 ): Promise<MediaJobDoc | null> {
   const now = new Date().toISOString();
-  for (const spaceId of spaceIds) {
+
+  const dueFullScan = Date.now() - _lastFullScan >= FULL_SCAN_INTERVAL_MS;
+  if (dueFullScan) _lastFullScan = Date.now();
+
+  // On a full scan, probe every space (authoritative). Otherwise probe only the spaces the
+  // hint says are worth probing — which, on an idle queue, is none.
+  const candidates = dueFullScan ? spaceIds : spaceIds.filter(s => _pendingHint.has(s));
+
+  for (const spaceId of candidates) {
     const claimed = await jobCollection(spaceId).findOneAndUpdate(
       asFilter<MediaJobDoc>({
         status: 'pending',
@@ -202,7 +302,15 @@ export async function claimNextJob(
       }),
       { returnDocument: 'after', sort: { createdAt: 1 } },
     ) as MediaJobDoc | null;
-    if (claimed) return claimed;
+
+    if (claimed) {
+      // There may be MORE work in this space — keep probing it on the next claim.
+      _pendingHint.add(spaceId);
+      return claimed;
+    }
+    // Nothing claimable here right now. Drop the hint; a future enqueue, a requeue, or the
+    // periodic full scan will put it back.
+    _pendingHint.delete(spaceId);
   }
   return null;
 }
@@ -257,6 +365,9 @@ export async function failJob(
         },
       }),
     );
+    // Pending again (behind a backoff). Announce it: the probe it triggers is cheap, and it
+    // keeps the invariant simple — everything that makes a job pending marks the space.
+    markSpaceMayHaveWork(spaceId);
     log.warn(`Media job ${spaceId}/${fileId} failed (attempt ${attempts}/${maxAttempts}), retry after ${claimableAfter}: ${errorMessage}`);
   } else {
     // Exhausted retries
@@ -318,6 +429,9 @@ export async function resetStalledJobs(
         { returnDocument: 'after', sort: { claimedAt: 1 } },
       ) as MediaJobDoc | null;
       if (!claimed) break;
+      // Crash-recovered jobs are immediately claimable again — re-arm the hint, otherwise the
+      // claim walk would skip this space until the next full scan.
+      markSpaceMayHaveWork(spaceId);
       reset++;
     }
   }
@@ -362,6 +476,9 @@ export async function retryJob(
     asFilter<FileMetaDoc>({ _id: fileId }),
     { $set: { embeddingStatus: 'pending', mediaJobError: undefined, updatedAt: now } },
   );
+  // A manual retry must be picked up promptly — announce it, or the claim walk would not
+  // probe this space until the next full scan (up to 30 s of the user staring at "pending").
+  markSpaceMayHaveWork(spaceId);
   return 'ok';
 }
 

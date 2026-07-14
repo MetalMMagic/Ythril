@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`OnPush` change detection on the file-manager page (P5, slice 3).** The file browser renders a
+  file listing, a recursive directory-tree sidebar, breadcrumbs, and a preview pane — previously all
+  re-checked on every unrelated tick/XHR/DOM event across the app. Every rendered value is
+  signal-backed (`entries`, `treeRoot`, `breadcrumbs`, `previewFile`/`previewHtml`, upload progress);
+  each tree expansion mutates a node in place but always follows with `treeRoot.set([...])`, and the
+  async preview/upload callbacks update via signal `.set()` — so `OnPush` re-checks exactly when
+  state changes. Verified with a spec that renders the listing and tree, opens the preview, and
+  replaces the `entries` signal, asserting each view refreshes.
+
+### Changed
+
 - **`OnPush` change detection on the audit-log page (P5, slice 2).** The audit-log viewer renders
   up to a 100-row table plus a live-streaming server log, and previously re-ran change detection over
   its whole subtree on every unrelated tick/XHR/DOM event. Every value it renders is already a signal

@@ -145,20 +145,62 @@ export async function get(baseUrl, token, path) {
   return reqJson(baseUrl, token, path);
 }
 
-/** Poll until condition() returns true or timeout (ms) */
-export async function waitFor(condition, timeout = 15_000, interval = 500) {
+/**
+ * Poll until condition() returns true or timeout (ms).
+ *
+ * `diagnose` (string or fn) is appended to the timeout message. Use it to explain WHY
+ * the wait failed — a bare "timed out after 90000ms" is nearly useless, and actively
+ * dangerous: a persistent, actionable error can masquerade as a mysterious flake. That
+ * is exactly how the notify rate-limit bug hid for weeks — every sync trigger was being
+ * rejected with 429, the tests swallowed it, and all we ever saw was a timeout.
+ */
+export async function waitFor(condition, timeout = 15_000, interval = 500, diagnose) {
   const start = Date.now();
   while (Date.now() - start < timeout) {
     if (await condition()) return true;
     await new Promise(r => setTimeout(r, interval));
   }
-  throw new Error(`waitFor timed out after ${timeout}ms`);
+  const detail = typeof diagnose === 'function' ? diagnose() : diagnose;
+  throw new Error(`waitFor timed out after ${timeout}ms${detail ? ` — ${detail}` : ''}`);
 }
 
-/** Trigger a sync run on an instance for a given networkId */
+/** Trigger a sync run on an instance for a given networkId. Throws on any non-200. */
 export async function triggerSync(baseUrl, token, networkId) {
   const r = await post(baseUrl, token, '/api/notify/trigger', { networkId });
   if (r.status !== 200) throw new Error(`triggerSync failed: ${r.status} ${JSON.stringify(r.body)}`);
+}
+
+/**
+ * Build a sync trigger for use INSIDE a waitFor poll.
+ *
+ * Re-triggering each poll is deliberate (a single up-front trigger races a slow gossip
+ * cycle), but a naked `triggerSync(...).catch(() => {})` is a trap: it tolerates a
+ * transient blip and a permanent misconfiguration identically, and the latter then
+ * shows up only as an unexplained timeout.
+ *
+ * This tolerates failures so one bad poll doesn't fail the test, but REMEMBERS the last
+ * one. Pass `probe.diagnose` to waitFor so a persistent failure is reported as itself
+ * (e.g. "429 Too Many Requests") instead of a silent stall.
+ */
+export function makeTriggerProbe(baseUrl, token, networkId, label = baseUrl) {
+  const probe = async () => {
+    try {
+      await triggerSync(baseUrl, token, networkId);
+      probe.lastError = null;
+      probe.okCount++;
+    } catch (err) {
+      probe.lastError = err;
+      probe.failCount++;
+    }
+  };
+  probe.lastError = null;
+  probe.okCount = 0;
+  probe.failCount = 0;
+  probe.diagnose = () =>
+    probe.lastError
+      ? `every sync trigger to ${label} was failing (${probe.failCount} failed / ${probe.okCount} ok); last error: ${probe.lastError.message}`
+      : `sync triggers to ${label} all succeeded (${probe.okCount}) — the peer simply never delivered the expected state`;
+  return probe;
 }
 
 /** Create a memory on an instance's general space */

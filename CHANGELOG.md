@@ -225,9 +225,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared `ythril-test:latest` tag (so CI can pre-build once against a layer cache) made `docker compose
   build` build the *same* tag from four services simultaneously, which races on the image export and could
   corrupt it locally (`failed to extract layer … EOF`). Only `ythril-a` builds the image now; b/c/d simply
-  reference the tag. CI is unaffected — it pre-builds the tag itself. Additionally, `test:up:rebuild` now
-  runs a `test:prune` step (drop the previous build's dangling image, cap the build cache), because every
-  `--build` previously left an orphaned multi-GB image behind and grew the build cache without bound.
+  reference the tag. CI is unaffected — it pre-builds the tag itself.
+- **Rebuilding the test stack no longer leaks Docker disk without bound.** Every `--build` orphaned the
+  previous multi-GB image (each bakes a ~520 MB embedding model, node_modules and ffmpeg) and grew the
+  BuildKit cache forever — on one workstation this reached **35 GB of build cache plus 20 GB of orphaned
+  images**, filled the drive and took Docker Desktop down. `test:up:rebuild` now runs `test:prune` (drop
+  dangling images, cap the cache at 5 GB), and a new `npm run docker:reclaim` handles an already-ballooned
+  install: it prunes, then `fstrim`s inside the VM, then prints the exact elevated `diskpart` steps to
+  **compact** `docker_data.vhdx` — necessary because pruning frees space *inside* the VM while the
+  dynamically-expanding disk only ever grows on the host. It locates the disk even when relocated to
+  another drive (`CustomWslDistroDir`).
+- **Sync tests can no longer turn a persistent, actionable error into an unexplained timeout.** The sync
+  suites re-trigger a sync on every poll (deliberate — a single up-front trigger races a slow gossip
+  cycle), but they did it as `triggerSync(...).catch(() => {})`, which treats a transient blip and a
+  permanent misconfiguration identically. That trap is *why* the notify rate-limit bug survived three wrong
+  fixes: every trigger was coming back `429`, the `.catch()` ate it, no sync cycle ever ran, and all anyone
+  saw was `waitFor timed out after 90000ms`. `waitFor` now takes a `diagnose` argument appended to its
+  timeout message, and `makeTriggerProbe` still tolerates a failed poll but **remembers the last failure**
+  and reports it — so the message becomes "every sync trigger to A was failing (…); last error:
+  triggerSync failed: 429 …" instead of a bare stall. Test-harness only. Pinned by
+  `testing/standalone/waitfor-diagnostics.test.js`.
+
+- **The notify limiter now honours the test kill-switch — the real cause of the “flaky” signed-vote relay test.**
+  `POST /api/notify/trigger` is how the test harness drives a sync cycle, and it is guarded by
+  `notifyRateLimit` (60/min per IP). Every request from the harness shares one source IP, so the sync suites
+  collectively blew past 60/min and started getting `429`s — which the tests' trigger call swallowed, so the
+  sync cycle silently never ran and load-sensitive assertions timed out looking like flakes. `notifyRateLimit`
+  was the **only** limiter with no `skip:` clause (`authRateLimit`, `globalRateLimit`, `syncRateLimit` and
+  `bulkWipeRateLimit` all have one); it now honours `SKIP_SYNC_RATE_LIMIT` like the rest of the sync plane.
+  **No production impact:** the kill-switch is inert unless `NODE_ENV !== 'production'`, scheduled sync calls
+  the engine in-process (it never touches this limiter at all), and instance C deliberately omits the env so
+  the genuine 429 behaviour stays covered. Pinned by `testing/standalone/notify-rate-limit.test.js`, which
+  asserts both halves: A must not throttle, C still must.
+
 - **OIDC sign-in no longer hangs when the whole SPA is embedded in a portal iframe.** The callback
   inferred "this is a silent-refresh frame" from simply being inside an iframe (`window.self !== window.top`)
   and tried to `postMessage` the authorization code to `window.parent` targeted at Ythril's own origin. That

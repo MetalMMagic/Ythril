@@ -19,7 +19,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { dockerExec, INSTANCES, post, del, delWithBody, triggerSync, waitFor } from './helpers.js';
+import { dockerExec, INSTANCES, post, del, delWithBody, waitFor, makeTriggerProbe } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
@@ -127,22 +127,27 @@ describe('Signed governance votes and safe relay', () => {
     // Propagate to B and confirm the signature survived unchanged. Re-trigger the
     // sync on each poll so a slow gossip cycle on a loaded CI runner still converges
     // (a single up-front trigger raced the injection and made this test flaky).
+    // The probe records trigger failures so a persistent one is reported as itself
+    // rather than as a bare timeout — see makeTriggerProbe.
+    const triggerB = makeTriggerProbe(INSTANCES.b, tokenB, networkId, 'B');
     await waitFor(async () => {
-      await triggerSync(INSTANCES.b, tokenB, networkId).catch(() => {});
+      await triggerB();
       const rb = readConfig('ythril-b').networks.find(n => n.id === networkId)?.pendingRounds.find(r => r.roundId === roundId);
       const bCast = rb?.votes?.find(v => v.instanceId === instanceIdA);
       return bCast?.sig === aCast.sig;
-    }, 90_000, 2_000);
+    }, 90_000, 2_000, triggerB.diagnose);
   });
 
   it('peers pin each other\'s signing public keys via gossip', async () => {
+    const triggerA = makeTriggerProbe(INSTANCES.a, tokenA, networkId, 'A');
+    const triggerB = makeTriggerProbe(INSTANCES.b, tokenB, networkId, 'B');
     await waitFor(async () => {
-      await triggerSync(INSTANCES.a, tokenA, networkId).catch(() => {});
-      await triggerSync(INSTANCES.b, tokenB, networkId).catch(() => {});
+      await triggerA();
+      await triggerB();
       const aSeesB = readConfig('ythril-a').networks.find(n => n.id === networkId)?.members.find(m => m.instanceId === instanceIdB)?.signingPublicKey;
       const bSeesA = readConfig('ythril-b').networks.find(n => n.id === networkId)?.members.find(m => m.instanceId === instanceIdA)?.signingPublicKey;
       return !!aSeesB && !!bSeesA;
-    }, 90_000, 2_000);
+    }, 90_000, 2_000, () => `${triggerA.diagnose()} | ${triggerB.diagnose()}`);
   });
 
   it('a VALID signed cast from a third instance is accepted when relayed by B; a tampered one is rejected', async () => {
@@ -169,18 +174,21 @@ describe('Signed governance votes and safe relay', () => {
     patch('ythril-b', networkId, `n.pendingRounds=n.pendingRounds||[];n.pendingRounds.push(${JSON.stringify(mkRound(validRid, 'yes', validSig))});n.pendingRounds.push(${JSON.stringify(mkRound(tamperRid, 'veto', tamperSig))});`);
     await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
 
-    // A pulls from B (relay). Re-trigger each poll so the relay converges even when
-    // a loaded CI runner's gossip cycle lags. runSyncForNetwork coalesces concurrent
-    // triggers (one in-flight cycle + one queued rerun), so a re-trigger only guarantees
-    // ONE more full cycle — and under full-suite load a cycle can take tens of seconds.
-    // The window must fit a few of those cycles, hence 90s (it still exits as soon as the
-    // relay lands — usually within seconds when the stack isn't saturated).
+    // A pulls from B (relay). Re-trigger each poll so the relay converges even when a
+    // loaded CI runner's gossip cycle lags; the window is generous because it exits as
+    // soon as the relay lands (usually seconds).
+    //
+    // This is the assertion that used to "flake". It never was flaky: under full-suite
+    // load the harness exhausted the notify limiter (60/min per IP, shared by every
+    // instance), every trigger came back 429, the old `.catch(() => {})` ate it, and so
+    // NO sync cycle ran at all. The probe below reports that class of failure as itself.
+    const triggerA = makeTriggerProbe(INSTANCES.a, tokenA, networkId, 'A');
     await waitFor(async () => {
-      await triggerSync(INSTANCES.a, tokenA, networkId).catch(() => {});
+      await triggerA();
       const nets = readConfig('ythril-a').networks.find(n => n.id === networkId);
       const ok = nets?.pendingRounds?.find(r => r.roundId === validRid);
       return ok?.votes?.some(v => v.instanceId === instanceIdC && v.vote === 'yes');
-    }, 90_000, 2_000);
+    }, 90_000, 2_000, triggerA.diagnose);
 
     const netA = readConfig('ythril-a').networks.find(n => n.id === networkId);
     const validRound = netA.pendingRounds.find(r => r.roundId === validRid);

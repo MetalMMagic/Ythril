@@ -112,3 +112,83 @@ describe('File conversion pipeline — inputFormat bypass', () => {
     assert.equal(r.body?.embeddingStatus, 'pending');
   });
 });
+
+describe('Media/text job queue — the worker actually claims work (P12)', () => {
+  // The claim walk probes each space with its own findOneAndUpdate, so an idle queue paid a
+  // full N-space walk per claim, (workerConcurrency + 1) times per tick. It now probes only
+  // spaces a hint says MIGHT have work.
+  //
+  // The hazard that introduces is STRANDING: if anything creates claimable work without
+  // announcing it, the walk never visits that space and the job sits pending forever. Nothing
+  // covered this — the existing conversion tests assert `embeddingStatus === 'pending'` and
+  // never wait for the worker at all, so a queue that claimed NOTHING would have passed.
+  //
+  // These tests wait for the job to actually leave `pending`.
+  const spaceId = `jobclaim-${Date.now()}`;
+
+  before(async () => {
+    tokenA = fs.readFileSync(TOKEN_FILE_A, 'utf8').trim();
+    const r = await fetch(`${INSTANCES.a}/api/spaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenA}` },
+      body: JSON.stringify({ id: spaceId, label: 'Job Claim Test' }),
+    });
+    assert.ok([201, 409].includes(r.status), `create space: ${r.status}`);
+  });
+
+  /** Poll until embeddingStatus leaves `pending`. Returns { status, elapsedMs }. */
+  async function waitUntilClaimed(filePath, timeoutMs = 90_000) {
+    const start = Date.now();
+    let last = 'pending';
+    while (Date.now() - start < timeoutMs) {
+      const r = await fetch(
+        `${INSTANCES.a}/api/brain/spaces/${spaceId}/files?path=${encodeURIComponent(filePath)}`,
+        { headers: { Authorization: `Bearer ${tokenA}` } },
+      );
+      const body = await r.json().catch(() => null);
+      const meta = Array.isArray(body?.files) ? body.files.find(f => f.path === filePath) : null;
+      last = meta?.embeddingStatus ?? last;
+      // Any terminal-ish state proves the worker picked the job up.
+      if (last && last !== 'pending') return { status: last, elapsedMs: Date.now() - start };
+      await new Promise(res => setTimeout(res, 2_000));
+    }
+    throw new Error(
+      `job for ${filePath} was never claimed — it sat in '${last}' for ${timeoutMs}ms. ` +
+      'The claim walk only probes spaces its pending-work hint knows about, so something that ' +
+      'creates claimable work is not announcing it (see markSpaceMayHaveWork).',
+    );
+  }
+
+  it('a newly uploaded file in a previously-idle space IS claimed by the worker', async () => {
+    // The space starts with no work at all, so the hint is empty for it — precisely the case
+    // where a missing announcement would strand the job forever.
+    const filePath = `claim-first-${Date.now()}.md`;
+    const content = '# Claim Test\n\n' + 'Body text long enough to produce a chunk record. '.repeat(8);
+    const up = await uploadJson(tokenA, spaceId, filePath, { content, encoding: 'utf8' });
+    assert.equal(up.status, 202, JSON.stringify(up.body));
+    assert.equal(up.body?.embeddingStatus, 'pending');
+
+    const { status } = await waitUntilClaimed(filePath);
+    assert.notEqual(status, 'pending', `worker must claim the job; ended in '${status}'`);
+
+    // NOTE — deliberately no latency assertion here, and it is worth saying why. First-claim
+    // latency is dominated by the WORKER'S IDLE BACKOFF (it stretches its poll interval up to
+    // workerMaxPollIntervalMs, 30s by default, when there is nothing to do), not by the
+    // pending-work hint. An earlier version of this test asserted a latency bound and failed at
+    // 32s on a cold worker while the hint was working perfectly — it was measuring the backoff.
+    // What this test pins is the invariant that actually matters: the job is CLAIMED, never
+    // stranded. The 30s full scan is the deliberate safety net behind the hint.
+  });
+
+  it('after the queue drains, a SECOND upload re-arms the hint and is also claimed', async () => {
+    // Draining clears the hint for the space. A second upload must put it back — if only the
+    // first enqueue announced work, this one would hang.
+    const filePath = `claim-second-${Date.now()}.md`;
+    const content = '# Second Claim\n\n' + 'More body text to force a chunk to be produced. '.repeat(8);
+    const up = await uploadJson(tokenA, spaceId, filePath, { content, encoding: 'utf8' });
+    assert.equal(up.status, 202, JSON.stringify(up.body));
+
+    const { status } = await waitUntilClaimed(filePath);
+    assert.notEqual(status, 'pending', `second job must also be claimed; ended in '${status}'`);
+  });
+});

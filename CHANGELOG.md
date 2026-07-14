@@ -190,6 +190,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The notify limiter now honours the test kill-switch — the real cause of the “flaky” signed-vote relay test.**
+  `POST /api/notify/trigger` is how the test harness drives a sync cycle, and it is guarded by
+  `notifyRateLimit` (60/min per IP). Every request from the harness shares one source IP, so the sync suites
+  collectively blew past 60/min and started getting `429`s — which the tests' trigger call swallowed, so the
+  sync cycle silently never ran and load-sensitive assertions timed out looking like flakes. `notifyRateLimit`
+  was the **only** limiter with no `skip:` clause (`authRateLimit`, `globalRateLimit`, `syncRateLimit` and
+  `bulkWipeRateLimit` all have one); it now honours `SKIP_SYNC_RATE_LIMIT` like the rest of the sync plane.
+  **No production impact:** the kill-switch is inert unless `NODE_ENV !== 'production'`, scheduled sync calls
+  the engine in-process (it never touches this limiter at all), and instance C deliberately omits the env so
+  the genuine 429 behaviour stays covered. Pinned by `testing/standalone/notify-rate-limit.test.js`, which
+  asserts both halves: A must not throttle, C still must.
+
 - **OIDC sign-in no longer hangs when the whole SPA is embedded in a portal iframe.** The callback
   inferred "this is a silent-refresh frame" from simply being inside an iframe (`window.self !== window.top`)
   and tried to `postMessage` the authorization code to `window.parent` targeted at Ythril's own origin. That

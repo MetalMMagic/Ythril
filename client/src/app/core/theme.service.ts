@@ -14,11 +14,21 @@ import { DOCUMENT } from '@angular/common';
  * 2. **Runtime postMessage** — the host page (portal / iframe parent) can
  *    send `{ type: 'ythril:theme', tokens: { '--color-primary': '#f00', … } }`
  *    and Ythril applies the tokens immediately via `setProperty()`.
+ *
+ *    Same-origin senders are always trusted. A CROSS-origin embedder (the actual
+ *    portal-embedding use case) is trusted only when the operator has explicitly
+ *    listed its origin in `embedding.allowedOrigins` server-side — the same list
+ *    that lets it iframe Ythril at all (CSP `frame-ancestors`). Absent that opt-in,
+ *    cross-origin theme messages are ignored, because restyling the UI of a page you
+ *    do not control is a spoofing primitive.
  */
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
   private http = inject(HttpClient);
   private doc = inject(DOCUMENT);
+
+  /** Origins the operator opted into (from /api/theme). Empty = same-origin only. */
+  private allowedOrigins: string[] = [];
 
   /** Call once at app startup (via APP_INITIALIZER). */
   init(): Promise<void> {
@@ -29,10 +39,11 @@ export class ThemeService {
       // Timeout: don't block app bootstrap for more than 3 s if /api/theme is slow.
       const timer = setTimeout(done, 3_000);
 
-      // 1. Load static CSS override from server config
-      this.http.get<{ cssUrl: string | null }>('/api/theme').subscribe({
-        next: ({ cssUrl }) => {
+      // 1. Load static CSS override + the embed-origin allowlist from server config
+      this.http.get<{ cssUrl: string | null; allowedOrigins?: string[] }>('/api/theme').subscribe({
+        next: ({ cssUrl, allowedOrigins }) => {
           clearTimeout(timer);
+          this.allowedOrigins = Array.isArray(allowedOrigins) ? allowedOrigins : [];
           if (cssUrl) {
             this.injectExternalStylesheet(cssUrl);
           }
@@ -74,11 +85,15 @@ export class ThemeService {
   }
 
   private handleThemeMessage(event: MessageEvent): void {
-    // Only accept theme messages from same-origin or the parent frame's origin.
-    // This prevents cross-origin pages from restyling the UI for phishing.
+    // Accept theme messages from our own origin, or from an origin the operator
+    // explicitly allowlisted for embedding. Anything else is dropped: letting an
+    // arbitrary cross-origin page restyle the UI is a phishing/spoofing primitive.
+    // Note the allowlist arrives from /api/theme; until it does, only same-origin is
+    // trusted (fail-closed), and an embedder can simply re-post after the SPA loads.
     const win = this.doc.defaultView;
     const selfOrigin = win?.location?.origin;
-    if (event.origin !== selfOrigin) return;
+    const trusted = event.origin === selfOrigin || this.allowedOrigins.includes(event.origin);
+    if (!trusted) return;
 
     const data = event.data;
     if (!data || typeof data !== 'object') return;

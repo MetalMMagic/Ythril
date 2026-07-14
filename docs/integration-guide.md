@@ -334,7 +334,7 @@ Ythril sets the following headers on every response:
 | Header | Value | Purpose |
 |---|---|---|
 | `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
-| `Content-Security-Policy` | `frame-ancestors 'self'; object-src 'none'; base-uri 'self'` | Blocks cross-origin embedding, plugin injection, and base-tag hijacking |
+| `Content-Security-Policy` | `frame-ancestors 'self'; object-src 'none'; base-uri 'self'` | Blocks cross-origin embedding, plugin injection, and base-tag hijacking. Cross-origin embedding is possible only by explicitly allowlisting origins under `embed.allowedOrigins` — see [Theme API](#enabling-cross-origin-embedding-opt-in) |
 | `Referrer-Policy` | `no-referrer` | Strips referrer on outbound requests |
 | `X-Request-Id` | UUID | Unique per-request ID for tracing (logged server-side) |
 
@@ -681,6 +681,8 @@ Available as both:
 | `types` | — | all types | Restrict result knowledge types |
 | `minScore` | — | none | Filter out low-similarity matches |
 | `filter` | — | none | Property equality/comparison filter (see below) |
+| `tags` | — | none | Array of strings — restrict to records carrying these tags |
+| `minPerType` | — | none | Object mapping knowledge type → minimum hits, e.g. `{ "entity": 2 }`. Guarantees at least that many results of the type; each value is clamped to `topK` |
 | `traverse` | — | `0` | Graph-expansion depth (integer 0–5). `0` = classic recall; > 0 follows edges from each match (see [Graph-Augmented Recall](#graph-augmented-recall-traverse-parameter)) |
 
 **Response** `200`:
@@ -819,9 +821,16 @@ Multiple operators on the same key are AND-ed (range queries):
 |-----------|:---------:|-----------------------------------|:---------------------:|
 | `memory` | ✅ | `tags` + entity names + `fact` + `description` + `properties` | ✅ |
 | `entity` | ✅ | `name` + `type` + `tags` + `description` + `properties` | ✅ |
-| `edge` | ✅ | `tags` + `from` + `label` + `to` + `type` + `description` | ✅ |
-| `chrono` | ✅ | `type` + `status` + `title` + `tags` + `description` | ✅ |
+| `edge` | ✅ | `tags` + `from` + `label` + `to` + `type` + `description` + `properties` | ✅ |
+| `chrono` | ✅ | `type` + `status` + `title` + `tags` + `description` + `properties` | ✅ |
 | `file` | ✅ | `path` + `tags` + `description` | ✅ |
+
+> **Note — `properties` in the embedding text.** `properties` are embedded as `key value`
+> pairs (both the key *and* the value), so a phrase living only in `properties.outcome` is
+> findable via `recall`. `edge` and `chrono` did **not** embed `properties` in releases up to
+> 1.4.4 — if you are upgrading, existing records keep their old embedding until they are
+> re-embedded. Reindex a space to pick up the change:
+> `POST /api/brain/spaces/:spaceId/reindex`.
 
 ---
 
@@ -5234,14 +5243,56 @@ iframe.contentWindow.postMessage({
 
 Only `--`-prefixed CSS custom properties are accepted. Standard CSS properties (e.g. `color`, `background`) are silently filtered out to prevent injection.
 
-The `postMessage` handler validates `event.origin` — only same-origin messages are accepted.
+The `postMessage` handler validates `event.origin`. **Same-origin messages are always accepted. A cross-origin embedder — which is what portal-style embedding actually is — is accepted only if the operator has explicitly allowlisted its origin** (see below). Without that opt-in, a cross-origin `postMessage` is ignored *and* the browser will refuse to frame Ythril at all.
+
+### Enabling cross-origin embedding (opt-in)
+
+By default Ythril may only be framed and themed by its own origin. To embed it in a portal on a **different** origin, list that origin in `config.json`:
+
+```json
+{
+  "embed": {
+    "allowedOrigins": ["https://portal.example.com"]
+  }
+}
+```
+
+A listed origin is granted **both** rights together, because they are the same trust decision:
+
+1. it may **iframe** Ythril — the origin is added to the CSP `frame-ancestors` directive; and
+2. it may **push theme tokens** via `ythril:theme` `postMessage`.
+
+**You are accepting responsibility for every origin you list.** Framing a page is a clickjacking primitive, and restyling it can be used to spoof the UI — only list hosts you control. Entries are validated strictly and fail closed:
+
+- exact, scheme-qualified origins only — `https://portal.example.com`, never a path/query/fragment
+- `https:` required (except `http://localhost` / `http://127.0.0.1` for development)
+- **wildcards (`*`) are never accepted** — there is no "allow everything" mode
+- an invalid entry is dropped with a warning rather than coerced
+
+The resolved allowlist is logged at startup, and is served to the SPA on `/api/theme` as `allowedOrigins` so the client knows which senders to trust.
 
 ### Security
 
 - `cssUrl` is restricted to HTTPS (except `localhost` for development).
-- `postMessage` origin is checked against `self`.
+- `postMessage` origin must be `self` **or** an operator-allowlisted origin.
 - Only CSS custom properties (`--*`) are applied from runtime tokens.
-- The `Content-Security-Policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self'` header allows same-origin iframing, blocks cross-origin embedding, plugin injection, and base-tag hijacking.
+- `Content-Security-Policy: frame-ancestors 'self' <allowlisted origins…>; object-src 'none'; base-uri 'self'` — with no allowlist this is `'self'` only, blocking cross-origin embedding, plugin injection, and base-tag hijacking.
+
+---
+
+## Embedded (chrome-less) Mode
+
+When Ythril is embedded in a host portal, its own topbar (logo + **Sign out**) duplicates the host's chrome, and the in-frame Sign out is misleading — it ends only the Ythril session, not the portal's.
+
+Load the app with `?embedded=1` to hide the shell topbar:
+
+```html
+<iframe src="https://your-ythril-host/brain?embedded=1"></iframe>
+```
+
+Navigation is unaffected — it lives in the sidebar, not the topbar. The flag is read once at startup and persists across in-app navigation (Angular drops unknown query params on route changes, so it is cached rather than re-read).
+
+Accepted values: `1`, `true`, `yes`. Anything else (or an absent param) renders the normal shell.
 
 ---
 
@@ -5482,8 +5533,8 @@ For cross-space recall (omit `space`), `spaceId` on each result identifies which
 |-----------|:---------:|---------------------------------------------------|:---------------------:|
 | `memory` | ✅ | `tags` + entity names + `fact` + `description` + `properties` | ✅ |
 | `entity` | ✅ | `name` + `type` + `tags` + `description` + `properties` | ✅ |
-| `edge` | ✅ | `tags` + `from` + `label` + `to` + `type` + `description` | ✅ |
-| `chrono` | ✅ | `type` + `status` + `title` + `tags` + `description` | ✅ |
+| `edge` | ✅ | `tags` + `from` + `label` + `to` + `type` + `description` + `properties` | ✅ |
+| `chrono` | ✅ | `type` + `status` + `title` + `tags` + `description` + `properties` | ✅ |
 | `file` | ✅ | `path` + `tags` + `description` | ✅ |
 
 **Parameters:**

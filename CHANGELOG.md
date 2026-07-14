@@ -6,6 +6,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cross-origin embedding is now possible — explicitly opt-in, and never by default.** Portal-style
+  embedding was documented but could not actually work: `frame-ancestors 'self'` blocked cross-origin
+  iframing outright, and the `ythril:theme` postMessage handler dropped any message whose origin wasn't
+  Ythril's own — i.e. exactly the embedder the feature was designed for. An operator can now list trusted
+  origins under `embed.allowedOrigins` in `config.json`. A listed origin is granted **both** rights
+  together, because they are the same trust decision: it may **iframe** Ythril (the origin is appended to
+  the CSP `frame-ancestors` directive) **and** push runtime theme tokens. With no allowlist, behaviour is
+  byte-for-byte what it was: same-origin only. Entries are validated strictly and fail closed — exact
+  scheme-qualified origins only (no path/query/fragment/credentials), `https:` required (except
+  `localhost`/`127.0.0.1` for development), and **wildcards are never accepted**: there is no
+  "allow everything" mode. Invalid entries are dropped with a warning, and the resolved allowlist is
+  logged at startup so the granted rights are visible. Framing is a clickjacking primitive and theming can
+  spoof UI, so the integrator explicitly accepts responsibility for every origin they add. Covered by
+  `testing/standalone/embed-origins.test.js`.
+- **Embedded (chrome-less) mode via `?embedded=1`.** When Ythril is embedded in a host portal its topbar
+  (logo + Sign out) duplicates the host's chrome, and the in-frame Sign out is misleading — it ends only
+  the Ythril session. Loading the app with `?embedded=1` hides the shell topbar. Navigation is unaffected
+  (it lives in the sidebar). The flag is read once at startup and cached, because Angular drops unknown
+  query params on navigation, which would otherwise flip the app back out of embedded mode on the first
+  route change. Replaces the brittle `.topbar { display: none }` CSS workaround.
+- **The Brain "Semantic Search" panel now exposes the full recall API.** The form offered only
+  query / topK / minScore while `recall()` also supports type restriction, per-type minimums, tag
+  filtering, and structured filters — so the UI was strictly less capable than the API behind it. The panel
+  gains a **More options** section with type restriction (per-type checkboxes), **per-type minimums**, tag
+  filtering, and a JSON **filter** (validated client-side, so a typo surfaces as a form error rather than a
+  400). Two of these — `minPerType` and `tags` — were supported by the recall engine but hardcoded to
+  `undefined` in the REST route, reachable only via MCP or the internal function; they are now plumbed
+  through `POST /api/brain/spaces/:spaceId/recall` (with `minPerType` values clamped to `topK`).
+
 ### Changed
 
 - **Sync bookkeeping writes no longer block the event loop.** The sync engine persists tiny per-cycle
@@ -190,6 +221,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The test stack no longer races four concurrent builds onto one image tag.** Giving every instance the
+  shared `ythril-test:latest` tag (so CI can pre-build once against a layer cache) made `docker compose
+  build` build the *same* tag from four services simultaneously, which races on the image export and could
+  corrupt it locally (`failed to extract layer … EOF`). Only `ythril-a` builds the image now; b/c/d simply
+  reference the tag. CI is unaffected — it pre-builds the tag itself. Additionally, `test:up:rebuild` now
+  runs a `test:prune` step (drop the previous build's dangling image, cap the build cache), because every
+  `--build` previously left an orphaned multi-GB image behind and grew the build cache without bound.
 - **OIDC sign-in no longer hangs when the whole SPA is embedded in a portal iframe.** The callback
   inferred "this is a silent-refresh frame" from simply being inside an iframe (`window.self !== window.top`)
   and tried to `postMessage` the authorization code to `window.parent` targeted at Ythril's own origin. That

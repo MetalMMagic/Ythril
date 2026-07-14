@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forever — and it was paid on every click of "next". `hasMore` now comes from fetching one extra row, which
   answers the question exactly and for free, and the total (only used to render "showing N of M") is cached
   briefly per filter, so paging through a result set counts once instead of once per page.
+- **An upload into an idle system no longer waits up to 30 seconds before embedding starts.** On an empty
+  queue the media worker backs its poll interval off to `workerMaxPollIntervalMs` (30 s by default) and
+  slept on an uninterruptible timer — so a file uploaded into an otherwise-idle instance sat in `pending`
+  for up to half a minute before the worker even woke to look at it. Every path that creates claimable work
+  already announces it, so that announcement now **wakes the worker**: the idle wait is interruptible, and
+  the backoff resets as soon as real work arrives. Measured on a cold worker: **~32 s → ~2 s**. A shutdown
+  also wakes it, so stopping is no longer delayed by a parked backoff.
 - **The media worker no longer walks every space on every claim (P12).** Job collections are per-space, so
   claiming walked the spaces one `findOneAndUpdate` at a time. On an idle queue — the normal state — each
   claim paid a full N-space walk just to learn there was nothing to do, and the worker does that

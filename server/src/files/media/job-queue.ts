@@ -207,9 +207,64 @@ const _pendingHint = new Set<string>();
 let _lastFullScan = 0;
 const FULL_SCAN_INTERVAL_MS = 30_000;
 
+// ── Worker wake-up ──────────────────────────────────────────────────────────
+//
+// On an empty queue the worker backs its poll interval off to workerMaxPollIntervalMs (30s by
+// default) and sleeps on a plain setTimeout. That is right for CPU, and wrong for latency: an
+// upload into an idle system then waits up to 30 SECONDS before embedding even starts, while
+// the user watches the file sit in "pending".
+//
+// Since every path that creates claimable work already announces it (below), the announcement
+// can simply wake the worker. The epoch counter closes the obvious race — work enqueued
+// *between* the worker's failed claim and the start of its sleep would otherwise be missed and
+// wait out the full backoff anyway. The worker samples the epoch BEFORE claiming and passes it
+// to waitForWork(), which returns immediately if it has since moved.
+let _workEpoch = 0;
+let _wakeWaiters: Array<() => void> = [];
+
+/** Monotonic counter bumped every time claimable work is announced. */
+export function currentWorkEpoch(): number {
+  return _workEpoch;
+}
+
+/**
+ * Sleep up to `ms`, returning early if work is announced.
+ * Returns true if woken by work, false if it timed out.
+ *
+ * `sinceEpoch` must be sampled BEFORE the caller's claim attempt.
+ */
+export function waitForWork(ms: number, sinceEpoch: number): Promise<boolean> {
+  // Work already arrived while the caller was claiming — do not sleep at all.
+  if (_workEpoch !== sinceEpoch) return Promise.resolve(true);
+
+  return new Promise<boolean>(resolve => {
+    let settled = false;
+    const finish = (woken: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      _wakeWaiters = _wakeWaiters.filter(w => w !== wake);
+      resolve(woken);
+    };
+    const wake = () => finish(true);
+    const timer = setTimeout(() => finish(false), ms);
+    if (typeof timer.unref === 'function') timer.unref();
+    _wakeWaiters.push(wake);
+  });
+}
+
+/** Wake every waiter — used on announcement, and on shutdown so stopping is not delayed. */
+export function wakeWorkers(): void {
+  const waiters = _wakeWaiters;
+  _wakeWaiters = [];
+  for (const w of waiters) w();
+}
+
 /** Record that a space may have claimable work (enqueue, requeue-on-failure, stall reset). */
 export function markSpaceMayHaveWork(spaceId: string): void {
   _pendingHint.add(spaceId);
+  _workEpoch++;
+  wakeWorkers();
 }
 
 /** Test seam: forget everything the hint knows, forcing the next claim to do a full scan. */

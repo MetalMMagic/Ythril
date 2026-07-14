@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Space export streams instead of buffering the whole space into memory (P7).** The export endpoint —
+  the one you reach for to back a space up — loaded all five collections into memory with `.toArray()` in
+  parallel and then `res.json()`'d the result, so the entire space sat on the heap **twice** (the documents
+  plus their serialised JSON) at once. A large space OOM'd the backup, exactly when losing data hurts most.
+  The response is now written incrementally over each collection's cursor, one document at a time, with
+  backpressure so the socket buffer cannot grow unbounded either. The output is **byte-for-byte identical**
+  — same object, same keys, same order — so import and every existing consumer are untouched. Covered by a
+  new scale test (250 documents with characters that must be JSON-escaped, asserting the streamed response
+  parses and round-trips exactly).
+
+### Changed
+
 - **Bulk deletes no longer make one database round trip per document (P9).** Wiping a collection writes a
   tombstone per deleted document, and the seq for each was fetched with its own `nextSeq()` call — so
   clearing 100k memories cost **100k sequential round trips before the delete even started**. All four bulk

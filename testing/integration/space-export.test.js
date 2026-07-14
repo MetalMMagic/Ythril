@@ -405,4 +405,47 @@ describe('Space export/import — round-trip (export → wipe → import)', () =
     assert.equal(chrono.status, 200);
     assert.equal(chrono.body.chrono?.length, 1, 'imported chrono entries must be LISTED in the target space');
   });
+
+  it('export streams MANY documents as valid JSON and round-trips them exactly', async () => {
+    // The export is streamed (P7): the envelope and each collection's array are written to the
+    // socket incrementally, with the inter-document commas placed by hand. That comma logic is
+    // invisible with 1-2 documents and is exactly where a streaming bug hides — a missing comma
+    // (invalid JSON) or a trailing one only shows up across many docs and cursor batch
+    // boundaries. So seed a few hundred and assert the response parses AND every document
+    // survives a round trip. The old buffered `res.json()` could not have this bug; the
+    // streamed version can, so it must be tested at scale.
+    const N = 250;
+    const srcId = `stream-src-${RUN_ID}`;
+    const dstId = `stream-dst-${RUN_ID}`;
+    for (const id of [srcId, dstId]) {
+      const c = await post(INSTANCES.a, tok, '/api/spaces', { id, label: `Stream ${id}` });
+      assert.equal(c.status, 201, JSON.stringify(c.body));
+      roundTripSpaceIds.push(id);
+    }
+
+    // Bulk-write so seeding N is fast. Include characters that MUST be JSON-escaped, so the
+    // streamed output is exercised on escaping too, not just plain ASCII.
+    const memories = Array.from({ length: N }, (_, i) => ({
+      fact: `stream doc ${i} — "quoted", \\backslash\\, newline\n, tab\t, unicode ☃`,
+      tags: [`t${i % 5}`],
+    }));
+    const bulk = await post(INSTANCES.a, tok, `/api/brain/spaces/${srcId}/bulk`, { memories });
+    assert.ok([200, 201, 207].includes(bulk.status), JSON.stringify(bulk.body)); // /bulk returns 207 Multi-Status
+    assert.equal(bulk.body.errors?.length ?? 0, 0, `bulk seed must have no errors: ${JSON.stringify(bulk.body.errors)}`);
+
+    // Export must be syntactically valid JSON with all N memories present.
+    const exp = await get(INSTANCES.a, tok, `/api/admin/spaces/${srcId}/export`);
+    assert.equal(exp.status, 200);
+    assert.ok(Array.isArray(exp.body.memories), 'memories must be an array');
+    assert.equal(exp.body.memories.length, N, `all ${N} memories must be exported, got ${exp.body.memories.length}`);
+    // The tricky-character doc must survive escaping intact.
+    const doc0 = exp.body.memories.find(m => m.fact.startsWith('stream doc 0 '));
+    assert.ok(doc0 && doc0.fact.includes('☃') && doc0.fact.includes('"quoted"'), 'special characters must round-trip through the stream');
+
+    // And the whole thing must import back cleanly.
+    const imp = await post(INSTANCES.a, tok, `/api/admin/spaces/${dstId}/import`, exp.body);
+    assert.ok([200, 201].includes(imp.status), JSON.stringify(imp.body));
+    const stats = await get(INSTANCES.a, tok, `/api/brain/spaces/${dstId}/stats`);
+    assert.equal(stats.body.memories, N, `all ${N} memories must import into the target space`);
+  });
 });

@@ -262,6 +262,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Completed the space-rename data-integrity fix — three more instances of the same bug.** The audit that
+  followed the rename fix found the same "stale `spaceId`" flaw in places the first pass missed:
+  - **Deleted files could resurrect.** `{spaceId}_file_tombstones` carries a `spaceId` field and its readers
+    filter on it, but the collection was **missing from the repair's hardcoded list**, so after a rename every
+    pre-rename deletion became invisible to sync — and peers that still held the file pushed it straight back.
+    The repair now **discovers a space's collections by prefix** instead of walking a fixed list, so this and
+    any future per-space collection are covered automatically. (It only rewrites a `spaceId` that is present
+    but wrong, never inventing one — `{spaceId}_file_hashes` legitimately has no such field.)
+  - **A rename silently stopped a space syncing.** The seq counter lives in the *global* `ythril_counters`
+    collection keyed by `_id: <spaceId>`, so the prefix-based collection rename missed it and `nextSeq()`
+    restarted at **1** — while the rename deliberately carries the OLD, high sync watermarks over to the new
+    id. Every subsequent write got a seq *below* the watermark and was **never pushed to peers**: the space
+    kept working locally while quietly never syncing again. The counter (and the dupe-scan cursor) now move
+    with the rename.
+  - **Cross-space import wrote invisible data.** The export embeds the source space's id in every document,
+    and import wrote them verbatim — so importing space A's export into space B produced documents that were
+    counted but invisible to every list. Imported documents are now re-tagged to the target space.
+  - `traverseFromSeeds` filtered entities but not edges by `spaceId`, so a stale value returned an edge whose
+    neighbour entity silently vanished — half a graph, no error. The redundant filter is gone; the collection
+    name is the only real scope.
+
+  Tests now cover **chrono** and the **seq counter** across a rename, and **cross-space import** — the gaps
+  that let all of this through. (The original rename test asserted only memories, the one read path that does
+  not filter on `spaceId`, and the import tests asserted only counts and memory-by-id — likewise immune.)
+
 - **Renaming a space no longer makes its entities and edges vanish from the UI.** `moveSpaceData`
   renamed the collections (`{old}_entities` → `{new}_entities`) but never rewrote the `spaceId` field
   *inside* the documents, so every one still pointed at the OLD space id. `listEntities`, `listEdges`,

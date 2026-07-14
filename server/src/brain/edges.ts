@@ -504,8 +504,16 @@ export async function traverseFromSeeds(
 
     if (newNeighborIds.length === 0) break;
 
+    // NOTE: no `spaceId` filter here — deliberately, and it must stay that way.
+    //
+    // The edge query above (same loop) does not filter on the spaceId field either, and the
+    // collection name `{spaceId}_entities` is already the only real scope. When the two
+    // disagreed, a document with a stale spaceId produced the worst possible outcome: the
+    // EDGE was found but its neighbour ENTITY was silently dropped, so a traversal returned
+    // half a graph with no error. Filtering on a redundant, denormalised field is what made
+    // a space rename hide data in the first place.
     const entities = await col<EntityDoc>(`${spaceId}_entities`)
-      .find(asFilter<EntityDoc>({ _id: { $in: newNeighborIds }, spaceId }))
+      .find(asFilter<EntityDoc>({ _id: { $in: newNeighborIds } }))
       .project({ embedding: 0 })
       .toArray() as EntityDoc[];
     const entityMap = new Map<string, EntityDoc>();

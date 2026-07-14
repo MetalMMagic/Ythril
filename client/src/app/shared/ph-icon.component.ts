@@ -1,4 +1,4 @@
-import { Component, Input, OnChanges, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, OnChanges, inject } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 
 /**
@@ -58,6 +58,11 @@ const ICONS: Record<string, string> = {
 @Component({
   selector: 'ph-icon',
   standalone: true,
+  // OnPush (P5): a pure leaf driven only by @Input — it has no async state, so it only ever
+  // needs to re-render when `name` or `size` change, which OnPush checks on input change. This
+  // is instantiated once per icon across every list row, toolbar and nav item, so keeping it
+  // out of the default whole-tree change-detection sweep is a real win in the hot path.
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<span class="ph-icon-wrap" [innerHTML]="svg" aria-hidden="true"></span>`,
   styles: [`
     :host { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }

@@ -49,4 +49,22 @@ describe('PhIconComponent', () => {
     expect(svg).toBeTruthy();
     expect(svg.querySelector('path')).toBeNull();
   });
+
+  it('is OnPush and still re-renders on input change (the P5 contract)', () => {
+    // Guards the OnPush conversion specifically. An OnPush leaf must skip the whole-tree CD
+    // sweep BUT still update when its own @Input changes. If someone reverted OnPush this would
+    // still pass (default CD also updates), so it is not a full mutation test — but paired with
+    // the harness's negative control (which proves the harness CAN see a stale OnPush view),
+    // an input-driven update failing here would mean the conversion broke the component.
+    expect(PhIconComponent.ɵcmp?.onPush).toBe(true);
+
+    ref.setInput('name', 'trash');
+    ref.setInput('size', 12);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('svg').getAttribute('width')).toBe('12');
+
+    ref.setInput('size', 40);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('svg').getAttribute('width')).toBe('40');
+  });
 });

@@ -150,7 +150,7 @@ conflictsRouter.get('/link-violations', globalRateLimit, requireAuth, async (_re
 });
 
 // DELETE /api/conflicts/link-violations/:id — dismiss a single link violation
-conflictsRouter.delete('/link-violations/:id', globalRateLimit, requireAuth, async (req, res) => {
+conflictsRouter.delete('/link-violations/:id', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
     const spaces = accessibleSpaces(req.authToken?.spaces);
     for (const spaceId of spaces) {
@@ -169,7 +169,7 @@ conflictsRouter.delete('/link-violations/:id', globalRateLimit, requireAuth, asy
 });
 
 // DELETE /api/conflicts/link-violations — dismiss all link violations for accessible spaces
-conflictsRouter.delete('/link-violations', globalRateLimit, requireAuth, async (_req, res) => {
+conflictsRouter.delete('/link-violations', globalRateLimit, requireAuth, denyReadOnly, async (_req, res) => {
   try {
     const spaces = accessibleSpaces(_req.authToken?.spaces);
     let total = 0;
@@ -212,7 +212,7 @@ conflictsRouter.get('/:id', globalRateLimit, requireAuth, async (req, res) => {
 });
 
 // DELETE /api/conflicts/:id — dismiss (resolve) a conflict record
-conflictsRouter.delete('/:id', globalRateLimit, requireAuth, async (req, res) => {
+conflictsRouter.delete('/:id', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
     const spaces = accessibleSpaces(req.authToken?.spaces);
     for (const spaceId of spaces) {
@@ -231,7 +231,7 @@ conflictsRouter.delete('/:id', globalRateLimit, requireAuth, async (req, res) =>
 });
 
 // POST /api/conflicts/bulk-resolve — resolve multiple conflicts at once
-conflictsRouter.post('/bulk-resolve', globalRateLimit, requireAuth, async (req, res) => {
+conflictsRouter.post('/bulk-resolve', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
     const { ids, action, rename, targetSpaceId } = req.body ?? {};
     if (!Array.isArray(ids) || ids.length === 0) {
@@ -313,7 +313,7 @@ conflictsRouter.post('/seed', globalRateLimit, requireAdmin, denyReadOnly, async
 });
 
 // POST /api/conflicts/:id/resolve — resolve a single conflict with an action
-conflictsRouter.post('/:id/resolve', globalRateLimit, requireAuth, async (req, res) => {
+conflictsRouter.post('/:id/resolve', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
     const { action, rename, targetSpaceId } = req.body ?? {};
 

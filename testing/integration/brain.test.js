@@ -2220,6 +2220,27 @@ describe('Brain — read-only token blocked on REST write endpoints', () => {
     const r = await get(INSTANCES.a, readOnlyToken, '/api/brain/spaces/general/memories?limit=1');
     assert.equal(r.status, 200, `GET memories should be allowed, got ${r.status}`);
   });
+
+  // Regression: the conflict-resolution routes were missing `denyReadOnly`, so a read-only
+  // token could resolve a conflict (which REWRITES brain records) and delete conflicts. Found
+  // by route-guard-coverage.test.js — every other route in this block was written by hand and
+  // this whole surface was simply never covered.
+  it('POST /api/conflicts/:id/resolve is rejected for a read-only token', async () => {
+    const r = await post(INSTANCES.a, readOnlyToken, `/api/conflicts/does-not-exist-${RUN}/resolve`, {
+      action: 'keep-existing',
+    });
+    assert.equal(r.status, 403, `conflict resolve must reject a read-only token, got ${r.status}`);
+  });
+
+  it('POST /api/conflicts/bulk-resolve is rejected for a read-only token', async () => {
+    const r = await post(INSTANCES.a, readOnlyToken, '/api/conflicts/bulk-resolve', { action: 'keep-existing' });
+    assert.equal(r.status, 403, `bulk-resolve must reject a read-only token, got ${r.status}`);
+  });
+
+  it('DELETE /api/conflicts/:id is rejected for a read-only token', async () => {
+    const r = await del(INSTANCES.a, readOnlyToken, `/api/conflicts/does-not-exist-${RUN}`);
+    assert.equal(r.status, 403, `conflict delete must reject a read-only token, got ${r.status}`);
+  });
 });
 
 // ── Bulk write cap at 500 items per type ─────────────────────────────────────

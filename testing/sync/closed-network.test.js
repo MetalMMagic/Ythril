@@ -12,7 +12,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { dockerExec,
   INSTANCES,
-  post, get, del, delWithBody, triggerSync, waitFor,
+  post, get, del, delWithBody, triggerSync, waitFor, makeTriggerProbe,
 } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -139,16 +139,17 @@ describe('Closed Network (A <-> B)', () => {
 
     // Trigger sync on A (A pulls from B — B doesn't have this network configured).
     // Re-trigger every 3 seconds in case the first async fire was queued behind other work.
+    // The probe records failures so a persistently-rejected trigger is reported as itself
+    // rather than as a bare timeout (see makeTriggerProbe).
     await triggerSync(INSTANCES.a, tokenA, networkId);
-    const retrigger = setInterval(() => {
-      triggerSync(INSTANCES.a, tokenA, networkId).catch(() => {});
-    }, 3_000);
+    const triggerA = makeTriggerProbe(INSTANCES.a, tokenA, networkId, 'A');
+    const retrigger = setInterval(() => { void triggerA(); }, 3_000);
 
     try {
       await waitFor(async () => {
         const r = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories/${memId}`);
         return r.status === 200;
-      }, 20_000);
+      }, 20_000, 500, triggerA.diagnose);
     } finally {
       clearInterval(retrigger);
     }

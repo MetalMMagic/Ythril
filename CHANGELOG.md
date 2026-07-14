@@ -190,6 +190,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sync tests can no longer turn a persistent, actionable error into an unexplained timeout.** The sync
+  suites re-trigger a sync on every poll (deliberate — a single up-front trigger races a slow gossip
+  cycle), but they did it as `triggerSync(...).catch(() => {})`, which treats a transient blip and a
+  permanent misconfiguration identically. That trap is *why* the notify rate-limit bug survived three wrong
+  fixes: every trigger was coming back `429`, the `.catch()` ate it, no sync cycle ever ran, and all anyone
+  saw was `waitFor timed out after 90000ms`. `waitFor` now takes a `diagnose` argument appended to its
+  timeout message, and `makeTriggerProbe` still tolerates a failed poll but **remembers the last failure**
+  and reports it — so the message becomes "every sync trigger to A was failing (…); last error:
+  triggerSync failed: 429 …" instead of a bare stall. Test-harness only. Pinned by
+  `testing/standalone/waitfor-diagnostics.test.js`.
+
 - **The notify limiter now honours the test kill-switch — the real cause of the “flaky” signed-vote relay test.**
   `POST /api/notify/trigger` is how the test harness drives a sync cycle, and it is guarded by
   `notifyRateLimit` (60/min per IP). Every request from the harness shares one source IP, so the sync suites

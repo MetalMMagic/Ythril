@@ -33,7 +33,8 @@
       retries: 3
       start_period: 30s
     networks:
-      - ythril-internal
+      - ythril-db        # database access
+      - ythril-media     # outbound internet + media sidecars
 
   ythril-mongo:
     # mongodb/mongodb-atlas-local includes mongot — required for $vectorSearch
@@ -57,7 +58,7 @@
       retries: 18
       start_period: 40s
     networks:
-      - ythril-internal
+      - ythril-db        # ONLY here: unreachable from the media sidecars
 
   # ── Media embedding stack (image / audio / video → text → embedding) ──────
   # On by default to mirror the K8s setup (kubernetes/manifests/{ollama,whisper}-deploy.yaml).
@@ -92,7 +93,7 @@
       retries: 3
       start_period: 30s
     networks:
-      - ythril-internal
+      - ythril-media     # deliberately NOT on ythril-db
 
   whisper:
     image: fedirz/faster-whisper-server:latest-cpu
@@ -112,7 +113,7 @@
       retries: 3
       start_period: 30s
     networks:
-      - ythril-internal
+      - ythril-media     # deliberately NOT on ythril-db
 
 volumes:
   ythril-data:
@@ -122,6 +123,26 @@ volumes:
   ythril-whisper-cache:
 
 networks:
-  ythril-internal:
+  # SECURITY: the database and the media sidecars are deliberately on SEPARATE networks.
+  #
+  # ollama and whisper exist to parse untrusted user-supplied media (uploaded images,
+  # audio, video) — they are the highest-risk attack surface here. MongoDB has no
+  # authentication, so Ythril's entire security model (PATs, admin gating, space scoping,
+  # read-only tokens, the audit log) is enforced at the API layer and NOT at the database.
+  # If a media sidecar could reach port 27017, a parser exploit in it would mean
+  # unauthenticated read/write of every space in the brain, invisible to the audit log.
+  #
+  # `ythril` is the only service on both networks, so it can talk to mongo AND to the
+  # sidecars, while the sidecars cannot resolve or reach mongo at all. This mirrors what
+  # the Kubernetes deployment already enforces via NetworkPolicy egress rules
+  # (kubernetes/manifests/media-netpol.yaml) — Compose was the gap.
+  ythril-db:
     driver: bridge
-    internal: false   # set true to isolate; open for external embedding endpoint access
+    # Mongo needs no outbound internet access; keeping this network internal means a
+    # compromised database container cannot exfiltrate.
+    internal: true
+  ythril-media:
+    driver: bridge
+    # NOT internal: ythril reaches external embedding/LLM endpoints through this network,
+    # and ollama/whisper download their models from the internet.
+    internal: false

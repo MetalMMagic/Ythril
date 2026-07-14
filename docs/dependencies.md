@@ -34,8 +34,23 @@ drop-in replacement that provides equivalent vector search on top of MongoDB.
 
 ### How it is deployed
 
-The image runs as a **separate container** (`ythril-mongo`) on a private Docker bridge
-network (`ythril-internal`). Ythril connects to it over TCP at `mongodb://ythril-mongo:27017`.
+The image runs as a **separate container** (`ythril-mongo`) on a private, **internal** Docker
+bridge network (`ythril-db`). Ythril connects to it over TCP at `mongodb://ythril-mongo:27017`.
+
+> **Security — the database network is deliberately isolated.** MongoDB runs without
+> authentication, so Ythril's security model (PATs, admin gating, space scoping, read-only
+> tokens, the audit log) is enforced at the **API layer only** — anything that can open a TCP
+> connection to port 27017 can read and rewrite every space, invisibly to the audit log.
+>
+> The media sidecars (`ollama`, `whisper`) exist to parse **untrusted user-supplied media**
+> and are the highest-risk attack surface in the deployment, so they live on a *separate*
+> network (`ythril-media`) and **cannot reach the database at all**. Only the `ythril`
+> container bridges the two. `ythril-db` is marked `internal: true`, so the database also has
+> no outbound internet access. This mirrors what the Kubernetes deployment enforces via
+> `NetworkPolicy` (`kubernetes/manifests/media-netpol.yaml`).
+>
+> If you add a service that needs the database, put it on `ythril-db` deliberately — and
+> understand that you are granting it unauthenticated access to the entire brain.
 
 ```
 [ythril container] --TCP:27017--> [ythril-mongo container]

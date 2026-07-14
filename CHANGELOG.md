@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **The media sidecars can no longer reach the database.** `docker-compose.yml` put all four
+  containers — `ythril`, `ythril-mongo`, `ollama`, `whisper` — on a single flat bridge network, and
+  MongoDB runs with **no authentication**. Ythril's entire security model (PATs, admin gating, space
+  scoping, read-only tokens, the audit log) is enforced at the **API layer only**, so anything able to
+  open a TCP connection to port 27017 could read and rewrite **every space in the brain, invisibly to
+  the audit log**. That mattered because `ollama` and `whisper` are third-party images whose whole job
+  is parsing **untrusted user-supplied media** (uploaded images, audio, video) — the highest-risk
+  attack surface in the deployment. A parser exploit in either would have yielded unauthenticated
+  full-brain read/write. Kubernetes already prevented this (`media-netpol.yaml` gives the sidecars an
+  Egress policy permitting only DNS + 80/443); **Compose — the default deployment — did not.** The
+  network is now split: `ythril-db` (`ythril` + `ythril-mongo`, `internal: true`, so the database has
+  no outbound internet either) and `ythril-media` (`ythril` + the sidecars). Only `ythril` bridges the
+  two. Verified live: from `ollama`, `ythril-mongo` no longer resolves and TCP 27017 is refused, while
+  `ythril` still reaches mongo, ollama and whisper. Pinned by
+  `testing/standalone/network-segmentation.test.js`, which fails if anything re-flattens the network.
+  **Note:** this closes the *reachability* path. MongoDB authentication (defence in depth against
+  host-level access) is tracked separately — it needs a migration story, since enabling it naively
+  would lock existing users out of their own database.
+
 ### Changed
 
 - **Sync bookkeeping writes no longer block the event loop.** The sync engine persists tiny per-cycle

@@ -6,29 +6,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- **`OnPush` change detection on the audit-log page (P5, slice 2).** The audit-log viewer renders
-  up to a 100-row table plus a live-streaming server log, and previously re-ran change detection over
-  its whole subtree on every unrelated tick/XHR/DOM event. Every value it renders is already a signal
-  updated immutably (`entries`, `total`, `selectedEntry`, and the SSE log via `.update([...])`), and
-  its filter fields are `ngModel` two-way bindings whose input events mark the view dirty — so `OnPush`
-  is safe and re-checks exactly when state changes. Verified with a spec that loads rows, opens the
-  detail panel, and replaces the `entries` signal, asserting the table refreshes each time — the
-  conversion is proven, not blind.
-
-### Changed
-
-- **`OnPush` change detection on the pure-display leaf components (P5, first slice).** The client had
-  `OnPush` on **zero** of its components, so every timer tick, XHR completion and DOM event re-ran change
-  detection over the *entire* tree — including hundreds of `ph-icon`s and property views in large tables.
-  `ph-icon` and `app-properties-view` are now `OnPush`: both are pure and driven only by their inputs (plus,
-  for the view, one local signal), so they re-render exactly when they need to and are otherwise skipped.
-  These are the highest-instantiation leaves, squarely in the large-table hot path. Verified with specs that
-  render the component, change an input / toggle the signal, and assert the DOM updates — the conversion is
-  provable, not blind (the client test harness added earlier is what makes that possible). More components
-  follow, heaviest next.
-
 ### Added
 
 - **Client unit-test infrastructure (Vitest + jsdom).** The Angular client had **no test setup at all** —
@@ -39,101 +16,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   change-detection harness whose **negative control proves the harness can detect an `OnPush` component going
   stale** — so it can't give false confidence — plus a smoke test against a real component. Test-only; no
   runtime or shipped-bundle change (specs are excluded from the production build).
-
-### Changed
-
-- **Space export streams instead of buffering the whole space into memory (P7).** The export endpoint —
-  the one you reach for to back a space up — loaded all five collections into memory with `.toArray()` in
-  parallel and then `res.json()`'d the result, so the entire space sat on the heap **twice** (the documents
-  plus their serialised JSON) at once. A large space OOM'd the backup, exactly when losing data hurts most.
-  The response is now written incrementally over each collection's cursor, one document at a time, with
-  backpressure so the socket buffer cannot grow unbounded either. The output is **byte-for-byte identical**
-  — same object, same keys, same order — so import and every existing consumer are untouched. Covered by a
-  new scale test (250 documents with characters that must be JSON-escaped, asserting the streamed response
-  parses and round-trips exactly).
-- **The audit log no longer counts the whole table on every page (P11).** Listing audit entries ran a full
-  filtered `countDocuments()` on **every page load**, purely so `hasMore` could be derived from the total.
-  The audit log is append-only and therefore only ever grows, so that count got steadily more expensive
-  forever — and it was paid on every click of "next". `hasMore` now comes from fetching one extra row, which
-  answers the question exactly and for free, and the total (only used to render "showing N of M") is cached
-  briefly per filter, so paging through a result set counts once instead of once per page.
-- **An upload into an idle system no longer waits up to 30 seconds before embedding starts.** On an empty
-  queue the media worker backs its poll interval off to `workerMaxPollIntervalMs` (30 s by default) and
-  slept on an uninterruptible timer — so a file uploaded into an otherwise-idle instance sat in `pending`
-  for up to half a minute before the worker even woke to look at it. Every path that creates claimable work
-  already announces it, so that announcement now **wakes the worker**: the idle wait is interruptible, and
-  the backoff resets as soon as real work arrives. Measured on a cold worker: **~32 s → ~2 s**. A shutdown
-  also wakes it, so stopping is no longer delayed by a parked backoff.
-- **The media worker no longer walks every space on every claim (P12).** Job collections are per-space, so
-  claiming walked the spaces one `findOneAndUpdate` at a time. On an idle queue — the normal state — each
-  claim paid a full N-space walk just to learn there was nothing to do, and the worker does that
-  (`workerConcurrency + 1`) times per tick: at 100 spaces, ~300 useless sequential round trips per tick. The
-  walk now visits only spaces a pending-work hint says might hold a job. The hint is an optimisation, never
-  the source of truth: everything that makes a job claimable announces it, and a periodic full scan re-seeds
-  it — which specifically covers a job whose retry backoff has not yet elapsed (it is `pending` but not
-  claimable, so the probe finds nothing and the hint is dropped; the scan puts it back). Covered by a new
-  test asserting the worker actually **claims** work — the existing conversion tests only ever asserted that
-  a job reached `pending` and never waited for the worker at all, so a queue that claimed *nothing* would
-  have passed.
-
-### Changed
-
-- **Bulk deletes no longer make one database round trip per document (P9).** Wiping a collection writes a
-  tombstone per deleted document, and the seq for each was fetched with its own `nextSeq()` call — so
-  clearing 100k memories cost **100k sequential round trips before the delete even started**. All four bulk
-  deletes (memories, entities, edges, chrono) now reserve the whole tombstone range in a **single `$inc`**.
-  The invariant that matters is preserved: gaps in the sequence are harmless (sync compares seqs with `>`),
-  but **reuse** is not — so the block is reserved up-front and never rolled back on failure.
-- **Document chunks are embedded concurrently instead of one at a time (P8).** File conversion embedded each
-  chunk and inserted it individually, so a 500-chunk PDF meant **1,000 sequential awaits** with the embed
-  call dominating. Chunks are independent, so they are now embedded with **bounded concurrency** (8 in
-  flight — bounded, because a large document would otherwise fire hundreds of simultaneous requests at the
-  embedding provider and throttle rather than go faster) and written with `insertMany`. Per-chunk failure
-  isolation is unchanged: a chunk that fails to embed is still stored without a vector and counted, so the
-  job is reported partial/failed rather than silently "complete".
-
-### Security
-
-- **Dozens of mutating endpoints produced no audit entry at all.** The audit middleware keeps a
-  hand-maintained route table — a second, shadow copy of the router's paths — and nothing kept the two in
-  sync. It had drifted badly: the file-upload rule pointed at `/api/files/:space/upload`, **a route that has
-  never existed** (the real one carries the path in the query string), and the delete/move rules required a
-  trailing slash the real paths don't have. So **every file upload, delete and move was silently unlogged**.
-  `PATCH /api/spaces/:id/rename` wasn't matched either, so **space renames were unaudited** — the one
-  operation that, done wrong, hides a space's data. There was **no `PUT` rule in the entire table**, so every
-  schema write was unlogged. Worst of all, **the whole network/governance surface was missing**: adding or
-  removing a member, casting a vote, joining or forking a network — the operations that decide *who can read
-  the brain* — left no trace. Webhook CRUD was pointed at the wrong prefix entirely (`/api/notify/webhooks`
-  vs the real `/api/admin/webhooks`), so creating a webhook — which exfiltrates data to a third party on
-  every change — was unlogged too. Also missing: duplicate **merges** (which rewrite records and delete the
-  loser), conflict resolution, bulk chrono delete, token regeneration, and schema-library writes.
-  All are now audited. The gap survived because the audit tests only ever asserted `memory.create`,
-  `token.create/delete` and `auth.failed` — the handful of rules that happened to be correct.
-  `testing/standalone/audit-route-coverage.test.js` now **derives the route list from the router source**
-  instead of restating it, so the shadow table cannot drift silently again: add a mutating route and the
-  test fails until it is either audited or explicitly declared exempt *with a reason*.
-
-### Security
-
-- **The bundled MongoDB can now be authenticated, and new installs should be.** The bundled database
-  accepted any connection, and Ythril's security model (tokens, admin gating, space scoping, read-only
-  tokens, the audit log) is enforced at the **API layer only** — so anything able to reach port 27017 could
-  read and rewrite every space, invisibly to the audit log. Set `MONGO_USERNAME` / `MONGO_PASSWORD` (see the
-  new `.env.example`) and Ythril connects with credentials, percent-encoded so a password containing `@`,
-  `:` or `/` cannot corrupt the URI. An explicit `MONGO_URI` (managed Atlas, your own cluster) still wins
-  and is untouched. The test stack now runs **authenticated**, so every CI run proves Ythril works against
-  a credentialed database.
-  **Existing installs are unaffected and must not just add credentials:** MongoDB cannot have auth switched
-  on in place — the Atlas Local image runs a single-node replica set (needed for `$vectorSearch`) and only
-  provisions the required internal keyfile on a **first** init, so adding credentials to a database that
-  already holds data makes mongod fail to start (`Unable to acquire security key[s]`). Leaving the variables
-  empty preserves today's behaviour exactly; migrating is a deliberate dump/restore, documented in
-  `docs/dependencies.md`.
-  Also fixes a **vacuous test**: `mongoUriRedacted` asserted the URI contained no `@`, which passed only
-  because the test database had no credentials — the redaction path never ran. It now asserts the password
-  is absent and that a `user:pass` pair cannot survive redaction.
-
-### Added
 
 - **Cross-origin embedding is now possible — explicitly opt-in, and never by default.** Portal-style
   embedding was documented but could not actually work: `frame-ancestors 'self'` blocked cross-origin
@@ -149,12 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   logged at startup so the granted rights are visible. Framing is a clickjacking primitive and theming can
   spoof UI, so the integrator explicitly accepts responsibility for every origin they add. Covered by
   `testing/standalone/embed-origins.test.js`.
+
 - **Embedded (chrome-less) mode via `?embedded=1`.** When Ythril is embedded in a host portal its topbar
   (logo + Sign out) duplicates the host's chrome, and the in-frame Sign out is misleading — it ends only
   the Ythril session. Loading the app with `?embedded=1` hides the shell topbar. Navigation is unaffected
   (it lives in the sidebar). The flag is read once at startup and cached, because Angular drops unknown
   query params on navigation, which would otherwise flip the app back out of embedded mode on the first
   route change. Replaces the brittle `.topbar { display: none }` CSS workaround.
+
 - **The Brain "Semantic Search" panel now exposes the full recall API.** The form offered only
   query / topK / minScore while `recall()` also supports type restriction, per-type minimums, tag
   filtering, and structured filters — so the UI was strictly less capable than the API behind it. The panel
@@ -164,28 +48,127 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `undefined` in the REST route, reachable only via MCP or the internal function; they are now plumbed
   through `POST /api/brain/spaces/:spaceId/recall` (with `minPerType` values clamped to `topK`).
 
-### Security
+- **`prefers-reduced-motion` support (spinner-aware)** — when the OS "reduce motion" setting is on, a
+  global rule collapses decorative animations and transitions for users with vestibular sensitivity.
+  The loading spinner is deliberately exempted so it keeps rotating — it is informative motion, and
+  freezing it mid-spin reads as broken rather than calmer.
 
-- **The media sidecars can no longer reach the database.** `docker-compose.yml` put all four
-  containers — `ythril`, `ythril-mongo`, `ollama`, `whisper` — on a single flat bridge network, and
-  MongoDB runs with **no authentication**. Ythril's entire security model (PATs, admin gating, space
-  scoping, read-only tokens, the audit log) is enforced at the **API layer only**, so anything able to
-  open a TCP connection to port 27017 could read and rewrite **every space in the brain, invisibly to
-  the audit log**. That mattered because `ollama` and `whisper` are third-party images whose whole job
-  is parsing **untrusted user-supplied media** (uploaded images, audio, video) — the highest-risk
-  attack surface in the deployment. A parser exploit in either would have yielded unauthenticated
-  full-brain read/write. Kubernetes already prevented this (`media-netpol.yaml` gives the sidecars an
-  Egress policy permitting only DNS + 80/443); **Compose — the default deployment — did not.** The
-  network is now split: `ythril-db` (`ythril` + `ythril-mongo`, `internal: true`, so the database has
-  no outbound internet either) and `ythril-media` (`ythril` + the sidecars). Only `ythril` bridges the
-  two. Verified live: from `ollama`, `ythril-mongo` no longer resolves and TCP 27017 is refused, while
-  `ythril` still reaches mongo, ollama and whisper. Pinned by
-  `testing/standalone/network-segmentation.test.js`, which fails if anything re-flattens the network.
-  **Note:** this closes the *reachability* path. MongoDB authentication (defence in depth against
-  host-level access) is tracked separately — it needs a migration story, since enabling it naively
-  would lock existing users out of their own database.
+- **Per-route browser tab titles** — every page now sets a localized `<Page> · Ythril` title via a
+  Transloco-aware `TitleStrategy`, so tabs, history entries, and bookmarks are distinguishable instead
+  of all reading "Ythril".
+
+- **Governance signing-key rotation** — an instance can now rotate its Ed25519 vote-signing keypair
+  via `POST /api/admin/rotate-signing-key` (unrestricted admin; +TOTP when MFA is enabled). Rotation
+  produces a **continuity proof** signed by the old key over the new one; peers that had pinned the
+  old key adopt the new key automatically over gossip (the proof verifies against their pinned key),
+  while a key swap *without* a valid proof is still refused as impersonation. For recovery when the
+  old private key is lost (no proof possible), `PUT /api/networks/:id/members/:instanceId/signing-key`
+  lets an admin force-pin a member's key (break-glass). This removes the previous limitation where a
+  member that regenerated its keypair would be locked out of `requireSignedVotes` networks. Covered by
+  `testing/standalone/vote-key-rotation.test.js` and `testing/sync/vote-key-rotation.test.js`.
+
+- **MCP OAuth for browser connectors** — Ythril now speaks the standard MCP authorization flow
+  (OAuth 2.1 + PKCE + RFC 7591 Dynamic Client Registration) so browser-only clients that cannot send a
+  static `Authorization` header — notably the **claude.ai custom connector** — can connect to `/mcp`.
+  An unauthenticated `/mcp` request now returns `401` with an RFC 9728 `WWW-Authenticate`
+  `resource_metadata` header; Ythril serves the protected-resource + authorization-server metadata and
+  acts as its own authorization server (**no external IdP required**). During consent the user pastes a
+  Ythril token to approve; the connector is issued a **new PAT with the same permissions**, named
+  `MCP connector: <client>` and independently revocable under Settings → Tokens. Access tokens are
+  non-expiring PATs (no refresh flow). Requires `config.publicUrl` / `PUBLIC_BASE_URL` to be set to the
+  instance's external **HTTPS** URL (OAuth is disabled with a startup warning for plaintext non-loopback
+  hosts; the static bearer-token flow is unaffected). Clients that can set a header (Claude Desktop,
+  Cursor, VS Code) continue to use a static `ythril_…` bearer with no change. Covered by
+  `testing/integration/mcp-oauth.test.js` (full handshake + PKCE, single-use-code, redirect, and
+  invalid-token negative paths).
+
+- **Cryptographically signed governance votes** — every brain now owns a persistent Ed25519 signing
+  keypair (private half in `secrets.json`, public half in `config.json`, generated at setup / first
+  boot). Each governance vote cast is signed over a canonical message binding `network | round |
+  subject | voter | vote`, and the signature travels with the cast. Peers publish and pin each
+  other's public keys via member gossip (trust-on-first-use; a later attempt to change a pinned key
+  is refused). Because a signed cast can be verified by anyone, votes now **relay safely through
+  intermediate nodes** — restoring braintree governance for trees deeper than a single hop, which the
+  own-cast-only forgery fix had limited. A new per-network `requireSignedVotes` flag (settable on
+  create/update, default off) enforces strict mode once every member has published a key: unsigned or
+  invalid casts are then rejected outright. Default (compatibility) mode verifies signed casts and
+  relays them, while still accepting an unsigned cast only directly from its own voter — so signing
+  rolls out to existing networks without a flag day. New tests: `testing/standalone/vote-signing.test.js`
+  (20 unit cases) and `testing/sync/vote-signing.test.js` (signed cast + key distribution + safe relay
+  of a third-party signed cast, tampered cast rejected).
 
 ### Changed
+
+- **`OnPush` change detection on the audit-log page (P5, slice 2).** The audit-log viewer renders
+  up to a 100-row table plus a live-streaming server log, and previously re-ran change detection over
+  its whole subtree on every unrelated tick/XHR/DOM event. Every value it renders is already a signal
+  updated immutably (`entries`, `total`, `selectedEntry`, and the SSE log via `.update([...])`), and
+  its filter fields are `ngModel` two-way bindings whose input events mark the view dirty — so `OnPush`
+  is safe and re-checks exactly when state changes. Verified with a spec that loads rows, opens the
+  detail panel, and replaces the `entries` signal, asserting the table refreshes each time — the
+  conversion is proven, not blind.
+
+- **`OnPush` change detection on the pure-display leaf components (P5, first slice).** The client had
+  `OnPush` on **zero** of its components, so every timer tick, XHR completion and DOM event re-ran change
+  detection over the *entire* tree — including hundreds of `ph-icon`s and property views in large tables.
+  `ph-icon` and `app-properties-view` are now `OnPush`: both are pure and driven only by their inputs (plus,
+  for the view, one local signal), so they re-render exactly when they need to and are otherwise skipped.
+  These are the highest-instantiation leaves, squarely in the large-table hot path. Verified with specs that
+  render the component, change an input / toggle the signal, and assert the DOM updates — the conversion is
+  provable, not blind (the client test harness added earlier is what makes that possible). More components
+  follow, heaviest next.
+
+- **Space export streams instead of buffering the whole space into memory (P7).** The export endpoint —
+  the one you reach for to back a space up — loaded all five collections into memory with `.toArray()` in
+  parallel and then `res.json()`'d the result, so the entire space sat on the heap **twice** (the documents
+  plus their serialised JSON) at once. A large space OOM'd the backup, exactly when losing data hurts most.
+  The response is now written incrementally over each collection's cursor, one document at a time, with
+  backpressure so the socket buffer cannot grow unbounded either. The output is **byte-for-byte identical**
+  — same object, same keys, same order — so import and every existing consumer are untouched. Covered by a
+  new scale test (250 documents with characters that must be JSON-escaped, asserting the streamed response
+  parses and round-trips exactly).
+
+- **The audit log no longer counts the whole table on every page (P11).** Listing audit entries ran a full
+  filtered `countDocuments()` on **every page load**, purely so `hasMore` could be derived from the total.
+  The audit log is append-only and therefore only ever grows, so that count got steadily more expensive
+  forever — and it was paid on every click of "next". `hasMore` now comes from fetching one extra row, which
+  answers the question exactly and for free, and the total (only used to render "showing N of M") is cached
+  briefly per filter, so paging through a result set counts once instead of once per page.
+
+- **An upload into an idle system no longer waits up to 30 seconds before embedding starts.** On an empty
+  queue the media worker backs its poll interval off to `workerMaxPollIntervalMs` (30 s by default) and
+  slept on an uninterruptible timer — so a file uploaded into an otherwise-idle instance sat in `pending`
+  for up to half a minute before the worker even woke to look at it. Every path that creates claimable work
+  already announces it, so that announcement now **wakes the worker**: the idle wait is interruptible, and
+  the backoff resets as soon as real work arrives. Measured on a cold worker: **~32 s → ~2 s**. A shutdown
+  also wakes it, so stopping is no longer delayed by a parked backoff.
+
+- **The media worker no longer walks every space on every claim (P12).** Job collections are per-space, so
+  claiming walked the spaces one `findOneAndUpdate` at a time. On an idle queue — the normal state — each
+  claim paid a full N-space walk just to learn there was nothing to do, and the worker does that
+  (`workerConcurrency + 1`) times per tick: at 100 spaces, ~300 useless sequential round trips per tick. The
+  walk now visits only spaces a pending-work hint says might hold a job. The hint is an optimisation, never
+  the source of truth: everything that makes a job claimable announces it, and a periodic full scan re-seeds
+  it — which specifically covers a job whose retry backoff has not yet elapsed (it is `pending` but not
+  claimable, so the probe finds nothing and the hint is dropped; the scan puts it back). Covered by a new
+  test asserting the worker actually **claims** work — the existing conversion tests only ever asserted that
+  a job reached `pending` and never waited for the worker at all, so a queue that claimed *nothing* would
+  have passed.
+
+- **Bulk deletes no longer make one database round trip per document (P9).** Wiping a collection writes a
+  tombstone per deleted document, and the seq for each was fetched with its own `nextSeq()` call — so
+  clearing 100k memories cost **100k sequential round trips before the delete even started**. All four bulk
+  deletes (memories, entities, edges, chrono) now reserve the whole tombstone range in a **single `$inc`**.
+  The invariant that matters is preserved: gaps in the sequence are harmless (sync compares seqs with `>`),
+  but **reuse** is not — so the block is reserved up-front and never rolled back on failure.
+
+- **Document chunks are embedded concurrently instead of one at a time (P8).** File conversion embedded each
+  chunk and inserted it individually, so a 500-chunk PDF meant **1,000 sequential awaits** with the embed
+  call dominating. Chunks are independent, so they are now embedded with **bounded concurrency** (8 in
+  flight — bounded, because a large document would otherwise fire hundreds of simultaneous requests at the
+  embedding provider and throttle rather than go faster) and written with `insertMany`. Per-chunk failure
+  isolation is unchanged: a chunk that fails to embed is still stored without a vector and counted, so the
+  job is reported partial/failed rather than silently "complete".
 
 - **Sync bookkeeping writes no longer block the event loop.** The sync engine persists tiny per-cycle
   fields — pull/push watermarks, per-member failure counters, `lastSyncAt` — dozens to hundreds of times
@@ -199,6 +182,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   merges, setup) stays durable and synchronous, and a generation guard ensures an in-flight async flush can
   never clobber a fresher durable write. Covered by `testing/standalone/config-coalesced-write.test.js` and
   the existing sync suites (watermark convergence across restarts).
+
 - **The embedding model is no longer re-downloaded from HuggingFace on every CI build.** The Dockerfile
   fetched the ~274 MB `nomic-embed-text-v1.5` model in a layer that sat *after* the app-source copy, so any
   source change invalidated it — and CI runners start with a cold build cache, so effectively every CI run
@@ -208,6 +192,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   source), CI builds the image **once** with a **persistent GitHub Actions layer cache** (`type=gha`) and
   every compose instance reuses that tag, and the download has **retry/backoff** to ride through a
   transient 403 on the rare build that must actually fetch. Build/CI only — no runtime change.
+
 - **File sync no longer re-hashes every file on every round.** The file manifest read and SHA-256-hashed
   **every file** each time it was built, and it is built twice per sync round (once for the file diff,
   once for the Merkle root) per peer — so a space holding tens of GB re-read and re-hashed all of it on
@@ -216,6 +201,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were hashed at); an unchanged file reuses its stored hash and only new or modified files are re-read. A
   `force` option re-reads everything for reconciliation. The cache is never synced and is dropped with the
   space. Covered by the existing file-sync suites (write / overwrite / delete / `since`).
+
 - **Sync pull applies each page in a bounded number of round trips instead of 2×N.** Pulling docs from
   a peer ran a `findOne` + conditional `replaceOne` **per document** — so a 50k-memory backfill was
   ~100k sequential MongoDB round trips even though the data already arrived in 200-doc pages, and on a
@@ -234,6 +220,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and poll intervals hot-reload too. Note an idle worker backs off its poll interval (up to
   `workerMaxPollIntervalMs`, default 30 s), so a change can take up to that long to apply when the
   queue is empty. Covered by `testing/integration/media-config.test.js`.
+
 - **The MongoDB cast helpers are renamed `mFilter`/`mDoc`/`mUpdate`/`mBulk` → `asFilter`/`asDoc`/
   `asUpdate`/`asBulk` (internal, no behavior change).** The `m`-prefixed names read like "sanitise for
   Mongo", but the bodies are pure `as unknown as` casts that bridge our document interfaces to
@@ -241,6 +228,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sync-ingest path, where a lot of peer-supplied data flows through them. The `as*` names say plainly
   that these are type casts, and the module now states where the real validation lives (the Zod
   `Incoming*Doc` schemas in `api/sync.ts`).
+
 - **MCP tools are now a registry instead of a 1,200-line `switch` (internal, no behavior change).**
   Every tool used to be spread across **four** places that had to be kept in sync by hand: a schema in a
   big `allTools` array, a `case` in one giant `switch`, and membership in three separate `Set`s
@@ -251,6 +239,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   derived from those flags, so there is **one source of truth per tool**, and each handler is
   independently testable. `mcp/router.ts` drops from **2,241 to 258 lines** and is now just transport +
   dispatch. Tool names, schemas, `tools/list` ordering, gate behavior and error strings are unchanged.
+
 - **Sync scheduling now uses real cron (and honours cron expressions that were silently ignored).**
   The per-network `syncSchedule` was parsed by a bespoke `*/N minutes|hours` / `every Nm|Nh` regex on
   top of `setInterval`, so a **standard cron expression — the format the integration guide documents,
@@ -259,6 +248,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use): a cron expression is used directly, and the two legacy shorthands are translated to cron for
   backward compatibility (values cron can't express, e.g. `every 90m`, now warn instead of silently
   scheduling). Covered by `testing/standalone/sync-cron.test.js`.
+
 - **Auth middleware consolidated onto a shared core (internal, no behavior change).** The six
   `require*` middlewares (`requireAuth`/`requireMcpAuth`, `requireSpaceAuth`, `requireAdmin`,
   `requireAdminMfa`, `requireAdminMfaScoped`) each repeated the same bearer-extract → resolve →
@@ -268,6 +258,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Exported names, signatures, status codes, error bodies, metrics, and the MCP `WWW-Authenticate`
   challenge are all preserved exactly; verified against the auth red-team suites (`auth-bypass`,
   `auth-escalation`, `auth-surface-hardening`, `space-boundary`, `mcp-security`).
+
 - **Storage-quota checks no longer re-walk the whole file tree on every upload chunk.** `checkQuota`
   runs on every chunk, and `measureUsage` recursively stat-summed all of `/data/files` **and** ran a
   `dbStats` command with no cache — so a chunked upload was `O(total_files × chunks)` and got slower as
@@ -290,83 +281,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses the canonical paths. (All other brain resources — entities, edges, chrono, stats — were already
   canonical-only and are unaffected.)
 
-### Security
-
-- **Governance rounds no longer conclude on an empty voter set.** `concludeRoundIfReady` treated
-  "no remote voters" (the only member left is the round's subject) as vacuously "everyone voted yes",
-  so a `closed`/braintree round with **zero votes** passed. Combined with gossip round adoption, a
-  malicious peer in a small network could serve a **forged `remove` / `space_deletion` / `meta_change`
-  round** and the victim would conclude it — ejecting a member or deleting a space **without any
-  legitimate vote**. (The per-cast forgery guard correctly rejected the forged votes, but the round
-  needed none to pass.) An empty voter set now concludes only when **this instance itself voted yes**,
-  i.e. a locally-proposed action — a gossip-adopted round carries no local vote and never concludes.
-  Legitimate solo actions (self-initiated remove / space deletion, which cast our own yes) are
-  unaffected. Regression-guarded by `testing/sync/vote-forgery.test.js` and `governance.test.js`.
-- **Kubernetes deployment is hardened and its probes/ports now actually work.** The stock
-  `kubernetes/manifests/ythril-deployment.yaml` had no `securityContext`, used the mutable
-  `:latest` image tag, set no resource limits on the main container, and targeted
-  `containerPort: 4100` with `/api/ready` probes — but the server listens on `3200` and the
-  readiness endpoint is `/ready`, so probes never passed and Service targeting hit a dead port.
-  The manifest now: enforces non-root (`runAsNonRoot`, uid/gid 1000) with
-  `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, all capabilities dropped, and
-  `seccompProfile: RuntimeDefault`; backs every writable path with a volume (`/data` and a new
-  `ythril-config` PVC for the previously-**unmounted** `/config`, plus an `emptyDir` for `/tmp`);
-  adds CPU/memory requests and limits to the main container; corrects the port to `3200` and the
-  probe path to `/ready`; and pins a concrete image version with inline guidance for digest
-  pinning. **Behavior change:** `/config` (tokens, spaces, networks, secrets) is now persisted on
-  its own PVC — previously this state was silently lost on every Pod restart. The `ythril-config`
-  PVC is created by the manifest; on clusters without a default StorageClass, provision it first.
-- **Sync connections are now SSRF-validated at connection time, and peer URL rewrites
-  are re-validated.** Peer URLs were validated only at admission, but a peer can rewrite
-  its own stored URL after admission (via gossip or the member self-update endpoint) with
-  no re-check, and the sync engine connected with a bare `fetch` (no DNS pin). An
-  admitted-but-malicious member could therefore point itself at `http://169.254.169.254/`
-  (cloud IMDS), loopback, or an internal host, and the victim would connect there with peer
-  auth headers attached. All 15 outbound sync connections now go through an SSRF-safe fetch
-  (DNS-resolve → pin the socket to the validated IP → re-validate each redirect), and the
-  three URL-merge paths re-validate before persisting. **Same-host / LAN deployments** whose
-  peers use private addresses set the new `allowPrivatePeers` config key (or the
-  `SYNC_ALLOW_PRIVATE_PEERS` env var); even then, crown-jewel addresses (loopback,
-  link-local/IMDS, unspecified) stay blocked. Covered by `testing/red-team-tests/sync-peer-ssrf.test.js`
-  and `testing/standalone/peer-ssrf-policy.test.js`.
-
-- **`trust proxy` now defaults to `false` (was hardcoded to `1`).** The default compose
-  deployment is exposed directly with no reverse proxy, so trusting the first hop meant
-  `req.ip` came from the client-supplied `X-Forwarded-For` header — attacker-controllable.
-  That let a client rotate `X-Forwarded-For` to defeat every rate limiter (including the only
-  throttle in front of admin TOTP verification) and to forge client IPs in the audit log.
-  `req.ip` is now derived from the socket by default. **Behavior change:** if you run behind
-  a reverse proxy (nginx/Traefik/ingress), set the new `trustProxy` config key — or the
-  `TRUST_PROXY` env var — to the **exact number of proxy hops** (e.g. `1`), not `true`.
-  Accepts Express's native values (`false` | hop count | `'loopback'` | CIDR list).
-- **`?limit`/`?skip` on brain list endpoints are clamped.** A non-numeric value
-  (`?limit=abc`) previously became `NaN` and flowed unbounded into MongoDB. Values are now
-  coerced to a safe bounded integer, the list helpers clamp internally as defense-in-depth,
-  and proxy-space results are re-limited to the requested page size.
-- **Rate-limit kill-switches (`SKIP_*_RATE_LIMIT`) are ignored in production.** These test-only
-  env vars are now honoured outside `NODE_ENV=production` only, so a leaked flag can't silently
-  disable rate limiting on a live deployment. A loud warning is logged at startup if one is set.
-- **MCP SSE sessions are now bound to the identity that opened them.** An MCP `GET /mcp` SSE
-  session was authorized once, at open time, and `POST /mcp/messages?sessionId=…` then dispatched
-  into it keyed by `sessionId` **alone** — never re-checking whose token drove the call. Because the
-  `sessionId` travels as a query parameter (it lands in reverse-proxy access logs, browser history,
-  and referrers) it is not a secret; any holder of a valid token — even a read-only, single-space
-  one — who learned another session's id could POST tool calls that executed with that session's
-  privileges. Each session is now pinned to the opening token's **id and scope signature**; a
-  `POST` whose token id differs, or whose scopes have since changed, is rejected with `403`. This
-  also fixes privilege staleness (a mid-session scope downgrade now forces reconnect). Raw session
-  ids are no longer logged — only a short non-reversible tag. Covered by
-  `testing/red-team-tests/mcp-security.test.js`.
-- **MCP OAuth connector tokens now expire and rotate instead of accumulating.** Every browser-connector
-  consent minted a **permanent** PAT with no cap, so a connector that re-authorized on each reconnect
-  grew `config.json` without bound and left a trail of orphaned, long-lived credentials (and every
-  `saveConfig` rewrites the whole file). OAuth-minted tokens now carry a default **90-day expiry**
-  (`MCP_OAUTH_TOKEN_TTL_DAYS`, `0` = never), a fresh consent **rotates** the single token held for that
-  client rather than appending, and the total connector-token count is capped (oldest evicted). The
-  token exchange advertises `expires_in` so clients can anticipate re-consent. **Behavior change:**
-  connectors will need to re-authorize when their token expires. Covered by
-  `testing/integration/mcp-oauth.test.js`.
-
 ### Fixed
 
 - **Schema validation was a total no-op on MCP — the surface agents actually use.** `validateMemory()` keys
@@ -377,9 +291,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tools now accept `type`, forward it to the validator and persist it. (The existing schema-validation suite
   set up exactly this scenario and asserted a 400 — but **only through REST**: the one surface that could
   fail was never tested. Same shape as the space-rename bug.)
+
 - **MCP `bulk_write` never validated edge `properties`.** It called `validateEdge(meta, { label })`, omitting
   `properties`, so required/typed edge properties were never checked and strict mode was unenforceable on
   that path — while MCP `upsert_edge` and REST both got it right.
+
 - **Chrono `recurrence` was unreachable from MCP and unvalidated over REST.** The engine has supported it all
   along, but no MCP tool declared it, so agents could not create or modify recurring entries. Meanwhile REST
   destructured it straight out of the request body and persisted it **with no shape check at all** — unlike
@@ -431,6 +347,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   build` build the *same* tag from four services simultaneously, which races on the image export and could
   corrupt it locally (`failed to extract layer … EOF`). Only `ythril-a` builds the image now; b/c/d simply
   reference the tag. CI is unaffected — it pre-builds the tag itself.
+
 - **Rebuilding the test stack no longer leaks Docker disk without bound.** Every `--build` orphaned the
   previous multi-GB image (each bakes a ~520 MB embedding model, node_modules and ffmpeg) and grew the
   BuildKit cache forever — on one workstation this reached **35 GB of build cache plus 20 GB of orphaned
@@ -440,6 +357,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **compact** `docker_data.vhdx` — necessary because pruning frees space *inside* the VM while the
   dynamically-expanding disk only ever grows on the host. It locates the disk even when relocated to
   another drive (`CustomWslDistroDir`).
+
 - **Sync tests can no longer turn a persistent, actionable error into an unexplained timeout.** The sync
   suites re-trigger a sync on every poll (deliberate — a single up-front trigger races a slow gossip
   cycle), but they did it as `triggerSync(...).catch(() => {})`, which treats a transient blip and a
@@ -473,6 +391,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `state` prefix (`silent.`), and the callback branches on that marker instead of on being framed — so an
   embedded interactive sign-in completes normally while genuine silent refreshes are still recognised.
   Client-only. Reported from a production embedded (iframe) deployment.
+
 - **Governance votes and member gossip now converge even when data sync is slow or failing.** In each
   sync cycle, gossip (member list, signing-key pinning) and vote propagation ran **after** the per-space
   data and file sync for a peer — and that data loop is not isolated, so any timed-out pull, unreachable
@@ -483,6 +402,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **first**, ahead of the data loop, so it converges promptly and independently of data-plane health. The
   two calls remain internally best-effort and are additionally wrapped so a later data-plane failure can
   never mask governance progress. Covered by the existing sync/vote suites.
+
 - **Importing a schema no longer fails silently.** In **Settings → Spaces → Schema → Import JSON**, a
   valid-JSON file that contained none of the recognised `entity`/`edge`/`memory`/`chrono` keys — which
   includes Ythril's **own** per-type export shape `{knowledgeType, typeName, schema}` — fell straight
@@ -491,6 +411,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   specific error listing the expected keys and what the file actually contained when nothing is
   recognised; and (3) confirms success with a note that the imported types are **staged — press Save to
   apply**. Client-only.
+
 - **Record properties are now fully embedded, so semantic recall can use them.** The text embedded for
   a record mishandled `properties`: memory and entity embedded only the property **values** and dropped
   the **keys**, while **edge and chrono embedded properties not at all**. So recall couldn't match on a
@@ -501,6 +422,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Existing records keep their old (weaker) vectors until re-embedded — run
   `POST /api/brain/spaces/:id/reindex` to rebuild them with property keys. Covered by
   `testing/integration/embed-properties.test.js`.
+
 - **Recall no longer errors while a new space's vector indexes are still building.** Space creation now
   builds its `$vectorSearch` indexes asynchronously (see the space-creation fix above), and Atlas
   refuses queries against an index still in `INITIAL_SYNC` — so a recall during that brief window
@@ -509,6 +431,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not-yet-queryable index like a missing one — no results from that collection — so it degrades to a
   partial/empty result during the build window instead of erroring. Covered by
   `testing/integration/space-creation-async.test.js`.
+
 - **Creating a space no longer times out or "appears only after a reload".** `createSpace` awaited the
   build of a space's 5+ Atlas `$vectorSearch` indexes, each polling for READY up to 60 s (worst case
   minutes) — so the `201` landed far past the client's 30 s timeout, on a dead subscription, and the
@@ -518,6 +441,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ready`/`failed` by a background task. The space is writable immediately; only semantic recall waits
   for READY. The UI shows a "Preparing indexes…" badge until it clears. `GET /api/spaces` surfaces
   `indexStatus`. Covered by `testing/integration/space-creation-async.test.js`.
+
 - **Document embedding failures are reported instead of faked as success.** When a text/document
   upload's chunks failed to embed, an empty `catch` swallowed the error and the job still reported
   `embeddingStatus: 'complete'` — so a file that was permanently invisible to `$vectorSearch` looked
@@ -526,6 +450,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failure is recorded as `embeddingStatus: 'partial'` (new state) and is retriable. A **Retry** button
   and a "Partly embedded" badge were added to the file list, wiring the previously-unused
   `retry_embedding` endpoint. Covered by `testing/standalone/embedding-failure-reporting.test.js`.
+
 - **Space rename/delete are now crash-safe.** A rename or delete spans `config.json`, MongoDB
   collections, and the filesystem and cannot be atomic — a crash mid-operation (after renaming some
   collections, or after moving files but before the config write) could leave them permanently
@@ -533,20 +458,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   physical change and cleared only on commit; the physical steps are idempotent, and an interrupted
   operation is completed on the next boot (and on `reload-config`). Covered by
   `testing/standalone/space-op-recovery.test.js`.
+
 - **The governance vote "No" button now works (and casts a veto).** The Networks UI offered **Yes/No**
   buttons, but the server accepts only `yes`/`veto` (`VoteValue`), so clicking **No** returned `400`
   and there was no way to cast a blocking vote from the UI at all. The negative button now casts a
   `veto` — the blocking vote the model and docs already describe ("a single no blocks it") — and is
   relabelled **Veto** to match. Client-only fix.
+
 - **`<html lang>` now tracks the active UI language.** It was hardcoded to `en`, so screen-reader
   pronunciation and browser hyphenation stayed English for German and Polish users even though the UI
   was fully translated. The document language is now set on startup and updated on every language
   switch.
+
 - **Close/remove buttons use a consistent icon everywhere.** Close and remove controls across the app
   rendered a mix of raw `✕` and `×` glyphs at different weights/baselines than the `ph-icon` used
   elsewhere. Every one — dialog close buttons, chip/tag remove buttons, and danger remove actions in
   networks, spaces, schema-library, tokens, and the shared property/tag editors — now uses the `x`
   icon, and dialog close buttons that were missing an `aria-label` gained one.
+
 - **Legacy tokens are no longer silently invalidated on upgrade** — a startup/reload migration
   *deleted* any PAT created before the `prefix` field existed, on the assumption it "cannot be
   verified." In fact a prefix-less token can still be bcrypt-verified; the prefix is only a lookup
@@ -555,26 +484,145 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   line to explain it. Legacy tokens are now **verified via a fallback scan and self-heal**: the prefix
   is backfilled on first use so subsequent lookups take the fast path, and no token is ever deleted by
   the migration. Covered by `testing/integration/auth.test.js`.
-### Added
-
-- **`prefers-reduced-motion` support (spinner-aware)** — when the OS "reduce motion" setting is on, a
-  global rule collapses decorative animations and transitions for users with vestibular sensitivity.
-  The loading spinner is deliberately exempted so it keeps rotating — it is informative motion, and
-  freezing it mid-spin reads as broken rather than calmer.
-- **Per-route browser tab titles** — every page now sets a localized `<Page> · Ythril` title via a
-  Transloco-aware `TitleStrategy`, so tabs, history entries, and bookmarks are distinguishable instead
-  of all reading "Ythril".
-- **Governance signing-key rotation** — an instance can now rotate its Ed25519 vote-signing keypair
-  via `POST /api/admin/rotate-signing-key` (unrestricted admin; +TOTP when MFA is enabled). Rotation
-  produces a **continuity proof** signed by the old key over the new one; peers that had pinned the
-  old key adopt the new key automatically over gossip (the proof verifies against their pinned key),
-  while a key swap *without* a valid proof is still refused as impersonation. For recovery when the
-  old private key is lost (no proof possible), `PUT /api/networks/:id/members/:instanceId/signing-key`
-  lets an admin force-pin a member's key (break-glass). This removes the previous limitation where a
-  member that regenerated its keypair would be locked out of `requireSignedVotes` networks. Covered by
-  `testing/standalone/vote-key-rotation.test.js` and `testing/sync/vote-key-rotation.test.js`.
 
 ### Security
+
+- **Dozens of mutating endpoints produced no audit entry at all.** The audit middleware keeps a
+  hand-maintained route table — a second, shadow copy of the router's paths — and nothing kept the two in
+  sync. It had drifted badly: the file-upload rule pointed at `/api/files/:space/upload`, **a route that has
+  never existed** (the real one carries the path in the query string), and the delete/move rules required a
+  trailing slash the real paths don't have. So **every file upload, delete and move was silently unlogged**.
+  `PATCH /api/spaces/:id/rename` wasn't matched either, so **space renames were unaudited** — the one
+  operation that, done wrong, hides a space's data. There was **no `PUT` rule in the entire table**, so every
+  schema write was unlogged. Worst of all, **the whole network/governance surface was missing**: adding or
+  removing a member, casting a vote, joining or forking a network — the operations that decide *who can read
+  the brain* — left no trace. Webhook CRUD was pointed at the wrong prefix entirely (`/api/notify/webhooks`
+  vs the real `/api/admin/webhooks`), so creating a webhook — which exfiltrates data to a third party on
+  every change — was unlogged too. Also missing: duplicate **merges** (which rewrite records and delete the
+  loser), conflict resolution, bulk chrono delete, token regeneration, and schema-library writes.
+  All are now audited. The gap survived because the audit tests only ever asserted `memory.create`,
+  `token.create/delete` and `auth.failed` — the handful of rules that happened to be correct.
+  `testing/standalone/audit-route-coverage.test.js` now **derives the route list from the router source**
+  instead of restating it, so the shadow table cannot drift silently again: add a mutating route and the
+  test fails until it is either audited or explicitly declared exempt *with a reason*.
+
+- **The bundled MongoDB can now be authenticated, and new installs should be.** The bundled database
+  accepted any connection, and Ythril's security model (tokens, admin gating, space scoping, read-only
+  tokens, the audit log) is enforced at the **API layer only** — so anything able to reach port 27017 could
+  read and rewrite every space, invisibly to the audit log. Set `MONGO_USERNAME` / `MONGO_PASSWORD` (see the
+  new `.env.example`) and Ythril connects with credentials, percent-encoded so a password containing `@`,
+  `:` or `/` cannot corrupt the URI. An explicit `MONGO_URI` (managed Atlas, your own cluster) still wins
+  and is untouched. The test stack now runs **authenticated**, so every CI run proves Ythril works against
+  a credentialed database.
+  **Existing installs are unaffected and must not just add credentials:** MongoDB cannot have auth switched
+  on in place — the Atlas Local image runs a single-node replica set (needed for `$vectorSearch`) and only
+  provisions the required internal keyfile on a **first** init, so adding credentials to a database that
+  already holds data makes mongod fail to start (`Unable to acquire security key[s]`). Leaving the variables
+  empty preserves today's behaviour exactly; migrating is a deliberate dump/restore, documented in
+  `docs/dependencies.md`.
+  Also fixes a **vacuous test**: `mongoUriRedacted` asserted the URI contained no `@`, which passed only
+  because the test database had no credentials — the redaction path never ran. It now asserts the password
+  is absent and that a `user:pass` pair cannot survive redaction.
+
+- **The media sidecars can no longer reach the database.** `docker-compose.yml` put all four
+  containers — `ythril`, `ythril-mongo`, `ollama`, `whisper` — on a single flat bridge network, and
+  MongoDB runs with **no authentication**. Ythril's entire security model (PATs, admin gating, space
+  scoping, read-only tokens, the audit log) is enforced at the **API layer only**, so anything able to
+  open a TCP connection to port 27017 could read and rewrite **every space in the brain, invisibly to
+  the audit log**. That mattered because `ollama` and `whisper` are third-party images whose whole job
+  is parsing **untrusted user-supplied media** (uploaded images, audio, video) — the highest-risk
+  attack surface in the deployment. A parser exploit in either would have yielded unauthenticated
+  full-brain read/write. Kubernetes already prevented this (`media-netpol.yaml` gives the sidecars an
+  Egress policy permitting only DNS + 80/443); **Compose — the default deployment — did not.** The
+  network is now split: `ythril-db` (`ythril` + `ythril-mongo`, `internal: true`, so the database has
+  no outbound internet either) and `ythril-media` (`ythril` + the sidecars). Only `ythril` bridges the
+  two. Verified live: from `ollama`, `ythril-mongo` no longer resolves and TCP 27017 is refused, while
+  `ythril` still reaches mongo, ollama and whisper. Pinned by
+  `testing/standalone/network-segmentation.test.js`, which fails if anything re-flattens the network.
+  **Note:** this closes the *reachability* path. MongoDB authentication (defence in depth against
+  host-level access) is tracked separately — it needs a migration story, since enabling it naively
+  would lock existing users out of their own database.
+
+- **Governance rounds no longer conclude on an empty voter set.** `concludeRoundIfReady` treated
+  "no remote voters" (the only member left is the round's subject) as vacuously "everyone voted yes",
+  so a `closed`/braintree round with **zero votes** passed. Combined with gossip round adoption, a
+  malicious peer in a small network could serve a **forged `remove` / `space_deletion` / `meta_change`
+  round** and the victim would conclude it — ejecting a member or deleting a space **without any
+  legitimate vote**. (The per-cast forgery guard correctly rejected the forged votes, but the round
+  needed none to pass.) An empty voter set now concludes only when **this instance itself voted yes**,
+  i.e. a locally-proposed action — a gossip-adopted round carries no local vote and never concludes.
+  Legitimate solo actions (self-initiated remove / space deletion, which cast our own yes) are
+  unaffected. Regression-guarded by `testing/sync/vote-forgery.test.js` and `governance.test.js`.
+
+- **Kubernetes deployment is hardened and its probes/ports now actually work.** The stock
+  `kubernetes/manifests/ythril-deployment.yaml` had no `securityContext`, used the mutable
+  `:latest` image tag, set no resource limits on the main container, and targeted
+  `containerPort: 4100` with `/api/ready` probes — but the server listens on `3200` and the
+  readiness endpoint is `/ready`, so probes never passed and Service targeting hit a dead port.
+  The manifest now: enforces non-root (`runAsNonRoot`, uid/gid 1000) with
+  `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, all capabilities dropped, and
+  `seccompProfile: RuntimeDefault`; backs every writable path with a volume (`/data` and a new
+  `ythril-config` PVC for the previously-**unmounted** `/config`, plus an `emptyDir` for `/tmp`);
+  adds CPU/memory requests and limits to the main container; corrects the port to `3200` and the
+  probe path to `/ready`; and pins a concrete image version with inline guidance for digest
+  pinning. **Behavior change:** `/config` (tokens, spaces, networks, secrets) is now persisted on
+  its own PVC — previously this state was silently lost on every Pod restart. The `ythril-config`
+  PVC is created by the manifest; on clusters without a default StorageClass, provision it first.
+
+- **Sync connections are now SSRF-validated at connection time, and peer URL rewrites
+  are re-validated.** Peer URLs were validated only at admission, but a peer can rewrite
+  its own stored URL after admission (via gossip or the member self-update endpoint) with
+  no re-check, and the sync engine connected with a bare `fetch` (no DNS pin). An
+  admitted-but-malicious member could therefore point itself at `http://169.254.169.254/`
+  (cloud IMDS), loopback, or an internal host, and the victim would connect there with peer
+  auth headers attached. All 15 outbound sync connections now go through an SSRF-safe fetch
+  (DNS-resolve → pin the socket to the validated IP → re-validate each redirect), and the
+  three URL-merge paths re-validate before persisting. **Same-host / LAN deployments** whose
+  peers use private addresses set the new `allowPrivatePeers` config key (or the
+  `SYNC_ALLOW_PRIVATE_PEERS` env var); even then, crown-jewel addresses (loopback,
+  link-local/IMDS, unspecified) stay blocked. Covered by `testing/red-team-tests/sync-peer-ssrf.test.js`
+  and `testing/standalone/peer-ssrf-policy.test.js`.
+
+- **`trust proxy` now defaults to `false` (was hardcoded to `1`).** The default compose
+  deployment is exposed directly with no reverse proxy, so trusting the first hop meant
+  `req.ip` came from the client-supplied `X-Forwarded-For` header — attacker-controllable.
+  That let a client rotate `X-Forwarded-For` to defeat every rate limiter (including the only
+  throttle in front of admin TOTP verification) and to forge client IPs in the audit log.
+  `req.ip` is now derived from the socket by default. **Behavior change:** if you run behind
+  a reverse proxy (nginx/Traefik/ingress), set the new `trustProxy` config key — or the
+  `TRUST_PROXY` env var — to the **exact number of proxy hops** (e.g. `1`), not `true`.
+  Accepts Express's native values (`false` | hop count | `'loopback'` | CIDR list).
+
+- **`?limit`/`?skip` on brain list endpoints are clamped.** A non-numeric value
+  (`?limit=abc`) previously became `NaN` and flowed unbounded into MongoDB. Values are now
+  coerced to a safe bounded integer, the list helpers clamp internally as defense-in-depth,
+  and proxy-space results are re-limited to the requested page size.
+
+- **Rate-limit kill-switches (`SKIP_*_RATE_LIMIT`) are ignored in production.** These test-only
+  env vars are now honoured outside `NODE_ENV=production` only, so a leaked flag can't silently
+  disable rate limiting on a live deployment. A loud warning is logged at startup if one is set.
+
+- **MCP SSE sessions are now bound to the identity that opened them.** An MCP `GET /mcp` SSE
+  session was authorized once, at open time, and `POST /mcp/messages?sessionId=…` then dispatched
+  into it keyed by `sessionId` **alone** — never re-checking whose token drove the call. Because the
+  `sessionId` travels as a query parameter (it lands in reverse-proxy access logs, browser history,
+  and referrers) it is not a secret; any holder of a valid token — even a read-only, single-space
+  one — who learned another session's id could POST tool calls that executed with that session's
+  privileges. Each session is now pinned to the opening token's **id and scope signature**; a
+  `POST` whose token id differs, or whose scopes have since changed, is rejected with `403`. This
+  also fixes privilege staleness (a mid-session scope downgrade now forces reconnect). Raw session
+  ids are no longer logged — only a short non-reversible tag. Covered by
+  `testing/red-team-tests/mcp-security.test.js`.
+
+- **MCP OAuth connector tokens now expire and rotate instead of accumulating.** Every browser-connector
+  consent minted a **permanent** PAT with no cap, so a connector that re-authorized on each reconnect
+  grew `config.json` without bound and left a trail of orphaned, long-lived credentials (and every
+  `saveConfig` rewrites the whole file). OAuth-minted tokens now carry a default **90-day expiry**
+  (`MCP_OAUTH_TOKEN_TTL_DAYS`, `0` = never), a fresh consent **rotates** the single token held for that
+  client rather than appending, and the total connector-token count is capped (oldest evicted). The
+  token exchange advertises `expires_in` so clients can anticipate re-consent. **Behavior change:**
+  connectors will need to re-authorize when their token expires. Covered by
+  `testing/integration/mcp-oauth.test.js`.
 
 - **File paths are re-checked against symlink escapes before every filesystem operation** — the
   sandbox boundary check was purely lexical (string prefix), so a symlink component anywhere along a
@@ -736,6 +784,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `webhookMaxRedirects` in `config.json` (or the `WEBHOOK_MAX_REDIRECTS` env var), default 3, clamped
   to `[0, 20]`. Adds `undici` as a direct dependency. Covered by
   `testing/standalone/ssrf-ip-pinning.test.js`.
+
 - **MCP proxy spaces no longer bypass member-space token scope** — an MCP call targeting a proxy space
   checked the token only against the *proxy* space id, then fanned reads/writes out to the member
   spaces with no further check. A token scoped solely to a proxy (especially a `proxyFor: ['*']`
@@ -779,39 +828,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   webhook target could 302-redirect (or DNS-rebind) to a private/reserved IP after passing
   creation-time validation. Covered by `testing/standalone/ssrf-hardening.test.js` (65 unit cases) and
   `testing/red-team-tests/ssrf-encoding.test.js`.
-### Added
-
-- **MCP OAuth for browser connectors** — Ythril now speaks the standard MCP authorization flow
-  (OAuth 2.1 + PKCE + RFC 7591 Dynamic Client Registration) so browser-only clients that cannot send a
-  static `Authorization` header — notably the **claude.ai custom connector** — can connect to `/mcp`.
-  An unauthenticated `/mcp` request now returns `401` with an RFC 9728 `WWW-Authenticate`
-  `resource_metadata` header; Ythril serves the protected-resource + authorization-server metadata and
-  acts as its own authorization server (**no external IdP required**). During consent the user pastes a
-  Ythril token to approve; the connector is issued a **new PAT with the same permissions**, named
-  `MCP connector: <client>` and independently revocable under Settings → Tokens. Access tokens are
-  non-expiring PATs (no refresh flow). Requires `config.publicUrl` / `PUBLIC_BASE_URL` to be set to the
-  instance's external **HTTPS** URL (OAuth is disabled with a startup warning for plaintext non-loopback
-  hosts; the static bearer-token flow is unaffected). Clients that can set a header (Claude Desktop,
-  Cursor, VS Code) continue to use a static `ythril_…` bearer with no change. Covered by
-  `testing/integration/mcp-oauth.test.js` (full handshake + PKCE, single-use-code, redirect, and
-  invalid-token negative paths).
-
-- **Cryptographically signed governance votes** — every brain now owns a persistent Ed25519 signing
-  keypair (private half in `secrets.json`, public half in `config.json`, generated at setup / first
-  boot). Each governance vote cast is signed over a canonical message binding `network | round |
-  subject | voter | vote`, and the signature travels with the cast. Peers publish and pin each
-  other's public keys via member gossip (trust-on-first-use; a later attempt to change a pinned key
-  is refused). Because a signed cast can be verified by anyone, votes now **relay safely through
-  intermediate nodes** — restoring braintree governance for trees deeper than a single hop, which the
-  own-cast-only forgery fix had limited. A new per-network `requireSignedVotes` flag (settable on
-  create/update, default off) enforces strict mode once every member has published a key: unsigned or
-  invalid casts are then rejected outright. Default (compatibility) mode verifies signed casts and
-  relays them, while still accepting an unsigned cast only directly from its own voter — so signing
-  rolls out to existing networks without a flag day. New tests: `testing/standalone/vote-signing.test.js`
-  (20 unit cases) and `testing/sync/vote-signing.test.js` (signed cast + key distribution + safe relay
-  of a third-party signed cast, tampered cast rejected).
-
-### Security
 
 - **Sync: forged tombstones can no longer delete another instance's data** — `applyRemoteTombstone`
   authorised a deletion purely on `localDoc.author.instanceId === tombstone.instanceId`, both of which

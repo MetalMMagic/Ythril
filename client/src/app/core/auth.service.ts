@@ -9,6 +9,18 @@ const OIDC_CLIENT_ID_KEY = 'oidc_client_id';
 const OIDC_SCOPES_KEY = 'oidc_scopes';
 const OIDC_ID_TOKEN_KEY = 'oidc_id_token';
 
+/**
+ * Marker prepended to the OIDC `state` of a silent-refresh request. The callback
+ * component uses it to recognise a silent-refresh frame explicitly, rather than
+ * inferring "silent refresh" from merely being inside an iframe — which breaks
+ * when the ENTIRE SPA is embedded in a portal iframe (the interactive redirect
+ * callback is then also framed, but its parent is the portal's origin, so the
+ * silent-callback postMessage is refused and interactive sign-in hangs forever).
+ * `state` round-trips through the IdP unchanged, and `.` is not part of the
+ * base64url alphabet used for the random suffix, so the marker is unambiguous.
+ */
+export const OIDC_SILENT_STATE_PREFIX = 'silent.';
+
 /** Prefix that identifies a Ythril-issued Personal Access Token. */
 const PAT_TOKEN_PREFIX = 'ythril_';
 
@@ -268,7 +280,10 @@ export class AuthService {
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 
     const stateBytes = crypto.getRandomValues(new Uint8Array(16));
-    const state = btoa(String.fromCharCode(...stateBytes))
+    // Prefix the state so the callback recognises this as a silent-refresh frame
+    // explicitly (see OIDC_SILENT_STATE_PREFIX) instead of inferring it from being
+    // framed — the latter breaks when the whole SPA is embedded in a portal iframe.
+    const state = OIDC_SILENT_STATE_PREFIX + btoa(String.fromCharCode(...stateBytes))
       .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 
     // Fetch the discovery document to obtain the current endpoints

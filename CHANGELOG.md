@@ -190,6 +190,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OIDC sign-in no longer hangs when the whole SPA is embedded in a portal iframe.** The callback
+  inferred "this is a silent-refresh frame" from simply being inside an iframe (`window.self !== window.top`)
+  and tried to `postMessage` the authorization code to `window.parent` targeted at Ythril's own origin. That
+  is correct for a genuine silent refresh (whose hidden iframe's parent *is* the SPA), but when the entire
+  Ythril SPA runs inside a host portal's iframe, the interactive redirect callback is also framed and its
+  parent is the *portal's* origin — so the browser refuses the cross-origin `postMessage` and the user is
+  stuck on "Completing sign-in…" forever. The silent-refresh flow now marks its request explicitly with a
+  `state` prefix (`silent.`), and the callback branches on that marker instead of on being framed — so an
+  embedded interactive sign-in completes normally while genuine silent refreshes are still recognised.
+  Client-only. Reported from a production embedded (iframe) deployment.
 - **Governance votes and member gossip now converge even when data sync is slow or failing.** In each
   sync cycle, gossip (member list, signing-key pinning) and vote propagation ran **after** the per-space
   data and file sync for a peer — and that data loop is not isolated, so any timed-out pull, unreachable

@@ -92,6 +92,13 @@ async function main(): Promise<void> {
   const { warnRateLimitBypass } = await import('./rate-limit/middleware.js');
   warnRateLimitBypass();
 
+  // Surface an opted-in cross-origin embedding allowlist at boot — framing + theming
+  // rights are being granted to those origins, so make that visible in the logs.
+  if (!isFirstRun) {
+    const { warnIfEmbeddingEnabled } = await import('./config/embed.js');
+    warnIfEmbeddingEnabled();
+  }
+
   const app = createApp();
   const server = createServer(app);
 

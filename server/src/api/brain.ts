@@ -1406,7 +1406,7 @@ brainRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, a
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const { query, topK, types, minScore, filter, traverse } = req.body ?? {};
+  const { query, topK, types, minScore, filter, traverse, tags, minPerType } = req.body ?? {};
   if (!query || typeof query !== 'string' || !query.trim()) {
     res.status(400).json({ error: 'query must be a non-empty string' });
     return;
@@ -1414,6 +1414,38 @@ brainRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, a
   const safeTopK = typeof topK === 'number' ? Math.min(Math.max(topK, 1), 100) : 10;
   const safeTypes = Array.isArray(types) ? types.filter((t: unknown): t is RecallKnowledgeType => typeof t === 'string') : undefined;
   const safeMinScore = typeof minScore === 'number' ? minScore : undefined;
+
+  // `tags` and `minPerType` are supported by recall() but were previously hardcoded to
+  // undefined here, so they were reachable only via MCP / the internal function.
+  let safeTags: string[] | undefined;
+  if (tags != null) {
+    if (!Array.isArray(tags) || tags.some((t: unknown) => typeof t !== 'string')) {
+      res.status(400).json({ error: 'tags must be an array of strings' });
+      return;
+    }
+    safeTags = (tags as string[]).filter(t => t.trim().length > 0);
+    if (safeTags.length === 0) safeTags = undefined;
+  }
+
+  // Per-type minimums: guarantee at least N hits of a given knowledge type. Each value
+  // is clamped to [0, topK] — asking for more of a type than the total result size is
+  // meaningless, and an unbounded value would widen the underlying per-type searches.
+  let safeMinPerType: Partial<Record<RecallKnowledgeType, number>> | undefined;
+  if (minPerType != null) {
+    if (typeof minPerType !== 'object' || Array.isArray(minPerType)) {
+      res.status(400).json({ error: 'minPerType must be an object mapping knowledge type -> minimum count' });
+      return;
+    }
+    const acc: Partial<Record<RecallKnowledgeType, number>> = {};
+    for (const [key, raw] of Object.entries(minPerType as Record<string, unknown>)) {
+      if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0) {
+        res.status(400).json({ error: `minPerType.${key} must be a non-negative integer` });
+        return;
+      }
+      acc[key as RecallKnowledgeType] = Math.min(raw, safeTopK);
+    }
+    if (Object.keys(acc).length > 0) safeMinPerType = acc;
+  }
 
   // Graph-traversal expansion depth. 0 (default) = classic recall, unchanged.
   // Rejected rather than clamped past the cap so an obviously-wrong depth surfaces.
@@ -1443,7 +1475,7 @@ brainRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, a
   try {
     const memberIds = resolveMemberSpaces(spaceId);
     const all = (await Promise.all(
-      memberIds.map(mid => recall(mid, query.trim(), safeTopK, undefined, safeTypes, undefined, safeMinScore, safeFilter)),
+      memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter)),
     )).flat();
     all.sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
     const seeds = all.slice(0, safeTopK);

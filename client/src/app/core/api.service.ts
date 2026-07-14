@@ -668,6 +668,12 @@ export class ApiService {
       topK?: number;
       types?: RecallKnowledgeType[];
       minScore?: number;
+      /** Structured filter (same expression grammar as the query filter). */
+      filter?: Record<string, unknown>;
+      /** Restrict to records carrying these tags. */
+      tags?: string[];
+      /** Guarantee at least N hits per knowledge type, e.g. { entity: 2 }. */
+      minPerType?: Partial<Record<RecallKnowledgeType, number>>;
     },
   ): Observable<RecallResponse> {
     return this.http.post<RecallResponse>(`/api/brain/spaces/${spaceId}/recall`, body);

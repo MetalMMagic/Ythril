@@ -700,6 +700,28 @@ export interface Config {
     /** URL to an external CSS stylesheet that overrides Ythril's default CSS custom properties. */
     cssUrl?: string;
   };
+  /**
+   * Optional embedding configuration for portal-style deployments.
+   *
+   * SECURITY — opt-in, and the integrator explicitly accepts the risk. By default
+   * this is absent and Ythril behaves exactly as before: only same-origin pages may
+   * frame it (`frame-ancestors 'self'`) and only same-origin `ythril:theme`
+   * postMessages are honoured.
+   *
+   * Listing an origin here grants that origin BOTH rights at once:
+   *  - it may embed Ythril in an iframe (added to CSP `frame-ancestors`), and
+   *  - it may push runtime theme tokens via `postMessage`.
+   *
+   * Entries must be exact, scheme-qualified origins with no path/query/fragment —
+   * e.g. `https://portal.example.com`. `https:` is required (except http on
+   * localhost/127.0.0.1 for development). Wildcards (`*`) are never accepted.
+   * Framing a page is a clickjacking primitive and theming it can be used to spoof
+   * UI, so only list hosts you control.
+   */
+  embed?: {
+    /** Origins allowed to iframe Ythril and to push theme tokens. Empty/absent = same-origin only. */
+    allowedOrigins?: string[];
+  };
   /** Optional audit log configuration. */
   audit?: AuditConfig;
   /** Optional background semantic-duplicate scanner. Off by default. */

@@ -6,6 +6,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Cross-origin embedding is now possible — explicitly opt-in, and never by default.** Portal-style
+  embedding was documented but could not actually work: `frame-ancestors 'self'` blocked cross-origin
+  iframing outright, and the `ythril:theme` postMessage handler dropped any message whose origin wasn't
+  Ythril's own — i.e. exactly the embedder the feature was designed for. An operator can now list trusted
+  origins under `embed.allowedOrigins` in `config.json`. A listed origin is granted **both** rights
+  together, because they are the same trust decision: it may **iframe** Ythril (the origin is appended to
+  the CSP `frame-ancestors` directive) **and** push runtime theme tokens. With no allowlist, behaviour is
+  byte-for-byte what it was: same-origin only. Entries are validated strictly and fail closed — exact
+  scheme-qualified origins only (no path/query/fragment/credentials), `https:` required (except
+  `localhost`/`127.0.0.1` for development), and **wildcards are never accepted**: there is no
+  "allow everything" mode. Invalid entries are dropped with a warning, and the resolved allowlist is
+  logged at startup so the granted rights are visible. Framing is a clickjacking primitive and theming can
+  spoof UI, so the integrator explicitly accepts responsibility for every origin they add. Covered by
+  `testing/standalone/embed-origins.test.js`.
+- **Embedded (chrome-less) mode via `?embedded=1`.** When Ythril is embedded in a host portal its topbar
+  (logo + Sign out) duplicates the host's chrome, and the in-frame Sign out is misleading — it ends only
+  the Ythril session. Loading the app with `?embedded=1` hides the shell topbar. Navigation is unaffected
+  (it lives in the sidebar). The flag is read once at startup and cached, because Angular drops unknown
+  query params on navigation, which would otherwise flip the app back out of embedded mode on the first
+  route change. Replaces the brittle `.topbar { display: none }` CSS workaround.
+- **The Brain "Semantic Search" panel now exposes the full recall API.** The form offered only
+  query / topK / minScore while `recall()` also supports type restriction, per-type minimums, tag
+  filtering, and structured filters — so the UI was strictly less capable than the API behind it. The panel
+  gains a **More options** section with type restriction (per-type checkboxes), **per-type minimums**, tag
+  filtering, and a JSON **filter** (validated client-side, so a typo surfaces as a form error rather than a
+  400). Two of these — `minPerType` and `tags` — were supported by the recall engine but hardcoded to
+  `undefined` in the REST route, reachable only via MCP or the internal function; they are now plumbed
+  through `POST /api/brain/spaces/:spaceId/recall` (with `minPerType` values clamped to `topK`).
+
 ### Security
 
 - **The media sidecars can no longer reach the database.** `docker-compose.yml` put all four
@@ -211,6 +242,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The test stack no longer races four concurrent builds onto one image tag.** Giving every instance the
+  shared `ythril-test:latest` tag (so CI can pre-build once against a layer cache) made `docker compose
+  build` build the *same* tag from four services simultaneously, which races on the image export and could
+  corrupt it locally (`failed to extract layer … EOF`). Only `ythril-a` builds the image now; b/c/d simply
+  reference the tag. CI is unaffected — it pre-builds the tag itself.
+- **Rebuilding the test stack no longer leaks Docker disk without bound.** Every `--build` orphaned the
+  previous multi-GB image (each bakes a ~520 MB embedding model, node_modules and ffmpeg) and grew the
+  BuildKit cache forever — on one workstation this reached **35 GB of build cache plus 20 GB of orphaned
+  images**, filled the drive and took Docker Desktop down. `test:up:rebuild` now runs `test:prune` (drop
+  dangling images, cap the cache at 5 GB), and a new `npm run docker:reclaim` handles an already-ballooned
+  install: it prunes, then `fstrim`s inside the VM, then prints the exact elevated `diskpart` steps to
+  **compact** `docker_data.vhdx` — necessary because pruning frees space *inside* the VM while the
+  dynamically-expanding disk only ever grows on the host. It locates the disk even when relocated to
+  another drive (`CustomWslDistroDir`).
 - **Sync tests can no longer turn a persistent, actionable error into an unexplained timeout.** The sync
   suites re-trigger a sync on every poll (deliberate — a single up-front trigger races a slow gossip
   cycle), but they did it as `triggerSync(...).catch(() => {})`, which treats a transient blip and a

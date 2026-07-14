@@ -287,33 +287,64 @@ export function createApp() {
       return;
     }
 
-    try {
-      // Fetch all documents in parallel, stripping the embedding vector to keep the
-      // payload manageable. embeddingModel is retained so the import consumer knows
-      // what model was in use before the wipe.
-      const projection = { embedding: 0 };
-      const [memories, entities, edges, chrono, files] = await Promise.all([
-        col(`${spaceId}_memories`).find({}, { projection }).toArray(),
-        col(`${spaceId}_entities`).find({}, { projection }).toArray(),
-        col(`${spaceId}_edges`).find({}, { projection }).toArray(),
-        col(`${spaceId}_chrono`).find({}, { projection }).toArray(),
-        col(`${spaceId}_files`).find({}, { projection }).toArray(),
-      ]);
+    // Stream the export instead of buffering it (P7).
+    //
+    // This used to `.toArray()` all five collections in parallel and then `res.json()` the
+    // result — so the whole space sat on the heap TWICE (the documents, plus their serialised
+    // JSON string) at once. A 100k-memory space OOM'd the backup endpoint, exactly when losing
+    // data hurts most. We now walk each collection's cursor and write documents out one at a
+    // time, respecting backpressure so the response buffer cannot grow unbounded either.
+    //
+    // The OUTPUT SHAPE is byte-for-byte identical to before — same object, same keys, same
+    // order — so the import side and every existing consumer are untouched. (NDJSON would be
+    // cleaner but would break the import contract; not worth it for the memory win.)
+    const projection = { embedding: 0 };
 
-      res.json({
-        exportedAt: new Date().toISOString(),
-        spaceId,
-        spaceName: space.label,
-        version: _serverVersion,
-        memories,
-        entities,
-        edges,
-        chrono,
-        files,
-      });
+    // Backpressure-aware write: pause the cursor walk when the socket buffer is full.
+    const write = (chunk: string): Promise<void> =>
+      res.write(chunk) ? Promise.resolve() : new Promise<void>(resolve => res.once('drain', resolve));
+
+    /** Stream one collection as a JSON array value: `[doc, doc, …]`. */
+    const streamArray = async (collName: string): Promise<void> => {
+      await write('[');
+      const cursor = col(collName).find({}, { projection });
+      let first = true;
+      for await (const doc of cursor) {
+        await write((first ? '' : ',') + JSON.stringify(doc));
+        first = false;
+      }
+      await write(']');
+    };
+
+    try {
+      res.status(200);
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      // Envelope fields first — JSON.stringify each value so escaping is correct.
+      await write(
+        '{' +
+        `"exportedAt":${JSON.stringify(new Date().toISOString())},` +
+        `"spaceId":${JSON.stringify(spaceId)},` +
+        `"spaceName":${JSON.stringify(space.label)},` +
+        `"version":${JSON.stringify(_serverVersion)},`,
+      );
+      await write('"memories":'); await streamArray(`${spaceId}_memories`);
+      await write(',"entities":'); await streamArray(`${spaceId}_entities`);
+      await write(',"edges":'); await streamArray(`${spaceId}_edges`);
+      await write(',"chrono":'); await streamArray(`${spaceId}_chrono`);
+      await write(',"files":'); await streamArray(`${spaceId}_files`);
+      await write('}');
+      res.end();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: msg });
+      if (!res.headersSent) {
+        res.status(500).json({ error: msg });
+      } else {
+        // We have already sent `200` and a partial body, so we cannot change the status.
+        // Destroy the socket so the client sees a TRUNCATED/aborted response rather than a
+        // syntactically-valid JSON that is silently missing documents.
+        log.error(`Space export for '${spaceId}' failed mid-stream: ${msg}`);
+        res.destroy(err instanceof Error ? err : new Error(msg));
+      }
     }
   });
 

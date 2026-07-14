@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Bulk deletes no longer make one database round trip per document (P9).** Wiping a collection writes a
+  tombstone per deleted document, and the seq for each was fetched with its own `nextSeq()` call — so
+  clearing 100k memories cost **100k sequential round trips before the delete even started**. All four bulk
+  deletes (memories, entities, edges, chrono) now reserve the whole tombstone range in a **single `$inc`**.
+  The invariant that matters is preserved: gaps in the sequence are harmless (sync compares seqs with `>`),
+  but **reuse** is not — so the block is reserved up-front and never rolled back on failure.
+- **Document chunks are embedded concurrently instead of one at a time (P8).** File conversion embedded each
+  chunk and inserted it individually, so a 500-chunk PDF meant **1,000 sequential awaits** with the embed
+  call dominating. Chunks are independent, so they are now embedded with **bounded concurrency** (8 in
+  flight — bounded, because a large document would otherwise fire hundreds of simultaneous requests at the
+  embedding provider and throttle rather than go faster) and written with `insertMany`. Per-chunk failure
+  isolation is unchanged: a chunk that fails to embed is still stored without a vector and counted, so the
+  job is reported partial/failed rather than silently "complete".
+
 ### Security
 
 - **Dozens of mutating endpoints produced no audit entry at all.** The audit middleware keeps a

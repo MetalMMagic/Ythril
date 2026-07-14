@@ -67,13 +67,32 @@ describe('Data Config — GET /api/admin/data/config', () => {
     assert.ok(['env', 'config', 'default'].includes(r.body.source), `unexpected source: ${r.body.source}`);
   });
 
-  it('returns mongoUriRedacted (no credentials in string)', async () => {
+  it('returns mongoUriRedacted with the credentials stripped', async () => {
     const r = await adminGet('/api/admin/data/config');
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.ok(typeof r.body.mongoUriRedacted === 'string', 'mongoUriRedacted must be a string');
-    assert.ok(r.body.mongoUriRedacted.startsWith('mongodb'), 'URI must start with mongodb');
-    // Must not contain credentials (anything between // and @)
-    assert.ok(!r.body.mongoUriRedacted.includes('@'), 'redacted URI must not contain @');
+    const redacted = r.body.mongoUriRedacted;
+    assert.ok(typeof redacted === 'string', 'mongoUriRedacted must be a string');
+    assert.ok(redacted.startsWith('mongodb'), 'URI must start with mongodb');
+
+    // Assert on the SECRET, not on the '@' delimiter.
+    //
+    // This test used to assert `!redacted.includes('@')`, which passed only because the
+    // test database had no credentials at all — so the redaction path never actually ran.
+    // `redactUri` rewrites `//user:pass@host` to `//[credentials]@host`, deliberately KEEPING
+    // the '@' so the result is still a recognisable URI. The old assertion therefore tested
+    // the fixture, not the redaction, and would have missed a leak of the real password.
+    // The test stack now authenticates, so this exercises the real thing.
+    assert.doesNotMatch(
+      redacted, /ythril-test-pw/,
+      `the password must never be returned; got: ${redacted}`,
+    );
+    assert.doesNotMatch(
+      redacted, /\/\/[^/@]*:[^/@]*@/,
+      `no user:pass pair may survive redaction; got: ${redacted}`,
+    );
+    if (redacted.includes('@')) {
+      assert.match(redacted, /\/\/\[credentials\]@/, `credentials must be masked; got: ${redacted}`);
+    }
   });
 
   it('returns 403 for non-admin token', async () => {

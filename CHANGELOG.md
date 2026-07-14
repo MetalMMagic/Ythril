@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **The bundled MongoDB can now be authenticated, and new installs should be.** The bundled database
+  accepted any connection, and Ythril's security model (tokens, admin gating, space scoping, read-only
+  tokens, the audit log) is enforced at the **API layer only** — so anything able to reach port 27017 could
+  read and rewrite every space, invisibly to the audit log. Set `MONGO_USERNAME` / `MONGO_PASSWORD` (see the
+  new `.env.example`) and Ythril connects with credentials, percent-encoded so a password containing `@`,
+  `:` or `/` cannot corrupt the URI. An explicit `MONGO_URI` (managed Atlas, your own cluster) still wins
+  and is untouched. The test stack now runs **authenticated**, so every CI run proves Ythril works against
+  a credentialed database.
+  **Existing installs are unaffected and must not just add credentials:** MongoDB cannot have auth switched
+  on in place — the Atlas Local image runs a single-node replica set (needed for `$vectorSearch`) and only
+  provisions the required internal keyfile on a **first** init, so adding credentials to a database that
+  already holds data makes mongod fail to start (`Unable to acquire security key[s]`). Leaving the variables
+  empty preserves today's behaviour exactly; migrating is a deliberate dump/restore, documented in
+  `docs/dependencies.md`.
+  Also fixes a **vacuous test**: `mongoUriRedacted` asserted the URI contained no `@`, which passed only
+  because the test database had no credentials — the redaction path never ran. It now asserts the password
+  is absent and that a `user:pass` pair cannot survive redaction.
+
 ### Added
 
 - **Cross-origin embedding is now possible — explicitly opt-in, and never by default.** Portal-style

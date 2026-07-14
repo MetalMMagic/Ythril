@@ -40,7 +40,7 @@ services:
     environment:
       CONFIG_PATH: /config/config.json
       DATA_ROOT: /data
-      MONGO_URI: mongodb://ythril-mongo-a:27017/?directConnection=true
+      MONGO_URI: mongodb://ythril:ythril-test-pw@ythril-mongo-a:27017/?directConnection=true&authSource=admin
       NODE_ENV: test
       SYNC_ALLOW_PRIVATE_PEERS: "true"
       SKIP_AUTH_RATE_LIMIT: "true"
@@ -68,8 +68,13 @@ services:
     volumes:
       - ythril-mongo-a-data:/data/db
       - ythril-mongo-a-configdb:/data/configdb
+    environment:
+      # Authenticate the test databases too — this is what proves, on every CI run, that
+      # Ythril actually works against an authenticated MongoDB (see S7 / .env.example).
+      MONGODB_INITDB_ROOT_USERNAME: ythril
+      MONGODB_INITDB_ROOT_PASSWORD: ythril-test-pw
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({replSetGetStatus:1}).myState===1 ? 1 : quit(1)"]
+      test: ["CMD", "mongosh", "--quiet", "-u", "ythril", "-p", "ythril-test-pw", "--authenticationDatabase", "admin", "--eval", "db.adminCommand({replSetGetStatus:1}).myState===1 ? 1 : quit(1)"]
       interval: 10s
       timeout: 10s
       retries: 18
@@ -91,7 +96,7 @@ services:
     environment:
       CONFIG_PATH: /config/config.json
       DATA_ROOT: /data
-      MONGO_URI: mongodb://ythril-mongo-b:27017/?directConnection=true
+      MONGO_URI: mongodb://ythril:ythril-test-pw@ythril-mongo-b:27017/?directConnection=true&authSource=admin
       NODE_ENV: test
       SYNC_ALLOW_PRIVATE_PEERS: "true"
       SKIP_AUTH_RATE_LIMIT: "true"
@@ -115,8 +120,13 @@ services:
     volumes:
       - ythril-mongo-b-data:/data/db
       - ythril-mongo-b-configdb:/data/configdb
+    environment:
+      # Authenticate the test databases too — this is what proves, on every CI run, that
+      # Ythril actually works against an authenticated MongoDB (see S7 / .env.example).
+      MONGODB_INITDB_ROOT_USERNAME: ythril
+      MONGODB_INITDB_ROOT_PASSWORD: ythril-test-pw
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({replSetGetStatus:1}).myState===1 ? 1 : quit(1)"]
+      test: ["CMD", "mongosh", "--quiet", "-u", "ythril", "-p", "ythril-test-pw", "--authenticationDatabase", "admin", "--eval", "db.adminCommand({replSetGetStatus:1}).myState===1 ? 1 : quit(1)"]
       interval: 10s
       timeout: 10s
       retries: 18
@@ -138,7 +148,7 @@ services:
     environment:
       CONFIG_PATH: /config/config.json
       DATA_ROOT: /data
-      MONGO_URI: mongodb://ythril-mongo-c:27017/?directConnection=true
+      MONGO_URI: mongodb://ythril:ythril-test-pw@ythril-mongo-c:27017/?directConnection=true&authSource=admin
       NODE_ENV: test
       SYNC_ALLOW_PRIVATE_PEERS: "true"
     depends_on:
@@ -159,8 +169,13 @@ services:
     volumes:
       - ythril-mongo-c-data:/data/db
       - ythril-mongo-c-configdb:/data/configdb
+    environment:
+      # Authenticate the test databases too — this is what proves, on every CI run, that
+      # Ythril actually works against an authenticated MongoDB (see S7 / .env.example).
+      MONGODB_INITDB_ROOT_USERNAME: ythril
+      MONGODB_INITDB_ROOT_PASSWORD: ythril-test-pw
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({replSetGetStatus:1}).myState===1 ? 1 : quit(1)"]
+      test: ["CMD", "mongosh", "--quiet", "-u", "ythril", "-p", "ythril-test-pw", "--authenticationDatabase", "admin", "--eval", "db.adminCommand({replSetGetStatus:1}).myState===1 ? 1 : quit(1)"]
       interval: 10s
       timeout: 10s
       retries: 18
@@ -184,7 +199,7 @@ services:
     environment:
       CONFIG_PATH: /config/config.json
       DATA_ROOT: /data
-      MONGO_URI: mongodb://ythril-mongo-d:27017/?directConnection=true
+      MONGO_URI: mongodb://ythril:ythril-test-pw@ythril-mongo-d:27017/?directConnection=true&authSource=admin
       NODE_ENV: test
       SYNC_ALLOW_PRIVATE_PEERS: "true"
       SKIP_AUTH_RATE_LIMIT: "true"
@@ -210,8 +225,13 @@ services:
     volumes:
       - ythril-mongo-d-data:/data/db
       - ythril-mongo-d-configdb:/data/configdb
+    environment:
+      # Authenticate the test databases too — this is what proves, on every CI run, that
+      # Ythril actually works against an authenticated MongoDB (see S7 / .env.example).
+      MONGODB_INITDB_ROOT_USERNAME: ythril
+      MONGODB_INITDB_ROOT_PASSWORD: ythril-test-pw
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({replSetGetStatus:1}).myState===1 ? 1 : quit(1)"]
+      test: ["CMD", "mongosh", "--quiet", "-u", "ythril", "-p", "ythril-test-pw", "--authenticationDatabase", "admin", "--eval", "db.adminCommand({replSetGetStatus:1}).myState===1 ? 1 : quit(1)"]
       interval: 10s
       timeout: 10s
       retries: 18

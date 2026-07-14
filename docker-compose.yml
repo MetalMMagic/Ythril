@@ -14,6 +14,12 @@
       CONFIG_PATH: /config/config.json
       DATA_ROOT: /data
       NODE_ENV: production
+      # Credentials for the BUNDLED database (see the ythril-mongo service below and
+      # .env.example). When set, Ythril connects with authentication; when empty it falls
+      # back to the historical unauthenticated URI, so existing installs keep working.
+      # An explicit MONGO_URI (external cluster / managed Atlas) overrides both.
+      MONGO_USERNAME: ${MONGO_USERNAME:-}
+      MONGO_PASSWORD: ${MONGO_PASSWORD:-}
       YTHRIL_LOCAL_AGENT_ENABLED: ${YTHRIL_LOCAL_AGENT_ENABLED:-}
       YTHRIL_LOCAL_AGENT_URL: ${YTHRIL_LOCAL_AGENT_URL:-http://localhost:38123}
       YTHRIL_LOCAL_AGENT_TOKEN: ${YTHRIL_LOCAL_AGENT_TOKEN:-}
@@ -47,12 +53,29 @@
     restart: unless-stopped
     logging:
       driver: "none"
+    environment:
+      # SECURITY: authenticate the bundled database. Unauthenticated, anything that can reach
+      # port 27017 can read and rewrite EVERY space — Ythril's tokens, space scoping and audit
+      # log are enforced at the API layer only, not at the database (S7).
+      #
+      # Set MONGO_USERNAME / MONGO_PASSWORD in .env (see .env.example). New installs should
+      # always set them. They are OPTIONAL, and empty means "no auth", because MongoDB cannot
+      # have auth switched on in place: the Atlas Local image runs a single-node replica set
+      # (needed for $vectorSearch) and only provisions the required internal keyfile on a
+      # FIRST init. Adding credentials to an existing database therefore does NOT enable auth
+      # — it makes mongod fail to start ("Unable to acquire security key[s]"). Migrating an
+      # existing database is a deliberate, documented dump/restore (see docs/dependencies.md).
+      MONGODB_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-}
+      MONGODB_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-}
     volumes:
       - ythril-mongo-data:/data/db
       - ythril-mongo-configdb:/data/configdb
     healthcheck:
-      # Wait for the replica set to elect a primary (not just mongod accepting connections)
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand({replSetGetStatus:1}).myState===1 ? 1 : quit(1)"]
+      # Wait for the replica set to elect a primary (not just mongod accepting connections).
+      # mongosh does NOT pick the root credentials up from the environment, so pass them
+      # explicitly — otherwise the healthcheck fails permanently once auth is enabled.
+      # Falls back to an unauthenticated probe when no credentials are configured.
+      test: ["CMD", "sh", "-c", "if [ -n \"$$MONGODB_INITDB_ROOT_USERNAME\" ]; then mongosh --quiet -u \"$$MONGODB_INITDB_ROOT_USERNAME\" -p \"$$MONGODB_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval 'db.adminCommand({replSetGetStatus:1}).myState===1 ? 1 : quit(1)'; else mongosh --quiet --eval 'db.adminCommand({replSetGetStatus:1}).myState===1 ? 1 : quit(1)'; fi"]
       interval: 10s
       timeout: 10s
       retries: 18

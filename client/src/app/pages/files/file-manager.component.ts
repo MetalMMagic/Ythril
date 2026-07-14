@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -72,6 +72,13 @@ function previewKind(name: string): PreviewKind {
 @Component({
   selector: 'app-file-manager',
   standalone: true,
+  // OnPush (P5): all rendered state is signal-backed (`entries`, `treeRoot`, `breadcrumbs`,
+  // `previewFile`/`previewHtml`, upload progress, …). Every tree expansion mutates a node in place
+  // but always follows with `treeRoot.set([...])` — a fresh reference that marks the view dirty —
+  // and the async preview/upload callbacks update via signal `.set()`, which notifies OnPush
+  // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
+  // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe],
   styles: [`
     .toolbar {

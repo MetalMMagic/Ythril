@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sync bookkeeping writes no longer block the event loop.** The sync engine persists tiny per-cycle
+  fields — pull/push watermarks, per-member failure counters, `lastSyncAt` — dozens to hundreds of times
+  per cycle, and each was a **synchronous whole-file rewrite** of `config.json` that stalled *all* request
+  handling for its duration (and the stall grows with config size, which OAuth-minted tokens can push up).
+  These four hot-path fields now write through a coalesced, asynchronous, serialized flush
+  (`saveConfigSoon`): a burst collapses to one off-loop write, and the change never blocks a response.
+  They are runtime state, not configuration, so a flush lost to a crash is harmless — watermarks re-derive
+  by seq on the next pull (idempotent, no data loss) and counters are cosmetic; a durable flush runs on
+  graceful shutdown regardless. Every other config write (tokens, spaces, networks, votes, gossip identity
+  merges, setup) stays durable and synchronous, and a generation guard ensures an in-flight async flush can
+  never clobber a fresher durable write. Covered by `testing/standalone/config-coalesced-write.test.js` and
+  the existing sync suites (watermark convergence across restarts).
+- **The embedding model is no longer re-downloaded from HuggingFace on every CI build.** The Dockerfile
+  fetched the ~274 MB `nomic-embed-text-v1.5` model in a layer that sat *after* the app-source copy, so any
+  source change invalidated it — and CI runners start with a cold build cache, so effectively every CI run
+  re-downloaded it anonymously. HuggingFace rate-limits anonymous downloads per-IP, and the shared CI
+  egress IP was intermittently getting `403 Forbidden`, failing the image build before any test ran. The
+  model download now runs as a **cache-stable early layer** (it depends only on the npm package, not our
+  source), CI builds the image **once** with a **persistent GitHub Actions layer cache** (`type=gha`) and
+  every compose instance reuses that tag, and the download has **retry/backoff** to ride through a
+  transient 403 on the rare build that must actually fetch. Build/CI only — no runtime change.
 - **File sync no longer re-hashes every file on every round.** The file manifest read and SHA-256-hashed
   **every file** each time it was built, and it is built twice per sync round (once for the file diff,
   once for the Merkle root) per peer — so a space holding tens of GB re-read and re-hashed all of it on
@@ -179,6 +200,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `state` prefix (`silent.`), and the callback branches on that marker instead of on being framed — so an
   embedded interactive sign-in completes normally while genuine silent refreshes are still recognised.
   Client-only. Reported from a production embedded (iframe) deployment.
+- **Governance votes and member gossip now converge even when data sync is slow or failing.** In each
+  sync cycle, gossip (member list, signing-key pinning) and vote propagation ran **after** the per-space
+  data and file sync for a peer — and that data loop is not isolated, so any timed-out pull, unreachable
+  member, or slow file transfer threw out of the member's sync and **skipped governance entirely for that
+  cycle**. On a lightly loaded system the data plane is fast so this never showed, but under heavy load a
+  saturated peer could starve time-sensitive vote propagation (rounds have deadlines) for many cycles in
+  a row — the root cause behind the intermittently-timing-out signed-vote relay test. Governance now runs
+  **first**, ahead of the data loop, so it converges promptly and independently of data-plane health. The
+  two calls remain internally best-effort and are additionally wrapped so a later data-plane failure can
+  never mask governance progress. Covered by the existing sync/vote suites.
 - **Importing a schema no longer fails silently.** In **Settings → Spaces → Schema → Import JSON**, a
   valid-JSON file that contained none of the recognised `entity`/`edge`/`memory`/`chrono` keys — which
   includes Ythril's **own** per-type export shape `{knowledgeType, typeName, schema}` — fell straight

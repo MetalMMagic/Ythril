@@ -1,6 +1,6 @@
 ﻿import { createServer } from 'http';
 import os from 'os';
-import { configExists, loadConfig, loadSecrets, loadSchemaLibrary, getMongoUri } from './config/loader.js';
+import { configExists, loadConfig, loadSecrets, loadSchemaLibrary, getMongoUri, flushConfig } from './config/loader.js';
 import { connectMongo, closeMongo, checkVectorSearchAvailability } from './db/mongo.js';
 import { createApp } from './app.js';
 import { startConfiguredInstanceServices } from './bootstrap.js';
@@ -125,6 +125,8 @@ async function main(): Promise<void> {
     const { stopRetryWorker } = await import('./webhooks/dispatcher.js');
     stopRetryWorker();
     server.close(() => log.debug('HTTP server closed'));
+    // Persist any coalesced config writes (sync watermarks) before exit.
+    await flushConfig();
     await closeMongo();
     process.exit(0);
   };

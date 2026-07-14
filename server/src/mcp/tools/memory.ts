@@ -32,6 +32,7 @@ export const rememberTool: ToolHandler = {
               description: 'Categorisation tags.',
             },
             description: { type: 'string', description: 'Optional prose context or rationale for this memory.' },
+            type: { type: 'string', description: 'Optional memory type (e.g. "note", "decision"). Selects the per-type schema used to validate `properties` — see the space\'s typeSchemas.memory.' },
             properties: {
               type: 'object',
               description: 'Optional structured key-value metadata (filterable via query).',
@@ -54,6 +55,11 @@ export const rememberTool: ToolHandler = {
     const props = (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties']))
       ? (a['properties'] as Record<string, string | number | boolean>)
       : undefined;
+    // `type` selects the per-type schema. Without it, validateMemory() looks up
+    // `typeSchemas.memory[undefined]`, finds nothing, and returns NO violations — so the
+    // strict-mode gate below could never fire and schema validation was a total no-op on
+    // MCP, the surface agents actually use. REST has always accepted `type`.
+    const memType = typeof a['type'] === 'string' && a['type'].trim() ? a['type'] : undefined;
 
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
@@ -62,7 +68,7 @@ export const rememberTool: ToolHandler = {
     // Schema validation (single pass — reuse for both strict gate and warn output)
     const remMetaRaw = getConfig().spaces.find(s => s.id === ts)?.meta;
     const remMeta = remMetaRaw ? resolveMetaRefs(remMetaRaw) : undefined;
-    const remSchemaViolations = remMeta ? validateMemory(remMeta, { properties: props }) : [];
+    const remSchemaViolations = remMeta ? validateMemory(remMeta, { type: memType, properties: props }) : [];
     if (remSchemaViolations.length > 0 && remMeta?.validationMode === 'strict') {
       return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(remSchemaViolations, null, 2)}` }], isError: true };
     }
@@ -91,7 +97,7 @@ export const rememberTool: ToolHandler = {
     // Insert-time duplicate check defaults ON for the interactive remember tool.
     const remDupeCheck = a['checkDuplicates'] !== false;
     const remDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
-    const mem = await remember(ts, fact, entityIds, tags, description, props, resolvedNames, undefined,
+    const mem = await remember(ts, fact, entityIds, tags, description, props, resolvedNames, memType,
       { checkDuplicates: remDupeCheck, dupeThreshold: remDupeThreshold });
     const warnings: string[] = [];
     if (mem.similar && mem.similar.length > 0) {
@@ -492,6 +498,7 @@ export const bulk_writeTool: ToolHandler = {
                   tags:        { type: 'array', items: { type: 'string' }, description: 'Categorisation tags.' },
                   entityIds:   { type: 'array', items: { type: 'string' }, description: 'Related entity IDs.' },
                   description: { type: 'string', description: 'Optional prose context.' },
+                  type:        { type: 'string', description: 'Optional memory type — selects the per-type schema used to validate `properties`.' },
                   properties:  { type: 'object', additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] } },
                 },
                 required: ['fact'],
@@ -587,16 +594,19 @@ export const bulk_writeTool: ToolHandler = {
       const description = typeof item['description'] === 'string' ? item['description'] : undefined;
       const props = (item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties']))
         ? (item['properties'] as Record<string, string | number | boolean>) : undefined;
+      // Without `type`, validateMemory() cannot find a per-type schema and always returns
+      // zero violations — so strict mode was unenforceable on this path. See `remember`.
+      const memType = typeof item['type'] === 'string' && item['type'].trim() ? (item['type'] as string) : undefined;
       try {
         // Schema validation per memory
         if (bwValidation !== 'off' && bwMeta) {
-          const sv = validateMemory(bwMeta, { properties: props });
+          const sv = validateMemory(bwMeta, { type: memType, properties: props });
           if (sv.length > 0) {
             if (bwValidation === 'strict') { errors.push({ type: 'memory', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
             for (const v of sv) errors.push({ type: 'memory', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
           }
         }
-        await remember(ts, fact, entityIds, tags, description, props);
+        await remember(ts, fact, entityIds, tags, description, props, undefined, memType);
         inserted.memories++;
       } catch (err) {
         errors.push({ type: 'memory', index: i, reason: err instanceof Error ? err.message : String(err) });
@@ -657,9 +667,11 @@ export const bulk_writeTool: ToolHandler = {
       const props       = (item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties']))
         ? (item['properties'] as Record<string, string | number | boolean>) : undefined;
       try {
-        // Schema validation per edge
+        // Schema validation per edge — `properties` must be passed, or property schemas
+        // (required keys, types, enums) are never checked and strict mode is a no-op here.
+        // MCP upsert_edge and REST both pass it; only this bulk path omitted it.
         if (bwValidation !== 'off' && bwMeta) {
-          const sv = validateEdge(bwMeta, { label });
+          const sv = validateEdge(bwMeta, { label, properties: props });
           if (sv.length > 0) {
             if (bwValidation === 'strict') { errors.push({ type: 'edge', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
             for (const v of sv) errors.push({ type: 'edge', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });

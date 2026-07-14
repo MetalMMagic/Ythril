@@ -11,7 +11,7 @@ import { computeMergePlan, applyResolutions, executeMerge, validateResolution, t
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../brain/delete-fields.js';
 /** Regex that matches a UUID v4 (case-insensitive). */
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-import { createChrono, updateChrono, getChronoById, listChrono, deleteChrono, bulkDeleteChrono, ChronoFilter } from '../brain/chrono.js';
+import { createChrono, updateChrono, getChronoById, listChrono, deleteChrono, bulkDeleteChrono, parseRecurrence, ChronoFilter } from '../brain/chrono.js';
 import { embed } from '../brain/embedding.js';
 import { updateFileMeta, deleteFileMeta } from '../files/file-meta.js';
 import { getConfig } from '../config/loader.js';
@@ -996,6 +996,12 @@ brainRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, d
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
 
   const { title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
+  // `recurrence` was previously persisted straight from the request body with NO shape
+  // check — unlike every sibling field — so an arbitrary object could be stored and later
+  // read as a recurrence rule. Shared with MCP so both surfaces enforce the same shape.
+  const recCheck = parseRecurrence(recurrence);
+  if (!recCheck.ok) { res.status(400).json({ error: recCheck.error }); return; }
+  const safeRecurrence = recCheck.value;
   if (!title || typeof title !== 'string') {
     res.status(400).json({ error: '`title` string required' }); return;
   }
@@ -1058,7 +1064,7 @@ brainRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, d
 
   const entry = await createChrono(wt.target, {
     title: title.trim(), type, startsAt, endsAt, status, confidence,
-    tags, entityIds, memoryIds, description, properties: safeProps, recurrence,
+    tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
   });
   emitWebhookEvent({ event: 'chrono.created', spaceId: wt.target, entry: { ...entry, embedding: undefined }, ...webhookToken(req) });
   const result: Record<string, unknown> = { ...entry };
@@ -1079,6 +1085,12 @@ brainRouter.post('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAut
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
 
   const { title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
+  // `recurrence` was previously persisted straight from the request body with NO shape
+  // check — unlike every sibling field — so an arbitrary object could be stored and later
+  // read as a recurrence rule. Shared with MCP so both surfaces enforce the same shape.
+  const recCheck = parseRecurrence(recurrence);
+  if (!recCheck.ok) { res.status(400).json({ error: recCheck.error }); return; }
+  const safeRecurrence = recCheck.value;
   if (status !== undefined && !CHRONO_STATUSES.has(status)) {
     res.status(400).json({ error: '`status` must be one of: upcoming, active, completed, overdue, cancelled' }); return;
   }
@@ -1109,7 +1121,7 @@ brainRouter.post('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAut
 
   const updated = await updateChrono(wt.target, id, {
     title, type, startsAt, endsAt, status, confidence,
-    tags, entityIds, memoryIds, description, properties: safeProps, recurrence,
+    tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
   });
   if (!updated) { res.status(404).json({ error: 'Chrono entry not found' }); return; }
   emitWebhookEvent({ event: 'chrono.updated', spaceId: wt.target, entry: { ...updated, embedding: undefined }, ...webhookToken(req) });
@@ -1129,6 +1141,12 @@ brainRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAu
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
 
   const { title, type, startsAt, endsAt, status, confidence, tags, entityIds, memoryIds, description, properties, recurrence } = req.body ?? {};
+  // `recurrence` was previously persisted straight from the request body with NO shape
+  // check — unlike every sibling field — so an arbitrary object could be stored and later
+  // read as a recurrence rule. Shared with MCP so both surfaces enforce the same shape.
+  const recCheck = parseRecurrence(recurrence);
+  if (!recCheck.ok) { res.status(400).json({ error: recCheck.error }); return; }
+  const safeRecurrence = recCheck.value;
   if (status !== undefined && !CHRONO_STATUSES.has(status)) {
     res.status(400).json({ error: '`status` must be one of: upcoming, active, completed, overdue, cancelled' }); return;
   }
@@ -1161,7 +1179,7 @@ brainRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAu
   for (const mid of memberIds) {
     const updated = await updateChrono(mid, id, {
       title, type, startsAt, endsAt, status, confidence,
-      tags, entityIds, memoryIds, description, properties: safeProps, recurrence,
+      tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
     });
     if (updated) {
       emitWebhookEvent({ event: 'chrono.updated', spaceId: mid, entry: { ...updated, embedding: undefined }, ...webhookToken(req) });

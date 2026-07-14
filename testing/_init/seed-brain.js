@@ -177,7 +177,7 @@ const _entityIds = {};
 async function seedEntities() {
   let count = 0;
   for (const { space, name, type } of ENTITIES) {
-    const r = await api('POST', `/api/brain/${space}/entities`, { name, type });
+    const r = await api('POST', `/api/brain/spaces/${space}/entities`, { name, type });
     _entityIds[name] = { id: r._id ?? r.id, space };
     count++;
   }
@@ -213,7 +213,7 @@ async function seedEdges() {
       console.warn(`  Skipping edge "${from} â†’ ${to}": entity not found`);
       continue;
     }
-    await api('POST', `/api/brain/${space}/edges`, { from: fromId, to: toId, label });
+    await api('POST', `/api/brain/spaces/${space}/edges`, { from: fromId, to: toId, label });
     count++;
   }
   console.log(`  Created ${count} edges`);

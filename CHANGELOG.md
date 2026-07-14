@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Dozens of mutating endpoints produced no audit entry at all.** The audit middleware keeps a
+  hand-maintained route table — a second, shadow copy of the router's paths — and nothing kept the two in
+  sync. It had drifted badly: the file-upload rule pointed at `/api/files/:space/upload`, **a route that has
+  never existed** (the real one carries the path in the query string), and the delete/move rules required a
+  trailing slash the real paths don't have. So **every file upload, delete and move was silently unlogged**.
+  `PATCH /api/spaces/:id/rename` wasn't matched either, so **space renames were unaudited** — the one
+  operation that, done wrong, hides a space's data. There was **no `PUT` rule in the entire table**, so every
+  schema write was unlogged. Worst of all, **the whole network/governance surface was missing**: adding or
+  removing a member, casting a vote, joining or forking a network — the operations that decide *who can read
+  the brain* — left no trace. Webhook CRUD was pointed at the wrong prefix entirely (`/api/notify/webhooks`
+  vs the real `/api/admin/webhooks`), so creating a webhook — which exfiltrates data to a third party on
+  every change — was unlogged too. Also missing: duplicate **merges** (which rewrite records and delete the
+  loser), conflict resolution, bulk chrono delete, token regeneration, and schema-library writes.
+  All are now audited. The gap survived because the audit tests only ever asserted `memory.create`,
+  `token.create/delete` and `auth.failed` — the handful of rules that happened to be correct.
+  `testing/standalone/audit-route-coverage.test.js` now **derives the route list from the router source**
+  instead of restating it, so the shadow table cannot drift silently again: add a mutating route and the
+  test fails until it is either audited or explicitly declared exempt *with a reason*.
+
+### Security
+
 - **The bundled MongoDB can now be authenticated, and new installs should be.** The bundled database
   accepted any connection, and Ythril's security model (tokens, admin gating, space scoping, read-only
   tokens, the audit log) is enforced at the **API layer only** — so anything able to reach port 27017 could

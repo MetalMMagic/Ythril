@@ -1,4 +1,4 @@
-import { Component, Input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { PropertySchema } from '../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -6,6 +6,10 @@ import { TranslocoPipe } from '@jsverse/transloco';
 @Component({
   selector: 'app-properties-view',
   standalone: true,
+  // OnPush (P5): display-only. Re-renders when its @Input (`properties`/`schema`) reference
+  // changes or its local `mode` signal toggles — both of which OnPush checks. Rendered once per
+  // row in entity/memory tables, so it is squarely in the large-table CD hot path.
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, TranslocoPipe],
   styles: [`
     .props-none { color: var(--text-muted); font-size: 12px; }

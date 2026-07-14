@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`OnPush` change detection on the pure-display leaf components (P5, first slice).** The client had
+  `OnPush` on **zero** of its components, so every timer tick, XHR completion and DOM event re-ran change
+  detection over the *entire* tree — including hundreds of `ph-icon`s and property views in large tables.
+  `ph-icon` and `app-properties-view` are now `OnPush`: both are pure and driven only by their inputs (plus,
+  for the view, one local signal), so they re-render exactly when they need to and are otherwise skipped.
+  These are the highest-instantiation leaves, squarely in the large-table hot path. Verified with specs that
+  render the component, change an input / toggle the signal, and assert the DOM updates — the conversion is
+  provable, not blind (the client test harness added earlier is what makes that possible). More components
+  follow, heaviest next.
+
 ### Added
 
 - **Client unit-test infrastructure (Vitest + jsdom).** The Angular client had **no test setup at all** —

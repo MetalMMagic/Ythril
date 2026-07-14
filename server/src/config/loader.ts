@@ -156,8 +156,37 @@ export function getConfig(): Config {
   return _config;
 }
 
+// ── Config persistence ───────────────────────────────────────────────────────
+// Two write paths share config.json:
+//   • saveConfig()      — durable & synchronous. Used by every correctness- or
+//                         security-critical mutation (tokens, spaces, networks,
+//                         setup). Behaviour is unchanged: the change is on disk
+//                         before the call returns.
+//   • saveConfigSoon()  — coalesced & asynchronous. Used ONLY by the sync engine
+//                         hot path (P2), which persists tiny bookkeeping fields —
+//                         pull/push watermarks, per-member failure counters,
+//                         lastSyncAt — dozens to hundreds of times per cycle. Done
+//                         synchronously, each was a whole-file write that blocked
+//                         the event loop and stalled all request handling. These
+//                         fields are runtime state, not configuration: losing the
+//                         last few on a crash is harmless (watermarks re-derive by
+//                         seq on the next pull, counters are cosmetic), so they are
+//                         safe to flush lazily off the event loop.
+//
+// A monotonic generation counter lets the two paths coexist without a torn or
+// stale write: every in-memory mutation bumps `_writeGeneration`; the async
+// flush records the generation it commits, and a synchronous durable write that
+// lands a newer generation mid-flush causes the async flush to discard its
+// now-stale snapshot instead of clobbering the fresher on-disk copy.
+
+let _writeGeneration = 0;   // bumped on every in-memory config mutation via save*
+let _flushedGeneration = 0; // highest generation already durably on disk
+let _flushScheduled = false;
+let _flushChain: Promise<void> = Promise.resolve();
+
 export function saveConfig(config: Config): void {
   _config = config;
+  const gen = ++_writeGeneration;
   // Ensure parent directory exists
   fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
   // Atomic write: write to temp file then rename
@@ -166,6 +195,62 @@ export function saveConfig(config: Config): void {
   fs.renameSync(tmp, CONFIG_PATH);
   // Ensure permissions after write
   fs.chmodSync(CONFIG_PATH, 0o600);
+  if (gen > _flushedGeneration) _flushedGeneration = gen;
+}
+
+/**
+ * Persist config.json off the event loop, coalescing bursts. For the sync
+ * engine's high-frequency bookkeeping writes only — see the header above.
+ * Returns immediately; the write lands on a later tick.
+ */
+export function saveConfigSoon(config: Config): void {
+  _config = config;
+  _writeGeneration++;
+  if (_flushScheduled) return; // a flush is already queued — it will pick up the latest state
+  _flushScheduled = true;
+  setImmediate(() => {
+    _flushScheduled = false;
+    // Serialize writes so two flushes never race on the temp file.
+    _flushChain = _flushChain
+      .catch(() => { /* a prior flush failure must not break the chain */ })
+      .then(() => writeConfigAsync())
+      .catch(err => log.error(`Async config flush failed: ${err}`));
+  });
+}
+
+/** Atomically write the current in-memory config, unless a newer durable write
+ *  has already superseded the snapshot we captured. Uses a distinct temp file so
+ *  it never collides with saveConfig()'s synchronous write. */
+async function writeConfigAsync(): Promise<void> {
+  const gen = _writeGeneration;
+  const config = _config;
+  if (!config || gen <= _flushedGeneration) return; // nothing new to persist
+  const snapshot = JSON.stringify(config, null, 2);
+  fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  const tmp = CONFIG_PATH + '.async.tmp';
+  await fs.promises.writeFile(tmp, snapshot, { encoding: 'utf8', mode: 0o600 });
+  // A synchronous durable write may have landed a newer generation while we were
+  // writing — if so our snapshot is stale, so discard it rather than clobber disk.
+  if (_flushedGeneration >= gen) {
+    await fs.promises.unlink(tmp).catch(() => { /* already gone */ });
+    return;
+  }
+  await fs.promises.rename(tmp, CONFIG_PATH);
+  try { await fs.promises.chmod(CONFIG_PATH, 0o600); } catch { /* non-POSIX host — ignore */ }
+  if (gen > _flushedGeneration) _flushedGeneration = gen;
+}
+
+/**
+ * Flush any pending coalesced config write to disk and wait for it. Call on
+ * graceful shutdown so the last watermarks are persisted before exit.
+ */
+export async function flushConfig(): Promise<void> {
+  await _flushChain.catch(() => { /* logged at the flush site */ });
+  // A saveConfigSoon may have run after the last scheduled flush started — make a
+  // final durable pass if anything is still unwritten.
+  if (_config && _writeGeneration > _flushedGeneration) {
+    saveConfig(_config);
+  }
 }
 
 // ── Secrets ────────────────────────────────────────────────────────────────

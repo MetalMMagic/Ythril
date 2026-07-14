@@ -15,7 +15,7 @@
  *   and pulls from its parent.
  */
 
-import { getConfig, saveConfig, getSecrets, getFaceRecognitionConfig } from '../config/loader.js';
+import { getConfig, saveConfig, saveConfigSoon, getSecrets, getFaceRecognitionConfig } from '../config/loader.js';
 import { col, asFilter, asDoc, asBulk } from '../db/mongo.js';
 import { applyRemoteTombstone, listTombstones } from '../brain/tombstones.js';
 import { recordSyncResult, type SyncCounts } from './history.js';
@@ -152,7 +152,9 @@ function _setFailureCount(networkId: string, instanceId: string, value: number |
   if (!member) return typeof value === 'number' ? value : 1;
   const newValue = value === 'increment' ? (member.consecutiveFailures ?? 0) + 1 : value;
   member.consecutiveFailures = newValue;
-  saveConfig(cfg);
+  // Hot-path bookkeeping: written for every member every cycle. Coalesced async
+  // write — a lost counter on crash is cosmetic (it re-derives on the next cycle).
+  saveConfigSoon(cfg);
   return newValue;
 }
 
@@ -505,7 +507,8 @@ async function runSyncForMember(
   const freshCfg = getConfig();
   const freshNet = freshCfg.networks.find(n => n.id === net.id);
   const m = freshNet?.members.find(m => m.instanceId === member.instanceId);
-  if (m) { m.lastSyncAt = new Date().toISOString(); saveConfig(freshCfg); }
+  // Hot-path bookkeeping: a cosmetic timestamp written every member every cycle.
+  if (m) { m.lastSyncAt = new Date().toISOString(); saveConfigSoon(freshCfg); }
 
   return { pulled, pushed };
 }
@@ -891,7 +894,10 @@ async function pullFromPeer(
     if (m) {
       m.lastSeqReceived ??= {};
       m.lastSeqReceived[spaceId] = highestSeq;
-      saveConfig(freshCfg);
+      // Hot-path watermark: written per space per member per cycle. Coalesced
+      // async write — if lost on crash the next pull simply re-pulls from the
+      // older watermark (idempotent by seq), never dropping data.
+      saveConfigSoon(freshCfg);
     }
   }
 
@@ -1002,7 +1008,10 @@ async function pushToPeer(
     if (m) {
       m.lastSeqPushed ??= {};
       m.lastSeqPushed[spaceId] = maxSeqPushed;
-      saveConfig(freshCfg);
+      // Hot-path watermark: written per space per member per cycle. Coalesced
+      // async write — if lost on crash the next push simply re-pushes from the
+      // older watermark (idempotent by seq), never dropping data.
+      saveConfigSoon(freshCfg);
     }
   }
 

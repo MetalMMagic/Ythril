@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sync bookkeeping writes no longer block the event loop.** The sync engine persists tiny per-cycle
+  fields — pull/push watermarks, per-member failure counters, `lastSyncAt` — dozens to hundreds of times
+  per cycle, and each was a **synchronous whole-file rewrite** of `config.json` that stalled *all* request
+  handling for its duration (and the stall grows with config size, which OAuth-minted tokens can push up).
+  These four hot-path fields now write through a coalesced, asynchronous, serialized flush
+  (`saveConfigSoon`): a burst collapses to one off-loop write, and the change never blocks a response.
+  They are runtime state, not configuration, so a flush lost to a crash is harmless — watermarks re-derive
+  by seq on the next pull (idempotent, no data loss) and counters are cosmetic; a durable flush runs on
+  graceful shutdown regardless. Every other config write (tokens, spaces, networks, votes, gossip identity
+  merges, setup) stays durable and synchronous, and a generation guard ensures an in-flight async flush can
+  never clobber a fresher durable write. Covered by `testing/standalone/config-coalesced-write.test.js` and
+  the existing sync suites (watermark convergence across restarts).
 - **The embedding model is no longer re-downloaded from HuggingFace on every CI build.** The Dockerfile
   fetched the ~274 MB `nomic-embed-text-v1.5` model in a layer that sat *after* the app-source copy, so any
   source change invalidated it — and CI runners start with a cold build cache, so effectively every CI run

@@ -18,25 +18,23 @@
     "start": "npm run start --workspace=server",
     "docker:build": "docker compose build && docker builder prune --keep-storage 3g --force",
     "docker:build:test": "docker compose -p ythril-test -f testing/docker-compose.test.yml build && docker builder prune --keep-storage 3g --force",
-    "docker:down": "docker compose down -v && node -e \"const fs=require('fs'),p=require('path'),d=p.join('config');try{fs.readdirSync(d).forEach(f=>fs.unlinkSync(p.join(d,f)))}catch{};console.log('Full uninstall complete — volumes + config/ removed')\"",
+    "docker:down": "docker compose down -v && node -e \"const fs=require('fs'),p=require('path'),d=p.join('config');try{fs.readdirSync(d).forEach(f=>fs.unlinkSync(p.join(d,f)))}catch{};console.log('Full uninstall complete \u2014 volumes + config/ removed')\"",
     "test:up": "docker compose -p ythril-test -f testing/docker-compose.test.yml down -v --remove-orphans && node testing/_init/reset-test-configs.mjs && docker compose -p ythril-test -f testing/docker-compose.test.yml up -d --wait --wait-timeout 300 && node testing/sync/setup.js",
     "test:up:rebuild": "docker compose -p ythril-test -f testing/docker-compose.test.yml down -v --remove-orphans && node testing/_init/reset-test-configs.mjs && docker compose -p ythril-test -f testing/docker-compose.test.yml up --build -d --wait --wait-timeout 300 && npm run test:prune && node testing/sync/setup.js",
     "test:prune": "docker image prune -f && docker builder prune --keep-storage 5g --force",
     "docker:reclaim": "node scripts/docker-reclaim.mjs",
-    "test:down": "docker compose -p ythril-test -f testing/docker-compose.test.yml down -v --remove-orphans && docker compose -f testing/docker-compose.test.yml down -v --remove-orphans && node -e \"const fs=require('fs'),p=require('path');['a','b','c','d'].forEach(x=>{const d=p.join('testing','sync','configs',x);try{fs.readdirSync(d).forEach(f=>fs.unlinkSync(p.join(d,f)))}catch{}});console.log('Full wipe complete — volumes + bind-mount configs removed')\"",
-    "test:down:clean": "docker compose -p ythril-test -f testing/docker-compose.test.yml down -v --rmi local --remove-orphans && docker compose -f testing/docker-compose.test.yml down -v --rmi local --remove-orphans && docker builder prune --keep-storage 3g --force && docker image prune -f && docker volume prune -f && node -e \"const fs=require('fs'),p=require('path');['a','b','c','d'].forEach(x=>{const d=p.join('testing','sync','configs',x);try{fs.readdirSync(d).forEach(f=>fs.unlinkSync(p.join(d,f)))}catch{}});console.log('Deep cleanup complete — compose resources, build cache, dangling images/volumes, and test configs removed')\"",
+    "test:down": "docker compose -p ythril-test -f testing/docker-compose.test.yml down -v --remove-orphans && docker compose -f testing/docker-compose.test.yml down -v --remove-orphans && node -e \"const fs=require('fs'),p=require('path');['a','b','c','d'].forEach(x=>{const d=p.join('testing','sync','configs',x);try{fs.readdirSync(d).forEach(f=>fs.unlinkSync(p.join(d,f)))}catch{}});console.log('Full wipe complete \u2014 volumes + bind-mount configs removed')\"",
+    "test:down:clean": "docker compose -p ythril-test -f testing/docker-compose.test.yml down -v --rmi local --remove-orphans && docker compose -f testing/docker-compose.test.yml down -v --rmi local --remove-orphans && docker builder prune --keep-storage 3g --force && docker image prune -f && docker volume prune -f && node -e \"const fs=require('fs'),p=require('path');['a','b','c','d'].forEach(x=>{const d=p.join('testing','sync','configs',x);try{fs.readdirSync(d).forEach(f=>fs.unlinkSync(p.join(d,f)))}catch{}});console.log('Deep cleanup complete \u2014 compose resources, build cache, dangling images/volumes, and test configs removed')\"",
     "test:standalone": "node --test --test-concurrency=1 testing/standalone/*.test.js",
     "test:integration": "node --test --test-concurrency=1 testing/integration/*.test.js",
     "test:sync": "node --test --test-concurrency=1 testing/sync/*.test.js",
     "test:redteam": "node --test --test-concurrency=1 testing/red-team-tests/*.test.js",
     "test:all:core": "npm run test:integration && npm run test:sync && npm run test:redteam && npm run test:standalone",
     "test:all:keep": "npm run test:all:core",
-    "test:all": "node testing/_init/run-test-all-with-cleanup.mjs"
+    "test:all": "node testing/_init/run-test-all-with-cleanup.mjs",
+    "test:client": "npm run test --workspace=client"
   },
   "overrides": {
     "protobufjs": "^7.5.5"
   }
 }
-
-
-

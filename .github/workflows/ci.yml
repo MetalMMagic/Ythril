@@ -34,6 +34,13 @@ jobs:
         run: npm run build:server
         # Required by testing/standalone/oidc.test.js which imports server/dist/
 
+      - name: Client unit tests
+        # Vitest + jsdom (see client/vitest.config.ts). Runs fast, before the slow Docker
+        # build, so a client regression fails the job quickly. This is what makes change-
+        # detection work (OnPush / zoneless — P5) verifiable rather than shipped on a green
+        # build: OnPush's failure mode is a silently-stale view, invisible to `ng build`.
+        run: npm run test:client
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

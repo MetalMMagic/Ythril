@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Client unit-test infrastructure (Vitest + jsdom).** The Angular client had **no test setup at all** —
+  no runner, no specs — so a UI regression was invisible to CI, and change-detection work (`OnPush` /
+  zoneless — P5) could not be verified: `OnPush`'s failure mode is a view that silently stops updating, which
+  a production build cannot see. Added Vitest with the Angular compiler plugin and a jsdom environment, wired
+  into CI as a fast "Client unit tests" step that runs before the Docker build. The suite ships with a
+  change-detection harness whose **negative control proves the harness can detect an `OnPush` component going
+  stale** — so it can't give false confidence — plus a smoke test against a real component. Test-only; no
+  runtime or shipped-bundle change (specs are excluded from the production build).
+
 ### Changed
 
 - **Space export streams instead of buffering the whole space into memory (P7).** The export endpoint —

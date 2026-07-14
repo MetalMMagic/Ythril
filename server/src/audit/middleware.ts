@@ -54,18 +54,42 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono$/,     operation: 'chrono.create',  spaceGroup: 1 },
   { method: 'PATCH',  pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono\/([^/]+)$/, operation: 'chrono.update', spaceGroup: 1, entryGroup: 2 },
   { method: 'DELETE', pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono\/([^/]+)$/, operation: 'chrono.delete', spaceGroup: 1, entryGroup: 2 },
+  // Bulk chrono delete had no rule — memories/entities/edges all had one, chrono did not.
+  { method: 'DELETE', pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono$/,     operation: 'chrono.delete',  spaceGroup: 1 },
   { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/chrono/,      operation: 'chrono.list',    spaceGroup: 1, read: true },
 
   // ── File operations ──────────────────────────────────────────────────────
-  { method: 'POST',   pattern: /^\/api\/files\/([^/]+)\/upload/,                   operation: 'file.create',    spaceGroup: 1 },
-  { method: 'DELETE', pattern: /^\/api\/files\/([^/]+)\//,                         operation: 'file.delete',    spaceGroup: 1 },
-  { method: 'PATCH',  pattern: /^\/api\/files\/([^/]+)\//,                         operation: 'file.update',    spaceGroup: 1 },
-  { method: 'GET',    pattern: /^\/api\/files\/([^/]+)\//,                         operation: 'file.read',      spaceGroup: 1, read: true },
+  //
+  // NOTE: the file routes put the path in the QUERY STRING (`/api/files/:spaceId?path=…`),
+  // and this middleware strips the query before matching. The rules here previously required
+  // a trailing slash after the space segment (`/api/files/([^/]+)\/`) and, for upload, an
+  // `/upload` segment that has never existed — so they matched NOTHING and every file upload,
+  // delete and move went completely UNAUDITED. Anchor on the space segment instead.
+  { method: 'POST',   pattern: /^\/api\/files\/([^/]+)\/mkdir$/,                   operation: 'file.mkdir',     spaceGroup: 1 },
+  { method: 'POST',   pattern: /^\/api\/files\/([^/]+)\/retry_embedding$/,         operation: 'file.retry_embedding', spaceGroup: 1 },
+  { method: 'POST',   pattern: /^\/api\/files\/([^/]+)$/,                          operation: 'file.create',    spaceGroup: 1 },
+  { method: 'DELETE', pattern: /^\/api\/files\/([^/]+)$/,                          operation: 'file.delete',    spaceGroup: 1 },
+  { method: 'PATCH',  pattern: /^\/api\/files\/([^/]+)$/,                          operation: 'file.update',    spaceGroup: 1 },
+  { method: 'GET',    pattern: /^\/api\/files\/([^/]+)$/,                          operation: 'file.read',      spaceGroup: 1, read: true },
   { method: 'GET',    pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/files/,       operation: 'file.list',      spaceGroup: 1, read: true },
+  // File METADATA mutations live on the brain router and had no rules at all.
+  { method: 'DELETE', pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/files$/,      operation: 'file.meta.delete', spaceGroup: 1 },
+  { method: 'PATCH',  pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/files$/,      operation: 'file.meta.update', spaceGroup: 1 },
+  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/reindex$/,    operation: 'space.reindex',  spaceGroup: 1 },
 
   // ── Space operations ─────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/spaces$/,                                  operation: 'space.create' },
+  { method: 'POST',   pattern: /^\/api\/spaces\/reorder$/,                         operation: 'space.reorder' },
+  // A rename is `PATCH /api/spaces/:id/rename`, which the anchored `…/([^/]+)$` rule below
+  // does not match — so space renames were unaudited. Given a rename can hide a space's data
+  // if it goes wrong (see the stale-spaceId fixes), that is exactly the operation you want a
+  // record of. It must be listed BEFORE the generic space.update rule so it wins.
+  { method: 'PATCH',  pattern: /^\/api\/spaces\/([^/]+)\/rename$/,                 operation: 'space.rename',   spaceGroup: 1 },
   { method: 'PATCH',  pattern: /^\/api\/spaces\/([^/]+)$/,                         operation: 'space.update',   spaceGroup: 1 },
+  // There was no PUT rule in the entire table, so every schema write was unaudited.
+  { method: 'PUT',    pattern: /^\/api\/spaces\/([^/]+)\/schema$/,                 operation: 'space.schema.update', spaceGroup: 1 },
+  { method: 'PUT',    pattern: /^\/api\/spaces\/([^/]+)\/meta\/typeSchemas\//,     operation: 'space.schema.update', spaceGroup: 1 },
+  { method: 'DELETE', pattern: /^\/api\/spaces\/([^/]+)\/meta\/typeSchemas\//,     operation: 'space.schema.delete', spaceGroup: 1 },
   { method: 'DELETE', pattern: /^\/api\/spaces\/([^/]+)$/,                         operation: 'space.delete',   spaceGroup: 1 },
   { method: 'POST',   pattern: /^\/api\/admin\/spaces\/([^/]+)\/wipe$/,            operation: 'space.wipe',     spaceGroup: 1 },
   { method: 'GET',    pattern: /^\/api\/spaces/,                                   operation: 'space.list',     read: true },
@@ -74,20 +98,77 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'POST',   pattern: /^\/api\/tokens$/,                                  operation: 'token.create' },
   { method: 'DELETE', pattern: /^\/api\/tokens\/([^/]+)$/,                         operation: 'token.delete' },
 
+  { method: 'POST',   pattern: /^\/api\/tokens\/([^/]+)\/regenerate$/,             operation: 'token.regenerate' },
+
   // ── Webhook operations ───────────────────────────────────────────────────
-  { method: 'POST',   pattern: /^\/api\/notify\/webhooks$/,                        operation: 'webhook.create' },
-  { method: 'PATCH',  pattern: /^\/api\/notify\/webhooks\/([^/]+)$/,               operation: 'webhook.update' },
-  { method: 'DELETE', pattern: /^\/api\/notify\/webhooks\/([^/]+)$/,               operation: 'webhook.delete' },
+  // These rules used to point at `/api/notify/webhooks`, but the router is mounted at
+  // `/api/admin/webhooks` — so webhook CRUD was entirely unaudited. A webhook exfiltrates
+  // data to a third party on every change, so creating one is exactly what you want logged.
+  { method: 'POST',   pattern: /^\/api\/admin\/webhooks$/,                          operation: 'webhook.create' },
+  { method: 'POST',   pattern: /^\/api\/admin\/webhooks\/([^/]+)\/test$/,           operation: 'webhook.test' },
+  { method: 'PATCH',  pattern: /^\/api\/admin\/webhooks\/([^/]+)$/,                 operation: 'webhook.update' },
+  { method: 'DELETE', pattern: /^\/api\/admin\/webhooks\/([^/]+)$/,                 operation: 'webhook.delete' },
+
+  // ── Network / governance operations ──────────────────────────────────────
+  // NONE of this was audited. It is the most security-sensitive surface in the product:
+  // adding or removing a member changes who can read the brain, and votes decide it.
+  { method: 'POST',   pattern: /^\/api\/networks$/,                                 operation: 'network.create' },
+  { method: 'POST',   pattern: /^\/api\/networks\/join-remote$/,                    operation: 'network.join_remote' },
+  { method: 'PATCH',  pattern: /^\/api\/networks\/([^/]+)$/,                        operation: 'network.update' },
+  { method: 'DELETE', pattern: /^\/api\/networks\/([^/]+)$/,                        operation: 'network.delete' },
+  { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/members$/,               operation: 'network.member.add' },
+  { method: 'DELETE', pattern: /^\/api\/networks\/([^/]+)\/members\/([^/]+)$/,      operation: 'network.member.remove' },
+  { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/members\/([^/]+)\/adopt$/, operation: 'network.member.adopt' },
+  { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/members\/([^/]+)\/revert-parent$/, operation: 'network.member.revert_parent' },
+  { method: 'PUT',    pattern: /^\/api\/networks\/([^/]+)\/members\/([^/]+)\/signing-key$/, operation: 'network.member.signing_key' },
+  { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/votes\/([^/]+)$/,        operation: 'network.vote' },
+  { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/invite$/,                operation: 'network.invite' },
+  { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/join$/,                  operation: 'network.join' },
+  { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/fork$/,                  operation: 'network.fork' },
+  { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/reparent-self$/,         operation: 'network.reparent_self' },
+  { method: 'POST',   pattern: /^\/api\/networks\/([^/]+)\/sync$/,                  operation: 'network.sync_trigger' },
+
+  // ── Conflict resolution ──────────────────────────────────────────────────
+  // Resolving a conflict picks a winning version of a record — a data mutation.
+  { method: 'POST',   pattern: /^\/api\/conflicts\/bulk-resolve$/,                  operation: 'conflict.bulk_resolve' },
+  { method: 'POST',   pattern: /^\/api\/conflicts\/seed$/,                          operation: 'conflict.seed' },
+  { method: 'POST',   pattern: /^\/api\/conflicts\/([^/]+)\/resolve$/,              operation: 'conflict.resolve' },
+  { method: 'DELETE', pattern: /^\/api\/conflicts\/link-violations\/?([^/]*)$/,     operation: 'conflict.link_violation.delete' },
+  { method: 'DELETE', pattern: /^\/api\/conflicts\/([^/]+)$/,                       operation: 'conflict.delete' },
+
+  // ── Duplicate handling ───────────────────────────────────────────────────
+  // A merge REWRITES brain records (and deletes the loser) — squarely a data mutation.
+  { method: 'POST',   pattern: /^\/api\/duplicates\/scan$/,                         operation: 'duplicate.scan' },
+  { method: 'POST',   pattern: /^\/api\/duplicates\/([^/]+)\/merge$/,               operation: 'duplicate.merge' },
+  { method: 'POST',   pattern: /^\/api\/duplicates\/([^/]+)\/dismiss$/,             operation: 'duplicate.dismiss' },
+
+  // ── Schema library ───────────────────────────────────────────────────────
+  { method: 'POST',   pattern: /^\/api\/schema-library$/,                           operation: 'schema_library.create' },
+  { method: 'PUT',    pattern: /^\/api\/schema-library\/([^/]+)$/,                  operation: 'schema_library.update' },
+  { method: 'DELETE', pattern: /^\/api\/schema-library\/([^/]+)$/,                  operation: 'schema_library.delete' },
+  { method: 'PATCH',  pattern: /^\/api\/schema-library\/([^/]+)\/publish$/,         operation: 'schema_library.publish' },
+  { method: 'POST',   pattern: /^\/api\/schema-library\/catalogs$/,                 operation: 'schema_library.catalog.add' },
+  { method: 'DELETE', pattern: /^\/api\/schema-library\/catalogs\/([^/]+)$/,        operation: 'schema_library.catalog.remove' },
+  { method: 'POST',   pattern: /^\/api\/schema-library\/groups\/([^/]+)\/apply$/,   operation: 'schema_library.group.apply' },
+  { method: 'POST',   pattern: /^\/api\/schema-library\/export-space$/,             operation: 'schema_library.export', read: true },
 
   // ── Config / admin ───────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/admin\/reload-config$/,                    operation: 'config.reload' },
   { method: 'PATCH',  pattern: /^\/api\/admin\/media-config$/,                     operation: 'config.media.update' },
+  { method: 'POST',   pattern: /^\/api\/admin\/local-agent\/bootstrap$/,           operation: 'local_agent.bootstrap' },
+  { method: 'POST',   pattern: /^\/api\/admin\/local-agent\/enable-networks\/execute$/, operation: 'local_agent.enable_networks' },
 
   // ── Data management ──────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/admin\/data\/backup$/,                     operation: 'data.backup' },
   { method: 'POST',   pattern: /^\/api\/admin\/data\/restore$/,                    operation: 'data.restore' },
   { method: 'POST',   pattern: /^\/api\/admin\/data\/migrate$/,                    operation: 'data.migrate' },
   { method: 'POST',   pattern: /^\/api\/admin\/data\/maintenance$/,                operation: 'data.maintenance.toggle' },
+  { method: 'PUT',    pattern: /^\/api\/admin\/data\/backup-config$/,              operation: 'data.backup_config.update' },
+  // A connection test does not mutate, but it does reach out to an operator-supplied URI.
+  { method: 'POST',   pattern: /^\/api\/admin\/data\/config\/test$/,               operation: 'data.config.test', read: true },
+
+  // ── Space schema dry-run (validates only, writes nothing) ────────────────
+  { method: 'POST',   pattern: /^\/api\/spaces\/([^/]+)\/validate-schema$/,        operation: 'space.schema.validate', spaceGroup: 1, read: true },
 
   // ── Brain query / recall / stats (reads) ─────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/recall/,      operation: 'brain.recall',         spaceGroup: 1, read: true },
@@ -114,7 +195,7 @@ const RULES_BY_METHOD: ReadonlyMap<string, readonly RouteRule[]> = (() => {
   return map;
 })();
 
-function resolveOperation(method: string, path: string): { operation: string; spaceId: string | null; entryId: string | null; read: boolean } | null {
+export function resolveOperation(method: string, path: string): { operation: string; spaceId: string | null; entryId: string | null; read: boolean } | null {
   const rules = RULES_BY_METHOD.get(method);
   if (!rules) return null;
   for (const rule of rules) {

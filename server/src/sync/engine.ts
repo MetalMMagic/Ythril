@@ -424,6 +424,28 @@ async function runSyncForMember(
     await Promise.all([peerWarm, localWarm]);
   }
 
+  // ── Governance gossip + vote propagation (BEFORE data sync) ───────────────
+  // 1. Push our own self-record to this peer so it stays current on our URL/label.
+  // 2. Pull the peer's view of the member list; update our local records.
+  // 3. Push our open vote casts to the peer.
+  // 4. Pull the peer's open rounds and votes; merge any new rounds or casts.
+  //
+  // This runs FIRST — ahead of the per-space data/file loop — on purpose.
+  // Governance is deadline-sensitive (vote rounds expire) and its messages are
+  // small, so it must converge promptly and independently of the data plane.
+  // Previously it ran last, which meant any failure in the per-space loop (a
+  // timed-out pull, an unreachable member, a slow file transfer) threw out of
+  // this function and skipped governance for the whole cycle — so under load a
+  // saturated peer could starve vote propagation indefinitely. Both calls are
+  // internally best-effort (they catch their own errors); the extra guard here
+  // keeps a data-plane failure below from ever masking governance progress.
+  try {
+    await gossipWithPeer(net, member, headers, fetchOpts);
+    await propagateVotesWithPeer(net, member, headers, fetchOpts);
+  } catch (err) {
+    log.warn(`Governance gossip with ${member.label} (${member.instanceId}): ${err}`);
+  }
+
   // Pre-build reverse spaceMap (local → remote) for O(1) lookup per space
   // instead of the O(n) linear scan inside localToRemote().
   const reverseSpaceMap = new Map(
@@ -494,14 +516,6 @@ async function runSyncForMember(
       await checkMerkleWithPeer(net, member, spaceId, remoteSpaceId, fetchOpts);
     }
   }
-
-  // ── Gossip: member list exchange + vote propagation ──────────────────────
-  // 1. Push our own self-record to this peer so it stays current on our URL/label.
-  // 2. Pull the peer's view of the member list; update our local records.
-  // 3. Push our open vote casts to the peer.
-  // 4. Pull the peer's open rounds and votes; merge any new rounds or casts.
-  await gossipWithPeer(net, member, headers, fetchOpts);
-  await propagateVotesWithPeer(net, member, headers, fetchOpts);
 
   // Update lastSyncAt
   const freshCfg = getConfig();

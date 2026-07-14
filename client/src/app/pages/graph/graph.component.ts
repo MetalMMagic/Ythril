@@ -1,4 +1,5 @@
 ﻿import {
+  ChangeDetectionStrategy,
   Component,
   OnInit,
   AfterViewInit,
@@ -52,6 +53,16 @@ interface DetailRow {
 @Component({
   selector: 'app-graph-view',
   standalone: true,
+  // OnPush (P5, final slice): the highest-value target — a cytoscape canvas whose 9 event handlers
+  // fire OUTSIDE Angular. Audited safe: the four handlers that touch Angular state
+  // (node/edge/background tap, dbltap re-root) write only signals (`selectedNode`/`selectedEdge`/…),
+  // and signal writes notify OnPush regardless of zone; the other five only toggle cytoscape CSS
+  // classes on the canvas, never Angular state. Nothing mutates a signal's value in place, and the
+  // plain `graphNodes`/`graphEdges`/color fields are canvas-only (never in the template). The one
+  // pair of template-bound plain fields — `drawerEditMemory`/`drawerEditChrono` — is written in
+  // `openBrainDrawer` alongside the `drawerRecord` signal that guards the drawer's `@if`, the same
+  // load-bearing coupling pinned by the brain spec.
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, TagInputComponent, PropertiesEditorComponent, PhIconComponent, TranslocoPipe],
   host: { '[class.embedded]': 'isEmbedded()' },
   styles: [`

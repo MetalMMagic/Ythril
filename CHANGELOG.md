@@ -99,6 +99,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`OnPush` change detection on the graph page (P5, final slice).** The graph view — a cytoscape
+  canvas whose event handlers fire outside Angular — was the highest-value and highest-risk `OnPush`
+  target, and completes the P5 pass over the app's heavy pages. Audited safe: the four handlers that
+  touch Angular state (node/edge/background tap, double-tap re-root) write only signals, which notify
+  `OnPush` regardless of zone; the rest only toggle cytoscape CSS classes on the canvas. Nothing
+  mutates a signal's value in place, and the plain node/edge/colour fields are canvas-only (never in
+  the template). Verified with a spec that drives the tap-written signals and asserts the side panels
+  open/close, plus the drawer's plain-field/signal coupling — cytoscape is mocked because it needs a
+  real canvas jsdom lacks, but the behaviour under test is entirely Angular's signal→CD path.
+
 - **`OnPush` change detection on the brain page (P5, slice 4).** Brain is the heaviest page in the
   app — 49 signals, five record tabs, a detail drawer and an embedded graph — and previously re-checked
   all of it on every unrelated tick/XHR/DOM event. It is safe under `OnPush` because every async path

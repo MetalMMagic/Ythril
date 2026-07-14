@@ -59,27 +59,45 @@ COPY server/package.json ./server/
 # Install production dependencies only
 RUN npm ci --workspace=server --omit=dev
 
+# Pre-download & cache the embedding model so first startup is instant and fully offline.
+# The model is then copied into the image layer so the container starts offline.
+#
+# This runs BEFORE the app-source COPYs below on purpose: it depends only on the
+# @huggingface/transformers npm package (installed above), NOT on our source. So
+# a normal source change does not invalidate this layer, which lets a layer cache
+# (CI's `--cache-from type=gha`) restore the already-downloaded model instead of
+# re-fetching ~274 MB from HuggingFace on every build. HF rate-limits anonymous
+# downloads per-IP (shared CI egress → intermittent 403), so the fewer fetches the
+# better; the retry/backoff below rides through a transient 403 on the rare build
+# that does have to download. `--mount=type=cache` additionally speeds local rebuilds.
+ENV MODEL_CACHE_DIR=/app/model-cache
+RUN --mount=type=cache,target=/tmp/hf-model-cache \
+    printf '%s\n' \
+    'import { pipeline, env } from "@huggingface/transformers";' \
+    'env.cacheDir = "/tmp/hf-model-cache";' \
+    'const load = () => pipeline("feature-extraction", "nomic-ai/nomic-embed-text-v1.5", { dtype: "fp32" });' \
+    'const attempts = 6;' \
+    'for (let i = 1; i <= attempts; i++) {' \
+    '  try { await load(); break; }' \
+    '  catch (err) {' \
+    '    if (i === attempts) throw err;' \
+    '    const delay = Math.min(60, 2 ** i);' \
+    '    console.warn(`model download attempt ${i}/${attempts} failed: ${err}; retrying in ${delay}s`);' \
+    '    await new Promise(r => setTimeout(r, delay * 1000));' \
+    '  }' \
+    '}' \
+    > /app/server/warm.mjs && \
+    node /app/server/warm.mjs && \
+    rm /app/server/warm.mjs && \
+    mkdir -p /app/model-cache && \
+    cp -a /tmp/hf-model-cache/. /app/model-cache/
+
 # Copy compiled output from builder
 COPY --from=builder /build/server/dist ./server/dist
 
 # Copy compiled Angular SPA from client-builder
 COPY --from=client-builder /build/client/dist/browser ./client/dist/browser
 
-# Pre-download & cache the embedding model so first startup is instant and fully offline.
-# --mount=type=cache keeps downloaded files on the build host between rebuilds so that
-# invalidating an earlier layer (e.g. npm ci) doesn't re-download ~274 MB every time.
-# The model is then copied into the image layer so the container starts offline.
-ENV MODEL_CACHE_DIR=/app/model-cache
-RUN --mount=type=cache,target=/tmp/hf-model-cache \
-    printf '%s\n' \
-    'import { pipeline, env } from "@huggingface/transformers";' \
-    'env.cacheDir = "/tmp/hf-model-cache";' \
-    'await pipeline("feature-extraction", "nomic-ai/nomic-embed-text-v1.5", { dtype: "fp32" });' \
-    > /app/server/warm.mjs && \
-    node /app/server/warm.mjs && \
-    rm /app/server/warm.mjs && \
-    mkdir -p /app/model-cache && \
-    cp -a /tmp/hf-model-cache/. /app/model-cache/
 ENV NODE_ENV=production
 ENV PORT=3200
 ENV CONFIG_PATH=/config/config.json

@@ -10,7 +10,7 @@ import { PropertiesEditorComponent } from '../../shared/properties-editor.compon
 import { TagInputComponent } from '../../shared/tag-input.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { catchError, of } from 'rxjs';
-import { TranslocoPipe } from '@jsverse/transloco';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 type BrainTab = 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono' | 'filemeta';
 
@@ -1560,7 +1560,70 @@ interface SpaceView {
                     <label>{{ 'brain.query.minScore' | transloco }} <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.minScore.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span></label>
                     <input type="number" [(ngModel)]="recallForm.minScore" name="recallMinScore" min="0" max="1" step="0.05" style="width:80px;" />
                   </div>
+                  <div class="field" style="margin:0; align-self:flex-end;">
+                    <button class="btn btn-sm btn-secondary" type="button" (click)="showRecallAdvanced.set(!showRecallAdvanced())">
+                      {{ (showRecallAdvanced() ? 'brain.query.hideAdvanced' : 'brain.query.showAdvanced') | transloco }}
+                    </button>
+                  </div>
                 </div>
+
+                @if (showRecallAdvanced()) {
+                  <div style="margin-top:10px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                    <!-- Type restriction + per-type minimums -->
+                    <label style="display:block; margin-bottom:6px;">
+                      {{ 'brain.query.types' | transloco }}
+                      <span style="color:var(--text-muted);font-size:11px;" [attr.title]="'brain.query.types.tooltip' | transloco"><ph-icon name="info" [size]="11" style="display:inline-flex;vertical-align:middle;"/></span>
+                    </label>
+                    <div style="display:flex; flex-wrap:wrap; gap:12px;">
+                      @for (opt of recallTypeOpts; track opt.type) {
+                        <span style="display:inline-flex; align-items:center; gap:5px;">
+                          <input
+                            type="checkbox"
+                            [(ngModel)]="opt.on"
+                            [name]="'recallType-' + opt.type"
+                            [attr.aria-label]="opt.type"
+                          />
+                          <span style="font-size:13px;">{{ opt.type }}</span>
+                          @if (opt.on) {
+                            <input
+                              type="number"
+                              [(ngModel)]="opt.min"
+                              [name]="'recallMin-' + opt.type"
+                              min="0"
+                              [max]="recallForm.topK"
+                              style="width:56px;"
+                              [placeholder]="'brain.query.minPerType.placeholder' | transloco"
+                              [attr.title]="'brain.query.minPerType.tooltip' | transloco"
+                            />
+                          }
+                        </span>
+                      }
+                    </div>
+
+                    <div class="field" style="margin-top:10px;">
+                      <label>{{ 'brain.query.tags' | transloco }}</label>
+                      <input
+                        type="text"
+                        [(ngModel)]="recallForm.tags"
+                        name="recallTags"
+                        [placeholder]="'brain.query.tags.placeholder' | transloco"
+                        style="width:100%;"
+                      />
+                    </div>
+
+                    <div class="field" style="margin-top:8px; margin-bottom:0;">
+                      <label>{{ 'brain.query.filter' | transloco }}</label>
+                      <textarea
+                        [(ngModel)]="recallForm.filter"
+                        name="recallFilter"
+                        rows="3"
+                        [placeholder]="'brain.query.filter.placeholder' | transloco"
+                        style="width:100%; font-family:var(--font-mono, monospace); font-size:12px;"
+                      ></textarea>
+                    </div>
+                  </div>
+                }
+
                 <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
                   <button class="btn btn-sm btn-primary" [disabled]="recallRunning() || !recallForm.query.trim()" (click)="runRecall()">
                     @if (recallRunning()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
@@ -1964,6 +2027,7 @@ interface SpaceView {
 })
 export class BrainComponent implements OnInit {
   private api = inject(ApiService);
+  private transloco = inject(TranslocoService);
 
   collectionTabs: { key: BrainTab; label: string; statsKey?: keyof SpaceStats }[] = [
     { key: 'entities', label: 'Entities', statsKey: 'entities' },
@@ -2167,7 +2231,12 @@ export class BrainComponent implements OnInit {
 
   // Semantic search
   recallKnowledgeTypes: RecallKnowledgeType[] = ['memory', 'entity', 'edge', 'chrono', 'file'];
-  recallForm = { query: '', topK: 10, minScore: 0 };
+  recallForm = { query: '', topK: 10, minScore: 0, filter: '', tags: '' };
+  /** Type restriction + per-type minimums. Unchecked types are simply not sent. */
+  recallTypeOpts: { type: RecallKnowledgeType; on: boolean; min: number | null }[] =
+    (['memory', 'entity', 'edge', 'chrono', 'file'] as RecallKnowledgeType[])
+      .map(type => ({ type, on: false, min: null }));
+  showRecallAdvanced = signal(false);
   recallRunning = signal(false);
   recallResults = signal<RecallResult[]>([]);
   recallError = signal('');
@@ -3019,6 +3088,38 @@ export class BrainComponent implements OnInit {
 
   runRecall(): void {
     if (!this.recallForm.query.trim()) return;
+
+    // Optional structured filter — same expression grammar as the Advanced Query
+    // filter. Parse it here so a typo surfaces as a form error rather than a 400.
+    let filter: Record<string, unknown> | undefined;
+    const rawFilter = this.recallForm.filter.trim();
+    if (rawFilter) {
+      try {
+        const parsed = JSON.parse(rawFilter) as unknown;
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          this.recallError.set(this.transloco.translate('brain.query.filterMustBeObject'));
+          return;
+        }
+        filter = parsed as Record<string, unknown>;
+      } catch {
+        this.recallError.set(this.transloco.translate('brain.query.filterInvalidJson'));
+        return;
+      }
+    }
+
+    const selected = this.recallTypeOpts.filter(o => o.on);
+    const types = selected.length ? selected.map(o => o.type) : undefined;
+
+    const minPerType: Partial<Record<RecallKnowledgeType, number>> = {};
+    for (const o of selected) {
+      if (o.min != null && o.min > 0) minPerType[o.type] = o.min;
+    }
+
+    const tags = this.recallForm.tags
+      .split(',')
+      .map(t => t.trim())
+      .filter(t => t.length > 0);
+
     this.recallRunning.set(true);
     this.recallError.set('');
     this.recallResults.set([]);
@@ -3026,6 +3127,10 @@ export class BrainComponent implements OnInit {
       query: this.recallForm.query.trim(),
       topK: this.recallForm.topK,
       minScore: this.recallForm.minScore || undefined,
+      ...(types ? { types } : {}),
+      ...(Object.keys(minPerType).length ? { minPerType } : {}),
+      ...(tags.length ? { tags } : {}),
+      ...(filter ? { filter } : {}),
     }).subscribe({
       next: (res) => { this.recallRunning.set(false); this.recallResults.set(res.results); },
       error: (err) => { this.recallRunning.set(false); this.recallError.set(err.error?.error ?? 'Search failed'); },

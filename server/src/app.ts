@@ -18,6 +18,7 @@ import { aboutRouter } from './api/about.js';
 import { oidcRouter } from './api/oidc.js';
 import { metricsRouter } from './api/metrics.js';
 import { themeRouter } from './api/theme.js';
+import { frameAncestorsDirective } from './config/embed.js';
 import { auditRouter } from './api/audit.js';
 import { setupRouter } from './setup/routes.js';
 import { mcpRouter } from './mcp/router.js';
@@ -107,9 +108,14 @@ export function createApp() {
     // Use CSP frame-ancestors instead of X-Frame-Options: DENY.
     // 'self' allows same-origin iframing (required for OIDC silent refresh
     // and postMessage-based theming) while blocking cross-origin clickjacking.
+    // Any origin the operator explicitly opted into via `embed.allowedOrigins`
+    // is appended — that is the ONLY way a cross-origin portal may frame Ythril.
     // object-src 'none' disables Flash/plugin content (OWASP baseline).
     // base-uri 'self' prevents <base href> injection in any XSS context.
-    res.setHeader('Content-Security-Policy', "frame-ancestors 'self'; object-src 'none'; base-uri 'self'");
+    res.setHeader(
+      'Content-Security-Policy',
+      `frame-ancestors ${frameAncestorsDirective()}; object-src 'none'; base-uri 'self'`,
+    );
     res.setHeader('Referrer-Policy', 'no-referrer');
     next();
   });

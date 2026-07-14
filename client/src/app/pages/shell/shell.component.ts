@@ -2,6 +2,7 @@ import { Component, inject, OnInit, signal } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 import { ApiService } from '../../core/api.service';
+import { EmbedService } from '../../core/embed.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
@@ -146,15 +147,18 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
     }
   `],
   template: `
-    <!-- Top bar -->
-    <header class="topbar">
-      <a class="topbar-logo" routerLink="/">
-        <span class="topbar-logo-dot"></span>
-        {{ 'app.logo' | transloco }}
-      </a>
-      <span class="topbar-spacer"></span>
-      <button class="topbar-logout" (click)="logout()">{{ 'nav.signOut' | transloco }}</button>
-    </header>
+    <!-- Top bar — hidden in embedded mode (?embedded=1): it duplicates the host
+         portal's chrome, and its Sign out would end only the Ythril session. -->
+    @if (!embed.embedded()) {
+      <header class="topbar">
+        <a class="topbar-logo" routerLink="/">
+          <span class="topbar-logo-dot"></span>
+          {{ 'app.logo' | transloco }}
+        </a>
+        <span class="topbar-spacer"></span>
+        <button class="topbar-logout" (click)="logout()">{{ 'nav.signOut' | transloco }}</button>
+      </header>
+    }
 
     <div class="layout">
       <!-- Sidebar navigation -->
@@ -218,6 +222,8 @@ export class ShellComponent implements OnInit {
   private router = inject(Router);
   private api = inject(ApiService);
   private transloco = inject(TranslocoService);
+  /** Public — the template reads embed.embedded() to hide the topbar. */
+  protected embed = inject(EmbedService);
 
   conflictCount = signal(0);
 

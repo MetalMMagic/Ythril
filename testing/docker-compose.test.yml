@@ -25,8 +25,12 @@ services:
   # Instance A  (port 3200)
   # ──────────────────────────────────────────
   ythril-a:
+    # Sole builder of the shared test image. Instances b/c/d only reference the tag
+    # below — building the same tag from four services at once races on the export
+    # and intermittently corrupts the image locally. CI skips this entirely: it
+    # pre-builds `ythril-test:latest` once with a shared layer cache (see ci.yml).
     build: ..
-    image: ythril-test:latest  # fixed tag so CI pre-builds once (shared layer cache) and every instance reuses it
+    image: ythril-test:latest
     container_name: ythril-a
     ports:
       - "3200:3200"
@@ -77,8 +81,7 @@ services:
   # Instance B  (port 3201)
   # ──────────────────────────────────────────
   ythril-b:
-    build: ..
-    image: ythril-test:latest  # fixed tag so CI pre-builds once (shared layer cache) and every instance reuses it
+    image: ythril-test:latest  # built by ythril-a (and by CI); reused here, never rebuilt
     container_name: ythril-b
     ports:
       - "3201:3200"
@@ -125,8 +128,7 @@ services:
   # Instance C  (port 3202)  — braintree leaf
   # ──────────────────────────────────────────
   ythril-c:
-    build: ..
-    image: ythril-test:latest  # fixed tag so CI pre-builds once (shared layer cache) and every instance reuses it
+    image: ythril-test:latest  # built by ythril-a (and by CI); reused here, never rebuilt
     container_name: ythril-c
     ports:
       - "3202:3200"
@@ -172,8 +174,7 @@ services:
   # Used exclusively by red-team-tests/infra-managed-migration.test.js.
   # ──────────────────────────────────────────
   ythril-d:
-    build: ..
-    image: ythril-test:latest  # fixed tag so CI pre-builds once (shared layer cache) and every instance reuses it
+    image: ythril-test:latest  # built by ythril-a (and by CI); reused here, never rebuilt
     container_name: ythril-d
     ports:
       - "3203:3200"

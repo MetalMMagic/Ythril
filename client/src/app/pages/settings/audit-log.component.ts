@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit, OnDestroy, effect } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, OnInit, OnDestroy, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from '../../core/api.service';
@@ -7,6 +7,12 @@ import { TranslocoPipe } from '@jsverse/transloco';
 @Component({
   selector: 'app-audit-log',
   standalone: true,
+  // OnPush (P5): every rendered value is a signal set immutably (`entries`, `total`,
+  // `selectedEntry`, `serverLogLines` via `.update([...])`, etc.), and the filter fields are
+  // ngModel two-way bindings whose input events mark the view dirty. So OnPush re-checks exactly
+  // when state changes and skips the whole-tree sweep otherwise — this page renders up to a
+  // 100-row table plus a live-streaming server log, both in the CD hot path.
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, TranslocoPipe],
   styles: [`
     .audit-toolbar {

@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`OnPush` change detection on the audit-log page (P5, slice 2).** The audit-log viewer renders
+  up to a 100-row table plus a live-streaming server log, and previously re-ran change detection over
+  its whole subtree on every unrelated tick/XHR/DOM event. Every value it renders is already a signal
+  updated immutably (`entries`, `total`, `selectedEntry`, and the SSE log via `.update([...])`), and
+  its filter fields are `ngModel` two-way bindings whose input events mark the view dirty — so `OnPush`
+  is safe and re-checks exactly when state changes. Verified with a spec that loads rows, opens the
+  detail panel, and replaces the `entries` signal, asserting the table refreshes each time — the
+  conversion is proven, not blind.
+
+### Changed
+
 - **`OnPush` change detection on the pure-display leaf components (P5, first slice).** The client had
   `OnPush` on **zero** of its components, so every timer tick, XHR completion and DOM event re-ran change
   detection over the *entire* tree — including hundreds of `ph-icon`s and property views in large tables.

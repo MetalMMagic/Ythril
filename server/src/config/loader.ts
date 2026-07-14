@@ -373,8 +373,29 @@ export function getEmbeddingConfig() {
 
 export function getMongoUri(): string {
   const cfg = _config;
-  // env var wins — infra-managed deployments must be able to override config.json
-  return process.env['MONGO_URI'] ?? cfg?.mongo?.uri ?? 'mongodb://ythril-mongo:27017/ythril?directConnection=true';
+  // An explicit URI always wins — infra-managed deployments (managed Atlas, an existing
+  // cluster) must be able to override, and they carry their own credentials.
+  const explicit = process.env['MONGO_URI'] ?? cfg?.mongo?.uri;
+  if (explicit) return explicit;
+
+  // Otherwise we are talking to the BUNDLED `ythril-mongo` container. If the operator
+  // supplied credentials for it, authenticate — the bundled database is unauthenticated
+  // by default, which means anything that can reach port 27017 can read and rewrite every
+  // space, bypassing tokens, space scoping and the audit log entirely (see S7).
+  //
+  // Credentials are optional so that EXISTING installs keep working: MongoDB cannot have
+  // auth switched on in place (the Atlas Local image only provisions the replica-set
+  // keyfile on a first init), so an existing database must be migrated deliberately.
+  const user = process.env['MONGO_USERNAME'];
+  const pass = process.env['MONGO_PASSWORD'];
+  if (user && pass) {
+    // Percent-encode: a password may legitimately contain `@`, `:`, `/` etc., which would
+    // otherwise be parsed as URI delimiters and produce a confusing connection failure.
+    const creds = `${encodeURIComponent(user)}:${encodeURIComponent(pass)}`;
+    return `mongodb://${creds}@ythril-mongo:27017/ythril?directConnection=true&authSource=admin`;
+  }
+
+  return 'mongodb://ythril-mongo:27017/ythril?directConnection=true';
 }
 
 export function getDataRoot(): string {

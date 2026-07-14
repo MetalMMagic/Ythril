@@ -1,4 +1,4 @@
-﻿import { Component, inject, signal, computed, OnInit } from '@angular/core';
+﻿import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, SpaceMetaResponse, KnowledgeType, PropertySchema, FileMeta } from '../../core/api.service';
@@ -22,6 +22,16 @@ interface SpaceView {
 @Component({
   selector: 'app-brain',
   standalone: true,
+  // OnPush (P5): the heaviest page in the app — 49 signals, five record tabs, a detail drawer and
+  // an embedded graph. Safe because every async path (list/create/save subscribes, the 300 ms search
+  // debounces) writes signals, which notify OnPush regardless of zone; nothing mutates a signal's
+  // value in place. NOTE the plain (non-signal) form models — `memoryForm`, `drawerEdit*`, … — are
+  // rendered via ngModel and are re-checked only because each write is accompanied by a signal write
+  // in the same turn (e.g. `openDrawer` sets `drawerRecord`; the create callbacks set
+  // `creatingX`/`showXForm`) or happens in a template event handler, both of which mark the view
+  // dirty. That coupling is load-bearing: the drawer spec below pins it, so dropping the sibling
+  // signal write would fail CI rather than silently render a stale form.
+  changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, TranslocoPipe],
   styles: [`
     .space-tabs {

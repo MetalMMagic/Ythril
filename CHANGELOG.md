@@ -99,6 +99,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`OnPush` change detection on the brain page (P5, slice 4).** Brain is the heaviest page in the
+  app — 49 signals, five record tabs, a detail drawer and an embedded graph — and previously re-checked
+  all of it on every unrelated tick/XHR/DOM event. It is safe under `OnPush` because every async path
+  (list/create/save subscribes, the 300 ms search debounces) writes signals, which notify `OnPush`
+  regardless of zone, and nothing mutates a signal's value in place. The page also renders plain,
+  non-signal form models (`memoryForm`, `drawerEdit*`) through `ngModel`; those re-check only because
+  each write is paired with a signal write in the same turn, or happens in a template event handler.
+  That coupling is load-bearing and invisible in the source, so a spec now pins it — the drawer title
+  binds the plain field, and dropping the sibling signal write fails CI instead of silently rendering
+  a stale form.
+
 - **`OnPush` change detection on the file-manager page (P5, slice 3).** The file browser renders a
   file listing, a recursive directory-tree sidebar, breadcrumbs, and a preview pane — previously all
   re-checked on every unrelated tick/XHR/DOM event across the app. Every rendered value is

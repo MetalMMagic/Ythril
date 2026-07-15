@@ -212,7 +212,7 @@
   "brain.spaceChip.network.idle": "In einem Netzwerk",
   "brain.spaceChip.network.syncing": "Synchronisiert…",
   "brain.spaceChip.network.degraded": "Synchronisierung fehlgeschlagen — überprüfen",
-  "brain.spaceChip.network.vote": "Abstimmung läuft",
+  "brain.spaceChip.network.vote": "Ihre Stimme erforderlich",
   "brain.reindex.stale": "Einbettungen sind veraltet – das Einbettungsmodell hat sich geändert und dieser Bereich muss neu indiziert werden.",
   "brain.reindex.button": "Jetzt neu indizieren",
   "brain.tab.query": "Abfrage",

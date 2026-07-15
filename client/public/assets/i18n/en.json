@@ -211,7 +211,7 @@
   "brain.spaceChip.network.idle": "In a network",
   "brain.spaceChip.network.syncing": "Syncing…",
   "brain.spaceChip.network.degraded": "Sync failing — investigate",
-  "brain.spaceChip.network.vote": "Vote in progress",
+  "brain.spaceChip.network.vote": "Your vote needed",
   "brain.reindex.stale": "Embeddings are stale — the embedding model has changed and this space needs reindexing.",
   "brain.reindex.button": "Reindex now",
   "brain.tab.query": "Query",

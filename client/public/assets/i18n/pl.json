@@ -212,7 +212,7 @@
   "brain.spaceChip.network.idle": "W sieci",
   "brain.spaceChip.network.syncing": "Synchronizacja…",
   "brain.spaceChip.network.degraded": "Synchronizacja nie działa — sprawdź",
-  "brain.spaceChip.network.vote": "Trwa głosowanie",
+  "brain.spaceChip.network.vote": "Wymagany Twój głos",
   "brain.reindex.stale": "Osadzania są przestarzałe — model osadzania uległ zmianie i to miejsce wymaga ponownego indeksowania.",
   "brain.reindex.button": "Zindeksuj teraz ponownie",
   "brain.tab.query": "Zapytanie",

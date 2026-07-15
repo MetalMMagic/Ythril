@@ -286,7 +286,7 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     ...(indexStatus ? { indexStatus } : {}),
     ...(proxyFor ? { proxyFor } : {}),
     // Network membership + status for the Brain space-chip indicator (F8).
-    ...(spaceNetworkInfo(cfg.networks, id, isNetworkSyncing) ?? {}),
+    ...(spaceNetworkInfo(cfg.networks, id, isNetworkSyncing, cfg.instanceId) ?? {}),
     ...(meta ? { meta: { ...meta, previousVersions: undefined } } : {}),
     ...(dupeRules ? { dupeRules } : {}),
     ...(dupeMergeSurvivor ? { dupeMergeSurvivor } : {}),

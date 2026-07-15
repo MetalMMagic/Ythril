@@ -1660,6 +1660,39 @@ describe('Brain — POST /spaces/:spaceId/query', () => {
     assert.ok(!('embedding' in r.body.results[0]), 'embedding field must be excluded from results');
   });
 
+  it('projection include-mode returns only the named fields (+ _id, never embedding)', async () => {
+    // S8.2: exercise the real projection path end-to-end (only mergeEmbeddingExclusion
+    // was unit-tested before). Include-mode {fact:1} → fact present, tags/createdAt absent.
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { _id: seededId },
+      projection: { fact: 1 },
+      limit: 1,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(r.body.results.length > 0, 'expected the seeded memory');
+    const doc = r.body.results[0];
+    assert.ok('fact' in doc, 'included field "fact" must be present');
+    assert.equal(doc._id, seededId, '_id is included by default in include-mode');
+    assert.ok(!('tags' in doc), 'non-included field "tags" must be absent under include projection');
+    assert.ok(!('createdAt' in doc), 'non-included field "createdAt" must be absent under include projection');
+    assert.ok(!('embedding' in doc), 'embedding must never be returned');
+  });
+
+  it('projection exclude-mode drops the named field but keeps the rest (never embedding)', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
+      collection: 'memories',
+      filter: { _id: seededId },
+      projection: { tags: 0 },
+      limit: 1,
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const doc = r.body.results[0];
+    assert.ok(!('tags' in doc), 'excluded field "tags" must be absent under exclude projection');
+    assert.ok('fact' in doc, 'non-excluded field "fact" must remain');
+    assert.ok(!('embedding' in doc), 'embedding must never be returned even in exclude-mode');
+  });
+
   it('Respects limit parameter', async () => {
     const r = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/query', {
       collection: 'memories',

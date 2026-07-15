@@ -273,6 +273,33 @@ describe('MCP brain tools — remember / recall / query', () => {
     }
   });
 
+  it('query projection include-mode returns only the named fields (S8.2)', async () => {
+    // Seed a memory with a distinctive fact + tags, then project just {fact:1}.
+    const seed = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories', {
+      fact: `mcp-projection-${Date.now()}`, tags: ['mcp-proj'],
+    });
+    assert.equal(seed.status, 201, JSON.stringify(seed.body));
+    const seededId = seed.body._id;
+    try {
+      const result = await session.callTool('query', {
+        space: 'general',
+        collection: 'memories',
+        filter: { _id: seededId },
+        projection: { fact: 1 },
+        limit: 1,
+      });
+      assert.ok(!result?.isError, `projection query returned isError: ${JSON.stringify(result)}`);
+      const parsed = JSON.parse(result?.content?.[0]?.text ?? '[]');
+      assert.ok(Array.isArray(parsed) && parsed.length > 0, 'expected the seeded memory');
+      const doc = parsed[0];
+      assert.ok('fact' in doc, 'included field "fact" must be present');
+      assert.ok(!('tags' in doc), 'non-included field "tags" must be absent under include projection');
+      assert.ok(!('embedding' in doc), 'embedding must never be exposed');
+    } finally {
+      await del(INSTANCES.a, tokenA, `/api/brain/spaces/general/memories/${seededId}`).catch(() => {});
+    }
+  });
+
   it('query with disallowed $where operator returns isError', async () => {
     const result = await session.callTool('query', {
       space: 'general',

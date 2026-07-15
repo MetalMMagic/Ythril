@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del } from '../sync/helpers.js';
+import { INSTANCES, post, get, del, patch } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -46,36 +46,51 @@ describe('Audit Log', () => {
     await del(INSTANCES.a, tokenA, `/api/tokens/${tokenId}`);
   });
 
-  it('Audit log returns entries after a write operation', async () => {
-    // Perform a memory create
+  it('Audit log records THIS specific write, not just "some entry exists"', async () => {
+    // A bare `entries.length > 0` passes on stale rows from a warm DB. Correlate
+    // to the exact operation: a memory.update carries entryId === the memory _id
+    // (entryGroup on the route), so we can prove THIS op was logged (S8.7).
+    const beforeTs = new Date().toISOString();
+
     const memR = await post(INSTANCES.a, tokenA, '/api/brain/spaces/general/memories', {
       fact: 'Audit test fact ' + Date.now(),
       tags: ['audit-test'],
     });
     assert.equal(memR.status, 201, 'Memory creation should succeed');
+    const memId = memR.body._id;
 
-    // Give the async audit write a moment to flush
-    await new Promise(r => setTimeout(r, 500));
+    const patchR = await patch(INSTANCES.a, tokenA, `/api/brain/spaces/general/memories/${memId}`, {
+      description: 'audited update',
+    });
+    assert.equal(patchR.status, 200, `update should succeed: ${JSON.stringify(patchR.body)}`);
 
-    // Query the audit log for memory.create operations
-    const r = await get(INSTANCES.a, tokenA, '/api/admin/audit-log?operation=memory.create&limit=5');
-    assert.equal(r.status, 200);
-    assert.ok(Array.isArray(r.body.entries), 'entries should be an array');
-    assert.ok(r.body.entries.length > 0, 'Should have at least one entry');
-    assert.ok(typeof r.body.total === 'number', 'total should be a number');
-    assert.ok(typeof r.body.hasMore === 'boolean', 'hasMore should be a boolean');
+    // Poll for the update entry correlated by entryId.
+    let updateEntry;
+    for (let i = 0; i < 20 && !updateEntry; i++) {
+      await new Promise(r => setTimeout(r, 300));
+      const r = await get(INSTANCES.a, tokenA, `/api/admin/audit-log?operation=memory.update&spaceId=general&after=${encodeURIComponent(beforeTs)}&limit=50`);
+      assert.equal(r.status, 200);
+      updateEntry = r.body.entries.find(e => e.entryId === memId);
+    }
+    assert.ok(updateEntry, `no memory.update audit entry with entryId === ${memId} — this op was not logged`);
+    assert.equal(updateEntry.method, 'PATCH', 'update entry records the PATCH method');
+    assert.equal(updateEntry.status, 200, 'update entry records the 200 result');
+    assert.ok(updateEntry.tokenId || updateEntry.oidcSubject, 'entry attributes the caller');
 
-    const entry = r.body.entries[0];
-    assert.equal(entry.operation, 'memory.create');
-    assert.equal(entry.method, 'POST');
-    assert.ok(entry.timestamp, 'Entry should have a timestamp');
-    assert.ok(entry.ip, 'Entry should have an IP');
-    assert.ok(entry.tokenId || entry.oidcSubject, 'Entry should have tokenId or oidcSubject');
+    // The create is also logged in this window (create rows carry no entryId, so
+    // correlate by operation + status + the after-timestamp window, not by id).
+    const createLog = await get(INSTANCES.a, tokenA, `/api/admin/audit-log?operation=memory.create&spaceId=general&after=${encodeURIComponent(beforeTs)}&limit=50`);
+    assert.equal(createLog.status, 200);
+    assert.ok(typeof createLog.body.total === 'number', 'total should be a number');
+    assert.ok(typeof createLog.body.hasMore === 'boolean', 'hasMore should be a boolean');
+    const createEntry = createLog.body.entries.find(e => e.operation === 'memory.create' && e.status === 201 && e.method === 'POST');
+    assert.ok(createEntry, 'a memory.create entry from THIS test window must exist (status 201, after our timestamp)');
   });
 
   it('Audit log filters by spaceId', async () => {
     const r = await get(INSTANCES.a, tokenA, '/api/admin/audit-log?spaceId=general&limit=5');
     assert.equal(r.status, 200);
+    assert.ok(r.body.entries.length > 0, 'spaceId filter must return at least one entry (else the loop below is vacuous)');
     for (const entry of r.body.entries) {
       assert.equal(entry.spaceId, 'general', 'All entries should be for the general space');
     }
@@ -159,6 +174,7 @@ describe('Audit Log', () => {
   it('Audit log does not expose sensitive data', async () => {
     const r = await get(INSTANCES.a, tokenA, '/api/admin/audit-log?limit=20');
     assert.equal(r.status, 200);
+    assert.ok(r.body.entries.length > 0, 'must have entries to scan (else this check is vacuous)');
 
     for (const e of r.body.entries) {
       // No entry should contain a token secret / hash

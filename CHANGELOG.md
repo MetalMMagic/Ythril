@@ -631,6 +631,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Test hardening: seven more test groups gain real coverage and specificity (S8, part 2).**
+  Continuing the "what would still pass if the mechanism were removed?" method. **(S8.2)** the
+  `projection` recall option was only unit-tested via `mergeEmbeddingExclusion`; REST `/query` and
+  the MCP `query` tool now assert include-mode (`{fact:1}` → only that field, `_id`, never
+  `embedding`) and exclude-mode (`{tags:0}`) against real returned docs. **(S8.4)** `webhooks.test.js`
+  re-implemented the dispatcher's event set, URL/secret validation, HMAC, and subscription-matching
+  and asserted against the copies; it now imports the real `ALL_WEBHOOK_EVENTS` from the compiled
+  build (which immediately caught three event types the stale copy was missing), and a new
+  `testing/integration/webhooks.test.js` drives the compiled admin API + dispatcher end-to-end —
+  https/SSRF/secret/event validation, and real match→sign→deliver→log via `getMatchingWebhooks` and
+  the delivery log (true HTTP receipt stays out of reach because delivery is SSRF-guarded). **(S8.9)**
+  `schema-validation.test.js` re-implemented `sanitizeFilter`; the `$options` cases now run the real
+  compiled sanitizer via `queryBrain` (in `query-regex-redos.test.js`), and the copy is deleted.
+  **(S8.10)** `space-op-recovery.test.js` verified an interrupted rename via the memories collection
+  only; it now seeds an entity, edge, and chrono too and asserts each survives under the new id — a
+  reconcile that dropped any collection would now fail. **(S8.11)** the file-conversion `inputFormat`
+  tests never observed the parameter; they now count chunk records (`?includeChunks=true`) and assert
+  `inputFormat:'text'` produces **0** chunks while md/html conversion produces **≥1 / ≥2**. **(S8.7)**
+  `audit.test.js` asserted entries merely exist (passes on stale rows from a warm DB); it now
+  correlates a `memory.update` by `entryId === the memory _id` within an `after`-timestamp window,
+  and guards the previously vacuous-if-empty loops. **(S8.8)** the path-traversal tests accepted
+  `400 OR 404` (proving only "no content served"); DELETE and PATCH now assert **exactly 400** with
+  positive controls (a valid-but-absent path → 404, a real file → 200/served) proving the sandbox
+  engaged, and the GET path documents why it intentionally returns 404. Test-only; no runtime code
+  touched.
+
 - **Test hardening: five test groups that would pass with their mechanism removed now assert the
   real effect (S8, part 1).** Applying the "what would still pass if the mechanism were removed?"
   method: **(1)** the three untested rate limiters get real 429 burst tests on instance C —

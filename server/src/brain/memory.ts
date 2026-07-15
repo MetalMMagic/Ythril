@@ -46,7 +46,7 @@ export function validateFilterExpression(filter: FilterExpression): string | nul
       prefix => key === prefix || key.startsWith(prefix + '.') || (prefix.endsWith('.') && key.startsWith(prefix)),
     );
     if (!allowed) {
-      return `Filter key '${key}' is not allowed. Keys must start with: properties., tags, type, or name.`;
+      return `Filter key '${key}' is not allowed. Keys must start with: properties., tags, type, name, status, or label.`;
     }
   }
   return null;

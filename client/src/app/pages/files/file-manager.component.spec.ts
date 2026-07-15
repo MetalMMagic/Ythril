@@ -10,10 +10,10 @@
  * harness can see a stale OnPush view, so a passing assertion here means a real refresh occurred.
  */
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, beforeEach } from 'vitest';
-import { of } from 'rxjs';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { of, Observable, Subject } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
-import { ApiService, type FileEntry } from '../../core/api.service';
+import { ApiService, type FileEntry, type UploadProgress } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { FileManagerComponent } from './file-manager.component';
@@ -106,5 +106,133 @@ describe('FileManagerComponent (OnPush)', () => {
 
     expect(body()).toContain('second.md');
     expect(body()).not.toContain('first.md');
+  });
+});
+
+// ── Upload queue (U12) ────────────────────────────────────────────────────────
+
+/** Build an api whose uploadFileChunked hands back a controllable Subject per call. */
+function makeUploadApi() {
+  const streams: Subject<UploadProgress>[] = [];
+  const calls: { file: File }[] = [];
+  const uploadFileChunked = vi.fn((_s: string, _p: string, file: File): Observable<UploadProgress> => {
+    const subj = new Subject<UploadProgress>();
+    streams.push(subj);
+    calls.push({ file });
+    return subj.asObservable();
+  });
+  const api = {
+    listSpaces: () => of({ spaces: [] }),
+    listFiles: () => of({ entries: [] }),
+    getFileDownloadUrl: (s: string, p: string) => `/api/files/${s}${p}`,
+    uploadFileChunked,
+  } as unknown as ApiService;
+  return { api, streams, calls, uploadFileChunked };
+}
+
+function fakeFileList(names: string[]): FileList {
+  const files = names.map(n => new File(['x'], n));
+  return { ...files, length: files.length, item: (i: number) => files[i] } as unknown as FileList;
+}
+
+describe('FileManagerComponent — upload queue (U12)', () => {
+  let mock: ReturnType<typeof makeUploadApi>;
+
+  function create() {
+    mock = makeUploadApi();
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: ApiService, useValue: mock.api },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.componentRef.setInput('embeddedSpaceId', 'work');
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const rows = (fx: { nativeElement: HTMLElement }) =>
+    Array.from(fx.nativeElement.querySelectorAll('.upload-row'));
+
+  it('shows one row per file and uploads them one at a time', () => {
+    const fx = create();
+    const comp = fx.componentInstance;
+    (comp as any).enqueueUploads(fakeFileList(['a.txt', 'b.txt']));
+    fx.detectChanges();
+
+    // Two rows; only the first upload has started (serialised queue).
+    expect(rows(fx).length).toBe(2);
+    expect(mock.uploadFileChunked).toHaveBeenCalledTimes(1);
+    expect(comp.uploads()[0].status).toBe('uploading');
+    expect(comp.uploads()[1].status).toBe('queued');
+
+    // Finish the first → second starts.
+    mock.streams[0].next({ percent: 100, done: true });
+    mock.streams[0].complete();
+    fx.detectChanges();
+    expect(comp.uploads()[0].status).toBe('done');
+    expect(mock.uploadFileChunked).toHaveBeenCalledTimes(2);
+    expect(comp.uploads()[1].status).toBe('uploading');
+
+    mock.streams[1].next({ percent: 100, done: true });
+    mock.streams[1].complete();
+    fx.detectChanges();
+    expect(comp.uploads()[1].status).toBe('done');
+  });
+
+  it('marks a failed upload and re-queues it on retry', () => {
+    const fx = create();
+    const comp = fx.componentInstance;
+    (comp as any).enqueueUploads(fakeFileList(['a.txt']));
+    fx.detectChanges();
+
+    mock.streams[0].error({ error: { error: 'disk full' } });
+    fx.detectChanges();
+    expect(comp.uploads()[0].status).toBe('failed');
+    expect(comp.uploads()[0].error).toBe('disk full');
+    // A Retry button is offered (test transloco renders the raw key).
+    expect(fx.nativeElement.textContent).toContain('common.retry');
+
+    comp.retryUpload(comp.uploads()[0]);
+    fx.detectChanges();
+    expect(comp.uploads()[0].status).toBe('uploading');
+    expect(mock.uploadFileChunked).toHaveBeenCalledTimes(2);
+  });
+
+  it('cancel drops the row and advances the queue (abort is covered in the api.service spec)', () => {
+    const fx = create();
+    const comp = fx.componentInstance;
+    (comp as any).enqueueUploads(fakeFileList(['a.txt', 'b.txt']));
+    fx.detectChanges();
+
+    comp.cancelUpload(comp.uploads()[0]);
+    fx.detectChanges();
+
+    // Row a.txt is gone; b.txt takes over.
+    expect(comp.uploads().length).toBe(1);
+    expect(comp.uploads()[0].name).toBe('b.txt');
+    expect(comp.uploads()[0].status).toBe('uploading');
+    expect(mock.uploadFileChunked).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears finished rows but keeps active/queued ones', () => {
+    const fx = create();
+    const comp = fx.componentInstance;
+    (comp as any).enqueueUploads(fakeFileList(['a.txt', 'b.txt']));
+    // Finish the first.
+    mock.streams[0].next({ percent: 100, done: true });
+    mock.streams[0].complete();
+    fx.detectChanges();
+
+    expect(comp.hasFinishedUploads()).toBe(true);
+    comp.clearFinishedUploads();
+    fx.detectChanges();
+    // Only the still-uploading b.txt remains.
+    expect(comp.uploads().map(u => u.name)).toEqual(['b.txt']);
   });
 });

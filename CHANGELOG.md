@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-file upload progress with retry and cancel (UX U12).** The file manager showed a single
+  aggregate progress bar for a multi-file upload, and if any file failed the whole batch stopped
+  behind one generic "Upload failed" — you couldn't tell which file, retry just the failed one, or
+  cancel a slow upload. Uploads now render as a **per-file queue**: one row each showing
+  queued / uploading (with its own percent bar) / done / failed (with the server's reason). A failed
+  row offers **Retry** (re-queues just that file); a queued or in-flight row offers **Cancel** that
+  aborts the in-flight chunk request; finished rows can be dismissed or cleared in bulk. Under the
+  hood `uploadFileChunked` is now a **cold** observable — no work runs and no progress event is
+  emitted until subscription, so a late subscriber can never miss the initial 0% (the old hot Subject
+  started uploading before it returned), and unsubscribing tears the upload down by flipping a cancel
+  flag and aborting the in-flight request. Covered by new `api.service.upload.spec.ts` (cold + cancel)
+  and file-manager queue tests, and verified end-to-end (two files → per-file rows → both reach Done →
+  files appear in the listing → clear-finished empties the panel).
+
 - **Closed the remaining i18n leaks so a language switch translates the whole UI (UX U7 · AUDIT C7).**
   A handful of strings bypassed `@jsverse/transloco` and stayed English in German/Polish: the **Models**
   sidebar nav item, the Models page **Save** button, the schema-import **Cancel** button, and — most

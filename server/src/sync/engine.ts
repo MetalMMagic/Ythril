@@ -158,6 +158,33 @@ function _setFailureCount(networkId: string, instanceId: string, value: number |
   return newValue;
 }
 
+// ── Vote-round retention ────────────────────────────────────────────────────
+
+/** A round is prunable once it is concluded AND past its deadline. After the deadline
+ *  every peer concludes the round independently (the deadline path in
+ *  `concludeRoundIfReady`), so such a round can no longer influence any decision and
+ *  never needs re-serving or re-propagating. A malformed/unparseable deadline yields
+ *  `NaN`, and `NaN < now` is false, so we keep the round rather than prune on doubt. */
+export function isRoundPrunable(
+  round: { concluded?: boolean; deadline: string },
+  now: number = Date.now(),
+): boolean {
+  return Boolean(round.concluded) && new Date(round.deadline).getTime() < now;
+}
+
+/** Drop concluded-and-expired rounds from a network's `pendingRounds` in place.
+ *  `concludeRoundIfReady` marks a round `concluded` but never removes it, so without
+ *  this `pendingRounds` grows for the life of the network — bloating `config.json`, the
+ *  `GET /votes` scan, and gossip payloads. Returns the number of rounds removed. */
+export function pruneExpiredRounds(net: NetworkConfig, now: number = Date.now()): number {
+  const rounds = net.pendingRounds;
+  if (!rounds || rounds.length === 0) return 0;
+  const kept = rounds.filter(r => !isRoundPrunable(r, now));
+  const removed = rounds.length - kept.length;
+  if (removed > 0) net.pendingRounds = kept;
+  return removed;
+}
+
 // ── Per-network sync dedup lock ─────────────────────────────────────────────
 // Prevents concurrent sync cycles for the same network from competing for
 // bcrypt cache, MongoDB connections, and peer HTTP sockets.  When a trigger
@@ -315,6 +342,23 @@ async function _runSyncForNetworkImpl(networkId: string): Promise<{ synced: numb
           changed = true;
         }
         if (changed) saveConfig(freshCfg);
+      }
+    }
+  }
+
+  // ── Prune expired vote rounds ───────────────────────────────────────────
+  // Concluded rounds are never removed by the governance code (concludeRoundIfReady
+  // only flips `concluded`), so pendingRounds would otherwise grow for the life of the
+  // network. Once a round is concluded AND past its deadline it can influence nothing
+  // and needs no further propagation, so drop it here, once per cycle.
+  {
+    const freshCfg = getConfig();
+    const freshNet = freshCfg.networks.find(n => n.id === networkId);
+    if (freshNet) {
+      const removed = pruneExpiredRounds(freshNet);
+      if (removed > 0) {
+        log.info(`Pruned ${removed} concluded+expired vote round(s) from network '${freshNet.label}'`);
+        saveConfig(freshCfg);
       }
     }
   }
@@ -793,9 +837,7 @@ async function propagateVotesWithPeer(
     const cfg = getConfig();
     const localNet = cfg.networks.find(n => n.id === net.id);
     const now = Date.now();
-    const roundsToPush = (localNet?.pendingRounds ?? []).filter(
-      r => !(r.concluded && new Date(r.deadline).getTime() < now),
-    );
+    const roundsToPush = (localNet?.pendingRounds ?? []).filter(r => !isRoundPrunable(r, now));
     for (const round of roundsToPush) {
       for (const cast of round.votes) {
         await peerSafeFetch(`${base}/votes/${encodeURIComponent(round.roundId)}`, {

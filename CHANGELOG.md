@@ -99,6 +99,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Concluded vote rounds are now pruned, so `pendingRounds` no longer grows for the life of a
+  network (P14).** `concludeRoundIfReady` marks a round `concluded` but never removed it, so every
+  governance vote a network ever held accumulated forever in `config.json` — bloating the file, the
+  `GET /votes` scan, and gossip payloads, and (before #200) the per-cycle vote push. The sync engine
+  now drops rounds that are concluded **and** past their deadline, once per cycle: after the deadline
+  every peer concludes such a round independently, so it can influence nothing and needs no further
+  propagation. Within-deadline concluded rounds and open rounds are always kept (a concluding cast may
+  still need to reach peers; open rounds are live governance). Completes the scaling fix started in
+  #200. Covered by `testing/standalone/vote-round-prune.test.js` (retention rule) and
+  `testing/sync/vote-round-prune-sync.test.js` (pruned end-to-end during a real sync cycle).
+
 - **The client is fully zoneless (P13) — `zone.js` is gone.** The endgame of the P5 `OnPush` pass:
   the app now bootstraps with `provideZonelessChangeDetection()` and the `zone.js` polyfill is removed
   from the build (and from `dependencies`). Until now every timer, XHR, and DOM event anywhere in the

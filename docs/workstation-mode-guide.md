@@ -20,7 +20,7 @@ Recommended host minimums:
 
 - CPU: 2 cores
 - RAM: 6 GB (4 GB for Ythril + Mongo, ~2 GB for the bundled media-embedding stack)
-- Disk: at least 12 GB free (includes ~2 GB for the `moondream2` vision model and the Whisper `base` model)
+- Disk: at least 12 GB free (includes ~2 GB for the `moondream` vision model and the Whisper `base` model)
 
 > **Slimmer install:** Ythril ships with bundled image and audio/video understanding
 > services so attachments become searchable automatically. If your machine is tight

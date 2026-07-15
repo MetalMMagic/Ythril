@@ -1846,7 +1846,7 @@ All media ultimately produces text that passes through the same `nomic-embed-tex
 Use **Settings → Models** in the web UI, or `PATCH /api/admin/media-config`, or set `MEDIA_EMBEDDING_ENABLED=false` in Ythril's environment to turn the pipeline off.
 
 Required services (bundled by default; override only when you point at external providers):
-- **Ollama** (image captioning): `OLLAMA_URL=http://ollama:11434` — deploy any vision-capable model (default: `moondream2`).
+- **Ollama** (image captioning): `OLLAMA_URL=http://ollama:11434` — deploy any vision-capable model (default: `moondream`).
 - **faster-whisper-server** (audio/video STT): `WHISPER_URL=http://whisper:8000` — set model via `WHISPER_MODEL` (default: `base`).
 
 Kubernetes manifests are provided in `kubernetes/manifests/ollama-deploy.yaml` and `kubernetes/manifests/whisper-deploy.yaml`. Dual `NetworkPolicy` + `CiliumNetworkPolicy` resources are in `media-netpol.yaml` and `media-cilium-netpol.yaml`.
@@ -1921,7 +1921,7 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 | `visionProvider` | `VISION_PROVIDER` | `local` | `local` (Ollama) or `external` (OpenAI-compatible) |
 | `sttProvider` | `STT_PROVIDER` | `local` | `local` (Whisper) or `external` (OpenAI-compatible) |
 | `vision.baseUrl` | `OLLAMA_URL` | `http://ollama:11434` | Vision service endpoint (short name resolves in both Docker Compose and the K8s `ythril` namespace) |
-| `vision.model` | `VISION_MODEL` | `moondream2` | Vision model name |
+| `vision.model` | `VISION_MODEL` | `moondream` | Vision model name |
 | `vision.apiKey` | `VISION_API_KEY` | — | API key for external vision provider (stored in `secrets.json`, never in `config.json`) |
 | `stt.baseUrl` | `WHISPER_URL` | `http://whisper:8000` | STT service endpoint |
 | `stt.model` | `WHISPER_MODEL` | `base` | Whisper model size/name |

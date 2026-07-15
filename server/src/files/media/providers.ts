@@ -93,7 +93,7 @@ export class OllamaVisionProvider implements VisionProvider {
 
   async caption(imageBytes: Buffer, _mimeType: string): Promise<string> {
     const base = (this.cfg.baseUrl ?? 'http://ollama.ythril.svc.cluster.local:11434').replace(/\/$/, '');
-    const model = this.cfg.model ?? 'moondream2';
+    const model = this.cfg.model ?? 'moondream';  // `moondream2` is not a valid Ollama registry name
     const url = `${base}/api/chat`;
     const b64 = imageBytes.toString('base64');
 

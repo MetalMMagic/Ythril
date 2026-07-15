@@ -95,6 +95,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Bundled image captioning never worked out of the box — the default vision model name was
+  invalid.** The default was `moondream2`, which is **not** a name in the Ollama registry (`moondream`
+  is), so the Compose auto-pull (`ollama pull moondream2 || echo WARN`) silently failed and every
+  caption request came back `HTTP 404 model 'moondream2' not found` → the image's `embeddingStatus`
+  flipped to `failed`. Corrected the name to `moondream` everywhere (the config default and provider
+  fallback, the Compose and Kubernetes pull commands, the Settings → Models placeholder, and the
+  docs), and — so existing installs self-heal without a manual config edit — the config loader now
+  **normalizes** a saved/env `moondream2` to `moondream` at load time. Covered by media-config unit
+  tests (default is `moondream`; a saved or env `moondream2` heals to `moondream`).
+  *Existing deployments: restart the `ollama` container (or run `docker exec ythril-ollama ollama pull
+  moondream`) so the model is actually present.*
+
 - **docker-compose now matches what the docs promise (AUDIT C2 + C4).** Two `docker compose up`
   gaps: (1) the `unstructured-api-full` document-conversion sidecar existed only in the Kubernetes
   manifests, so on Compose `CONVERSION_SIDECAR_URL` pointed at nothing and every PDF/DOCX/EPUB upload

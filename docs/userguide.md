@@ -503,13 +503,13 @@ Click **Leave network** at the bottom of the network card. Your local data in th
 
 **Settings → Models** (admin only, MFA-protected) controls how Ythril turns image, audio, video, and document uploads into searchable content.
 
-By default, Ythril ships with a bundled vision service (Ollama running `moondream2`) and a bundled speech-to-text service (faster-whisper-server). When you upload a picture, Ythril writes a short caption of what's in it; when you upload audio or video, it transcribes the words. The result is added to the same search index as your memories, so you can find an attachment by what's *inside* it, not just its filename.
+By default, Ythril ships with a bundled vision service (Ollama running `moondream`) and a bundled speech-to-text service (faster-whisper-server). When you upload a picture, Ythril writes a short caption of what's in it; when you upload audio or video, it transcribes the words. The result is added to the same search index as your memories, so you can find an attachment by what's *inside* it, not just its filename.
 
 ### When to change this
 
 - **Disable it.** Untick **Enable media embedding** if you don't upload media or your machine is tight on memory. Existing files keep their captions; new uploads are stored as-is.
 - **Use an external provider.** Switch **Vision provider** or **STT provider** to *External* if you'd rather call OpenAI, Azure, or any other OpenAI-compatible service. Fill in the **Base URL**, **Model**, and **API key** for that provider. API keys are stored in the encrypted secrets file, never alongside the rest of the configuration.
-- **Use a different local model.** Keep the provider on *Local* but change the **Model** field — for example, switch the vision model from `moondream2` to `llava` if you've pulled it into Ollama.
+- **Use a different local model.** Keep the provider on *Local* but change the **Model** field — for example, switch the vision model from `moondream` to `llava` if you've pulled it into Ollama.
 
 ### Locked fields
 

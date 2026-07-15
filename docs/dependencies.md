@@ -202,7 +202,7 @@ Legal principle that runtime infrastructure must be listed with its licensing im
 
 | Image | Role | License |
 |---|---|---|
-| `ollama/ollama` | Vision model host — captions uploaded images (default `moondream2`) for the media pipeline. | MIT (the Ollama runtime). Models are pulled separately; the default `moondream2` is Apache 2.0. |
+| `ollama/ollama` | Vision model host — captions uploaded images (default `moondream`) for the media pipeline. | MIT (the Ollama runtime). Models are pulled separately; the default `moondream` is Apache 2.0. |
 | `fedirz/faster-whisper-server` | Speech-to-text — transcribes uploaded/segmented audio via an OpenAI-compatible endpoint. | MIT (the server). Whisper models are pulled separately and are Apache 2.0. |
 | `unstructured-io/unstructured-api-full` | Server-side PDF / DOCX / EPUB conversion (`hi_res` OCR + layout detection, table and embedded-image extraction). | Apache 2.0. |
 

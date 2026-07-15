@@ -3,11 +3,12 @@
 # Provides the Ollama API (POST /api/chat with image payload) used by
 # OllamaVisionProvider in server/src/files/media/providers.ts.
 #
-# Default model: moondream2 (Apache 2.0 — no commercial-use restrictions).
+# Default model: moondream (moondream2, Apache 2.0 — no commercial-use restrictions).
+# NOTE: the Ollama registry name is `moondream`, NOT `moondream2` (the latter 404s).
 # Pull the model into the PVC before enabling media embedding:
-#   kubectl exec -n ythril deploy/ollama -- ollama pull moondream2
+#   kubectl exec -n ythril deploy/ollama -- ollama pull moondream
 #
-# LICENCE NOTE: Ollama itself is MIT. moondream2 is Apache 2.0.
+# LICENCE NOTE: Ollama itself is MIT. moondream is Apache 2.0.
 # Before switching to a different model, verify its licence.
 #
 # RESOURCE NOTE: GPU is optional — CPU inference works but is slower.

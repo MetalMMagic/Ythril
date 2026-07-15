@@ -28,7 +28,7 @@ Uploaded PDF, DOCX, and EPUB files are automatically converted to text by the bu
 
 ### Image, Audio & Video Understanding
 
-Upload binary media and Ythril makes it searchable like everything else. Images are captioned with a vision model (default `moondream2` via Ollama), audio is silence-segmented and transcribed with Whisper, and video is decomposed into keyframes plus audio chunks. Every result lands in the **same** `nomic-embed-text-v1.5` vector space as memories, entities, and documents — so a single semantic query crosses text, speech, and pictures. Bundled out of the box on both Docker Compose and Kubernetes; toggle in **Settings → Models** if you'd rather plug in OpenAI, Azure, or your own endpoints.
+Upload binary media and Ythril makes it searchable like everything else. Images are captioned with a vision model (default `moondream` via Ollama), audio is silence-segmented and transcribed with Whisper, and video is decomposed into keyframes plus audio chunks. Every result lands in the **same** `nomic-embed-text-v1.5` vector space as memories, entities, and documents — so a single semantic query crosses text, speech, and pictures. Bundled out of the box on both Docker Compose and Kubernetes; toggle in **Settings → Models** if you'd rather plug in OpenAI, Azure, or your own endpoints.
 
 ### Face Recognition
 

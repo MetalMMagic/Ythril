@@ -95,6 +95,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Image/PDF previews and file downloads were broken (blank pane / failed download).** They loaded
+  the file via a browser-native `<img src>` / `<iframe src>` / `<a href download>`, none of which can
+  send the `Authorization` header — and the client papered over that by appending `?…&token=` to the
+  URL, a fallback that was **scoped to the two SSE endpoints only** in the auth-surface hardening
+  (query-token scope, #134). So every image/PDF preview and every download hit the file endpoint with
+  no valid auth → **401 → blank preview / failed download** (text previews survived because they
+  already used `fetch` with the header). Previews and downloads now `fetch` the file **with the token
+  in the header** and hand the view a same-origin `blob:` object URL (revoked on close), so the token
+  never rides in the URL (keeping #134's intent) and a failed preview shows a reason instead of a blank
+  pane. Covered by a regression test (download sends `Authorization`, never `token=` in the URL) and
+  verified end-to-end (an uploaded PNG previews from a `blob:` URL with a 200 authenticated GET).
+
 - **Bundled image captioning never worked out of the box — the default vision model name was
   invalid.** The default was `moondream2`, which is **not** a name in the Ollama registry (`moondream`
   is), so the Compose auto-pull (`ollama pull moondream2 || echo WARN`) silently failed and every

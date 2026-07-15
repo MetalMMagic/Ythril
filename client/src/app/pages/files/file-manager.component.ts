@@ -506,12 +506,12 @@ function previewKind(name: string): PreviewKind {
                     <td style="display:flex; gap:6px; align-items:center;">
                       @if (entry.isFile) {
                         <button class="btn-ghost btn btn-sm" (click)="openPreview(entry)" [attr.aria-label]="'files.previewAriaLabel' | transloco" [attr.title]="'files.previewTitle' | transloco"><ph-icon name="eye" [size]="16"/></button>
-                        <a
+                        <button
+                          type="button"
                           class="btn-ghost btn btn-sm"
-                          [href]="downloadUrl(entry)"
-                          download
+                          (click)="downloadFile(entry)"
                           [attr.aria-label]="'files.downloadAriaLabel' | transloco"
-                        ><ph-icon name="download-simple" [size]="16"/></a>
+                        ><ph-icon name="download-simple" [size]="16"/></button>
                       }
                       <button class="btn-ghost btn btn-sm" (click)="startRename(entry)">{{ 'files.rename' | transloco }}</button>
                       <button class="icon-btn danger" (click)="deleteEntry(entry)" [attr.aria-label]="'files.deleteEntryAriaLabel' | transloco"><ph-icon name="x" [size]="16"/></button>
@@ -565,20 +565,21 @@ function previewKind(name: string): PreviewKind {
         <div class="preview-pane" (click)="$event.stopPropagation()">
           <div class="preview-header">
             <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
-            <a class="btn-secondary btn btn-sm" [href]="downloadUrl(pf)" download style="display:inline-flex;align-items:center;gap:4px"><ph-icon name="download-simple" [size]="14"/> {{ 'files.download' | transloco }}</a>
+            <button type="button" class="btn-secondary btn btn-sm" (click)="downloadFile(pf)" style="display:inline-flex;align-items:center;gap:4px"><ph-icon name="download-simple" [size]="14"/> {{ 'files.download' | transloco }}</button>
             @if (embeddedSpaceId) {
               <button class="btn btn-sm btn-secondary" [attr.title]="'files.viewMetadataTitle' | transloco" (click)="viewFileMeta.emit(previewFilePath(pf))" style="display:inline-flex;align-items:center;gap:4px"><ph-icon name="tag" [size]="14"/> {{ 'files.viewMetadata' | transloco }}</button>
             }
             <button class="icon-btn" (click)="closePreview()" [attr.aria-label]="'files.closePreviewAriaLabel' | transloco"><ph-icon name="x" [size]="16"/></button>
           </div>
           <div class="preview-body">
+            @if (previewLoading()) {
+              <div class="loading-overlay"><span class="spinner"></span></div>
+            } @else if (previewError() !== null) {
+              <div class="alert alert-error" role="alert">{{ 'files.preview.failed' | transloco }} {{ previewError() }}</div>
+            } @else {
             @switch (previewKind()) {
               @case ('text') {
-                @if (previewLoading()) {
-                  <div class="loading-overlay"><span class="spinner"></span></div>
-                } @else {
-                  <pre class="preview-code"><code [innerHTML]="previewHtml()"></code></pre>
-                }
+                <pre class="preview-code"><code [innerHTML]="previewHtml()"></code></pre>
               }
               @case ('image') {
                 <img [src]="previewMediaUrl()" [alt]="pf.name" />
@@ -593,6 +594,7 @@ function previewKind(name: string): PreviewKind {
                   <dt>{{ 'files.preview.modified' | transloco }}</dt><dd>{{ pf.modified | date:'dd.MM.yyyy HH:mm' }}</dd>
                 </dl>
               }
+            }
             }
           </div>
         </div>
@@ -661,6 +663,10 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   previewLoading = signal(false);
   previewMediaUrl = signal('');
   previewSafeUrl = signal<SafeResourceUrl>('');
+  /** Set when preview fetch fails (e.g. auth/404) so we show a reason, not a blank pane. */
+  previewError = signal<string | null>(null);
+  /** Blob object URL backing the current image/PDF preview; revoked on close/next. */
+  private _previewObjectUrl: string | null = null;
 
   // ── Tree sidebar state ───────────────────────────────────────────────────
   sidebarOpen = signal(localStorage.getItem('ythril.sidebar') !== 'closed');
@@ -912,11 +918,34 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     });
   }
 
-  downloadUrl(entry: FileEntry): string {
-    const path = this.join(this.currentPath(), entry.name);
-    const base = this.api.getFileDownloadUrl(this.activeSpaceId(), path);
+  /** The file GET URL (no token — auth goes in the fetch header, never the URL). */
+  private fileApiUrl(entry: FileEntry): string {
+    return this.api.getFileDownloadUrl(this.activeSpaceId(), this.join(this.currentPath(), entry.name));
+  }
+
+  /**
+   * Download a file. A plain `<a href download>` can't send the auth header, and
+   * the file endpoint no longer honours a `?token=` query param (#134), so fetch
+   * the bytes with the token and save them via a temporary blob URL.
+   */
+  async downloadFile(entry: FileEntry): Promise<void> {
     const token = this.auth.token();
-    return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    try {
+      const res = await fetch(this.fileApiUrl(entry), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const objUrl = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = objUrl;
+      a.download = entry.name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 10_000);
+    } catch (e) {
+      this.toast.error(`${this.transloco.translate('files.downloadFailed')} ${httpErrorReason(e)}`.trim());
+    }
   }
 
   /** Returns the space-relative path for a preview entry (used for brain metadata links). */
@@ -1011,39 +1040,59 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.previewFile.set(entry);
     this.previewKind.set(kind);
     this.previewHtml.set('');
+    this.previewError.set(null);
+    this.revokePreviewUrl();
     this.previewMediaUrl.set('');
     this.previewSafeUrl.set('');
 
-    const url = this.downloadUrl(entry);
+    // Every preview fetch must carry the auth header — the file endpoint requires it,
+    // and a browser-native <img src>/<iframe src> can't send one (that regressed image
+    // and PDF previews when the ?token= fallback was scoped to SSE-only, #134). So we
+    // fetch with the token and hand the view a same-origin blob: object URL instead.
+    const url = this.fileApiUrl(entry);
+    const token = this.auth.token();
+    const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
     if (kind === 'text') {
       this.previewLoading.set(true);
-      const token = this.auth.token();
-      const fetchHeaders: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
-      fetch(url, { headers: fetchHeaders }).then(r => r.text()).then(text => {
-        const ext = extOf(entry.name);
-        const lang = EXT_LANG[ext];
-        let highlighted: string;
-        if (lang) {
-          highlighted = hljs.highlight(text, { language: lang }).value;
-        } else {
-          highlighted = hljs.highlight(text, { language: 'plaintext' }).value;
-        }
-        this.previewHtml.set(highlighted);
-        this.previewLoading.set(false);
-      }).catch(() => this.previewLoading.set(false));
-    } else if (kind === 'image') {
-      this.previewMediaUrl.set(url);
-    } else if (kind === 'pdf') {
-      this.previewSafeUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(url));
+      fetch(url, { headers })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
+        .then(text => {
+          const ext = extOf(entry.name);
+          const lang = EXT_LANG[ext] ?? 'plaintext';
+          this.previewHtml.set(hljs.highlight(text, { language: lang }).value);
+          this.previewLoading.set(false);
+        })
+        .catch((e) => { this.previewError.set(httpErrorReason(e)); this.previewLoading.set(false); });
+    } else if (kind === 'image' || kind === 'pdf') {
+      this.previewLoading.set(true);
+      fetch(url, { headers })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
+        .then(blob => {
+          const objUrl = URL.createObjectURL(blob);
+          this._previewObjectUrl = objUrl;
+          if (kind === 'image') this.previewMediaUrl.set(objUrl);
+          else this.previewSafeUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(objUrl));
+          this.previewLoading.set(false);
+        })
+        .catch((e) => { this.previewError.set(httpErrorReason(e)); this.previewLoading.set(false); });
     }
 
     document.addEventListener('keydown', this._keyHandler);
     setTimeout(() => this.previewOverlayRef()?.nativeElement?.focus());
   }
 
+  /** Revoke the current preview blob URL (if any) to avoid leaking object URLs. */
+  private revokePreviewUrl(): void {
+    if (this._previewObjectUrl) {
+      URL.revokeObjectURL(this._previewObjectUrl);
+      this._previewObjectUrl = null;
+    }
+  }
+
   closePreview(): void {
     this.previewFile.set(null);
+    this.revokePreviewUrl();
     document.removeEventListener('keydown', this._keyHandler);
   }
 
@@ -1070,6 +1119,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     document.removeEventListener('keydown', this._keyHandler);
+    this.revokePreviewUrl();
     // Abort any in-flight/queued uploads so their requests don't outlive the view.
     for (const sub of this.uploadSubs.values()) sub.unsubscribe();
     this.uploadSubs.clear();

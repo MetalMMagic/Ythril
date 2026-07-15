@@ -50,6 +50,10 @@ docs/docker-build-protocol.md
 # publish it before the fixes ship.)
 todo/
 
+# Local-only automation scaffolding — n8n auditor workflow drafts + prompts.
+# Not part of the shipped product; kept out of the repo by design.
+n8n/
+
 # Debug artifacts
 _diag_body*.json
 

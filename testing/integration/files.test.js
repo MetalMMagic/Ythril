@@ -774,20 +774,86 @@ describe('Media embedding — retry_embedding endpoint', () => {
     assert.equal(r.status, 401, `Expected 401 without auth, got ${r.status}`);
   });
 
-  it('retry_embedding requires write access (read-only token blocked)', async () => {
-    // Skip this test in environments where we can't create read-only tokens
-    // In full CI, read-only tokens can be obtained from the token management API
-    // For now: just verify the endpoint exists and responds
+  it('retry_embedding requires write access (read-only token → 403)', async () => {
+    const tokRes = await fetch(`${INSTANCES.a}/api/tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenA}` },
+      body: JSON.stringify({ name: `retry-readonly-${RUN}`, readOnly: true }),
+    });
+    assert.equal(tokRes.status, 201, 'read-only token creation failed');
+    const readOnlyToken = (await tokRes.json()).plaintext;
+
     const url = `${INSTANCES.a}/api/files/general/retry_embedding?path=test.png`;
     const r = await fetch(url, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${tokenA}` },
+      headers: { 'Authorization': `Bearer ${readOnlyToken}` },
     });
-    // 404 (no job) or 409 (already processing) are both valid — just not 404 from auth
-    assert.ok(
-      [404, 409, 202].includes(r.status),
-      `Expected 404/409/202, got ${r.status}`,
-    );
+    assert.equal(r.status, 403, `Read-only token must be blocked with 403, got ${r.status}`);
+  });
+
+  it('retry_embedding actually resets embeddingStatus to pending and the job re-runs', async () => {
+    // Dedicated space so the file listing is small and unpolluted.
+    const spaceId = `s8-retry-${RUN}`;
+    const createSpace = await fetch(`${INSTANCES.a}/api/spaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenA}` },
+      body: JSON.stringify({ id: spaceId, label: 'S8 Retry Effect' }),
+    });
+    assert.equal(createSpace.status, 201);
+
+    const filePath = `retry-effect-${RUN}.txt`;
+    const docStatus = async () => {
+      const r = await fetch(`${INSTANCES.a}/api/brain/spaces/${spaceId}/files?limit=200`, {
+        headers: { 'Authorization': `Bearer ${tokenA}` },
+      });
+      const body = await r.json().catch(() => ({}));
+      const meta = body.files?.find(f => (f.path ?? f._id ?? '').includes(filePath));
+      return meta?.embeddingStatus;
+    };
+    const waitForStatus = async (predicate, timeoutMs) => {
+      const start = Date.now();
+      let last;
+      while (Date.now() - start < timeoutMs) {
+        last = await docStatus();
+        if (predicate(last)) return last;
+        await new Promise(res => setTimeout(res, 1000));
+      }
+      return last;
+    };
+
+    try {
+      await uploadFile(tokenA, spaceId, filePath,
+        'Retry effect document with enough words to be chunked and embedded by the media worker.');
+
+      // Let the initial job settle so the retry starts from a terminal state.
+      const settled = await waitForStatus(s => s === 'complete' || s === 'failed', 60_000);
+      assert.ok(settled === 'complete' || settled === 'failed',
+        `initial embedding never settled (last status: ${settled})`);
+
+      const retry = await fetch(
+        `${INSTANCES.a}/api/files/${spaceId}/retry_embedding?path=${encodeURIComponent(filePath)}`,
+        { method: 'POST', headers: { 'Authorization': `Bearer ${tokenA}` } },
+      );
+      assert.equal(retry.status, 202, `retry should queue, got ${retry.status}`);
+
+      // The 202 alone is satisfied by a handler that queues nothing. The retry
+      // EFFECT is the status reset — observable as pending (or already claimed
+      // as processing) immediately after...
+      const flipped = await docStatus();
+      assert.ok(['pending', 'processing'].includes(flipped),
+        `embeddingStatus must flip to pending/processing after retry, got: ${flipped}`);
+
+      // ...and the requeued job must actually run back to a terminal state.
+      const final = await waitForStatus(s => s === 'complete' || s === 'failed', 60_000);
+      assert.ok(final === 'complete' || final === 'failed',
+        `retried job never re-ran to a terminal state (last status: ${final})`);
+    } finally {
+      await fetch(`${INSTANCES.a}/api/spaces/${spaceId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenA}` },
+        body: JSON.stringify({ confirm: true }),
+      }).catch(() => {});
+    }
   });
 });
 

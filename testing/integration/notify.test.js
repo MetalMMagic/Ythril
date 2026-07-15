@@ -16,7 +16,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del } from '../sync/helpers.js';
+import { INSTANCES, post, get, del, waitFor } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
@@ -70,13 +70,27 @@ describe('Notify channel', () => {
     assert.equal(r.status, 204, JSON.stringify(r.body));
   });
 
-  it('sync_available event returns 204', async () => {
+  it('sync_available event returns 204 AND actually starts a sync cycle', async () => {
+    // Baseline: how many sync-history records exist before the event.
+    const before = await get(INSTANCES.a, token, `/api/networks/${networkId}/sync-history?limit=100`);
+    assert.equal(before.status, 200, JSON.stringify(before.body));
+    const baseline = before.body.history?.length ?? 0;
+
     const r = await post(INSTANCES.a, token, '/api/notify', {
       networkId,
       instanceId: MEMBER_ID,
       event: 'sync_available',
     });
     assert.equal(r.status, 204, JSON.stringify(r.body));
+
+    // A 204 from a handler that does nothing would pass the assertion above —
+    // the real effect is a sync cycle, which unconditionally appends a
+    // sync-history record when it completes (even when the peer is
+    // unreachable, as here — the record then has status failed/partial).
+    await waitFor(async () => {
+      const after = await get(INSTANCES.a, token, `/api/networks/${networkId}/sync-history?limit=100`);
+      return (after.body.history?.length ?? 0) > baseline;
+    }, 30_000, 500, 'sync_available never produced a sync-history record — the event did not start a sync cycle');
   });
 
   it('vote_pending event returns 204', async () => {
@@ -254,11 +268,29 @@ describe('Notify channel', () => {
 
   // â”€â”€ POST /api/notify/trigger â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  it('POST /api/notify/trigger with valid networkId returns 200', async () => {
+  it('POST /api/notify/trigger returns 200 AND a sync cycle actually runs', async () => {
+    // Baseline sync-history count — the echoed {status:'triggered'} alone is
+    // satisfied by a handler that does nothing (exactly how the notify
+    // rate-limit bug hid); the observable effect is a new history record.
+    const before = await get(INSTANCES.a, token, `/api/networks/${networkId}/sync-history?limit=100`);
+    assert.equal(before.status, 200, JSON.stringify(before.body));
+    const baseline = before.body.history?.length ?? 0;
+
     const r = await post(INSTANCES.a, token, '/api/notify/trigger', { networkId });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.status, 'triggered', JSON.stringify(r.body));
     assert.equal(r.body.networkId, networkId, 'Response must echo the networkId');
+
+    await waitFor(async () => {
+      const after = await get(INSTANCES.a, token, `/api/networks/${networkId}/sync-history?limit=100`);
+      return (after.body.history?.length ?? 0) > baseline;
+    }, 30_000, 500, 'trigger never produced a sync-history record — no sync cycle ran');
+
+    // The completed record must be a real cycle result, not a placeholder.
+    const after = await get(INSTANCES.a, token, `/api/networks/${networkId}/sync-history?limit=100`);
+    const rec = after.body.history[0];
+    assert.ok(rec.completedAt, 'history record must carry completedAt');
+    assert.ok(['success', 'partial', 'failed'].includes(rec.status), `unexpected history status: ${rec.status}`);
   });
 
   it('POST /api/notify/trigger without networkId returns 400', async () => {

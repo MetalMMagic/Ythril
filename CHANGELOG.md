@@ -381,6 +381,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Client base `tsconfig.json` no longer reports a spurious `rootDir` error in the editor.** The
+  base config sets `rootDir: ./src` but had no `include`, so TypeScript fell back to its default
+  `**/*` pattern and pulled in `vitest.config.ts` at the client root — a file outside `rootDir` —
+  raising `TS6059` whenever an editor (or a direct `tsc -p tsconfig.json`) loaded the base project.
+  It was latent until the Vitest client-test infra added that root-level config file. Scoped the
+  base's `include` to `src/**/*.ts` so it agrees with `rootDir`. Editor-only; `ng build`
+  (`tsconfig.app.json`) and the Vitest suite (`tsconfig.spec.json`) set their own `include` and were
+  never affected.
+
 - **User guide, integration guide, usecase examples, workstation guide, and the top-level docs
   brought back in line with the code** — the rest of the same full docs audit. Highlights:
   two dangerous user-guide MFA errors fixed (disabling MFA **requires** a current TOTP code; the

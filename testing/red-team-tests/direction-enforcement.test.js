@@ -209,4 +209,131 @@ describe('Directional network: push-only peer cannot write to sync endpoints', (
     );
     assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
   });
+
+  // ── networkId is wire input — omitting or misdirecting it must not bypass ──
+  // (S10: pre-fix, the guard keyed on the caller-supplied networkId query
+  //  param, so a push-only peer could write by simply leaving it out.)
+
+  it('Subscriber cannot bypass the guard by OMITTING networkId → 403', async () => {
+    const r = await post(INSTANCES.a, subscriberToken,
+      `/api/sync/memories?spaceId=general`,
+      { _id: crypto.randomUUID(), fact: 'injected without networkId', seq: 1 },
+    );
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(r.body.error?.includes('write not permitted'), `Error should be the direction guard: ${r.body.error}`);
+  });
+
+  it('Subscriber cannot bypass the guard by naming a BOGUS networkId → 403', async () => {
+    const r = await post(INSTANCES.a, subscriberToken,
+      `/api/sync/memories?spaceId=general&networkId=${crypto.randomUUID()}`,
+      { _id: crypto.randomUUID(), fact: 'injected via bogus networkId', seq: 1 },
+    );
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// S10: the sync data-write surface is peer-only — a space-scoped user PAT
+// must not be able to write through /api/sync/* at all (it could otherwise
+// forge raw seq/_id/author stream metadata and push content upstream in a
+// directional network). Reads stay open; admin remains a local override.
+// ══════════════════════════════════════════════════════════════════════════
+
+describe('S10: non-peer user PATs are refused on sync data writes', () => {
+  let userPat;          // space-scoped, non-admin, no peerInstanceId
+  let closedNetworkId;
+  let closedPeerToken;  // peer-bound token with direction='both' (positive control)
+
+  before(async () => {
+    adminToken = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
+
+    const t = await post(INSTANCES.a, adminToken, '/api/tokens', {
+      name: `s10-user-pat-${Date.now()}`,
+      spaces: ['general'],
+    });
+    assert.equal(t.status, 201);
+    userPat = t.body.plaintext;
+
+    // Closed network + handshake-joined peer → direction 'both' (may write)
+    const n = await post(INSTANCES.a, adminToken, '/api/networks', {
+      label: `S10 Closed ${Date.now()}`,
+      type: 'closed',
+      spaces: ['general'],
+    });
+    assert.equal(n.status, 201);
+    closedNetworkId = n.body.id;
+    const peer = await doHandshake(adminToken, closedNetworkId, 'S10 Closed Peer');
+    closedPeerToken = peer.token;
+  });
+
+  after(async () => {
+    if (closedNetworkId) {
+      await del(INSTANCES.a, adminToken, `/api/networks/${closedNetworkId}`).catch(() => {});
+    }
+  });
+
+  const WRITE_CASES = [
+    ['memories', { fact: 'user-pat injected', seq: 1 }],
+    ['entities', { name: 'user-pat entity', type: 'person', seq: 1 }],
+    ['edges', { from: 'a', to: 'b', label: 'user-pat edge', seq: 1 }],
+    ['chrono', { type: 'memory', targetId: 'x', seq: 1 }],
+  ];
+
+  for (const [endpoint, doc] of WRITE_CASES) {
+    it(`user PAT cannot POST /api/sync/${endpoint} → 403 (peer-token required)`, async () => {
+      const r = await post(INSTANCES.a, userPat,
+        `/api/sync/${endpoint}?spaceId=general&networkId=${closedNetworkId}`,
+        { _id: crypto.randomUUID(), ...doc },
+      );
+      assert.equal(r.status, 403, `Expected 403, got ${r.status}: ${JSON.stringify(r.body)}`);
+      assert.ok(r.body.error?.includes('peer token'), `Error should demand a peer token: ${r.body.error}`);
+    });
+  }
+
+  it('user PAT cannot POST /api/sync/batch-upsert → 403', async () => {
+    const r = await post(INSTANCES.a, userPat,
+      `/api/sync/batch-upsert?spaceId=general`,
+      { memories: [{ _id: crypto.randomUUID(), fact: 'user-pat batch', seq: 1 }] },
+    );
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('user PAT cannot POST /api/sync/tombstones → 403', async () => {
+    const r = await post(INSTANCES.a, userPat,
+      `/api/sync/tombstones?spaceId=general`,
+      { tombstones: [{ _id: crypto.randomUUID(), type: 'memory', instanceId: 'attacker', deletedAt: new Date().toISOString() }] },
+    );
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('user PAT cannot POST /api/sync/file-tombstones → 403', async () => {
+    const r = await post(INSTANCES.a, userPat,
+      `/api/sync/file-tombstones`,
+      { spaceId: 'general', tombstones: [{ _id: crypto.randomUUID(), path: 'attack.txt', deletedAt: new Date().toISOString() }] },
+    );
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  // ── What must still work ──────────────────────────────────────────────────
+
+  it('user PAT can still READ /api/sync/memories → 200', async () => {
+    const r = await get(INSTANCES.a, userPat, `/api/sync/memories?spaceId=general`);
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('admin token can still write (local operator override) → 200', async () => {
+    const r = await post(INSTANCES.a, adminToken,
+      `/api/sync/batch-upsert?spaceId=general`,
+      { memories: [{ _id: crypto.randomUUID(), fact: `s10 admin positive control ${Date.now()}`, seq: 1 }] },
+    );
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it("peer with direction 'both' (closed network) can still write → 200", async () => {
+    const r = await post(INSTANCES.a, closedPeerToken,
+      `/api/sync/batch-upsert?spaceId=general&networkId=${closedNetworkId}`,
+      { memories: [{ _id: crypto.randomUUID(), fact: `s10 peer positive control ${Date.now()}`, seq: 1 }] },
+    );
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
 });

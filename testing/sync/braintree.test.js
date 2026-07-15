@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
-  INSTANCES, post, postRetry429, get, del, delWithBody, triggerSync, waitFor,
+  INSTANCES, post, postRetry429, get, del, delWithBody, triggerSync, waitFor, getInstanceId,
 } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -45,9 +45,14 @@ describe('Braintree topology (A -> B -> C)', () => {
     assert.equal(r.status, 201, `Create network: ${JSON.stringify(r.body)}`);
     networkId = r.body.id;
 
-    // Create peer tokens
-    const bPeer = await postRetry429(INSTANCES.b, tokenB, '/api/tokens', { name: 'bt-peer-a' });
-    const cPeer = await postRetry429(INSTANCES.c, tokenC, '/api/tokens', { name: 'bt-peer-b' });
+    // Create peer tokens — peer-bound to the instance that PRESENTS them
+    // (sync data writes require a peer or admin token — S10).
+    const bPeer = await postRetry429(INSTANCES.b, tokenB, '/api/tokens', {
+      name: 'bt-peer-a', peerInstanceId: getInstanceId('ythril-a'),
+    });
+    const cPeer = await postRetry429(INSTANCES.c, tokenC, '/api/tokens', {
+      name: 'bt-peer-b', peerInstanceId: getInstanceId('ythril-b'),
+    });
     assert.equal(bPeer.status, 201);
     assert.equal(cPeer.status, 201);
 

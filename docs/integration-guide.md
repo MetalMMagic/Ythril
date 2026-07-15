@@ -2997,6 +2997,7 @@ POST /api/tokens
 | `readOnly` | Block all writes. Ignored when `schemaLibrary` is `true` (always read-only). |
 | `spaces` | Array of space IDs to scope this token. Omit for all-spaces access. Must be empty or omitted when `schemaLibrary` is `true`. |
 | `expiresAt` | ISO 8601 expiry timestamp. Omit for non-expiring. |
+| `peerInstanceId` | Bind this token to a network peer (UUID). Required for tokens a peer will present on the `/api/sync/*` **data-write** endpoints in manually-configured networks — the invite handshake sets it automatically. Peer identity is server-issued and cannot be self-declared by the caller. |
 | `schemaLibrary` | `true` to issue a **library access token**. See below. |
 
 **Response** `201`:

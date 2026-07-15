@@ -182,13 +182,18 @@ describe('Merkle root', () => {
       assert.equal(n.status, 201, `Create network: ${JSON.stringify(n.body)}`);
       networkId = n.body.id;
 
-      // Issue peer tokens for cross-instance auth
-      const ptA = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `merkle-peer-a-${Date.now()}` });
+      // Issue peer tokens for cross-instance auth — peer-bound to the instance
+      // that PRESENTS them (sync data writes require a peer or admin token — S10).
+      const ptA = await post(INSTANCES.b, tokenB, '/api/tokens', {
+        name: `merkle-peer-a-${Date.now()}`, peerInstanceId: instanceIdA,
+      });
       assert.equal(ptA.status, 201);
       peerTokenForA = ptA.body.plaintext;
       peerTokenForAId = ptA.body.token.id;
 
-      const ptB = await post(INSTANCES.a, tokenA, '/api/tokens', { name: `merkle-peer-b-${Date.now()}` });
+      const ptB = await post(INSTANCES.a, tokenA, '/api/tokens', {
+        name: `merkle-peer-b-${Date.now()}`, peerInstanceId: instanceIdB,
+      });
       assert.equal(ptB.status, 201);
       peerTokenForB = ptB.body.plaintext;
       peerTokenForBId = ptB.body.token.id;

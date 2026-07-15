@@ -21,7 +21,7 @@ import { fileURLToPath } from 'url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { INSTANCES, post, get, del, reqJson, waitFor, triggerSync } from './helpers.js';
+import { INSTANCES, post, get, del, reqJson, waitFor, triggerSync, getInstanceId } from './helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, 'configs');
@@ -46,7 +46,12 @@ describe('Entity/edge sync — cross-instance (A→B)', () => {
     assert.equal(netR.status, 201, `Create network: ${JSON.stringify(netR.body)}`);
     networkId = netR.body.id;
 
-    const ptB = await post(INSTANCES.b, tokenB, '/api/tokens', { name: `entity-sync-peer-${RUN}` });
+    // Peer-bound: this token is presented BY instance A when pushing to B
+    // (sync data writes require a peer or admin token — S10).
+    const ptB = await post(INSTANCES.b, tokenB, '/api/tokens', {
+      name: `entity-sync-peer-${RUN}`,
+      peerInstanceId: getInstanceId('ythril-a'),
+    });
     assert.equal(ptB.status, 201);
 
     const addB = await post(INSTANCES.a, tokenA, `/api/networks/${networkId}/members`, {

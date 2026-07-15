@@ -8,16 +8,21 @@ This document describes how two brains exchange data in a sync cycle: the sequen
 
 Sync is **peer-to-peer over plain HTTPS**. Each brain calls its peers directly using the URL stored in the `member.url` config field — typically `https://brain.example.com`. There is no central broker.
 
-A sync cycle for a single member consists of four phases in order:
+A sync cycle for a single member consists of these phases in order:
 
 | Phase | Direction | Description |
 |-------|-----------|-------------|
+| **Warm-up** | us → peer | `POST /api/sync/warm` asks the peer to eagerly warm its embedding model, bcrypt token cache, and MongoDB collection handles before the real work starts; local collections are warmed in parallel. Best-effort. |
+| **Gossip** | us ↔ peer | Exchange member identity records (label, URL, children, signing keys) |
+| **Vote propagation** | us ↔ peer | Push local vote casts, pull the peer's rounds, conclude rounds |
 | **Pull** | peer → us | Fetch everything the peer has that we haven't seen yet |
 | **Push** | us → peer | Upload everything we have that the peer hasn't seen yet |
-| **File sync** | peer → us | Download files whose SHA-256 digest differs from ours |
-| **Gossip** | us ↔ peer | Exchange member identity records (label, URL, children) |
+| **File sync** | us ↔ peer | Exchange file tombstones, download files we lack, push files the peer lacks |
+| **Merkle check** | us ↔ peer | Opt-in (`network.merkle: true`): compare per-space Merkle roots after sync and log a `MERKLE_DIVERGENCE` warning on mismatch |
 
-Phases 1 and 2 are gated by [watermarks](#watermarks) so only new or changed documents travel over the wire. Phase 3 is manifest-based and equally incremental. Phase 4 propagates identity metadata across the member graph.
+Governance (gossip + vote propagation) runs **before** the data phases, deliberately: vote rounds are deadline-sensitive and their messages are small, so they must converge promptly and independently of the data plane. It used to run last, which meant any failure in the per-space data loop (a timed-out pull, a slow file transfer) skipped governance for the whole cycle — a saturated peer could starve vote propagation indefinitely.
+
+Pull and push are gated by [watermarks](#watermarks) so only new or changed documents travel over the wire. File sync is manifest-based and equally incremental.
 
 Which phases run for a given member depends on the `member.direction` field:
 
@@ -36,7 +41,7 @@ For non-directional networks (`closed`, `democratic`, `club`), pull and push alw
 Sync can be triggered two ways:
 
 - **Scheduled** — `syncSchedule` on the network config starts a node-cron task per network at startup. Accepts a standard cron expression (e.g. `"*/5 * * * *"`, `"0 * * * *"`); the legacy shorthands `"*/N minutes|hours"` and `"every Nm|Nh"` are also accepted and translated to cron.
-- **Manual** — `POST /api/notify/trigger { networkId }` runs the cycle immediately and returns `{ synced, errors }`.
+- **Manual** — `POST /api/notify/trigger { networkId }` starts the cycle asynchronously (fire-and-forget) and returns `{ status: 'triggered', networkId }` immediately — a full cycle can run for minutes, so the HTTP response never waits on it. Results surface in the per-network sync history and logs. (The admin UI's `POST /api/networks/:id/sync` behaves the same way, returning `{ ok: true }`.)
 
 ---
 
@@ -49,7 +54,7 @@ Two independent high-water marks prevent redundant data transfer:
 | `lastSeqReceived[spaceId]` | `Record<string,number>` | Highest seq we have ever pulled from this peer for this space |
 | `lastSeqPushed[spaceId]` | `Record<string,number>` | Highest seq we have confirmed pushed to this peer for this space |
 
-Both are stored per member in the config file and persisted immediately after a successful sync. If a sync fails mid-way, the watermark is not advanced — the next cycle retries from the last safe point, giving at-least-once delivery semantics.
+Both are stored per member in the config file. After a successful sync they are written through the coalesced asynchronous config flush (`saveConfigSoon`) rather than a blocking synchronous write — sync bookkeeping never stalls the event loop. If a sync fails mid-way, the watermark is not advanced — the next cycle retries from the last safe point, giving at-least-once delivery semantics (re-delivery is harmless: everything is re-derived from `seq`).
 
 ---
 
@@ -98,6 +103,8 @@ Without `?full=true` the list endpoints return `{_id, seq}` stubs, and the calle
 
 With `?full=true` the full document payload is embedded in the paginated list response. The pull phase is `ceil(N/200)` requests regardless of how many documents exist.
 
+Pagination is additionally capped at **50 pages per type per cycle** (~10,000 documents). A backlog larger than that is drained across successive cycles — the watermark advances each cycle, so nothing is lost, it just takes more than one cycle to catch up.
+
 **Impact at 100 ms WAN latency:**
 
 | Documents changed | Before | After |
@@ -125,7 +132,7 @@ All document `_id` values (`memories`, `entities`, `edges`, `chrono`) are **UUID
 
 ### `lastSeqReceived` update
 
-After all three document types are pulled, `lastSeqReceived[spaceId]` is advanced to the highest `seq` seen **among documents authored by the peer** (`doc.author.instanceId === member.instanceId`) and written to config. On the next cycle the watermark is passed as `sinceSeq` so the peer returns only documents newer than that point.
+After all four document types (memories, entities, edges, chrono) are pulled, `lastSeqReceived[spaceId]` is advanced to the highest `seq` seen **among documents authored by the peer** (`doc.author.instanceId === member.instanceId`) and written to config. On the next cycle the watermark is passed as `sinceSeq` so the peer returns only documents newer than that point.
 
 Docs that originate from a third instance but were relayed through the peer (e.g. during braintree or pubsub fanout) deliberately do not advance the watermark. Those relayed docs may carry a `seq` assigned by their true author's counter, which can be much higher than the peer's own counter. Allowing them to advance `lastSeqReceived` would cause the engine to skip the peer's locally-written documents on the next pull.
 
@@ -134,9 +141,11 @@ Docs that originate from a third instance but were relayed through the peer (e.g
 ## Push phase
 
 ```
-POST /api/sync/tombstones?spaceId=&networkId=                               (0 or 1 request)
+POST /api/sync/tombstones?spaceId=&networkId=                               (paged: 500/request, looped until drained)
 POST /api/sync/batch-upsert?spaceId=&networkId=                             (ceil(changed/200) requests)
 ```
+
+Tombstone push is deliberately **unbounded** (it loops in pages of 500 until every pending tombstone is delivered) so a peer that was offline for a long time never misses deletions.
 
 ### Incremental push via `lastSeqPushed`
 
@@ -159,7 +168,7 @@ Response: `{ status: 'ok', memories: {inserted,updated,forked,skipped,tombstoned
 
 ### `lastSeqPushed` update
 
-After a successful batch push, `lastSeqPushed[spaceId]` is advanced to the highest `seq` **among documents authored by this instance** (`doc.author.instanceId === cfg.instanceId`). This is evaluated per-batch so an interrupted push (network drop mid-way) advances the watermark only as far as the last acknowledged batch.
+After a successful batch push, `lastSeqPushed[spaceId]` is advanced to the highest `seq` **among documents authored by this instance** (`doc.author.instanceId === cfg.instanceId`). The maximum is tracked per acknowledged batch, but persistence happens once after all four collections have pushed — a network drop mid-push persists nothing for that cycle. That is safe, just conservative: the next cycle re-pushes from the old watermark and the upserts are idempotent.
 
 Relayed docs (received from a third peer and stored locally) are pushed to other members but do **not** advance `lastSeqPushed`. Their seq values belong to the originating instance's counter and could be arbitrarily higher than the local counter, which would incorrectly suppress future pushes of this instance's own work.
 
@@ -229,7 +238,7 @@ A leaf node has `direction='push'` toward its parent — meaning the engine push
 
 The direction field controls not only which phases the sync *engine* runs on the initiating side, but also which writes the *receiving server* accepts.
 
-When a peer POSTs data to any write endpoint (`/api/sync/memories`, `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/tombstones`, `/file-tombstones`), the server looks up the caller's member record in the network. If `member.direction === 'push'` — meaning "we push to them, they should not write to us" — the server responds `403 { error: 'Direction enforcement: inbound writes blocked for this member' }`.
+When a peer POSTs data to any write endpoint (`/api/sync/memories`, `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/tombstones`, `/file-tombstones`), the server looks up the member record for the caller's `peerInstanceId` (carried on server-issued peer tokens) in the network. If `member.direction === 'push'` — meaning "we push to them, they should not write to us" — the server responds `403 { error: 'Directional network: write not permitted from this peer' }`.
 
 This is the server-side complement to the engine's client-side skip logic. Together they guarantee:
 
@@ -244,23 +253,31 @@ Bidirectional network types (`closed`, `democratic`, `club`) always have `direct
 
 ## File sync
 
-After document sync, the engine performs a manifest-based file sync:
+After document sync, the engine performs a manifest-based file sync. It is bidirectional and tombstone-aware:
 
-1. `GET /api/sync/manifest?spaceId=&networkId=` retrieves the peer's list of `{ path, sha256, size, modifiedAt }`.
-2. Entries where the local SHA-256 differs (or the file is absent) are downloaded via `GET /api/files/:spaceId/:path`.
-3. The downloaded bytes are SHA-256 verified before writing to disk. A mismatch is logged and the file is discarded.
+1. **File tombstones, both directions** — the engine pulls the peer's file tombstones (`GET /api/sync/file-tombstones`) and applies them (subject to the same [deletion authorisation](#tombstone-deletion-authorisation) rules as document tombstones), then pushes its own pending file tombstones (`POST /api/sync/file-tombstones`).
+2. **Manifest** — `GET /api/sync/manifest?spaceId=&networkId=` retrieves the peer's list of `{ path, sha256, size, modifiedAt }`. Manifests are served from a per-space file-hash cache (`<spaceId>_file_hashes`), so the peer does not re-hash its whole tree per request.
+3. **Download** — files we lack entirely are downloaded via `GET /api/files/:spaceId?path=<relative path>` (the path travels as a query parameter). Downloaded bytes are SHA-256 verified before writing to disk; a mismatch is logged and the file discarded.
+4. **Divergence → conflict, never overwrite** — when a file exists on both sides with different hashes, the engine does **not** overwrite the local copy. It writes the peer's version as a conflict copy alongside and records a `ConflictDoc`, surfaced in **Settings → Conflicts** for the user to resolve.
+5. **Push** — files the peer lacks (or holds an older `modifiedAt` for) are uploaded to it.
 
-File sync uses the standard 10 s timeout per request. Large files that exceed this will be retried on the next cycle.
+Manifest requests and individual downloads use the 10 s timeout; the batch-style transfer operations use the 60 s batch timeout. Files that time out are retried on the next cycle.
+
+---
+
+## Merkle divergence check (opt-in)
+
+With `merkle: true` on the network config, the engine ends each per-space sync by comparing content roots with the peer: it computes the local Merkle root (embeddings excluded from hashing) and fetches the peer's via `GET /api/sync/merkle?spaceId=&networkId=`. Matching roots log `Merkle OK`; a mismatch logs a loud `MERKLE_DIVERGENCE` warning naming the space, peer, and both roots with leaf counts — the space contents differ *after* sync, indicating possible data loss, a concurrent write, or a sync bug. This is **detection only**: nothing is auto-repaired, and any failure in the check itself (peer error, missing field) degrades to a warning without affecting the sync result.
 
 ---
 
 ## Gossip phase
 
-After file sync, each engine cycle performs a lightweight member identity exchange with each peer:
+At the **start** of each cycle — before any data sync, see [Overview](#overview) for why — the engine performs a lightweight member identity exchange with each peer:
 
-1. **Self-announce** — `POST /api/sync/networks/:networkId/members` with `{ instanceId, label, children?, url? }`. The `url` field is included only when the `INSTANCE_URL` environment variable is set; if omitted, the peer keeps the URL it already has on record.
+1. **Self-announce** — `POST /api/sync/networks/:networkId/members` with `{ instanceId, label, children?, url?, signingPublicKey?, signingKeyRotation? }`. The `url` field is included only when the `INSTANCE_URL` environment variable is set; if omitted, the peer keeps the URL it already has on record. The signing fields distribute the instance's vote-signing public key (see [Signed vote casts](#signed-vote-casts)).
 
-2. **Self-record piggyback** — the receiving peer includes its own current identity in the `200` response as `{ status: 'ok', self: { instanceId, label, url? } }`. The caller updates its local member entry for that peer from this payload — no separate GET is needed.
+2. **Self-record piggyback** — the receiving peer includes its own current identity in the `200` response as `{ status: 'ok', self: { instanceId, label, url?, signingPublicKey?, signingKeyRotation? } }`. The caller updates its local member entry for that peer from this payload — no separate GET is needed.
 
 3. **Pull member view** — `GET /api/sync/networks/:networkId/members` fetches the peer's full member list. Any record whose `instanceId` is already known locally (but is not our own `instanceId`) has its `url`, `label`, and `children` merged in if they differ.
 
@@ -274,7 +291,7 @@ On the pulling side, records returned by `GET /members` that share our own `inst
 
 ## API reference
 
-All endpoints are under `/api/sync` and require a `Bearer` token that resolves to a network member (peer token, not a user PAT). Rate-limited per IP.
+All endpoints are under `/api/sync` and require a `Bearer` token. In normal operation that is a **peer token** — a PAT carrying `peerInstanceId`, issued to the peer during join — but the endpoints use the ordinary auth middleware, so admin and appropriately space-scoped user PATs are also accepted (token space-scope **and** network membership are enforced before any read or write; admin tokens additionally act as trusted local relays for tombstones). Rate-limited per IP.
 
 ### Read endpoints (called during pull)
 
@@ -288,10 +305,13 @@ All endpoints are under `/api/sync` and require a `Bearer` token that resolves t
 | `GET` | `/api/sync/edges/:id` | `spaceId`, `networkId` | Full `EdgeDoc` |
 | `GET` | `/api/sync/chrono` | same as memories | `{ items[], nextCursor }` |
 | `GET` | `/api/sync/chrono/:id` | `spaceId`, `networkId` | Full `ChronoEntry` |
-| `GET` | `/api/sync/tombstones` | `spaceId`, `networkId`, `sinceSeq` | `{ memories[], entities[], edges[] }` |
+| `GET` | `/api/sync/tombstones` | `spaceId`, `networkId`, `sinceSeq` | `{ memories[], entities[], edges[], chrono[] }` |
+| `GET` | `/api/sync/file-tombstones` | `spaceId`, `networkId` | `{ tombstones[] }` |
 | `GET` | `/api/sync/manifest` | `spaceId`, `networkId` | `{ manifest[{ path, sha256, size, modifiedAt }] }` |
-| `GET` | `/api/sync/info` | — | `{ instanceId, label, version }` |
+| `GET` | `/api/sync/merkle` | `spaceId`, `networkId` | `{ root, leafCount }` (only used when `network.merkle: true`) |
 | `GET` | `/api/sync/networks/:networkId/members` | `networkId` | `{ members[{ instanceId, label, url, direction, … }], updatedAt }` |
+
+There is no dedicated identity endpoint — a peer that needs the instance's identity calls the regular authenticated `GET /api/about` (`{ instanceId, instanceLabel, version, … }`), and identity also arrives on every cycle via the gossip `self` record.
 
 `?full=true` on the list endpoints returns complete documents instead of `{_id,seq}` stubs. Maximum `limit` is 500. Tombstone stubs (items with `deletedAt`) are always appended to list responses regardless of `full` mode.
 
@@ -299,17 +319,25 @@ All endpoints are under `/api/sync` and require a `Bearer` token that resolves t
 
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
-| `POST` | `/api/sync/memories` | `MemoryDoc` | `200 { status:'ok' }` |
-| `POST` | `/api/sync/entities` | `EntityDoc` | `200 { status:'ok' }` |
-| `POST` | `/api/sync/edges` | `EdgeDoc` | `200 { status:'ok' }` |
+| `POST` | `/api/sync/memories` | `MemoryDoc` | `200 { status: 'inserted'\|'updated'\|'forked'\|'skipped'\|'tombstoned' }` |
+| `POST` | `/api/sync/entities` | `EntityDoc` | `200 { status:'ok' }` (or `'tombstoned'`) |
+| `POST` | `/api/sync/edges` | `EdgeDoc` | `200 { status:'ok' }` (or `'tombstoned'`) |
+| `POST` | `/api/sync/chrono` | `ChronoEntry` | `200 { status:'ok' }` (or `'tombstoned'`) |
 | `POST` | `/api/sync/batch-upsert` | `{ memories?, entities?, edges?, chrono? }` | `200 { status:'ok', memories:{…}, entities:{…}, edges:{…}, chrono:{…} }` |
 | `POST` | `/api/sync/tombstones` | `{ tombstones[] }` | `200 { applied: N }` |
+| `POST` | `/api/sync/file-tombstones` | `{ tombstones[] }` | `200 { applied: N }` |
+| `POST` | `/api/sync/warm` | `{ networkId, spaces[] }` | `200` once the embedding model, token cache, and collection handles are warm |
 
 All write endpoints enforce direction policy: if the caller's `member.direction === 'push'` in the network, the server returns `403`. See [Direction enforcement on inbound endpoints](#direction-enforcement-on-inbound-endpoints).
 
 `POST /batch-upsert` is the primary push path used by the engine. The individual `POST /memories`, `/entities`, `/edges` endpoints remain for backwards compatibility and direct API usage.
 
-All incoming documents are validated against Zod schemas before any database write. Invalid documents are rejected with `400` (single endpoints) or silently filtered out (batch-upsert). Key constraints: `tags` max 100 items, `entityIds` max 500, `seq` max 2^50, all string fields validated for type safety. Unknown fields are stripped.
+All incoming documents are validated against Zod schemas before any database write. Invalid documents are rejected with `400` (single endpoints) or silently filtered out (batch-upsert). Key constraints: `tags` max 100 items, `entityIds` max 500, all string fields validated for type safety. Unknown fields are stripped.
+
+Two additional ingest safety caps protect the local seq counter and fork chains from a malicious or corrupted peer:
+
+- **Implausible seq** — the schema bound on `seq` is 2^50, but ingest applies a stricter ceiling of `2^50 − 2^40` (`rejectImplausibleSeq`); a document above it is refused so a poisoned seq can never exhaust the counter's headroom.
+- **Fork limits** — fork chain depth and per-document fork fan-out are both capped at 10. Exceeding either returns `400` on the single endpoints and is silently skipped in `batch-upsert`.
 
 ### Gossip endpoints
 
@@ -346,9 +374,9 @@ With `requireSignedVotes: true` on the network, only signed-and-verified casts a
 
 ## Vote propagation phase
 
-After the gossip (member identity) exchange, the engine runs a vote propagation pass with each peer:
+Directly after the gossip (member identity) exchange — still ahead of the data phases — the engine runs a vote propagation pass with each peer:
 
-1. **Push casts** — for each open local vote round, each known vote cast is relayed to the peer via `POST /api/sync/networks/:networkId/votes/:roundId { vote, instanceId, sig, castAt }`, forwarding the voter's signature so the peer can verify and relay it onward. If the peer does not yet have the round (404), the push is silently skipped — the round will arrive on the peer's next pull cycle.
+1. **Push casts** — for each local vote round — including already-concluded ones, so that a round-concluding cast still reaches peers that have not concluded yet — each known vote cast is relayed to the peer via `POST /api/sync/networks/:networkId/votes/:roundId { vote, instanceId, sig, castAt }`, forwarding the voter's signature so the peer can verify and relay it onward. If the peer does not yet have the round (404), the push is silently skipped — the round will arrive on the peer's next pull cycle.
 
 2. **Pull rounds** — `GET /api/sync/networks/:networkId/votes` fetches the peer's open rounds. For each round:
    - **New round**: if the round does not exist locally, it is adopted into `pendingRounds` (with an empty `votes` array); votes are then merged in the same pass.

@@ -366,19 +366,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Vote propagation now pulls before it pushes, so convergence no longer stalls behind an
-  unbounded push.** In each sync cycle `propagateVotesWithPeer` exchanged governance votes with a
-  peer by first pushing *every* cast of *every* locally-known round and only then pulling the peer's
-  rounds. Because a round is never removed from `pendingRounds` once it concludes, that push loop
-  grows without bound over a network's lifetime — and it `await`s each cast sequentially, so on a
-  busy or high-latency peer a cycle could spend all its time re-broadcasting dead history and never
-  reach the pull. Adopting the peer's casts is the convergence-critical half, so it now runs
-  **first** and persists immediately; the push runs after and additionally **skips any round that is
-  already concluded and past its deadline** (every peer concludes such a round independently once the
-  deadline passes, so re-pushing it forever is pure waste). No protocol or governance-semantics
-  change — only ordering and dead-round pruning from the push set. This also removes the load-sensitive
-  stall behind the intermittently-failing `vote-signing` relay test (its "triggers succeed but the
-  peer never delivers" timeout was this push starving the pull under full-suite load).
+- **Sync-protocol and network-types docs brought back in line with the code** after a full docs
+  audit cross-checked every claim. `docs/sync-protocol.md`: corrected the phase order (governance
+  gossip + vote propagation deliberately run *first*, ahead of the data phases) and documented the
+  previously missing presync warm-up (`POST /api/sync/warm`) and opt-in Merkle divergence check
+  (`GET /api/sync/merkle`); rewrote the file-sync section to match reality (file tombstones travel
+  both directions, files are pushed as well as pulled, and hash divergence produces a conflict
+  copy plus a `ConflictDoc` — never an overwrite); fixed the manual-trigger semantics (async fire-and-forget
+  returning `{ status: 'triggered' }`), the direction-enforcement 403 body, the file-download URL
+  shape (`?path=` query parameter), and the tombstone endpoint/pull descriptions (chrono is a
+  fourth synced type; tombstone push pages 500/request until drained); removed the nonexistent
+  `GET /api/sync/info` (identity comes from `GET /api/about` and the gossip `self` record);
+  documented the ingest safety caps (implausible-seq ceiling, fork depth/fan-out ≤ 10), the
+  50-page-per-type pull cap, watermark persistence via the coalesced config flush, gossip signing
+  fields, and the real auth model of the sync surface. `docs/network-types.md`: fixed the broken
+  tombstone-guard link, the invite-generate auth level (admin), the vote-deadline default (24 h,
+  configurable 1–72 h), and replaced the misleading offline-peer timing estimate with the accurate
+  bounded-timeout statement. Doc-only; no behavior change.
 
 - **Schema validation was a total no-op on MCP — the surface agents actually use.** `validateMemory()` keys
   the whole per-type schema lookup off `memory.type`, but the MCP `remember` and `bulk_write` tools never

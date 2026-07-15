@@ -117,7 +117,7 @@ sequenceDiagram
     participant Net as Network (5 members)
 
     E->>Net: join request
-    Net-->>Net: voting round opens (48h deadline)
+    Net-->>Net: voting round opens (24h deadline by default, configurable 1–72h)
     Note over Net: A → yes<br/>B → yes<br/>C → yes<br/>D → abstains<br/>F → VETO
     Net-->>E: ✗ blocked by veto — not admitted
 ```
@@ -268,7 +268,7 @@ Subscribers may add their own content to the synced spaces. Publisher-pushed con
 1. **UUIDv4 identity** — every document `_id` is a UUIDv4 (122 bits of randomness). Two independent instances will never generate the same ID, so a publisher's tombstone structurally cannot target a subscriber-created document.
 2. **Author guard** — even if IDs hypothetically collided, `applyRemoteTombstone` compares `tombstone.instanceId` against `localDoc.author.instanceId` and skips the delete when they differ.
 
-See [Tombstone author guard](sync-protocol.md#tombstone-author-guard) and [Document ID collision safety](sync-protocol.md#document-id-collision-safety) in the sync protocol for details. The same protection applies to all directional network types (braintree, pubsub).
+See [Tombstone deletion authorisation](sync-protocol.md#tombstone-deletion-authorisation) and [Document ID collision safety](sync-protocol.md#document-id-collision-safety) in the sync protocol for details. The same protection applies to all directional network types (braintree, pubsub).
 
 **Key differences from Braintree:**
 
@@ -287,7 +287,7 @@ See [Tombstone author guard](sync-protocol.md#tombstone-author-guard) and [Docum
 
 A peer that is unreachable for a sync cycle is skipped, and the cycle continues for all other members. The `lastSyncAt` timestamp and the `lastSeqReceived` high-water mark are only advanced on a successful sync — so when the peer comes back online, it picks up exactly where it left off, regardless of how long it was gone. All accumulated changes since the last successful sync are exchanged on the next cycle.
 
-Each outbound connection attempt times out after **10 seconds** — a one-month-offline peer causes a 10 s delay per cycle, not the OS TCP timeout (~75 s).
+Every outbound call has its own bounded timeout (10 s for small requests, 60 s for batch transfers) rather than the OS TCP timeout (~75 s) — so an offline member simply makes the cycle take longer while it works through those timeouts; the cycle always completes and every other member still syncs.
 
 ### Consistently unreachable peers
 
@@ -419,7 +419,7 @@ sequenceDiagram
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| `POST` | `/api/invite/generate` | Bearer token | Start a session for a specific network |
+| `POST` | `/api/invite/generate` | Bearer token (admin) | Start a session for a specific network |
 | `POST` | `/api/invite/apply` | none (handshakeId is credential) | B submits its RSA public key; receives encrypted token |
 | `POST` | `/api/invite/finalize` | none (handshakeId is credential) | B delivers encrypted token for A; session completed |
 | `GET` | `/api/invite/status/:handshakeId` | none | Check if a session is still pending or completed |

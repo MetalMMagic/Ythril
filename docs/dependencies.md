@@ -206,12 +206,20 @@ Legal principle that runtime infrastructure must be listed with its licensing im
 | `fedirz/faster-whisper-server` | Speech-to-text — transcribes uploaded/segmented audio via an OpenAI-compatible endpoint. | MIT (the server). Whisper models are pulled separately and are Apache 2.0. |
 | `unstructured-io/unstructured-api-full` | Server-side PDF / DOCX / EPUB conversion (`hi_res` OCR + layout detection, table and embedded-image extraction). | Apache 2.0. |
 
-**Where they are referenced.** `ollama` and `whisper` are services in
-[`docker-compose.yml`](../docker-compose.yml) (media-embedding stack) and have matching
-Kubernetes manifests (`kubernetes/manifests/{ollama,whisper}-deploy.yaml`). The
-`unstructured-api-full` sidecar is defined in the Kubernetes deployment
-(`kubernetes/manifests/ythril-deployment.yaml`) and is being added to Compose as the
-bundled document-conversion sidecar.
+**Where they are referenced.** `ollama`, `whisper`, and `unstructured` are all services in
+[`docker-compose.yml`](../docker-compose.yml) and have matching Kubernetes manifests
+(`kubernetes/manifests/{ollama,whisper}-deploy.yaml`; the `unstructured-api-full` sidecar is
+in `kubernetes/manifests/ythril-deployment.yaml`, pod-local). `ollama`/`whisper` form the
+media-embedding stack; `unstructured` is the bundled document-conversion sidecar.
+
+> **Image size — `unstructured-api-full` is heavy (~8–12 GB).** It bundles OCR model weights
+> (Tesseract / PaddleOCR), so the first `docker compose up` pulls a large image and the sidecar
+> is slow to become ready (a long `start_period`). It is intentionally **not** a startup
+> dependency of the `ythril` service — Ythril runs without it and PDF/DOCX/EPUB conversion
+> simply reports `sidecar_down` until the sidecar is up. On a resource-constrained workstation,
+> skip it with `docker compose stop unstructured` (or `--scale unstructured=0`); in-process
+> text/HTML conversion and every other feature keep working. It runs on an isolated, internal
+> `ythril-convert` network with no database access and no internet egress.
 
 **Licensing impact — none on Ythril's PolyForm obligations.** All three are permissively
 licensed (MIT / Apache 2.0), carry no copyleft, and run as independent network services

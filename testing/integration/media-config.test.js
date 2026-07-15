@@ -77,5 +77,11 @@ describe('Media config hot-reload (A6)', () => {
       'The media worker never picked up the media-config change (providerReloadPending stayed true). ' +
       'Provider config is being cached at worker start again — it would now need a restart to take effect (A6 regression).',
     );
+
+    // Re-read the persisted value: the PATCH echo alone is satisfied by a
+    // handler that persists nothing (the worker flag only proves a reload ran).
+    const reread = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
+    assert.equal(reread.status, 200);
+    assert.equal(reread.body?.vision?.model, probeModel, 'patched vision.model must round-trip through GET');
   });
 });

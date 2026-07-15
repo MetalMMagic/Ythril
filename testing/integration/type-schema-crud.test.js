@@ -196,6 +196,12 @@ describe('PUT /api/spaces/:id/meta/typeSchemas/:kt/:typeName — upsert', () => 
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.typeName, 'depends_on');
+
+    // Re-read: the echoed typeName alone is satisfied by a handler that persists nothing.
+    const getR = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta/typeSchemas/edge/depends_on`);
+    assert.equal(getR.status, 200, 'edge type must be persisted');
+    assert.deepEqual(getR.body.schema.propertySchemas?.confidence, { type: 'number', minimum: 0, maximum: 1 },
+      'edge type schema persisted');
   });
 
   it('adds a memory type', async () => {
@@ -204,6 +210,11 @@ describe('PUT /api/spaces/:id/meta/typeSchemas/:kt/:typeName — upsert', () => 
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.typeName, 'note');
+
+    const getR = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta/typeSchemas/memory/note`);
+    assert.equal(getR.status, 200, 'memory type must be persisted');
+    assert.deepEqual(getR.body.schema.propertySchemas?.source, { type: 'string', required: true },
+      'memory type schema persisted');
   });
 
   it('adds a chrono type', async () => {
@@ -212,12 +223,21 @@ describe('PUT /api/spaces/:id/meta/typeSchemas/:kt/:typeName — upsert', () => 
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.typeName, 'deadline');
+
+    const getR = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta/typeSchemas/chrono/deadline`);
+    assert.equal(getR.status, 200, 'chrono type must be persisted');
+    assert.deepEqual(getR.body.schema.propertySchemas?.priority, { type: 'string', enum: ['low', 'medium', 'high'] },
+      'chrono type schema persisted');
   });
 
   it('accepts an empty schema body (bare type with no configuration)', async () => {
     const r = await put(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta/typeSchemas/entity/bare_type`, {});
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.deepEqual(r.body.schema, {});
+
+    const getR = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta/typeSchemas/entity/bare_type`);
+    assert.equal(getR.status, 200, 'bare type must be persisted');
+    assert.deepEqual(getR.body.schema, {}, 'bare type persists as an empty schema');
   });
 
   it('returns 400 for an invalid knowledgeType', async () => {

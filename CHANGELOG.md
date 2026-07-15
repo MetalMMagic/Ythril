@@ -631,6 +631,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Test hardening: five test groups that would pass with their mechanism removed now assert the
+  real effect (S8, part 1).** Applying the "what would still pass if the mechanism were removed?"
+  method: **(1)** the three untested rate limiters get real 429 burst tests on instance C —
+  `bulkWipeRateLimit` (5/min, the tightest destructive limiter, previously swappable for
+  `globalRateLimit` with no test going red), `globalRateLimit` (300/min) and `syncRateLimit`
+  (2000/min) — each with a positive control proving the first request reaches the route.
+  **(2)** the `retry_embedding` "requires write access" test used the ADMIN token and asserted
+  success, testing nothing; it now uses a read-only token and asserts 403, and a new effect test
+  proves the retry actually resets `embeddingStatus` to pending and the requeued job re-runs to a
+  terminal state. **(3)** `notify/trigger` and `sync_available` asserted only the echoed
+  status/204 — satisfied by a handler that does nothing, which is exactly how the notify
+  rate-limit bug once hid; both now poll the network's sync-history for the record a real cycle
+  appends. **(4)** MCP `update_memory` and the remaining echo-only `PATCH /memories` cases
+  (fact, long-form) re-read the document and deep-equal the persisted value. **(5)** the
+  echo-only PUT/PATCH tests for media-config and edge/memory/chrono type-schemas, and the chrono
+  update paths, all re-read through GET to confirm persistence. Test-only change; no runtime code
+  touched.
+
 - **The sync data-write surface is now peer-only, and direction enforcement can no longer be
   side-stepped (S10).** The direction guard on the seven `/api/sync/*` write endpoints (`memories`,
   `entities`, `edges`, `chrono`, `batch-upsert`, `tombstones`, `file-tombstones`) had two holes. First,

@@ -808,6 +808,13 @@ describe('MCP brain tools � update_memory / delete_memory / get_stats', () => 
     assert.ok(!result?.isError, `update_memory returned isError: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
     assert.ok(text.includes('updated') || text.includes(storedMemoryId), `Expected updated confirmation: ${text}`);
+
+    // Effect: re-read via REST and deep-equal the persisted value — the
+    // confirmation text alone is satisfied by a handler that persists nothing.
+    const reread = await get(INSTANCES.a, tokenA, `/api/brain/spaces/general/memories/${storedMemoryId}`);
+    assert.equal(reread.status, 200, JSON.stringify(reread.body));
+    assert.deepEqual(reread.body.tags, ['mcp-updated-tag'], 'updated tags must be persisted');
+    assert.equal(reread.body.fact, factText, 'untouched fields must survive the update');
   });
 
   it('update_memory on non-existent id returns isError', async () => {

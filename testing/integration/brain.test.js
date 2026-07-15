@@ -1203,6 +1203,11 @@ describe('Brain — chrono properties field', () => {
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.deepStrictEqual(r.body.properties, { phase: 'beta', priority: 2, critical: false });
+
+    const get2 = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
+    assert.equal(get2.status, 200);
+    assert.deepStrictEqual(get2.body.properties, { phase: 'beta', priority: 2, critical: false },
+      'updated properties persisted to DB');
   });
 
   after(async () => {
@@ -1724,6 +1729,10 @@ describe('Brain — PATCH memory updates description and properties', () => {
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.fact, `PatchMemFact-updated-${RUN}`);
+
+    const get2 = await get(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`);
+    assert.equal(get2.status, 200);
+    assert.equal(get2.body.fact, `PatchMemFact-updated-${RUN}`, 'fact persisted to DB');
   });
 
   it('PATCH memory with no fields returns 400', async () => {
@@ -1767,6 +1776,11 @@ describe('Brain — PATCH memory long-form path persists description and propert
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.description, 'Long-form updated');
     assert.equal(r.body.properties?.v, 2);
+
+    const get2 = await get(INSTANCES.a, token(), `/api/brain/spaces/general/memories/${memId}`);
+    assert.equal(get2.status, 200);
+    assert.equal(get2.body.description, 'Long-form updated', 'description persisted to DB');
+    assert.deepEqual(get2.body.properties, { v: 2 }, 'properties persisted to DB');
   });
 
   after(async () => {
@@ -1923,6 +1937,10 @@ describe('Brain — PATCH chrono by ID', () => {
     });
     assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
     assert.equal(r.body.description, 'Updated chrono description', 'description updated');
+
+    const get2 = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
+    assert.equal(get2.status, 200);
+    assert.equal(get2.body.description, 'Updated chrono description', 'description persisted to DB');
   });
 
   it('PATCH chrono updates properties by ID', async () => {
@@ -1931,6 +1949,10 @@ describe('Brain — PATCH chrono by ID', () => {
     });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.properties?.phase, 'beta', 'property updated');
+
+    const get2 = await get(INSTANCES.a, token(), `/api/brain/spaces/general/chrono/${chronoId}`);
+    assert.equal(get2.status, 200);
+    assert.equal(get2.body.properties?.phase, 'beta', 'updated property persisted to DB');
   });
 
   it('PATCH chrono with unknown ID returns 404', async () => {

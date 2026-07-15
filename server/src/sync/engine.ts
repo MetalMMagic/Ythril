@@ -787,18 +787,21 @@ async function propagateVotesWithPeer(
           if (justPassed && round.type === 'remove') {
             sendMemberRemovedNotify(round.subjectUrl, round.subjectInstanceId, net.id);
           }
-          // For braintree join rounds, add the pending member only if this instance
-          // is the direct parent (i.e. the node that opened the round).
-          // Ancestor-voters must NOT add the joining node to their own member list.
-          if (justPassed && round.type === 'join' && round.pendingMember &&
-              freshNet.type === 'braintree') {
+          // For join rounds, add the held pending member on conclusion.
+          // Braintree: only the direct parent (the node that opened the round)
+          // admits — ancestor-voters must NOT add the joining node to their own
+          // member list. Other vote-governed types: only the instance holding
+          // the joiner's credentials admits (gossip-adopted round copies have
+          // pendingMember.tokenHash stripped).
+          if (justPassed && round.type === 'join' && round.pendingMember) {
             const alreadyAdded = freshNet.members.some(m => m.instanceId === round.subjectInstanceId);
-            const isDirectParent = !round.pendingMember.parentInstanceId ||
-              round.pendingMember.parentInstanceId === fresh.instanceId;
+            const mayAdmit = freshNet.type === 'braintree'
+              ? (!round.pendingMember.parentInstanceId || round.pendingMember.parentInstanceId === fresh.instanceId)
+              : Boolean(round.pendingMember.tokenHash);
             const vetoed = round.votes.some(v => v.vote === 'veto');
-            if (!alreadyAdded && isDirectParent && !vetoed) {
+            if (!alreadyAdded && mayAdmit && !vetoed) {
               freshNet.members.push(round.pendingMember);
-              log.info(`Braintree join ${round.roundId} concluded via gossip — added ${round.subjectLabel} to network ${net.id}`);
+              log.info(`Join round ${round.roundId} concluded via gossip — added ${round.subjectLabel} to network ${net.id}`);
             }
           }
         }

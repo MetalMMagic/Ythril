@@ -361,6 +361,14 @@ function spaceAllowed(
         : memberNets;
       return usable.some(n => n.spaces.includes(spaceId));
     }
+    // A peer whose join is still being voted on (or was denied) holds a
+    // provisioned PAT but no membership — it must NOT fall through to plain
+    // space scoping, or the vote hold would be meaningless (S9). A passed
+    // round implies membership, which is handled above.
+    const heldByJoinRound = cfg.networks.some(n =>
+      n.pendingRounds?.some(r =>
+        r.type === 'join' && r.subjectInstanceId === peerId && !r.passed));
+    if (heldByJoinRound) return false;
     // Unknown peer (manual token / asymmetric network): fall through to the
     // legacy space-existence check below — the token's own scope still applies.
   }
@@ -1438,17 +1446,20 @@ syncRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requireAut
       sendMemberRemovedNotify(round.subjectUrl, round.subjectInstanceId, net.id);
     }
 
-    // If a braintree join round just passed via this vote relay, add the pending member
-    // only if this instance is the direct parent in the tree.
-    if (round.concluded && round.type === 'join' && round.pendingMember &&
-        net.type === 'braintree') {
+    // If a join round just passed via this vote relay, add the pending member.
+    if (round.concluded && round.type === 'join' && round.pendingMember) {
       const alreadyAdded = net.members.some(m => m.instanceId === round.subjectInstanceId);
-      const isDirectParent = !round.pendingMember.parentInstanceId ||
-        round.pendingMember.parentInstanceId === cfg.instanceId;
+      // Braintree: only the direct parent in the tree admits (ancestor-voters
+      // must not add the joiner to their own lists). Other vote-governed types:
+      // only the instance that holds the joiner's credentials admits — gossip-
+      // adopted round copies have pendingMember.tokenHash stripped.
+      const mayAdmit = net.type === 'braintree'
+        ? (!round.pendingMember.parentInstanceId || round.pendingMember.parentInstanceId === cfg.instanceId)
+        : Boolean(round.pendingMember.tokenHash);
       const vetoed = round.votes.some(v => v.vote === 'veto');
-      if (!alreadyAdded && isDirectParent && !vetoed) {
+      if (!alreadyAdded && mayAdmit && !vetoed) {
         net.members.push(round.pendingMember);
-        log.info(`Braintree join ${round.roundId} passed via vote relay â€” added ${round.subjectLabel} to network ${net.id}`);
+        log.info(`Join round ${round.roundId} passed via vote relay — added ${round.subjectLabel} to network ${net.id}`);
       }
     }
 
@@ -1498,6 +1509,17 @@ function concludeRoundIfReady(
   if (vetoCount > 0 || pastDeadline) {
     round.concluded = true;
     round.passed = false;
+    // A failed JOIN leaves the candidate's provisioned credentials (peer PAT
+    // issued at invite/apply time, outbound token in secrets) with no membership
+    // to justify them — revoke unless something else still references the
+    // instance. Deferred a tick so the caller's saveConfig runs first.
+    if (round.type === 'join' && round.subjectInstanceId) {
+      const rejectedId = round.subjectInstanceId;
+      setImmediate(() => {
+        revokePeerCredentialsIfOrphaned(rejectedId)
+          .catch(err => log.error(`peer credential revocation for rejected joiner ${rejectedId}: ${err}`));
+      });
+    }
     return false;
   }
 

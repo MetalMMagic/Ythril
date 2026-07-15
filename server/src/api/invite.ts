@@ -47,9 +47,12 @@ import { requireAdmin } from '../auth/middleware.js';
 import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets, saveSecrets } from '../config/loader.js';
 import { createToken } from '../auth/tokens.js';
+import { concludeRoundIfReady } from './sync.js';
+import { buildBraintreeAncestors } from '../util/braintree.js';
+import { makeSignedOwnCast } from '../util/signing.js';
 import { log } from '../util/log.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
-import type { NetworkMember } from '../config/types.js';
+import type { NetworkMember, VoteRound } from '../config/types.js';
 
 export const inviteRouter = Router();
 
@@ -379,7 +382,8 @@ inviteRouter.post('/finalize', authRateLimit, async (req, res) => {
   secrets.peerTokens[instanceId] = peerToken;
   saveSecrets(secrets);
 
-  let responseStatus: 'joined' | 'reparented';
+  let responseStatus: 'joined' | 'reparented' | 'vote_pending';
+  let pendingRoundId: string | undefined;
 
   if (session.reparentInstanceId) {
     // ── Reparent path ───────────────────────────────────────────────────────
@@ -437,10 +441,51 @@ inviteRouter.post('/finalize', authRateLimit, async (req, res) => {
       lastSyncAt: undefined,
       lastSeqReceived: {},
       children: net.type === 'braintree' ? [] : undefined,
+      // The handshake was initiated by THIS instance's invite — the joiner
+      // becomes a child of this node in a braintree.
+      parentInstanceId: net.type === 'braintree' ? cfg.instanceId : undefined,
     };
-    net.members.push(newMember);
-    log.info(`Invite handshake complete: ${instanceLabel} (${instanceId}) joined network ${session.networkId}`);
-    responseStatus = 'joined';
+
+    if (net.type === 'club' || net.type === 'pubsub') {
+      // Direct join — documented behavior for these types.
+      net.members.push(newMember);
+      log.info(`Invite handshake complete: ${instanceLabel} (${instanceId}) joined network ${session.networkId}`);
+      responseStatus = 'joined';
+    } else {
+      // ── Vote-governed types (closed / democratic / braintree) — S9 ────────
+      // Hold the member in a join round instead of admitting directly. This
+      // instance's own yes vote is implicit (its admin generated the invite);
+      // braintree additionally requires every ancestor from this node up to
+      // the root to vote yes, closed requires all members, democratic a
+      // majority. `concludeRoundIfReady` recomputes the braintree ancestor set
+      // from local topology, so the requirement cannot be shrunk from the wire.
+      const round: VoteRound = {
+        roundId: uuidv4(),
+        type: 'join',
+        subjectInstanceId: instanceId,
+        subjectLabel: instanceLabel,
+        subjectUrl: instanceUrl,
+        deadline: new Date(Date.now() + net.votingDeadlineHours * 3_600_000).toISOString(),
+        openedAt: new Date().toISOString(),
+        votes: [],
+        pendingMember: newMember,
+        ...(net.type === 'braintree'
+          ? { requiredVoters: buildBraintreeAncestors(net, cfg.instanceId, cfg.instanceId) }
+          : {}),
+      };
+      net.pendingRounds.push(round);
+      round.votes.push(makeSignedOwnCast(net.id, round, cfg.instanceId, 'yes'));
+      if (concludeRoundIfReady(net, round)) {
+        // Sole-voter case (braintree root / no other members): admit immediately.
+        net.members.push(newMember);
+        log.info(`Invite handshake complete: ${instanceLabel} (${instanceId}) joined network ${session.networkId}`);
+        responseStatus = 'joined';
+      } else {
+        log.info(`Invite handshake held: join round ${round.roundId} opened for ${instanceLabel} (${instanceId}) in network ${session.networkId}`);
+        responseStatus = 'vote_pending';
+        pendingRoundId = round.roundId;
+      }
+    }
   }
 
   saveConfig(cfg);
@@ -448,7 +493,13 @@ inviteRouter.post('/finalize', authRateLimit, async (req, res) => {
   // Discard the session — private key is no longer needed
   _sessions.delete(sessionKey);
 
-  res.json({ status: responseStatus, instanceId, networkId: session.networkId, temporary: session.reparentInstanceId != null });
+  res.json({
+    status: responseStatus,
+    instanceId,
+    networkId: session.networkId,
+    temporary: session.reparentInstanceId != null,
+    ...(pendingRoundId ? { roundId: pendingRoundId } : {}),
+  });
 });
 
 // ── GET /api/invite/status/:handshakeId ───────────────────────────────────────

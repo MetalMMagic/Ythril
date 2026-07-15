@@ -770,6 +770,7 @@
   "networks.dialog.join.error.aliasInvalid": "Alias \"{{ alias }}\" ist ung\u00fcltig \u2014 nur Kleinbuchstaben, Zahlen und Bindestriche sind erlaubt.",
   "networks.dialog.join.error.aliasExists": "Alias \"{{ alias }}\" existiert bereits lokal \u2014 w\u00e4hlen Sie einen anderen Namen.",
   "networks.dialog.join.success.joined": "Netzwerk \"{{ networkLabel }}\" erfolgreich beigetreten.",
+  "networks.dialog.join.success.votePending": "Beitrittsanfrage an \"{{ networkLabel }}\" gesendet 2014 die Aufnahme erfordert die Zustimmung der Mitglieder. Die Synchronisierung startet automatisch, sobald die Abstimmung angenommen wurde.",
   "networks.dialog.join.success.createdSpaces": "Neue Spaces erstellt: {{ spaces }}.",
   "networks.dialog.join.success.existingSpaces": "\u26a0\ufe0f Vorhandene Spaces in Sync zusammengef\u00fchrt: {{ spaces }} \u2014 Daten aus dem Remote-Brain werden in diese Spaces synchronisiert.",
   "networks.dialog.join.success.aliases": "Aliase: {{ aliases }}.",

@@ -152,6 +152,18 @@ export function signOwnVoteCast(params: {
   return signMessage(kp.privateKeyPem, voteCastMessage(params));
 }
 
+/** Build this instance's own vote cast, signed when a signing key is available. */
+export function makeSignedOwnCast(networkId: string, round: VoteRound, instanceId: string, vote: 'yes' | 'veto'): VoteCast {
+  const sig = signOwnVoteCast({
+    networkId,
+    roundId: round.roundId,
+    subjectInstanceId: round.subjectInstanceId,
+    instanceId,
+    vote,
+  });
+  return { instanceId, vote, castAt: new Date().toISOString(), ...(sig ? { sig } : {}) };
+}
+
 // ── Key rotation ─────────────────────────────────────────────────────────────
 
 /** A signed proof that a new signing key supersedes a previous one. */

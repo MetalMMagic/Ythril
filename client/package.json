@@ -26,8 +26,7 @@
     "highlight.js": "^11.11.1",
     "qrcode": "^1.5.4",
     "rxjs": "~7.8.0",
-    "tslib": "^2.3.0",
-    "zone.js": "~0.15.0"
+    "tslib": "^2.3.0"
   },
   "devDependencies": {
     "@analogjs/vite-plugin-angular": "^2.6.3",

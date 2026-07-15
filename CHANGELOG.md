@@ -99,6 +99,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The client is fully zoneless (P13) — `zone.js` is gone.** The endgame of the P5 `OnPush` pass:
+  the app now bootstraps with `provideZonelessChangeDetection()` and the `zone.js` polyfill is removed
+  from the build (and from `dependencies`). Until now every timer, XHR, and DOM event anywhere in the
+  page scheduled a whole-tree change-detection sweep as a zone-driven safety net; change detection now
+  runs only when something Angular actually tracks changes — a signal write, an `ngModel`/event-handler
+  update, an `AsyncPipe` emission — which the P5 audit already established is how every page updates
+  state. The safety net was all cost and no catch. The polyfill's ~90 kB (raw) also drops out of the
+  initial bundle, which shrinks to 378.5 kB raw / 104.7 kB transfer with no polyfills chunk at all.
+  The Vitest environment flips with it (`test-setup.ts` provides the same zoneless providers to every
+  `TestBed`), so specs — including the change-detection harness whose negative control proves staleness
+  is still detectable — exercise the exact CD regime production runs. Verified beyond the suite with a
+  full Playwright click-through of every route on a fresh instance (first-run setup → login incl. the
+  invalid-token error path → space/token/entity creation → language switch re-rendering the whole
+  shell → all ten settings/workspace routes): no stale view, zero Angular console errors.
+
 - **Filtered semantic recall now pre-filters instead of scanning everything (P6), and per-space
   indexes shed their redundant `spaceId` key (P10) — one index migration for the major release.**
   Two changes that both rewrite live-space indexes, bundled into a single boot migration.

@@ -432,6 +432,13 @@ const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | '
  * Populates `lockedByInfra` with any key whose effective value came from an
  * env var — the Settings UI uses this list to render those fields as read-only.
  */
+/** Correct the invalid Ollama model name `moondream2` (which 404s on pull) to the
+ *  real registry name `moondream`. Applied to the resolved vision model from any
+ *  source so installs that saved the bad name keep working after the fix. */
+function normalizeVisionModel(model: string): string {
+  return model === 'moondream2' ? 'moondream' : model;
+}
+
 export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const cfg = getConfig();
   const base = cfg.mediaEmbedding ?? {};
@@ -472,10 +479,13 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
       //  - Docker Compose: bridge-network DNS to the `ollama` service
       //  - K8s: ClusterFirst DNS within the `ythril` namespace
       ?? 'http://ollama:11434',
-    model: visionModelEnv
-      ?? base.vision?.model
-      ?? base.visionModel
-      ?? 'moondream2',
+    // `moondream` is the correct Ollama registry name; `moondream2` does not exist
+    // there (a pull 404s), which silently broke bundled image captioning. Normalise
+    // the invalid legacy name from ANY source (env / saved config) so existing installs
+    // self-heal without a config-file migration.
+    model: normalizeVisionModel(
+      visionModelEnv ?? base.vision?.model ?? base.visionModel ?? 'moondream',
+    ),
     apiKey: visionApiKeyEnv ?? mediaSecrets.visionApiKey ?? base.vision?.apiKey,
     label: base.vision?.label ?? 'Vision provider (Ollama-compatible)',
   };

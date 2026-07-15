@@ -237,7 +237,7 @@ export interface MediaProviderConfig {
   /** Base URL of the provider (e.g. `http://ollama.ythril.svc.cluster.local:11434`
    *  or `https://api.openai.com/v1`). The provider client appends the route. */
   baseUrl?: string;
-  /** Model tag passed to the provider (e.g. `moondream2`, `gpt-4o-mini`,
+  /** Model tag passed to the provider (e.g. `moondream`, `gpt-4o-mini`,
    *  `whisper-1`, `base`). */
   model?: string;
   /** Optional API key for endpoints that require Authorization.

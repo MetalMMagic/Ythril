@@ -94,7 +94,7 @@ interface MediaCfg {
           </label>
           <input type="text" [(ngModel)]="form.vision!.model"
             [disabled]="isLocked('vision.model')"
-            placeholder="moondream2" />
+            placeholder="moondream" />
         </div>
         <div class="field">
           <label>API Key (optional)

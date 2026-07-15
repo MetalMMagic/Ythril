@@ -159,6 +159,27 @@ describe('getMediaEmbeddingConfig', () => {
       assert.equal(cfg.vision?.model, 'llava:13b');
     });
 
+    it('defaults the vision model to `moondream` (the real Ollama registry name)', () => {
+      writeConfig();
+      const cfg = getMediaEmbeddingConfig();
+      assert.equal(cfg.vision?.model, 'moondream');
+    });
+
+    it('heals the invalid legacy vision model `moondream2` → `moondream` from saved config', () => {
+      // `moondream2` is not a real Ollama model (a pull 404s); an install that saved it
+      // must self-heal so image captioning works without a manual config edit.
+      writeConfig({ mediaEmbedding: { vision: { model: 'moondream2' } } });
+      const cfg = getMediaEmbeddingConfig();
+      assert.equal(cfg.vision?.model, 'moondream');
+    });
+
+    it('heals `moondream2` from the VISION_MODEL env var too', () => {
+      process.env['VISION_MODEL'] = 'moondream2';
+      writeConfig();
+      const cfg = getMediaEmbeddingConfig();
+      assert.equal(cfg.vision?.model, 'moondream');
+    });
+
     it('WHISPER_URL overrides default STT URL', () => {
       process.env['WHISPER_URL'] = 'http://custom-whisper:8000';
       writeConfig();

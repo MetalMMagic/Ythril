@@ -112,7 +112,7 @@
         ollama serve &
         SERVE_PID=$$!
         until ollama list >/dev/null 2>&1; do sleep 1; done
-        ollama pull moondream2 || echo "WARN: moondream2 pull failed; will retry on first request"
+        ollama pull moondream || echo "WARN: moondream pull failed; will retry on first request"
         wait $$SERVE_PID
     environment:
       OLLAMA_KEEP_ALIVE: "24h"

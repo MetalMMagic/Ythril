@@ -766,6 +766,7 @@
   "networks.dialog.join.error.aliasInvalid": "Alias \"{{ alias }}\" jest nieprawid\u0142owy \u2014 u\u017cyj tylko ma\u0142ych liter, cyfr i my\u015blnik\u00f3w.",
   "networks.dialog.join.error.aliasExists": "Alias \"{{ alias }}\" ju\u017c istnieje lokalnie \u2014 wybierz inn\u0105 nazw\u0119.",
   "networks.dialog.join.success.joined": "Pomy\u015blnie do\u0142\u0105czono do sieci \"{{ networkLabel }}\".",
+  "networks.dialog.join.success.votePending": "Wysłano prośbę o dołączenie do sieci \"{{ networkLabel }}\" — przyjęcie wymaga zatwierdzenia przez członków. Synchronizacja rozpocznie się automatycznie po pozytywnym głosowaniu.",
   "networks.dialog.join.success.createdSpaces": "Utworzono nowe przestrzenie: {{ spaces }}.",
   "networks.dialog.join.success.existingSpaces": "\u26a0\ufe0f Istniej\u0105ce przestrzenie zosta\u0142y w\u0142\u0105czone do synchronizacji: {{ spaces }} \u2014 dane ze zdalnego braina b\u0119d\u0105 synchronizowane do tych przestrzeni.",
   "networks.dialog.join.success.aliases": "Aliasy: {{ aliases }}.",

@@ -765,6 +765,7 @@
   "networks.dialog.join.error.aliasInvalid": "Alias \"{{ alias }}\" is invalid \u2014 use lowercase letters, numbers, and hyphens only.",
   "networks.dialog.join.error.aliasExists": "Alias \"{{ alias }}\" already exists as a local space \u2014 choose a different name.",
   "networks.dialog.join.success.joined": "Joined network \"{{ networkLabel }}\" successfully.",
+  "networks.dialog.join.success.votePending": "Join request sent to \"{{ networkLabel }}\" 2014 admission requires member approval. Sync starts automatically once the vote passes.",
   "networks.dialog.join.success.createdSpaces": "Created new spaces: {{ spaces }}.",
   "networks.dialog.join.success.existingSpaces": "\u26a0\ufe0f Existing spaces merged into sync: {{ spaces }} \u2014 data from the remote brain will be synced into these spaces.",
   "networks.dialog.join.success.aliases": "Aliases: {{ aliases }}.",

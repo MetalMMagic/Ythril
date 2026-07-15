@@ -1100,7 +1100,12 @@ export class NetworksComponent implements OnInit {
     }).subscribe({
       next: (result) => {
         this.joining.set(false);
-        let msg = this.transloco.translate('networks.dialog.join.success.joined', { networkLabel: result.networkLabel });
+        // Vote-governed networks hold the join in a vote round on the inviter's
+        // side; sync begins once the members/ancestors approve.
+        const successKey = result.status === 'vote_pending'
+          ? 'networks.dialog.join.success.votePending'
+          : 'networks.dialog.join.success.joined';
+        let msg = this.transloco.translate(successKey, { networkLabel: result.networkLabel });
         if (result.createdSpaces?.length) {
           msg += ` ${this.transloco.translate('networks.dialog.join.success.createdSpaces', { spaces: result.createdSpaces.join(', ') })}`;
         }

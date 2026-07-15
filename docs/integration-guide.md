@@ -3187,6 +3187,20 @@ POST /api/networks/:id/join
 }
 ```
 
+**Response** — depends on the network's governance:
+
+- `club` / `pubsub`: `200` `{ "status": "joined", "members": [...], "networkId": "..." }` — direct join, no vote.
+- `closed` / `democratic` / `braintree`: `202` `{ "status": "vote_pending", "roundId": "..." }` — the member
+  is **held in the vote round** (no sync possible) until the required voters approve (closed: all members;
+  democratic: majority; braintree: every ancestor from the inviting node to the root). Exception: a join on a
+  braintree **root** concludes immediately (the root is the only required voter) and returns `200 joined`.
+- In a braintree the joiner always becomes a **child of the instance it joins through**; `parentInstanceId`
+  and `direction` from the request body are ignored for braintree joins.
+
+The invite key is consumed when the round opens (pubsub keys stay reusable). **Re-presenting the same key
+with the same `instanceId` polls the outcome**: `202` while the vote is open, `200 joined` with the member
+list once admitted, `403` if the round was vetoed or expired.
+
 ---
 
 ### Cast a Vote
@@ -3591,6 +3605,14 @@ POST /api/invite/finalize
 ```json
 { "status": "joined", "instanceId": "joiner-uuid", "networkId": "net-uuid" }
 ```
+
+On vote-governed networks (`closed`, `democratic`, `braintree`) the join is **held in a vote round**
+instead of taking effect immediately — the response is then
+`{ "status": "vote_pending", "roundId": "...", ... }`. The inviting instance's own yes vote is cast
+implicitly (its admin generated the invite), so the common cases — first member of a closed network,
+leaf under a braintree **root** — still conclude immediately and return `"joined"`. While the round is
+open the joiner's provisioned peer token is refused on `/api/sync/*`; sync starts automatically once
+the vote passes. If the round is vetoed or expires, the provisioned credentials are revoked.
 
 ---
 

@@ -631,6 +631,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Both non-admin join paths bypassed join governance entirely (S9).** The documented model admits a
+  new member only after the required vote passes — braintree: a yes from **every ancestor on the path
+  from the inviting node to the root**; closed: all members; democratic: a majority. Neither non-admin
+  join path implemented this: `POST /api/networks/:id/join` with an invite key **direct-joined**
+  braintree networks (no vote round at all), and the RSA-handshake finalize (`POST /api/invite/finalize`)
+  added the member directly **for every network type** — so a leaf-level invite admitted a member into a
+  braintree, closed, or democratic network with no ancestor or member ever consulted. Ancestor voting
+  existed only on the admin member-add path. Both paths now open the same join vote round the admin path
+  uses: the member record (and its credentials) is **held on the round** (`pendingMember`) and only
+  enters the member list when the vote concludes yes; the braintree required-voter set is recomputed
+  from local topology at conclusion (never trusted from the wire), and the joiner always becomes a child
+  of the instance it joined through — topology fields from the request body are ignored. The inviting
+  instance's own yes is cast implicitly (its admin generated the invite/key), so the common flows are
+  unchanged: club/pubsub still direct-join (documented), and a braintree **root** invite or the first
+  member of a closed network still joins immediately. While a round is open the joiner's provisioned
+  peer PAT is **refused on `/api/sync/*`** (previously an unknown-peer fallback would have honoured its
+  space scope), and a vetoed or expired join round now **revokes the provisioned credentials**
+  (peer PAT and outbound token) instead of leaving them live forever. Re-presenting the consumed invite key with the
+  same `instanceId` polls the round: `202` while open, `200 joined` once admitted, `403` if denied —
+  this also repairs the closed/democratic invite-key flow, which previously **lost the member record
+  entirely** (the round held no `pendingMember`, so a passed vote admitted nobody and the consumed key
+  made re-joining impossible). Covered end-to-end (two live instances, gossip, veto, credential
+  revocation, sync-hold) by `testing/sync/join-governance.test.js`.
+
 - **Dozens of mutating endpoints produced no audit entry at all.** The audit middleware keeps a
   hand-maintained route table — a second, shadow copy of the router's paths — and nothing kept the two in
   sync. It had drifted badly: the file-upload rule pointed at `/api/files/:space/upload`, **a route that has

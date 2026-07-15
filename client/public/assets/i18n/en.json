@@ -1028,5 +1028,6 @@
   "spaces.dupe.automergeConfirmTitle": "Enable auto-merge",
   "tokens.confirm.rotateTitle": "Rotate secret",
   "tokens.rotateButton": "Rotate",
-  "tokens.confirm.revokeTitle": "Revoke token"
+  "tokens.confirm.revokeTitle": "Revoke token",
+  "nav.menu": "Menu"
 }

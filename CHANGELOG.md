@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Mobile navigation drawer restores the app on phones (UX U2).** Below 768px the sidebar was
+  simply `display: none` with no replacement — no hamburger, no drawer, no top-nav fallback — so on a
+  phone you could reach exactly one page (whichever loaded first) and were then stranded; the entire
+  information architecture was gone. A hamburger button now appears in the top bar below the
+  breakpoint and toggles the sidebar as an **off-canvas overlay drawer**: it slides in over a
+  backdrop, closes on backdrop click, on Escape, and automatically **on navigation** (so tapping a
+  link takes you to the page and dismisses the overlay). Built on Angular CDK `cdkTrapFocus` (enabled
+  only while the drawer is open), so focus is trapped inside it and captured on open — keyboard and
+  screen-reader users can operate it. The desktop layout is untouched (the hamburger is hidden and
+  the sidebar stays static ≥769px), and a resize back above the breakpoint drops the drawer state so
+  it can't linger open. Covered by `shell.component.spec.ts` and verified end-to-end at a 390px
+  viewport (drawer open/close, link navigation, Escape, backdrop, focus capture, desktop unaffected).
+
 - **Toasts and a real confirm dialog replace every native `alert()`/`confirm()` (UX U1, folds in
   U5 + C3).** The client had no notification system at all — 34 `alert()`/`confirm()` calls, several
   hardcoded in English, and the most destructive actions (wipe space, delete space, restore backup,

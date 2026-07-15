@@ -1030,5 +1030,15 @@
   "tokens.confirm.rotateTitle": "Zmień sekret",
   "tokens.rotateButton": "Zmień",
   "tokens.confirm.revokeTitle": "Unieważnij token",
-  "nav.menu": "Menu"
+  "nav.menu": "Menu",
+  "common.retry": "Ponów",
+  "common.loadFailed": "Nie udało się załadować treści.",
+  "brain.error.loadMemories": "Nie udało się załadować wspomnień.",
+  "brain.error.loadEntities": "Nie udało się załadować encji.",
+  "brain.error.loadEdges": "Nie udało się załadować krawędzi.",
+  "brain.error.loadChrono": "Nie udało się załadować wpisów osi czasu.",
+  "brain.error.loadFileMeta": "Nie udało się załadować rekordów plików.",
+  "files.error.loadFiles": "Nie udało się załadować plików.",
+  "schemaLib.error.load": "Nie udało się załadować biblioteki schematów.",
+  "graph.error.load": "Nie udało się załadować grafu."
 }

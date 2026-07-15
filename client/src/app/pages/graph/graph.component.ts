@@ -18,6 +18,8 @@ import { Subscription, forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import cytoscape from 'cytoscape';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
+import { httpErrorReason } from '../../core/http-error';
 import {
   ApiService,
   Space,
@@ -63,7 +65,7 @@ interface DetailRow {
   // `openBrainDrawer` alongside the `drawerRecord` signal that guards the drawer's `@if`, the same
   // load-bearing coupling pinned by the brain spec.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, TagInputComponent, PropertiesEditorComponent, PhIconComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, TagInputComponent, PropertiesEditorComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe],
   host: { '[class.embedded]': 'isEmbedded()' },
   styles: [`
     :host {
@@ -689,7 +691,11 @@ interface DetailRow {
           <div class="loading-overlay"><div class="loading-spinner"></div></div>
         }
 
-        @if (!rootEntity() && !loading()) {
+        @if (loadError() !== null && !loading()) {
+          <div class="canvas-empty">
+            <app-error-state [message]="'graph.error.load' | transloco" [reason]="loadError() ?? ''" (retry)="retryTraverse()" />
+          </div>
+        } @else if (!rootEntity() && !loading()) {
           <div class="canvas-empty">
             <div class="empty-icon"><ph-icon name="circle-dashed" [size]="52"/></div>
             <h3>{{ 'graph.empty.title' | transloco }}</h3>
@@ -1172,6 +1178,11 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   readonly chronoStatusOptions: ChronoStatus[] = ['upcoming', 'active', 'completed', 'overdue', 'cancelled'];
 
   loading = signal(false);
+  /** Failure reason for the last traversal; null when it succeeded (U3). A
+   *  failed traversal must not render as an empty graph (which reads as "no
+   *  connections"). */
+  loadError = signal<string | null>(null);
+  private lastTraverse: { startId: string; maxDepth: number; direction: 'outbound' | 'inbound' | 'both' } | null = null;
 
   // â”€â”€ Computed â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   allDetails = computed<DetailRow[]>(() => {
@@ -1632,9 +1643,11 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     const incremental = sameRoot && maxDepth > this.cacheMaxDepth && !this.cacheTruncated;
 
     this.loading.set(true);
-    this.api.traverseGraph(spaceId, { startId, direction, maxDepth, limit: 200 }).pipe(
-      catchError(() => of({ nodes: [], edges: [], truncated: false } as TraverseResult)),
-    ).subscribe(result => {
+    this.loadError.set(null);
+    this.lastTraverse = { startId, maxDepth, direction };
+    this.api.traverseGraph(spaceId, { startId, direction, maxDepth, limit: 200 }).subscribe({
+      error: (e) => { this.loading.set(false); this.loadError.set(httpErrorReason(e)); },
+      next: (result) => {
       this.loading.set(false);
 
       if (incremental) {
@@ -1655,7 +1668,16 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
       this.truncated.set(result.truncated);
       this.applyDepthFilter(startId, maxDepth);
+      },
     });
+  }
+
+  /** Re-run the last traversal — bound to the error state's Retry button. */
+  retryTraverse(): void {
+    if (this.lastTraverse) {
+      const { startId, maxDepth, direction } = this.lastTraverse;
+      this.traverse(startId, maxDepth, direction);
+    }
   }
 
   // Filter the full cache down to the requested depth and re-render

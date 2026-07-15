@@ -6,6 +6,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Failed loads now render a distinct error state instead of a "no data" empty state (UX U3).**
+  Every list view swallowed load failures (`error: () => loading.set(false)`) and fell through to its
+  empty state — so a 500, a dropped connection, or an expired backend rendered as a friendly
+  *"No memories yet…"*. Told in the app's own reassuring voice that their data doesn't exist, a user
+  won't retry and may conclude the brain was wiped; the *well-designed* empty states made the lie more
+  convincing. A shared `ErrorStateComponent` (warning icon, "Couldn't load …", the failure reason, and
+  a **Retry** button, `role="alert"`) is now checked **before** the empty state at all eight list call
+  sites: the Brain tabs (memories, entities, edges, chrono, file-meta), the file manager, the schema
+  library, and the graph traversal. Each keeps a per-view error signal set to the server's reason (via
+  a shared `httpErrorReason` helper) and cleared on a successful load; Retry re-runs that view's fetch.
+  Covered by `error-state.component.spec.ts` and verified end-to-end (a forced 500 shows the error
+  state + reason + Retry, not the empty state, and Retry recovers).
+
 ### Fixed
 
 - **The recurring "vote-signing relay" sync-test flake is fixed at its root — a test setup race,

@@ -9,6 +9,8 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
+import { ErrorStateComponent } from '../../shared/error-state.component';
+import { httpErrorReason } from '../../core/http-error';
 import hljs from 'highlight.js/lib/core';
 import javascript from 'highlight.js/lib/languages/javascript';
 import typescript from 'highlight.js/lib/languages/typescript';
@@ -81,7 +83,7 @@ function previewKind(name: string): PreviewKind {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent],
   styles: [`
     .toolbar {
       display: flex;
@@ -398,11 +400,15 @@ function previewKind(name: string): PreviewKind {
                   </tr>
                 } @empty {
                   <tr><td colspan="5">
+                    @if (loadError() !== null) {
+                      <app-error-state [message]="'files.error.loadFiles' | transloco" [reason]="loadError() ?? ''" (retry)="reloadDir()" />
+                    } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="folder-open" [size]="48"/></div>
                       <h3>{{ 'files.emptyFolder.title' | transloco }}</h3>
                       <p>{{ 'files.emptyFolder.body' | transloco }}</p>
                     </div>
+                    }
                   </td></tr>
                 }
               </tbody>
@@ -504,6 +510,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   currentPath = signal('/');
   entries = signal<FileEntry[]>([]);
   loading = signal(false);
+  /** Failure reason for the directory listing; null when it loaded (U3). */
+  loadError = signal<string | null>(null);
   loadingSpaces = signal(true);
   uploading = signal(false);
   uploadError = signal('');
@@ -581,14 +589,19 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   private loadDir(path: string): void {
     this.loading.set(true);
+    this.loadError.set(null);
     this.api.listFiles(this.activeSpaceId(), path).subscribe({
       next: ({ entries }) => {
         this.entries.set(entries);
         this.loading.set(false);
       },
-      error: () => this.loading.set(false),
+      // A failed listing must not fall through to the "empty folder" state (U3).
+      error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
     });
   }
+
+  /** Re-load the current directory — bound to the error state's Retry button. */
+  reloadDir(): void { this.loadDir(this.currentPath()); }
 
   @HostListener('dragover', ['$event'])
   onDragOver(event: DragEvent): void {

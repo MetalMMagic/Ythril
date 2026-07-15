@@ -140,13 +140,18 @@ describe('Space-scoped token cannot access sync endpoints of other spaces', () =
     assert.equal(r.status, 200, `Scoped token should access its own space, got ${r.status}: ${JSON.stringify(r.body)}`);
   });
 
-  it('Scoped token CAN batch-upsert into its own space → 200', async () => {
+  it('Scoped token cannot batch-upsert even into its own space → 403 (S10: sync writes are peer-only)', async () => {
+    // The sync data-write surface requires a peer token (peerInstanceId) or an
+    // admin token: sync writes carry raw seq/_id/author stream metadata, which
+    // a space-scoped user PAT must not be able to forge. User writes go through
+    // the regular REST API instead.
     const r = await post(
       INSTANCES.a,
       scopedToken,
       '/api/sync/batch-upsert?spaceId=general',
       { memories: [{ _id: 'rt-scope-allowed-001', fact: 'allowed write', seq: 1 }] },
     );
-    assert.equal(r.status, 200, `Scoped token should write to its own space, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.status, 403, `Non-peer PAT must not write via /api/sync, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(r.body.error?.includes('peer token'), `Error should demand a peer token: ${r.body.error}`);
   });
 });

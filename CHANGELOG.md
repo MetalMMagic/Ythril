@@ -631,6 +631,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The sync data-write surface is now peer-only, and direction enforcement can no longer be
+  side-stepped (S10).** The direction guard on the seven `/api/sync/*` write endpoints (`memories`,
+  `entities`, `edges`, `chrono`, `batch-upsert`, `tombstones`, `file-tombstones`) had two holes. First,
+  it only ever bound tokens carrying `peerInstanceId` — **any space-scoped user PAT could write through
+  the sync surface** regardless of the network's direction topology. That matters because sync writes,
+  unlike the REST API (which assigns `seq`/`_id`/`author` server-side), carry raw stream metadata: a
+  downstream operator in a braintree or pub/sub network holding any leaked upstream user PAT could push
+  content upstream, defeating the documented one-way flow and forging sync state the REST API never
+  permits. Second, the guard keyed on the **caller-supplied `networkId` query parameter** — a push-only
+  peer could simply omit it (or name a non-directional network sharing the space) and write anyway.
+  Both are closed: data writes now require a **peer token or an admin token** (403 otherwise, with the
+  error pointing user PATs at the regular REST API), and for identified peers the direction check is
+  derived from this instance's **own membership records covering the target space** — allowed only when
+  at least one relationship carrying that space permits inbound flow — never from wire input. Reads and
+  the governance relays (votes/member gossip, which have their own forgery protections) are unchanged,
+  as are asymmetric topologies where the writer is not listed as a member (braintree parents, single-side
+  configs): their handshake-issued tokens already carry `peerInstanceId`. **Migration for
+  manually-configured networks:** a hand-provisioned peer token must now be minted with
+  `POST /api/tokens { peerInstanceId: "<peer-uuid>" }` (documented in the integration guide); an
+  existing plain PAT used by a peer for data pushes will start receiving 403s on upgrade.
+
 - **Both non-admin join paths bypassed join governance entirely (S9).** The documented model admits a
   new member only after the required vote passes — braintree: a yes from **every ancestor on the path
   from the inviting node to the root**; closed: all members; democratic: a majority. Neither non-admin

@@ -238,7 +238,9 @@ A leaf node has `direction='push'` toward its parent — meaning the engine push
 
 The direction field controls not only which phases the sync *engine* runs on the initiating side, but also which writes the *receiving server* accepts.
 
-When a peer POSTs data to any write endpoint (`/api/sync/memories`, `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/tombstones`, `/file-tombstones`), the server looks up the member record for the caller's `peerInstanceId` (carried on server-issued peer tokens) in the network. If `member.direction === 'push'` — meaning "we push to them, they should not write to us" — the server responds `403 { error: 'Directional network: write not permitted from this peer' }`.
+**The data-write surface is peer-only.** A POST to any write endpoint (`/api/sync/memories`, `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/tombstones`, `/file-tombstones`) must be presented with a **peer token** (a PAT carrying `peerInstanceId` — issued by the invite handshake, or minted explicitly via `POST /api/tokens { peerInstanceId }` for manually-configured topologies) or an **admin token** (the local operator, who could write through the regular REST API anyway). A space-scoped user PAT is refused with `403 { error: 'Sync writes require a peer token (peerInstanceId) or an admin token — use the regular REST API for user writes' }`. Unlike the REST API, which assigns `seq`/`_id`/`author` server-side, sync writes carry raw stream metadata — accepting user PATs here would let anyone holding one forge sync state, e.g. a downstream operator pushing content upstream in a directional network.
+
+For an identified peer, the server then derives the direction check from **its own membership records covering the target space** — never from the caller-supplied `networkId` query parameter. The write is allowed only when at least one of the caller's network relationships carrying that space permits inbound flow (`direction` pull/both, or a non-directional network type). If every relationship covering the space is `push` — "we push to them, they should not write to us" — the server responds `403 { error: 'Directional network: write not permitted from this peer' }`. A peer that is a member of no local network carrying the space (asymmetric/single-side topologies, a braintree child receiving from its unlisted parent) is governed by token space scope and the pending-join hold instead.
 
 This is the server-side complement to the engine's client-side skip logic. Together they guarantee:
 
@@ -247,7 +249,7 @@ This is the server-side complement to the engine's client-side skip logic. Toget
 | Braintree parent → child | Parent pushes, child does not push back | Child rejects POST from parent's subtree peers |
 | Pub/Sub publisher → subscriber | Publisher pushes, subscriber does not push | Publisher rejects POST from subscribers |
 
-Bidirectional network types (`closed`, `democratic`, `club`) always have `direction='both'` on all members, so the guard never fires.
+Bidirectional network types (`closed`, `democratic`, `club`) always have `direction='both'` on all members, so the directional guard never fires — but the peer-only write gate still applies.
 
 ---
 
@@ -291,7 +293,7 @@ On the pulling side, records returned by `GET /members` that share our own `inst
 
 ## API reference
 
-All endpoints are under `/api/sync` and require a `Bearer` token. In normal operation that is a **peer token** — a PAT carrying `peerInstanceId`, issued to the peer during join — but the endpoints use the ordinary auth middleware, so admin and appropriately space-scoped user PATs are also accepted (token space-scope **and** network membership are enforced before any read or write; admin tokens additionally act as trusted local relays for tombstones). Rate-limited per IP.
+All endpoints are under `/api/sync` and require a `Bearer` token. In normal operation that is a **peer token** — a PAT carrying `peerInstanceId`, issued to the peer during join. Read endpoints and the governance relays additionally accept admin and appropriately space-scoped user PATs (token space-scope **and** network membership are enforced before any read or write; admin tokens additionally act as trusted local relays for tombstones). The seven **data-write endpoints accept only peer or admin tokens** — see [Direction enforcement on inbound endpoints](#direction-enforcement-on-inbound-endpoints). Rate-limited per IP.
 
 ### Read endpoints (called during pull)
 

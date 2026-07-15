@@ -384,6 +384,27 @@ function spaceAllowed(
 }
 
 /**
+ * S10: the sync data-write surface is for peers. A write must be presented by
+ * a server-issued peer token (`peerInstanceId`, set by the invite handshake or
+ * minted explicitly via POST /api/tokens) or by an admin token — the local
+ * operator, who could write through the regular REST API anyway. Space-scoped
+ * user PATs are refused: unlike the REST API (which assigns seq/_id/author
+ * server-side), sync writes carry raw sync metadata, so accepting them would
+ * let any user-PAT holder forge stream state — e.g. a downstream operator in
+ * a directional network pushing content upstream with a leaked upstream PAT,
+ * defeating the documented one-way flow.
+ *
+ * Returns true if the write must be REJECTED (403).
+ */
+function isNonPeerSyncWrite(authToken: Record<string, unknown> | undefined): boolean {
+  if (authToken?.['admin'] === true) return false;
+  return !callerPeerId(authToken);
+}
+
+const NON_PEER_WRITE_MESSAGE =
+  'Sync writes require a peer token (peerInstanceId) or an admin token — use the regular REST API for user writes';
+
+/**
  * For directional networks (braintree, pubsub), reject inbound writes from
  * members whose direction is 'push'. Direction is stored from THIS instance's
  * perspective:
@@ -391,32 +412,33 @@ function spaceAllowed(
  *   direction='pull'  → we pull FROM them → they may push to us (data source)
  *   direction='both'  → bidirectional → accept
  *
- * Enforcement is against an IDENTIFIED member: the peer token carries a
- * server-issued `peerInstanceId` (set by the invite handshake) that is matched
- * against the member list. This covers the real case — a push-only subscriber
- * or child trying to write back to its publisher/parent, where that peer IS a
- * member with direction='push' on this side, so it is blocked.
+ * Enforcement is against an IDENTIFIED member and derived from THIS instance's
+ * own membership records covering the TARGET SPACE — never from the caller-
+ * supplied `networkId` query param, which a push-only peer could previously
+ * simply omit (or point at a non-directional network sharing the space) to
+ * slip past the guard. The write is space-level, so it is allowed only when
+ * at least one of the caller's network relationships carrying that space
+ * permits inbound flow (direction pull/both, or a non-directional type).
  *
- * A token with NO `peerInstanceId` is intentionally NOT blocked here: in a
- * braintree tree the receiver does not list its parent as a member at all, and
- * manually-provisioned peer tokens legitimately omit `peerInstanceId`, so a
- * blanket refusal would break those topologies. `peerInstanceId` is issued
- * server-side and cannot be self-declared, so an attacker cannot forge a
- * matching identity to bypass the check either.
+ * A token with NO `peerInstanceId` never reaches this check on the write
+ * endpoints (isNonPeerSyncWrite gates first); a peer that is a member of no
+ * local network carrying the space is governed by token space scope and the
+ * pending-join hold in spaceAllowed (braintree receivers legitimately do not
+ * list their parent as a member).
  *
  * Returns true if the write should be REJECTED (403).
  */
-function isDirectionalWriteBlocked(networkId: string | undefined, authToken: Record<string, unknown> | undefined): boolean {
+function isDirectionalWriteBlocked(spaceId: string, authToken: Record<string, unknown> | undefined): boolean {
   const peerInstanceId = callerPeerId(authToken);
-  if (!networkId || !peerInstanceId) return false;
-  const cfg = getConfig();
-  const net = cfg.networks.find(n => n.id === networkId);
-  if (!net) return false;
-  if (net.type !== 'braintree' && net.type !== 'pubsub') return false;
-  const member = net.members.find(m => m.instanceId === peerInstanceId);
-  if (!member) return false;
-  // direction='push' means WE push to THEM — they should not be writing to us
-  return member.direction === 'push';
+  if (!peerInstanceId) return false;
+  const nets = peerMemberNetworks(peerInstanceId).filter(n => n.spaces.includes(spaceId));
+  if (nets.length === 0) return false;
+  return !nets.some(n => {
+    if (n.type !== 'braintree' && n.type !== 'pubsub') return true;
+    const member = n.members.find(m => m.instanceId === peerInstanceId);
+    // direction='push' means WE push to THEM — they should not be writing to us
+    return member ? member.direction !== 'push' : false;
+  });
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -499,7 +521,8 @@ syncRouter.post('/memories', syncRateLimit, requireAuth, denyReadOnly, async (re
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
+    if (isNonPeerSyncWrite(req.authToken as Record<string, unknown>)) { res.status(403).json({ error: NON_PEER_WRITE_MESSAGE }); return; }
+    if (isDirectionalWriteBlocked(spaceId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingMemoryDoc.safeParse(req.body);
     if (!parsed.success) {
@@ -637,7 +660,8 @@ syncRouter.post('/entities', syncRateLimit, requireAuth, denyReadOnly, async (re
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
+    if (isNonPeerSyncWrite(req.authToken as Record<string, unknown>)) { res.status(403).json({ error: NON_PEER_WRITE_MESSAGE }); return; }
+    if (isDirectionalWriteBlocked(spaceId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingEntityDoc.safeParse(req.body);
     if (!parsed.success) {
@@ -736,7 +760,8 @@ syncRouter.post('/edges', syncRateLimit, requireAuth, denyReadOnly, async (req, 
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
+    if (isNonPeerSyncWrite(req.authToken as Record<string, unknown>)) { res.status(403).json({ error: NON_PEER_WRITE_MESSAGE }); return; }
+    if (isDirectionalWriteBlocked(spaceId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingEdgeDoc.safeParse(req.body);
     if (!parsed.success) {
@@ -836,7 +861,8 @@ syncRouter.post('/chrono', syncRateLimit, requireAuth, denyReadOnly, async (req,
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
+    if (isNonPeerSyncWrite(req.authToken as Record<string, unknown>)) { res.status(403).json({ error: NON_PEER_WRITE_MESSAGE }); return; }
+    if (isDirectionalWriteBlocked(spaceId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const parsed = IncomingChronoDoc.safeParse(req.body);
     if (!parsed.success) {
@@ -896,7 +922,8 @@ syncRouter.post('/batch-upsert', syncRateLimit, requireAuth, denyReadOnly, async
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
+    if (isNonPeerSyncWrite(req.authToken as Record<string, unknown>)) { res.status(403).json({ error: NON_PEER_WRITE_MESSAGE }); return; }
+    if (isDirectionalWriteBlocked(spaceId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const body = req.body as { memories?: unknown[]; entities?: unknown[]; edges?: unknown[]; chrono?: unknown[] };
     const memoriesRaw = (Array.isArray(body?.memories) ? body.memories.slice(0, 500) : [])
@@ -1076,7 +1103,8 @@ syncRouter.post('/tombstones', syncRateLimit, requireAuth, denyReadOnly, async (
     const { spaceId, networkId } = req.query as Record<string, string>;
     if (!spaceId) { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
+    if (isNonPeerSyncWrite(req.authToken as Record<string, unknown>)) { res.status(403).json({ error: NON_PEER_WRITE_MESSAGE }); return; }
+    if (isDirectionalWriteBlocked(spaceId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const body = req.body as { tombstones?: TombstoneDoc[] };
     const tombstones = body?.tombstones ?? [];
@@ -1175,7 +1203,8 @@ syncRouter.post('/file-tombstones', syncRateLimit, requireAuth, denyReadOnly, as
     if (!spaceId || typeof spaceId !== 'string') { res.status(400).json({ error: 'spaceId required' }); return; }
     if (!Array.isArray(tombstones)) { res.status(400).json({ error: 'tombstones must be array' }); return; }
     if (!spaceAllowed(spaceId, networkId, req.authToken?.spaces, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Forbidden' }); return; }
-    if (isDirectionalWriteBlocked(networkId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
+    if (isNonPeerSyncWrite(req.authToken as Record<string, unknown>)) { res.status(403).json({ error: NON_PEER_WRITE_MESSAGE }); return; }
+    if (isDirectionalWriteBlocked(spaceId, req.authToken as Record<string, unknown>)) { res.status(403).json({ error: 'Directional network: write not permitted from this peer' }); return; }
 
     const spaceFiles = path.resolve(getDataRoot(), 'files', spaceId);
     let applied = 0;

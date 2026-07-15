@@ -7,6 +7,7 @@ import { ApiService, Space, FileEntry, UploadProgress } from '../../core/api.ser
 import { AuthService } from '../../core/auth.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
+import { Subscription } from 'rxjs';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { ErrorStateComponent } from '../../shared/error-state.component';
@@ -45,6 +46,18 @@ interface TreeNode {
 }
 
 type PreviewKind = 'text' | 'image' | 'pdf' | 'unknown';
+
+type UploadStatus = 'queued' | 'uploading' | 'done' | 'failed';
+
+/** One row in the upload panel — a single file's lifecycle (U12). */
+interface UploadItem {
+  id: number;
+  file: File;
+  name: string;
+  status: UploadStatus;
+  percent: number;
+  error?: string;
+}
 
 const TEXT_EXTS = new Set([
   '.txt', '.md', '.json', '.yaml', '.yml', '.ts', '.js', '.py', '.sh',
@@ -145,6 +158,76 @@ function previewKind(name: string): PreviewKind {
     .upload-zone:hover, .upload-zone.drag-over {
       border-color: var(--accent);
       color: var(--text-secondary);
+    }
+
+    /* ── Upload queue panel (U12) ─────────────────────────────── */
+    .upload-panel {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .upload-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .upload-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+    }
+    .upload-row + .upload-row { border-top: 1px solid var(--border); }
+    .upload-row-icon { flex-shrink: 0; color: var(--text-secondary); }
+    .upload-row.done .upload-row-icon { color: var(--success); }
+    .upload-row.failed .upload-row-icon { color: var(--error); }
+    .upload-row-body { flex: 1; min-width: 0; }
+    .upload-row-top {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .upload-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+    }
+    .upload-state {
+      flex-shrink: 0;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
+    .upload-row.failed .upload-state { color: var(--error); }
+    .upload-bar {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .upload-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 0.2s;
+    }
+    .upload-row-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
     }
 
     .rename-form { display: flex; gap: 6px; align-items: center; }
@@ -323,18 +406,54 @@ function previewKind(name: string): PreviewKind {
           </button>
         </div>
 
-        <!-- Upload progress -->
-        @if (uploading()) {
-          <div class="alert alert-info" style="display:flex; align-items:center; gap:12px;">
-            <span class="spinner"></span>
-            <span>{{ 'files.uploading' | transloco }} {{ uploadPercent() }}%</span>
-            <div style="flex:1; height:6px; background:var(--border); border-radius:3px; overflow:hidden;">
-              <div [style.width.%]="uploadPercent()" style="height:100%; background:var(--accent); transition:width 0.2s;"></div>
+        <!-- Upload queue — one row per file (U12) -->
+        @if (uploads().length) {
+          <div class="upload-panel">
+            <div class="upload-panel-head">
+              <span>{{ 'files.upload.queueTitle' | transloco }}</span>
+              @if (hasFinishedUploads()) {
+                <button class="btn-ghost btn btn-sm" type="button" (click)="clearFinishedUploads()">
+                  {{ 'files.upload.clearFinished' | transloco }}
+                </button>
+              }
             </div>
+            @for (u of uploads(); track u.id) {
+              <div class="upload-row" [class.failed]="u.status === 'failed'" [class.done]="u.status === 'done'">
+                <ph-icon class="upload-row-icon" [name]="uploadIcon(u.status)" [size]="14"/>
+                <div class="upload-row-body">
+                  <div class="upload-row-top">
+                    <span class="upload-name" [title]="u.name">{{ u.name }}</span>
+                    <span class="upload-state">
+                      @switch (u.status) {
+                        @case ('queued') { {{ 'files.upload.status.queued' | transloco }} }
+                        @case ('uploading') { {{ u.percent }}% }
+                        @case ('done') { {{ 'files.upload.status.done' | transloco }} }
+                        @case ('failed') { {{ u.error || ('files.upload.status.failed' | transloco) }} }
+                      }
+                    </span>
+                  </div>
+                  @if (u.status === 'uploading' || u.status === 'queued') {
+                    <div class="upload-bar">
+                      <div class="upload-bar-fill" [style.width.%]="u.percent"></div>
+                    </div>
+                  }
+                </div>
+                <div class="upload-row-actions">
+                  @if (u.status === 'failed') {
+                    <button class="btn-ghost btn btn-sm" type="button" (click)="retryUpload(u)">{{ 'common.retry' | transloco }}</button>
+                  }
+                  @if (u.status === 'queued' || u.status === 'uploading') {
+                    <button class="btn-ghost btn btn-sm" type="button" (click)="cancelUpload(u)">{{ 'common.cancel' | transloco }}</button>
+                  }
+                  @if (u.status === 'done' || u.status === 'failed') {
+                    <button class="icon-btn" type="button" [attr.aria-label]="'files.upload.dismiss' | transloco" (click)="dismissUpload(u)">
+                      <ph-icon name="x" [size]="12"/>
+                    </button>
+                  }
+                </div>
+              </div>
+            }
           </div>
-        }
-        @if (uploadError()) {
-          <div class="alert alert-error">{{ uploadError() }}</div>
         }
 
         <div class="fm-layout">
@@ -513,9 +632,17 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   /** Failure reason for the directory listing; null when it loaded (U3). */
   loadError = signal<string | null>(null);
   loadingSpaces = signal(true);
-  uploading = signal(false);
-  uploadError = signal('');
-  uploadPercent = signal(0);
+
+  // ── Upload queue (U12) ─────────────────────────────────────────────────────
+  // One row per file, each with its own status/percent. Files upload one at a
+  // time; the rest sit `queued`. A failed row can be retried, and a queued or
+  // in-flight row can be cancelled (the latter aborts the in-flight chunk).
+  uploads = signal<UploadItem[]>([]);
+  /** Subscriptions for active uploads, by item id — unsubscribing cancels. */
+  private uploadSubs = new Map<number, Subscription>();
+  private uploadSeq = 0;
+  /** True while an item is mid-flight — serialises the queue. */
+  private processing = false;
 
   dragOver = signal(false);
 
@@ -625,56 +752,117 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.dragOver.set(false);
     const files = event.dataTransfer?.files;
     if (!files || files.length === 0) return;
-    this.uploadFiles(files);
+    this.enqueueUploads(files);
   }
 
   onFileInput(event: Event): void {
     const input = event.target as HTMLInputElement;
     const files = input.files;
     if (!files || files.length === 0) return;
-    this.uploadFiles(files);
+    this.enqueueUploads(files);
     input.value = '';
   }
 
-  private uploadFiles(files: FileList): void {
+  // ── Upload queue (U12) ──────────────────────────────────────────────────────
 
-    this.uploading.set(true);
-    this.uploadError.set('');
-    this.uploadPercent.set(0);
+  /** Add the picked/dropped files as queued rows and kick the processor. */
+  private enqueueUploads(files: FileList): void {
+    const items: UploadItem[] = Array.from(files).map(file => ({
+      id: ++this.uploadSeq,
+      file,
+      name: file.name,
+      status: 'queued' as const,
+      percent: 0,
+    }));
+    this.uploads.update(u => [...u, ...items]);
+    this.processQueue();
+  }
 
-    let completed = 0;
-    const total = files.length;
+  /** Immutably patch one upload row so the OnPush view re-renders. */
+  private patchUpload(id: number, patch: Partial<UploadItem>): void {
+    this.uploads.update(list => list.map(u => (u.id === id ? { ...u, ...patch } : u)));
+  }
 
-    const uploadNext = (index: number): void => {
-      if (index >= total) {
-        this.uploading.set(false);
-        this.loadDir(this.currentPath());
-        return;
-      }
-      const file = files[index];
-      this.api.uploadFileChunked(this.activeSpaceId(), this.currentPath(), file).subscribe({
-        next: (progress) => {
-          const overallPercent = Math.round((completed * 100 + progress.percent) / total);
-          this.uploadPercent.set(overallPercent);
-        },
+  /** Start the next queued upload, unless one is already in flight. */
+  private processQueue(): void {
+    if (this.processing) return;
+    const next = this.uploads().find(u => u.status === 'queued');
+    if (!next) return;
+    this.processing = true;
+    this.startUpload(next);
+  }
+
+  private startUpload(item: UploadItem): void {
+    this.patchUpload(item.id, { status: 'uploading', percent: 0, error: undefined });
+    const sub = this.api
+      .uploadFileChunked(this.activeSpaceId(), this.currentPath(), item.file)
+      .subscribe({
+        next: (progress) => this.patchUpload(item.id, { percent: progress.percent }),
         error: (err) => {
-          this.uploading.set(false);
-          this.uploadError.set(err.error?.error ?? 'Upload failed');
+          this.uploadSubs.delete(item.id);
+          this.patchUpload(item.id, { status: 'failed', error: httpErrorReason(err) || undefined });
+          this.processing = false;
+          this.processQueue();
         },
         complete: () => {
-          completed++;
-          if (completed >= total) {
-            this.uploading.set(false);
-            this.uploadPercent.set(100);
-            this.loadDir(this.currentPath());
-          } else {
-            uploadNext(index + 1);
-          }
+          this.uploadSubs.delete(item.id);
+          this.patchUpload(item.id, { status: 'done', percent: 100 });
+          this.processing = false;
+          // Show the freshly uploaded file straight away.
+          this.loadDir(this.currentPath());
+          this.processQueue();
         },
       });
-    };
+    this.uploadSubs.set(item.id, sub);
+  }
 
-    uploadNext(0);
+  /** Re-queue a failed upload. */
+  retryUpload(item: UploadItem): void {
+    if (item.status !== 'failed') return;
+    this.patchUpload(item.id, { status: 'queued', percent: 0, error: undefined });
+    this.processQueue();
+  }
+
+  /**
+   * Cancel a queued or in-flight upload. Unsubscribing tears down the cold
+   * upload observable, which aborts the in-flight chunk request; the row is
+   * removed and the queue advances.
+   */
+  cancelUpload(item: UploadItem): void {
+    const wasUploading = item.status === 'uploading';
+    const sub = this.uploadSubs.get(item.id);
+    if (sub) {
+      sub.unsubscribe();
+      this.uploadSubs.delete(item.id);
+    }
+    this.uploads.update(list => list.filter(u => u.id !== item.id));
+    if (wasUploading) {
+      this.processing = false;
+      this.processQueue();
+    }
+  }
+
+  /** Remove a finished (done/failed) row from the panel. */
+  dismissUpload(item: UploadItem): void {
+    this.uploads.update(list => list.filter(u => u.id !== item.id));
+  }
+
+  hasFinishedUploads(): boolean {
+    return this.uploads().some(u => u.status === 'done' || u.status === 'failed');
+  }
+
+  /** Clear all finished rows, leaving queued/in-flight ones. */
+  clearFinishedUploads(): void {
+    this.uploads.update(list => list.filter(u => u.status === 'queued' || u.status === 'uploading'));
+  }
+
+  uploadIcon(status: UploadStatus): string {
+    switch (status) {
+      case 'done': return 'check-circle';
+      case 'failed': return 'warning';
+      case 'uploading': return 'arrow-up';
+      default: return 'timer';
+    }
   }
 
   createFolder(): void {
@@ -882,5 +1070,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     document.removeEventListener('keydown', this._keyHandler);
+    // Abort any in-flight/queued uploads so their requests don't outlive the view.
+    for (const sub of this.uploadSubs.values()) sub.unsubscribe();
+    this.uploadSubs.clear();
   }
 }

@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams, HttpHeaders } from '@angular/common/http';
-import { Observable, Subject } from 'rxjs';
+import { Observable, Subscription } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 // ── Shared types ─────────────────────────────────────────────────────────────
@@ -839,7 +839,15 @@ export class ApiService {
   /**
    * Upload a file with automatic chunking for files > 10 MB.
    * Emits progress events ({ percent, done }) for UI updates.
-   * Retries each chunk up to 3 times on failure.
+   * Retries each chunk up to 3 times on transient failure.
+   *
+   * The returned observable is **cold**: no work runs and no progress event is
+   * emitted until the caller subscribes, so a late subscriber can never miss the
+   * initial `{ percent: 0 }` (with the old hot Subject the upload started before
+   * `return`, and any event emitted synchronously was lost). Unsubscribing tears
+   * the upload down — it flips a `cancelled` flag that halts the chunk loop and
+   * unsubscribes the in-flight request (HttpClient aborts the underlying XHR on
+   * teardown). That is exactly how the UI cancels an upload mid-flight.
    */
   uploadFileChunked(spaceId: string, dirPath: string, file: File): Observable<UploadProgress> {
     const CHUNK_THRESHOLD = 10 * 1024 * 1024; // 10 MB
@@ -847,72 +855,85 @@ export class ApiService {
     const MAX_RETRIES = 3;
     const filePath = dirPath.endsWith('/') ? `${dirPath}${file.name}` : `${dirPath}/${file.name}`;
 
-    const subject = new Subject<UploadProgress>();
+    return new Observable<UploadProgress>(subscriber => {
+      let cancelled = false;
+      let httpSub: Subscription | null = null;
+      // A rejected arrayBuffer() (e.g. the file moved/was revoked) must surface,
+      // but never after the caller unsubscribed.
+      const fail = (err: unknown): void => { if (!cancelled) subscriber.error(err); };
 
-    if (file.size <= CHUNK_THRESHOLD) {
-      // Small file: single upload
-      file.arrayBuffer().then(ab => {
-        const headers = new HttpHeaders({ 'Content-Type': 'application/octet-stream' });
-        const params = new HttpParams().set('path', filePath);
-        this.http.post<void>(`/api/files/${spaceId}`, ab, { headers, params }).subscribe({
-          next: () => {
-            subject.next({ percent: 100, done: true });
-            subject.complete();
-          },
-          error: err => subject.error(err),
-        });
-      });
-      return subject.asObservable();
-    }
-
-    // Chunked upload
-    const total = file.size;
-    let offset = 0;
-
-    const sendNextChunk = (): void => {
-      if (offset >= total) return;
-      const end = Math.min(offset + CHUNK_SIZE, total);
-      const slice = file.slice(offset, end);
-      const start = offset;
-      const byteEnd = end - 1;
-
-      slice.arrayBuffer().then(ab => {
-        const sendChunk = (retriesLeft: number): void => {
-          const headers = new HttpHeaders({
-            'Content-Type': 'application/octet-stream',
-            'Content-Range': `bytes ${start}-${byteEnd}/${total}`,
-          });
+      if (file.size <= CHUNK_THRESHOLD) {
+        // Small file: single upload.
+        subscriber.next({ percent: 0, done: false });
+        file.arrayBuffer().then(ab => {
+          if (cancelled) return;
+          const headers = new HttpHeaders({ 'Content-Type': 'application/octet-stream' });
           const params = new HttpParams().set('path', filePath);
-          this.http.post<any>(`/api/files/${spaceId}`, ab, { headers, params }).subscribe({
+          httpSub = this.http.post<void>(`/api/files/${spaceId}`, ab, { headers, params }).subscribe({
             next: () => {
-              offset = end;
-              const percent = Math.round((offset / total) * 100);
-              if (offset >= total) {
-                subject.next({ percent: 100, done: true });
-                subject.complete();
-              } else {
-                subject.next({ percent, done: false });
-                sendNextChunk();
-              }
+              subscriber.next({ percent: 100, done: true });
+              subscriber.complete();
             },
-            error: err => {
-              if (retriesLeft > 0) {
-                sendChunk(retriesLeft - 1);
-              } else {
-                subject.error(err);
-              }
-            },
+            error: fail,
           });
+        }).catch(fail);
+      } else {
+        // Chunked upload.
+        const total = file.size;
+        let offset = 0;
+
+        const sendNextChunk = (): void => {
+          if (cancelled || offset >= total) return;
+          const end = Math.min(offset + CHUNK_SIZE, total);
+          const slice = file.slice(offset, end);
+          const start = offset;
+          const byteEnd = end - 1;
+
+          slice.arrayBuffer().then(ab => {
+            if (cancelled) return;
+            const sendChunk = (retriesLeft: number): void => {
+              if (cancelled) return;
+              const headers = new HttpHeaders({
+                'Content-Type': 'application/octet-stream',
+                'Content-Range': `bytes ${start}-${byteEnd}/${total}`,
+              });
+              const params = new HttpParams().set('path', filePath);
+              httpSub = this.http.post<any>(`/api/files/${spaceId}`, ab, { headers, params }).subscribe({
+                next: () => {
+                  offset = end;
+                  const percent = Math.round((offset / total) * 100);
+                  if (offset >= total) {
+                    subscriber.next({ percent: 100, done: true });
+                    subscriber.complete();
+                  } else {
+                    subscriber.next({ percent, done: false });
+                    sendNextChunk();
+                  }
+                },
+                error: err => {
+                  if (cancelled) return;
+                  if (retriesLeft > 0) {
+                    sendChunk(retriesLeft - 1);
+                  } else {
+                    subscriber.error(err);
+                  }
+                },
+              });
+            };
+            sendChunk(MAX_RETRIES);
+          }).catch(fail);
         };
-        sendChunk(MAX_RETRIES);
-      });
-    };
 
-    // Start uploading
-    subject.next({ percent: 0, done: false });
-    sendNextChunk();
+        subscriber.next({ percent: 0, done: false });
+        sendNextChunk();
+      }
 
-    return subject.asObservable();
+      // Teardown — cancel: stop the loop and abort any in-flight chunk request.
+      return () => {
+        cancelled = true;
+        httpSub?.unsubscribe();
+      };
+    });
   }
 
   getFileDownloadUrl(spaceId: string, path: string): string {

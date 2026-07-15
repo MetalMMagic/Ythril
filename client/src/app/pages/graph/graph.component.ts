@@ -973,7 +973,7 @@ interface DetailRow {
                 </div>
                 <div class="bdrawer-field">
                   <div class="bdrawer-label">{{ 'common.form.description' | transloco }}</div>
-                  <input type="text" [(ngModel)]="drawerEditMemory.description" name="drwMemDesc" />
+                  <textarea [(ngModel)]="drawerEditMemory.description" name="drwMemDesc" rows="3" style="resize:vertical;"></textarea>
                 </div>
                 <div class="bdrawer-field">
                   <div class="bdrawer-label">{{ 'common.form.tags' | transloco }}</div>

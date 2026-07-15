@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Multiline record descriptions (FEATURES F7).** Every description editor was a single-line
+  `<input>`, so a description with paragraphs or line breaks collapsed to one line while typing, and
+  the table cells rendered it `white-space: nowrap` (one line, ellipsis-truncated). Description fields
+  across the memory / entity / edge create forms, their inline-table editors, the detail-drawer
+  editors, and the file-meta editor are now `<textarea>`s (create/drawer `rows=3`, compact inline
+  `rows=2`, vertically resizable) — matching what the chrono editors already did. The four truncating
+  table cells (memories, entities, chrono, file-meta) now share a `.desc-cell` class that renders
+  `white-space: pre-wrap` and clamps to three lines, so newlines show instead of collapsing, while the
+  full text stays available on hover via each cell's `title`. Covered by brain-component tests
+  (multiline round-trip in the drawer textarea + the cell's pre-wrap) and verified end-to-end
+  (a memory with a three-line description keeps its newlines in the create form, the table cell, and
+  the drawer editor).
+
 - **Per-file upload progress with retry and cancel (UX U12).** The file manager showed a single
   aggregate progress bar for a multi-file upload, and if any file failed the whole batch stopped
   behind one generic "Upload failed" — you couldn't tell which file, retry just the failed one, or

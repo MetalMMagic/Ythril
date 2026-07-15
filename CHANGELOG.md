@@ -355,6 +355,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Vote propagation now pulls before it pushes, so convergence no longer stalls behind an
+  unbounded push.** In each sync cycle `propagateVotesWithPeer` exchanged governance votes with a
+  peer by first pushing *every* cast of *every* locally-known round and only then pulling the peer's
+  rounds. Because a round is never removed from `pendingRounds` once it concludes, that push loop
+  grows without bound over a network's lifetime — and it `await`s each cast sequentially, so on a
+  busy or high-latency peer a cycle could spend all its time re-broadcasting dead history and never
+  reach the pull. Adopting the peer's casts is the convergence-critical half, so it now runs
+  **first** and persists immediately; the push runs after and additionally **skips any round that is
+  already concluded and past its deadline** (every peer concludes such a round independently once the
+  deadline passes, so re-pushing it forever is pure waste). No protocol or governance-semantics
+  change — only ordering and dead-round pruning from the push set. This also removes the load-sensitive
+  stall behind the intermittently-failing `vote-signing` relay test (its "triggers succeed but the
+  peer never delivers" timeout was this push starving the pull under full-suite load).
+
 - **Schema validation was a total no-op on MCP — the surface agents actually use.** `validateMemory()` keys
   the whole per-type schema lookup off `memory.type`, but the MCP `remember` and `bulk_write` tools never
   exposed `type` and passed `undefined` to the engine. With no type there is no schema, so validation always

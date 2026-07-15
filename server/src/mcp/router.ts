@@ -155,6 +155,7 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
         accessibleSpaceIds,
         tokenSpaces,
         isAdmin,
+        readOnly,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

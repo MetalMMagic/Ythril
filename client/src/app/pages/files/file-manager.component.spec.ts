@@ -236,3 +236,50 @@ describe('FileManagerComponent — upload queue (U12)', () => {
     expect(comp.uploads().map(u => u.name)).toEqual(['b.txt']);
   });
 });
+
+// ── File preview / download auth (regression from #134 query-token scoping) ────
+describe('FileManagerComponent — preview/download auth', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  function create(token: string) {
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: ApiService, useValue: makeApi([]) },
+        { provide: AuthService, useValue: { token: () => token } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.componentRef.setInput('embeddedSpaceId', 'work');
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('downloadFile sends the token in the Authorization header, never in the URL', async () => {
+    const fixture = create('T');
+    const calls: { url: unknown; opts: any }[] = [];
+    const origFetch = globalThis.fetch;
+    const origCreate = URL.createObjectURL;
+    const origRevoke = URL.revokeObjectURL;
+    globalThis.fetch = vi.fn((url: unknown, opts: any) => {
+      calls.push({ url, opts });
+      return Promise.resolve({ ok: true, blob: () => Promise.resolve(new Blob(['x'])) } as Response);
+    }) as unknown as typeof fetch;
+    URL.createObjectURL = vi.fn(() => 'blob:mock');
+    URL.revokeObjectURL = vi.fn();
+    try {
+      await fixture.componentInstance.downloadFile(
+        { name: 'photo.png', isDirectory: false, isFile: true, size: 1, modified: '' } as FileEntry,
+      );
+    } finally {
+      globalThis.fetch = origFetch;
+      URL.createObjectURL = origCreate;
+      URL.revokeObjectURL = origRevoke;
+    }
+    expect(calls.length).toBe(1);
+    // #134 scoped the ?token= fallback to SSE only — the token must NOT ride in the URL.
+    expect(String(calls[0].url)).not.toContain('token=');
+    expect(calls[0].opts.headers.Authorization).toBe('Bearer T');
+  });
+});

@@ -45,6 +45,42 @@ function patch(c, netId, fnBody) {
   patchNetwork(c, netId, Buffer.from(fnBody, 'utf8').toString('base64'));
 }
 
+/**
+ * Apply an out-of-band config.json patch and make it STICK.
+ *
+ * Writing config.json directly races the server's own `saveConfig`: an in-flight
+ * sync cycle (e.g. a fire-and-forget cycle left over from a prior test's trigger
+ * loop) captured the config BEFORE our patch and, when it finishes, writes its
+ * stale copy back — silently dropping whatever we injected. `reload-config`
+ * cannot help if the clobber lands after it. That is the real cause of the
+ * "vote-signing relay" flake: under full-suite load there are more concurrent
+ * cycles, so the patched member/round is more likely to be reverted, after which
+ * the relay can never converge (the third-instance key is gone) — no amount of
+ * widening the assertion wait fixes an un-pinned key.
+ *
+ * This re-applies the patch until `verify(net)` holds across TWO consecutive
+ * live reads (stability = no cycle is still clobbering), then returns. Throws a
+ * descriptive error if it never stabilises.
+ */
+async function patchAndConfirm(container, baseUrl, token, netId, fnBody, verify, label, timeoutMs = 25_000) {
+  const deadline = Date.now() + timeoutMs;
+  let stable = 0;
+  let lastNet = null;
+  while (Date.now() < deadline) {
+    const net = readConfig(container).networks.find(n => n.id === netId);
+    lastNet = net;
+    if (net && verify(net)) {
+      if (++stable >= 2) return; // held across two reads → the clobber window is closed
+    } else {
+      stable = 0;
+      patch(container, netId, fnBody);
+      await post(baseUrl, token, '/api/admin/reload-config', {});
+    }
+    await new Promise(r => setTimeout(r, 700));
+  }
+  throw new Error(`patchAndConfirm(${label}) never stabilised within ${timeoutMs}ms — last state: ${JSON.stringify(lastNet?.members?.map(m => m.instanceId) ?? lastNet)}`);
+}
+
 function voteMsg({ networkId, roundId, subjectInstanceId, instanceId, vote }) {
   return ['ythril-vote:v1', networkId, roundId, subjectInstanceId, instanceId, vote].join('|');
 }
@@ -154,8 +190,16 @@ describe('Signed governance votes and safe relay', () => {
     // Virtual third instance C with its own keypair, pinned as a member on A.
     const C = ed25519();
     const instanceIdC = `virt-c-${Date.now()}`;
-    patch('ythril-a', networkId, `n.members.push({instanceId:${JSON.stringify(instanceIdC)},label:'Virtual C',url:'http://virtual-c.internal:3200',tokenHash:'x',direction:'both',signingPublicKey:${JSON.stringify(C.pub)}});`);
-    await post(INSTANCES.a, tokenA, '/api/admin/reload-config', {});
+    // Pin C via patchAndConfirm: a bare patch+reload can be reverted by a
+    // concurrent saveConfig, leaving C un-pinned so A rejects its relayed cast
+    // forever (the real flake). Confirming the patch stuck removes that race.
+    await patchAndConfirm(
+      'ythril-a', INSTANCES.a, tokenA, networkId,
+      // Idempotent: upsert C so a re-patch (after a clobber) never duplicates it.
+      `const c=${JSON.stringify(instanceIdC)};const ex=n.members.find(m=>m.instanceId===c);const rec={instanceId:c,label:'Virtual C',url:'http://virtual-c.internal:3200',tokenHash:'x',direction:'both',signingPublicKey:${JSON.stringify(C.pub)}};if(ex){Object.assign(ex,rec);}else{n.members.push(rec);}`,
+      net => net.members.some(m => m.instanceId === instanceIdC && m.signingPublicKey === C.pub),
+      `pin C on A`,
+    );
 
     // Two rounds injected on B (which A will pull): one with a VALID C-signature,
     // one where the vote value was tampered after signing. Subject is a ghost id so
@@ -171,24 +215,33 @@ describe('Signed governance votes and safe relay', () => {
       deadline, openedAt: new Date().toISOString(),
       votes: [{ instanceId: instanceIdC, vote, castAt: new Date().toISOString(), sig }],
     });
-    patch('ythril-b', networkId, `n.pendingRounds=n.pendingRounds||[];n.pendingRounds.push(${JSON.stringify(mkRound(validRid, 'yes', validSig))});n.pendingRounds.push(${JSON.stringify(mkRound(tamperRid, 'veto', tamperSig))});`);
-    await post(INSTANCES.b, tokenB, '/api/admin/reload-config', {});
+    // Same race applies to B's injected rounds — confirm they stuck before A pulls.
+    await patchAndConfirm(
+      'ythril-b', INSTANCES.b, tokenB, networkId,
+      // Idempotent: only add each round if it is not already present.
+      `n.pendingRounds=n.pendingRounds||[];const add=r=>{if(!n.pendingRounds.some(x=>x.roundId===r.roundId))n.pendingRounds.push(r);};add(${JSON.stringify(mkRound(validRid, 'yes', validSig))});add(${JSON.stringify(mkRound(tamperRid, 'veto', tamperSig))});`,
+      net => (net.pendingRounds ?? []).some(r => r.roundId === validRid) && (net.pendingRounds ?? []).some(r => r.roundId === tamperRid),
+      `inject rounds on B`,
+    );
 
     // A pulls from B (relay). Re-trigger each poll so the relay converges even when a
-    // loaded CI runner's gossip cycle lags; the window is generous because it exits as
-    // soon as the relay lands (usually seconds).
-    //
-    // This is the assertion that used to "flake". It never was flaky: under full-suite
-    // load the harness exhausted the notify limiter (60/min per IP, shared by every
-    // instance), every trigger came back 429, the old `.catch(() => {})` ate it, and so
-    // NO sync cycle ran at all. The probe below reports that class of failure as itself.
+    // loaded CI runner's gossip cycle lags; the window exits as soon as the relay
+    // lands (seconds, once C is reliably pinned). The diagnose reports the two
+    // things that would keep it from converging — C's pin on A and the round's
+    // arrival — so a genuine failure explains itself instead of timing out blind.
     const triggerA = makeTriggerProbe(INSTANCES.a, tokenA, networkId, 'A');
+    const diagnose = () => {
+      const netA = readConfig('ythril-a').networks.find(n => n.id === networkId);
+      const cPinned = netA?.members?.some(m => m.instanceId === instanceIdC && m.signingPublicKey === C.pub);
+      const roundArrived = netA?.pendingRounds?.some(r => r.roundId === validRid);
+      return `${triggerA.diagnose()} | C pinned on A: ${!!cPinned} | valid round arrived on A: ${!!roundArrived}`;
+    };
     await waitFor(async () => {
       await triggerA();
       const nets = readConfig('ythril-a').networks.find(n => n.id === networkId);
       const ok = nets?.pendingRounds?.find(r => r.roundId === validRid);
       return ok?.votes?.some(v => v.instanceId === instanceIdC && v.vote === 'yes');
-    }, 90_000, 2_000, triggerA.diagnose);
+    }, 60_000, 2_000, diagnose);
 
     const netA = readConfig('ythril-a').networks.find(n => n.id === networkId);
     const validRound = netA.pendingRounds.find(r => r.roundId === validRid);

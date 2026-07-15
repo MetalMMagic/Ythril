@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The recurring "vote-signing relay" sync-test flake is fixed at its root — a test setup race,
+  not a relay bug.** The test pins a third instance's signing key by writing `config.json` directly,
+  then reloads. Under full-suite load that write races the server's own `saveConfig`: an in-flight
+  sync cycle (left over from a prior test's fire-and-forget trigger) captured the config *before* the
+  patch and writes its stale copy back, silently dropping the pinned key — after which the relaying
+  instance rejects the third instance's cast on **every** cycle, so the relay can never converge and
+  the assertion times out. Widening the wait (as two prior PRs did) cannot fix an un-pinned key. The
+  fix makes the out-of-band injection *stick*: a `patchAndConfirm` helper re-applies the patch until
+  it is confirmed stable across consecutive live reads (idempotently, so a re-apply never duplicates
+  the member/round), and the assertion now polls the guaranteed eventual convergence with a
+  self-diagnosing message (it reports whether the key is pinned and whether the round arrived) — the
+  wait was *reduced* 90s→60s, not widened. The production relay itself was already timing-independent:
+  every cycle re-pulls the peer's full open-round set and re-merges missing casts, so a delayed or
+  dropped message is re-derived from source of truth on the next cycle. Verified across three
+  back-to-back full-suite runs under load. Test-only change.
+
 ### Added
 
 - **Mobile navigation drawer restores the app on phones (UX U2).** Below 768px the sidebar was

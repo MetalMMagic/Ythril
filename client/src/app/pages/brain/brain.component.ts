@@ -247,6 +247,20 @@ interface SpaceView {
       line-height: 1.4;
     }
 
+    /* Description table cells: clamp to a few lines but honour newlines (F7).
+       pre-wrap renders the multi-line text the textareas now allow; the box
+       clamp keeps rows compact, and each cell keeps its [title] for the full text. */
+    .desc-cell {
+      font-size: 12px;
+      color: var(--text-muted);
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
     .query-panel {
       display: flex;
       flex-direction: column;
@@ -596,7 +610,7 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:2; min-width:200px;">
                 <label>{{ 'common.form.description' | transloco }}</label>
-                <input type="text" [(ngModel)]="memoryForm.description" name="description" />
+                <textarea [(ngModel)]="memoryForm.description" name="description" rows="3" style="resize:vertical;"></textarea>
               </div>
               <div class="field" style="flex:1; min-width:220px;">
                 <label>{{ 'common.form.properties' | transloco }}</label>
@@ -646,7 +660,7 @@ interface SpaceView {
                           </div>
                           <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
                             <label>{{ 'common.form.description' | transloco }}</label>
-                            <input type="text" [(ngModel)]="editMemory.description" name="editDesc" />
+                            <textarea [(ngModel)]="editMemory.description" name="editDesc" rows="2" style="resize:vertical;"></textarea>
                           </div>
                           <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
                             <label>{{ 'common.form.tags' | transloco }}</label>
@@ -698,7 +712,7 @@ interface SpaceView {
                   } @else {
                     <tr>
                       <td style="max-width:300px; white-space:pre-wrap; word-break:break-word;">{{ mem.fact }}</td>
-                      <td style="font-size:12px; color:var(--text-muted); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="mem.description ?? ''">
+                      <td class="desc-cell" style="max-width:180px;" [title]="mem.description ?? ''">
                         {{ mem.description || '—' }}
                       </td>
                       <td style="font-size:11px;">
@@ -800,7 +814,7 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:200px;">
                 <label>{{ 'brain.entities.table.description' | transloco }}</label>
-                <input type="text" [(ngModel)]="entityForm.description" name="description" />
+                <textarea [(ngModel)]="entityForm.description" name="description" rows="3" style="resize:vertical;"></textarea>
               </div>
               <div class="field" style="flex:1; min-width:220px;">
                 <label>{{ 'brain.entities.table.properties' | transloco }}</label>
@@ -853,7 +867,7 @@ interface SpaceView {
                           </div>
                           <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
                             <label>{{ 'brain.entities.table.description' | transloco }}</label>
-                            <input type="text" [(ngModel)]="editEntity.description" name="editEntDesc" />
+                            <textarea [(ngModel)]="editEntity.description" name="editEntDesc" rows="2" style="resize:vertical;"></textarea>
                           </div>
                           <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
                             <label>{{ 'brain.entities.table.tags' | transloco }}</label>
@@ -883,7 +897,7 @@ interface SpaceView {
                       <td>
                         @if (ent.type) { <span class="badge badge-purple">{{ ent.type }}</span> }
                       </td>
-                      <td style="font-size:12px; color:var(--text-muted); max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="ent.description ?? ''">
+                      <td class="desc-cell" style="max-width:200px;" [title]="ent.description ?? ''">
                         {{ ent.description || '—' }}
                       </td>
                       <td style="font-size:11px;">
@@ -989,7 +1003,7 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:2; min-width:200px;">
                 <label>{{ 'brain.edges.table.description' | transloco }}</label>
-                <input type="text" [(ngModel)]="edgeForm.description" name="description" />
+                <textarea [(ngModel)]="edgeForm.description" name="description" rows="3" style="resize:vertical;"></textarea>
               </div>
               <div class="field" style="flex:1; min-width:220px;">
                 <label>{{ 'brain.edges.table.properties' | transloco }}</label>
@@ -1047,7 +1061,7 @@ interface SpaceView {
                           </div>
                           <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
                             <label>{{ 'brain.edges.table.description' | transloco }}</label>
-                            <input type="text" [(ngModel)]="editEdge.description" name="editEdgeDesc" />
+                            <textarea [(ngModel)]="editEdge.description" name="editEdgeDesc" rows="2" style="resize:vertical;"></textarea>
                           </div>
                           <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
                             <label>{{ 'brain.edges.table.tags' | transloco }}</label>
@@ -1302,7 +1316,7 @@ interface SpaceView {
                   } @else {
                     <tr>
                       <td>{{ entry.title }}</td>
-                      <td style="font-size:12px; color:var(--text-muted); max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" [title]="entry.description ?? ''">
+                      <td class="desc-cell" style="max-width:160px;" [title]="entry.description ?? ''">
                         {{ entry.description || '—' }}
                       </td>
                       <td><span class="badge badge-blue">{{ entry.type }}</span></td>
@@ -1399,7 +1413,7 @@ interface SpaceView {
                           <div class="edit-form-fields">
                             <div class="field" style="flex:2; min-width:180px; margin-bottom:0;">
                               <label>{{ 'brain.fileMeta.table.description' | transloco }}</label>
-                              <input type="text" [(ngModel)]="editFileMeta.description" name="fmEditDesc" />
+                              <textarea [(ngModel)]="editFileMeta.description" name="fmEditDesc" rows="2" style="resize:vertical;"></textarea>
                             </div>
                             <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                               <label>{{ 'brain.fileMeta.table.tags' | transloco }}</label>
@@ -1502,7 +1516,7 @@ interface SpaceView {
                             }
                           </div>
                         </td>
-                        <td class="text-muted" style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ fm.description || '–' }}</td>
+                        <td class="desc-cell" style="max-width:200px;" [title]="fm.description ?? ''">{{ fm.description || '–' }}</td>
                         <td>
                           <div class="chip-list">
                             @for (tag of fm.tags; track tag) {
@@ -1803,7 +1817,7 @@ interface SpaceView {
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.description' | transloco }}</div>
-                  <input type="text" [(ngModel)]="drawerEditMemory.description" name="drwMemDesc" />
+                  <textarea [(ngModel)]="drawerEditMemory.description" name="drwMemDesc" rows="3" style="resize:vertical;"></textarea>
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
@@ -1873,7 +1887,7 @@ interface SpaceView {
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.description' | transloco }}</div>
-                  <input type="text" [(ngModel)]="drawerEditEntity.description" name="drwEntDesc" />
+                  <textarea [(ngModel)]="drawerEditEntity.description" name="drwEntDesc" rows="3" style="resize:vertical;"></textarea>
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
@@ -1926,7 +1940,7 @@ interface SpaceView {
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.description' | transloco }}</div>
-                  <input type="text" [(ngModel)]="drawerEditEdge.description" name="drwEdgeDesc" />
+                  <textarea [(ngModel)]="drawerEditEdge.description" name="drwEdgeDesc" rows="3" style="resize:vertical;"></textarea>
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>

@@ -193,6 +193,12 @@ export function pruneExpiredRounds(net: NetworkConfig, now: number = Date.now())
 const _syncRunning = new Map<string, Promise<{ synced: number; errors: number }>>();
 const _syncRerunRequested = new Set<string>();
 
+/** True while a sync cycle for the given network is in-flight. Cheap, in-memory —
+ *  used by GET /api/spaces to show a "syncing" status on a space's network chip. */
+export function isNetworkSyncing(networkId: string): boolean {
+  return _syncRunning.has(networkId);
+}
+
 /** Run a full sync cycle for a network: iterate members and sync each space. */
 export async function runSyncForNetwork(networkId: string): Promise<{ synced: number; errors: number }> {
   const inflight = _syncRunning.get(networkId);

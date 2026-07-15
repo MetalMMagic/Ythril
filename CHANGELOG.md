@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Network-membership status indicator on Brain space chips (FEATURES F8).** A space chip gave no
+  hint that the space is part of a sync network or what state that network is in. Each chip now shows
+  the **Networks** icon (the same `link` glyph as the nav item), colour-coded by an aggregate status
+  that `GET /api/spaces` computes from config + the live sync engine: **blue** = a governance vote
+  affects this space, **red** = a peer has failed to sync ≥3 consecutive cycles (*investigate* — not a
+  single auto-retried blip), **yellow** = a sync cycle is running now, muted/neutral = a network member
+  with nothing active. A space in no network shows no icon at all. There is deliberately **no
+  "fully synced" state** — Ythril sync is eventual, with no convergence flag to honestly back it.
+  Priority is `vote > degraded > syncing > idle`, so a persistent failure is never masked by the doomed
+  retry in flight; the icon's `title` names the network(s) and the status so colour isn't the only
+  signal. Backed by `spaceNetworkInfo` (pure, unit-tested against the compiled module) and client chip
+  tests, and verified end-to-end against the real route (open round → blue; failing peer → red;
+  no network → no icon).
+
 - **Multiline record descriptions (FEATURES F7).** Every description editor was a single-line
   `<input>`, so a description with paragraphs or line breaks collapsed to one line while typing, and
   the table cells rendered it `white-space: nowrap` (one line, ellipsis-truncated). Description fields

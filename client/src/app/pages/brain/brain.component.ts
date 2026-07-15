@@ -79,6 +79,18 @@ interface SpaceView {
     }
     .space-chip.active .space-chip-count { color: var(--accent); opacity: 0.8; }
 
+    /* Network-membership indicator (F8): the Networks-menu icon, colour-coded by
+       aggregate sync/governance status. No icon at all when the space is in no
+       network. */
+    .space-chip-net { display: inline-flex; align-items: center; }
+    .space-chip-net.net-idle { color: var(--text-muted); }
+    .space-chip-net.net-syncing { color: var(--warning); }
+    .space-chip-net.net-degraded { color: var(--error); }
+    .space-chip-net.net-vote { color: var(--info); }
+    @keyframes chip-net-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .space-chip-net.net-syncing, .space-chip-net.net-vote { animation: chip-net-pulse 1.4s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) { .space-chip-net { animation: none !important; } }
+
     .content-header {
       display: flex;
       align-items: center;
@@ -493,6 +505,11 @@ interface SpaceView {
           >
             <span class="space-chip-label">{{ sv.space.label }}</span>
             <span class="space-chip-id">{{ sv.space.id }}</span>
+            @if (sv.space.networkStatus) {
+              <span class="space-chip-net" [class]="'net-' + sv.space.networkStatus" [title]="networkChipTitle(sv.space)">
+                <ph-icon name="link" [size]="12"/>
+              </span>
+            }
             @if (sv.stats) {
               <span class="space-chip-count">{{ spaceTotal(sv.stats) }} {{ 'brain.spaceChip.records' | transloco }}</span>
             }
@@ -2302,6 +2319,16 @@ export class BrainComponent implements OnInit {
 
   spaceTotal(stats: SpaceStats): number {
     return stats.memories + stats.entities + stats.edges + stats.chrono + stats.files;
+  }
+
+  /** Tooltip for the space-chip network indicator (F8): the network name(s) plus
+   *  the human-readable status. Colour alone must not carry the meaning (a11y). */
+  networkChipTitle(space: Space): string {
+    const status = space.networkStatus ?? 'idle';
+    const names = (space.networks ?? []).map(n => n.label).join(', ');
+    const statusText = this.transloco.translate(`brain.spaceChip.network.${status}`);
+    const prefix = this.transloco.translate('brain.spaceChip.network.prefix');
+    return names ? `${prefix}: ${names} — ${statusText}` : statusText;
   }
 
   ngOnInit(): void {

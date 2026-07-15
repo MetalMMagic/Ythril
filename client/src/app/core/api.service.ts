@@ -21,6 +21,14 @@ export interface Space {
   /** Vector-index build state for a newly created space (B1). 'building' while the
    *  Atlas indexes finish; absent means ready. Semantic recall waits for READY. */
   indexStatus?: 'building' | 'ready' | 'failed';
+  /** Networks this space belongs to (F8). Absent/empty when the space is in no
+   *  network — the Brain chip shows the network indicator only when present. */
+  networks?: { id: string; label: string; type: Network['type'] }[];
+  /** Aggregate sync/governance status across this space's networks (F8), for the
+   *  chip indicator. 'vote' = an open round affects it; 'degraded' = a peer has
+   *  failed repeatedly (investigate); 'syncing' = a cycle is running; 'idle' =
+   *  member, nothing active. There is no true "fully synced" state (eventual sync). */
+  networkStatus?: 'vote' | 'degraded' | 'syncing' | 'idle';
 }
 
 export type ValidationMode = 'off' | 'warn' | 'strict';

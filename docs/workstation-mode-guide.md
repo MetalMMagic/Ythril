@@ -70,19 +70,18 @@ The media containers (`ollama`, `whisper`) start by default; disable them with `
 
 Option A: keep defaults (port 3200 + bundled MongoDB)
 
-Option B: port `3200` is occupied (use `3201` instead)
+Option B: port `3200` is occupied (use a different host port)
 
-Create an override file:
+Set `YTHRIL_PORT` in `.env` (Compose auto-loads it, and the base `ports` mapping is `"${YTHRIL_PORT:-3200}:3200"`):
 
-```yaml
-# docker-compose.override.yml
-services:
-  ythril:
-    ports:
-      - "3201:3200"
+```bash
+# .env
+YTHRIL_PORT=3201
 ```
 
 You will open `http://localhost:3201` instead of `http://localhost:3200`.
+
+Note: a `docker-compose.override.yml` with a second `ports:` entry does **not** work here — Compose concatenates `ports` lists across files, so the base `3200` mapping still binds and startup fails. Change the host port with `YTHRIL_PORT`.
 
 How to check what is using 3200 on Windows:
 
@@ -110,19 +109,23 @@ Authentication note:
 - For an external MongoDB, use a real authenticated connection string from your database setup.
 - If your username or password contains special characters (`@`, `:`, `/`, `?`, `#`), URL-encode them.
 
-1. Set `MONGO_URI` to your existing database.
+1. Add `MONGO_URI` to the `environment:` block of a `docker-compose.override.yml` for the `ythril` service, so it actually reaches the container. Setting it only as a host shell variable (`$env:MONGO_URI`) does **not** work — Compose does not forward it into the container, and the server reads `MONGO_URI` only from `process.env`.
 2. Start only `ythril` and skip dependencies.
 
-PowerShell example:
+Example override:
 
-```powershell
-$env:MONGO_URI = "mongodb://ythril_user:YOUR_PASSWORD@my-mongo-host:27017/ythril?authSource=admin&directConnection=true"
+```yaml
+# docker-compose.override.yml
+services:
+  ythril:
+    environment:
+      MONGO_URI: "mongodb://ythril_user:YOUR_PASSWORD@my-mongo-host:27017/ythril?authSource=admin&directConnection=true"
 ```
 
-Atlas example:
+Atlas connection string (use in place of the URI above):
 
-```powershell
-$env:MONGO_URI = "mongodb+srv://ythril_user:YOUR_PASSWORD@cluster0.example.mongodb.net/ythril?retryWrites=true&w=majority"
+```text
+mongodb+srv://ythril_user:YOUR_PASSWORD@cluster0.example.mongodb.net/ythril?retryWrites=true&w=majority
 ```
 
 Why `--no-deps`: the default compose file has `ythril` depending on `ythril-mongo`. When you use external MongoDB, you intentionally bypass that local dependency.
@@ -133,10 +136,10 @@ Start command (run exactly one):
 # A) Default (port 3200 + bundled MongoDB)
 docker compose up -d
 
-# B) Alternate port (after creating docker-compose.override.yml)
+# B) Alternate port (after setting YTHRIL_PORT in .env)
 docker compose up -d
 
-# C) Existing MongoDB (after setting MONGO_URI)
+# C) Existing MongoDB (after adding MONGO_URI to docker-compose.override.yml)
 docker compose up -d --no-deps ythril
 ```
 
@@ -258,7 +261,7 @@ Example MCP config:
 Persistent data locations:
 
 - Host bind mount: `./config` (config and secrets)
-- Docker volumes: `ythril-data`, `ythril-mongo-data`, `ythril-mongo-configdb`
+- Docker volumes: `ythril-data`, `ythril-mongo-data`, `ythril-mongo-configdb`, `ythril-ollama-models`, `ythril-whisper-cache` (the last two hold the vision and speech model caches, ~2 GB)
 
 Common operations:
 
@@ -374,6 +377,20 @@ The Ythril container cannot spawn processes on your Windows host, so the local c
 
 ```powershell
 npm run local-connector:start
+```
+
+Note: `local-connector:start` runs the compiled output under `server/dist/`, which is gitignored and is **not** produced by `docker compose build` (that builds the image, not your host `dist/`). Build it on the host first:
+
+```powershell
+npm install
+npm run build:server
+npm run local-connector:start
+```
+
+Or run straight from source (no build step, via tsx):
+
+```powershell
+npm run local-connector:dev --workspace=server
 ```
 
 Keep this terminal open (or set it up as a startup item) — the connector must be running before you use the wizard.
@@ -499,7 +516,7 @@ Do not use the one-time Cloudflare login callback URL as your service URL.
 With this setup, internet traffic reaches only what the tunnel hostname maps to.
 
 - Good: hostname mapped to Ythril only.
-- Good: local helper remains on `127.0.0.1`.
+- Good: the local connector is guarded by a bearer token, not by its bind address. It binds `0.0.0.0` by default (deliberately, so the Docker container can reach it via host-gateway), so do not rely on the bind for isolation. Operators who want to tighten the bind can set `YTHRIL_CONNECTOR_BIND_HOST`.
 - Avoid: adding extra ingress rules for unrelated local ports.
 
 ### Validation checklist

@@ -12,19 +12,20 @@ For setting up a workstation quickly see [workstation-mode-guide.md](workstation
 1. [Logging in](#logging-in)
 2. [Navigation](#navigation)
 3. [Spaces — what they are](#spaces--what-they-are)
-4. [Brain](#brain)
+4. [Brain](#brain) — tabs: [Query](#query), [Graph](#graph), [Files](#files), Entities, Edges, Memories, Chrono, [File Meta](#file-meta)
    - [Memories](#memories)
    - [Entities](#entities)
    - [Edges](#edges)
    - [Chrono](#chrono)
    - [Query](#query)
+   - [File Meta](#file-meta)
 5. [Graph](#graph)
 6. [Files](#files)
 7. [Conflict resolution](#conflict-resolution)
 8. [Schema Library](#schema-library)
 9. [Settings — Spaces](#settings--spaces)
 10. [Settings — Tokens](#settings--tokens)
-11. [Settings — MFA](#settings--mfa)
+11. [Multi-factor authentication (MFA)](#multi-factor-authentication-mfa)
 12. [Settings — Networks](#settings--networks)
 13. [Settings — Models](#settings--models)
     - [Face Recognition](#face-recognition)
@@ -32,21 +33,24 @@ For setting up a workstation quickly see [workstation-mode-guide.md](workstation
 14. [Settings — Storage](#settings--storage)
 15. [Settings — Data](#settings--data)
 16. [Settings — Audit Log](#settings--audit-log)
-17. [Settings — Webhooks](#settings--webhooks)
-18. [Settings — About](#settings--about)
-19. [Connecting an AI assistant (MCP)](#connecting-an-ai-assistant-mcp)
+17. [Settings — Duplicates](#settings--duplicates)
+18. [Settings — Webhooks](#settings--webhooks)
+19. [Settings — About](#settings--about)
+20. [Connecting an AI assistant (MCP)](#connecting-an-ai-assistant-mcp)
 
 ---
 
 ## Logging in
 
-Open your instance URL in a browser (e.g. `http://localhost:3200`). Enter your access token — the one you received during setup — and click **Log in**.
+Open your instance URL in a browser (e.g. `http://localhost:3200`). Enter your access token — the one you received during setup — and click **Sign in**.
 
 If your organisation uses single sign-on (SSO), you will be redirected to your identity provider automatically. After authenticating there you land back in Ythril already logged in.
 
 To sign in with a token when SSO is active, go to `/login?local`.
 
-Clicking **Log out** in the sidebar footer clears the session.
+**First run:** on a brand-new instance the login page shows a **Run first-time setup** link (`/setup`) that walks you through creating the admin account and your first access token.
+
+Clicking **Sign out** in the topbar clears the session. (In embedded mode — see below — the topbar and its Sign out button are hidden.)
 
 ---
 
@@ -55,17 +59,16 @@ Clicking **Log out** in the sidebar footer clears the session.
 The left sidebar is the main navigation. It is divided into two sections:
 
 **Workspace**
-- **Brain** — store and search everything you know
-- **Graph** — visualise how entities connect
-- **Files** — manage uploaded documents and files
+- **Brain** — store, browse, and search everything you know. Graph and Files are *tabs inside Brain*, not separate pages — there are no `/graph` or `/files` routes (those URLs just redirect to Brain).
 - **Schema Library** — reusable data definitions shared across spaces
+- **Conflicts** — appears only when file conflicts are waiting to be resolved, with a red count badge showing how many.
 
 **Admin** (admin tokens only)
-- **Settings** → Tokens, Spaces, Networks, Storage, Audit Log, Webhooks, About, Preferences
+- **Settings** → Tokens, Spaces, Storage, Networks, Preferences, Audit Log, Data, Models, Duplicates, About
 
-A space selector at the top of the sidebar (or inside each page) lets you switch between spaces. Everything you see is scoped to the selected space.
+There is no global space selector in the sidebar. Space switching happens per page — the Brain page shows a row of space chips, and the Graph tab has its own space picker in the toolbar. Everything you see is scoped to the space you pick there.
 
-A red badge appears next to **Files** when there are file conflicts waiting to be resolved.
+**Embedded mode:** loading the app with `?embedded=1` on the URL hides the topbar (logo and **Sign out**) so Ythril can sit cleanly inside a host portal's own chrome. Navigation is unaffected — it lives in the sidebar. Trusted host origins that may iframe Ythril and push theme tokens are listed in `embed.allowedOrigins` in the config; empty or absent means same-origin only.
 
 ---
 
@@ -79,11 +82,11 @@ The `general` space is created automatically on first run. Admins can create add
 
 ## Brain
 
-The Brain is where all your knowledge lives. It has five tabs: **Memories**, **Entities**, **Edges**, **Chrono**, and **Query**.
+The Brain is where all your knowledge lives. It has eight tabs: **Query**, **Graph**, **Files**, **Entities**, **Edges**, **Memories**, **Chrono**, and **File Meta**.
 
-Five stat pills at the top of the page show the current counts for each collection in the selected space.
+At the top of the page a row of **space chips** lets you switch space; each chip shows the space's total record count. The tab buttons themselves carry small count badges for the collection they open.
 
-If the search index needs rebuilding (for example after upgrading the embedding model), an **⚠ Needs reindex** banner appears. Click **Reindex now** to rebuild it.
+If the search index needs rebuilding (for example after the embedding model changes), a banner appears reading *"Embeddings are stale — the embedding model has changed and this space needs reindexing."* Click **Reindex now** to rebuild it.
 
 ### Memories
 
@@ -101,13 +104,13 @@ Memories are the core knowledge unit — plain-language statements you want to r
 
 Click **Save**. The memory is indexed immediately and available for search.
 
-**Searching:** Type a natural-language question or phrase in the search bar and press Enter. Ythril uses semantic (meaning-based) search to find the most relevant memories.
+**Searching:** Type in the search bar and press Enter. A toggle beside it switches between **text** matching (plain substring/sort) and **Semantic** (meaning-based) search. Semantic mode returns a ranked set and is not paginated.
 
 **Filtering:** Click any tag or entity badge on a memory row to filter the list. Active filters appear as chips above the table. Click **×** on a chip to remove it, or **Clear all** to reset.
 
 **Deleting:** Each row has a **✕** button. A small inline confirmation appears — click **Yes** to confirm, **No** to cancel.
 
-**Wiping everything:** Click **Wipe all** in the toolbar. You will be asked to type the space ID to confirm. This removes all memories in the space.
+**Wiping everything:** There is no "Wipe all" button on the Brain toolbar. To clear a space's data, go to **Settings → Spaces → (space) → Danger tab** and use **Wipe all data**. You will be asked to type the space ID to confirm.
 
 ---
 
@@ -140,6 +143,8 @@ Edges connect two entities and describe the relationship between them (e.g. *ser
 
 Each edge has a **from** entity, a **to** entity, a **label** (the relationship name), and optional **type**, **weight**, **tags**, **description**, and **properties**.
 
+**Searching:** The search bar has a **text / Semantic** toggle, same as Memories — text matches the label/description, Semantic ranks edges by meaning.
+
 **Creating an edge:** Click **+ Add edge**. Use the entity pickers to select the source and target, choose or type a label, and click **Save**.
 
 When a **label** is selected and the space has a schema defined for that label, the properties section is pre-populated with all fields from that label's schema — the same required/optional behaviour as entities applies.
@@ -154,6 +159,8 @@ Chrono stores time-anchored entries: events, deadlines, plans, predictions, and 
 
 **Creating an entry:** Click **+ Add entry**. Required fields are **title**, **type**, and **starts at** (date and time). You can also add a description, tags, status, and linked entities.
 
+**Searching:** The search bar has a **text / Semantic** toggle — text matches title/description, Semantic ranks entries by meaning.
+
 **Filtering:** The filter bar above the table lets you narrow by tag text and status. Filters apply immediately.
 
 **Deleting:** Inline ✕ confirmation per row.
@@ -162,9 +169,24 @@ Chrono stores time-anchored entries: events, deadlines, plans, predictions, and 
 
 ### Query
 
-The Query panel lets you run structured searches across any collection in the current space.
+The Query tab has two modes, switched with the buttons at the top: **Semantic Search** and **Advanced Query**.
 
-Select a collection (`memories`, `entities`, `edges`, `chrono`, or `files`), enter a filter as JSON, and click **Run**. Results appear in a table below.
+#### Semantic Search
+
+Type a natural-language query and press Enter (or click **Search**) to find the most relevant records by meaning across the space. Two options sit next to the query box:
+
+- **topK** — how many results to return (1–100).
+- **minScore** — drop results below this similarity score (0–1).
+
+Click **Show advanced** for more control:
+
+- **Types** — restrict the search to specific record types (memory, entity, edge, chrono). For each ticked type you can also set a per-type **minimum** number of results to guarantee.
+- **Tags** — a tag filter applied to results.
+- **Filter** — a JSON object of extra field constraints, validated before the search runs. The recall filter accepts fields such as `status` and `label`, which are applied as native `$vectorSearch` pre-filters (they narrow the candidate set inside the vector index rather than filtering afterwards).
+
+#### Advanced Query
+
+Runs a structured MongoDB-style query against one collection. Select a collection (`memories`, `entities`, `edges`, `chrono`, or `files`), optionally set a **limit** and **max time (ms)**, enter a filter as JSON, and click **Run**. Results appear below.
 
 Example — find all entities of type `service`:
 ```json
@@ -178,13 +200,23 @@ Example — find memories tagged `infra`:
 
 ---
 
+### File Meta
+
+The **File Meta** tab lists the metadata records Ythril keeps for uploaded files — the searchable side of a file (its caption/extracted text, tags, and links) as distinct from the raw bytes you manage on the Files tab.
+
+Each row can be opened inline to edit its links: you can attach **entities**, **memories**, and **chrono** entries to a file so it surfaces alongside related knowledge. Opening a file from the Files tab's metadata action jumps you straight to its File Meta entry.
+
+---
+
 ## Graph
+
+> Graph is a **tab inside Brain**, not a separate page. Open Brain and click the **Graph** tab.
 
 The Graph view lets you explore how entities relate to each other visually.
 
 **Getting started:**
-1. Click **Graph** in the sidebar.
-2. Select a space from the toolbar.
+1. Open the **Graph** tab in Brain.
+2. Select a space from the tab's toolbar.
 3. Type an entity name in the search bar and click the result to load its graph.
 
 **Toolbar controls:**
@@ -209,6 +241,8 @@ The detail panel below the canvas shows all memories and chrono entries linked t
 ---
 
 ## Files
+
+> Files is a **tab inside Brain**, not a separate page. Open Brain and click the **Files** tab.
 
 The file manager lets you upload, download, organise, and preview files within each space.
 
@@ -244,9 +278,9 @@ Press **Escape** or click the backdrop to close. Use arrow keys to move to the p
 
 ## Conflict resolution
 
-When two connected brains modify the same file before syncing, a conflict is created. The sidebar shows a red badge on Files when conflicts are waiting.
+When two connected brains modify the same file before syncing, a conflict is created. A dedicated **Conflicts** item then appears in the sidebar's Workspace section, carrying a red count badge of how many are waiting.
 
-Open **Files → Conflicts** to see them. For each conflict choose what to do:
+Open **Conflicts** from the sidebar to see them. For each conflict choose what to do:
 
 | Option | Result |
 |--------|--------|
@@ -313,8 +347,10 @@ Click **+ Create space**. Fill in:
 
 - **Display Name** — the human-readable label shown everywhere in the UI.
 - **ID** — optional. Short lowercase identifier (auto-generated from the name if left blank).
-- **Max Storage (GiB)** — optional quota limit. Leave blank for unlimited.
+- **Max GiB** — optional storage quota. Leave blank for unlimited.
 - **Purpose** — optional description of what this space is for. Visible to AI assistants.
+- **Proxy for** — optionally mark this as a proxy space standing in for one or more other spaces (tick individual spaces or "all").
+- **Validation mode** — the schema-validation posture for the new space: `off`, `warn`, or `strict`.
 
 ### Space settings
 
@@ -336,9 +372,11 @@ Click the gear icon on any space row to open its settings panel. Changes save an
 
 **Danger tab:** Rename the space ID, wipe all data, or delete the space entirely.
 
+Each space row carries only a gear/configure (⚙) button — there is no pencil icon. Renaming, wiping, and deleting all live inside the space's settings panel, on the **Danger** tab.
+
 ### Renaming a space
 
-Click the pencil icon on a space row to rename its ID. All data, files, token scopes, and network sync mappings are updated automatically.
+Open the space's settings panel and go to the **Danger** tab to rename its ID. All data, files, token scopes, and network sync mappings are updated automatically.
 
 ### Deleting a space
 
@@ -346,7 +384,7 @@ In the space's settings panel, open the **Danger** tab and click **Delete space*
 
 ### Wiping a space
 
-In the **Danger** tab, click **Wipe space**. A confirmation dialog shows how many items are in each collection before you proceed. The space itself (its settings, label, schema) is kept — only the data inside it is removed.
+In the **Danger** tab, click **Wipe all data**. A confirmation dialog shows how many items are in each collection and asks you to type the space ID before you proceed. The space itself (its settings, label, schema) is kept — only the data inside it is removed.
 
 ---
 
@@ -367,7 +405,9 @@ Tokens can also be **space-scoped** — restricted to a specific list of spaces.
 
 ### Creating a token
 
-Click **+ New token**. Enter a name, choose a permission level, optionally set an expiry date, and optionally restrict it to specific spaces. To create a library access token (for sharing your schema library with other instances), enable **Library Access** — space selection and write access are then disabled automatically. Click **Create** — the token value is shown **once**. Copy it immediately.
+Click **Create Token**. Enter a name, choose a permission level, optionally set an expiry date, and optionally restrict it to specific spaces. Click **Create** — the token value is shown **once**. Copy it immediately.
+
+This dialog has no "Library Access" toggle. Library Access tokens (for sharing your schema library with other instances) are created separately, from the **Schema Library** page's own **Create token** dialog — see [Schema Library](#schema-library).
 
 ### Rotating a token
 
@@ -377,21 +417,21 @@ Click the ↺ icon on any token row. A new secret is generated; the old one stop
 
 Click the ✕ icon and confirm. The token is deleted and can never be used again.
 
-Your current session token is marked **(you)** in the list.
+Your current session token is marked **(current session)** in the list.
 
 ---
 
-## Settings — MFA
+## Multi-factor authentication (MFA)
 
-MFA adds a one-time code requirement for admin actions (creating tokens, managing spaces). Normal data operations are not affected.
+MFA adds a one-time code requirement for admin actions (creating tokens, managing spaces). Normal data operations are not affected. There is no separate "MFA" page — the MFA panel lives inside **Settings → Preferences**.
 
 ### Enrolling
 
-1. Open **Settings → MFA** and click **Enable MFA**.
+1. Open **Settings → Preferences** and click **Enable MFA**.
 2. Scan the QR code with an authenticator app (Google Authenticator, Authy, 1Password, Bitwarden, etc.).
 3. Enter the 6-digit code shown in the app and click **Confirm**.
 
-The TOTP secret is generated in your browser and never sent to any server other than to store the encrypted key for verification.
+The TOTP secret is generated **on the server** and returned to your browser so it can be shown as the QR code / setup key. Your authenticator and the server then share that secret to verify future codes.
 
 ### Day-to-day use
 
@@ -399,7 +439,9 @@ When you perform an admin action, the UI prompts for a 6-digit code. After enter
 
 ### Disabling
 
-Click **Disable MFA**. No code is needed — this is intentional, so you can recover if you lose your authenticator.
+Click **Disable MFA**. This **requires a current 6-digit code** — you cannot turn MFA off without your authenticator, which is deliberate: a stolen admin token must not be able to silently remove the second factor.
+
+**Lost your authenticator?** Because disabling needs a code, recovery is an operator action on the host: remove the `totpSecret` entry from `secrets.json` in the instance's config directory and restart. MFA is then disabled and you can re-enrol.
 
 ---
 
@@ -448,6 +490,8 @@ Expand a network card and click **Sync History** to see a log of every sync cycl
 ### Voting
 
 When a vote is open (e.g. a member wants to leave), expand the network card and scroll to **Open votes**. Click **✓ Yes** or **✗ No** to cast your vote.
+
+**Signed votes:** a network can set `requireSignedVotes` so every vote cast must carry a valid Ed25519 signature from the voting member (verified against its pinned signing key). Enable it once all members have published a signing key; if a member rotates its signing key, the new key is accepted with a rotation proof that references the previous one.
 
 ### Leaving a network
 
@@ -552,7 +596,7 @@ Toggle the **Maintenance mode** button to enable or disable it. A banner appears
 
 ### Backups
 
-Click **Run backup now** to trigger an immediate point-in-time dump of the entire MongoDB database. The backup is stored inside the instance's data directory (`<data-root>/backups/<timestamp>/`). Each backup contains a `manifest.json` with metadata and one NDJSON file per collection.
+Click **Back Up Now** to trigger an immediate point-in-time dump of the entire MongoDB database. The backup is stored inside the instance's data directory (`<data-root>/backups/<timestamp>/`). Each backup contains a `manifest.json` with metadata and one NDJSON file per collection.
 
 The **Backups** table lists all available backups with their timestamp and the collections they contain.
 
@@ -560,7 +604,7 @@ The **Backups** table lists all available backups with their timestamp and the c
 
 > **This feature must be explicitly enabled by your infrastructure administrator** (`YTHRIL_DB_MIGRATION_ENABLED=true`). It is disabled by default.
 
-Configure automatic backups and an optional offsite destination from **Settings → Database** using the **Backup Destination** and **Scheduled Backups** cards. Settings are saved to `backup.json` (alongside `config.json`, typically `/config/backup.json`). You can also create or edit this file directly — see `config/backup.example.json` in the repository for the full schema.
+Configure automatic backups and an optional offsite destination from **Settings → Data** using the **Backup Destination** and **Scheduled Backups** cards. Settings are saved to `backup.json` (alongside `config.json`, typically `/config/backup.json`). You can also create or edit this file directly — see `config/backup.example.json` in the repository for the full schema.
 
 **Example `backup.json`:**
 
@@ -673,7 +717,7 @@ Restore is irreversible — all data written after the backup timestamp will be 
 
 > **This feature must be explicitly enabled by your infrastructure administrator** (`YTHRIL_DB_MIGRATION_ENABLED=true`). It is disabled by default on all instances.
 
-> **Not available when `MONGO_URI` is set.** If the connection is managed via environment variable, the **Migrate Database** card shows an informational message instead of the migration form. To change the database in that case, update `MONGO_URI` in your deployment configuration and restart.
+> **Infrastructure-managed connections are locked.** When `MONGO_URI` comes from the environment, the UI shows an informational note that the connection is externally managed. The *hard* server-side block on changing database settings, however, is the separate `YTHRIL_MONGO_INFRA_MANAGED=true` environment variable: with it set, the **Migrate Database** card is disabled entirely. To change the database in a managed deployment, update your deployment configuration (the `MONGO_URI` your orchestrator injects) and restart.
 
 Database migration moves the entire database to a different MongoDB server — for example, from the bundled container to Atlas, or between clusters.
 
@@ -697,32 +741,48 @@ Migration is a one-way operation. Keep your old database available until you hav
 
 **Exporting:** Download the current filtered view as JSON or CSV.
 
+**Live server log:** the Audit Log page also carries the instance's **live server log**, streamed in real time over Server-Sent Events (SSE). It loads the recent lines and then appends new ones as they happen, colour-coded by level.
+
+---
+
+## Settings — Duplicates
+
+**Settings → Duplicates** (admin only) surfaces near-duplicate records found by the background semantic-duplicate scanner.
+
+A status filter (**open / dismissed / all**) and a **Scan now** button sit at the top. The table lists each duplicate pair — space, record type, a summary of record A and record B, the similarity score, status, and when it was detected. For an entity pair you can **Merge** the two records; any pair can be **Dismiss**ed (the ✕ button).
+
+**Per-space rules:** how the scanner reacts is configured per space in the instance config (`dupeRules`). Each rule can `flag` a pair for review, `automerge` it, or `notify` — the notify action emits a `duplicate.detected` webhook (optionally to a rule-specific URL). The scanner is opt-in and off by default.
+
 ---
 
 ## Settings — Webhooks
 
-**Settings → Webhooks** (admin only) lets you send HTTP notifications to external systems whenever data changes.
+Webhooks send signed HTTP notifications to external systems when events occur. **There is no Settings → Webhooks page yet** — a management UI is planned, but today webhooks are configured through the admin API at `/api/admin/webhooks` (admin token + MFA required). All endpoints must be HTTPS and are SSRF-checked.
 
-### Creating a webhook
+### Listing and creating
 
-Click **+ New Webhook**. Enter:
-- **URL** — the HTTPS endpoint to notify.
-- **Secret** — used to sign payloads so your endpoint can verify they came from Ythril.
-- Optionally restrict to specific spaces and event types.
-
-### Event types
-
-Webhooks fire on any write event: `memory.created`, `entity.updated`, `file.deleted`, etc. — across all five data types (memory, entity, edge, chrono, file).
+- **List:** `GET /api/admin/webhooks`
+- **Create:** `POST /api/admin/webhooks` with a JSON body of:
+  - **`url`** — the HTTPS endpoint to notify.
+  - **`secret`** — at least 8 characters; used to HMAC-sign each payload so your endpoint can verify it came from Ythril.
+  - **`spaces`** — optional array of space IDs to restrict to (omit/empty = all spaces).
+  - **`events`** — optional array of event types to restrict to (omit/empty = all events).
+- **Delete:** `DELETE /api/admin/webhooks/:id`
+- **Update:** `PATCH /api/admin/webhooks/:id`
 
 ### Testing
 
-Click **Test** on a webhook card to send a test ping and verify the endpoint is reachable.
+`POST /api/admin/webhooks/:id/test` delivers a `test.ping` event to that webhook so you can confirm the endpoint is reachable. Recent delivery attempts are available at `GET /api/admin/webhooks/:id/deliveries`.
+
+### Event types
+
+Beyond the per-collection write events (`memory.created`, `entity.updated`, `file.deleted`, … across memory, entity, edge, chrono, and file), the following are also emitted: `entity.merged`, `link_violation.created`, `duplicate.detected`, and `test.ping`.
 
 ---
 
 ## Settings — About
 
-The About page shows instance information: label, version, uptime, database version, disk usage, and the last 200 lines of the server log (auto-refreshed every 15 seconds).
+The About page loads once (no auto-refresh) and shows instance information: instance label, instance ID, version, uptime, MongoDB version, and a disk-usage bar. It does **not** show the server log — the live server log lives on the [Audit Log](#settings--audit-log) page.
 
 ---
 
@@ -749,7 +809,11 @@ Add the following to your MCP client's config file:
 
 Replace `localhost:3200` with your instance URL and `ythril_yourTokenHere` with a valid token.
 
-One connection entry is all you need — every space the token can access is available. The AI will see instructions listing the available spaces when it connects.
+One connection entry is all you need — every space the token can access is available. On connect, the AI receives instructions naming the spaces it can reach and is told to call **`list_spaces`** (and `get_space_meta`) to learn the schema, purpose, and record counts of each — so it can orient itself before reading or writing.
+
+### Browser connectors (OAuth)
+
+Static-token clients like Claude Desktop, Cursor, and VS Code just send the `Authorization: Bearer ythril_…` header shown above. Browser-based connectors that use the claude.ai-style OAuth flow instead — connect Ythril's `/mcp` URL and you'll be sent through an OAuth **consent** screen where you paste a valid Ythril token to approve. On approval Ythril mints a fresh PAT with the same privileges as the approving token; it appears under **Settings → Tokens** named **`MCP connector: <client>`**. This flow requires the instance to know its own public HTTPS URL (`publicUrl` / `PUBLIC_BASE_URL`).
 
 ### What the AI can do
 

@@ -10,7 +10,7 @@ Ythril gives every MCP-compatible client (Claude, Cursor, Windsurf, VS Code Copi
 
 ### Semantic Recall
 
-Store facts and context as **memories** with automatic vector embeddings. The `recall` and `recall_global` MCP tools perform semantic search across all knowledge types — memories, entities, edges, chrono entries, and files — using MongoDB Atlas `$vectorSearch`. Results are ranked by similarity and include a type discriminator, so an LLM can search the entire brain with a single natural-language query.
+Store facts and context as **memories** with automatic vector embeddings. The `recall` MCP tool performs semantic search across all knowledge types — memories, entities, edges, chrono entries, and files — using MongoDB Atlas `$vectorSearch`. Results are ranked by similarity and include a type discriminator, so an LLM can search the entire brain with a single natural-language query. Omit the `space` parameter and `recall` searches across every space the token can access.
 
 ### Knowledge Graph
 
@@ -64,7 +64,7 @@ Append-only, immutable access log of every authenticated API operation. The audi
 
 ### Webhooks
 
-Subscribe external systems to real-time HTTP POST notifications when write events occur. Supports 15 event types across memories, entities, edges, chrono, and files. Payloads are signed with HMAC-SHA256, delivered with at-least-once guarantees (6 retries with exponential backoff), and SSRF-protected — targets are DNS-resolved and validated at delivery time and every redirect hop is re-validated, so a webhook cannot be pointed (or redirected/rebound) at a private/reserved IP. Manage subscriptions through the REST API or the **Settings → Webhooks** UI.
+Subscribe external systems to real-time HTTP POST notifications when write events occur. Supports 16 domain event types across memories, entities, edges, chrono, and files (including `entity.merged`) — 19 in total once the operational events `link_violation.created`, `duplicate.detected`, and `test.ping` are counted. Payloads are signed with HMAC-SHA256, delivered with at-least-once guarantees (6 retries with exponential backoff), and SSRF-protected — targets are DNS-resolved and validated at delivery time and every redirect hop is re-validated, so a webhook cannot be pointed (or redirected/rebound) at a private/reserved IP. Manage subscriptions through the REST API or the **Settings → Webhooks** UI.
 
 ### 30 MCP Tools
 
@@ -72,11 +72,11 @@ Every capability is exposed as an MCP tool that any LLM client can call:
 
 | Category | Tools |
 |----------|-------|
-| Memory | `remember`, `recall`, `recall_global`, `update_memory`, `delete_memory`, `find_similar` |
+| Memory | `remember`, `recall`, `update_memory`, `delete_memory`, `find_similar` |
 | Knowledge graph | `upsert_entity`, `update_entity`, `merge_entities`, `find_entities_by_name`, `upsert_edge`, `update_edge`, `traverse`, `query` |
 | Timeline | `create_chrono`, `update_chrono`, `list_chrono` |
 | Files | `read_file`, `write_file`, `list_dir`, `delete_file`, `create_dir`, `move_file` |
-| Batch & admin | `bulk_write`, `get_stats`, `get_space_meta`, `update_space`, `wipe_space` |
+| Batch & admin | `list_spaces`, `bulk_write`, `get_stats`, `get_space_meta`, `update_space`, `wipe_space` |
 | Sync | `list_peers`, `sync_now` |
 
 Read-only tokens automatically hide all mutating tools and block them if called directly.
@@ -110,6 +110,7 @@ Membership changes are decided by **cryptographically signed votes**: each brain
 - **Storage quotas** (soft/hard limits) for files and brain data
 - **Global rate limiting** (configurable per-endpoint)
 - **Content-Security-Policy**, security headers, `0600` config file enforcement
+- **Opt-in cross-origin embedding** — off by default (`frame-ancestors 'self'`). Listing trusted origins under `embed.allowedOrigins` in config adds them to the CSP `frame-ancestors` directive and lets them push `ythril:theme` postMessages; loading the app with `?embedded=1` hides the host chrome for iframe/portal deployments
 
 ---
 

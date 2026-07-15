@@ -7,8 +7,11 @@ status of each, and why Ythril's PolyForm Small Business License obligations are
 
 ## Node.js packages
 
-All Node.js dependencies are listed in `package.json` and reproduced in [NOTICE](../NOTICE).
-They are MIT, Apache 2.0, or ISC licensed. No copyleft restrictions apply.
+Ythril is an npm-workspaces monorepo: the **root** `package.json` declares no runtime
+dependencies of its own — they live in [`server/package.json`](../server/package.json)
+and [`client/package.json`](../client/package.json). The attribution-requiring packages
+across both workspaces are reproduced in [NOTICE](../NOTICE). They are MIT, Apache 2.0,
+0BSD, BSD-3-Clause, or ISC licensed. No copyleft restrictions apply.
 
 ---
 
@@ -28,7 +31,8 @@ The image bundles two processes:
 
 `mongot` is the reason this specific image is used instead of plain Community Edition.
 Ythril issues `$vectorSearch` aggregation queries against MongoDB to power semantic
-recall (`query`, `recall`, `recall_global` MCP tools). That stage requires `mongot`
+recall (`query` and `recall` MCP tools; calling `recall` with its `space` parameter
+omitted searches across every space the token can access). That stage requires `mongot`
 to be running and connected to `mongod`. There is currently no fully open-source
 drop-in replacement that provides equivalent vector search on top of MongoDB.
 
@@ -184,3 +188,34 @@ this the only fully SSPL-only (no proprietary) deployment option with full
 
 See [integration-guide.md](integration-guide.md#mongodb-flexibility) for
 connection configuration.
+
+---
+
+## Media & document runtime images (Docker / Kubernetes sidecars)
+
+Ythril's media-embedding and document-conversion pipelines run as **separate
+container images**, pulled independently at deployment time exactly like the
+MongoDB image above. None of them are bundled into or distributed by Ythril, and
+none are linked into the application — Ythril talks to each over HTTP on a private
+network. They are documented here per the [contribution guide's](contribution-guide.md)
+Legal principle that runtime infrastructure must be listed with its licensing impact.
+
+| Image | Role | License |
+|---|---|---|
+| `ollama/ollama` | Vision model host — captions uploaded images (default `moondream2`) for the media pipeline. | MIT (the Ollama runtime). Models are pulled separately; the default `moondream2` is Apache 2.0. |
+| `fedirz/faster-whisper-server` | Speech-to-text — transcribes uploaded/segmented audio via an OpenAI-compatible endpoint. | MIT (the server). Whisper models are pulled separately and are Apache 2.0. |
+| `unstructured-io/unstructured-api-full` | Server-side PDF / DOCX / EPUB conversion (`hi_res` OCR + layout detection, table and embedded-image extraction). | Apache 2.0. |
+
+**Where they are referenced.** `ollama` and `whisper` are services in
+[`docker-compose.yml`](../docker-compose.yml) (media-embedding stack) and have matching
+Kubernetes manifests (`kubernetes/manifests/{ollama,whisper}-deploy.yaml`). The
+`unstructured-api-full` sidecar is defined in the Kubernetes deployment
+(`kubernetes/manifests/ythril-deployment.yaml`) and is being added to Compose as the
+bundled document-conversion sidecar.
+
+**Licensing impact — none on Ythril's PolyForm obligations.** All three are permissively
+licensed (MIT / Apache 2.0), carry no copyleft, and run as independent network services
+rather than linked code — the same TCP-socket relationship analysed for MongoDB above.
+`unstructured-api-full` in particular ships under Apache 2.0, but because its tag can change,
+verify the image's bundled `LICENSE` on every version bump (the procedure is documented in
+the header of `kubernetes/manifests/ythril-deployment.yaml`).

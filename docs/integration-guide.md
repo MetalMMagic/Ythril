@@ -32,12 +32,15 @@ If you are here for web UI usage, read [User Guide](userguide.md). If you are co
 17. [Admin API](#admin-api) — config reload, export/import, space wipe
 18. [Data Management API](#data-management-api) — maintenance mode, backup, restore, migration, backup config
 19. [Audit Log API](#audit-log-api) — token and access audit trail
-20. [Webhooks API](#webhooks-api) — event subscriptions for space write events
-21. [About API](#about-api) — instance info and logs
-22. [Theme API](#theme-api) — external CSS theming
-23. [MCP (Model Context Protocol)](#mcp-model-context-protocol) — AI tool integration
-24. [Storage Quotas](#storage-quotas)
-25. [Pagination](#pagination)
+20. [Duplicate Scanner & Action Rules](#duplicate-scanner--action-rules) — dedupe scan and automated action rules
+21. [Webhooks API](#webhooks-api) — event subscriptions for space write events
+22. [About API](#about-api) — instance info and logs
+23. [Theme API](#theme-api) — external CSS theming
+24. [Embedded (chrome-less) Mode](#embedded-chrome-less-mode) — iframe-embeddable UI
+25. [MCP (Model Context Protocol)](#mcp-model-context-protocol) — AI tool integration
+26. [Storage Quotas](#storage-quotas)
+27. [Pagination](#pagination)
+28. [OIDC (OpenID Connect) Authentication](#oidc-openid-connect-authentication) — browser SSO via an external IdP
 
 ---
 
@@ -453,7 +456,7 @@ docker compose start
 
 ## Authentication
 
-Every API request requires a Bearer token, except a handful of public routes: `/health`, `/ready`, `/api/theme`, `/api/setup/status`, `/setup`, `/api/invite/apply`, `/api/auth/oidc-info`, and `GET /api/about`:
+Every API request requires a Bearer token, except a handful of public routes: `/health`, `/ready`, `/api/theme`, `/api/setup/status`, `/setup`, `/api/invite/apply`, and `/api/auth/oidc-info`:
 
 ```
 Authorization: Bearer ythril_<base62-encoded-token>
@@ -522,15 +525,14 @@ Extended errors may include:
 | Auth | 10 / min | Token creation, setup, invite/apply |
 | Global | 300 / min | All authenticated endpoints |
 | Sync | 2 000 / min | Sync API endpoints |
-| Notify | 60 / min | `POST /api/notify` |
-| Bulk wipe | 5 / min | `DELETE /api/brain/spaces/:spaceId/memories` |
+| Notify | 60 / min | `GET /api/notify`, `POST /api/notify`, `POST /api/notify/trigger` |
+| Bulk wipe | 5 / min | `DELETE /api/brain/spaces/:spaceId/{memories,entities,edges,chrono}` |
 
-Rate limit headers are included in responses:
+Rate limit headers follow the IETF draft-7 format: a single combined `RateLimit` header plus a `RateLimit-Policy` header (the legacy draft-6 `RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset` headers are not emitted):
 
 ```
-RateLimit-Limit: 300
-RateLimit-Remaining: 297
-RateLimit-Reset: 1711381200
+RateLimit: limit=300, remaining=297, reset=42
+RateLimit-Policy: 300;w=60
 Retry-After: 42
 ```
 
@@ -656,6 +658,7 @@ Content-Type: application/json
 
 **Response** `200` `{ deleted: <count> }`. Rate-limited to 5 requests/minute.
 
+Entities, edges, and chrono entries have the same bulk-wipe endpoint shape — `DELETE /api/brain/spaces/:spaceId/entities`, `.../edges`, and `.../chrono`, each requiring `{ "confirm": true }`, returning `{ deleted: <count> }`, and sharing the same 5/minute bulk-wipe limit. Bulk wipe is rejected on proxy spaces (`400`) — target member spaces individually.
 
 ---
 
@@ -795,7 +798,7 @@ Multiple operators on the same key are AND-ed (range queries):
 { "properties.score": { "gte": 50, "lt": 100 } }
 ```
 
-**Allowed filter key prefixes:** `properties.`, `tags`, `type`, `name`. Any other key returns `400`. This prevents filter-key injection attacks.
+**Allowed filter key prefixes:** `properties.`, `tags`, `type`, `name`, `status`, `label`. Any other key returns `400`. This prevents filter-key injection attacks.
 
 **Examples:**
 
@@ -813,7 +816,7 @@ Multiple operators on the same key are AND-ed (range queries):
 { "filter": { "properties.domain": { "exists": true } } }
 ```
 
-> **Performance note:** When a `filter` is provided, Ythril switches to ENN (exact nearest-neighbour) search — MongoDB exhaustively scores all documents in the space, applies the filter, then returns the top-K results. This is semantically correct for any collection size: ANN + post-filter would silently discard matching documents that fell below the ANN candidate threshold. For very large spaces (>50k records per type), consider adding a standard MongoDB index on heavily-filtered fields (e.g. `properties.status`) to speed up the post-match stage.
+> **Performance note:** A filter that references only declared index fields — `tags`, `type`, `name`, `status`, `label`, and any schema-declared `properties.<key>` — using the operators `eq`, `in`, `gt`, `gte`, `lt`, or `lte` is pushed into a native `$vectorSearch` `filter` and runs as `exact:true` search restricted to the matching subset, so cost is proportional to the number of matching records rather than the whole collection. Only undeclared dynamic `properties.*` keys, `exists`, and `ne` fall back to the exhaustive ENN path, which scores every document in the space before applying the filter. To keep a heavily-filtered property on the fast path, declare it in the space schema rather than adding a standalone MongoDB index.
 
 **What is vector-indexed:**
 
@@ -949,6 +952,26 @@ Returns all entities with the exact name, regardless of type. Multiple entities 
 
 ---
 
+### Get Entities by IDs
+
+```
+GET /api/brain/spaces/:spaceId/entities/by-ids?ids=id1,id2,id3
+```
+
+Batch-fetch entities by ID. `ids` is a comma-separated list (required — `400` if missing), deduplicated and capped at **100** IDs per call. Returns `{ "entities": [ ... ] }`; unknown IDs are simply absent from the result.
+
+---
+
+### Get an Entity by ID
+
+```
+GET /api/brain/spaces/:spaceId/entities/:id
+```
+
+Returns the single entity, or `404` if no entity with that ID exists in the space. Edges and chrono entries have the same single-doc shape — `GET /api/brain/spaces/:spaceId/edges/:id` and `GET /api/brain/spaces/:spaceId/chrono/:id`.
+
+---
+
 ### List Entities
 
 ```
@@ -965,7 +988,7 @@ GET /api/brain/spaces/:spaceId/entities?limit=50&skip=0
 }
 ```
 
-Default limit: 50, max: 200.
+Default limit: 50, max: 500.
 
 ---
 
@@ -2077,7 +2100,13 @@ POST /api/spaces
 | `folders` | no | Pre-create these directories on disk at space creation time. |
 | `maxGiB` | no | Maximum storage quota for the space (positive number in GiB). |
 
-**Response** `201`: the created space object.
+**Response** `201`: the created space object, wrapped in a `space` field:
+
+```json
+{ "space": { "id": "research", "label": "Research Notes", "indexStatus": "building" } }
+```
+
+> **Async vector-index build:** creating a real space returns immediately with `indexStatus: "building"`. The space is writable straight away, but semantic `recall` returns no results until the Atlas vector indexes finish building and `indexStatus` flips to `"ready"` (this can take up to a few minutes; a failed build reports `"failed"`). Poll the space via `GET /api/spaces` if you need to gate recall on readiness. Proxy spaces and spaces created before this behaviour have no `indexStatus` and should be treated as ready.
 
 ---
 
@@ -2102,6 +2131,7 @@ POST /api/spaces
 - All `proxyFor` members must be existing real spaces (not proxies — nesting is not allowed).
 - Proxy spaces are virtual: no DB collections or file directories are created.
 - The calling token must have access to **all** member spaces.
+- The single-element wildcard `"proxyFor": ["*"]` creates an **all-spaces** proxy: it aggregates over every real space the caller can access (resolved dynamically), skipping per-member validation. The wildcard cannot be mixed with explicit member IDs.
 
 **Read operations** (GET memories, entities, edges, files, recall, query) aggregate results across all member spaces transparently.
 
@@ -2662,6 +2692,37 @@ Authorization: Bearer <token>
 > **Safe deletion:** Before deleting an entry, call `GET /api/schema-library/:name/usages` to find all spaces that reference it. For each usage, `PUT /api/spaces/:spaceId/meta/typeSchemas/:kt/:typeName` with the inline schema (copied from the library entry) to replace the `$ref` with a standalone definition. Once all references are replaced, the `DELETE` can proceed without breaking any space's validation.
 >
 > The admin UI performs this sequence automatically — it shows a warning with the affected spaces and an **Unlink & Delete** button that handles the replacement before deleting.
+
+#### Schema groups
+
+Library entries can carry a `schemaGroup` tag, letting a related set of type schemas be exported from and applied to spaces as a unit.
+
+```
+GET /api/schema-library/groups
+Authorization: Bearer <token>
+```
+
+**Response** `200 { "groups": [ { "name", "count" } ] }` — every distinct `schemaGroup` with the number of entries in it, sorted by name.
+
+```
+POST /api/schema-library/export-space
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{ "spaceId": "research", "groupName": "research-schemas", "namePrefix": "research" }
+```
+
+Creates or updates one library entry per **inline** type schema in the space's `meta.typeSchemas`, tagging them all with `groupName` (`$ref` entries are skipped — they are already library-backed). Entry names are derived as `<namePrefix|groupName>-<knowledgeType>-<typeName>`. **Response** `200 { "created", "updated", "entries": [ ... ] }`. Requires an admin token (and MFA when enabled).
+
+```
+POST /api/schema-library/groups/:group/apply
+Authorization: Bearer <admin-token>
+Content-Type: application/json
+
+{ "spaceId": "research-2" }
+```
+
+Injects a `$ref` into the target space's `typeSchemas` for every library entry in `:group`, wiring the space to the shared definitions. **Response** `200` with the applied entries; `404` if the group has no entries or the space does not exist. Requires an admin token (and MFA when enabled).
 
 #### Using `$ref` in space typeSchemas
 
@@ -3253,7 +3314,7 @@ What to do:
 Notes:
 
 - This validation is enforced for `Join via Invite Key`, `Join Remote`, and invite `apply` payloads.
-- There is no runtime toggle to allow private or loopback peer URLs in these endpoints.
+- There is no runtime toggle to allow private or loopback peer URLs in these endpoints. `SYNC_ALLOW_PRIVATE_PEERS` (and the `allowPrivatePeers` config key) relaxes only the sync-time/gossip URL check used when connecting to and storing already-known peers; the join / member-add URL validation shown here always uses the strict SSRF check regardless of that setting.
 
 ---
 
@@ -3765,11 +3826,11 @@ POST /api/mfa/setup
 ```json
 {
   "secret": "JBSWY3DPEHPK3PXP",
-  "otpauth": "otpauth://totp/ythril:admin?secret=JBSWY3DPEHPK3PXP&issuer=ythril"
+  "otpauth": "otpauth://totp/Ythril:My%20Brain?secret=JBSWY3DPEHPK3PXP&issuer=Ythril"
 }
 ```
 
-Scan the `otpauth` URI as a QR code in any TOTP app.
+Scan the `otpauth` URI as a QR code in any TOTP app. The issuer is always `Ythril`, and the account label is the instance label (`instanceLabel`, falling back to `brain`).
 
 > When MFA is **already enabled**, `POST /api/mfa/setup` (rotating the secret) and `DELETE /api/mfa`
 > (disabling) require a current TOTP code in the `X-TOTP-Code` header — a stolen admin PAT alone
@@ -5306,7 +5367,7 @@ On connect, the server sends global instructions listing all available space IDs
 
 ### Read-Only Tokens
 
-When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `sync_now`, `update_space`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`recall`, `query`, `get_stats`, `get_space_meta`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `traverse`) work normally. `list_peers` is read-only but **admin-gated** — see the admin-only note below.
+When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `sync_now`, `update_space`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`help`, `recall`, `find_similar`, `query`, `get_stats`, `get_space_meta`, `list_spaces`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `traverse`) work normally. `list_peers` is read-only but **admin-gated** — see the admin-only note below.
 
 ### Connecting
 
@@ -5387,6 +5448,8 @@ Content-Type: application/json
 
 | Tool | Description |
 |---|---|
+| `help` | Self-documenting system guide — the knowledge model, how to choose between `query` / `recall` / filtered recall, schema authoring, and the tools available to the calling token. Read-only, no `space` needed; scoped to the token so it never lists tools the token can't call |
+| `list_spaces` | List accessible space IDs with descriptions and entry counts (memories, entities, edges, chrono) |
 | `remember` | Store a memory with optional tags and entity links |
 | `update_memory` | Update an existing memory's fact, tags, entity links, or delete specific fields via `deleteFields` |
 | `delete_memory` | Delete a memory by ID |
@@ -5548,6 +5611,8 @@ For cross-space recall (omit `space`), `spaceId` on each result identifies which
 | `types` | `string[]` | — | Optional knowledge-type filter — restrict results to one or more of `memory`, `entity`, `edge`, `chrono`, `file`. Omit to search all types. |
 | `minPerType` | `object` | — | Optional minimum result count per type. Guarantees at least that many results of each specified type if available (e.g. `{"entity": 2, "edge": 1}`). Uses two-phase search: guaranteed slots filled first, remaining slots filled by score. Omit to use pure score ranking. |
 | `minScore` | `number` | — | Minimum cosine similarity score (0.0–1.0). Results below this threshold are excluded. Applies before `topK` — so `topK=10, minScore=0.7` returns at most 10 results, all with score ≥ 0.7. |
+| `filter` | `object` | — | Property equality/comparison filter applied to the vector-search results. Same shape and allowed key prefixes as the [recall filter](#prefiltered-recall-filter-parameter) (`properties.`, `tags`, `type`, `name`, `status`, `label`) with `eq`/`ne`/`in`/`exists`/`gt`/`gte`/`lt`/`lte` operators. Records not matching **all** conditions are excluded. |
+| `traverse` | `number` | — | Graph-expansion depth (integer `0`–`5`, default `0`). When `> 0`, each semantic match is expanded along knowledge-graph edges up to this many hops; connected entities are returned alongside the seeds, annotated with `source` (`recall`/`traverse`), `hops`, and `path`. |
 
 When `space` is omitted, `recall` searches across all accessible spaces — the same as the former `recall_global` behaviour.
 
@@ -5659,12 +5724,13 @@ Works with any valid token (including read-only). For proxy spaces, returns aggr
 | `entities` | Named entities in the knowledge graph |
 | `edges` | Directed relationship edges between entities |
 | `chrono` | Chronological entries (events, deadlines, plans, predictions, milestones) |
+| `files` | File metadata records (path, tags, description, embedding status) |
 
 **Parameters:**
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `collection` | `string` | ✅ | One of the four values above |
+| `collection` | `string` | ✅ | One of the five values above |
 | `filter` | `object` | ✅ | MongoDB filter document |
 | `projection` | `object` | — | Fields to include (`1`) or exclude (`0`) |
 | `limit` | `number` | — | Max documents (default `20`, max `100`) |
@@ -5828,9 +5894,13 @@ Used by the web client login flow to decide whether OIDC is enabled and which is
   "enabled": true,
   "issuerUrl": "https://keycloak.example.com/realms/my-realm",
   "clientId": "ythril",
-  "scopes": ["openid", "profile", "email"]
+  "scopes": ["openid", "profile", "email"],
+  "enforceForBrowser": false,
+  "postLogoutRedirectUri": "https://brain.example.com/login"
 }
 ```
+
+`enforceForBrowser` is always present (boolean). `postLogoutRedirectUri` is included only when it is configured on the `oidc` block.
 
 ### Login Flow (Browser)
 
@@ -5950,7 +6020,7 @@ After saving any IdP configuration, run `POST /api/admin/reload-config` to apply
 - **No server-side token revocation for OIDC.**  JWTs are validated statelessly (signature + `exp`).  Once issued by the IdP, a token is valid until it expires.  To revoke access, disable or remove the user at the IdP and set short token lifetimes (5–15 minutes recommended).
 - **Silent token refresh.**  The SPA automatically schedules a background token refresh 60 seconds before the access token expires.  A hidden iframe is created with `prompt=none`; if the IdP session is still valid the user stays logged in with no interruption.  If the IdP session has also expired (or the IdP does not support `prompt=none`) the next API call returns 401 and the browser is redirected to the login page.  Configure your IdP's access token lifetime to balance UX vs security (5–15 minutes is a reasonable default).  This mechanism requires `Content-Security-Policy: frame-ancestors 'self'` (included in the default `frame-ancestors 'self'; object-src 'none'; base-uri 'self'` policy set by the server).
 - **`admin` and `readOnly` cannot both match.**  If both claim rules match the same JWT, `admin: true` takes precedence and `readOnly` is ignored.  Design your IdP roles to be mutually exclusive.
-- **Spaces claim controls visibility.**  When a `spaces` claim is present in the JWT, the OIDC session can only see and modify those spaces.  If the claim is missing or not an array, the session has access to all spaces (same as a PAT with no `spaces` allowlist).  Users who cannot see expected spaces should check with their administrator that the IdP is emitting the correct claim values.
+- **Spaces claim controls visibility (fail-closed).**  When a `spaces` mapping is configured, the OIDC session can only see and modify the spaces named in that claim.  If the mapping is configured but the claim is missing or is not a string array, the allow-list is **empty (deny all)** — not "all spaces".  Users who cannot see expected spaces should check with their administrator that the IdP is emitting the correct claim values.
 - **Config validation.**  When `oidc.enabled` is `true`, `issuerUrl` and `clientId` are required.  The server validates the OIDC config block at startup and on `reload-config` — a malformed block will prevent the server from starting.
 - **Config reload required.**  Any change to the `oidc` block requires `POST /api/admin/reload-config` or a container restart to take effect.  The OIDC discovery document and JWKS key set are cached in memory and flushed on reload.
 - **Enforcing OIDC for browser sessions.**  Set `enforceForBrowser: true` to prevent users who have a cached PAT in their browser from bypassing the IdP.  When this flag is set the SPA clears any PAT-based localStorage session on startup and forces a fresh OIDC login.  Programmatic callers (API, MCP) that supply an `Authorization: ****** header are not affected.

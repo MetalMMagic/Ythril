@@ -2,6 +2,11 @@
 
 Practical scenarios showing how Ythril spaces and networks solve real knowledge management challenges.
 
+> **How entity linking works in these examples:**
+>
+> - **`remember(entities: [...])` links to *existing* entities only** — it does not create them. Names that don't resolve to an existing entity are skipped with a warning ("Unresolved entity names — create them first"). Call `upsert_entity` for each new entity *before* (or alongside) the `remember` that references it, otherwise the memory is stored unlinked.
+> - **Passing entity *names* to `upsert_edge` and to chrono `entityIds` works only when `strictLinkage` is off** (the default). Spaces with `strictLinkage` enabled reject names and require entity **IDs** (UUIDs).
+
 ---
 
 ## 1. Personal Multi-Device Sync
@@ -264,7 +269,7 @@ graph LR
 
 **Wow factor:**
 - The LLM builds a knowledge graph *about you* over time — entities for your projects, edges for relationships, chrono entries for deadlines — and any future conversation can traverse it.
-- `recall_global` lets the LLM search across *all* your spaces at once: "What do I know about Kubernetes across my work KB, personal notes, and homelab docs?"
+- `recall` with the `space` parameter omitted searches across *all* your accessible spaces at once: "What do I know about Kubernetes across my work KB, personal notes, and homelab docs?"
 - `create_chrono(type: "prediction", confidence: 0.7)` → the LLM can track its own predictions and score itself over time.
 
 ---
@@ -324,7 +329,7 @@ graph TD
 **Consumers:** Department heads receive deadline-aware knowledge that their LLM can query.
 
 **Wow factor:**
-- `list_chrono({status: "overdue"})` — instant visibility into missed obligations across the org. No spreadsheet hunting.
+- `list_chrono({status: "overdue"})` — lists every obligation **explicitly marked** `overdue`. (Status lives on the entry; a passed `startsAt` does not auto-flag it — mark deadlines overdue as you triage them.)
 - `create_chrono({type: "deadline", title: "DORA ICT risk assessment due", startsAt: "2026-06-30", entityIds: ["DORA", "ICT-risk"]})` → departments' LLMs can ask "What compliance deadlines do we have this quarter?" and get structured answers, not just documents.
 - Braintree pushes mean the legal team publishes once and all departments receive. Departments **cannot** alter the authoritative deadline — temporal integrity by architecture.
 - `query(chrono, {type: "prediction", confidence: {$gte: 0.5}})` → the legal team can even log risk predictions ("60% chance of regulatory change in Q3") and track them.
@@ -356,7 +361,7 @@ graph LR
 **Wow factor:**
 - One Ythril instance, N customers, full isolation via spaces + space-scoped tokens. No separate databases, no tenant ID middleware hell.
 - Customer gives their MCP client a space-scoped token → the LLM can `remember`, `recall`, `write_file` only within their silo. Zero chance of cross-tenant leakage — it's token-enforced at the API layer, not application-logic.
-- Support agent connects with a proxy space → `recall_global("connection timeout")` → finds matching incidents across ALL customers, ranked by relevance. "This looks like the same issue Customer B had last week."
+- Support agent connects with a proxy space → `recall("connection timeout")` with `space` omitted → finds matching incidents across ALL customers, ranked by relevance. "This looks like the same issue Customer B had last week."
 - Read-only tokens for customer-facing dashboards — they can query their knowledge but not accidentally corrupt it.
 
 ---
@@ -603,7 +608,7 @@ graph TD
 
 **Wow factor:**
 - Partner asks: `recall("cloud migration cost overrun")` on the proxy → gets results from internal templates AND both client engagements, ranked by relevance, with `spaceId` showing which client each result came from.
-- Consultant on-site with Client Alpha has two spaces syncing to their laptop: `internal-kb` (club) and `client-alpha` (closed). Their LLM uses `recall_global` to search both. They get the firm's methodology templates alongside Alpha-specific context in one query.
+- Consultant on-site with Client Alpha has two spaces syncing to their laptop: `internal-kb` (club) and `client-alpha` (closed). Their LLM uses `recall` with `space` omitted to search both. They get the firm's methodology templates alongside Alpha-specific context in one query.
 - Client Alpha's external instance syncs only `client-alpha` — they never see `internal-kb` or `client-beta`. Token-scoped, network-scoped, zero crossover.
 - `query(entities, {type: "deliverable", properties.status: "overdue"})` on the proxy → overdue deliverables across all clients. `list_chrono({status: "upcoming", type: "deadline"})` → upcoming deadlines across all engagements.
 - New client onboarded? Create space, create closed network, add to `proxyFor` on `partner-view`. The proxy starts including it immediately — no data migration, no restructuring.
@@ -701,7 +706,7 @@ graph LR
 - `recall("semiconductor exposure")` on the proxy → pulls trade history from `trading`, any related notes from `savings` (maybe a semiconductor ETF in your 401k), all ranked by relevance with `spaceId` attribution.
 - `query(entities, {type: "stock"})` on the proxy → every position across all accounts. `query(edges, {label: "thesis_for"})` → your investment thesis graph. "Why did I buy AMD again?" — instant recall.
 - `create_chrono({type: "event", title: "NVDA earnings Q1 2026", startsAt: "2026-05-28", entityIds: ["NVDA"]})` → `list_chrono({status: "upcoming"})` → your LLM reminds you of catalysts tied to positions you actually hold.
-- `create_chrono({type: "prediction", title: "AMD will outperform NVDA in inference workloads by Q4", confidence: 0.6, entityIds: ["AMD", "NVDA"]})` → track your own predictions. `query(chrono, {type: "prediction", status: "expired"})` → "How good were my calls?"
+- `create_chrono({type: "prediction", title: "AMD will outperform NVDA in inference workloads by Q4", confidence: 0.6, entityIds: ["AMD", "NVDA"]})` → track your own predictions. `query(chrono, {type: "prediction", status: "completed"})` → "How good were my calls?"
 - Everything stays on your hardware. Your brokerage data, trade theses, and spending patterns never touch a third-party API. Closed network sync to your laptop = offline access.
 
 ---
@@ -829,7 +834,7 @@ graph LR
 - Parent A: `remember("Boiler annual service due in October. Last serviced by PlumbCo, invoice #8812.", entities: ["boiler", "PlumbCo"], tags: ["maintenance"])` → syncs to everyone. Next year, any family member's LLM: `recall("boiler service")` → full history.
 - `create_chrono({type: "deadline", title: "Kid soccer tournament registration closes", startsAt: "2026-04-15", entityIds: ["soccer"]})` → `list_chrono({status: "upcoming"})` → the household LLM surfaces it to whoever asks.
 - `upsert_entity("family-van", "vehicle", ["maintenance"], {mileage: 82000, nextService: "85000km"})` → `query(entities, {type: "vehicle"})` → "When is the van due for service?" Structured, not buried in a note.
-- Parent A's `private-a` space is **not in any network** — it never leaves the phone. Medical notes, financial planning, personal journal — truly private. The LLM on that phone can still `recall_global` across both `household` and `private-a` locally.
+- Parent A's `private-a` space is **not in any network** — it never leaves the phone. Medical notes, financial planning, personal journal — truly private. The LLM on that phone can still `recall` with `space` omitted across both `household` and `private-a` locally.
 - Kid's tablet has a space-scoped token for `household` (read/write) and `kids-school` (read/write). No access to parent private spaces — not by policy, by architecture.
 - Democratic governance on `household` means the kid's tablet has equal vote weight. Conflict? Fork-on-conflict preserves both versions — no silent data loss.
 
@@ -966,14 +971,14 @@ graph TD
 
 1. **Discover duplicates** — agent uses `find_similar` to find high-similarity entities:
    ```json
-   { "entryId": "<docker-entity-1-uuid>", "entryType": "entity", "minScore": 0.85 }
+   { "space": "<space-id>", "entryId": "<docker-entity-1-uuid>", "entryType": "entity", "minScore": 0.85 }
    ```
 
 2. **Inspect the merge plan** — call `merge_entities` with an empty resolution map:
    ```json
-   { "survivorId": "<docker-entity-1-uuid>", "absorbedId": "<docker-entity-2-uuid>", "resolutions": [] }
+   { "space": "<space-id>", "survivorId": "<docker-entity-1-uuid>", "absorbedId": "<docker-entity-2-uuid>", "resolutions": [] }
    ```
-   The endpoint returns `409` with a `MergePlan` showing:
+   The MCP `merge_entities` tool returns the plan as a **text response flagged `isError: true`** (so the agent reads it and retries with resolutions); the REST endpoint returns the equivalent `409` with a `MergePlan` body. Either surface shows:
    - Property conflicts (e.g. `score: 80 vs 95`, `active: true vs false`)
    - Absorbed-only properties (auto-added, no resolution needed)
    - Duplicate edge warnings (edges that become identical after relinking)
@@ -981,6 +986,7 @@ graph TD
 3. **Resolve conflicts** — agent fills in resolutions (numeric via function, text via LLM judgment):
    ```json
    {
+     "space": "<space-id>",
      "survivorId": "<docker-entity-1-uuid>",
      "absorbedId": "<docker-entity-2-uuid>",
      "resolutions": [

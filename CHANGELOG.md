@@ -381,6 +381,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **User guide, integration guide, usecase examples, workstation guide, and the top-level docs
+  brought back in line with the code** — the rest of the same full docs audit. Highlights:
+  two dangerous user-guide MFA errors fixed (disabling MFA **requires** a current TOTP code; the
+  TOTP secret is server-generated, not browser-only), the Webhooks section rewritten as an API
+  how-to (no management UI exists yet), the About page corrected (no live log — that's the Audit
+  Log), and the guide re-synced with the current UI (Brain has eight tabs; Graph/Files are tabs
+  not routes; MFA lives under Preferences; corrected admin nav, labels, and destructive-op
+  locations). Integration guide: `GET /api/about` is not public, the OIDC spaces-claim is
+  fail-closed, `files` added to the MCP `query` enum, entities list max is 500, recall filter keys
+  include `status`/`label` with native `$vectorSearch` pre-filtering, draft-7 rate-limit headers,
+  plus newly documented `indexStatus`, bulk wipes, the `help` tool, and several endpoints.
+  Usecase examples: `recall_global` → `recall`, no `"expired"` chrono status, and a caveat that
+  `remember()` does not auto-create entities. Workstation guide: the port-override that never frees
+  3200 removed (use `YTHRIL_PORT`), `MONGO_URI` must be in the compose environment to reach the
+  container, and the connector binds `0.0.0.0` (bearer-protected). README/NOTICE/contribution-guide/
+  dependencies: `recall_global` → `recall`, `list_spaces`/`help` added (31 tools), webhook event
+  counts (16/19), embedding features, NOTICE dependency list (drop zone.js, add undici), and the
+  local-dev DB/proxy setup. Doc-only; no behavior change.
+
 - **Sync-protocol and network-types docs brought back in line with the code** after a full docs
   audit cross-checked every claim. `docs/sync-protocol.md`: corrected the phase order (governance
   gossip + vote propagation deliberately run *first*, ahead of the data phases) and documented the

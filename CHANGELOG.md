@@ -95,6 +95,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **docker-compose now matches what the docs promise (AUDIT C2 + C4).** Two `docker compose up`
+  gaps: (1) the `unstructured-api-full` document-conversion sidecar existed only in the Kubernetes
+  manifests, so on Compose `CONVERSION_SIDECAR_URL` pointed at nothing and every PDF/DOCX/EPUB upload
+  failed `sidecar_down` — despite the README calling it "bundled". It's now a service in
+  `docker-compose.yml`, wired via `CONVERSION_SIDECAR_URL`, on its own **internal** `ythril-convert`
+  network (no database access, no internet egress — it parses untrusted documents and its OCR models
+  are baked into the image). It is intentionally *not* a startup dependency of `ythril`, so the ~8–12 GB
+  image never blocks boot and conversion degrades gracefully until it's ready; `docs/dependencies.md`
+  documents the size and how to skip it on a small workstation. (2) `MONGO_URI` — the documented way to
+  point at an external MongoDB — was never forwarded into the `ythril` container's `environment`, so
+  the value silently never reached the server. It's now forwarded (empty default keeps the bundled
+  database), making the documented external-Mongo path actually work.
+
 - **The recurring "vote-signing relay" sync-test flake is fixed at its root — a test setup race,
   not a relay bug.** The test pins a third instance's signing key by writing `config.json` directly,
   then reloads. Under full-suite load that write races the server's own `saveConfig`: an in-flight

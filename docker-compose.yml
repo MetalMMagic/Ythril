@@ -20,6 +20,14 @@
       # An explicit MONGO_URI (external cluster / managed Atlas) overrides both.
       MONGO_USERNAME: ${MONGO_USERNAME:-}
       MONGO_PASSWORD: ${MONGO_PASSWORD:-}
+      # External MongoDB (managed Atlas / self-hosted cluster): set MONGO_URI in .env to
+      # point Ythril at an external database instead of the bundled ythril-mongo (C4).
+      # Empty (the default) keeps the bundled database. When you set this, also consider
+      # YTHRIL_MONGO_INFRA_MANAGED=true (below) to disable API-driven migration.
+      MONGO_URI: ${MONGO_URI:-}
+      # Document-conversion sidecar (PDF / DOCX / EPUB → Markdown). Defaults to the bundled
+      # `unstructured` service defined below; override to use an external converter (C2).
+      CONVERSION_SIDECAR_URL: ${CONVERSION_SIDECAR_URL:-http://unstructured:8000}
       YTHRIL_LOCAL_AGENT_ENABLED: ${YTHRIL_LOCAL_AGENT_ENABLED:-}
       YTHRIL_LOCAL_AGENT_URL: ${YTHRIL_LOCAL_AGENT_URL:-http://localhost:38123}
       YTHRIL_LOCAL_AGENT_TOKEN: ${YTHRIL_LOCAL_AGENT_TOKEN:-}
@@ -41,6 +49,7 @@
     networks:
       - ythril-db        # database access
       - ythril-media     # outbound internet + media sidecars
+      - ythril-convert   # document-conversion sidecar (isolated: no DB, no internet)
 
   ythril-mongo:
     # mongodb/mongodb-atlas-local includes mongot — required for $vectorSearch
@@ -138,6 +147,40 @@
     networks:
       - ythril-media     # deliberately NOT on ythril-db
 
+  # ── Document-conversion sidecar (PDF / DOCX / EPUB → Markdown) ─────────────
+  # Bundles the `unstructured-api-full` server (C2). Without it, `docker compose up`
+  # leaves CONVERSION_SIDECAR_URL pointing at nothing and PDF/DOCX/EPUB uploads fail
+  # `sidecar_down` — Ythril itself still runs, so it is intentionally NOT a startup
+  # dependency of the ythril service (conversion degrades gracefully until it is up).
+  #
+  # HEAVY IMAGE: unstructured-api-full bundles OCR model weights (Tesseract/PaddleOCR)
+  # and is ~8–12 GB; first boot is slow (hence the long start_period). See
+  # docs/dependencies.md. To skip it on a resource-constrained workstation, stop it
+  # (`docker compose stop unstructured`) or scale it to zero
+  # (`docker compose up --scale unstructured=0`); in-process text/HTML conversion and
+  # all other features keep working — only PDF/DOCX/EPUB conversion is unavailable.
+  #
+  # Isolation: it parses UNTRUSTED user-supplied documents, so it sits on its own
+  # internal `ythril-convert` network — no database access and no internet egress
+  # (its models are baked into the image). This mirrors the Kubernetes deployment,
+  # where the sidecar runs pod-local behind NetworkPolicy egress rules.
+  unstructured:
+    # Pin the tag and verify the bundled LICENSE (Apache-2.0) before upgrading:
+    #   docker run --rm --entrypoint cat <image> /app/LICENSE
+    image: downloads.unstructured.io/unstructured-io/unstructured-api-full:0.0.75
+    container_name: ythril-unstructured
+    restart: unless-stopped
+    healthcheck:
+      # The image is a Python/uvicorn service; probe /healthcheck with the bundled
+      # interpreter rather than assuming curl/wget is present.
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8000/healthcheck',timeout=3).read() or sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 120s
+    networks:
+      - ythril-convert   # isolated: no DB, no internet
+
 volumes:
   ythril-data:
   ythril-mongo-data:
@@ -169,3 +212,9 @@ networks:
     # NOT internal: ythril reaches external embedding/LLM endpoints through this network,
     # and ollama/whisper download their models from the internet.
     internal: false
+  ythril-convert:
+    driver: bridge
+    # The document-conversion sidecar parses untrusted PDF/DOCX/EPUB and needs neither
+    # the database nor the internet (its OCR models are baked into the image), so this
+    # network is internal — a parser exploit there can reach nothing but ythril.
+    internal: true

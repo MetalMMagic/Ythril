@@ -663,30 +663,13 @@ async function propagateVotesWithPeer(
 ): Promise<void> {
   const base = `${member.url}/api/sync/networks/${encodeURIComponent(net.id)}`;
 
-  // 1. Push our open votes to the peer (non-fatal 404 if peer doesn't have the round yet)
-  try {
-    const cfg = getConfig();
-    const localNet = cfg.networks.find(n => n.id === net.id);
-    // Include all rounds — not just open ones — so that a vote that immediately concludes a
-    // round on this instance (e.g. a final yes or a veto) still propagates to peers that
-    // haven't yet received the concluding cast.
-    const roundsToPush = localNet?.pendingRounds ?? [];
-    for (const round of roundsToPush) {
-      for (const cast of round.votes) {
-        await peerSafeFetch(`${base}/votes/${encodeURIComponent(round.roundId)}`, {
-          ...opts(),
-          method: 'POST',
-          // Forward the signature (and castAt) so the peer can verify and, when
-          // valid, relay this cast onward — signed casts are relay-safe.
-          body: JSON.stringify({ vote: cast.vote, instanceId: cast.instanceId, sig: cast.sig, castAt: cast.castAt }),
-        }).catch(err => log.warn(`Vote push (${round.roundId}) to ${member.label}: ${err}`));
-      }
-    }
-  } catch (err) {
-    log.warn(`Vote push to ${member.label}: ${err}`);
-  }
-
-  // 2. Pull peer's open rounds; create new ones locally and merge vote casts
+  // Pull the peer's rounds FIRST, then push ours (the push block below explains why the
+  // order matters). Adopting and persisting the peer's vote casts is the convergence-
+  // critical step, so it must not be gated behind our push. The early `return`s in this
+  // block bail out only when the peer is unreachable / misbehaving or our network is gone
+  // — exactly the cases where the push below would be pointless anyway.
+  //
+  // Pull peer's open rounds; create new ones locally and merge vote casts
   try {
     const resp = await peerSafeFetch(`${base}/votes`, opts());
     if (!resp.ok) {
@@ -791,6 +774,41 @@ async function propagateVotesWithPeer(
     }
   } catch (err) {
     log.warn(`Vote pull from ${member.label}: ${err}`);
+  }
+
+  // Push our votes to the peer (non-fatal 404 if the peer doesn't have the round yet).
+  //
+  // This runs AFTER the pull on purpose. It re-sends every cast of every locally-known
+  // round, and a round is never removed from `pendingRounds` once it concludes, so on an
+  // instance with a long governance history this loop grows without bound. Running it
+  // before the pull would let a peer spend an entire sync cycle pushing dead history and
+  // never reach the pull — stalling vote propagation under load. Pulling first makes
+  // convergence independent of how much history we have to broadcast.
+  //
+  // We still push open rounds and recently-concluded ones (a concluding cast must reach
+  // peers that haven't concluded yet), but skip any round already concluded AND past its
+  // deadline: every peer concludes such a round independently once the deadline passes, so
+  // re-pushing it every cycle forever is pure waste.
+  try {
+    const cfg = getConfig();
+    const localNet = cfg.networks.find(n => n.id === net.id);
+    const now = Date.now();
+    const roundsToPush = (localNet?.pendingRounds ?? []).filter(
+      r => !(r.concluded && new Date(r.deadline).getTime() < now),
+    );
+    for (const round of roundsToPush) {
+      for (const cast of round.votes) {
+        await peerSafeFetch(`${base}/votes/${encodeURIComponent(round.roundId)}`, {
+          ...opts(),
+          method: 'POST',
+          // Forward the signature (and castAt) so the peer can verify and, when
+          // valid, relay this cast onward — signed casts are relay-safe.
+          body: JSON.stringify({ vote: cast.vote, instanceId: cast.instanceId, sig: cast.sig, castAt: cast.castAt }),
+        }).catch(err => log.warn(`Vote push (${round.roundId}) to ${member.label}: ${err}`));
+      }
+    }
+  } catch (err) {
+    log.warn(`Vote push to ${member.label}: ${err}`);
   }
 }
 

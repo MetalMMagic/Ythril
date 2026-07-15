@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { ApiService, Space, TokenRecord } from '../../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
+import { ToastService } from '../../core/toast.service';
+import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 
 @Component({
@@ -443,6 +445,8 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 export class TokensComponent implements OnInit {
   private api = inject(ApiService);
   private transloco = inject(TranslocoService);
+  private toast = inject(ToastService);
+  private confirmDialog = inject(ConfirmDialogService);
 
   tokens = signal<TokenRecord[]>([]);
   selfToken = signal<TokenRecord | null>(null);
@@ -532,20 +536,32 @@ export class TokensComponent implements OnInit {
     this.newSelectedSpaces = [];
   }
 
-  regenerate(t: TokenRecord): void {
-    if (!confirm(this.transloco.translate('tokens.confirm.rotate', { name: t.name }))) return;
+  async regenerate(t: TokenRecord): Promise<void> {
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('tokens.confirm.rotateTitle'),
+      message: this.transloco.translate('tokens.confirm.rotate', { name: t.name }),
+      confirmLabel: this.transloco.translate('tokens.rotateButton'),
+      danger: true,
+    });
+    if (!ok) return;
     this.clearRegen();
     this.api.regenerateToken(t.id).subscribe({
       next: ({ plaintext }) => this.regenToken.set(plaintext),
-      error: () => alert(this.transloco.translate('tokens.error.rotateFailed')),
+      error: () => this.toast.error(this.transloco.translate('tokens.error.rotateFailed')),
     });
   }
 
-  revoke(t: TokenRecord): void {
-    if (!confirm(this.transloco.translate('tokens.confirm.revoke', { name: t.name }))) return;
+  async revoke(t: TokenRecord): Promise<void> {
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('tokens.confirm.revokeTitle'),
+      message: this.transloco.translate('tokens.confirm.revoke', { name: t.name }),
+      confirmLabel: this.transloco.translate('common.revoke'),
+      danger: true,
+    });
+    if (!ok) return;
     this.api.revokeToken(t.id).subscribe({
       next: () => this.tokens.update(list => list.filter(x => x.id !== t.id)),
-      error: () => alert(this.transloco.translate('tokens.error.revokeFailed')),
+      error: () => this.toast.error(this.transloco.translate('tokens.error.revokeFailed')),
     });
   }
 

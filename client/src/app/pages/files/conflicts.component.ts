@@ -5,6 +5,8 @@ import { ApiService, ConflictRecord } from '../../core/api.service';
 import { RouterLink } from '@angular/router';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
+import { ToastService } from '../../core/toast.service';
+import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
 type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-space';
 
@@ -125,6 +127,8 @@ type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-spa
 export class ConflictsComponent implements OnInit {
   private api = inject(ApiService);
   private transloco = inject(TranslocoService);
+  private toast = inject(ToastService);
+  private confirmDialog = inject(ConfirmDialogService);
 
   loading = signal(true);
   conflicts = signal<ConflictRecord[]>([]);
@@ -183,7 +187,7 @@ export class ConflictsComponent implements OnInit {
     if (action === 'save-to-space') {
       opts.targetSpaceId = this.conflictTargetSpace[c.id];
       if (!opts.targetSpaceId) {
-        alert(this.transloco.translate('conflicts.error.selectTargetSpace'));
+        this.toast.error(this.transloco.translate('conflicts.error.selectTargetSpace'));
         return;
       }
     }
@@ -210,14 +214,17 @@ export class ConflictsComponent implements OnInit {
     });
   }
 
-  bulkResolve(): void {
+  async bulkResolve(): Promise<void> {
     const ids = this.selectedIds();
     if (ids.length === 0) return;
-    const confirmMsg = this.transloco.translate('conflicts.confirm.bulkResolve', {
-      count: ids.length,
-      action: this.bulkAction,
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('conflicts.confirm.bulkResolveTitle'),
+      message: this.transloco.translate('conflicts.confirm.bulkResolve', {
+        count: ids.length,
+        action: this.bulkAction,
+      }),
     });
-    if (!confirm(confirmMsg)) return;
+    if (!ok) return;
     this.bulkResolving.set(true);
     this.api.bulkResolveConflicts(ids, this.bulkAction).subscribe({
       next: (r) => {
@@ -231,7 +238,7 @@ export class ConflictsComponent implements OnInit {
             resolved: r.resolved,
             failed: r.failed.length,
           });
-          alert(`${summary}\n${details}`);
+          this.toast.error(`${summary}\n${details}`);
         }
       },
       error: () => this.bulkResolving.set(false),

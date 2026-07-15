@@ -17,6 +17,7 @@ import {
 } from '../../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
+import { ToastService } from '../../core/toast.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { PropSchemaTableComponent } from '../../shared/prop-schema-table.component';
 
@@ -610,6 +611,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 export class SchemaLibraryComponent implements OnInit {
   private api      = inject(ApiService);
   private transloco = inject(TranslocoService);
+  private toast = inject(ToastService);
 
   entries         = signal<SchemaLibraryEntry[]>([]);
   usageCounts     = signal<Record<string, number>>({});
@@ -1120,9 +1122,9 @@ export class SchemaLibraryComponent implements OnInit {
             }
           } catch { /* skip invalid entries */ }
         }
-        if (imported === 0) alert(this.transloco.translate('schemaLib.import.noneImported'));
+        if (imported === 0) this.toast.info(this.transloco.translate('schemaLib.import.noneImported'));
       } catch {
-        alert(this.transloco.translate('schemaLib.import.parseFailed'));
+        this.toast.error(this.transloco.translate('schemaLib.import.parseFailed'));
       } finally {
         if (this.importFileInputRef) this.importFileInputRef.nativeElement.value = '';
       }

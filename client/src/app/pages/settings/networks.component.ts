@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound } from '../../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
+import { ToastService } from '../../core/toast.service';
+import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 @Component({
   selector: 'app-networks',
@@ -592,6 +594,8 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 export class NetworksComponent implements OnInit {
   private api = inject(ApiService);
   private transloco = inject(TranslocoService);
+  private toast = inject(ToastService);
+  private confirmDialog = inject(ConfirmDialogService);
 
   networks = signal<Network[]>([]);
   loading = signal(true);
@@ -721,10 +725,14 @@ export class NetworksComponent implements OnInit {
     navigator.clipboard.writeText(text).catch(() => {});
   }
 
-  completeEnableWizard(): void {
+  async completeEnableWizard(): Promise<void> {
     const host = this.enableHostname.trim();
     if (!host) return;
-    if (!confirm(this.transloco.translate('networks.wizard.confirm.verifyHealth', { host }))) return;
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('networks.wizard.confirm.verifyHealthTitle'),
+      message: this.transloco.translate('networks.wizard.confirm.verifyHealth', { host }),
+    });
+    if (!ok) return;
     const url = `https://${host}`;
     this.joinMyUrl = url;
     this.joinMyUrlAutoFilled.set(true);
@@ -966,11 +974,17 @@ export class NetworksComponent implements OnInit {
     }
   }
 
-  leaveNetwork(net: Network): void {
-    if (!confirm(this.transloco.translate('networks.confirm.leave', { label: net.label }))) return;
+  async leaveNetwork(net: Network): Promise<void> {
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('networks.confirm.leaveTitle'),
+      message: this.transloco.translate('networks.confirm.leave', { label: net.label }),
+      confirmLabel: this.transloco.translate('networks.leaveButton'),
+      danger: true,
+    });
+    if (!ok) return;
     this.api.leaveNetwork(net.id).subscribe({
       next: () => this.networks.update(list => list.filter(n => n.id !== net.id)),
-      error: (err) => alert(err.error?.error ?? this.transloco.translate('networks.error.leaveFailed')),
+      error: (err) => this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.leaveFailed')),
     });
   }
 
@@ -980,7 +994,7 @@ export class NetworksComponent implements OnInit {
         this.inviteBundles[networkId] = bundle;
         this.networks.update(n => [...n]);
       },
-      error: (err) => alert(err.error?.error ?? this.transloco.translate('networks.error.generateInviteFailed')),
+      error: (err) => this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.generateInviteFailed')),
     });
   }
 
@@ -1001,7 +1015,7 @@ export class NetworksComponent implements OnInit {
           list.map(n => n.id === net.id ? { ...n, syncSchedule: schedule || undefined } : n)
         );
       },
-      error: (err) => alert(err.error?.error ?? this.transloco.translate('networks.error.saveScheduleFailed')),
+      error: (err) => this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.saveScheduleFailed')),
     });
   }
 
@@ -1138,8 +1152,14 @@ export class NetworksComponent implements OnInit {
     });
   }
 
-  removeMember(net: Network, instanceId: string, label: string): void {
-    if (!confirm(this.transloco.translate('networks.confirm.removeMember', { label, networkLabel: net.label }))) return;
+  async removeMember(net: Network, instanceId: string, label: string): Promise<void> {
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('networks.confirm.removeMemberTitle'),
+      message: this.transloco.translate('networks.confirm.removeMember', { label, networkLabel: net.label }),
+      confirmLabel: this.transloco.translate('common.remove'),
+      danger: true,
+    });
+    if (!ok) return;
     const key = `${net.id}:${instanceId}`;
     this.removingMember[key] = true;
     this.api.removeMember(net.id, instanceId).subscribe({
@@ -1149,7 +1169,7 @@ export class NetworksComponent implements OnInit {
       },
       error: (err) => {
         delete this.removingMember[key];
-        alert(err.error?.error ?? this.transloco.translate('networks.error.removeMemberFailed'));
+        this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.removeMemberFailed'));
       },
     });
   }
@@ -1218,7 +1238,7 @@ export class NetworksComponent implements OnInit {
   castVote(networkId: string, roundId: string, vote: 'yes' | 'veto'): void {
     this.api.castVote(networkId, roundId, vote).subscribe({
       next: () => this.loadVotes(networkId),
-      error: (err) => alert(err.error?.error ?? this.transloco.translate('networks.error.castVoteFailed')),
+      error: (err) => this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.castVoteFailed')),
     });
   }
 

@@ -2,7 +2,8 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/api.service';
-import { TranslocoPipe } from '@jsverse/transloco';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
+import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
 type UriSource = 'env' | 'config' | 'default';
 
@@ -396,6 +397,8 @@ interface BackupConfig {
 })
 export class DataComponent implements OnInit {
   private api = inject(ApiService);
+  private transloco = inject(TranslocoService);
+  private confirmDialog = inject(ConfirmDialogService);
 
   uriSource = signal<UriSource | null>(null);
   currentUriRedacted = signal<string>('');
@@ -552,8 +555,17 @@ export class DataComponent implements OnInit {
     });
   }
 
-  confirmRestore(backupId: string): void {
-    if (!window.confirm('This will replace all current data with the selected backup. The server will enter maintenance mode during restore. Proceed?')) return;
+  async confirmRestore(backupId: string): Promise<void> {
+    // Irreversible: replaces ALL data. Require typing the backup id to proceed.
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('data.restore.confirmTitle'),
+      message: this.transloco.translate('data.restore.confirmMessage'),
+      confirmLabel: this.transloco.translate('data.restore.confirmButton'),
+      danger: true,
+      requireText: backupId,
+      requireTextLabel: this.transloco.translate('data.restore.typeIdToConfirm', { id: backupId }),
+    });
+    if (!ok) return;
     this.restoringId.set(backupId);
     this.restoreSuccess.set(false);
     this.restoreError.set(null);
@@ -725,10 +737,19 @@ export class DataComponent implements OnInit {
     });
   }
 
-  confirmMigrate(): void {
+  async confirmMigrate(): Promise<void> {
     const uri = this.migrateUri.trim();
     if (!uri) return;
-    if (!window.confirm('This will put the server into maintenance mode, dump all data, switch to the new database, and restart. Proceed?')) return;
+    // Irreversible: dumps, switches DB, and restarts. Require the MIGRATE ritual.
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('data.migrate.confirmTitle'),
+      message: this.transloco.translate('data.migrate.confirmMessage'),
+      confirmLabel: this.transloco.translate('data.migrate.confirmButton'),
+      danger: true,
+      requireText: 'MIGRATE',
+      requireTextLabel: this.transloco.translate('data.migrate.typeToConfirm'),
+    });
+    if (!ok) return;
     this.migrating.set(true);
     this.migrateSuccess.set(false);
     this.migrateError.set(null);

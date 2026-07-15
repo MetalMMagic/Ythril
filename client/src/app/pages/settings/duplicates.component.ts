@@ -4,6 +4,8 @@ import { FormsModule } from '@angular/forms';
 import { ApiService, DuplicateRecord } from '../../core/api.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
+import { ToastService } from '../../core/toast.service';
+import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
 @Component({
   selector: 'app-duplicates',
@@ -90,6 +92,8 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 export class DuplicatesComponent implements OnInit {
   private api = inject(ApiService);
   private transloco = inject(TranslocoService);
+  private toast = inject(ToastService);
+  private confirmDialog = inject(ConfirmDialogService);
 
   loading = signal(true);
   error = signal(false);
@@ -115,7 +119,7 @@ export class DuplicatesComponent implements OnInit {
       next: () => { this.scanning.set(false); this.load(); },
       error: (e) => {
         this.scanning.set(false);
-        alert(this.transloco.translate(e?.status === 403 ? 'duplicates.scanForbidden' : 'duplicates.scanError'));
+        this.toast.error(this.transloco.translate(e?.status === 403 ? 'duplicates.scanForbidden' : 'duplicates.scanError'));
       },
     });
   }
@@ -124,16 +128,21 @@ export class DuplicatesComponent implements OnInit {
     this.busy.set(d.id);
     this.api.dismissDuplicate(d.id).subscribe({
       next: () => { this.rows.update(list => this.statusFilter === 'open' ? list.filter(x => x.id !== d.id) : list.map(x => x.id === d.id ? { ...x, status: 'dismissed' } : x)); this.busy.set(null); },
-      error: (e) => { this.busy.set(null); alert(e?.error?.error || this.transloco.translate('duplicates.dismissError')); },
+      error: (e) => { this.busy.set(null); this.toast.error(e?.error?.error || this.transloco.translate('duplicates.dismissError')); },
     });
   }
 
-  merge(d: DuplicateRecord): void {
-    if (!confirm(this.transloco.translate('duplicates.confirmMerge'))) return;
+  async merge(d: DuplicateRecord): Promise<void> {
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('duplicates.confirmMergeTitle'),
+      message: this.transloco.translate('duplicates.confirmMerge'),
+      confirmLabel: this.transloco.translate('duplicates.mergeButton'),
+    });
+    if (!ok) return;
     this.busy.set(d.id);
     this.api.mergeDuplicate(d.id).subscribe({
       next: () => { this.rows.update(list => list.filter(x => x.id !== d.id)); this.busy.set(null); },
-      error: (e) => { this.busy.set(null); alert(e?.error?.error || this.transloco.translate('duplicates.mergeError')); },
+      error: (e) => { this.busy.set(null); this.toast.error(e?.error?.error || this.transloco.translate('duplicates.mergeError')); },
     });
   }
 }

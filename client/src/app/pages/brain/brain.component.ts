@@ -11,6 +11,7 @@ import { TagInputComponent } from '../../shared/tag-input.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { catchError, of } from 'rxjs';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
+import { ToastService } from '../../core/toast.service';
 
 type BrainTab = 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono' | 'filemeta';
 
@@ -2038,6 +2039,7 @@ interface SpaceView {
 export class BrainComponent implements OnInit {
   private api = inject(ApiService);
   private transloco = inject(TranslocoService);
+  private toast = inject(ToastService);
 
   collectionTabs: { key: BrainTab; label: string; statsKey?: keyof SpaceStats }[] = [
     { key: 'entities', label: 'Entities', statsKey: 'entities' },
@@ -2801,7 +2803,7 @@ export class BrainComponent implements OnInit {
       },
       error: () => {
         this.confirmDeleteId.set('');
-        alert('Failed to delete file metadata record.');
+        this.toast.error(this.transloco.translate('brain.error.deleteFileMetaFailed'));
       },
     });
   }

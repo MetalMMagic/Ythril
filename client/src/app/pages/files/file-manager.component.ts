@@ -6,7 +6,9 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ApiService, Space, FileEntry, UploadProgress } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
-import { TranslocoPipe } from '@jsverse/transloco';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
+import { ToastService } from '../../core/toast.service';
+import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import hljs from 'highlight.js/lib/core';
 import javascript from 'highlight.js/lib/languages/javascript';
 import typescript from 'highlight.js/lib/languages/typescript';
@@ -478,6 +480,9 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   private auth = inject(AuthService);
   private sanitizer = inject(DomSanitizer);
   private route = inject(ActivatedRoute);
+  private transloco = inject(TranslocoService);
+  private toast = inject(ToastService);
+  private confirmDialog = inject(ConfirmDialogService);
   private previewOverlayRef = viewChild<ElementRef<HTMLDivElement>>('previewOverlay');
 
   /** When set (embedded in brain), skip space loading and use this space. */
@@ -669,7 +674,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
         this.loadDir(this.currentPath());
         this.loadTreeRoot();
       },
-      error: () => alert('Failed to create folder.'),
+      error: () => this.toast.error(this.transloco.translate('files.error.createFolderFailed')),
     });
   }
 
@@ -687,16 +692,22 @@ export class FileManagerComponent implements OnInit, OnDestroy {
         this.renamingEntry.set('');
         this.loadDir(this.currentPath());
       },
-      error: () => alert('Failed to rename file.'),
+      error: () => this.toast.error(this.transloco.translate('files.error.renameFailed')),
     });
   }
 
-  deleteEntry(entry: FileEntry): void {
-    if (!confirm(`Delete "${entry.name}"?`)) return;
+  async deleteEntry(entry: FileEntry): Promise<void> {
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('files.confirm.deleteFileTitle'),
+      message: this.transloco.translate('files.confirm.deleteFile', { name: entry.name }),
+      confirmLabel: this.transloco.translate('common.delete'),
+      danger: true,
+    });
+    if (!ok) return;
     const path = this.join(this.currentPath(), entry.name);
     this.api.deleteFile(this.activeSpaceId(), path).subscribe({
       next: () => { this.loadDir(this.currentPath()); this.fileDeleted.emit(); },
-      error: () => alert('Failed to delete file.'),
+      error: () => this.toast.error(this.transloco.translate('files.error.deleteFailed')),
     });
   }
 

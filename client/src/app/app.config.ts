@@ -1,4 +1,4 @@
-import { ApplicationConfig, provideZoneChangeDetection, APP_INITIALIZER, inject } from '@angular/core';
+import { ApplicationConfig, provideZonelessChangeDetection, APP_INITIALIZER, inject } from '@angular/core';
 import { provideRouter, withComponentInputBinding, TitleStrategy } from '@angular/router';
 import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
@@ -20,7 +20,7 @@ export class TranslocoHttpLoader implements TranslocoLoader {
 
 export const appConfig: ApplicationConfig = {
   providers: [
-    provideZoneChangeDetection({ eventCoalescing: true }),
+    provideZonelessChangeDetection(),
     provideRouter(routes, withComponentInputBinding()),
     { provide: TitleStrategy, useClass: TranslocoTitleStrategy },
     provideHttpClient(withInterceptors([authInterceptor, mfaInterceptor])),

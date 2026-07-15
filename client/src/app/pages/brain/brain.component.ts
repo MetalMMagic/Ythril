@@ -10,6 +10,7 @@ import { PropertiesEditorComponent } from '../../shared/properties-editor.compon
 import { TagInputComponent } from '../../shared/tag-input.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
+import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
 import { catchError, of } from 'rxjs';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
@@ -35,7 +36,7 @@ interface SpaceView {
   // dirty. That coupling is load-bearing: the drawer spec below pins it, so dropping the sibling
   // signal write would fail CI rather than silently render a stale form.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, TranslocoPipe],
   styles: [`
     .space-tabs {
       display: flex;
@@ -145,6 +146,14 @@ interface SpaceView {
       background: var(--bg-surface);
     }
     .filter-bar-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    /* Shared list filter row (F6) — holds <app-record-filter-bar> + any active chips. */
+    .list-filter-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
     .filter-chip {
       display: inline-flex;
       align-items: center;
@@ -645,18 +654,18 @@ interface SpaceView {
             <div class="alert alert-error" style="margin-bottom:12px;">{{ createMemoryError() }}</div>
           }
 
-          @if (filterTag() || filterEntity()) {
-            <div class="filter-bar">
-              <span class="filter-bar-label">{{ 'common.filters' | transloco }}</span>
-              @if (filterTag(); as tag) {
-                <span class="filter-chip">{{ 'brain.filter.tagPrefix' | transloco }} {{ tag }} <button [attr.aria-label]="'brain.filter.clearTagAriaLabel' | transloco" (click)="clearFilter('tag')"><ph-icon name="x" [size]="12"/></button></span>
-              }
-              @if (filterEntity(); as ent) {
-                <span class="filter-chip">{{ 'brain.filter.entityPrefix' | transloco }} {{ ent }} <button [attr.aria-label]="'brain.filter.clearEntityAriaLabel' | transloco" (click)="clearFilter('entity')"><ph-icon name="x" [size]="12"/></button></span>
-              }
-              <button class="btn-secondary btn btn-sm" (click)="clearFilter('all')">{{ 'common.clearAll' | transloco }}</button>
-            </div>
-          }
+          <!-- Shared type/tag filter (F6). Tag-clicks in the table feed this bar too. -->
+          <div class="list-filter-row">
+            <app-record-filter-bar
+              [typeOptions]="memoryTypeOptions()"
+              [tagSuggestions]="memoryTagSuggestions()"
+              [value]="recordFilter()"
+              (filterChange)="onFilterChange($event)"
+            />
+            @if (filterEntity(); as ent) {
+              <span class="filter-chip">{{ 'brain.filter.entityPrefix' | transloco }} {{ ent }} <button [attr.aria-label]="'brain.filter.clearEntityAriaLabel' | transloco" (click)="clearFilter('entity')"><ph-icon name="x" [size]="12"/></button></span>
+            }
+          </div>
 
           <div class="table-wrapper">
             <table>
@@ -805,6 +814,14 @@ interface SpaceView {
               (selected)="onEntitySearchPick($event)"
             />
             <button class="btn-primary btn btn-sm" (click)="openEntityForm()" [disabled]="showEntityForm()">{{ 'brain.entities.addButton' | transloco }}</button>
+          </div>
+          <div class="list-filter-row">
+            <app-record-filter-bar
+              [typeOptions]="entityTypeOptions()"
+              [tagSuggestions]="entityTagSuggestions()"
+              [value]="recordFilter()"
+              (filterChange)="onFilterChange($event)"
+            />
           </div>
 
           @if (showEntityForm()) {
@@ -972,6 +989,14 @@ interface SpaceView {
               <button [class.active]="edgeSearchMode() === 'semantic'" (click)="setEdgeSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
             </div>
             <button class="btn-primary btn btn-sm" (click)="openEdgeForm()" [disabled]="showEdgeForm()">{{ 'brain.edges.addButton' | transloco }}</button>
+          </div>
+          <div class="list-filter-row">
+            <app-record-filter-bar
+              [typeOptions]="edgeTypeOptions()"
+              [tagSuggestions]="edgeTagSuggestions()"
+              [value]="recordFilter()"
+              (filterChange)="onFilterChange($event)"
+            />
           </div>
 
           @if (showEdgeForm()) {
@@ -1173,6 +1198,16 @@ interface SpaceView {
               <button [class.active]="chronoSearchMode() === 'semantic'" (click)="setChronoSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
             </div>
             <button class="btn-primary btn btn-sm" (click)="openChronoForm()" [disabled]="showChronoForm()">{{ 'brain.chrono.addButton' | transloco }}</button>
+          </div>
+          <div class="list-filter-row">
+            <app-record-filter-bar
+              [typeOptions]="chronoKinds"
+              [tagSuggestions]="chronoTagSuggestions()"
+              typeLabel="common.form.kind"
+              typeAllLabel="brain.filter.allKinds"
+              [value]="recordFilter()"
+              (filterChange)="onFilterChange($event)"
+            />
           </div>
 
           @if (showChronoForm()) {
@@ -1671,6 +1706,17 @@ interface SpaceView {
                         [placeholder]="'brain.query.tags.placeholder' | transloco"
                         style="width:100%;"
                       />
+                    </div>
+
+                    <!-- Schema/type filter (F5): a friendly picker for filter:{type:{eq}}. -->
+                    <div class="field" style="margin-top:10px;">
+                      <label>{{ 'brain.query.filterByType' | transloco }}</label>
+                      <select [(ngModel)]="recallForm.type" name="recallType" style="max-width:220px;">
+                        <option value="">{{ 'brain.query.anyType' | transloco }}</option>
+                        @for (t of recallTypeSchemaOptions(); track t) {
+                          <option [value]="t">{{ t }}</option>
+                        }
+                      </select>
                     </div>
 
                     <div class="field" style="margin-top:8px; margin-bottom:0;">
@@ -2179,6 +2225,40 @@ export class BrainComponent implements OnInit {
     return Object.entries(schema).filter(([, s]) => s.required).map(([k]) => k);
   }
 
+  // ── Shared list filter (F6): type + tag, reused across the list tabs ────────
+  /** The active list tab's type+tag filter, driven by <app-record-filter-bar>. */
+  recordFilter = signal<RecordFilter>({ type: '', tag: '' });
+
+  /** Type options for the filter bar's dropdown, per collection: the space's schema
+   *  type names UNION the distinct `type` values actually present in the loaded list,
+   *  so the filter is usable whether or not a schema is defined. */
+  private typeOptionsFrom(schemaNames: string[], present: (string | undefined)[]): string[] {
+    return [...new Set([...schemaNames, ...present.filter((t): t is string => !!t)])].sort();
+  }
+  memoryTypeOptions(): string[] {
+    return this.typeOptionsFrom(Object.keys(this.spaceMeta()?.typeSchemas?.memory ?? {}), this.memories().map(m => m.type));
+  }
+  entityTypeOptions(): string[] {
+    return this.typeOptionsFrom(this.entityTypeNames(), this.entities().map(e => e.type));
+  }
+  edgeTypeOptions(): string[] {
+    // Edge `type` is not schema-backed; offer the distinct types in the current list.
+    return this.typeOptionsFrom([], this.edges().map(e => e.type));
+  }
+
+  /** The filter bar changed — reset the active tab's paging and reload. */
+  onFilterChange(f: RecordFilter): void {
+    this.recordFilter.set(f);
+    switch (this.activeTab()) {
+      case 'memories': this.skip.set(0); break;
+      case 'entities': this.entitySkip.set(0); break;
+      case 'edges': this.edgeSkip.set(0); break;
+      case 'chrono': this.chronoSkip.set(0); break;
+      default: break;
+    }
+    this.loadCurrentTab(this.activeSpaceId());
+  }
+
   filteredMemories = computed(() => {
     if (this.memorySearchMode() === 'semantic') return this.memories();
     const q = this.memorySearch().toLowerCase().trim();
@@ -2219,9 +2299,8 @@ export class BrainComponent implements OnInit {
     );
   });
 
-  // Memories pagination + filter
+  // Memories pagination + filter (tag/type live in `recordFilter`; entity is separate)
   skip = signal(0);
-  filterTag = signal('');
   filterEntity = signal('');
 
   // Entities pagination + search
@@ -2298,7 +2377,21 @@ export class BrainComponent implements OnInit {
 
   // Semantic search
   recallKnowledgeTypes: RecallKnowledgeType[] = ['memory', 'entity', 'edge', 'chrono', 'file'];
-  recallForm = { query: '', topK: 10, minScore: 0, filter: '', tags: '' };
+  recallForm = { query: '', topK: 10, minScore: 0, filter: '', tags: '', type: '' };
+
+  /** Type names offered by the recall "filter by type" dropdown (F5): schema type
+   *  names for the space UNION the distinct `type` values present in the loaded
+   *  records, so it's usable whether or not a schema is defined. */
+  recallTypeSchemaOptions(): string[] {
+    const ts = this.spaceMeta()?.typeSchemas;
+    return [...new Set([
+      ...Object.keys(ts?.entity ?? {}),
+      ...Object.keys(ts?.memory ?? {}),
+      ...this.memories().map(m => m.type),
+      ...this.entities().map(e => e.type),
+      ...this.edges().map(e => e.type),
+    ].filter((t): t is string => !!t))].sort();
+  }
   /** Type restriction + per-type minimums. Unchecked types are simply not sent. */
   recallTypeOpts: { type: RecallKnowledgeType; on: boolean; min: number | null }[] =
     (['memory', 'entity', 'edge', 'chrono', 'file'] as RecallKnowledgeType[])
@@ -2352,7 +2445,7 @@ export class BrainComponent implements OnInit {
     this.entitySkip.set(0);
     this.edgeSkip.set(0);
     this.chronoSkip.set(0);
-    this.filterTag.set('');
+    this.recordFilter.set({ type: '', tag: '' });
     this.filterEntity.set('');
     this.entitySearch.set('');
     this.memorySearch.set('');
@@ -2375,7 +2468,7 @@ export class BrainComponent implements OnInit {
     this.edgeSkip.set(0);
     this.chronoSkip.set(0);
     this.fileMetaSkip.set(0);
-    this.filterTag.set('');
+    this.recordFilter.set({ type: '', tag: '' });
     this.filterEntity.set('');
     this.memorySearch.set('');
     this.edgeSearch.set('');
@@ -2430,7 +2523,11 @@ export class BrainComponent implements OnInit {
   loadEntitiesSilent(): void {
     const spaceId = this.activeSpaceId();
     if (!spaceId) return;
-    this.api.listEntities(spaceId, this.pageSize, this.entitySkip(), this.entitySearch() || undefined).subscribe({
+    const ef: { search?: string; type?: string; tag?: string } = {};
+    if (this.entitySearch()) ef.search = this.entitySearch();
+    if (this.recordFilter().type) ef.type = this.recordFilter().type;
+    if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
+    this.api.listEntities(spaceId, this.pageSize, this.entitySkip(), ef).subscribe({
       next: ({ entities }) => this.entities.set(entities),
       error: () => {},
     });
@@ -2585,9 +2682,10 @@ export class BrainComponent implements OnInit {
 
     switch (this.activeTab()) {
       case 'memories': {
-        const filters: { tag?: string; entity?: string } = {};
-        if (this.filterTag()) filters.tag = this.filterTag();
+        const filters: { tag?: string; entity?: string; type?: string } = {};
+        if (this.recordFilter().tag) filters.tag = this.recordFilter().tag;
         if (this.filterEntity()) filters.entity = this.filterEntity();
+        if (this.recordFilter().type) filters.type = this.recordFilter().type;
         this.api.listMemories(spaceId, this.pageSize, this.skip(), filters).subscribe({
           next: ({ memories }) => {
             this.memories.set(memories);
@@ -2599,21 +2697,32 @@ export class BrainComponent implements OnInit {
         });
         break;
       }
-      case 'entities':
-        this.api.listEntities(spaceId, this.pageSize, this.entitySkip(), this.entitySearch() || undefined).subscribe({
+      case 'entities': {
+        const ef: { search?: string; type?: string; tag?: string } = {};
+        if (this.entitySearch()) ef.search = this.entitySearch();
+        if (this.recordFilter().type) ef.type = this.recordFilter().type;
+        if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
+        this.api.listEntities(spaceId, this.pageSize, this.entitySkip(), ef).subscribe({
           next: ({ entities }) => { this.entities.set(entities); this.loading.set(false); },
           error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
         break;
-      case 'edges':
-        this.api.listEdges(spaceId, this.pageSize, this.edgeSkip()).subscribe({
+      }
+      case 'edges': {
+        const gf: { type?: string; tag?: string } = {};
+        if (this.recordFilter().type) gf.type = this.recordFilter().type;
+        if (this.recordFilter().tag) gf.tag = this.recordFilter().tag;
+        this.api.listEdges(spaceId, this.pageSize, this.edgeSkip(), gf).subscribe({
           next: ({ edges }) => { this.edges.set(edges); this.loading.set(false); },
           error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
         break;
+      }
       case 'chrono': {
-        const cf: { search?: string } = {};
+        const cf: { search?: string; type?: string; tag?: string } = {};
         if (this.chronoSearch()) cf.search = this.chronoSearch();
+        if (this.recordFilter().type) cf.type = this.recordFilter().type;
+        if (this.recordFilter().tag) cf.tag = this.recordFilter().tag;
         this.api.listChrono(spaceId, this.pageSize, this.chronoSkip(), cf).subscribe({
           next: ({ chrono }) => {
             this.chrono.set(chrono);
@@ -2660,14 +2769,15 @@ export class BrainComponent implements OnInit {
   }
 
   applyFilter(type: 'tag' | 'entity', value: string): void {
-    if (type === 'tag') this.filterTag.set(value);
+    // A tag-click in the table feeds the shared filter bar (single source of truth).
+    if (type === 'tag') this.recordFilter.set({ ...this.recordFilter(), tag: value });
     else this.filterEntity.set(value);
     this.skip.set(0);
     this.loadCurrentTab(this.activeSpaceId());
   }
 
   clearFilter(which: 'tag' | 'entity' | 'all'): void {
-    if (which === 'tag' || which === 'all') this.filterTag.set('');
+    if (which === 'tag' || which === 'all') this.recordFilter.set({ ...this.recordFilter(), tag: '' });
     if (which === 'entity' || which === 'all') this.filterEntity.set('');
     this.skip.set(0);
     this.loadCurrentTab(this.activeSpaceId());
@@ -3189,6 +3299,13 @@ export class BrainComponent implements OnInit {
         this.recallError.set(this.transloco.translate('brain.query.filterInvalidJson'));
         return;
       }
+    }
+
+    // The "filter by type" dropdown (F5) is a friendly shortcut for
+    // filter:{type:{eq}}; it merges into (and overrides the `type` key of) any
+    // hand-written JSON filter above.
+    if (this.recallForm.type) {
+      filter = { ...(filter ?? {}), type: { eq: this.recallForm.type } };
     }
 
     const selected = this.recallTypeOpts.filter(o => o.on);

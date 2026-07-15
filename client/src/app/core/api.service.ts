@@ -689,10 +689,11 @@ export class ApiService {
 
   // ── Brain — memories ──────────────────────────────────────────────────────
 
-  listMemories(spaceId: string, limit = 20, skip = 0, filters?: { tag?: string; entity?: string }): Observable<{ memories: Memory[]; limit: number; skip: number }> {
+  listMemories(spaceId: string, limit = 20, skip = 0, filters?: { tag?: string; entity?: string; type?: string }): Observable<{ memories: Memory[]; limit: number; skip: number }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.tag) params = params.set('tag', filters.tag);
     if (filters?.entity) params = params.set('entity', filters.entity);
+    if (filters?.type) params = params.set('type', filters.type);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/memories`, { params });
   }
 
@@ -716,9 +717,11 @@ export class ApiService {
 
   // ── Brain — entities ──────────────────────────────────────────────────────
 
-  listEntities(spaceId: string, limit = 50, skip = 0, search?: string): Observable<{ entities: Entity[] }> {
+  listEntities(spaceId: string, limit = 50, skip = 0, filters?: { search?: string; type?: string; tag?: string }): Observable<{ entities: Entity[] }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
-    if (search) params = params.set('name', search);
+    if (filters?.search) params = params.set('name', filters.search);
+    if (filters?.type) params = params.set('type', filters.type);
+    if (filters?.tag) params = params.set('tag', filters.tag);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/entities`, { params });
   }
 
@@ -736,8 +739,10 @@ export class ApiService {
 
   // ── Brain — edges ─────────────────────────────────────────────────────────
 
-  listEdges(spaceId: string, limit = 50, skip = 0): Observable<{ edges: Edge[] }> {
-    const params = new HttpParams().set('limit', limit).set('skip', skip);
+  listEdges(spaceId: string, limit = 50, skip = 0, filters?: { type?: string; tag?: string }): Observable<{ edges: Edge[] }> {
+    let params = new HttpParams().set('limit', limit).set('skip', skip);
+    if (filters?.type) params = params.set('type', filters.type);
+    if (filters?.tag) params = params.set('tag', filters.tag);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/edges`, { params });
   }
 
@@ -788,11 +793,14 @@ export class ApiService {
 
   // ── Brain — chrono ──────────────────────────────────────────────────────
 
-  listChrono(spaceId: string, limit = 50, skip = 0, filters?: { tags?: string; tagsAny?: string; kind?: string; status?: string; after?: string; before?: string; search?: string }): Observable<{ chrono: ChronoEntry[] }> {
+  listChrono(spaceId: string, limit = 50, skip = 0, filters?: { tags?: string; tagsAny?: string; tag?: string; type?: string; status?: string; after?: string; before?: string; search?: string }): Observable<{ chrono: ChronoEntry[] }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.tags) params = params.set('tags', filters.tags);
     if (filters?.tagsAny) params = params.set('tagsAny', filters.tagsAny);
-    if (filters?.kind) params = params.set('kind', filters.kind);
+    if (filters?.tag) params = params.set('tag', filters.tag);
+    // The chrono record "kind" (event/deadline/…) is filtered via the `type` query
+    // param server-side; the old `kind` param was silently ignored.
+    if (filters?.type) params = params.set('type', filters.type);
     if (filters?.status) params = params.set('status', filters.status);
     if (filters?.after) params = params.set('after', filters.after);
     if (filters?.before) params = params.set('before', filters.before);

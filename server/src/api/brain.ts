@@ -200,8 +200,10 @@ function buildMemoryFilter(query: Record<string, unknown>): Record<string, unkno
   const filter: Record<string, unknown> = {};
   const tag = typeof query['tag'] === 'string' ? query['tag'] : undefined;
   const entity = typeof query['entity'] === 'string' ? query['entity'] : undefined;
+  const type = typeof query['type'] === 'string' ? query['type'] : undefined;
   if (tag) filter['tags'] = { $regex: `^${tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' };
   if (entity) filter['entityIds'] = entity;
+  if (type) filter['type'] = type;
   return filter;
 }
 
@@ -804,10 +806,12 @@ brainRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
   }
   const limit = parseLimit(req.query['limit'], 50, 200);
   const skip = parseSkip(req.query['skip']);
-  const filter: { from?: string; to?: string; label?: string } = {};
+  const filter: { from?: string; to?: string; label?: string; type?: string; tag?: string } = {};
   if (typeof req.query['from'] === 'string') filter.from = req.query['from'];
   if (typeof req.query['to'] === 'string') filter.to = req.query['to'];
   if (typeof req.query['label'] === 'string') filter.label = req.query['label'];
+  if (typeof req.query['type'] === 'string') filter.type = req.query['type'];
+  if (typeof req.query['tag'] === 'string') filter.tag = req.query['tag'];
   const memberIds = resolveMemberSpaces(spaceId);
   const all = (await Promise.all(memberIds.map(mid => listEdges(mid, filter, limit, skip)))).flat();
   // Batch-resolve entity names for from/to so the client can display names instead of raw UUIDs

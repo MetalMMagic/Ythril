@@ -154,7 +154,7 @@ export async function upsertEdge(
 /** List edges for a space, optionally filtering by from/to entity */
 export async function listEdges(
   spaceId: string,
-  filter: { from?: string; to?: string; label?: string } = {},
+  filter: { from?: string; to?: string; label?: string; type?: string; tag?: string } = {},
   limit = 50,
   skip = 0,
 ): Promise<EdgeDoc[]> {
@@ -162,6 +162,9 @@ export async function listEdges(
   if (filter.from) q['from'] = filter.from;
   if (filter.to) q['to'] = filter.to;
   if (filter.label) q['label'] = filter.label;
+  if (filter.type) q['type'] = filter.type;
+  // `tags` is an array field; a scalar match is Mongo array-contains (edge HAS this tag).
+  if (filter.tag) q['tags'] = filter.tag;
   return col<EdgeDoc>(`${spaceId}_edges`)
     .find(asFilter<EdgeDoc>(q))
     .sort({ seq: -1, createdAt: -1, _id: -1 })

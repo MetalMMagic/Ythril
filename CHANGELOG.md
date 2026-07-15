@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Type & tag filtering across the Brain views (FEATURES F5 + F6).** Filtering was uneven and
+  mostly absent: list tabs could only be narrowed by clicking an existing tag, and the semantic
+  Search tab's only "filter by schema" affordance was a raw JSON textarea. Now a shared
+  **record-filter-bar** (a type/schema dropdown + a tag box) sits on all four list tabs — memories,
+  entities, edges, chrono — narrowing them **server-side**; the dropdown is populated from the space's
+  schema type names *unioned with the types actually present in the list*, so it works with or without
+  a defined schema. The Search tab gains a **"filter by type"** dropdown that assembles
+  `filter: { type: { eq } }` (a friendly shortcut for the JSON filter, which still works). Server:
+  the memories listing now honours a `type` param, and edges honour `tag`/`type` (entities and chrono
+  already did); a long-standing dead param is fixed — the chrono list's `kind` filter was sent under a
+  name the server ignored, so it never filtered (it now sends `type`). The memories tag filter and a
+  table tag-click share one source of truth (the bar), and clearing/space/tab switches reset it.
+  Covered by a filter-bar component spec and verified end-to-end: each collection narrows by `type`
+  and `tag` on the real route (2→1), and the Search dropdown emits the expected `filter` expression.
+
 - **Network-membership status indicator on Brain space chips (FEATURES F8).** A space chip gave no
   hint that the space is part of a sync network or what state that network is in. Each chip now shows
   the **Networks** icon (the same `link` glyph as the nav item), colour-coded by an aggregate status

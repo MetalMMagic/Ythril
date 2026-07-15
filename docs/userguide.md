@@ -809,7 +809,7 @@ Add the following to your MCP client's config file:
 
 Replace `localhost:3200` with your instance URL and `ythril_yourTokenHere` with a valid token.
 
-One connection entry is all you need — every space the token can access is available. On connect, the AI receives instructions naming the spaces it can reach and is told to call **`list_spaces`** (and `get_space_meta`) to learn the schema, purpose, and record counts of each — so it can orient itself before reading or writing.
+One connection entry is all you need — every space the token can access is available. On connect, the AI receives instructions naming the spaces it can reach and is told to call **`list_spaces`** (and `get_space_meta`) to learn the schema, purpose, and record counts of each — so it can orient itself before reading or writing. It can also call the **`help`** tool for a guided overview of the whole system (the knowledge model, when to use `query` vs. `recall`, and the tools available to its token).
 
 ### Browser connectors (OAuth)
 

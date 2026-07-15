@@ -5367,7 +5367,7 @@ On connect, the server sends global instructions listing all available space IDs
 
 ### Read-Only Tokens
 
-When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `sync_now`, `update_space`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`recall`, `find_similar`, `query`, `get_stats`, `get_space_meta`, `list_spaces`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `traverse`) work normally. `list_peers` is read-only but **admin-gated** — see the admin-only note below.
+When connecting with a `readOnly` token, mutating tools (`remember`, `update_memory`, `delete_memory`, `upsert_entity`, `update_entity`, `merge_entities`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`, `bulk_write`, `write_file`, `delete_file`, `create_dir`, `move_file`, `sync_now`, `update_space`, `wipe_space`) are **hidden** from `tools/list` and rejected with an error if called directly. Read-only tools (`help`, `recall`, `find_similar`, `query`, `get_stats`, `get_space_meta`, `list_spaces`, `find_entities_by_name`, `list_chrono`, `read_file`, `list_dir`, `traverse`) work normally. `list_peers` is read-only but **admin-gated** — see the admin-only note below.
 
 ### Connecting
 
@@ -5448,6 +5448,7 @@ Content-Type: application/json
 
 | Tool | Description |
 |---|---|
+| `help` | Self-documenting system guide — the knowledge model, how to choose between `query` / `recall` / filtered recall, schema authoring, and the tools available to the calling token. Read-only, no `space` needed; scoped to the token so it never lists tools the token can't call |
 | `list_spaces` | List accessible space IDs with descriptions and entry counts (memories, entities, edges, chrono) |
 | `remember` | Store a memory with optional tags and entity links |
 | `update_memory` | Update an existing memory's fact, tags, entity links, or delete specific fields via `deleteFields` |

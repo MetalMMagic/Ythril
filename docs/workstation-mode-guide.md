@@ -293,7 +293,7 @@ Why: pulls latest images and recreates containers while keeping volumes (data).
 
 1. Port 3200 already in use
 - Symptom: compose fails to bind `0.0.0.0:3200`.
-- Fix: stop the conflicting process or create `docker-compose.override.yml` with `"3201:3200"` and use `http://localhost:3201`.
+- Fix: stop the conflicting process, or set `YTHRIL_PORT` in `.env` to a free host port (e.g. `YTHRIL_PORT=3201`) and use `http://localhost:3201`. Do **not** add a second `ports:` entry via `docker-compose.override.yml` — Compose concatenates `ports` lists, so the base `3200` mapping still binds and startup fails.
 
 2. UI opens but setup/auth fails
 - Check logs:

@@ -6,6 +6,7 @@ import { upsert_edgeTool, traverseTool, update_edgeTool } from './edge.js';
 import { create_chronoTool, update_chronoTool, list_chronoTool } from './chrono.js';
 import { read_fileTool, write_fileTool, list_dirTool, delete_fileTool, create_dirTool, move_fileTool } from './file.js';
 import { list_peersTool, sync_nowTool } from './sync.js';
+import { helpTool } from './help.js';
 
 export type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 
@@ -17,6 +18,7 @@ export type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
  * else. Order is preserved so `tools/list` stays stable.
  */
 export const ALL_TOOLS: ToolHandler[] = [
+  helpTool,
   list_spacesTool,
   rememberTool,
   recallTool,

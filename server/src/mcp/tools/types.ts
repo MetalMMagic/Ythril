@@ -26,6 +26,8 @@ export interface ToolContext {
   accessibleSpaceIds: string[];
   tokenSpaces?: string[];
   isAdmin?: boolean;
+  /** True when the calling token is read-only (mutating tools are gated out). */
+  readOnly?: boolean;
 }
 
 export type ToolResult = {

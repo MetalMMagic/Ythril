@@ -43,10 +43,13 @@ ythril/
 ├── client/          Angular 21 SPA (workspace: @ythril/client)
 ├── server/          Express 5 + TypeScript API (workspace: @ythril/server)
 ├── testing/
+│   ├── _init/       Test bootstrap (config reset, sync-token provisioning)
 │   ├── integration/ API scenario tests
 │   ├── red-team-tests/ Security attack simulations
 │   ├── standalone/  Unit-level tests (no Docker)
 │   └── sync/        Multi-instance sync tests (4 containers)
+├── kubernetes/      K8s manifests (Ythril + ollama/whisper/unstructured sidecars, NetworkPolicies)
+├── scripts/         Build, setup, and maintenance scripts
 ├── config/          Runtime config (bind-mounted into container)
 ├── docs/            Project documentation
 ├── docker-compose.yml          Production compose
@@ -77,19 +80,22 @@ npm run dev
 cd client && npm start
 ```
 
-The Angular dev server proxies `/api`, `/mcp`, `/setup`, `/health`, and `/ready` to `localhost:3200` via `proxy.conf.json`.
-
-For development you still need a MongoDB instance. The easiest way is running just the database from the compose file:
+The Angular dev server proxies `/api`, `/mcp`, `/setup`, `/health`, and `/ready` to `localhost:3210` via `proxy.conf.json`. Note the port: `proxy.conf.json` targets **3210**, but `npm run dev` starts the API on its default port **3200**. Run the server on 3210 so the proxy can reach it:
 
 ```bash
-docker compose up -d ythril-mongo
+PORT=3210 TRUST_PROXY=1 npm run dev
 ```
 
-Then set the env var before starting the dev server:
+`TRUST_PROXY=1` is required when the server runs bare behind `ng serve`: the dev proxy adds an `X-Forwarded-For` header (`xfwd: true`), and with trust proxy off `express-rate-limit` rejects **every** API call with a 500 (`ERR_ERL_UNEXPECTED_X_FORWARDED_FOR`).
+
+For development you still need a MongoDB instance, and you must provide your own — the bundled `ythril-mongo` from `docker-compose.yml` publishes **no host ports** and sits on an `internal: true` network (a deliberate security hardening), so it is intentionally unreachable from the host. Point `MONGO_URI` at a developer-provided MongoDB instead:
 
 ```bash
-MONGO_URI=mongodb://localhost:27017/?directConnection=true npm run dev
+# Option A — a local mongod listening on 127.0.0.1:27017
+MONGO_URI=mongodb://127.0.0.1:27017/?directConnection=true PORT=3210 TRUST_PROXY=1 npm run dev
 ```
+
+Or, to reuse the bundled container, expose its port with a dev-only `docker-compose.override.yml` that publishes `27017` and drops the `internal` flag — never commit that override, and keep it out of any deployed environment.
 
 ---
 
@@ -129,7 +135,15 @@ The Dockerfile is a three-stage build:
 
 ## Testing
 
-All tests use Node.js built-in `node --test` — no extra test framework.
+Server-side and integration tests use Node.js' built-in `node --test` runner — no extra framework. The **client** has its own unit suite built on **Vitest + jsdom**.
+
+### Client unit tests (no Docker required)
+
+```bash
+npm run test:client          # → vitest run
+```
+
+Runs the Angular component/service specs under `client/` in a jsdom environment. This suite runs in CI as the dedicated **"Client unit tests"** step (`.github/workflows/ci.yml`).
 
 ### Standalone tests (no Docker required)
 
@@ -369,6 +383,7 @@ Ythril ships under the PolyForm Small Business License 1.0.0. Every contribution
 - **TypeScript** — strict mode, ES2022 target, NodeNext modules.
 - **Server** — Express 5, Zod for validation, no ORMs (raw MongoDB driver).
 - **Client** — Angular 21, standalone components, signals over observables where possible.
+- **Client is fully zoneless** — zone.js has been removed. There is no zone-driven change-detection safety net, and heavy pages run with `OnPush`, so all async state must flow through **signals**, the **`AsyncPipe`**, or explicit change detection (`ChangeDetectorRef`/`markForCheck`). Mutating a field imperatively after an `await` will not repaint the view.
 - No mocking in tests — all tests run against real Docker containers.
 - Validate at system boundaries; trust internal code.
 - No temp fixes, no lazy implementations. State-of-the-art from day one.
@@ -394,6 +409,7 @@ Use conventional-commit-style prefixes:
 ## Pull Request Checklist
 
 - [ ] All existing tests pass (`npm run test:all`)
+- [ ] Client unit tests pass (`npm run test:client`)
 - [ ] If debugging failures, use `npm run test:all:keep` and clean up afterwards
 - [ ] New features have corresponding tests
 - [ ] Red-team tests still pass after security-adjacent changes

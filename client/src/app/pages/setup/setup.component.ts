@@ -4,7 +4,7 @@ import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { AuthService } from '../../core/auth.service';
 import { CommonModule } from '@angular/common';
-import { TranslocoPipe } from '@jsverse/transloco';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 @Component({
   selector: 'app-setup',
@@ -109,6 +109,7 @@ export class SetupComponent {
   private http = inject(HttpClient);
   private router = inject(Router);
   private auth = inject(AuthService);
+  private transloco = inject(TranslocoService);
 
   form = { label: '', settingsPassword: '', confirm: '' };
   loading = signal(false);
@@ -144,7 +145,7 @@ export class SetupComponent {
         error: (err) => {
           this.loading.set(false);
           this.error.set(
-            err.error?.error ?? 'Setup failed. Check the server logs.',
+            err.error?.error ?? this.transloco.translate('setup.error.failed'),
           );
         },
       });

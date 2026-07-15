@@ -2,6 +2,7 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { TranslocoPipe } from '@jsverse/transloco';
 
 interface ProviderCfg {
   label?: string;
@@ -28,7 +29,7 @@ interface MediaCfg {
 @Component({
   selector: 'app-models',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, TranslocoPipe],
   styles: [`
     .section { margin-bottom: 28px; }
     .section-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }
@@ -168,7 +169,7 @@ interface MediaCfg {
 
       <div class="actions">
         <button class="btn btn-primary" (click)="save()" [disabled]="saving()">
-          {{ saving() ? 'Saving…' : 'Save' }}
+          {{ saving() ? ('common.saving' | transloco) : ('common.save' | transloco) }}
         </button>
         <span class="save-error">{{ saveError() }}</span>
         <span class="save-ok">{{ saveOk() }}</span>

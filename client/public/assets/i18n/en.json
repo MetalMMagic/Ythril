@@ -1029,5 +1029,15 @@
   "tokens.confirm.rotateTitle": "Rotate secret",
   "tokens.rotateButton": "Rotate",
   "tokens.confirm.revokeTitle": "Revoke token",
-  "nav.menu": "Menu"
+  "nav.menu": "Menu",
+  "common.retry": "Retry",
+  "common.loadFailed": "Couldn't load this content.",
+  "brain.error.loadMemories": "Couldn't load memories.",
+  "brain.error.loadEntities": "Couldn't load entities.",
+  "brain.error.loadEdges": "Couldn't load edges.",
+  "brain.error.loadChrono": "Couldn't load timeline entries.",
+  "brain.error.loadFileMeta": "Couldn't load file records.",
+  "files.error.loadFiles": "Couldn't load files.",
+  "schemaLib.error.load": "Couldn't load the schema library.",
+  "graph.error.load": "Couldn't load the graph."
 }

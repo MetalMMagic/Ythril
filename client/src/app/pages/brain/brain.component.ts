@@ -9,9 +9,11 @@ import { PropertiesViewComponent } from '../../shared/properties-view.component'
 import { PropertiesEditorComponent } from '../../shared/properties-editor.component';
 import { TagInputComponent } from '../../shared/tag-input.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 import { catchError, of } from 'rxjs';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
+import { httpErrorReason } from '../../core/http-error';
 
 type BrainTab = 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono' | 'filemeta';
 
@@ -33,7 +35,7 @@ interface SpaceView {
   // dirty. That coupling is load-bearing: the drawer spec below pins it, so dropping the sibling
   // signal write would fail CI rather than silently render a stale form.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe],
   styles: [`
     .space-tabs {
       display: flex;
@@ -730,6 +732,9 @@ interface SpaceView {
                   }
                 } @empty {
                   <tr><td colspan="7">
+                    @if (loadError() !== null) {
+                      <app-error-state [message]="'brain.error.loadMemories' | transloco" [reason]="loadError() ?? ''" (retry)="retryCurrentTab()" />
+                    } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="brain" [size]="48"/></div>
                       @if (memorySearch() && memories().length) {
@@ -740,6 +745,7 @@ interface SpaceView {
                         <p>{{ 'brain.memories.empty.body' | transloco }}</p>
                       }
                     </div>
+                    }
                   </td></tr>
                 }
               </tbody>
@@ -902,10 +908,14 @@ interface SpaceView {
                   }
                 } @empty {
                   <tr><td colspan="7">
+                    @if (loadError() !== null) {
+                      <app-error-state [message]="'brain.error.loadEntities' | transloco" [reason]="loadError() ?? ''" (retry)="retryCurrentTab()" />
+                    } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="tag" [size]="48"/></div>
                       <h3>{{ 'brain.entities.empty.title' | transloco }}</h3>
                     </div>
+                    }
                   </td></tr>
                 }
               </tbody>
@@ -1092,6 +1102,9 @@ interface SpaceView {
                   }
                 } @empty {
                   <tr><td colspan="9">
+                    @if (loadError() !== null) {
+                      <app-error-state [message]="'brain.error.loadEdges' | transloco" [reason]="loadError() ?? ''" (retry)="retryCurrentTab()" />
+                    } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="graph" [size]="48"/></div>
                       @if (edgeSearch() && edges().length) {
@@ -1101,6 +1114,7 @@ interface SpaceView {
                         <h3>{{ 'brain.edges.empty.title' | transloco }}</h3>
                       }
                     </div>
+                    }
                   </td></tr>
                 }
               </tbody>
@@ -1323,6 +1337,9 @@ interface SpaceView {
                   }
                 } @empty {
                   <tr><td colspan="9">
+                    @if (loadError() !== null) {
+                      <app-error-state [message]="'brain.error.loadChrono' | transloco" [reason]="loadError() ?? ''" (retry)="retryCurrentTab()" />
+                    } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="timer" [size]="48"/></div>
                       @if (chronoSearch()) {
@@ -1332,6 +1349,7 @@ interface SpaceView {
                         <h3>{{ 'brain.chrono.empty.title' | transloco }}</h3>
                       }
                     </div>
+                    }
                   </td></tr>
                 }
               </tbody>
@@ -1353,6 +1371,8 @@ interface SpaceView {
           </div>
           @if (loading()) {
             <div class="empty-state"><span class="spinner"></span></div>
+          } @else if (loadError() !== null) {
+            <app-error-state [message]="'brain.error.loadFileMeta' | transloco" [reason]="loadError() ?? ''" (retry)="retryCurrentTab()" />
           } @else if (!fileMetas().length) {
             <div class="empty-state">{{ 'brain.fileMeta.empty' | transloco }}</div>
           } @else {
@@ -2055,6 +2075,10 @@ export class BrainComponent implements OnInit {
   activeSpaceId = signal('');
   activeTab = signal<BrainTab>('query');
   loading = signal(false);
+  /** Set to the failure reason when the current tab's list load fails; null when
+   *  the load succeeded (or hasn't run). Rendered as a distinct error state
+   *  BEFORE the empty state so a failed load never reads as "no data" (U3). */
+  loadError = signal<string | null>(null);
   loadingSpaces = signal(true);
 
   memories = signal<Memory[]>([]);
@@ -2507,9 +2531,16 @@ export class BrainComponent implements OnInit {
     });
   }
 
+  /** Re-run the current tab's load — bound to the error state's Retry button. */
+  retryCurrentTab(): void {
+    const spaceId = this.activeSpaceId();
+    if (spaceId) this.loadCurrentTab(spaceId);
+  }
+
   private loadCurrentTab(spaceId: string): void {
     if (!spaceId) return;
     this.loading.set(true);
+    this.loadError.set(null);
 
     switch (this.activeTab()) {
       case 'memories': {
@@ -2523,20 +2554,20 @@ export class BrainComponent implements OnInit {
             if (ids.length) this.resolveEntityNames(ids);
             this.loading.set(false);
           },
-          error: () => this.loading.set(false),
+          error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
         break;
       }
       case 'entities':
         this.api.listEntities(spaceId, this.pageSize, this.entitySkip(), this.entitySearch() || undefined).subscribe({
           next: ({ entities }) => { this.entities.set(entities); this.loading.set(false); },
-          error: () => this.loading.set(false),
+          error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
         break;
       case 'edges':
         this.api.listEdges(spaceId, this.pageSize, this.edgeSkip()).subscribe({
           next: ({ edges }) => { this.edges.set(edges); this.loading.set(false); },
-          error: () => this.loading.set(false),
+          error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
         break;
       case 'chrono': {
@@ -2549,7 +2580,7 @@ export class BrainComponent implements OnInit {
             if (ids.length) this.resolveEntityNames(ids);
             this.loading.set(false);
           },
-          error: () => this.loading.set(false),
+          error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
         break;
       }
@@ -2568,7 +2599,7 @@ export class BrainComponent implements OnInit {
       case 'filemeta':
         this.api.listFileMeta(spaceId, this.pageSize, this.fileMetaSkip(), this.fileMetaSearch() || undefined).subscribe({
           next: ({ files }) => { this.fileMetas.set(files); this.loading.set(false); },
-          error: () => this.loading.set(false),
+          error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
         break;
     }

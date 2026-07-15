@@ -20,6 +20,8 @@ import { TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { PropSchemaTableComponent } from '../../shared/prop-schema-table.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
+import { httpErrorReason } from '../../core/http-error';
 
 // ── Local form state ────────────────────────────────────────────────────────
 
@@ -94,7 +96,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 @Component({
   selector: 'app-schema-library',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, PropSchemaTableComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, PropSchemaTableComponent, ErrorStateComponent],
   styles: [`
     /* chip inputs — same as spaces.component.ts */
     .chip-wrap {
@@ -219,6 +221,8 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
     @if (pageTab() === 'library') {
       @if (loading()) {
         <div class="empty-state"><span class="spinner"></span></div>
+      } @else if (loadError() !== null) {
+        <app-error-state [message]="'schemaLib.error.load' | transloco" [reason]="loadError() ?? ''" (retry)="load()" />
       } @else if (!entries().length) {
         <div class="empty-state">
           <div class="empty-state-icon"><ph-icon name="bookmarks" [size]="48"/></div>
@@ -614,6 +618,8 @@ export class SchemaLibraryComponent implements OnInit {
   private toast = inject(ToastService);
 
   entries         = signal<SchemaLibraryEntry[]>([]);
+  /** Failure reason for the library list load; null when it loaded (U3). */
+  loadError       = signal<string | null>(null);
   usageCounts     = signal<Record<string, number>>({});
   loading         = signal(true);
   saving          = signal(false);
@@ -740,6 +746,7 @@ export class SchemaLibraryComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
+    this.loadError.set(null);
     this.api.listSchemaLibrary().pipe(
       finalize(() => this.loading.set(false)),
     ).subscribe({
@@ -758,7 +765,8 @@ export class SchemaLibraryComponent implements OnInit {
           error: () => {}, // usage counts are non-critical
         });
       },
-      error: () => this.entries.set([]),
+      // Distinguish a failed load from a genuinely empty library (U3).
+      error: (e) => { this.entries.set([]); this.loadError.set(httpErrorReason(e)); },
     });
   }
 

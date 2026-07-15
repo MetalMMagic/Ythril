@@ -1030,5 +1030,15 @@
   "tokens.confirm.rotateTitle": "Secret rotieren",
   "tokens.rotateButton": "Rotieren",
   "tokens.confirm.revokeTitle": "Token widerrufen",
-  "nav.menu": "Menü"
+  "nav.menu": "Menü",
+  "common.retry": "Erneut versuchen",
+  "common.loadFailed": "Inhalt konnte nicht geladen werden.",
+  "brain.error.loadMemories": "Erinnerungen konnten nicht geladen werden.",
+  "brain.error.loadEntities": "Entitäten konnten nicht geladen werden.",
+  "brain.error.loadEdges": "Kanten konnten nicht geladen werden.",
+  "brain.error.loadChrono": "Zeitleisteneinträge konnten nicht geladen werden.",
+  "brain.error.loadFileMeta": "Dateidatensätze konnten nicht geladen werden.",
+  "files.error.loadFiles": "Dateien konnten nicht geladen werden.",
+  "schemaLib.error.load": "Schema-Bibliothek konnte nicht geladen werden.",
+  "graph.error.load": "Graph konnte nicht geladen werden."
 }

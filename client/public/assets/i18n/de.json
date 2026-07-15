@@ -1029,5 +1029,6 @@
   "spaces.dupe.automergeConfirmTitle": "Auto-Zusammenführung aktivieren",
   "tokens.confirm.rotateTitle": "Secret rotieren",
   "tokens.rotateButton": "Rotieren",
-  "tokens.confirm.revokeTitle": "Token widerrufen"
+  "tokens.confirm.revokeTitle": "Token widerrufen",
+  "nav.menu": "Menü"
 }

@@ -1029,5 +1029,6 @@
   "spaces.dupe.automergeConfirmTitle": "Włącz automatyczne scalanie",
   "tokens.confirm.rotateTitle": "Zmień sekret",
   "tokens.rotateButton": "Zmień",
-  "tokens.confirm.revokeTitle": "Unieważnij token"
+  "tokens.confirm.revokeTitle": "Unieważnij token",
+  "nav.menu": "Menu"
 }

@@ -1,5 +1,8 @@
-import { Component, inject, OnInit, signal } from '@angular/core';
-import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
+import { Component, inject, OnInit, OnDestroy, signal, HostListener } from '@angular/core';
+import { RouterOutlet, RouterLink, RouterLinkActive, Router, NavigationEnd } from '@angular/router';
+import { A11yModule } from '@angular/cdk/a11y';
+import { filter } from 'rxjs';
+import { Subscription } from 'rxjs';
 import { AuthService } from '../../core/auth.service';
 import { ApiService } from '../../core/api.service';
 import { EmbedService } from '../../core/embed.service';
@@ -9,7 +12,7 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, PhIconComponent, TranslocoPipe],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, PhIconComponent, TranslocoPipe, A11yModule],
   styles: [`
     :host { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
@@ -45,6 +48,21 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
     }
 
     .topbar-spacer { flex: 1; }
+
+    /* Hamburger — hidden on desktop, shown below the breakpoint. */
+    .menu-btn {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      padding: 6px;
+      border-radius: var(--radius-sm);
+      margin-left: -6px;
+    }
+    .menu-btn:hover { color: var(--text-primary); background: var(--bg-elevated); }
 
     .topbar-logout {
       background: none;
@@ -141,9 +159,39 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
       padding: 28px 32px;
     }
 
+    /* Backdrop behind the mobile drawer. Only rendered below the breakpoint. */
+    .drawer-backdrop {
+      position: fixed;
+      inset: var(--topbar-height) 0 0 0;
+      background: var(--bg-scrim);
+      z-index: 190;
+      border: none;
+      padding: 0;
+      cursor: default;
+    }
+
     @media (max-width: 768px) {
-      .sidebar { display: none; }
+      .menu-btn { display: inline-flex; }
       .main { padding: 20px 16px; }
+
+      /* The sidebar becomes an off-canvas overlay drawer. It stays in the DOM
+         (so focus trap + links keep working); it slides in from the left. */
+      .sidebar {
+        position: fixed;
+        top: var(--topbar-height);
+        left: 0;
+        bottom: 0;
+        width: min(280px, 82vw);
+        min-width: 0;
+        z-index: 200;
+        transform: translateX(-100%);
+        transition: transform 180ms ease;
+        box-shadow: var(--shadow-drawer, 0 8px 32px rgba(0,0,0,0.4));
+      }
+      .sidebar.open { transform: translateX(0); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .sidebar { transition: none; }
     }
   `],
   template: `
@@ -151,6 +199,16 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
          portal's chrome, and its Sign out would end only the Ythril session. -->
     @if (!embed.embedded()) {
       <header class="topbar">
+        <button
+          class="menu-btn"
+          type="button"
+          [attr.aria-label]="'nav.menu' | transloco"
+          [attr.aria-expanded]="drawerOpen()"
+          aria-controls="app-sidebar"
+          (click)="toggleDrawer()"
+        >
+          <ph-icon [name]="drawerOpen() ? 'x' : 'list'" [size]="20"/>
+        </button>
         <a class="topbar-logo" routerLink="/">
           <span class="topbar-logo-dot"></span>
           {{ 'app.logo' | transloco }}
@@ -161,8 +219,23 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
     }
 
     <div class="layout">
-      <!-- Sidebar navigation -->
-      <nav class="sidebar">
+      <!-- Mobile drawer backdrop — only present when the drawer is open. -->
+      @if (drawerOpen()) {
+        <button
+          class="drawer-backdrop"
+          type="button"
+          [attr.aria-label]="'common.close' | transloco"
+          (click)="closeDrawer()"
+        ></button>
+      }
+      <!-- Sidebar navigation — an off-canvas drawer below 768px. -->
+      <nav
+        id="app-sidebar"
+        class="sidebar"
+        [class.open]="drawerOpen()"
+        [cdkTrapFocus]="drawerOpen()"
+        [cdkTrapFocusAutoCapture]="drawerOpen()"
+      >
         <span class="nav-section-label">{{ 'nav.section.workspace' | transloco }}</span>
         <a class="nav-link" routerLink="/brain" routerLinkActive="active">
           <span class="nav-icon"><ph-icon name="brain" [size]="16"/></span>{{ 'nav.brain' | transloco }}
@@ -217,7 +290,7 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
     </div>
   `,
 })
-export class ShellComponent implements OnInit {
+export class ShellComponent implements OnInit, OnDestroy {
   private auth = inject(AuthService);
   private router = inject(Router);
   private api = inject(ApiService);
@@ -227,12 +300,39 @@ export class ShellComponent implements OnInit {
 
   conflictCount = signal(0);
 
+  /** Mobile nav drawer open state. Always closed on desktop (the hamburger that
+   *  toggles it is hidden ≥ 769px). */
+  drawerOpen = signal(false);
+
   private _pollTimer: ReturnType<typeof setInterval> | null = null;
+  private _navSub: Subscription | null = null;
+
+  toggleDrawer(): void { this.drawerOpen.update(v => !v); }
+  closeDrawer(): void { this.drawerOpen.set(false); }
+
+  /** Escape closes the drawer (backdrop click and navigation also close it). */
+  @HostListener('document:keydown.escape')
+  onEscape(): void { if (this.drawerOpen()) this.closeDrawer(); }
+
+  /** Resizing above the breakpoint returns to the static sidebar — drop the
+   *  drawer/focus-trap state so it can't linger open on desktop. */
+  @HostListener('window:resize')
+  onResize(): void { if (this.drawerOpen() && window.innerWidth > 768) this.closeDrawer(); }
 
   ngOnInit(): void {
     this.loadConflictCount();
     // Refresh badge every 60 s so it tracks new conflicts without a page reload
     this._pollTimer = setInterval(() => this.loadConflictCount(), 60_000);
+    // Close the drawer whenever navigation completes, so tapping a link on
+    // mobile takes the user to the page and dismisses the overlay.
+    this._navSub = this.router.events
+      .pipe(filter(e => e instanceof NavigationEnd))
+      .subscribe(() => this.closeDrawer());
+  }
+
+  ngOnDestroy(): void {
+    if (this._pollTimer !== null) clearInterval(this._pollTimer);
+    this._navSub?.unsubscribe();
   }
 
   private loadConflictCount(): void {

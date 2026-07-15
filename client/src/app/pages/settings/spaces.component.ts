@@ -9,6 +9,8 @@ import {
 } from '../../core/api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
+import { ToastService } from '../../core/toast.service';
+import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 
@@ -838,6 +840,8 @@ interface TypeSchemaState {
 export class SpacesComponent implements OnInit {
   private api = inject(ApiService);
   private transloco = inject(TranslocoService);
+  private toast = inject(ToastService);
+  private confirmDialog = inject(ConfirmDialogService);
 
   readonly KINDS: KnowledgeType[] = ['entity', 'memory', 'edge', 'chrono'];
   readonly KIND_LABELS: Record<KnowledgeType, string> = {
@@ -1110,7 +1114,7 @@ export class SpacesComponent implements OnInit {
     return this.dupeRulesState.some(r => r.action === 'automerge');
   }
 
-  saveDupeRules(): void {
+  async saveDupeRules(): Promise<void> {
     const target = this.settingsSpace();
     if (!target) return;
     // Validate notify override URLs client-side (the field is not inside a <form>).
@@ -1121,7 +1125,14 @@ export class SpacesComponent implements OnInit {
       }
     }
     // Auto-merge is destructive and unattended — confirm before enabling it.
-    if (this.hasAutomergeRule() && !confirm(this.transloco.translate('spaces.dupe.automergeConfirm'))) return;
+    if (this.hasAutomergeRule()) {
+      const ok = await this.confirmDialog.confirm({
+        title: this.transloco.translate('spaces.dupe.automergeConfirmTitle'),
+        message: this.transloco.translate('spaces.dupe.automergeConfirm'),
+        danger: true,
+      });
+      if (!ok) return;
+    }
     // Normalise: clamp scores, drop empty override URLs.
     const rules: DupeActionRule[] = this.dupeRulesState.map(r => ({
       minScore: Math.min(Math.max(Number(r.minScore) || 0, 0), 1),
@@ -1636,11 +1647,16 @@ export class SpacesComponent implements OnInit {
     ];
   }
 
-  submitDangerRename(): void {
+  async submitDangerRename(): Promise<void> {
     const target = this.settingsSpace();
     const newId  = this.dangerRenameId.trim();
     if (!target || !newId || newId === target.id) return;
-    if (!confirm(this.transloco.translate('spaces.dangerZone.confirmRename', { label: target.label, id: target.id, newId }))) return;
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('spaces.dangerZone.confirmRenameTitle'),
+      message: this.transloco.translate('spaces.dangerZone.confirmRename', { label: target.label, id: target.id, newId }),
+      confirmLabel: this.transloco.translate('spaces.dangerZone.renameButton'),
+    });
+    if (!ok) return;
     this.dangerRenaming.set(true);
     this.dangerRenameError.set('');
     this.api.renameSpace(target.id, newId).subscribe({
@@ -1655,10 +1671,19 @@ export class SpacesComponent implements OnInit {
     });
   }
 
-  confirmDangerWipe(): void {
+  async confirmDangerWipe(): Promise<void> {
     const target = this.settingsSpace();
     if (!target) return;
-    if (!confirm(this.transloco.translate('spaces.dangerZone.confirmWipe', { label: target.label }))) return;
+    // Irreversible: require the operator to type the space id (GitHub-style, C3).
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('spaces.dangerZone.confirmWipeTitle'),
+      message: this.transloco.translate('spaces.dangerZone.confirmWipe', { label: target.label }),
+      confirmLabel: this.transloco.translate('spaces.dangerZone.wipeButton'),
+      danger: true,
+      requireText: target.id,
+      requireTextLabel: this.transloco.translate('spaces.dangerZone.typeIdToConfirm', { id: target.id }),
+    });
+    if (!ok) return;
     this.dangerWiping.set(true);
     this.dangerWipeError.set('');
     this.api.wipeSpace(target.id).subscribe({
@@ -1675,10 +1700,19 @@ export class SpacesComponent implements OnInit {
     });
   }
 
-  confirmDangerDelete(): void {
+  async confirmDangerDelete(): Promise<void> {
     const target = this.settingsSpace();
     if (!target) return;
-    if (!confirm(this.transloco.translate('spaces.dangerZone.confirmDelete', { label: target.label, id: target.id }))) return;
+    // Irreversible: require the operator to type the space id (GitHub-style, C3).
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('spaces.dangerZone.confirmDeleteTitle'),
+      message: this.transloco.translate('spaces.dangerZone.confirmDelete', { label: target.label, id: target.id }),
+      confirmLabel: this.transloco.translate('spaces.dangerZone.deleteButton'),
+      danger: true,
+      requireText: target.id,
+      requireTextLabel: this.transloco.translate('spaces.dangerZone.typeIdToConfirm', { id: target.id }),
+    });
+    if (!ok) return;
     this.dangerDeleting.set(true);
     this.dangerDeleteError.set('');
     this.api.deleteSpace(target.id).subscribe({
@@ -1691,11 +1725,17 @@ export class SpacesComponent implements OnInit {
     });
   }
 
-  leaveNetworkDanger(networkId: string): void {
-    if (!confirm(this.transloco.translate('spaces.dangerZone.confirmLeaveNetwork'))) return;
+  async leaveNetworkDanger(networkId: string): Promise<void> {
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('spaces.dangerZone.confirmLeaveNetworkTitle'),
+      message: this.transloco.translate('spaces.dangerZone.confirmLeaveNetwork'),
+      confirmLabel: this.transloco.translate('networks.leaveButton'),
+      danger: true,
+    });
+    if (!ok) return;
     this.api.leaveNetwork(networkId).subscribe({
       next: () => this.api.listNetworks().subscribe({ next: ({ networks }) => this.networks.set(networks), error: () => {} }),
-      error: () => alert(this.transloco.translate('spaces.error.leaveNetworkFailed')),
+      error: () => this.toast.error(this.transloco.translate('spaces.error.leaveNetworkFailed')),
     });
   }
 

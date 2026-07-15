@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Toasts and a real confirm dialog replace every native `alert()`/`confirm()` (UX U1, folds in
+  U5 + C3).** The client had no notification system at all — 34 `alert()`/`confirm()` calls, several
+  hardcoded in English, and the most destructive actions (wipe space, delete space, restore backup,
+  migrate DB) were gated by the same one-click `confirm()` used to rename a token. Two primitives now
+  cover all of it: a **`ToastService`** + bottom-right container (success/error/info, auto-dismiss,
+  errors linger longer) for the 16 message sites, and a **CDK-`Dialog`-backed `ConfirmDialogService`**
+  for the 13 confirmations. Building the dialog on Angular CDK gives `role="dialog"`, `aria-modal`, a
+  focus trap, Escape-to-close, and focus restore **by construction** — so U5 (modal accessibility) is
+  solved for these dialogs without a second pass. Confirmations are now **tiered by consequence
+  (C3/U1.3)**: reversible actions get a plain Cancel/Confirm, while the four irreversible ones require
+  the operator to **type the exact target** (the space id, the backup id, or `MIGRATE`) before the
+  destructive button enables — the GitHub-style ritual. All new strings run through `common.*`/feature
+  keys in en/de/pl (no more hardcoded English), and the primitives ship with Vitest specs (toast
+  lifecycle + the type-to-confirm gate). Verified end-to-end against a live instance: the themed
+  dialog opens instead of a native `confirm()`, the id gate keeps the button disabled until the exact
+  id is typed, Escape cancels, and error paths render a toast — with no native dialog firing anywhere.
+
 - **MCP `help` tool — a self-documenting system guide (F1).** An LLM connected over MCP can now
   call `help` (listed first in `tools/list`) to learn the whole system in one shot: the knowledge
   model (spaces and the five knowledge types), a **query vs. recall vs. filtered-recall decision

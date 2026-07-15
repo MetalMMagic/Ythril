@@ -154,4 +154,43 @@ describe('BrainComponent (OnPush)', () => {
     // pre-wrap (via the class) is what lets the newline render instead of collapsing.
     expect(getComputedStyle(cell!).whiteSpace).toBe('pre-wrap');
   });
+
+  // ── F8: network-membership indicator on space chips ────────────────────────
+  const setSpaces = (fixture: ReturnType<typeof create>, spaceView: Record<string, unknown>) => {
+    fixture.componentInstance.spaces.set([spaceView as never]);
+    fixture.detectChanges();
+  };
+  const netIcon = (fixture: ReturnType<typeof create>) =>
+    fixture.nativeElement.querySelector('.space-chip .space-chip-net') as HTMLElement | null;
+
+  it('shows NO network indicator for a space in no network (F8)', () => {
+    const fixture = create();
+    setSpaces(fixture, { space: { id: 'work', label: 'Work' } });
+    expect(netIcon(fixture)).toBeNull();
+  });
+
+  it('renders the network indicator with a status-specific class per state (F8)', () => {
+    const fixture = create();
+    for (const status of ['idle', 'syncing', 'degraded', 'vote'] as const) {
+      setSpaces(fixture, {
+        space: { id: 'work', label: 'Work', networkStatus: status, networks: [{ id: 'n1', label: 'Braintree', type: 'braintree' }] },
+      });
+      const icon = netIcon(fixture);
+      expect(icon, `indicator should render for status=${status}`).toBeTruthy();
+      expect(icon!.classList.contains(`net-${status}`)).toBe(true);
+      // Uses the same glyph as the Networks nav item (ph-icon name="link").
+      expect(icon!.querySelector('ph-icon')).toBeTruthy();
+    }
+  });
+
+  it('the indicator tooltip names the network and the status (F8, a11y — colour is not the only signal)', () => {
+    const fixture = create();
+    setSpaces(fixture, {
+      space: { id: 'work', label: 'Work', networkStatus: 'vote', networks: [{ id: 'n1', label: 'Braintree', type: 'braintree' }] },
+    });
+    const title = netIcon(fixture)!.getAttribute('title') ?? '';
+    expect(title).toContain('Braintree');
+    // Test transloco renders raw keys, so the status word resolves to its key.
+    expect(title).toContain('brain.spaceChip.network.vote');
+  });
 });

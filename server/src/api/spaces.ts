@@ -7,6 +7,8 @@ import { createSpace, updateSpace, removeSpace, renameSpace, reorderSpaces, slug
 import { measureUsage, dirSizeBytes } from '../quota/quota.js';
 import { col } from '../db/mongo.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
+import { isNetworkSyncing } from '../sync/engine.js';
+import { spaceNetworkInfo } from '../spaces/network-status.js';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { log } from '../util/log.js';
@@ -283,6 +285,8 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     usageGiB: usageGiBByIdx[idx],
     ...(indexStatus ? { indexStatus } : {}),
     ...(proxyFor ? { proxyFor } : {}),
+    // Network membership + status for the Brain space-chip indicator (F8).
+    ...(spaceNetworkInfo(cfg.networks, id, isNetworkSyncing, cfg.instanceId) ?? {}),
     ...(meta ? { meta: { ...meta, previousVersions: undefined } } : {}),
     ...(dupeRules ? { dupeRules } : {}),
     ...(dupeMergeSurvivor ? { dupeMergeSurvivor } : {}),

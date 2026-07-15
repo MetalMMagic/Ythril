@@ -85,3 +85,43 @@ describe('queryBrain — $regex sanitisation (rejected before any db access)', (
     );
   });
 });
+
+// The $options sanitiser was previously verified against a hand-copied
+// re-implementation in schema-validation.test.js (drift-blind). These cases run
+// the REAL compiled sanitizer via queryBrain; each rejects before any db access.
+describe('queryBrain — $options sanitisation (compiled path, S8.9)', () => {
+  it('rejects $options without an accompanying $regex', async () => {
+    await assert.rejects(
+      queryBrain('anyspace', 'memories', { fact: { $options: 'i' } }),
+      /only allowed alongside/,
+    );
+  });
+
+  it('rejects $options with invalid regex flags', async () => {
+    await assert.rejects(
+      queryBrain('anyspace', 'memories', { fact: { $regex: 'test', $options: 'ig' } }),
+      /valid regex flags/,
+    );
+  });
+
+  it('rejects a non-string $options value', async () => {
+    await assert.rejects(
+      queryBrain('anyspace', 'memories', { fact: { $regex: 'test', $options: 42 } }),
+      /valid regex flags/,
+    );
+  });
+
+  it('rejects an empty-string $options value', async () => {
+    await assert.rejects(
+      queryBrain('anyspace', 'memories', { fact: { $regex: 'test', $options: '' } }),
+      /valid regex flags/,
+    );
+  });
+
+  it('rejects $options carrying a null byte', async () => {
+    await assert.rejects(
+      queryBrain('anyspace', 'memories', { fact: { $regex: 'test', $options: 'i\x00' } }),
+      /valid regex flags/,
+    );
+  });
+});

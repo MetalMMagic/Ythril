@@ -9,17 +9,20 @@
  * Run: node --test testing/integration/file-conversion.test.js
  */
 
-import { describe, it, before } from 'node:test';
+import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
-import { INSTANCES } from '../sync/helpers.js';
+import { INSTANCES, post, get, delWithBody } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN_FILE_A = path.join(__dirname, '..', 'sync', 'configs', 'a', 'token.txt');
 
 let tokenA;
+const RUN = Date.now();
+// Dedicated space so the file listing is small and chunk counts are unambiguous.
+const CONV_SPACE = `conv-${RUN}`;
 
 async function uploadJson(token, spaceId, filePath, body) {
   const url = `${INSTANCES.a}/api/files/${spaceId}?path=${encodeURIComponent(filePath)}`;
@@ -31,30 +34,74 @@ async function uploadJson(token, spaceId, filePath, body) {
   return { status: r.status, body: await r.json().catch(() => null) };
 }
 
+/** All file+chunk records in a space (chunks carry parentFileId). */
+async function listAllFiles(token, spaceId) {
+  const r = await get(INSTANCES.a, token, `/api/brain/spaces/${spaceId}/files?includeChunks=true&limit=200`);
+  assert.equal(r.status, 200, `files listing failed: ${JSON.stringify(r.body)}`);
+  return r.body.files ?? [];
+}
+
+/** Count chunk records whose parent is the file at `parentPath`. */
+async function countChunks(token, spaceId, parentPath) {
+  const all = await listAllFiles(token, spaceId);
+  const parent = all.find(f => f.path === parentPath && !f.parentFileId);
+  if (!parent) return { parentFound: false, chunks: 0 };
+  const chunks = all.filter(f => f.parentFileId === parent._id);
+  return { parentFound: true, chunks: chunks.length };
+}
+
 describe('File conversion pipeline — inputFormat bypass', () => {
-  before(() => {
+  before(async () => {
     tokenA = fs.readFileSync(TOKEN_FILE_A, 'utf8').trim();
+    const c = await post(INSTANCES.a, tokenA, '/api/spaces', { id: CONV_SPACE, label: 'File Conversion Test' });
+    assert.ok(c.status === 201 || c.status === 409, `create conv space: ${JSON.stringify(c.body)}`);
   });
 
-  it('inputFormat "text" stores file without conversion (no chunk records)', async () => {
-    const filePath = `conv-text-bypass-${Date.now()}.md`;
+  after(async () => {
+    await delWithBody(INSTANCES.a, tokenA, `/api/spaces/${CONV_SPACE}`, { confirm: true }).catch(() => {});
+  });
+
+  it('inputFormat "text" bypasses conversion — produces ZERO chunk records', async () => {
+    const filePath = `conv-text-bypass-${RUN}.md`;
     const content = '# Section One\n\nSome content here.\n\n## Section Two\n\nMore content.';
-    const r = await uploadJson(tokenA, 'general', filePath, { content, encoding: 'utf8', inputFormat: 'text' });
+    const r = await uploadJson(tokenA, CONV_SPACE, filePath, { content, encoding: 'utf8', inputFormat: 'text' });
     assert.equal(r.status, 201, JSON.stringify(r.body));
     assert.ok(r.body?.sha256);
+
+    // The bypass is synchronous (no async job); with conversion skipped the file
+    // must have NO chunk records. Previously the test never observed inputFormat
+    // at all — a bypass that silently chunked anyway would have passed (S8.11).
+    const { parentFound, chunks } = await countChunks(tokenA, CONV_SPACE, filePath);
+    assert.ok(parentFound, 'the uploaded file record must exist');
+    assert.equal(chunks, 0, `inputFormat:text must not produce chunk records, found ${chunks}`);
   });
 
-  it('Markdown file (.md extension) is processed asynchronously, returns 202', async () => {
-    const filePath = `conv-md-test-${Date.now()}.md`;
+  it('Markdown file (.md) converts to chunk records (unlike the text bypass)', async () => {
+    const filePath = `conv-md-test-${RUN}.md`;
     const content = '# Document Title\n\nIntroduction paragraph.\n\n## Section One\n\n' +
       'This is the first section with enough content to exceed the minimum chunk body length ' +
       'threshold so that a chunk record is created for this section.\n\n' +
       '## Section Two\n\nThis is the second section with enough content to pass the minimum ' +
       'body length threshold and produce a second chunk record.';
-    const r = await uploadJson(tokenA, 'general', filePath, { content, encoding: 'utf8' });
+    const r = await uploadJson(tokenA, CONV_SPACE, filePath, { content, encoding: 'utf8' });
     assert.equal(r.status, 202, JSON.stringify(r.body));
     assert.ok(r.body?.sha256);
     assert.equal(r.body?.embeddingStatus, 'pending');
+
+    // Conversion runs in-process (no sidecar for md); poll until the worker has
+    // produced chunk records. The exact count is chunker-dependent (short
+    // sections may merge), so the observable that matters for inputFormat is the
+    // CONTRAST with the bypass case above: converted → ≥1 chunk, bypass → 0.
+    // (The HTML case below asserts the stronger ≥2.)
+    let chunkCount = 0;
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      const { chunks } = await countChunks(tokenA, CONV_SPACE, filePath);
+      chunkCount = chunks;
+      if (chunkCount >= 1) break;
+      await new Promise(res => setTimeout(res, 1000));
+    }
+    assert.ok(chunkCount >= 1, `markdown conversion must produce chunk records (bypass produces 0), found ${chunkCount}`);
   });
 
   it('Plain text file (.txt extension) is processed asynchronously, returns 202', async () => {
@@ -68,8 +115,8 @@ describe('File conversion pipeline — inputFormat bypass', () => {
     assert.equal(r.body?.embeddingStatus, 'pending');
   });
 
-  it('HTML file with inputFormat "html" is processed asynchronously, returns 202', async () => {
-    const filePath = `conv-html-test-${Date.now()}.html`;
+  it('HTML with inputFormat "html" converts to chunks — at least 2 chunk records appear', async () => {
+    const filePath = `conv-html-test-${RUN}.html`;
     const html = `<!DOCTYPE html><html><head><title>Test Article</title></head><body>
       <article>
         <h1>Article Title</h1>
@@ -78,7 +125,7 @@ describe('File conversion pipeline — inputFormat bypass', () => {
         <p>This section has additional content that will appear as a second chunk in the pipeline.</p>
       </article>
     </body></html>`;
-    const r = await uploadJson(tokenA, 'general', filePath, {
+    const r = await uploadJson(tokenA, CONV_SPACE, filePath, {
       content: Buffer.from(html).toString('base64'),
       encoding: 'base64',
       inputFormat: 'html',
@@ -86,6 +133,16 @@ describe('File conversion pipeline — inputFormat bypass', () => {
     assert.equal(r.status, 202, JSON.stringify(r.body));
     assert.ok(r.body?.sha256);
     assert.equal(r.body?.embeddingStatus, 'pending');
+
+    let chunkCount = 0;
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      const { chunks } = await countChunks(tokenA, CONV_SPACE, filePath);
+      chunkCount = chunks;
+      if (chunkCount >= 2) break;
+      await new Promise(res => setTimeout(res, 1000));
+    }
+    assert.ok(chunkCount >= 2, `html conversion must produce ≥2 chunk records, found ${chunkCount}`);
   });
 
   it('PDF uploaded with inputFormat "text" (explicit bypass) does not call sidecar, returns 201', async () => {

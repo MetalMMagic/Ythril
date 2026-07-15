@@ -75,6 +75,11 @@ describe('Path traversal — GET endpoint', () => {
   for (const { label, raw } of TRAVERSAL_PATHS) {
     it(`Blocks: ${label}`, async () => {
       const { status } = await getPath(raw);
+      // NOTE: on the GET path the sandbox RangeError is intentionally swallowed
+      // to a 404 ("Path not found") rather than a 400 — see files.ts GET handler
+      // (the per-member resolveSafePath is inside a try/catch that `continue`s).
+      // So GET can only prove "no out-of-space content was served", not "sandbox
+      // fired". The DELETE/PATCH blocks below carry the positive 400 control.
       assert.ok(
         status === 400 || status === 404,
         `Path "${label}" should return 400 or 404, got ${status}`,
@@ -83,6 +88,23 @@ describe('Path traversal — GET endpoint', () => {
       assert.notEqual(status, 200, `Path traversal succeeded for: ${label}`);
     });
   }
+
+  it('positive control: a real file at a direct path IS served (200)', async () => {
+    // Proves the GET endpoint actually serves content, so the 404s above mean
+    // "traversal served nothing", not "the endpoint is simply broken".
+    const p = `pt-get-control-${Date.now()}.txt`;
+    const body = 'in-space content';
+    await fetch(`${INSTANCES.a}/api/files/general?path=${encodeURIComponent(p)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ content: body, encoding: 'utf8' }),
+    });
+    const r = await fetch(`${INSTANCES.a}/api/files/general?path=${encodeURIComponent(p)}`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    assert.equal(r.status, 200, 'a real in-space file must be served with 200');
+    assert.equal(await r.text(), body, 'the served bytes must match what was written');
+  });
 });
 
 describe('Path traversal — DELETE endpoint', () => {
@@ -90,14 +112,24 @@ describe('Path traversal — DELETE endpoint', () => {
     token = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
   });
 
-  it('DELETE ../../../etc/passwd → 400 or 404', async () => {
+  // On DELETE the sandbox RangeError surfaces as a specific 400 BEFORE any
+  // fs.stat, while a valid-but-absent path returns 404. Asserting exactly 400
+  // (not "400 or 404") proves the sandbox engaged; the 404 positive control
+  // below proves the two are distinguishable (so the 400 is not just absence).
+  it('DELETE ../../../etc/passwd → exactly 400 (sandbox engaged)', async () => {
     const status = await deletePath('../../../etc/passwd');
-    assert.ok(status === 400 || status === 404, `Expected 400/404, got ${status}`);
+    assert.equal(status, 400, `Traversal delete must be 400 (sandbox), got ${status}`);
   });
 
-  it('DELETE %2E%2E%2F%2E%2E%2Fetc%2Fpasswd → 400 or 404', async () => {
+  it('DELETE %2E%2E%2F%2E%2E%2Fetc%2Fpasswd → exactly 400 (sandbox engaged)', async () => {
     const status = await deletePath('%2E%2E%2F%2E%2E%2Fetc%2Fpasswd');
-    assert.ok(status === 400 || status === 404, `Expected 400/404, got ${status}`);
+    assert.equal(status, 400, `Encoded traversal delete must be 400 (sandbox), got ${status}`);
+  });
+
+  it('positive control: DELETE of a valid-but-absent path → 404 (400 ≠ 404)', async () => {
+    const status = await deletePath(encodeURIComponent(`pt-absent-${Date.now()}.txt`));
+    assert.equal(status, 404,
+      `An in-space but missing file must be 404, not the sandbox 400 — proves the traversal 400s above are the sandbox, got ${status}`);
   });
 });
 
@@ -118,12 +150,13 @@ describe('Path traversal — PATCH (move) endpoint', () => {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ destination: '../../../tmp/escaped.txt' }),
     });
-    // Must be rejected at validation (400) or source not found (404).
-    // A 500 here is NOT acceptable: it would mean the server reached the
-    // filesystem before validating the destination path, then crashed.
-    assert.ok(
-      r.status === 400 || r.status === 404,
-      `Move to traversal destination should be blocked with 400/404, got ${r.status} — a 500 indicates the path sandbox is not checked before I/O`,
+    // The source exists (created above), so a 404 would mean "source not found"
+    // — not what we're testing. The destination is a traversal, and the sandbox
+    // rejects it with a specific 400 before any I/O. Assert exactly 400 so a
+    // regression that skipped the destination check (404/500) is caught.
+    assert.equal(
+      r.status, 400,
+      `Move to a traversal destination must be blocked with 400 (sandbox before I/O), got ${r.status}`,
     );
   });
 });

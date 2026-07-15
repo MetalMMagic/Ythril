@@ -5,7 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { AuthService } from '../../core/auth.service';
 import type { OidcInfo } from '../../core/auth.service';
 import { CommonModule } from '@angular/common';
-import { TranslocoPipe } from '@jsverse/transloco';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 @Component({
   selector: 'app-login',
@@ -122,6 +122,7 @@ export class LoginComponent implements OnInit {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private http = inject(HttpClient);
+  private transloco = inject(TranslocoService);
 
   tokenInput = '';
   loading = signal(false);
@@ -164,9 +165,9 @@ export class LoginComponent implements OnInit {
         error: (err) => {
           this.loading.set(false);
           if (err.status === 401) {
-            this.error.set('Invalid or expired token.');
+            this.error.set(this.transloco.translate('login.error.invalidToken'));
           } else {
-            this.error.set('Could not reach the server. Check your connection.');
+            this.error.set(this.transloco.translate('login.error.serverUnreachable'));
           }
         },
       });
@@ -184,7 +185,7 @@ export class LoginComponent implements OnInit {
       this.loading.set(false);
       this.ssoRedirecting.set(false);
       this.error.set(
-        err instanceof Error ? err.message : 'Failed to start SSO login.',
+        err instanceof Error ? err.message : this.transloco.translate('login.error.ssoFailed'),
       );
     }
   }

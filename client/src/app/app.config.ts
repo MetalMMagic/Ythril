@@ -2,7 +2,8 @@ import { ApplicationConfig, provideZonelessChangeDetection, APP_INITIALIZER, inj
 import { provideRouter, withComponentInputBinding, TitleStrategy } from '@angular/router';
 import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
-import { provideTransloco, Translation, TranslocoLoader, TranslocoService } from '@jsverse/transloco';
+import { provideTransloco, provideTranslocoMissingHandler, Translation, TranslocoLoader, TranslocoService } from '@jsverse/transloco';
+import { DevMissingTranslationHandler } from './core/dev-missing-translation.handler';
 import { Injectable } from '@angular/core';
 import { routes } from './app.routes';
 import { authInterceptor } from './core/auth.interceptor';
@@ -59,5 +60,6 @@ export const appConfig: ApplicationConfig = {
       },
       loader: TranslocoHttpLoader,
     }),
+    provideTranslocoMissingHandler(DevMissingTranslationHandler),
   ],
 };

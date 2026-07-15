@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Closed the remaining i18n leaks so a language switch translates the whole UI (UX U7 · AUDIT C7).**
+  A handful of strings bypassed `@jsverse/transloco` and stayed English in German/Polish: the **Models**
+  sidebar nav item, the Models page **Save** button, the schema-import **Cancel** button, and — most
+  visibly — the login/setup **auth errors** (an invalid-token message, a server-unreachable message, an
+  SSO-start failure, and the setup failure). The login error keys already existed in all three locales
+  but were never wired; the component still hard-coded the English literals. These now route through
+  `common.*` / `login.error.*` / `setup.error.failed` keys (translations added/wired in en, de, pl).
+  A **dev-only missing-key handler** (`DevMissingTranslationHandler`, keyed off Angular's `isDevMode()`)
+  now logs any unresolved key to the console once — so a future leak is caught at review time instead of
+  shipping as a raw dotted key. Verified end-to-end: switching to German localizes the Models nav
+  ("Modelle"), the Save button ("Speichern"), and a bad-token login error ("Ungültiges oder abgelaufenes
+  Token."), with the dev handler reporting zero missing keys across the swept pages. The login token
+  placeholder was also corrected from the obsolete `yt_…` prefix to `ythril_…` in all three locales (C7).
+
 - **Failed loads now render a distinct error state instead of a "no data" empty state (UX U3).**
   Every list view swallowed load failures (`error: () => loading.set(false)`) and fell through to its
   empty state — so a 500, a dropped connection, or an expired backend rendered as a friendly

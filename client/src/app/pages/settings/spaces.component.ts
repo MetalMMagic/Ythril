@@ -723,7 +723,7 @@ interface TypeSchemaState {
                 <button class="btn btn-primary btn-sm" type="button" (click)="resolveImportConflictAddAs()" [disabled]="!importConflictAddAsName().trim()">Add as</button>
               </div>
             }
-            <button class="btn btn-ghost" type="button" (click)="dismissImportConflict()">Cancel</button>
+            <button class="btn btn-ghost" type="button" (click)="dismissImportConflict()">{{ 'common.cancel' | transloco }}</button>
           </div>
         </div>
       </div>

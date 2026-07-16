@@ -1,13 +1,11 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { toDocId } from '../../util/paths.js';
 import { recall } from '../../brain/memory.js';
-import { getConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
-import { col, asFilter } from '../../db/mongo.js';
-import { type InputFormat, isMediaFormat, resolveInputFormat, runConversionPipeline, storeConversionResults, deleteConversionArtifacts } from '../../files/converters/pipeline.js';
-import { ConversionUnavailableError } from '../../files/converters/types.js';
+import { getConfig } from '../../config/loader.js';
+import { type InputFormat, deleteConversionArtifacts } from '../../files/converters/pipeline.js';
 import { deleteFileMeta, markFileMetaDeleted, renameFileMeta, renameFileMetaByPrefix, upsertFileMeta } from '../../files/file-meta.js';
 import { createDir, deleteFile, listDir, listFilesRecursive, moveFile, readFile, writeFile } from '../../files/files.js';
-import { enqueueMediaJob, cancelMediaJob } from '../../files/media/job-queue.js';
+import { cancelMediaJob } from '../../files/media/job-queue.js';
+import { dispatchFileProcessing } from '../../files/dispatch.js';
 import { writeFileTombstones } from '../../files/tombstones.js';
 import { QuotaError, checkQuota, invalidateUsageCache } from '../../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
@@ -86,61 +84,13 @@ export const write_fileTool: ToolHandler = {
       metaOpts.properties = a['properties'] as Record<string, string | number | boolean>;
     }
     await upsertFileMeta(wt.target, filePath, sizeBytes, metaOpts);
-    // Conversion pipeline — or async media job
+    // Resolve format, record media state, and enqueue the async embedding job — one shared policy
+    // with the REST upload path. Documents are converted by the background worker (not inline), so
+    // the tool returns immediately with `embeddingStatus: 'pending'`; the worker produces chunks and
+    // sets `chunkCount`/`convertedFileId` shortly after. MCP has no Content-Type, so media falls
+    // back to `application/octet-stream`.
     const ifFmt = typeof a['inputFormat'] === 'string' ? a['inputFormat'] as InputFormat : 'auto';
-    const fileBytes = Buffer.from(content, 'utf8');
-    const resolvedFmt = resolveInputFormat(filePath, undefined, ifFmt);
-    const normId = toDocId(filePath);
-
-    if (isMediaFormat(resolvedFmt)) {
-      // MCP write_file is text-only; media content via MCP is not expected,
-      // but handle gracefully: record as disabled/pending same as REST API.
-      const mediaCfg = getMediaEmbeddingConfig();
-      if (!mediaCfg.enabled) {
-        await col<import('../../config/types.js').FileMetaDoc>(`${wt.target}_files`).updateOne(
-          asFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
-          { $set: { mediaType: resolvedFmt, embeddingStatus: 'disabled' } },
-        );
-      } else if (sizeBytes > (mediaCfg.maxFileSizeBytes ?? 524_288_000)) {
-        await col<import('../../config/types.js').FileMetaDoc>(`${wt.target}_files`).updateOne(
-          asFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
-          { $set: { mediaType: resolvedFmt, embeddingStatus: 'skipped' } },
-        );
-      } else {
-        const mimeType = 'application/octet-stream';
-        await col<import('../../config/types.js').FileMetaDoc>(`${wt.target}_files`).updateOne(
-          asFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
-          { $set: { mediaType: resolvedFmt, embeddingStatus: 'pending' } },
-        );
-        await enqueueMediaJob(wt.target, filePath, mimeType, resolvedFmt).catch(err => {
-          log.warn(`write_file enqueueMediaJob error for ${wt.target}/${filePath}: ${err instanceof Error ? err.message : String(err)}`);
-        });
-      }
-    } else if (resolvedFmt !== 'text') {
-      try {
-        // Clear any prior conversion artifacts first so overwriting a document does not leave
-        // stale/duplicate chunk records behind (parity with the REST upload path).
-        await deleteConversionArtifacts(wt.target, filePath).catch(() => {});
-        const { chunks, convertedMarkdown, extractedImages } = await runConversionPipeline(fileBytes, filePath, resolvedFmt);
-        if (chunks.length > 0 || extractedImages.length > 0) {
-          const { chunkCount, convertedFileId } = await storeConversionResults(wt.target, filePath, chunks, convertedMarkdown, extractedImages);
-          const metaUpdate: Record<string, unknown> = { chunkCount };
-          if (convertedFileId) metaUpdate['convertedFileId'] = convertedFileId;
-          await col<import('../../config/types.js').FileMetaDoc>(`${wt.target}_files`).updateOne(
-            asFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
-            { $set: metaUpdate },
-          );
-        }
-      } catch (err) {
-        if (err instanceof ConversionUnavailableError) {
-          log.warn(`write_file conversion failed for ${wt.target}/${filePath}: ${err.message}`);
-          await col<import('../../config/types.js').FileMetaDoc>(`${wt.target}_files`).updateOne(
-            asFilter<import('../../config/types.js').FileMetaDoc>({ _id: normId }),
-            { $set: { conversionError: err.message } },
-          );
-        }
-      }
-    }
+    await dispatchFileProcessing(wt.target, filePath, { bytes: sizeBytes, inputFormat: ifFmt });
     emitWebhookEvent({ event: 'file.created', spaceId: wt.target, entry: { path: filePath, sha256 }, ...(ctx.actor ?? {}) });
     const wfText = `Written (sha256: ${sha256}).`
       + (wfQuota.softBreached ? `\n⚠️ Storage warning: ${wfQuota.warning}` : '');

@@ -486,6 +486,32 @@ describe('MCP file tools — write_file / read_file / list_dir / create_dir / mo
     assert.ok(result?.isError, 'Empty path must return isError');
   });
 
+  it('write_file of a document converts ASYNCHRONOUSLY via the worker (A10 — parity with REST)', async () => {
+    // MCP write_file used to convert documents synchronously inline; it now enqueues a background
+    // job like the REST upload path (one shared policy). The tool returns immediately, and the
+    // worker produces chunk records shortly after — so an agent must poll, exactly like REST.
+    const docPath = `${dir}/async-doc.md`;
+    const content = '# Async Doc\n\nFirst section with enough body text to clear the minimum chunk ' +
+      'length threshold so a chunk record is produced by the converter.\n\n' +
+      '## Second Section\n\nSecond section, likewise long enough to yield its own chunk record ' +
+      'once the background worker has run the markdown conversion pipeline.';
+    const result = await session.callTool('write_file', { space: testSpaceId, path: docPath, content });
+    assert.ok(!result?.isError, `write_file(doc) error: ${JSON.stringify(result)}`);
+
+    // Poll the REST files listing for chunk records whose parent is our document.
+    let chunks = 0;
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      const r = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/files?includeChunks=true&limit=200`);
+      const all = r.body?.files ?? [];
+      const parent = all.find(f => f.path === docPath && !f.parentFileId);
+      chunks = parent ? all.filter(f => f.parentFileId === parent._id).length : 0;
+      if (chunks >= 1) break;
+      await new Promise(res => setTimeout(res, 1000));
+    }
+    assert.ok(chunks >= 1, `MCP write_file document must produce chunk records via the worker, found ${chunks}`);
+  });
+
   it('read_file returns the written content', async () => {
     const result = await session.callTool('read_file', { space: testSpaceId, path: `${dir}/hello.txt` });
     assert.ok(!result?.isError, `read_file error: ${JSON.stringify(result)}`);

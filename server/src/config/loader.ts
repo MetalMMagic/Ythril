@@ -424,6 +424,13 @@ const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | '
 };
 
 /**
+ * Default media size cap (500 MiB). Single source for the fallback used when a resolved config
+ * omits `maxFileSizeBytes` — previously hand-copied as the `524_288_000` literal in three dispatch
+ * sites.
+ */
+export const DEFAULT_MEDIA_MAX_FILE_SIZE_BYTES = MEDIA_EMBEDDING_DEFAULTS.maxFileSizeBytes;
+
+/**
  * Resolve the full media embedding configuration by merging:
  *   1. Environment variables (highest precedence)
  *   2. config.json `mediaEmbedding` block

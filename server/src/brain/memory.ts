@@ -5,7 +5,7 @@ import { parseLimit, parseSkip } from '../util/pagination.js';
 import { NotFoundError } from '../util/errors.js';
 import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
 import { embed } from './embedding.js';
-import { propsEmbedText } from './embed-text.js';
+import { memoryEmbedText } from './embed-text.js';
 import { getConfig, getEmbeddingConfig } from '../config/loader.js';
 import { needsReindex, vectorFilterFieldsFor } from '../spaces/spaces.js';
 import { applyDeleteFields } from './delete-fields.js';
@@ -128,23 +128,6 @@ function authorRef() {
 }
 
 /** Derive the text to embed for a memory (tags + entity names + fact + description + properties). */
-function memoryEmbedText(
-  fact: string,
-  tags: string[] = [],
-  entityNames: string[] = [],
-  description?: string,
-  properties?: Record<string, string | number | boolean>,
-): string {
-  const parts: string[] = [];
-  if (tags.length > 0) parts.push(tags.join(' '));
-  if (entityNames.length > 0) parts.push(entityNames.join(' '));
-  parts.push(fact);
-  if (description?.trim()) parts.push(description.trim());
-  const propsText = propsEmbedText(properties);
-  if (propsText) parts.push(propsText);
-  return parts.join(' ');
-}
-
 /** Resolve entity IDs to their names from the database. */
 async function resolveEntityNames(spaceId: string, entityIds: string[]): Promise<string[]> {
   if (entityIds.length === 0) return [];

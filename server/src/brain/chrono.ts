@@ -3,7 +3,7 @@ import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
-import { propsEmbedText } from './embed-text.js';
+import { chronoEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
@@ -64,22 +64,6 @@ export function parseRecurrence(
 }
 
 /** Derive the text to embed for a chrono entry (type + status + title + description + tags). */
-function chronoEmbedText(
-  title: string,
-  type: string,
-  status: string,
-  description?: string,
-  tags: string[] = [],
-  properties?: Record<string, string | number | boolean>,
-): string {
-  const parts: string[] = [type, status, title];
-  if (tags.length > 0) parts.push(tags.join(' '));
-  if (description?.trim()) parts.push(description.trim());
-  const propsText = propsEmbedText(properties);
-  if (propsText) parts.push(propsText);
-  return parts.join(' ');
-}
-
 export async function createChrono(
   spaceId: string,
   fields: {

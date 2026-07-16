@@ -12,7 +12,7 @@
 import { col, getMongo, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { nextSeq } from '../util/seq.js';
 import { embed } from './embedding.js';
-import { propsEmbedText } from './embed-text.js';
+import { entityEmbedText } from './embed-text.js';
 import { getEntityById } from './entities.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
@@ -100,22 +100,6 @@ function resolvePropertyType(
 /** Get the schema-declared mergeFn for a property, if any. */
 function getSuggestedFn(key: string, schemas?: Record<string, PropertySchema>): string | undefined {
   return schemas?.[key]?.mergeFn;
-}
-
-/** Derive the text to embed for an entity (mirrors entityEmbedText in entities.ts). */
-function entityEmbedText(
-  name: string,
-  type: string,
-  tags: string[] = [],
-  description?: string,
-  properties: Record<string, string | number | boolean> = {},
-): string {
-  const parts: string[] = [name, type];
-  if (tags.length > 0) parts.push(tags.join(' '));
-  if (description?.trim()) parts.push(description.trim());
-  const propsText = propsEmbedText(properties);
-  if (propsText) parts.push(propsText);
-  return parts.join(' ');
 }
 
 // ── Plan computation ───────────────────────────────────────────────────────

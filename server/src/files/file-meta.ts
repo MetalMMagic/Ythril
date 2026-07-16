@@ -15,6 +15,7 @@
 import path from 'node:path';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { embed } from '../brain/embedding.js';
+import { fileEmbedText } from '../brain/embed-text.js';
 import { getConfig } from '../config/loader.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../config/types.js';
 
@@ -28,24 +29,6 @@ function normPath(p: string): string {
   return p.replace(/\\/g, '/').replace(/^\/+/, '');
 }
 
-/** Derive the text to embed for a file (path + entity names + tags + description + property values). */
-function fileEmbedText(
-  filePath: string,
-  tags: string[] = [],
-  description?: string,
-  properties?: Record<string, string | number | boolean>,
-  entityNames: string[] = [],
-): string {
-  const parts: string[] = [filePath];
-  if (entityNames.length > 0) parts.push(entityNames.join(' '));
-  if (tags.length > 0) parts.push(tags.join(' '));
-  if (description?.trim()) parts.push(description.trim());
-  if (properties) {
-    const vals = Object.values(properties).map(v => String(v)).filter(v => v.trim());
-    if (vals.length > 0) parts.push(vals.join(' '));
-  }
-  return parts.join(' ');
-}
 
 /** Resolve entity names from a list of entity IDs in this space. Best-effort — returns [] on error. */
 async function resolveEntityNames(spaceId: string, entityIds: string[]): Promise<string[]> {

@@ -270,6 +270,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Reindexing degraded embeddings — dropped edge/chrono properties and embedded raw entity IDs
+  for edges.** The `POST /reindex` job re-derived each record's embedding text with its own inline
+  copies of the per-type builders, and those copies had drifted badly from the real writers: memory
+  and entity folded properties **values-only**; **edge dropped properties entirely and embedded the
+  raw from/to entity UUIDs instead of their names**; **chrono dropped properties entirely**. So a
+  reindex silently made records *less* recallable than when they were created. The five per-type
+  embed-text builders (`memoryEmbedText` / `entityEmbedText` / `edgeEmbedText` / `chronoEmbedText` /
+  `fileEmbedText`) are now centralized in `brain/embed-text.ts` and called by both the writers and
+  the reindex job, so a reindex reproduces exactly what a create embedded. Also removes the verbatim
+  `entityEmbedText` duplicate that lived in `brain/merge.ts`. Locked by a builder unit test.
+
 - **Memories created over the REST API embedded properties without their keys (semantic-recall
   regression).** `POST /api/brain/spaces/:id/memories` re-implemented the create logic inline instead
   of calling the shared `remember()`, and the copy had drifted: it folded properties **values-only**

@@ -54,7 +54,7 @@ import type { InputFormat } from '../files/converters/pipeline.js';
 import { cancelMediaJob, cancelMediaJobsByPrefix } from '../files/media/job-queue.js';
 import { dispatchFileProcessing } from '../files/dispatch.js';
 
-export const filesRouter = Router();
+export const fileStoreRouter = Router();
 
 // ── Webhook helper ──────────────────────────────────────────────────────────
 
@@ -100,7 +100,7 @@ function enforceSizeLimit(req: Request, res: Response, next: NextFunction): void
 
 // ── GET /api/files/:spaceId ───────────────────────────────────────────────────
 // Stat the path: directory → JSON list, file → stream bytes.
-filesRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, res) => {
+fileStoreRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {
@@ -196,7 +196,7 @@ filesRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, res)
 });
 
 // ── POST /api/files/:spaceId/mkdir ────────────────────────────────────────────
-filesRouter.post(
+fileStoreRouter.post(
   '/:spaceId/mkdir',
   globalRateLimit,
   requireSpaceAuth,
@@ -232,7 +232,7 @@ filesRouter.post(
 
 // ── GET /api/files/:spaceId/upload-status ─────────────────────────────────────
 // Returns bytes received for an in-progress chunked upload.
-filesRouter.get('/:spaceId/upload-status', globalRateLimit, requireSpaceAuth, async (req, res) => {
+fileStoreRouter.get('/:spaceId/upload-status', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {
@@ -252,7 +252,7 @@ filesRouter.get('/:spaceId/upload-status', globalRateLimit, requireSpaceAuth, as
 // ── POST /api/files/:spaceId ──────────────────────────────────────────────────
 // Write a file. Accepts raw bytes (any non-JSON Content-Type) or
 // JSON { content: string, encoding?: 'utf8' | 'base64' }.
-filesRouter.post(
+fileStoreRouter.post(
   '/:spaceId',
   globalRateLimit,
   requireSpaceAuth,
@@ -445,7 +445,7 @@ filesRouter.post(
 
 // ── POST /api/files/:spaceId/retry_embedding ──────────────────────────────────
 // Manually re-trigger media embedding for a failed / skipped file.
-filesRouter.post(
+fileStoreRouter.post(
   '/:spaceId/retry_embedding',
   globalRateLimit,
   requireSpaceAuth,
@@ -502,7 +502,7 @@ filesRouter.post(
 
 // ── DELETE /api/files/:spaceId ────────────────────────────────────────────────
 // Deletes a file. Deleting a directory requires { confirm: true } in the JSON body.
-filesRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+fileStoreRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {
@@ -648,7 +648,7 @@ filesRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly,
 
 // ── PATCH /api/files/:spaceId ─────────────────────────────────────────────────
 // Move/rename a file or directory. Body: { destination: string }
-filesRouter.patch('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+fileStoreRouter.patch('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const cfg = getConfig();
   if (!cfg.spaces.some(s => s.id === spaceId)) {

@@ -15,7 +15,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../../server/dist/util/redos.js';
-import { queryBrain } from '../../server/dist/brain/memory.js';
+import { queryBrain } from '../../server/dist/brain/query.js';
 
 describe('hasReDoSRisk — shared heuristic', () => {
   const risky = [

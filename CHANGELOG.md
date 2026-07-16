@@ -646,6 +646,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Split the 993-line `brain/memory.ts` into four cohesive modules (internal, no behavior change).**
+  It mixed three unrelated engines with memory CRUD. Now: `filter.ts` (the recall `FilterExpression`
+  DSL — validate, lower to a Mongo filter, lower to a native `$vectorSearch` prefilter), `recall.ts`
+  (the recall engine — `recall`/`recallGlobal`/`findSimilar`/`checkDuplicates` + the doc→`RecallResult`
+  mapping), `query.ts` (the structured operator-whitelisted `queryBrain` surface, its ReDoS-safe
+  sanitiser, and the projection guard that never lets `embedding` out), and `memory.ts` (993 → 267
+  lines: `remember` + memory CRUD). The dependency runs strictly one way —
+  `memory.ts → recall.ts → filter.ts`, with `filter.ts`/`query.ts` importing no siblings — so there
+  are no cycles; `remember` reaches into `recall.ts` only for the optional insert-time duplicate
+  check. Importers were repointed (`api/brain/search.ts`, `brain/entities.ts`, `brain/dupe-scanner.ts`,
+  the MCP `file`/`search`/`shared` tools, and two tests that import the compiled
+  `queryBrain`/`mergeEmbeddingExclusion`). (ARCHITECTURE-TODO A17.4.)
+
+- **Renamed the file-store router `filesRouter` → `fileStoreRouter`.** It sat next to the brain's
+  `fileMetaRouter` and the pair read as one API. They are two different things: `fileStoreRouter`
+  (`/api/files`) serves **bytes on disk** — upload, download, mkdir, move, delete; `fileMetaRouter`
+  (`/api/brain/spaces/:id/files`) serves the **brain record** describing a file (tags, entityIds,
+  properties — one of the five `query` collections). Naming them as a Store/Meta pair makes the
+  distinction visible at the call site. No behavior change; internal identifier only.
+
+- **Documented that document conversion is asynchronous on every write path.** The integration guide
+  described what the conversion pipeline produces but never *when* — and since MCP `write_file` moved
+  to the background worker (A10), an agent that writes a document and immediately recalls it finds
+  nothing. Added a "Timing" section to the conversion docs: what each surface returns (REST `202` +
+  `embeddingStatus: "pending"`; MCP `write_file` confirms the **write**, not the conversion), how to
+  poll `embeddingStatus` (`pending`→`processing`→`complete`, with `partial`/`failed`), and the media
+  and `"text"`-bypass cases.
+
 - **Split the 1734-line `api/brain.ts` (39 routes) into per-resource sub-routers (internal, no
   behavior change).** The file the owner called out is now `api/brain/` — `memories.ts` (6 routes),
   `entities.ts` (9), `edges.ts` (6), `chrono.ts` (7), `file-meta.ts` (3), `search.ts` (7: stats,

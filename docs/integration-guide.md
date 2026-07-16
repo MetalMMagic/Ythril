@@ -1723,6 +1723,32 @@ When a convertible file is uploaded, Ythril automatically:
 3. Splits it into heading- or paragraph-delimited chunks.
 4. Embeds each chunk independently for high-quality semantic recall.
 
+#### Timing — conversion is asynchronous
+
+**Every** write path enqueues the conversion for a background worker and returns immediately; the
+chunks do not exist yet when the call returns. This is true for the REST upload **and** for the MCP
+`write_file` tool — the two behave identically.
+
+| Surface | Returns | How to know conversion finished |
+|---------|---------|--------------------------------|
+| `POST /api/files/:spaceId` (document formats) | `202 Accepted` with `embeddingStatus: "pending"` | poll the filemeta record |
+| MCP `write_file` | the write confirmation (sha256) — it reports the **write**, not the conversion | poll the filemeta record |
+
+Poll `GET /api/brain/spaces/:spaceId/files?path=<path>` and watch `embeddingStatus`: `pending` →
+`processing` → `complete` (`partial` means some chunks failed and are retry-eligible; `failed` means
+retries are exhausted). Once complete, the record carries `chunkCount` and (for binary formats)
+`convertedFileId`, and the chunk records are recall-searchable. To see the chunks themselves, pass
+`?includeChunks=true` — they are hidden by default (see below).
+
+Media files (image/audio/video) are likewise queued and report `embeddingStatus` of `pending`,
+`disabled` (media embedding turned off) or `skipped` (over `maxFileSizeBytes`). Only the `"text"`
+bypass is fully synchronous: it stores a single flat embedding with no chunking and no job.
+
+> Agents take note: writing a document and immediately recalling its contents will find nothing —
+> the worker has not run yet. Poll `embeddingStatus`, or accept eventual consistency. (Before Ythril
+> 1.4, MCP `write_file` converted documents inline and blocked until they were chunked; it now
+> enqueues a job like REST, so it returns faster and inherits the worker's retry/backoff.)
+
 #### `inputFormat` parameter
 
 Pass `inputFormat` in the JSON body (or as a query parameter in raw uploads) to control conversion:

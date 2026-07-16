@@ -10,7 +10,9 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, type McpRecallTraverseItem } from './shared.js';
 import { MAX_RECALL_TRAVERSE, traverseRecallSeeds } from '../../brain/edges.js';
-import { type FilterExpression, type RecallKnowledgeType, type RecallResult, findSimilar, queryBrain, recall, recallGlobal, validateFilterExpression } from '../../brain/memory.js';
+import { type FilterExpression, validateFilterExpression } from '../../brain/filter.js';
+import { queryBrain } from '../../brain/query.js';
+import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal } from '../../brain/recall.js';
 import { resolveMemberSpaces, collectAcrossMembers } from '../../spaces/proxy.js';
 
 export const recallTool: ToolHandler = {

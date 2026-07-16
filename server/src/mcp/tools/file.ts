@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { recall } from '../../brain/memory.js';
+import { recall } from '../../brain/recall.js';
 import { getConfig } from '../../config/loader.js';
 import { type InputFormat, deleteConversionArtifacts } from '../../files/converters/pipeline.js';
 import { deleteFileMeta, markFileMetaDeleted, renameFileMeta, renameFileMetaByPrefix, upsertFileMeta } from '../../files/file-meta.js';

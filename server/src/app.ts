@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import { tokensRouter } from './api/tokens.js';
 import { brainRouter } from './api/brain/index.js';
 import { spacesRouter } from './api/spaces.js';
-import { filesRouter } from './api/files.js';
+import { fileStoreRouter } from './api/files.js';
 import { conflictsRouter } from './api/conflicts.js';
 import { duplicatesRouter } from './api/duplicates.js';
 import { syncRouter } from './api/sync.js';
@@ -211,7 +211,7 @@ export function createApp() {
   app.use('/api/tokens', tokensRouter);
   app.use('/api/brain', brainRouter);
   app.use('/api/spaces', spacesRouter);
-  app.use('/api/files', filesRouter);
+  app.use('/api/files', fileStoreRouter);
   app.use('/api/conflicts', conflictsRouter);
   app.use('/api/duplicates', duplicatesRouter);
   app.use('/api/sync', syncRouter);

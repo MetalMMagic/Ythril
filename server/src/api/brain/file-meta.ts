@@ -1,9 +1,11 @@
 /**
  * File-metadata routes (/api/brain/spaces/:spaceId/files).
  *
- * Named fileMetaRouter, not filesRouter: api/files.ts already exports a `filesRouter` (the file
- * store, mounted at /api/files). Two routers sharing a name is confusing for readers and breaks
- * name-keyed route analysis (the audit-coverage guard resolved these routes to the wrong prefix).
+ * This is the brain's file RECORD (a knowledge-graph doc: tags/entityIds/properties, one of the
+ * five `query` collections). The file STORE — the bytes on disk — is `fileStoreRouter` in
+ * api/files.ts, mounted at /api/files. The two are deliberately named as a Store/Meta pair: they
+ * were both `filesRouter` at first, which broke name-keyed route analysis (the audit-coverage guard
+ * resolved these routes to the wrong /api/files prefix) and read as one API to anyone skimming.
  *
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */

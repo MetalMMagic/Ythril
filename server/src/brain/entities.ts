@@ -7,7 +7,7 @@ import { embed } from './embedding.js';
 import { entityEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { applyDeleteFields } from './delete-fields.js';
-import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './memory.js';
+import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc } from '../config/types.js';
 

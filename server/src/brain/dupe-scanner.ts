@@ -34,7 +34,7 @@ import {
   DEFAULT_DUPE_THRESHOLD,
   type RecallResult,
   type RecallKnowledgeType,
-} from './memory.js';
+} from './recall.js';
 import { computeMergePlan, applyResolutions, executeMerge } from './merge.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import type { DupeCandidateDoc, DupeScanStateDoc, DupeScanType, DupeActionRule } from '../config/types.js';

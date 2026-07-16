@@ -1,4 +1,4 @@
-import type { RecallResult } from '../../brain/memory.js';
+import type { RecallResult } from '../../brain/recall.js';
 
 /** Helpers shared by the MCP tool handlers (moved out of mcp/router.ts). */
 

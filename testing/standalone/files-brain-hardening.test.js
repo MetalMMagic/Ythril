@@ -33,7 +33,7 @@ const { resolveSafePath, assertNoSymlinkEscape, spaceRoot } =
 const { assembleChunks, uploadId, storeChunk } =
   await import('../../server/dist/files/chunks.js');
 const { applyResolutions } = await import('../../server/dist/brain/merge.js');
-const { mergeEmbeddingExclusion } = await import('../../server/dist/brain/memory.js');
+const { mergeEmbeddingExclusion } = await import('../../server/dist/brain/query.js');
 
 const SPACE = 'fbtest';
 

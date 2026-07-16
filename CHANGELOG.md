@@ -646,6 +646,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Split the 576-line MCP `memory.ts` tool bundle into three cohesive files (internal, no behavior
+  change).** It bundled seven tools spanning three concerns; it is now `memory.ts` (memory CRUD:
+  `remember`/`update_memory`/`delete_memory`), `search.ts` (cross-type retrieval:
+  `recall`/`find_similar`/`query`), and `bulk.ts` (`bulk_write`, the cross-type batch writer that
+  wraps the shared `brain/bulk.ts`). The tool registry (`tools/index.ts`) is unchanged in content
+  and order — only the import sources moved — so `tools/list` and every derived gate stay identical.
+  The move also sheds ten dead imports the bundle had accumulated since `bulk_write` was extracted to
+  `brain/bulk.ts` (`createChrono`/`upsertEntity`/`upsertEdge`/`validate{Entity,Edge,Chrono}`/… were
+  import-only). Largest MCP tool file drops from 576 → 214 lines. (ARCHITECTURE-TODO A17.1.)
+
 - **Centralised the proxy member-space fan-out into two shared helpers
   (`findFirstAcrossMembers` / `collectAcrossMembers`).** A proxy space reads and writes across its
   member spaces, and two idioms were hand-rolled ~40 times across the REST brain routes and MCP

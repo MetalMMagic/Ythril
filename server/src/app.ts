@@ -10,7 +10,7 @@ import { fileStoreRouter } from './api/files.js';
 import { conflictsRouter } from './api/conflicts.js';
 import { duplicatesRouter } from './api/duplicates.js';
 import { syncRouter } from './api/sync.js';
-import { networksRouter } from './api/networks.js';
+import { networksRouter } from './api/networks/index.js';
 import { notifyRouter } from './api/notify.js';
 import { inviteRouter } from './api/invite.js';
 import { mfaRouter } from './api/mfa.js';

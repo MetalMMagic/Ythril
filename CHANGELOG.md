@@ -646,6 +646,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Extracted the bulk-write batch processor into one shared module (`brain/bulk.ts`), fixing a
+  REST/MCP drift.** The `POST /api/brain/spaces/:id/bulk` route and the MCP `bulk_write` tool were two
+  ~185-line copies of the same validate-and-dispatch loop (memories → entities → edges → chrono), and
+  they had **diverged**: the MCP copy skipped the 50 000-character `fact` cap and did not normalise
+  chrono `status` (unknown values were passed straight through instead of dropped). Both surfaces now
+  call the single `bulkWrite(spaceId, input)` — identical validation, the 500-item-per-type cap, and
+  the deterministic ordering that lets edges/chrono reference records created earlier in the same
+  batch — then each shapes its own response and emits the one `bulk.write` summary webhook with its
+  own actor/token attribution. Per-item webhooks stay suppressed (the shared writers are called
+  without a `WebhookActor`). Behavior-preserving for REST; the MCP path picks up the two corrected
+  behaviors. Covered by the existing REST (`brain.test.js`) and MCP (`mcp-tools.test.js`) bulk suites.
+  (ARCHITECTURE-TODO A9.)
+
 - **Centralized path normalisation into `util/paths.ts` (`toDocId` / `toSafeRelPath`).** The
   `p.replace(/\\/g, '/').replace(/^\/+/, '')` idiom was hand-rolled in ~13 places (3 named `normPath`
   defs + ~10 inline), and the copies had **diverged**: the media worker's variant also stripped `../`

@@ -10,6 +10,7 @@ import { listMemories, deleteMemory, countMemories, bulkDeleteMemories, remember
 import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityById, bulkDeleteEntities, findEntitiesByName, findEntityBacklinks } from '../brain/entities.js';
 import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges, traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../brain/edges.js';
 import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from '../brain/embed-text.js';
+import { bulkWrite, bulkWriteTotal, type BulkInput } from '../brain/bulk.js';
 import { computeMergePlan, applyResolutions, executeMerge, validateResolution, type PropertyResolution } from '../brain/merge.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../brain/delete-fields.js';
 /** Regex that matches a UUID v4 (case-insensitive). */
@@ -1748,21 +1749,6 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
 
 // ── Bulk write ────────────────────────────────────────────────────────────────
 
-const BULK_MAX_PER_TYPE = 500;
-
-interface BulkError {
-  type: 'memory' | 'entity' | 'edge' | 'chrono';
-  index: number;
-  reason: string;
-}
-
-interface BulkCounts {
-  memories: number;
-  entities: number;
-  edges: number;
-  chrono: number;
-}
-
 /**
  * POST /api/brain/spaces/:spaceId/bulk
  *
@@ -1784,182 +1770,10 @@ brainRouter.post('/spaces/:spaceId/bulk', globalRateLimit, requireSpaceAuth, den
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
   const targetSpace = wt.target;
 
-  // Schema validation context
-  const bulkMeta = getSpaceMeta(targetSpace);
-  const bulkValidation = bulkMeta?.validationMode ?? 'off';
-
-  const body = (req.body ?? {}) as Record<string, unknown>;
-  const rawMemories = Array.isArray(body['memories']) ? (body['memories'] as unknown[]).slice(0, BULK_MAX_PER_TYPE) : [];
-  const rawEntities = Array.isArray(body['entities']) ? (body['entities'] as unknown[]).slice(0, BULK_MAX_PER_TYPE) : [];
-  const rawEdges    = Array.isArray(body['edges'])    ? (body['edges']    as unknown[]).slice(0, BULK_MAX_PER_TYPE) : [];
-  const rawChrono   = Array.isArray(body['chrono'])   ? (body['chrono']   as unknown[]).slice(0, BULK_MAX_PER_TYPE) : [];
-
-  const inserted: BulkCounts = { memories: 0, entities: 0, edges: 0, chrono: 0 };
-  const updated:  BulkCounts = { memories: 0, entities: 0, edges: 0, chrono: 0 };
-  const errors: BulkError[] = [];
-
-  // ── memories ───────────────────────────────────────────────────────────────
-  for (let i = 0; i < rawMemories.length; i++) {
-    const item = rawMemories[i] as Record<string, unknown>;
-    const fact = typeof item['fact'] === 'string' ? item['fact'].trim() : '';
-    if (!fact) { errors.push({ type: 'memory', index: i, reason: 'missing required field: fact' }); continue; }
-    if (fact.length > 50_000) { errors.push({ type: 'memory', index: i, reason: '`fact` must not exceed 50 000 characters' }); continue; }
-    const tags: string[] = Array.isArray(item['tags']) ? (item['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
-    const entityIds: string[] = Array.isArray(item['entityIds']) ? (item['entityIds'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
-    const description: string | undefined = typeof item['description'] === 'string' ? item['description'] : undefined;
-    const itemMemoryType: string | undefined = typeof item['type'] === 'string' ? item['type'] : undefined;
-    const properties: Record<string, string | number | boolean> | undefined =
-      item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties'])
-        ? (item['properties'] as Record<string, string | number | boolean>)
-        : undefined;
-    try {
-      // Schema validation per memory
-      if (bulkValidation !== 'off' && bulkMeta) {
-        const sv = validateMemory(bulkMeta, { type: itemMemoryType, properties });
-        if (sv.length > 0) {
-          if (bulkValidation === 'strict') { errors.push({ type: 'memory', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
-          for (const v of sv) errors.push({ type: 'memory', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
-        }
-      }
-      await remember(targetSpace, fact, entityIds, tags, description, properties, undefined, itemMemoryType);
-      inserted.memories++;
-    } catch (err) {
-      errors.push({ type: 'memory', index: i, reason: err instanceof Error ? err.message : String(err) });
-    }
+  const result = await bulkWrite(targetSpace, (req.body ?? {}) as BulkInput);
+  if (bulkWriteTotal(result) > 0) {
+    // Bulk suppresses per-item webhooks; emit ONE summary a workflow can inspect.
+    emitWebhookEvent({ event: 'bulk.write', spaceId: targetSpace, entry: { inserted: result.inserted, updated: result.updated, errorCount: result.errors.length }, ...webhookToken(req) });
   }
-
-  // ── entities ───────────────────────────────────────────────────────────────
-  for (let i = 0; i < rawEntities.length; i++) {
-    const item = rawEntities[i] as Record<string, unknown>;
-    const name = typeof item['name'] === 'string' ? item['name'].trim() : '';
-    if (!name) { errors.push({ type: 'entity', index: i, reason: 'missing required field: name' }); continue; }
-    const type = typeof item['type'] === 'string' ? item['type'].trim() : '';
-    if (!type) { errors.push({ type: 'entity', index: i, reason: 'missing required field: type' }); continue; }
-    const rawId = typeof item['id'] === 'string' ? item['id'].trim() : undefined;
-    if (rawId !== undefined && !UUID_V4_RE.test(rawId)) {
-      errors.push({ type: 'entity', index: i, reason: '`id` must be a valid UUID v4' }); continue;
-    }
-    const tags: string[] = Array.isArray(item['tags']) ? (item['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
-    const description: string | undefined = typeof item['description'] === 'string' ? item['description'] : undefined;
-    const properties: Record<string, string | number | boolean> =
-      item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties'])
-        ? (item['properties'] as Record<string, string | number | boolean>)
-        : {};
-    try {
-      // Schema validation per entity
-      if (bulkValidation !== 'off' && bulkMeta) {
-        const sv = validateEntity(bulkMeta, { name, type, properties });
-        if (sv.length > 0) {
-          if (bulkValidation === 'strict') { errors.push({ type: 'entity', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
-          for (const v of sv) errors.push({ type: 'entity', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
-        }
-      }
-      // Check for existing entity by ID (if supplied) to determine inserted vs updated
-      const existing = rawId
-        ? await col<EntityDoc>(`${targetSpace}_entities`).findOne(asFilter<EntityDoc>({ _id: rawId, spaceId: targetSpace }))
-        : null;
-      const result = await upsertEntity(targetSpace, name, type, tags, properties, description, rawId);
-      if (existing) { updated.entities++; } else { inserted.entities++; }
-      if (result.warning) { errors.push({ type: 'entity', index: i, reason: result.warning }); }
-    } catch (err) {
-      errors.push({ type: 'entity', index: i, reason: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  // ── edges ──────────────────────────────────────────────────────────────────
-  for (let i = 0; i < rawEdges.length; i++) {
-    const item = rawEdges[i] as Record<string, unknown>;
-    const from  = typeof item['from']  === 'string' ? item['from'].trim()  : '';
-    const to    = typeof item['to']    === 'string' ? item['to'].trim()    : '';
-    const label = typeof item['label'] === 'string' ? item['label'].trim() : '';
-    if (!from)  { errors.push({ type: 'edge', index: i, reason: 'missing required field: from' });  continue; }
-    if (isStrictLinkage(targetSpace) && !UUID_V4_RE.test(from)) { errors.push({ type: 'edge', index: i, reason: '`from` must be a valid UUID v4 (entity ID), not a name' }); continue; }
-    if (!to)    { errors.push({ type: 'edge', index: i, reason: 'missing required field: to' });    continue; }
-    if (isStrictLinkage(targetSpace) && !UUID_V4_RE.test(to)) { errors.push({ type: 'edge', index: i, reason: '`to` must be a valid UUID v4 (entity ID), not a name' }); continue; }
-    if (!label) { errors.push({ type: 'edge', index: i, reason: 'missing required field: label' }); continue; }
-    const weight:      number | undefined = typeof item['weight'] === 'number' ? item['weight'] : undefined;
-    const edgeType:    string | undefined = typeof item['type']   === 'string' ? item['type']   : undefined;
-    const description: string | undefined = typeof item['description'] === 'string' ? item['description'] : undefined;
-    const tags: string[] | undefined = Array.isArray(item['tags']) ? (item['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
-    const properties: Record<string, string | number | boolean> | undefined =
-      item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties'])
-        ? (item['properties'] as Record<string, string | number | boolean>)
-        : undefined;
-    try {
-      // Schema validation per edge
-      if (bulkValidation !== 'off' && bulkMeta) {
-        const sv = validateEdge(bulkMeta, { label, properties });
-        if (sv.length > 0) {
-          if (bulkValidation === 'strict') { errors.push({ type: 'edge', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
-          for (const v of sv) errors.push({ type: 'edge', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
-        }
-      }
-      const existing = await col<EdgeDoc>(`${targetSpace}_edges`).findOne(asFilter<EdgeDoc>({ spaceId: targetSpace, from, to, label }));
-      await upsertEdge(targetSpace, from, to, label, weight, edgeType, description, properties, tags);
-      if (existing) { updated.edges++; } else { inserted.edges++; }
-    } catch (err) {
-      errors.push({ type: 'edge', index: i, reason: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  // ── chrono ─────────────────────────────────────────────────────────────────
-  const bulkAllowedChronoTypes = getAllowedChronoTypes(bulkMeta);
-  for (let i = 0; i < rawChrono.length; i++) {
-    const item = rawChrono[i] as Record<string, unknown>;
-    const title   = typeof item['title']   === 'string' ? item['title'].trim()   : '';
-    const type    = typeof item['type']    === 'string' ? item['type']           : '';
-    const startsAt = typeof item['startsAt'] === 'string' ? item['startsAt']     : '';
-    if (!title)   { errors.push({ type: 'chrono', index: i, reason: 'missing required field: title' });   continue; }
-    if (!bulkAllowedChronoTypes.has(type)) {
-      errors.push({ type: 'chrono', index: i, reason: `\`type\` must be one of: ${[...bulkAllowedChronoTypes].join(', ')}` });
-      continue;
-    }
-    if (!startsAt) { errors.push({ type: 'chrono', index: i, reason: 'missing required field: startsAt' }); continue; }
-    const endsAt:      string | undefined = typeof item['endsAt']      === 'string' ? item['endsAt']      : undefined;
-    const status:      ChronoStatus | undefined = typeof item['status'] === 'string' && CHRONO_STATUSES.has(item['status'] as ChronoStatus) ? item['status'] as ChronoStatus : undefined;
-    const confidence:  number | undefined = typeof item['confidence'] === 'number' ? item['confidence']   : undefined;
-    const description: string | undefined = typeof item['description'] === 'string' ? item['description'] : undefined;
-    const tags: string[] | undefined = Array.isArray(item['tags']) ? (item['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
-    const entityIds: string[] | undefined = Array.isArray(item['entityIds']) ? (item['entityIds'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
-    const memoryIds: string[] | undefined = Array.isArray(item['memoryIds']) ? (item['memoryIds'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
-    if (entityIds && isStrictLinkage(targetSpace)) {
-      const invalidEIds = entityIds.filter(id => !UUID_V4_RE.test(id));
-      if (invalidEIds.length > 0) { errors.push({ type: 'chrono', index: i, reason: '`entityIds` must contain valid UUID v4 values (entity IDs), not names' }); continue; }
-    }
-    if (memoryIds && isStrictLinkage(targetSpace)) {
-      const invalidMIds = memoryIds.filter(id => !UUID_V4_RE.test(id));
-      if (invalidMIds.length > 0) { errors.push({ type: 'chrono', index: i, reason: '`memoryIds` must contain valid UUID v4 values (memory IDs), not names' }); continue; }
-    }
-    const properties: Record<string, string | number | boolean> | undefined =
-      item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties'])
-        ? (item['properties'] as Record<string, string | number | boolean>)
-        : undefined;
-    try {
-      // Schema validation per chrono
-      if (bulkValidation !== 'off' && bulkMeta) {
-        const sv = validateChrono(bulkMeta, { type, properties });
-        if (sv.length > 0) {
-          if (bulkValidation === 'strict') { errors.push({ type: 'chrono', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
-          for (const v of sv) errors.push({ type: 'chrono', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
-        }
-      }
-      await createChrono(targetSpace, {
-        title, type: type as ChronoType, startsAt, endsAt, status, confidence,
-        description, tags, entityIds, memoryIds, properties,
-      });
-      inserted.chrono++;
-    } catch (err) {
-      errors.push({ type: 'chrono', index: i, reason: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  // Bulk writes suppress per-item webhooks (they don't pass an actor into the shared functions,
-  // so a 10k-item import doesn't fire 10k events). Instead emit ONE summary a workflow can inspect.
-  const bulkTotal = inserted.memories + inserted.entities + inserted.edges + inserted.chrono
-    + updated.entities + updated.edges;
-  if (bulkTotal > 0) {
-    emitWebhookEvent({ event: 'bulk.write', spaceId: targetSpace, entry: { inserted, updated, errorCount: errors.length }, ...webhookToken(req) });
-  }
-
-  res.status(207).json({ inserted, updated, errors });
+  res.status(207).json(result);
 });

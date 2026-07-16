@@ -5,6 +5,7 @@ import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
 import { propsEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
+import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
 
 function authorRef() {
@@ -95,6 +96,7 @@ export async function createChrono(
     properties?: Record<string, string | number | boolean>;
     recurrence?: ChronoEntry['recurrence'];
   },
+  actor?: WebhookActor,
 ): Promise<ChronoEntry> {
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();
@@ -132,6 +134,7 @@ export async function createChrono(
   if (fields.recurrence !== undefined) doc.recurrence = fields.recurrence;
 
   await col<ChronoEntry>(`${spaceId}_chrono`).insertOne(asDoc<ChronoEntry>(doc));
+  if (actor) emitWebhookEvent({ event: 'chrono.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   return doc;
 }
 
@@ -139,6 +142,7 @@ export async function updateChrono(
   spaceId: string,
   id: string,
   updates: Partial<Pick<ChronoEntry, 'title' | 'description' | 'type' | 'startsAt' | 'endsAt' | 'status' | 'confidence' | 'tags' | 'entityIds' | 'memoryIds' | 'properties' | 'recurrence'>>,
+  actor?: WebhookActor,
 ): Promise<ChronoEntry | null> {
   const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: id, spaceId })) as ChronoEntry | null;
   if (!existing) return null;
@@ -178,7 +182,9 @@ export async function updateChrono(
     asFilter<ChronoEntry>({ _id: id }),
     asUpdate<ChronoEntry>({ $set }),
   );
-  return { ...existing, ...($set as Partial<ChronoEntry>) } as ChronoEntry;
+  const updatedChrono = { ...existing, ...($set as Partial<ChronoEntry>) } as ChronoEntry;
+  if (actor) emitWebhookEvent({ event: 'chrono.updated', spaceId, entry: { ...updatedChrono, embedding: undefined }, ...actor });
+  return updatedChrono;
 }
 
 export async function getChronoById(spaceId: string, id: string): Promise<ChronoEntry | null> {
@@ -256,6 +262,7 @@ export async function listChrono(
 export async function deleteChrono(
   spaceId: string,
   chronoId: string,
+  actor?: WebhookActor,
 ): Promise<boolean> {
   const existing = await col<ChronoEntry>(`${spaceId}_chrono`)
     .findOne(asFilter<ChronoEntry>({ _id: chronoId, spaceId }), { projection: { seq: 1 } }) as { seq?: number } | null;
@@ -280,6 +287,7 @@ export async function deleteChrono(
     asDoc<TombstoneDoc>(tombstone),
     { upsert: true },
   );
+  if (actor) emitWebhookEvent({ event: 'chrono.deleted', spaceId, entry: { _id: chronoId }, ...actor });
   return true;
 }
 

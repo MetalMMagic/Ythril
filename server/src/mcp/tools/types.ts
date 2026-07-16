@@ -1,4 +1,5 @@
 import type { Config, SpaceConfig } from '../../config/types.js';
+import type { WebhookActor } from '../../webhooks/dispatcher.js';
 
 /**
  * The space schemas injected into each tool's `inputSchema`. The `space` enum is
@@ -28,6 +29,9 @@ export interface ToolContext {
   isAdmin?: boolean;
   /** True when the calling token is read-only (mutating tools are gated out). */
   readOnly?: boolean;
+  /** Identity of the calling token, for webhook attribution. Passed to shared brain/file
+   *  mutation functions so agent-driven writes emit attributed webhooks like REST writes. */
+  actor?: WebhookActor;
 }
 
 export type ToolResult = {

@@ -1,14 +1,16 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { recall } from '../../brain/memory.js';
-import { getMediaEmbeddingConfig } from '../../config/loader.js';
+import { getConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
-import { type InputFormat, isMediaFormat, resolveInputFormat, runConversionPipeline, storeConversionResults } from '../../files/converters/pipeline.js';
+import { type InputFormat, isMediaFormat, resolveInputFormat, runConversionPipeline, storeConversionResults, deleteConversionArtifacts } from '../../files/converters/pipeline.js';
 import { ConversionUnavailableError } from '../../files/converters/types.js';
-import { deleteFileMeta, renameFileMeta, upsertFileMeta } from '../../files/file-meta.js';
-import { createDir, deleteFile, listDir, moveFile, readFile, writeFile } from '../../files/files.js';
-import { enqueueMediaJob } from '../../files/media/job-queue.js';
-import { QuotaError, checkQuota } from '../../quota/quota.js';
+import { deleteFileMeta, markFileMetaDeleted, renameFileMeta, renameFileMetaByPrefix, upsertFileMeta } from '../../files/file-meta.js';
+import { createDir, deleteFile, listDir, listFilesRecursive, moveFile, readFile, writeFile } from '../../files/files.js';
+import { enqueueMediaJob, cancelMediaJob } from '../../files/media/job-queue.js';
+import { writeFileTombstones } from '../../files/tombstones.js';
+import { QuotaError, checkQuota, invalidateUsageCache } from '../../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
+import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
 import { log } from '../../util/log.js';
 
 export const read_fileTool: ToolHandler = {
@@ -71,10 +73,11 @@ export const write_fileTool: ToolHandler = {
     if (!filePath.trim()) throw new Error('path must not be empty');
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
-    // Quota check — throws QuotaError (caught below) on hard limit
-    const wfQuota = await checkQuota('files');
-    const { sha256 } = await writeFile(wt.target, filePath, content);
+    // Quota check — project the incoming size so a write that would exceed the hard limit is
+    // rejected up-front (parity with the REST upload), throwing QuotaError (caught below).
     const sizeBytes = Buffer.byteLength(content, 'utf8');
+    const wfQuota = await checkQuota('files', sizeBytes);
+    const { sha256 } = await writeFile(wt.target, filePath, content);
     const metaOpts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> } = {};
     if (typeof a['description'] === 'string') metaOpts.description = a['description'];
     if (Array.isArray(a['tags'])) metaOpts.tags = a['tags'] as string[];
@@ -114,6 +117,9 @@ export const write_fileTool: ToolHandler = {
       }
     } else if (resolvedFmt !== 'text') {
       try {
+        // Clear any prior conversion artifacts first so overwriting a document does not leave
+        // stale/duplicate chunk records behind (parity with the REST upload path).
+        await deleteConversionArtifacts(wt.target, filePath).catch(() => {});
         const { chunks, convertedMarkdown, extractedImages } = await runConversionPipeline(fileBytes, filePath, resolvedFmt);
         if (chunks.length > 0 || extractedImages.length > 0) {
           const { chunkCount, convertedFileId } = await storeConversionResults(wt.target, filePath, chunks, convertedMarkdown, extractedImages);
@@ -134,6 +140,7 @@ export const write_fileTool: ToolHandler = {
         }
       }
     }
+    emitWebhookEvent({ event: 'file.created', spaceId: wt.target, entry: { path: filePath, sha256 }, ...(ctx.actor ?? {}) });
     const wfText = `Written (sha256: ${sha256}).`
       + (wfQuota.softBreached ? `\n⚠️ Storage warning: ${wfQuota.warning}` : '');
     return {
@@ -202,7 +209,20 @@ export const delete_fileTool: ToolHandler = {
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
     await deleteFile(wt.target, filePath);
-    await deleteFileMeta(wt.target, filePath);
+    // Propagate the deletion to sync peers (else the peer's manifest re-pushes the file).
+    await writeFileTombstones(wt.target, [filePath]);
+    // Soft-flag (retain for audit) or hard-delete the metadata, per softDeleteFileMeta.
+    if (getConfig().softDeleteFileMeta === true) {
+      await markFileMetaDeleted(wt.target, filePath);
+    } else {
+      await deleteFileMeta(wt.target, filePath);
+    }
+    // Cancel any queued embedding job and remove conversion artifacts so nothing
+    // outlives the file (a stale job would retry forever against the missing path).
+    await cancelMediaJob(wt.target, filePath).catch(() => {});
+    await deleteConversionArtifacts(wt.target, filePath).catch(() => {});
+    invalidateUsageCache(); // freed disk — reflect it in the next quota check
+    emitWebhookEvent({ event: 'file.deleted', spaceId: wt.target, entry: { path: filePath }, ...(ctx.actor ?? {}) });
     return { content: [{ type: 'text' as const, text: `Deleted '${filePath}'.` }] };
   },
 };
@@ -255,8 +275,23 @@ export const move_fileTool: ToolHandler = {
     if (!dst.trim()) throw new Error('dst must not be empty');
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
+    // Tombstone the OLD path(s) before moving (sync has no rename detection, so the source
+    // would otherwise resurrect from a peer's manifest). Children for a dir move, else src.
+    const movedChildren = await listFilesRecursive(wt.target, src);
+    const oldPaths = movedChildren.length > 0 ? movedChildren : [src];
+
     await moveFile(wt.target, src, dst);
-    await renameFileMeta(wt.target, src, dst);
+    // Re-root metadata: the file record at `src` AND, for a directory move, every child
+    // record under `src/` (renameFileMetaByPrefix). The HTTP PATCH route does both; MCP
+    // previously did only the single-file rename, orphaning child records on a dir move.
+    await Promise.all([
+      renameFileMeta(wt.target, src, dst),
+      renameFileMetaByPrefix(wt.target, src, dst),
+    ]).catch(err => {
+      log.warn(`move_file renameFileMeta error for ${wt.target}, ${src} → ${dst}: ${err instanceof Error ? err.message : String(err)}`);
+    });
+    await writeFileTombstones(wt.target, oldPaths);
+    emitWebhookEvent({ event: 'file.updated', spaceId: wt.target, entry: { path: dst, previousPath: src }, ...(ctx.actor ?? {}) });
     return { content: [{ type: 'text' as const, text: `Moved '${src}' → '${dst}'.` }] };
   },
 };

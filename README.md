@@ -24,7 +24,7 @@ Track events, deadlines, plans, predictions, and milestones with the **chrono** 
 
 Full file manager with **chunked upload** (5 MB pieces, progress tracking, automatic retry), directory tree, inline preview (text, code, images, PDF), and file-level metadata (description, tags, properties). All file operations are available as MCP tools and via the REST API.
 
-Uploaded PDF, DOCX, and EPUB files are automatically converted to text by the bundled `unstructured-api-full` sidecar using full OCR and layout detection (`hi_res` strategy). Tables are extracted as structured HTML; embedded images are extracted as independent subfiles and queued for the full media pipeline (captioning + face recognition). Plain-text and HTML files are converted in-process. All converted content is chunked and embedded so it is immediately searchable via `recall`.
+Uploaded PDF, DOCX, and EPUB files are automatically converted to text by the bundled `unstructured-api` sidecar using full OCR and layout detection (`hi_res` strategy). Tables are extracted as structured HTML; embedded images are extracted as independent subfiles and queued for the full media pipeline (captioning + face recognition). Plain-text and HTML files are converted in-process. All converted content is chunked and embedded so it is immediately searchable via `recall`.
 
 ### Image, Audio & Video Understanding
 

@@ -286,6 +286,9 @@ export interface FileMeta {
   /** Error message when embeddingStatus is "failed". */
   mediaJobError?: string;
   chunkCount?: number;
+  /** Set when the file was deleted but its metadata was retained (softDeleteFileMeta):
+   *  ISO8601 deletion timestamp. Such records show a "deleted" badge and can be purged. */
+  deletedAt?: string;
 }
 
 export interface UploadProgress {

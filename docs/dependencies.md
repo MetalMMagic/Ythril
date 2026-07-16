@@ -204,16 +204,23 @@ Legal principle that runtime infrastructure must be listed with its licensing im
 |---|---|---|
 | `ollama/ollama` | Vision model host — captions uploaded images (default `moondream`) for the media pipeline. | MIT (the Ollama runtime). Models are pulled separately; the default `moondream` is Apache 2.0. |
 | `fedirz/faster-whisper-server` | Speech-to-text — transcribes uploaded/segmented audio via an OpenAI-compatible endpoint. | MIT (the server). Whisper models are pulled separately and are Apache 2.0. |
-| `unstructured-io/unstructured-api-full` | Server-side PDF / DOCX / EPUB conversion (`hi_res` OCR + layout detection, table and embedded-image extraction). | Apache 2.0. |
+| `unstructured-io/unstructured-api` | Server-side PDF / DOCX / EPUB conversion (`hi_res` OCR + layout detection, table and embedded-image extraction). | Apache 2.0. |
 
 **Where they are referenced.** `ollama`, `whisper`, and `unstructured` are all services in
 [`docker-compose.yml`](../docker-compose.yml) and have matching Kubernetes manifests
-(`kubernetes/manifests/{ollama,whisper}-deploy.yaml`; the `unstructured-api-full` sidecar is
+(`kubernetes/manifests/{ollama,whisper}-deploy.yaml`; the `unstructured-api` sidecar is
 in `kubernetes/manifests/ythril-deployment.yaml`, pod-local). `ollama`/`whisper` form the
 media-embedding stack; `unstructured` is the bundled document-conversion sidecar.
 
-> **Image size — `unstructured-api-full` is heavy (~8–12 GB).** It bundles OCR model weights
-> (Tesseract / PaddleOCR), so the first `docker compose up` pulls a large image and the sidecar
+> **Why not `unstructured-api-full`?** The `-full` variant (extra Tesseract language packs +
+> LibreOffice) was made private on quay.io and now returns `401 UNAUTHORIZED` on an anonymous
+> pull. The public `unstructured-api` image is built from the same release, supports the exact
+> `hi_res` OCR + embedded-image extraction path Ythril calls, and is what upstream's own README
+> points self-hosters at. Ythril's PDF/DOCX/EPUB + English-OCR path needs nothing the `-full`
+> extras add.
+>
+> **Image size — `unstructured-api` is heavy (~4.5 GB compressed).** It bundles OCR model
+> weights (Tesseract), so the first `docker compose up` pulls a large image and the sidecar
 > is slow to become ready (a long `start_period`). It is intentionally **not** a startup
 > dependency of the `ythril` service — Ythril runs without it and PDF/DOCX/EPUB conversion
 > simply reports `sidecar_down` until the sidecar is up. On a resource-constrained workstation,
@@ -224,6 +231,6 @@ media-embedding stack; `unstructured` is the bundled document-conversion sidecar
 **Licensing impact — none on Ythril's PolyForm obligations.** All three are permissively
 licensed (MIT / Apache 2.0), carry no copyleft, and run as independent network services
 rather than linked code — the same TCP-socket relationship analysed for MongoDB above.
-`unstructured-api-full` in particular ships under Apache 2.0, but because its tag can change,
+`unstructured-api` in particular ships under Apache 2.0, but because its tag can change,
 verify the image's bundled `LICENSE` on every version bump (the procedure is documented in
 the header of `kubernetes/manifests/ythril-deployment.yaml`).

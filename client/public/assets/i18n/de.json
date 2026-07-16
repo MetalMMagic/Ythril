@@ -339,6 +339,7 @@
   "brain.fileMeta.embedding": "Einbettung…",
   "brain.fileMeta.embeddingFailed": "Einbettung fehlgeschlagen",
   "brain.fileMeta.embeddingPartial": "Teilweise eingebettet",
+  "brain.fileMeta.deleted": "Gelöscht",
   "brain.fileMeta.retryEmbedding": "Wiederholen",
   "brain.fileMeta.picker.searchMemories": "Erinnerungen suchen…",
   "brain.fileMeta.picker.searchChrono": "Chrono suchen…",

@@ -668,6 +668,17 @@ export interface Config {
   storage?: StorageConfig;
   /** Optional media embedding pipeline (image / audio / video). Off by default. */
   mediaEmbedding?: MediaEmbeddingConfig;
+  /**
+   * When true, deleting a file flags its metadata record as deleted
+   * (`deletedAt = <now>`) instead of removing it, keeping an audit trail. Flagged
+   * records stay listed and searchable but are marked "deleted" in the UI, and only
+   * a flagged/orphaned record (one whose file no longer exists) may be purged — a
+   * metadata record whose file is still present cannot be deleted directly.
+   * Default false (delete the metadata record immediately, the historical behavior).
+   * Derived records (conversion chunks / `_converted` / `_extracted`) are always
+   * hard-removed regardless of this setting.
+   */
+  softDeleteFileMeta?: boolean;
   maxUploadBodyBytes?: number;
   /** Max total size (bytes) a chunked upload may declare via Content-Range.
    *  Default 10 GiB. The storage quota (if configured) applies on top. */
@@ -928,6 +939,10 @@ export interface FileMetaDoc {
   updatedAt: string;    // ISO8601 — last write timestamp
   sizeBytes: number;    // file size in bytes at last write
   author: AuthorRef;    // writer: instanceId + instanceLabel
+  /** Set when the file was deleted while `softDeleteFileMeta` is enabled: ISO8601
+   *  timestamp of the deletion. The record is retained (still listed/searchable, shown
+   *  as "deleted" in the UI) until purged. Absent for live files. */
+  deletedAt?: string;
   embedding?: number[];
   embeddingModel?: string;
   // ── Conversion pipeline fields ────────────────────────────────────────────

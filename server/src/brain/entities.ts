@@ -7,6 +7,7 @@ import { propsEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './memory.js';
+import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc } from '../config/types.js';
 
 /** A backlink entry describing an item that references a given entity. */
@@ -63,6 +64,7 @@ export async function upsertEntity(
   description?: string,
   id?: string,
   opts?: DupeCheckOpts,
+  actor?: WebhookActor,
 ): Promise<UpsertResult> {
   const collection = col<EntityDoc>(`${spaceId}_entities`);
 
@@ -95,6 +97,7 @@ export async function upsertEntity(
       asUpdate<EntityDoc>({ $set }),
     );
     const entity: EntityDoc = { ...existing, name, type, tags: updatedTags, properties: mergedProps, updatedAt: now, seq, ...embeddingFields, ...(description !== undefined ? { description } : {}) };
+    if (actor) emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...entity, embedding: undefined }, ...actor });
     return { entity };
   }
 
@@ -135,6 +138,7 @@ export async function upsertEntity(
   if (getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {
     import('./dupe-scanner.js').then(m => m.evaluateRecordForDuplicates(spaceId, 'entity', doc._id)).catch(() => { /* best-effort */ });
   }
+  if (actor) emitWebhookEvent({ event: 'entity.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   return { entity: doc, warning, similar };
 }
 
@@ -160,6 +164,7 @@ export async function updateEntityById(
   id: string,
   updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> },
   deleteFieldsPaths?: string[],
+  actor?: WebhookActor,
 ): Promise<EntityDoc | null> {
   const collection = col<EntityDoc>(`${spaceId}_entities`);
   const existing = await collection.findOne(asFilter<EntityDoc>({ _id: id, spaceId })) as EntityDoc | null;
@@ -243,6 +248,7 @@ export async function updateEntityById(
     applyDeleteFields(result as unknown as Record<string, unknown>, deleteFieldsPaths);
   }
 
+  if (actor) emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...result, embedding: undefined }, ...actor });
   return result;
 }
 
@@ -264,6 +270,7 @@ export async function listEntities(
 export async function deleteEntity(
   spaceId: string,
   entityId: string,
+  actor?: WebhookActor,
 ): Promise<boolean> {
   const existing = await col<EntityDoc>(`${spaceId}_entities`)
     .findOne(asFilter<EntityDoc>({ _id: entityId, spaceId }), { projection: { seq: 1 } }) as { seq?: number } | null;
@@ -288,6 +295,7 @@ export async function deleteEntity(
     asDoc<TombstoneDoc>(tombstone),
     { upsert: true },
   );
+  if (actor) emitWebhookEvent({ event: 'entity.deleted', spaceId, entry: { _id: entityId }, ...actor });
   return true;
 }
 

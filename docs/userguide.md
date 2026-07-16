@@ -551,7 +551,7 @@ These are set in `config.json` under `mediaEmbedding.faceRecognition` — they a
 
 ### Document Processing (OCR & Image Extraction)
 
-When you upload a PDF, DOCX, or EPUB, Ythril converts it to text using the `unstructured-api-full` sidecar, which includes Tesseract OCR. The conversion strategy controls the trade-off between speed and quality.
+When you upload a PDF, DOCX, or EPUB, Ythril converts it to text using the `unstructured-api` sidecar, which includes Tesseract OCR. The conversion strategy controls the trade-off between speed and quality.
 
 These settings live in `config.json` under `mediaEmbedding.documentProcessing`:
 

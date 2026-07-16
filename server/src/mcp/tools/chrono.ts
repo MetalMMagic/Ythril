@@ -106,7 +106,7 @@ export const create_chronoTool: ToolHandler = {
       memoryIds: chronoMemoryIds,
       properties: chronoProps,
       ...(rec.value ? { recurrence: rec.value } : {}),
-    });
+    }, ctx.actor);
     let text = `Chrono entry '${entry.title}' (${entry.type}) created (ID ${entry._id}, seq ${entry.seq}).`
       + (remQuota.softBreached ? `\n⚠️ Storage warning: ${remQuota.warning}` : '');
     if (chronoMeta?.validationMode === 'warn') {
@@ -196,7 +196,7 @@ export const update_chronoTool: ToolHandler = {
       updates['recurrence'] = rec.value;
     }
 
-    const entry = await updateChrono(wt.target, id, updates as Parameters<typeof updateChrono>[2]);
+    const entry = await updateChrono(wt.target, id, updates as Parameters<typeof updateChrono>[2], ctx.actor);
     if (!entry) throw new Error(`Chrono entry '${id}' not found`);
     return { content: [{ type: 'text' as const, text: `Chrono entry '${entry.title}' updated (seq ${entry.seq}).` }] };
   },

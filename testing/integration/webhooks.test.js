@@ -159,6 +159,23 @@ describe('Webhook dispatch — real match + sign + deliver + log', () => {
     assert.ok(!leaked, 'a webhook filtered to entity.created must not receive memory.created');
   });
 
+  it('a REST entity create fires entity.created via the centralized upsertEntity emit', async () => {
+    // hookOther is subscribed to entity.created in spaceX. Creating an entity must deliver —
+    // proving emission now lives in the shared upsertEntity function (not the route).
+    const created = await post(INSTANCES.a, token, `/api/brain/spaces/${spaceX}/entities`, {
+      name: `wh-ent-${RUN}`, type: 'concept',
+    });
+    assert.equal(created.status, 201, `create entity: ${JSON.stringify(created.body)}`);
+
+    let delivery;
+    await waitFor(async () => {
+      const r = await get(INSTANCES.a, token, `/api/admin/webhooks/${hookOther}/deliveries`);
+      delivery = r.body.deliveries?.find(d => d.event === 'entity.created');
+      return Boolean(delivery);
+    }, 20_000, 500, 'no entity.created delivery — centralized upsertEntity emission did not run');
+    assert.equal(delivery.spaceId, spaceX, 'entity.created delivery records the originating space');
+  });
+
   it('the test-delivery endpoint records a test.ping attempt', async () => {
     const t = await post(INSTANCES.a, token, `/api/admin/webhooks/${hookMatch}/test`, {});
     assert.equal(t.status, 200, `test endpoint: ${JSON.stringify(t.body)}`);

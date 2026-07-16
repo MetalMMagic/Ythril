@@ -48,7 +48,7 @@ function sessionTag(sessionId: string): string {
  *
  *  Tool schemas, authorization gates and handlers all come from the registry in
  *  ./tools — there is one source of truth per tool. */
-function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdmin?: boolean): Server {
+function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdmin?: boolean, tokenId?: string, tokenLabel?: string): Server {
   const cfg = getConfig();
   const accessibleSpaces = cfg.spaces.filter(s => !tokenSpaces || tokenSpaces.includes(s.id));
   const accessibleSpaceIds = accessibleSpaces.map(s => s.id);
@@ -156,6 +156,7 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
         tokenSpaces,
         isAdmin,
         readOnly,
+        actor: { tokenId, tokenLabel },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -201,7 +202,7 @@ mcpRouter.get('/', globalRateLimit, async (req, res) => {
     log.debug(`MCP global session ${sessionTag(transport.sessionId)} closed`);
   });
 
-  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin);
+  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin, req.authToken?.id, req.authToken?.name);
   log.debug(`MCP global session ${sessionTag(transport.sessionId)} opened`);
   await server.connect(transport);
 });
@@ -232,7 +233,7 @@ mcpRouter.post('/messages', globalRateLimit, async (req, res) => {
 // This transport requires no persistent connection and works through standard HTTP proxies.
 mcpRouter.post('/', globalRateLimit, async (req, res) => {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin);
+  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin, req.authToken?.id, req.authToken?.name);
   // Register cleanup before handling the request so it fires regardless of outcome.
   res.on('close', () => {
     transport.close();

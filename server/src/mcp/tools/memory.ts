@@ -8,6 +8,7 @@ import { type FilterExpression, type RecallKnowledgeType, type RecallResult, del
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
 import { QuotaError, checkQuota } from '../../quota/quota.js';
+import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
 import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
 import { getAllowedChronoTypes, resolveMetaRefs, validateChrono, validateEdge, validateEntity, validateMemory } from '../../spaces/schema-validation.js';
 
@@ -98,7 +99,7 @@ export const rememberTool: ToolHandler = {
     const remDupeCheck = a['checkDuplicates'] !== false;
     const remDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
     const mem = await remember(ts, fact, entityIds, tags, description, props, resolvedNames, memType,
-      { checkDuplicates: remDupeCheck, dupeThreshold: remDupeThreshold });
+      { checkDuplicates: remDupeCheck, dupeThreshold: remDupeThreshold }, ctx.actor);
     const warnings: string[] = [];
     if (mem.similar && mem.similar.length > 0) {
       warnings.push(`⚠️ Possible duplicate — ${mem.similar.length} existing memor${mem.similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${mem.similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. This memory was still stored; pass checkDuplicates:false to skip this check, or update the existing one instead.`);
@@ -175,7 +176,7 @@ export const update_memoryTool: ToolHandler = {
     // Search member spaces sequentially — consistent with REST endpoint behaviour.
     let updated = null;
     for (const mid of memberIds) {
-      updated = await updateMemory(mid, id, updates, dfPaths);
+      updated = await updateMemory(mid, id, updates, dfPaths, ctx.actor);
       if (updated) break;
     }
     if (!updated) throw new Error(`Memory '${id}' not found`);
@@ -210,7 +211,7 @@ export const delete_memoryTool: ToolHandler = {
     const memberIds = resolveMemberSpaces(wt.target);
     let deleted = false;
     for (const mid of memberIds) {
-      if (await deleteMemory(mid, id)) { deleted = true; break; }
+      if (await deleteMemory(mid, id, ctx.actor)) { deleted = true; break; }
     }
     if (!deleted) throw new Error(`Memory '${id}' not found`);
     return {
@@ -730,6 +731,14 @@ export const bulk_writeTool: ToolHandler = {
       } catch (err) {
         errors.push({ type: 'chrono', index: i, reason: err instanceof Error ? err.message : String(err) });
       }
+    }
+
+    // Per-item webhooks are suppressed for bulk (the shared functions get no actor); emit ONE
+    // summary event a workflow can inspect afterwards, matching the REST /bulk endpoint.
+    const bulkTotal = inserted.memories + inserted.entities + inserted.edges + inserted.chrono
+      + updated.entities + updated.edges;
+    if (bulkTotal > 0) {
+      emitWebhookEvent({ event: 'bulk.write', spaceId: ts, entry: { inserted, updated, errorCount: errors.length }, ...(ctx.actor ?? {}) });
     }
 
     const summary = `bulk_write complete — inserted: ${JSON.stringify(inserted)}, updated: ${JSON.stringify(updated)}, errors: ${errors.length}`;

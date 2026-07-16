@@ -61,7 +61,7 @@ export const upsert_edgeTool: ToolHandler = {
       return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(edgeSchemaViolations, null, 2)}` }], isError: true };
     }
 
-    const edge = await upsertEdge(wt.target, from, to, label, weight, edgeType, description, edgeProps, edgeTags);
+    const edge = await upsertEdge(wt.target, from, to, label, weight, edgeType, description, edgeProps, edgeTags, ctx.actor);
     let edgeMsg = `Edge '${label}' (${from} → ${to}) upserted (ID ${edge._id}).`;
     if (edgeMeta?.validationMode === 'warn') {
       for (const v of edgeSchemaViolations) edgeMsg += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
@@ -120,7 +120,7 @@ export const update_edgeTool: ToolHandler = {
     const memberIds = resolveMemberSpaces(wt.target);
     let updatedEdge = null;
     for (const mid of memberIds) {
-      updatedEdge = await updateEdgeById(mid, id, updates, dfPaths);
+      updatedEdge = await updateEdgeById(mid, id, updates, dfPaths, ctx.actor);
       if (updatedEdge) break;
     }
     if (!updatedEdge) throw new Error(`Edge '${id}' not found`);

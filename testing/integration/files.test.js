@@ -418,7 +418,9 @@ describe('File metadata (MongoDB)', () => {
     assert.equal(q.body.files[0].path, filePath, 'Returned path must be the normalised (no-slash) form');
   });
 
-  it('DELETE /api/brain/.../files removes metadata without deleting the file on disk', async () => {
+  it('DELETE /api/brain/.../files refuses (409) to remove metadata while the file exists on disk', async () => {
+    // Contract: a metadata record may not be deleted while its file is present — doing so
+    // would silently orphan a live file. Delete the file itself instead (or soft-delete first).
     const filePath = `meta-braindelete-${RUN}.txt`;
     await uploadFile(tokenA, 'general', filePath, 'keep me on disk');
 
@@ -430,15 +432,14 @@ describe('File metadata (MongoDB)', () => {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${tokenA}` },
     });
-    assert.equal(dr.status, 204, `Expected 204, got ${dr.status}: ${await dr.text()}`);
+    assert.equal(dr.status, 409, `Expected 409 while file present, got ${dr.status}: ${await dr.text()}`);
 
+    // Both the metadata and the file must still be there.
     const q2 = await listFileMeta(tokenA, 'general', `?path=${encodeURIComponent(filePath)}`);
-    assert.equal(q2.body.files.length, 0, 'Metadata must be gone after brain DELETE');
-
-    // File itself must still be downloadable
+    assert.equal(q2.body.files.length, 1, 'Metadata must remain after a refused delete');
     const dlUrl = `${INSTANCES.a}/api/files/general?path=${encodeURIComponent(filePath)}`;
     const dlr = await fetch(dlUrl, { headers: { 'Authorization': `Bearer ${tokenA}` } });
-    assert.equal(dlr.status, 200, 'File on disk must still exist after metadata-only delete');
+    assert.equal(dlr.status, 200, 'File on disk must still exist');
   });
 
   it('Brain stats endpoint includes files count', async () => {
@@ -657,6 +658,44 @@ describe('File metadata (MongoDB) — directory operations', () => {
     const after = await listFileMeta();
     const remaining = after.body.files.filter(f => f.path.startsWith(`${dir}/`));
     assert.equal(remaining.length, 0, `Metadata must be removed for all files under ${dir}`);
+  });
+
+  it('Deleting a directory leaves no orphaned metadata or chunks (regression: folder-delete orphans)', async () => {
+    const dir = `orphan-cleanup-${RUN}`;
+    // A raw image both creates a top-level file-meta record AND (with media embedding on)
+    // enqueues a media job — the exact shape that used to orphan on folder delete: a leftover
+    // metafile plus a job retrying forever against the now-missing file. A text file adds
+    // hidden chunk records that must also be cleaned.
+    const jpg = Buffer.from('ffd8ffe0006a706567', 'hex');
+    await uploadRaw(tokenA, 'general', `${dir}/pic.jpg`, jpg, 'image/jpeg');
+    await upload(`${dir}/note.txt`, 'some text body');
+
+    // Sanity: records (including hidden chunk/subfile records) exist under the folder.
+    const before = await listFileMeta('?includeChunks=true&limit=200');
+    assert.ok(
+      before.body.files.some(f => f.path.startsWith(`${dir}/`)),
+      `Expected records under ${dir} before delete`,
+    );
+
+    // Delete the folder.
+    const delUrl = `${INSTANCES.a}/api/files/general?path=${encodeURIComponent(dir)}`;
+    const dr = await fetch(delUrl, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenA}` },
+      body: JSON.stringify({ confirm: true }),
+    });
+    assert.equal(dr.status, 204, 'Directory delete should return 204');
+
+    // No record of ANY kind (file, chunk, or conversion artifact) may remain under the folder —
+    // whether its own path or its parent's path is under the deleted directory.
+    const after = await listFileMeta('?includeChunks=true&limit=200');
+    const remaining = after.body.files.filter(f =>
+      f.path.startsWith(`${dir}/`) || (f.parentFileId && f.parentFileId.startsWith(`${dir}/`)),
+    );
+    assert.equal(
+      remaining.length, 0,
+      `No orphaned records may remain under ${dir}; found ${JSON.stringify(remaining.map(f => f.path))}`,
+    );
   });
 
   it('Moving a directory updates metadata paths for all files inside it', async () => {

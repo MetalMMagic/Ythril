@@ -1556,6 +1556,9 @@ interface SpaceView {
                         <td>
                           <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                             <button class="link-btn" [attr.title]="'brain.fileMeta.openInFilesTabTitle' | transloco" (click)="openFileInManager(fm.path)">{{ fm.path }}</button>
+                            @if (fm.deletedAt) {
+                              <span class="badge badge-red" style="font-size:10px;" [title]="'Deleted ' + (fm.deletedAt | date:'dd.MM.yyyy HH:mm')">{{ 'brain.fileMeta.deleted' | transloco }}</span>
+                            }
                             @if (fm.embeddingStatus === 'pending' || fm.embeddingStatus === 'processing') {
                               <span class="badge badge-blue" style="font-size:10px;" title="Embedding in progress…"><span class="spinner" style="width:8px;height:8px;border-width:1.5px;display:inline-block;vertical-align:middle;margin-right:3px;"></span>{{ 'brain.fileMeta.embedding' | transloco }}</span>
                             } @else if (fm.embeddingStatus === 'failed') {

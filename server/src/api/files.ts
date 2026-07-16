@@ -32,6 +32,7 @@ import {
   deleteFile,
   createDir,
   moveFile,
+  listFilesRecursive,
 } from '../files/files.js';
 import {
   parseContentRange,
@@ -42,14 +43,14 @@ import {
 import { checkQuota, QuotaError, invalidateUsageCache } from '../quota/quota.js';
 import { resolveSafePath, assertNoSymlinkEscape, spaceRoot } from '../files/sandbox.js';
 import { col, asFilter, asDoc } from '../db/mongo.js';
-import type { FileTombstoneDoc, FileMetaDoc } from '../config/types.js';
-import { upsertFileMeta, deleteFileMeta, deleteFileMetaByPrefix, renameFileMeta, renameFileMetaByPrefix } from '../files/file-meta.js';
-import { v4 as uuidv4 } from 'uuid';
+import type { FileMetaDoc } from '../config/types.js';
+import { upsertFileMeta, deleteFileMeta, deleteFileMetaByPrefix, renameFileMeta, renameFileMetaByPrefix, markFileMetaDeleted, markFileMetaDeletedByPrefix } from '../files/file-meta.js';
+import { writeFileTombstones } from '../files/tombstones.js';
 import { resolveMemberSpaces, resolveWriteTarget } from '../spaces/proxy.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
-import { resolveInputFormat, deleteConversionArtifacts, isMediaFormat } from '../files/converters/pipeline.js';
+import { resolveInputFormat, deleteConversionArtifacts, deleteConversionArtifactsByPrefix, isMediaFormat } from '../files/converters/pipeline.js';
 import type { InputFormat } from '../files/converters/pipeline.js';
-import { enqueueMediaJob, enqueueTextJob } from '../files/media/job-queue.js';
+import { enqueueMediaJob, enqueueTextJob, cancelMediaJob, cancelMediaJobsByPrefix } from '../files/media/job-queue.js';
 import { getMediaEmbeddingConfig } from '../config/loader.js';
 
 export const filesRouter = Router();
@@ -625,12 +626,42 @@ filesRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly,
       return;
     }
     try {
+      // Enumerate every file about to be removed — the folder tree AND its conversion
+      // sidecars — BEFORE deleting, so we can write a sync tombstone for each. Without
+      // tombstones a peer would re-push the files on the next sync (resurrection).
+      const removedPaths = (await Promise.all([
+        listFilesRecursive(targetSpace, filePath),
+        listFilesRecursive(targetSpace, `_converted/${filePath}`),
+        listFilesRecursive(targetSpace, `_extracted/${filePath}`),
+      ])).flat();
+
       await fs.rm(absPath, { recursive: true, force: false });
       log.info(`Deleted directory ${absPath} (space: ${targetSpace})`);
       invalidateUsageCache(); // freed disk — reflect it in the next quota check
-      await deleteFileMetaByPrefix(targetSpace, filePath).catch(err => {
-        log.warn(`deleteFileMetaByPrefix error for space ${targetSpace}, path ${filePath}: ${err}`);
+
+      // Metadata: soft-flag the user-visible file records (retain for audit) or hard-delete
+      // them, per the softDeleteFileMeta setting. Derived chunk records are always removed.
+      if (getConfig().softDeleteFileMeta === true) {
+        await markFileMetaDeletedByPrefix(targetSpace, filePath).catch(err => {
+          log.warn(`markFileMetaDeletedByPrefix error for space ${targetSpace}, path ${filePath}: ${err}`);
+        });
+      } else {
+        await deleteFileMetaByPrefix(targetSpace, filePath).catch(err => {
+          log.warn(`deleteFileMetaByPrefix error for space ${targetSpace}, path ${filePath}: ${err}`);
+        });
+      }
+      // Cancel any queued media/text jobs for files under this folder, or they would
+      // outlive their sources and retry forever against paths that no longer exist.
+      await cancelMediaJobsByPrefix(targetSpace, filePath).catch(err => {
+        log.warn(`cancelMediaJobsByPrefix error for space ${targetSpace}, path ${filePath}: ${err}`);
       });
+      // Remove conversion sidecar records + on-disk files (`_converted/<path>`,
+      // `_extracted/<path>`), which live outside the folder prefix and would otherwise orphan.
+      await deleteConversionArtifactsByPrefix(targetSpace, filePath).catch(err => {
+        log.warn(`deleteConversionArtifactsByPrefix error for space ${targetSpace}, path ${filePath}: ${err}`);
+      });
+      // Propagate the deletion to sync peers.
+      await writeFileTombstones(targetSpace, removedPaths);
       res.status(204).end();
     } catch (err) {
       log.warn(`rm dir error for space ${targetSpace}, path ${filePath}: ${err}`);
@@ -642,15 +673,21 @@ filesRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly,
   try {
     await deleteFile(targetSpace, filePath);
     invalidateUsageCache(); // freed disk — reflect it in the next quota check
-    const tombstone: FileTombstoneDoc = {
-      _id: uuidv4(),
-      spaceId: targetSpace,
-      path: filePath.replace(/\\/g, '/'),
-      deletedAt: new Date().toISOString(),
-    };
-    await col<FileTombstoneDoc>(`${targetSpace}_file_tombstones`).insertOne(asDoc<FileTombstoneDoc>(tombstone));
-    await deleteFileMeta(targetSpace, filePath).catch(err => {
-      log.warn(`deleteFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
+    // Propagate the deletion to sync peers.
+    await writeFileTombstones(targetSpace, [filePath]);
+    // Metadata: soft-flag (retain for audit) or hard-delete, per softDeleteFileMeta.
+    if (getConfig().softDeleteFileMeta === true) {
+      await markFileMetaDeleted(targetSpace, filePath).catch(err => {
+        log.warn(`markFileMetaDeleted error for space ${targetSpace}, path ${filePath}: ${err}`);
+      });
+    } else {
+      await deleteFileMeta(targetSpace, filePath).catch(err => {
+        log.warn(`deleteFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
+      });
+    }
+    // Cancel any queued media/text job so it cannot outlive the file and retry forever.
+    await cancelMediaJob(targetSpace, filePath).catch(err => {
+      log.warn(`cancelMediaJob error for space ${targetSpace}, path ${filePath}: ${err}`);
     });
     await deleteConversionArtifacts(targetSpace, filePath).catch(err => {
       log.warn(`deleteConversionArtifacts error for space ${targetSpace}, path ${filePath}: ${err}`);
@@ -691,6 +728,13 @@ filesRouter.patch('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly, 
   }
 
   try {
+    // Collect the OLD paths before the move so we can tombstone them: sync has no rename
+    // detection, so without a tombstone the peer's manifest still advertises the source path
+    // and re-downloads it (the moved-away file resurrects). For a directory move these are the
+    // child files; for a single file it is the source path itself.
+    const movedChildren = await listFilesRecursive(targetSpace, srcPath);
+    const oldPaths = movedChildren.length > 0 ? movedChildren : [srcPath];
+
     await moveFile(targetSpace, srcPath, destination);
     await Promise.all([
       renameFileMeta(targetSpace, srcPath, destination),
@@ -698,6 +742,7 @@ filesRouter.patch('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly, 
     ]).catch(err => {
       log.warn(`renameFileMeta error for space ${targetSpace}, ${srcPath} → ${destination}: ${err}`);
     });
+    await writeFileTombstones(targetSpace, oldPaths);
     emitWebhookEvent({ event: 'file.updated', spaceId: targetSpace, entry: { path: destination, previousPath: srcPath }, ...webhookToken(req) });
     res.json({ from: srcPath, to: destination });
   } catch (err) {

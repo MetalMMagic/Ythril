@@ -1694,7 +1694,23 @@ DELETE /api/files/:spaceId?path=reports/q1.pdf
 
 To delete a directory, include `{ "confirm": true }` in the request body.
 
-Deleting a file that was converted automatically cascades: all chunk records and the `_converted/<id>.md` file are removed from the file store.
+Deleting a file cascades: its metadata record, any queued embedding job, and all conversion
+artifacts — chunk records plus the on-disk `_converted/<id>.md` and `_extracted/<id>/` sidecars —
+are removed from the file store. Deleting a **directory** does the same for every file beneath it,
+including the `_converted/<path>` and `_extracted/<path>` subtrees, and writes a sync **tombstone**
+per removed file so peers delete their copies too (otherwise the next sync would push them back).
+
+**Soft-delete (`softDeleteFileMeta`).** With this top-level config flag set to `true` (default
+`false`), deleting a file **retains** its metadata record and flags it `deletedAt = <timestamp>`
+instead of removing it. Flagged records stay listed and searchable but are shown as "deleted" in the
+UI; re-uploading the same path clears the flag. Derived records (conversion chunks / `_converted` /
+`_extracted`) are always hard-removed regardless of the setting.
+
+**Metadata-only delete + guard.** `DELETE /api/brain/spaces/:spaceId/files?path=…` removes a metadata
+record *without* touching disk — but only when doing so is safe. If the file **still exists on disk**
+and the record is not flagged deleted, the request is refused with **`409`** (deleting the metadata
+would silently orphan a live file — delete the file itself instead). A flagged or already-orphaned
+record (its file gone) can be purged this way.
 
 ---
 
@@ -5013,8 +5029,13 @@ Webhooks allow external systems to receive real-time HTTP POST notifications whe
 | `file.created` | A file is written (new or overwrite) |
 | `file.updated` | A file is moved/renamed |
 | `file.deleted` | A file is deleted |
+| `bulk.write` | A bulk write completed (`POST /bulk` or MCP `bulk_write`). Per-item events are **not** fired for bulk; this one summary carries `entry` = `{ inserted, updated, errorCount }` for a workflow to inspect. |
 | `duplicate.detected` | The duplicate scanner found a near-duplicate pair under a `notify` rule (see [Duplicate Scanner](#duplicate-scanner--action-rules)). Payload `entry` = `{ type, score, a: {record}, b: {record} }` |
 | `test.ping` | Synthetic test event sent via the test endpoint |
+
+> Events fire for **both** REST API and MCP (agent) writes — emission lives in the shared
+> brain/file functions, so an agent creating a memory or entity delivers the same events a REST
+> client would. Internal writes (sync replication, space import) do not emit.
 
 ### Create Subscription
 

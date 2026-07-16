@@ -94,9 +94,10 @@ export async function upsertFileMeta(
     if (opts.description !== undefined) $set['description'] = opts.description;
     if (opts.tags !== undefined) $set['tags'] = opts.tags;
     if (opts.properties !== undefined) $set['properties'] = opts.properties;
+    // A write to a soft-deleted path means the file is live again — clear the flag.
     await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
       asFilter<FileMetaDoc>({ _id: normalised }),
-      asUpdate<FileMetaDoc>({ $set }),
+      asUpdate<FileMetaDoc>({ $set, $unset: { deletedAt: '' } }),
     );
   } else {
     const doc: FileMetaDoc = {
@@ -247,6 +248,47 @@ export async function deleteFileMetaByPrefix(
   const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   await col<FileMetaDoc>(`${spaceId}_files`).deleteMany(
     asFilter<FileMetaDoc>({ _id: { $regex: `^${escaped}` } }),
+  );
+}
+
+/**
+ * Soft-delete: flag a single file's metadata record as deleted (`deletedAt = now`)
+ * instead of removing it. No-op if the record does not exist. Used when
+ * `softDeleteFileMeta` is enabled so a deleted file leaves an auditable record.
+ */
+export async function markFileMetaDeleted(
+  spaceId: string,
+  filePath: string,
+): Promise<void> {
+  const normalised = normPath(filePath);
+  await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
+    asFilter<FileMetaDoc>({ _id: normalised }),
+    asUpdate<FileMetaDoc>({ $set: { deletedAt: new Date().toISOString() } }),
+  );
+}
+
+/**
+ * Soft-delete a whole directory subtree: flag every top-level file record under
+ * `dirPath/` as deleted, and hard-remove the derived chunk records (which carry no
+ * independent audit value). The `_converted`/`_extracted` sidecars are cleaned
+ * separately by deleteConversionArtifactsByPrefix.
+ */
+export async function markFileMetaDeletedByPrefix(
+  spaceId: string,
+  dirPath: string,
+): Promise<void> {
+  const norm = normPath(dirPath).replace(/\/?$/, '');
+  if (!norm) return; // guard: empty path would match everything
+  const escaped = (norm + '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const coll = col<FileMetaDoc>(`${spaceId}_files`);
+  // Flag the user-visible file records.
+  await coll.updateMany(
+    asFilter<FileMetaDoc>({ _id: { $regex: `^${escaped}` }, parentFileId: { $exists: false } }),
+    asUpdate<FileMetaDoc>({ $set: { deletedAt: new Date().toISOString() } }),
+  );
+  // Remove derived chunk records outright.
+  await coll.deleteMany(
+    asFilter<FileMetaDoc>({ _id: { $regex: `^${escaped}` }, parentFileId: { $exists: true } }),
   );
 }
 

@@ -118,6 +118,18 @@ async function enqueueRetry(
 
 // ── Public emit API ─────────────────────────────────────────────────────────
 
+/**
+ * Identifies the token that caused a mutation, for webhook attribution. Threaded from the
+ * request/MCP surface down into the shared brain functions, which own webhook emission: a
+ * shared mutating function emits when (and only when) it is given an actor — so user-facing
+ * surfaces (REST, MCP) pass one and emit, while internal callers (sync, import, bulk) pass
+ * none and stay silent. Centralises both the emit call AND its attribution in one place.
+ */
+export interface WebhookActor {
+  tokenId?: string;
+  tokenLabel?: string;
+}
+
 export interface EmitWebhookEventOptions {
   event: WebhookEventType;
   spaceId: string;

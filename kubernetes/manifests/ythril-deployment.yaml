@@ -1,10 +1,10 @@
 # ── Ythril Deployment ────────────────────────────────────────────────────────
-# This manifest deploys Ythril with the unstructured-api-full sidecar for
+# This manifest deploys Ythril with the unstructured-api sidecar for
 # server-side PDF / DOCX / EPUB conversion.
 #
-# BEFORE DEPLOYING: Verify the unstructured-api-full image tag's LICENSE file:
+# BEFORE DEPLOYING: Verify the unstructured-api image tag's LICENSE file:
 #   docker run --rm --entrypoint cat \
-#     downloads.unstructured.io/unstructured-io/unstructured-api-full:<TAG> \
+#     downloads.unstructured.io/unstructured-io/unstructured-api:<TAG> \
 #     /app/LICENSE
 # Confirm it is Apache-2.0 with no commercial-use restrictions.
 # Repeat on every version bump.
@@ -104,15 +104,16 @@ spec:
         # strategy=auto: fast text-layer extraction for digital PDFs;
         # hi_res OCR (Tesseract/PaddleOCR) for scanned/image-only PDFs.
         #
-        # Image: downloads.unstructured.io/unstructured-io/unstructured-api-full
+        # Image: downloads.unstructured.io/unstructured-io/unstructured-api
         # License: Apache-2.0 (verify before pinning any new tag — see note above)
-        # The full image bundles OCR model weights (Tesseract/PaddleOCR) and is
-        # 8–12 GB. Pre-pull on nodes before first deployment to avoid cold-start
-        # delays on Pod restarts.
+        # NOTE: the `-full` variant was made private on quay.io (401 on pull); the public
+        # `unstructured-api` image is the same release minus extra Tesseract language packs
+        # and still bundles OCR model weights (Tesseract) — ~4.5 GB compressed. Pre-pull on
+        # nodes before first deployment to avoid cold-start delays on Pod restarts.
         - name: unstructured
           # Pin to a specific tag and verify the LICENSE before upgrading.
           # Run `docker run --rm --entrypoint cat <image> /app/LICENSE` to confirm Apache-2.0.
-          image: downloads.unstructured.io/unstructured-io/unstructured-api-full:0.0.75
+          image: downloads.unstructured.io/unstructured-io/unstructured-api:0.0.75
           # Lighter hardening than the main container: the OCR pipeline writes
           # scratch files across its own filesystem, so readOnlyRootFilesystem is
           # left off, but privilege escalation and added capabilities are still denied.

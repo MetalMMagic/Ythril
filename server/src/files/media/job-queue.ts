@@ -441,6 +441,33 @@ export async function resetStalledJobs(
   }
 }
 
+// ── Cancel (on file / directory deletion) ──────────────────────────────────
+
+/**
+ * Delete the media job for a single file, if one exists. Called when the file
+ * is deleted so a queued job cannot outlive its source and retry forever
+ * against a path that no longer exists.
+ */
+export async function cancelMediaJob(spaceId: string, filePath: string): Promise<void> {
+  const id = normPath(filePath);
+  await jobCollection(spaceId).deleteOne(asFilter<MediaJobDoc>({ _id: id }));
+}
+
+/**
+ * Delete every media job for files under `dirPath/` — including the jobs for
+ * document-conversion sidecars (`_converted/<dir>/`, `_extracted/<dir>/`), whose
+ * job ids do not share the folder prefix. Called on recursive directory delete.
+ */
+export async function cancelMediaJobsByPrefix(spaceId: string, dirPath: string): Promise<void> {
+  const dir = normPath(dirPath).replace(/\/?$/, '');
+  if (!dir) return; // guard: empty path would match everything
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const prefixes = [`${dir}/`, `_converted/${dir}/`, `_extracted/${dir}/`];
+  await jobCollection(spaceId).deleteMany(
+    asFilter<MediaJobDoc>({ $or: prefixes.map(p => ({ _id: { $regex: `^${esc(p)}` } })) }),
+  );
+}
+
 // ── retry_embedding helper ─────────────────────────────────────────────────
 
 /**

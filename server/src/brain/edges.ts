@@ -7,6 +7,7 @@ import { propsEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { getEntityById } from './entities.js';
+import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
 
 export interface TraverseNode {
@@ -77,6 +78,7 @@ export async function upsertEdge(
   description?: string,
   properties?: Record<string, string | number | boolean>,
   tags?: string[],
+  actor?: WebhookActor,
 ): Promise<EdgeDoc> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
   const existing = await collection.findOne(asFilter<EdgeDoc>({ spaceId, from, to, label }));
@@ -117,7 +119,7 @@ export async function upsertEdge(
       asFilter<EdgeDoc>({ _id: (existing as EdgeDoc)._id }),
       asUpdate<EdgeDoc>({ $set }),
     );
-    return {
+    const updatedEdge: EdgeDoc = {
       ...(existing as EdgeDoc),
       seq,
       updatedAt: now,
@@ -128,6 +130,8 @@ export async function upsertEdge(
       ...(properties !== undefined ? { properties: { ...((existing as EdgeDoc).properties ?? {}), ...properties } } : {}),
       ...embeddingFields,
     };
+    if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...updatedEdge, embedding: undefined }, ...actor });
+    return updatedEdge;
   }
 
   const doc: EdgeDoc = {
@@ -148,6 +152,7 @@ export async function upsertEdge(
     ...embeddingFields,
   };
   await collection.insertOne(asDoc<EdgeDoc>(doc));
+  if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   return doc;
 }
 
@@ -174,7 +179,7 @@ export async function listEdges(
 }
 
 /** Delete an edge by ID and write tombstone */
-export async function deleteEdge(spaceId: string, edgeId: string): Promise<boolean> {
+export async function deleteEdge(spaceId: string, edgeId: string, actor?: WebhookActor): Promise<boolean> {
   const existing = await col<EdgeDoc>(`${spaceId}_edges`)
     .findOne(asFilter<EdgeDoc>({ _id: edgeId, spaceId }), { projection: { seq: 1 } }) as { seq?: number } | null;
   const seq = await nextSeq(spaceId);
@@ -198,6 +203,7 @@ export async function deleteEdge(spaceId: string, edgeId: string): Promise<boole
     asDoc<TombstoneDoc>(tombstone),
     { upsert: true },
   );
+  if (actor) emitWebhookEvent({ event: 'edge.deleted', spaceId, entry: { _id: edgeId }, ...actor });
   return true;
 }
 
@@ -212,6 +218,7 @@ export async function updateEdgeById(
   id: string,
   updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string },
   deleteFieldsPaths?: string[],
+  actor?: WebhookActor,
 ): Promise<EdgeDoc | null> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
   const existing = await collection.findOne(asFilter<EdgeDoc>({ _id: id, spaceId })) as EdgeDoc | null;
@@ -308,6 +315,7 @@ export async function updateEdgeById(
     applyDeleteFields(result as unknown as Record<string, unknown>, deleteFieldsPaths);
   }
 
+  if (actor) emitWebhookEvent({ event: 'edge.updated', spaceId, entry: { ...result, embedding: undefined }, ...actor });
   return result;
 }
 

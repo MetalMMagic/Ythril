@@ -16,6 +16,7 @@ import { propsEmbedText } from './embed-text.js';
 import { getEntityById } from './entities.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
+import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc, SpaceMeta, PropertySchema } from '../config/types.js';
 
 // ── Public types ───────────────────────────────────────────────────────────
@@ -344,6 +345,7 @@ export async function executeMerge(
   survivor: EntityDoc,
   absorbed: EntityDoc,
   mergedProperties: Record<string, string | number | boolean>,
+  actor?: WebhookActor,
 ): Promise<{ entity: EntityDoc; deletedDuplicateEdgeIds: string[] }> {
   const session = getMongo().startSession();
   const deletedDuplicateEdgeIds: string[] = [];
@@ -481,6 +483,18 @@ export async function executeMerge(
     });
   } finally {
     await session.endSession();
+  }
+
+  // Centralised webhook emission: a merge is an update to the survivor, deletion of the
+  // absorbed entity, and deletion of any duplicate edges collapsed in the process. All four
+  // fire here so every caller (REST, duplicates, dupe-scanner, MCP) is consistent.
+  if (actor) {
+    emitWebhookEvent({ event: 'entity.merged', spaceId, entry: { survivor: { ...survivor, embedding: undefined }, absorbedId: absorbed._id }, ...actor });
+    emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...survivor, embedding: undefined }, ...actor });
+    emitWebhookEvent({ event: 'entity.deleted', spaceId, entry: { _id: absorbed._id }, ...actor });
+    for (const dupId of deletedDuplicateEdgeIds) {
+      emitWebhookEvent({ event: 'edge.deleted', spaceId, entry: { _id: dupId }, ...actor });
+    }
   }
 
   return {

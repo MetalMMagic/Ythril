@@ -36,13 +36,13 @@ import type { MediaJobDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { createMediaProviders } from './providers.js';
 import type { MediaProviderBundle } from './providers.js';
-import { claimNextJob, completeJob, failJob, resetStalledJobs, currentWorkEpoch, waitForWork, wakeWorkers } from './job-queue.js';
+import { claimNextJob, completeJob, failJob, resetStalledJobs, cancelMediaJob, currentWorkEpoch, waitForWork, wakeWorkers } from './job-queue.js';
 import { embedImage } from './image-embedder.js';
 import { embedAudio } from './audio-embedder.js';
 import { embedVideo } from './video-embedder.js';
 import { col, asFilter } from '../../db/mongo.js';
 import type { FileMetaDoc } from '../../config/types.js';
-import { updateFileMeta } from '../file-meta.js';
+import { updateFileMeta, markFileMetaDeleted } from '../file-meta.js';
 import {
   runConversionPipeline,
   storeConversionResults,
@@ -280,6 +280,15 @@ async function processJob(
     try {
       fileBytes = await fs.readFile(absolutePath);
     } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        // The source file is gone — it was deleted after this job was queued. Retrying can
+        // never succeed, so this is TERMINAL, not a failure: reconcile to disk truth by
+        // dropping the job and any orphaned metadata/artifacts, and stop (no retry, no
+        // "exhausted retries" churn — that infinite loop is exactly what this avoids).
+        await reconcileDeletedSource(spaceId, fileId);
+        log.info(`Media worker: source file ${spaceId}/${fileId} no longer exists — removed job and orphaned metadata (no retry)`);
+        return;
+      }
       throw new Error(`Could not read file for embedding: ${err instanceof Error ? err.message : String(err)}`);
     }
 
@@ -382,6 +391,32 @@ async function processJob(
     );
   } finally {
     endTimer();
+  }
+}
+
+/**
+ * Reconcile a media job whose source file has been deleted: remove the job, its
+ * orphaned file-meta record, and any conversion artifacts (chunks / converted /
+ * extracted). Disk is the source of truth for the file store, so a job pointing at
+ * a file that no longer exists is stale and must be cleaned up, not retried.
+ * Best-effort throughout — each step swallows its own error.
+ */
+async function reconcileDeletedSource(spaceId: string, fileId: string): Promise<void> {
+  await cancelMediaJob(spaceId, fileId).catch(err =>
+    log.warn(`reconcileDeletedSource: cancelMediaJob ${spaceId}/${fileId}: ${err instanceof Error ? err.message : String(err)}`),
+  );
+  await deleteConversionArtifacts(spaceId, fileId).catch(err =>
+    log.warn(`reconcileDeletedSource: deleteConversionArtifacts ${spaceId}/${fileId}: ${err instanceof Error ? err.message : String(err)}`),
+  );
+  // Honour softDeleteFileMeta: flag the orphaned record for audit, or hard-remove it.
+  if (getConfig().softDeleteFileMeta === true) {
+    await markFileMetaDeleted(spaceId, fileId).catch(err =>
+      log.warn(`reconcileDeletedSource: flag file meta ${spaceId}/${fileId}: ${err instanceof Error ? err.message : String(err)}`),
+    );
+  } else {
+    await col<FileMetaDoc>(`${spaceId}_files`).deleteOne(asFilter<FileMetaDoc>({ _id: fileId })).catch(err =>
+      log.warn(`reconcileDeletedSource: delete file meta ${spaceId}/${fileId}: ${err instanceof Error ? err.message : String(err)}`),
+    );
   }
 }
 

@@ -1,6 +1,6 @@
 /**
  * UnstructuredConverter — converts PDF, DOCX, EPUB to Markdown via the
- * unstructured-api-full sidecar (localhost:8000).
+ * unstructured-api sidecar (localhost:8000).
  *
  * Default strategy: hi_res (full OCR + layout detection, image extraction).
  * Configurable via mediaEmbedding.documentProcessing.strategy in config.json.

@@ -410,7 +410,11 @@ On the **receiving** end of a `member_departed` event:
 
 A `remove` vote round passes when the network's conclusion rule is satisfied. Once concluded, the observing instance sends a `member_removed` notify event to the ejected instance:
 
-- `sendMemberRemovedNotify(subjectUrl, subjectInstanceId, networkId)` is called from three places: the vote relay handler in `sync.ts`, the vote handler in `networks.ts`, and the gossip engine in `engine.ts` (all after `concludeRoundIfReady` returns true for a `remove` round).
+- `sendMemberRemovedNotify(subjectUrl, subjectInstanceId, networkId)` lives in `sync/governance.ts`
+  alongside `concludeRoundIfReady`, and is called from four places, all after `concludeRoundIfReady`
+  returns true for a `remove` round: the peer vote-relay handler (`api/sync/votes.ts`), the admin
+  vote handler (`api/networks/votes.ts`), the member-removal handler (`api/networks/members.ts`),
+  and the gossip engine (`sync/engine.ts`).
 - The ejected instance receives `POST /api/notify { networkId, instanceId, event: "member_removed" }`.
 
 On the **receiving** end of a `member_removed` event:

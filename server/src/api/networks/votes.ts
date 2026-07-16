@@ -1,9 +1,6 @@
 /**
  * Governance votes — list open rounds and cast a vote.
- *
- * NOTE: `concludeRoundIfReady` still lives in api/sync.ts, so this route module imports domain logic
- * from another route module. The round state itself is config (`net.pendingRounds`), not in-memory,
- * so the split is safe — but that import wants a proper home (see A17.6, which opens sync.ts).
+
  *
  * Split out of the api/networks.ts monolith (A17.5); handlers are unchanged.
  */
@@ -12,7 +9,7 @@ import { z } from 'zod';
 import { requireAdmin } from '../../auth/middleware.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { getConfig, saveConfig } from '../../config/loader.js';
-import { concludeRoundIfReady, sendMemberRemovedNotify } from '../sync.js';
+import { concludeRoundIfReady, sendMemberRemovedNotify } from '../../sync/governance.js';
 import { makeSignedOwnCast } from '../../util/signing.js';
 import { log } from '../../util/log.js';
 

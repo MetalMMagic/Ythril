@@ -646,6 +646,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Split the 1713-line `api/sync.ts` (24 routes) into per-concern sub-routers, and moved network
+  governance out of the route layer (internal, no behavior change).** Now `api/sync/`: `docs.ts`
+  (13 — the four record families plus batch-upsert), `tombstones.ts` (4 — record and file
+  tombstones), `manifest.ts` (2 — file manifest + merkle summary), `members.ts` (2), `votes.ts` (2),
+  `warm.ts` (1), over a `_shared.ts` holding the incoming-document schemas, peer/space authorisation,
+  cursor codec, fork-depth and implausible-seq guards, and the strict-linkage violation recorders.
+  Every URL is unchanged. The **ejection guard** — a router-level middleware that 401s any request
+  scoped to a network this instance was ejected from — stays on the parent router in `index.ts` and
+  is still registered ahead of every sub-router.
+  **`concludeRoundIfReady` and `sendMemberRemovedNotify` now live in `sync/governance.ts`.** They
+  were exported from the `api/sync.ts` *route* module and imported by five others (`api/invite.ts`,
+  `api/networks/{join,members,votes}.ts`, `sync/engine.ts`) — route modules importing domain logic
+  from another route module. Round state is config (`network.pendingRounds`), not in-memory, so both
+  the HTTP surfaces and the sync engine can drive conclusion; the helpers just needed a real home.
+  This resolves the coupling A17.5 deliberately left. (ARCHITECTURE-TODO A17.6.)
+
+- **Router variable names are now asserted unique across `server/src/api`.** The audit-coverage and
+  route-guard analyses map `xRouter` → mount prefix **by name**, so two modules exporting the same
+  name silently hand one of them the other's prefix — its routes then get checked against the wrong
+  rules, or drop out of the check entirely. This bit twice for real: A17.3 (`filesRouter` in both
+  `api/files.ts` and the brain's file-metadata router) and A17.6 (`membersRouter`/`votesRouter` in
+  both `api/networks/` and `api/sync/`, which made the peer routes report as unaudited). Both
+  compiled and ran fine. `route-guard-coverage` now fails on a duplicate name, and the `/api/sync`
+  peer-auth exemption follows the sub-routers (`syncDocsRouter`, `syncVotesRouter`, …) instead of
+  silently re-flagging the whole peer protocol.
+
 - **Split the 1196-line `api/networks.ts` (19 routes) into per-concern sub-routers (internal, no
   behavior change).** Now `api/networks/`: `crud.ts` (7 — list/get/create/patch/leave + sync trigger
   and history), `members.ts` (3 — add, remove, rotate signing key), `join.ts` (4 — invite, join,

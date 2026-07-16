@@ -12,7 +12,7 @@ import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets, saveSecrets } from '../../config/loader.js';
 import { createToken, revokeToken } from '../../auth/tokens.js';
 import { createSpace } from '../../spaces/spaces.js';
-import { concludeRoundIfReady } from '../sync.js';
+import { concludeRoundIfReady } from '../../sync/governance.js';
 import { buildBraintreeAncestors } from '../../util/braintree.js';
 import { makeSignedOwnCast } from '../../util/signing.js';
 import { log } from '../../util/log.js';

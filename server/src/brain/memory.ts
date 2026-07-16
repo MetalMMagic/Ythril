@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { authorRef } from '../config/author.js';
 import { col, isVectorSearchAvailable, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
@@ -122,10 +123,6 @@ export function toNativeVectorFilter(
   return clauses.length === 1 ? clauses[0] : { $and: clauses };
 }
 
-function authorRef() {
-  const cfg = getConfig();
-  return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
-}
 
 /** Derive the text to embed for a memory (tags + entity names + fact + description + properties). */
 /** Resolve entity IDs to their names from the database. */

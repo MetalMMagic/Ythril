@@ -646,6 +646,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Deduplicated two copy-pasted helpers onto shared modules (internal, no behavior change).**
+  `authorRef()` — the `{ instanceId, instanceLabel }` write stamp — was defined identically in nine
+  files across the brain and file subsystems; it now lives once in `config/author.ts`. The RegExp
+  literal-escape (`s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')`) was hand-rolled in eight places (two
+  named, six inline); it is now `escapeRegex()` in the existing `util/redos.ts` regex-safety module.
+  Both are byte-identical extractions — the value is one source of truth so the identity/escape logic
+  can't drift. (ARCHITECTURE-TODO A12 + A14.)
+
 - **Concluded vote rounds are now pruned, so `pendingRounds` no longer grows for the life of a
   network (P14).** `concludeRoundIfReady` marks a round `concluded` but never removed it, so every
   governance vote a network ever held accumulated forever in `config.json` — bloating the file, the

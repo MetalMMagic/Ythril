@@ -9,6 +9,8 @@
  */
 
 import path from 'path';
+import { escapeRegex } from '../../util/redos.js';
+import { authorRef } from '../../config/author.js';
 import fs from 'fs/promises';
 import { UnstructuredConverter } from './unstructured.js';
 import type { ExtractedImage } from './unstructured.js';
@@ -40,10 +42,6 @@ export function isMediaFormat(fmt: ResolvedFormat): fmt is 'image' | 'audio' | '
   return MEDIA_FORMATS.has(fmt);
 }
 
-function authorRef(): AuthorRef {
-  const cfg = getConfig();
-  return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
-}
 
 const EXT_MAP: Record<string, ResolvedFormat> = {
   '.pdf': 'pdf',
@@ -402,11 +400,6 @@ export async function storeConversionResults(
   }
 
   return { chunkCount: chunks.length, convertedFileId, embedFailures };
-}
-
-/** Escape a string for safe use inside a RegExp. */
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** Best-effort recursive delete of a space-relative path. Never throws (missing = success). */

@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
@@ -30,10 +31,6 @@ export interface TraverseResult {
   truncated: boolean;
 }
 
-function authorRef() {
-  const cfg = getConfig();
-  return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
-}
 
 /** Resolve entity IDs to names for embedding. Falls back to the raw ID if the entity is not found. */
 export async function resolveEdgeEntityNames(spaceId: string, fromId: string, toId: string): Promise<[string, string]> {

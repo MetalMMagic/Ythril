@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { escapeRegex } from '../util/redos.js';
 import type express from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireSpaceAuth, denyReadOnly } from '../auth/middleware.js';
@@ -160,7 +161,7 @@ function buildMemoryFilter(query: Record<string, unknown>): Record<string, unkno
   const tag = typeof query['tag'] === 'string' ? query['tag'] : undefined;
   const entity = typeof query['entity'] === 'string' ? query['entity'] : undefined;
   const type = typeof query['type'] === 'string' ? query['type'] : undefined;
-  if (tag) filter['tags'] = { $regex: `^${tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' };
+  if (tag) filter['tags'] = { $regex: `^${escapeRegex(tag)}$`, $options: 'i' };
   if (entity) filter['entityIds'] = entity;
   if (type) filter['type'] = type;
   return filter;
@@ -516,7 +517,7 @@ brainRouter.get('/spaces/:spaceId/entities/by-name', globalRateLimit, requireSpa
   }
   const memberIds = resolveMemberSpaces(spaceId);
   // Case-insensitive substring search — escape user input to prevent ReDoS
-  const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRegex(name.trim());
   const all = (await Promise.all(memberIds.map(mid => listEntities(mid, { name: { $regex: escaped, $options: 'i' } }, 20)))).flat();
   res.json({ entities: all });
 });

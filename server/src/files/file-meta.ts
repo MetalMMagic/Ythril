@@ -13,16 +13,14 @@
  */
 
 import path from 'node:path';
+import { escapeRegex } from '../util/redos.js';
+import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { embed } from '../brain/embedding.js';
 import { fileEmbedText } from '../brain/embed-text.js';
 import { getConfig } from '../config/loader.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../config/types.js';
 
-function authorRef(): AuthorRef {
-  const cfg = getConfig();
-  return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
-}
 
 /** Normalise a path to forward-slash convention and strip leading slashes (used as _id). */
 function normPath(p: string): string {
@@ -228,7 +226,7 @@ export async function deleteFileMetaByPrefix(
   const prefix = norm + '/';
   // Escape regex special characters in the prefix so a path like "my.dir/"
   // doesn't accidentally match "myXdir/" etc.
-  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRegex(prefix);
   await col<FileMetaDoc>(`${spaceId}_files`).deleteMany(
     asFilter<FileMetaDoc>({ _id: { $regex: `^${escaped}` } }),
   );
@@ -262,7 +260,7 @@ export async function markFileMetaDeletedByPrefix(
 ): Promise<void> {
   const norm = normPath(dirPath).replace(/\/?$/, '');
   if (!norm) return; // guard: empty path would match everything
-  const escaped = (norm + '/').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRegex(norm + '/');
   const coll = col<FileMetaDoc>(`${spaceId}_files`);
   // Flag the user-visible file records.
   await coll.updateMany(
@@ -327,7 +325,7 @@ export async function renameFileMetaByPrefix(
   const dstPrefix = normDst + '/';
   if (srcPrefix === dstPrefix) return;
 
-  const escaped = srcPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = escapeRegex(srcPrefix);
   const docs = await col<FileMetaDoc>(`${spaceId}_files`)
     .find(asFilter<FileMetaDoc>({ _id: { $regex: `^${escaped}` } }))
     .toArray() as FileMetaDoc[];

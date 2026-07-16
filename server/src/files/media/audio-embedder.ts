@@ -12,6 +12,7 @@
  */
 
 import { spawn } from 'child_process';
+import { authorRef } from '../../config/author.js';
 import { randomUUID } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
@@ -23,10 +24,6 @@ import type { FileMetaDoc, AuthorRef } from '../../config/types.js';
 import type { SttProvider, SttSegment } from './providers.js';
 import { log } from '../../util/log.js';
 
-function authorRef(): AuthorRef {
-  const cfg = getConfig();
-  return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
-}
 
 // ── ffmpeg helpers ────────────────────────────────────────────────────────
 

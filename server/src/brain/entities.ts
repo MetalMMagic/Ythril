@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
@@ -23,10 +24,6 @@ export interface UpsertResult {
   similar?: SimilarMatch[];
 }
 
-function authorRef() {
-  const cfg = getConfig();
-  return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
-}
 
 /** Derive the text to embed for an entity (name + type + tags + description + properties). */
 

@@ -1,6 +1,8 @@
 import type { ToolHandler } from './types.js';
 import { list_spacesTool, get_statsTool, get_space_metaTool, update_spaceTool, wipe_spaceTool } from './spaces.js';
-import { rememberTool, recallTool, find_similarTool, update_memoryTool, delete_memoryTool, queryTool, bulk_writeTool } from './memory.js';
+import { rememberTool, update_memoryTool, delete_memoryTool } from './memory.js';
+import { recallTool, find_similarTool, queryTool } from './search.js';
+import { bulk_writeTool } from './bulk.js';
 import { merge_entitiesTool, upsert_entityTool, find_entities_by_nameTool, update_entityTool } from './entity.js';
 import { upsert_edgeTool, traverseTool, update_edgeTool } from './edge.js';
 import { create_chronoTool, update_chronoTool, list_chronoTool } from './chrono.js';

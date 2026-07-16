@@ -6,6 +6,7 @@
  */
 
 import { col, asFilter, asDoc, asUpdate } from '../../db/mongo.js';
+import { escapeRegex } from '../../util/redos.js';
 import type { MediaJobDoc, FileMetaDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
 
@@ -461,10 +462,9 @@ export async function cancelMediaJob(spaceId: string, filePath: string): Promise
 export async function cancelMediaJobsByPrefix(spaceId: string, dirPath: string): Promise<void> {
   const dir = normPath(dirPath).replace(/\/?$/, '');
   if (!dir) return; // guard: empty path would match everything
-  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const prefixes = [`${dir}/`, `_converted/${dir}/`, `_extracted/${dir}/`];
   await jobCollection(spaceId).deleteMany(
-    asFilter<MediaJobDoc>({ $or: prefixes.map(p => ({ _id: { $regex: `^${esc(p)}` } })) }),
+    asFilter<MediaJobDoc>({ $or: prefixes.map(p => ({ _id: { $regex: `^${escapeRegex(p)}` } })) }),
   );
 }
 

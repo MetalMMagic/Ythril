@@ -1,4 +1,5 @@
 import type { Collection } from 'mongodb';
+import { escapeRegex } from '../util/redos.js';
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs/promises';
 import path from 'path';
@@ -992,7 +993,7 @@ async function moveSpaceData(oldId: string, newId: string): Promise<string[]> {
   try {
     const scanState = col<{ _id: string }>('ythril_dupe_scan_state');
     const stale = await scanState
-      .find(asFilter<{ _id: string }>({ _id: { $regex: `^${oldId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:` } }))
+      .find(asFilter<{ _id: string }>({ _id: { $regex: `^${escapeRegex(oldId)}:` } }))
       .toArray() as Array<Record<string, unknown> & { _id: string }>;
     for (const doc of stale) {
       const moved = { ...doc, _id: `${newId}:${doc._id.slice(oldId.length + 1)}` };

@@ -29,6 +29,7 @@
  */
 
 import path from 'path';
+import { authorRef } from '../../config/author.js';
 import sharp from 'sharp';
 import { col, asDoc, asFilter } from '../../db/mongo.js';
 import { getConfig, getDataRoot, getFaceRecognitionConfig } from '../../config/loader.js';
@@ -181,10 +182,6 @@ async function gallerySearch(
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
-function authorRef(): AuthorRef {
-  const cfg = getConfig();
-  return { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel };
-}
 
 /**
  * Detect all faces in an image and persist one face-chunk record per face.

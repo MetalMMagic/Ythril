@@ -83,3 +83,41 @@ export function resolveWriteTarget(
 export function isStrictLinkage(spaceId: string): boolean {
   return findSpace(spaceId)?.meta?.strictLinkage === true;
 }
+
+// ── Member fan-out ─────────────────────────────────────────────────────────
+// A proxy space reads/writes across its member spaces. Two shapes recur across the REST brain
+// routes and MCP tools: "try each member in order, stop at the first hit" (get/update/delete by id)
+// and "query every member and flatten" (list/search). These two helpers centralise both so proxy
+// semantics (member ordering, the resolve step) stay uniform instead of being re-derived ~40 times.
+
+/**
+ * Run `fn` against each member space **in order** and return the first accepted result — the
+ * proxy read/update-by-id pattern (the record lives in exactly one member). `accept` decides what
+ * counts as a hit; it defaults to "non-null", which also treats a truthy boolean (e.g. a
+ * `deleteX() → boolean`) as a hit. Members after the first hit are not visited. Returns the
+ * accepted result, or `undefined` if no member produced one.
+ */
+export async function findFirstAcrossMembers<T>(
+  spaceId: string,
+  fn: (memberId: string) => Promise<T>,
+  accept: (result: T) => boolean = (r): boolean => r != null && r !== false,
+): Promise<T | undefined> {
+  for (const member of resolveMemberSpaces(spaceId)) {
+    const result = await fn(member);
+    if (accept(result)) return result;
+  }
+  return undefined;
+}
+
+/**
+ * Run `fn` against every member space **concurrently** and flatten the per-member arrays into one
+ * — the proxy list/search pattern. Preserves member order in the flattened output (Promise.all
+ * keeps input order). The caller still applies any paging/cap to the combined result.
+ */
+export async function collectAcrossMembers<T>(
+  spaceId: string,
+  fn: (memberId: string) => Promise<T[]>,
+): Promise<T[]> {
+  const perMember = await Promise.all(resolveMemberSpaces(spaceId).map(fn));
+  return perMember.flat();
+}

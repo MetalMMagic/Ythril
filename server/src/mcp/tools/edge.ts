@@ -3,7 +3,7 @@ import { UUID_V4_RE } from './shared.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
 import { traverseGraph, updateEdgeById, upsertEdge } from '../../brain/edges.js';
 import { getConfig } from '../../config/loader.js';
-import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
+import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateEdge } from '../../spaces/schema-validation.js';
 
 export const upsert_edgeTool: ToolHandler = {
@@ -117,12 +117,7 @@ export const update_edgeTool: ToolHandler = {
     if (typeof a['weight'] === 'number') updates.weight = a['weight'] as number;
     if (typeof a['type'] === 'string') updates.type = (a['type'] as string).trim();
     if (Object.keys(updates).length === 0 && !dfPaths) throw new Error('At least one of label, description, tags, properties, weight, type, or deleteFields must be provided');
-    const memberIds = resolveMemberSpaces(wt.target);
-    let updatedEdge = null;
-    for (const mid of memberIds) {
-      updatedEdge = await updateEdgeById(mid, id, updates, dfPaths, ctx.actor);
-      if (updatedEdge) break;
-    }
+    const updatedEdge = await findFirstAcrossMembers(wt.target, mid => updateEdgeById(mid, id, updates, dfPaths, ctx.actor));
     if (!updatedEdge) throw new Error(`Edge '${id}' not found`);
     return {
       content: [{ type: 'text' as const, text: `Edge '${updatedEdge.label}' updated (ID ${updatedEdge._id}, seq ${updatedEdge.seq}).` }],

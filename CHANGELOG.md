@@ -646,6 +646,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Unified file-processing dispatch into one shared helper (`files/dispatch.ts`), and MCP
+  `write_file` now converts documents asynchronously like REST.** The "resolve format → media job |
+  document conversion" sequence was inlined in three places — the REST single-request upload, the
+  REST chunked-complete finaliser, and the MCP `write_file` tool — and they had **diverged** in ways
+  that mattered: (1) MCP `write_file` ran the conversion pipeline **synchronously inline** while REST
+  enqueued a background worker job — same work, two mechanisms; (2) the chunked-complete path only
+  recorded `pending` for media, silently dropping the `disabled`/`skipped` embedding states the
+  single-request path recorded; and (3) the 500 MiB media size cap was a magic `524_288_000` literal
+  copied into all three. All three now call `dispatchFileProcessing(space, path, { bytes, contentType,
+  inputFormat })`, which records media state and enqueues the right async job. **One policy:
+  documents are always converted by the background worker (never inline)** — so MCP `write_file`
+  returns immediately with `embeddingStatus: 'pending'` and the worker produces chunks shortly after
+  (an agent polls, exactly like REST), and every write inherits the worker's
+  retry/backoff/404-flagging/restart-survival. The chunked path now records `disabled`/`skipped` too,
+  and the size default is the exported `DEFAULT_MEDIA_MAX_FILE_SIZE_BYTES`. Locked by a new
+  `mcp-tools.test.js` case asserting an MCP-written document produces chunk records via the worker.
+  (ARCHITECTURE-TODO A10.)
+
 - **Extracted the bulk-write batch processor into one shared module (`brain/bulk.ts`), fixing a
   REST/MCP drift.** The `POST /api/brain/spaces/:id/bulk` route and the MCP `bulk_write` tool were two
   ~185-line copies of the same validate-and-dispatch loop (memories → entities → edges → chrono), and

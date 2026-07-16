@@ -49,10 +49,10 @@ import { upsertFileMeta, deleteFileMeta, deleteFileMetaByPrefix, renameFileMeta,
 import { writeFileTombstones } from '../files/tombstones.js';
 import { resolveMemberSpaces, resolveWriteTarget } from '../spaces/proxy.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
-import { resolveInputFormat, deleteConversionArtifacts, deleteConversionArtifactsByPrefix, isMediaFormat } from '../files/converters/pipeline.js';
+import { deleteConversionArtifacts, deleteConversionArtifactsByPrefix, isMediaFormat } from '../files/converters/pipeline.js';
 import type { InputFormat } from '../files/converters/pipeline.js';
-import { enqueueMediaJob, enqueueTextJob, cancelMediaJob, cancelMediaJobsByPrefix } from '../files/media/job-queue.js';
-import { getMediaEmbeddingConfig } from '../config/loader.js';
+import { cancelMediaJob, cancelMediaJobsByPrefix } from '../files/media/job-queue.js';
+import { dispatchFileProcessing } from '../files/dispatch.js';
 
 export const filesRouter = Router();
 
@@ -334,29 +334,11 @@ filesRouter.post(
             log.warn(`upsertFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
           });
 
-          // Enqueue async text embedding for document formats (same as single-request path)
-          const resolvedFmt = resolveInputFormat(filePath, req.headers['content-type']);
-          const chunkedMimeType = (req.headers['content-type'] ?? 'application/octet-stream').split(';')[0]!.trim();
-          let chunkedEmbeddingStatus: string | undefined;
-          if (isMediaFormat(resolvedFmt)) {
-            const mediaCfg = getMediaEmbeddingConfig();
-            if (mediaCfg.enabled && range.total <= (mediaCfg.maxFileSizeBytes ?? 524_288_000)) {
-              await col<FileMetaDoc>(`${targetSpace}_files`).updateOne(
-                asFilter<FileMetaDoc>({ _id: toDocId(filePath) }),
-                { $set: { mediaType: resolvedFmt, embeddingStatus: 'pending' } },
-              );
-              await enqueueMediaJob(targetSpace, filePath, chunkedMimeType, resolvedFmt).catch(err => {
-                log.warn(`enqueueMediaJob (chunked) error for ${targetSpace}/${filePath}: ${err instanceof Error ? err.message : String(err)}`);
-              });
-              chunkedEmbeddingStatus = 'pending';
-            }
-          } else if (resolvedFmt !== 'text') {
-            await deleteConversionArtifacts(targetSpace, filePath).catch(() => {});
-            await enqueueTextJob(targetSpace, filePath, resolvedFmt, chunkedMimeType).catch(err => {
-              log.warn(`enqueueTextJob (chunked) error for ${targetSpace}/${filePath}: ${err instanceof Error ? err.message : String(err)}`);
-            });
-            chunkedEmbeddingStatus = 'pending';
-          }
+          // Resolve format, record media state, and enqueue the async embedding job (same path as
+          // the single-request upload). Previously the media branch here only recorded `pending` —
+          // `disabled`/`skipped` states were dropped; the shared helper records all three.
+          const { resolvedFormat: resolvedFmt, embeddingStatus: chunkedEmbeddingStatus } =
+            await dispatchFileProcessing(targetSpace, filePath, { bytes: range.total, contentType: req.headers['content-type'] });
 
           emitWebhookEvent({ event: 'file.created', spaceId: targetSpace, entry: { path: filePath, sha256 }, ...webhookToken(req) });
           const isDocFormat = resolvedFmt !== 'text' && !isMediaFormat(resolvedFmt);
@@ -433,52 +415,11 @@ filesRouter.post(
         log.warn(`upsertFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
       });
 
-      // Run conversion pipeline for convertible formats, or enqueue media/text jobs
+      // Resolve format, record media state, and enqueue the async embedding job (media or document).
       const inputFormat = typeof req.body?.inputFormat === 'string' ? req.body.inputFormat as InputFormat : 'auto';
-      const resolvedFormat = resolveInputFormat(filePath, req.headers['content-type'], inputFormat);
-      const normId = toDocId(filePath);
-      const mimeType = (req.headers['content-type'] ?? 'application/octet-stream').split(';')[0]!.trim();
-
-      let embeddingStatusForResponse: 'disabled' | 'skipped' | 'pending' | undefined;
-
-      if (isMediaFormat(resolvedFormat)) {
-        // Media file: enqueue async embedding job (or skip if disabled / oversized)
-        const mediaCfg = getMediaEmbeddingConfig();
-        if (!mediaCfg.enabled) {
-          embeddingStatusForResponse = 'disabled';
-          await col<FileMetaDoc>(`${targetSpace}_files`).updateOne(
-            asFilter<FileMetaDoc>({ _id: normId }),
-            { $set: { mediaType: resolvedFormat, embeddingStatus: 'disabled' } },
-          );
-        } else if (incomingBytes > (mediaCfg.maxFileSizeBytes ?? 524_288_000)) {
-          embeddingStatusForResponse = 'skipped';
-          await col<FileMetaDoc>(`${targetSpace}_files`).updateOne(
-            asFilter<FileMetaDoc>({ _id: normId }),
-            { $set: { mediaType: resolvedFormat, embeddingStatus: 'skipped' } },
-          );
-          log.info(`Media file ${targetSpace}/${filePath} skipped: ${incomingBytes} bytes exceeds maxFileSizeBytes (${mediaCfg.maxFileSizeBytes})`);
-        } else {
-          embeddingStatusForResponse = 'pending';
-          await col<FileMetaDoc>(`${targetSpace}_files`).updateOne(
-            asFilter<FileMetaDoc>({ _id: normId }),
-            { $set: { mediaType: resolvedFormat, embeddingStatus: 'pending' } },
-          );
-          await enqueueMediaJob(targetSpace, filePath, mimeType, resolvedFormat).catch(err => {
-            log.warn(`enqueueMediaJob error for ${targetSpace}/${filePath}: ${err instanceof Error ? err.message : String(err)}`);
-          });
-        }
-      } else if (resolvedFormat !== 'text') {
-        // Text document (md, txt, html, pdf, docx, epub): enqueue async embedding job.
-        // Delete stale conversion artifacts from any previous upload first so the
-        // worker starts with a clean slate — avoids duplicate chunk records.
-        await deleteConversionArtifacts(targetSpace, filePath).catch(err => {
-          log.warn(`deleteConversionArtifacts error for ${targetSpace}/${filePath}: ${err instanceof Error ? err.message : String(err)}`);
-        });
-        embeddingStatusForResponse = 'pending';
-        await enqueueTextJob(targetSpace, filePath, resolvedFormat, mimeType).catch(err => {
-          log.warn(`enqueueTextJob error for ${targetSpace}/${filePath}: ${err instanceof Error ? err.message : String(err)}`);
-        });
-      }
+      const { resolvedFormat, embeddingStatus: embeddingStatusForResponse } = await dispatchFileProcessing(
+        targetSpace, filePath, { bytes: incomingBytes, contentType: req.headers['content-type'], inputFormat },
+      );
 
       const response: { path: string; sha256: string; storageWarning?: boolean; embeddingStatus?: string } = { path: filePath, sha256 };
       if (quotaResult.softBreached) response.storageWarning = true;

@@ -18,6 +18,7 @@
  */
 
 import express, { Router } from 'express';
+import { toDocId } from '../util/paths.js';
 import type { Request, Response, NextFunction } from 'express';
 import fs from 'fs/promises';
 import path from 'path';
@@ -341,7 +342,7 @@ filesRouter.post(
             const mediaCfg = getMediaEmbeddingConfig();
             if (mediaCfg.enabled && range.total <= (mediaCfg.maxFileSizeBytes ?? 524_288_000)) {
               await col<FileMetaDoc>(`${targetSpace}_files`).updateOne(
-                asFilter<FileMetaDoc>({ _id: filePath.replace(/\\/g, '/').replace(/^\/+/, '') }),
+                asFilter<FileMetaDoc>({ _id: toDocId(filePath) }),
                 { $set: { mediaType: resolvedFmt, embeddingStatus: 'pending' } },
               );
               await enqueueMediaJob(targetSpace, filePath, chunkedMimeType, resolvedFmt).catch(err => {
@@ -435,7 +436,7 @@ filesRouter.post(
       // Run conversion pipeline for convertible formats, or enqueue media/text jobs
       const inputFormat = typeof req.body?.inputFormat === 'string' ? req.body.inputFormat as InputFormat : 'auto';
       const resolvedFormat = resolveInputFormat(filePath, req.headers['content-type'], inputFormat);
-      const normId = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+      const normId = toDocId(filePath);
       const mimeType = (req.headers['content-type'] ?? 'application/octet-stream').split(';')[0]!.trim();
 
       let embeddingStatusForResponse: 'disabled' | 'skipped' | 'pending' | undefined;
@@ -528,7 +529,7 @@ filesRouter.post(
 
     let normId: string;
     try {
-      normId = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+      normId = toDocId(filePath);
       // Validate the path doesn't escape the space root
       resolveSafePath(targetSpace, filePath);
     } catch (err) {
@@ -595,7 +596,7 @@ filesRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOnly,
       // Check for an orphaned meta record (file deleted externally, meta still exists).
       // If there is one, clean it up and return 204 so the UI can remove it.
       // If there is none, the path was never known — return 404.
-      const normalisedPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+      const normalisedPath = toDocId(filePath);
       const orphan = await col<FileMetaDoc>(`${targetSpace}_files`).findOne(
         asFilter<FileMetaDoc>({ _id: normalisedPath }),
       );

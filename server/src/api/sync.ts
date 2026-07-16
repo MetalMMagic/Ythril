@@ -9,6 +9,7 @@
  */
 
 import { Router } from 'express';
+import { toSafeRelPath } from '../util/paths.js';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
@@ -1214,7 +1215,7 @@ syncRouter.post('/file-tombstones', syncRateLimit, requireAuth, denyReadOnly, as
       if (!ts._id || !ts.path || typeof ts.path !== 'string') continue;
 
       // Path-traversal guard â€” must stay within the space's files directory.
-      const rel = ts.path.replace(/\\/g, '/').replace(/^\/+/, '');
+      const rel = toSafeRelPath(ts.path);
       const abs = path.join(spaceFiles, rel);
       if (!abs.startsWith(spaceFiles + path.sep) && abs !== spaceFiles) continue;
 

@@ -9,6 +9,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { toDocId } from '../util/paths.js';
 import { col, asDoc } from '../db/mongo.js';
 import type { FileTombstoneDoc } from '../config/types.js';
 import { log } from '../util/log.js';
@@ -19,7 +20,7 @@ import { log } from '../util/log.js';
  * Best-effort — logs on failure rather than throwing, so a delete still returns success.
  */
 export async function writeFileTombstones(spaceId: string, paths: string[]): Promise<void> {
-  const unique = [...new Set(paths.map(p => p.replace(/\\/g, '/').replace(/^\/+/, '')))].filter(Boolean);
+  const unique = [...new Set(paths.map(toDocId))].filter(Boolean);
   if (unique.length === 0) return;
   const now = new Date().toISOString();
   const docs: FileTombstoneDoc[] = unique.map(p => ({ _id: uuidv4(), spaceId, path: p, deletedAt: now }));

@@ -9,6 +9,7 @@
  */
 
 import path from 'path';
+import { toDocId } from '../../util/paths.js';
 import { escapeRegex } from '../../util/redos.js';
 import { authorRef } from '../../config/author.js';
 import fs from 'fs/promises';
@@ -226,10 +227,6 @@ export async function runConversionPipeline(
   return { chunks, convertedMarkdown, extractedImages: [] };
 }
 
-/** Normalise a path to forward-slash convention and strip leading slashes. */
-function normPath(p: string): string {
-  return p.replace(/\\/g, '/').replace(/^\/+/, '');
-}
 
 /**
  * Store a converted file's chunk records in the {spaceId}_files collection.
@@ -252,7 +249,7 @@ export async function storeConversionResults(
   convertedMarkdown: string | null,
   extractedImages: ExtractedImage[] = [],
 ): Promise<{ chunkCount: number; convertedFileId: string | null; embedFailures: number }> {
-  const originalId = normPath(originalFilePath);
+  const originalId = toDocId(originalFilePath);
   const now = new Date().toISOString();
   let embedFailures = 0;
 
@@ -261,7 +258,7 @@ export async function storeConversionResults(
   if (convertedMarkdown !== null) {
     const convertedPath = `_converted/${originalId}.md`;
     await writeFile(spaceId, convertedPath, convertedMarkdown);
-    convertedFileId = normPath(convertedPath);
+    convertedFileId = toDocId(convertedPath);
 
     // Insert a minimal filemeta record for the converted file so it's discoverable
     const convertedSizeBytes = Buffer.byteLength(convertedMarkdown, 'utf8');
@@ -292,7 +289,7 @@ export async function storeConversionResults(
   if (extractedImages.length > 0) {
     for (const img of extractedImages) {
       const imgPath = `_extracted/${originalId}/image-${img.index}.${img.ext}`;
-      const imgId = normPath(imgPath);
+      const imgId = toDocId(imgPath);
       try {
         const imgBytes = Buffer.from(img.base64, 'base64');
         if (extractedBytesTotal + imgBytes.length > MAX_EXTRACTED_IMAGE_BYTES) {
@@ -421,7 +418,7 @@ export async function deleteConversionArtifacts(
   spaceId: string,
   originalFilePath: string,
 ): Promise<void> {
-  const originalId = normPath(originalFilePath);
+  const originalId = toDocId(originalFilePath);
 
   // DB: all filemeta records with parentFileId = originalId (chunks, converted, extracted).
   await col<FileMetaDoc>(`${spaceId}_files`).deleteMany(
@@ -447,7 +444,7 @@ export async function deleteConversionArtifactsByPrefix(
   spaceId: string,
   dirPath: string,
 ): Promise<void> {
-  const dir = normPath(dirPath).replace(/\/?$/, '');
+  const dir = toDocId(dirPath).replace(/\/?$/, '');
   if (!dir) return; // guard: empty path would match everything
   const escaped = escapeRegex(dir + '/');
 

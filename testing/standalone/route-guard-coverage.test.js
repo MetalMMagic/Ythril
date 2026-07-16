@@ -87,12 +87,39 @@ let routes = [];
 /** Guards applied to an ENTIRE router via `xRouter.use(...)` — they cover every route on it. */
 let routerLevelGuards = new Map();
 
+/** Every .ts file under the api dir, recursively — routes live in `api/` AND `api/brain/` (A17.3). */
+function apiFiles(dir = API_DIR, out = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) apiFiles(p, out);
+    else if (e.name.endsWith('.ts')) out.push(p);
+  }
+  return out;
+}
+
 function mountedRouters() {
   const src = fs.readFileSync(APP_TS, 'utf8');
   const names = new Set();
   const re = /app\.use\(\s*'[^']+'\s*,\s*([A-Za-z_]\w*)/g;
   let m;
   while ((m = re.exec(src)) !== null) names.add(m[1]);
+
+  // A sub-router mounted on a mounted parent is itself reachable — api/brain/index.ts does
+  // `brainRouter.use(memoriesRouter)`. Without this every brain route would drop out of the guard
+  // check and it would pass on a short list.
+  const links = [];
+  for (const f of apiFiles()) {
+    const s = fs.readFileSync(f, 'utf8');
+    const childRe = /(\w+Router)\s*\.\s*use\(\s*(\w+Router)\s*\)/g;
+    let c;
+    while ((c = childRe.exec(s)) !== null) links.push([c[1], c[2]]);
+  }
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [parent, child] of links) {
+      if (names.has(parent) && !names.has(child)) { names.add(child); changed = true; }
+    }
+  }
   return names;
 }
 
@@ -100,8 +127,9 @@ describe('Route guards — every mutating route must be protected', () => {
   before(() => {
     const mounted = mountedRouters();
 
-    for (const file of fs.readdirSync(API_DIR).filter(f => f.endsWith('.ts'))) {
-      const src = fs.readFileSync(path.join(API_DIR, file), 'utf8');
+    for (const filePath of apiFiles()) {
+      const file = path.relative(API_DIR, filePath).replace(/\\/g, '/');
+      const src = fs.readFileSync(filePath, 'utf8');
 
       // Router-level guards must count, or this reports false positives: webhooksRouter does
       // `webhooksRouter.use(globalRateLimit, requireAdminMfa)` and then registers bare routes.
@@ -133,7 +161,9 @@ describe('Route guards — every mutating route must be protected', () => {
     const mutating = routes.filter(r => MUTATING.has(r.method));
     assert.ok(mutating.length > 30, `expected many mutating routes, found ${mutating.length}`);
 
-    const sample = routes.find(r => r.router === 'brainRouter' && r.routePath === '/spaces/:spaceId/memories' && r.method === 'post');
+    // Brain routes live on per-resource sub-routers since A17.3 (memoriesRouter et al, mounted on
+    // brainRouter in api/brain/index.ts) — same URL, same chain, different router variable.
+    const sample = routes.find(r => r.router === 'memoriesRouter' && r.routePath === '/spaces/:spaceId/memories' && r.method === 'post');
     assert.ok(sample, 'sanity: POST /spaces/:spaceId/memories should have been parsed');
     assert.match(sample.chain, /requireSpaceAuth/, 'sanity: its chain should contain requireSpaceAuth');
   });

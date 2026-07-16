@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'url';
 import { tokensRouter } from './api/tokens.js';
-import { brainRouter } from './api/brain.js';
+import { brainRouter } from './api/brain/index.js';
 import { spacesRouter } from './api/spaces.js';
 import { filesRouter } from './api/files.js';
 import { conflictsRouter } from './api/conflicts.js';

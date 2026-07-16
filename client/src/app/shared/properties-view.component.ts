@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, Input, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { PropertySchema } from '../core/api.service';
+import { PropertySchema } from '../core/api.types';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 @Component({

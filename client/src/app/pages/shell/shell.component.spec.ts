@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Subject } from 'rxjs';
 import { provideRouter, Router, NavigationEnd } from '@angular/router';
 import { of } from 'rxjs';
-import { ApiService } from '../../core/api.service';
+import { FilesApi } from '../../core/files-api.service';
 import { AuthService } from '../../core/auth.service';
 import { EmbedService } from '../../core/embed.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
@@ -24,7 +24,7 @@ function make() {
     imports: [ShellComponent, getTranslocoModule()],
     providers: [
       provideRouter([]),
-      { provide: ApiService, useValue: { listConflicts: () => of({ conflicts: [] }) } as unknown as ApiService },
+      { provide: FilesApi, useValue: { listConflicts: () => of({ conflicts: [] }) } as any },
       { provide: AuthService, useValue: { logout: () => {}, logoutOidc: async () => false } as unknown as AuthService },
       { provide: EmbedService, useValue: { embedded: () => false } as unknown as EmbedService },
     ],

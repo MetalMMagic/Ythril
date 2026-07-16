@@ -1,6 +1,6 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { PropertySchema } from '../core/api.service';
+import { PropertySchema } from '../core/api.types';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from './ph-icon.component';
 

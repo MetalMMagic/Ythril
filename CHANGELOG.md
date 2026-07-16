@@ -646,6 +646,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Split the 1187-line client `api.service.ts` monolith into per-domain API services + a types
+  module (internal, no behavior change).** One `ApiService` held ~120 HTTP-wrapper methods and ~450
+  lines of DTO declarations, injected by two dozen components. It is now: `api.types.ts` (all 50
+  shared DTOs, so a component can import a type without pulling in a service) plus eight cohesive,
+  tree-shakeable services — `AuthApi`, `SpacesApi`, `SchemaApi`, `BrainApi`, `FilesApi`,
+  `DuplicatesApi`, `NetworksApi`, `AdminApi` — each a thin `inject(HttpClient)` wrapper for its
+  domain. All 24 consumers (components + specs) now inject only the domain services they use; every
+  endpoint URL, param, and method signature is unchanged. Verified end-to-end by the Angular AOT
+  production build (a mis-routed call is a compile error, since each service exposes only its own
+  methods) and the full client unit suite (71 tests). (ARCHITECTURE-TODO A17.2.)
+
 - **Split the 576-line MCP `memory.ts` tool bundle into three cohesive files (internal, no behavior
   change).** It bundled seven tools spanning three concerns; it is now `memory.ts` (memory CRUD:
   `remember`/`update_memory`/`delete_memory`), `search.ts` (cross-type retrieval:

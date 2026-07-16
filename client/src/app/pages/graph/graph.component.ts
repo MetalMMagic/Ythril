@@ -21,7 +21,6 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
 import {
-  ApiService,
   Space,
   Entity,
   Memory,
@@ -32,7 +31,10 @@ import {
   TraverseNode,
   TraverseEdge,
   TraverseResult,
-} from '../../core/api.service';
+} from '../../core/api.types';
+import { SpacesApi } from '../../core/spaces-api.service';
+import { BrainApi } from '../../core/brain-api.service';
+import { AuthApi } from '../../core/auth-api.service';
 import { EntryPopupComponent } from '../../shared/entry-popup.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PropertiesViewComponent } from '../../shared/properties-view.component';
@@ -1117,7 +1119,9 @@ interface DetailRow {
 })
 export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   // â”€â”€ DI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  private api = inject(ApiService);
+  private spacesApi = inject(SpacesApi);
+  private brainApi = inject(BrainApi);
+  private authApi = inject(AuthApi);
   private location = inject(Location);
   private route = inject(ActivatedRoute);
 
@@ -1303,7 +1307,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   ngOnInit(): void {
     // Load spaces only in standalone mode; in embedded mode the space is injected via @Input
     if (!this.isEmbedded()) {
-      this.api.listSpaces().subscribe(res => {
+      this.spacesApi.listSpaces().subscribe(res => {
         this.spaces.set(res.spaces);
         const qp = this.route.snapshot.queryParams;
         const initial = qp['space'] || (res.spaces.length ? res.spaces[0].id : '');
@@ -1311,7 +1315,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
         // If entity query-param present, load it as root
         if (qp['entity'] && initial) {
-          this.api.getEntity(initial, qp['entity']).pipe(
+          this.brainApi.getEntity(initial, qp['entity']).pipe(
             catchError(() => of(null)),
           ).subscribe(ent => {
             if (ent) this.selectRoot(ent);
@@ -1320,7 +1324,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
       });
     }
 
-    this.api.getMe().pipe(catchError(() => of(null))).subscribe(me => {
+    this.authApi.getMe().pipe(catchError(() => of(null))).subscribe(me => {
       this.canEdit.set(me ? !me.readOnly : false);
     });
   }
@@ -1517,7 +1521,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
       const id = evt.target.data('id');
       const spaceId = this.activeSpaceId();
       if (!spaceId) return;
-      this.api.getEntity(spaceId, id).pipe(
+      this.brainApi.getEntity(spaceId, id).pipe(
         catchError(() => of(null)),
       ).subscribe(ent => {
         if (ent) this.selectRoot(ent, true);
@@ -1645,7 +1649,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.loading.set(true);
     this.loadError.set(null);
     this.lastTraverse = { startId, maxDepth, direction };
-    this.api.traverseGraph(spaceId, { startId, direction, maxDepth, limit: 200 }).subscribe({
+    this.brainApi.traverseGraph(spaceId, { startId, direction, maxDepth, limit: 200 }).subscribe({
       error: (e) => { this.loading.set(false); this.loadError.set(httpErrorReason(e)); },
       next: (result) => {
       this.loading.set(false);
@@ -1778,15 +1782,15 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!spaceId) return;
 
     // Fetch full entity record for the record card
-    this.api.getEntity(spaceId, entityId).pipe(
+    this.brainApi.getEntity(spaceId, entityId).pipe(
       catchError(() => of(null)),
     ).subscribe(ent => { if (ent) this.selectedEntityRecord.set(ent); });
 
     forkJoin({
-      mems: this.api.listMemories(spaceId, 100, 0, { entity: entityId }).pipe(
+      mems: this.brainApi.listMemories(spaceId, 100, 0, { entity: entityId }).pipe(
         catchError(() => of({ memories: [] as Memory[] })),
       ),
-      chrono: this.api.queryBrain(spaceId, {
+      chrono: this.brainApi.queryBrain(spaceId, {
         collection: 'chrono',
         filter: { entityIds: entityId },
         limit: 100,
@@ -1815,7 +1819,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   openEntityPopup(node: TraverseNode): void {
     const spaceId = this.activeSpaceId();
     if (!spaceId) return;
-    this.api.getEntity(spaceId, node._id).pipe(
+    this.brainApi.getEntity(spaceId, node._id).pipe(
       catchError(() => of(null)),
     ).subscribe(ent => {
       if (ent) {
@@ -1832,7 +1836,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.nodeChrono.set([]);
 
     // Load the full edge record
-    this.api.getEdge(spaceId, te._id).pipe(
+    this.brainApi.getEdge(spaceId, te._id).pipe(
       catchError(() => of(null)),
     ).subscribe(edge => {
       if (edge) this.selectedEdgeRecord.set(edge);
@@ -1840,10 +1844,10 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
 
     // Load memories/chronos linked to BOTH endpoints
     forkJoin({
-      mems: this.api.listMemories(spaceId, 100, 0, { entity: te.from }).pipe(
+      mems: this.brainApi.listMemories(spaceId, 100, 0, { entity: te.from }).pipe(
         catchError(() => of({ memories: [] as Memory[] })),
       ),
-      chrono: this.api.queryBrain(spaceId, {
+      chrono: this.brainApi.queryBrain(spaceId, {
         collection: 'chrono',
         filter: { entityIds: te.from },
         limit: 100,
@@ -1867,11 +1871,11 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     const spaceId = this.activeSpaceId();
     if (!spaceId) return;
     if (row.kind === 'memory') {
-      this.api.getMemory(spaceId, row.id).pipe(catchError(() => of(null))).subscribe(m => {
+      this.brainApi.getMemory(spaceId, row.id).pipe(catchError(() => of(null))).subscribe(m => {
         if (m) this.openBrainDrawer('memory', m);
       });
     } else {
-      this.api.getChrono(spaceId, row.id).pipe(catchError(() => of(null))).subscribe(c => {
+      this.brainApi.getChrono(spaceId, row.id).pipe(catchError(() => of(null))).subscribe(c => {
         if (c) this.openBrainDrawer('chrono', c);
       });
     }
@@ -1924,7 +1928,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     this.drawerError.set('');
     if (dr.kind === 'memory') {
       const props = this.drawerEditMemory.properties;
-      this.api.updateMemory(spaceId, id, {
+      this.brainApi.updateMemory(spaceId, id, {
         fact: this.drawerEditMemory.fact.trim(),
         tags: this.drawerEditMemory.tags,
         entityIds: this.drawerEditMemory.entityIds.split(',').map(s => s.trim()).filter(Boolean),
@@ -1942,7 +1946,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
       const resolvedKind = this.drawerEditChrono.kind === '__custom__'
         ? (this.drawerEditChrono.customKind.trim() as ChronoType)
         : this.drawerEditChrono.kind as ChronoType;
-      this.api.updateChrono(spaceId, id, {
+      this.brainApi.updateChrono(spaceId, id, {
         title: this.drawerEditChrono.title.trim(),
         type: resolvedKind,
         status: this.drawerEditChrono.status as ChronoStatus,
@@ -2004,7 +2008,7 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     if (!spaceId || !ids.length) return;
     const unknown = ids.filter(id => !this.entityNameCache()[id]);
     if (!unknown.length) return;
-    this.api.getEntitiesByIds(spaceId, unknown).subscribe({
+    this.brainApi.getEntitiesByIds(spaceId, unknown).subscribe({
       next: ({ entities }) => {
         const patch: Record<string, string> = {};
         for (const e of entities) patch[e._id] = e.name;

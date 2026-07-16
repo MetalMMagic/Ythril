@@ -13,8 +13,11 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { finalize, forkJoin } from 'rxjs';
 import {
-  ApiService, SchemaLibraryEntry, SchemaCatalog, ForeignCatalogEntry, KnowledgeType, PropertySchema, TypeSchema, Space,
-} from '../../core/api.service';
+  SchemaLibraryEntry, SchemaCatalog, ForeignCatalogEntry, KnowledgeType, PropertySchema, TypeSchema, Space,
+} from '../../core/api.types';
+import { AuthApi } from '../../core/auth-api.service';
+import { SchemaApi } from '../../core/schema-api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
@@ -613,7 +616,9 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
   `,
 })
 export class SchemaLibraryComponent implements OnInit {
-  private api      = inject(ApiService);
+  private authApi   = inject(AuthApi);
+  private schemaApi = inject(SchemaApi);
+  private spacesApi = inject(SpacesApi);
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
 
@@ -738,7 +743,7 @@ export class SchemaLibraryComponent implements OnInit {
   ngOnInit(): void {
     this.load();
     // Pre-load space list for export/apply dialogs
-    this.api.listSpaces().subscribe({
+    this.spacesApi.listSpaces().subscribe({
       next: ({ spaces }) => this.spaces.set(spaces),
       error: () => {},
     });
@@ -747,7 +752,7 @@ export class SchemaLibraryComponent implements OnInit {
   load(): void {
     this.loading.set(true);
     this.loadError.set(null);
-    this.api.listSchemaLibrary().pipe(
+    this.schemaApi.listSchemaLibrary().pipe(
       finalize(() => this.loading.set(false)),
     ).subscribe({
       next: ({ entries }) => {
@@ -755,7 +760,7 @@ export class SchemaLibraryComponent implements OnInit {
         if (entries.length === 0) return;
         // Fetch usage counts for all entries (non-critical; errors silently ignored)
         forkJoin(
-          entries.map(e => this.api.getSchemaLibraryUsages(e.name)),
+          entries.map(e => this.schemaApi.getSchemaLibraryUsages(e.name)),
         ).subscribe({
           next: (results) => {
             const counts: Record<string, number> = {};
@@ -801,7 +806,7 @@ export class SchemaLibraryComponent implements OnInit {
 
   initiateDelete(name: string): void {
     this.deleteDialog.set({ entryName: name, usages: [], loading: true, unlinking: false, error: '' });
-    this.api.getSchemaLibraryUsages(name).subscribe({
+    this.schemaApi.getSchemaLibraryUsages(name).subscribe({
       next: ({ usages }) => {
         this.deleteDialog.update(d => d ? { ...d, usages, loading: false } : d);
       },
@@ -826,7 +831,7 @@ export class SchemaLibraryComponent implements OnInit {
     const entry = this.entries().find(e => e.name === d.entryName);
     this.deleteDialog.update(s => s ? { ...s, unlinking: true, error: '' } : s);
     const unlinks$ = d.usages.map(u =>
-      this.api.upsertTypeSchema(
+      this.spacesApi.upsertTypeSchema(
         u.spaceId,
         u.knowledgeType as KnowledgeType,
         u.typeName,
@@ -842,7 +847,7 @@ export class SchemaLibraryComponent implements OnInit {
   }
 
   private _doDelete(name: string): void {
-    this.api.deleteSchemaLibraryEntry(name).subscribe({
+    this.schemaApi.deleteSchemaLibraryEntry(name).subscribe({
       next: () => {
         this.entries.update(list => list.filter(e => e.name !== name));
         this.usageCounts.update(c => { const n = { ...c }; delete n[name]; return n; });
@@ -906,8 +911,8 @@ export class SchemaLibraryComponent implements OnInit {
     this.saving.set(true);
 
     const req$ = this.editingName()
-      ? this.api.upsertSchemaLibraryEntry(name, payload)
-      : this.api.createSchemaLibraryEntry({ ...payload, name });
+      ? this.schemaApi.upsertSchemaLibraryEntry(name, payload)
+      : this.schemaApi.createSchemaLibraryEntry({ ...payload, name });
 
     req$.pipe(finalize(() => this.saving.set(false))).subscribe({
       next: ({ entry }) => {
@@ -936,7 +941,7 @@ export class SchemaLibraryComponent implements OnInit {
 
   togglePublish(entry: SchemaLibraryEntry): void {
     const next = !entry.published;
-    this.api.publishSchemaLibraryEntry(entry.name, next).subscribe({
+    this.schemaApi.publishSchemaLibraryEntry(entry.name, next).subscribe({
       next: ({ entry: updated }) => {
         this.entries.update(list => {
           const idx = list.findIndex(e => e.name === updated.name);
@@ -955,7 +960,7 @@ export class SchemaLibraryComponent implements OnInit {
   loadCatalogs(): void {
     if (this.catalogsLoading()) return;
     this.catalogsLoading.set(true);
-    this.api.listSchemaCatalogs().pipe(
+    this.schemaApi.listSchemaCatalogs().pipe(
       finalize(() => this.catalogsLoading.set(false)),
     ).subscribe({
       next: ({ catalogs }) => this.catalogs.set(catalogs),
@@ -979,7 +984,7 @@ export class SchemaLibraryComponent implements OnInit {
     this.catalogSaving.set(true);
     const baseUrl = url.trim().replace(/\/+$/, '');
     const catalogUrl = baseUrl.endsWith('/api/schema-library') ? baseUrl : `${baseUrl}/api/schema-library`;
-    this.api.addSchemaCatalog({ name: name.trim(), url: catalogUrl, description: description.trim() || undefined, accessToken: accessToken.trim() || undefined }).pipe(
+    this.schemaApi.addSchemaCatalog({ name: name.trim(), url: catalogUrl, description: description.trim() || undefined, accessToken: accessToken.trim() || undefined }).pipe(
       finalize(() => this.catalogSaving.set(false)),
     ).subscribe({
       next: ({ catalog }) => {
@@ -1015,7 +1020,7 @@ export class SchemaLibraryComponent implements OnInit {
     }
     this.libTokenCreating.set(true);
     this.libTokenError.set('');
-    this.api.createToken({ name, schemaLibrary: true }).pipe(
+    this.authApi.createToken({ name, schemaLibrary: true }).pipe(
       finalize(() => this.libTokenCreating.set(false)),
     ).subscribe({
       next: ({ plaintext }) => {
@@ -1034,7 +1039,7 @@ export class SchemaLibraryComponent implements OnInit {
   }
 
   removeCatalog(name: string): void {
-    this.api.deleteSchemaCatalog(name).subscribe({
+    this.schemaApi.deleteSchemaCatalog(name).subscribe({
       next: () => this.catalogs.update(list => list.filter(c => c.name !== name)),
       error: () => { /* non-critical */ },
     });
@@ -1042,7 +1047,7 @@ export class SchemaLibraryComponent implements OnInit {
 
   openBrowse(catalogName: string): void {
     this.browsing.set({ catalogName, entries: [], loading: true, error: '' });
-    this.api.browseCatalog(catalogName).subscribe({
+    this.schemaApi.browseCatalog(catalogName).subscribe({
       next: ({ entries }) => this.browsing.update(b => b ? { ...b, entries, loading: false } : b),
       error: (err) => {
         const msg = err?.error?.error ?? this.transloco.translate('schemaLib.catalog.fetchFailed');
@@ -1055,12 +1060,12 @@ export class SchemaLibraryComponent implements OnInit {
     if (this.catalogImporting()) return;
     // Fetch full schema for this entry, then upsert locally
     this.catalogImporting.set(true);
-    this.api.getCatalogEntry(catalogName, entry.name).pipe(
+    this.schemaApi.getCatalogEntry(catalogName, entry.name).pipe(
       finalize(() => this.catalogImporting.set(false)),
     ).subscribe({
       next: ({ entry: full }) => {
         if (!full.schema) return;
-        this.api.upsertSchemaLibraryEntry(full.name, {
+        this.schemaApi.upsertSchemaLibraryEntry(full.name, {
           knowledgeType: full.knowledgeType,
           typeName: full.typeName,
           schema: full.schema,
@@ -1113,7 +1118,7 @@ export class SchemaLibraryComponent implements OnInit {
           const e = item as SchemaLibraryEntry;
           if (!e?.name || !e?.knowledgeType || !e?.schema) continue;
           try {
-            const r = await this.api.upsertSchemaLibraryEntry(e.name, {
+            const r = await this.schemaApi.upsertSchemaLibraryEntry(e.name, {
               knowledgeType: e.knowledgeType,
               typeName: e.typeName ?? e.name,
               schema: e.schema,
@@ -1158,7 +1163,7 @@ export class SchemaLibraryComponent implements OnInit {
       return;
     }
     this.exportSpaceDialog.update(s => s ? { ...s, saving: true, error: '', result: '' } : s);
-    this.api.exportSpaceSchemaToLibrary({
+    this.schemaApi.exportSpaceSchemaToLibrary({
       spaceId: d.spaceId,
       groupName: d.groupName.trim(),
       namePrefix: d.namePrefix.trim() || undefined,
@@ -1201,7 +1206,7 @@ export class SchemaLibraryComponent implements OnInit {
       return;
     }
     this.applyGroupDialog.update(s => s ? { ...s, saving: true, error: '', result: '' } : s);
-    this.api.applyGroupToSpace(d.group, d.spaceId).pipe(
+    this.schemaApi.applyGroupToSpace(d.group, d.spaceId).pipe(
       finalize(() => this.applyGroupDialog.update(s => s ? { ...s, saving: false } : s)),
     ).subscribe({
       next: ({ count }) => {

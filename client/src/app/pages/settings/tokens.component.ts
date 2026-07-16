@@ -1,7 +1,9 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService, Space, TokenRecord } from '../../core/api.service';
+import { Space, TokenRecord } from '../../core/api.types';
+import { AuthApi } from '../../core/auth-api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
@@ -443,7 +445,8 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
   `,
 })
 export class TokensComponent implements OnInit {
-  private api = inject(ApiService);
+  private authApi = inject(AuthApi);
+  private spacesApi = inject(SpacesApi);
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
   private confirmDialog = inject(ConfirmDialogService);
@@ -467,8 +470,8 @@ export class TokensComponent implements OnInit {
   copiedRegen = signal(false);
 
   ngOnInit(): void {
-    this.api.getMe().subscribe({ next: (t) => this.selfToken.set(t), error: () => {} });
-    this.api.listSpaces().subscribe({
+    this.authApi.getMe().subscribe({ next: (t) => this.selfToken.set(t), error: () => {} });
+    this.spacesApi.listSpaces().subscribe({
       next: ({ spaces }) => this.availableSpaces.set(spaces),
       error: () => this.spacesLoadFailed.set(true),
     });
@@ -477,7 +480,7 @@ export class TokensComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
-    this.api.listTokens().subscribe({
+    this.authApi.listTokens().subscribe({
       next: ({ tokens }) => { this.tokens.set(tokens); this.loading.set(false); },
       error: () => this.loading.set(false),
     });
@@ -501,7 +504,7 @@ export class TokensComponent implements OnInit {
     }
     if (spaceIds.length) body.spaces = spaceIds;
 
-    this.api.createToken(body).subscribe({
+    this.authApi.createToken(body).subscribe({
       next: ({ token, plaintext }) => {
         this.creating.set(false);
         this.showCreateDialog.set(false);
@@ -545,7 +548,7 @@ export class TokensComponent implements OnInit {
     });
     if (!ok) return;
     this.clearRegen();
-    this.api.regenerateToken(t.id).subscribe({
+    this.authApi.regenerateToken(t.id).subscribe({
       next: ({ plaintext }) => this.regenToken.set(plaintext),
       error: () => this.toast.error(this.transloco.translate('tokens.error.rotateFailed')),
     });
@@ -559,7 +562,7 @@ export class TokensComponent implements OnInit {
       danger: true,
     });
     if (!ok) return;
-    this.api.revokeToken(t.id).subscribe({
+    this.authApi.revokeToken(t.id).subscribe({
       next: () => this.tokens.update(list => list.filter(x => x.id !== t.id)),
       error: () => this.toast.error(this.transloco.translate('tokens.error.revokeFailed')),
     });

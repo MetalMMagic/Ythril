@@ -9,7 +9,8 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { ApiService, type UploadProgress } from './api.service';
+import { FilesApi } from './files-api.service';
+import type { UploadProgress } from './api.types';
 
 /** A small (<10 MB) file whose bytes resolve synchronously-ish via a stubbed arrayBuffer. */
 function smallFile(name = 'note.txt'): File {
@@ -19,15 +20,15 @@ function smallFile(name = 'note.txt'): File {
   return f;
 }
 
-describe('ApiService.uploadFileChunked (U12: cold + cancelable)', () => {
-  let api: ApiService;
+describe('FilesApi.uploadFileChunked (U12: cold + cancelable)', () => {
+  let api: FilesApi;
   let httpMock: HttpTestingController;
 
   beforeEach(() => {
     TestBed.configureTestingModule({
-      providers: [ApiService, provideHttpClient(), provideHttpClientTesting()],
+      providers: [FilesApi, provideHttpClient(), provideHttpClientTesting()],
     });
-    api = TestBed.inject(ApiService);
+    api = TestBed.inject(FilesApi);
     httpMock = TestBed.inject(HttpTestingController);
   });
 

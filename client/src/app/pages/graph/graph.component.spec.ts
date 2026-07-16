@@ -22,7 +22,9 @@ vi.mock('cytoscape', () => {
   return { default: () => chain };
 });
 
-import { ApiService } from '../../core/api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
+import { BrainApi } from '../../core/brain-api.service';
+import { AuthApi } from '../../core/auth-api.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { GraphComponent } from './graph.component';
 
@@ -30,7 +32,7 @@ function makeApi() {
   return {
     getMe: () => of({ readOnly: false }),
     listSpaces: () => of({ spaces: [] }),
-  } as unknown as ApiService;
+  } as any;
 }
 
 describe('GraphComponent (OnPush)', () => {
@@ -38,7 +40,9 @@ describe('GraphComponent (OnPush)', () => {
     TestBed.configureTestingModule({
       imports: [GraphComponent, getTranslocoModule()],
       providers: [
-        { provide: ApiService, useValue: makeApi() },
+        { provide: SpacesApi, useValue: makeApi() },
+        { provide: BrainApi, useValue: makeApi() },
+        { provide: AuthApi, useValue: makeApi() },
         { provide: ActivatedRoute, useValue: { snapshot: { queryParams: {} } } },
       ],
     });

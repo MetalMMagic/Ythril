@@ -1,7 +1,8 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService, SchemaLibraryEntry, KnowledgeType } from '../../core/api.service';
+import { SchemaLibraryEntry, KnowledgeType } from '../../core/api.types';
+import { SchemaApi } from '../../core/schema-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 
@@ -331,7 +332,7 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
   `,
 })
 export class SchemaLibraryComponent implements OnInit {
-  private api = inject(ApiService);
+  private schemaApi = inject(SchemaApi);
 
   entries = signal<SchemaLibraryEntry[]>([]);
   loading = signal(true);
@@ -366,7 +367,7 @@ export class SchemaLibraryComponent implements OnInit {
   load(): void {
     this.loading.set(true);
     this.errorMsg.set('');
-    this.api.listSchemaLibrary().subscribe({
+    this.schemaApi.listSchemaLibrary().subscribe({
       next: ({ entries }) => { this.entries.set(entries); this.loading.set(false); },
       error: (err) => {
         this.errorMsg.set(err?.error?.error ?? 'Failed to load schema library');
@@ -420,7 +421,7 @@ export class SchemaLibraryComponent implements OnInit {
 
     if (editing) {
       // Update via PUT
-      this.api.upsertSchemaLibraryEntry(editing.name, { knowledgeType, typeName, schema: schema as SchemaLibraryEntry['schema'], ...(description ? { description } : {}) }).subscribe({
+      this.schemaApi.upsertSchemaLibraryEntry(editing.name, { knowledgeType, typeName, schema: schema as SchemaLibraryEntry['schema'], ...(description ? { description } : {}) }).subscribe({
         next: ({ entry }) => {
           this.entries.update(list => list.map(e => e.name === entry.name ? entry : e));
           this.saving.set(false);
@@ -430,7 +431,7 @@ export class SchemaLibraryComponent implements OnInit {
       });
     } else {
       // Create via POST
-      this.api.createSchemaLibraryEntry({ name, knowledgeType, typeName, schema: schema as SchemaLibraryEntry['schema'], ...(description ? { description } : {}) }).subscribe({
+      this.schemaApi.createSchemaLibraryEntry({ name, knowledgeType, typeName, schema: schema as SchemaLibraryEntry['schema'], ...(description ? { description } : {}) }).subscribe({
         next: ({ entry }) => {
           this.entries.update(list => [...list, entry]);
           this.saving.set(false);
@@ -451,7 +452,7 @@ export class SchemaLibraryComponent implements OnInit {
     if (!entry) return;
     this.deleting.set(true);
     this.deleteError.set('');
-    this.api.deleteSchemaLibraryEntry(entry.name).subscribe({
+    this.schemaApi.deleteSchemaLibraryEntry(entry.name).subscribe({
       next: () => {
         this.entries.update(list => list.filter(e => e.name !== entry.name));
         this.deleting.set(false);

@@ -1,5 +1,6 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
-import { ApiService, type AboutInfo } from '../../core/api.service';
+import { type AboutInfo } from '../../core/api.types';
+import { AdminApi } from '../../core/admin-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 @Component({
@@ -85,7 +86,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
   `,
 })
 export class AboutComponent implements OnInit {
-  private api = inject(ApiService);
+  private adminApi = inject(AdminApi);
 
   loading = signal(true);
   error = signal('');
@@ -96,7 +97,7 @@ export class AboutComponent implements OnInit {
 
   private load(): void {
     this.loading.set(true);
-    this.api.getAbout().subscribe({
+    this.adminApi.getAbout().subscribe({
       next: (data) => {
         this.info.set(data);
         const d = data.diskInfo;

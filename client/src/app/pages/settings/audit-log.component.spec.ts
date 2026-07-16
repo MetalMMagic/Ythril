@@ -12,7 +12,9 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { of } from 'rxjs';
-import { ApiService, type AuditLogEntry } from '../../core/api.service';
+import { type AuditLogEntry } from '../../core/api.types';
+import { AdminApi } from '../../core/admin-api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { AuditLogComponent } from './audit-log.component';
 
@@ -28,13 +30,13 @@ function entry(over: Partial<AuditLogEntry> = {}): AuditLogEntry {
   } as AuditLogEntry;
 }
 
-/** Minimal ApiService stub: the component only calls these three, all Observable-returning. */
+/** Minimal API stub: the component only calls these three, all Observable-returning. */
 function makeApi(entries: AuditLogEntry[]) {
   return {
     listSpaces: () => of({ spaces: [] }),
     getAuditLog: () => of({ entries, total: entries.length, hasMore: false, retentionDays: 90 }),
     getAboutLogs: () => of({ lines: [] }),
-  } as unknown as ApiService;
+  } as any;
 }
 
 describe('AuditLogComponent (OnPush)', () => {
@@ -43,7 +45,10 @@ describe('AuditLogComponent (OnPush)', () => {
   function create(entries: AuditLogEntry[]) {
     TestBed.configureTestingModule({
       imports: [AuditLogComponent, getTranslocoModule()],
-      providers: [{ provide: ApiService, useValue: makeApi(entries) }],
+      providers: [
+        { provide: AdminApi, useValue: makeApi(entries) },
+        { provide: SpacesApi, useValue: makeApi(entries) },
+      ],
     });
     const fixture = TestBed.createComponent(AuditLogComponent);
     fixture.detectChanges(); // ngOnInit → load() resolves synchronously via of()

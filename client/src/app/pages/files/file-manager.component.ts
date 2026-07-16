@@ -3,7 +3,9 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { ApiService, Space, FileEntry, UploadProgress } from '../../core/api.service';
+import { Space, FileEntry, UploadProgress } from '../../core/api.types';
+import { FilesApi } from '../../core/files-api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
 import { AuthService } from '../../core/auth.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -603,7 +605,8 @@ function previewKind(name: string): PreviewKind {
   `,
 })
 export class FileManagerComponent implements OnInit, OnDestroy {
-  private api = inject(ApiService);
+  private filesApi = inject(FilesApi);
+  private spacesApi = inject(SpacesApi);
   private auth = inject(AuthService);
   private sanitizer = inject(DomSanitizer);
   private route = inject(ActivatedRoute);
@@ -682,7 +685,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
       return;
     }
     const requestedSpace = this.route.snapshot.queryParamMap.get('space') ?? '';
-    this.api.listSpaces().subscribe({
+    this.spacesApi.listSpaces().subscribe({
       next: ({ spaces }) => {
         this.spaces.set(spaces);
         this.loadingSpaces.set(false);
@@ -723,7 +726,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   private loadDir(path: string): void {
     this.loading.set(true);
     this.loadError.set(null);
-    this.api.listFiles(this.activeSpaceId(), path).subscribe({
+    this.filesApi.listFiles(this.activeSpaceId(), path).subscribe({
       next: ({ entries }) => {
         this.entries.set(entries);
         this.loading.set(false);
@@ -800,7 +803,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   private startUpload(item: UploadItem): void {
     this.patchUpload(item.id, { status: 'uploading', percent: 0, error: undefined });
-    const sub = this.api
+    const sub = this.filesApi
       .uploadFileChunked(this.activeSpaceId(), this.currentPath(), item.file)
       .subscribe({
         next: (progress) => this.patchUpload(item.id, { percent: progress.percent }),
@@ -874,7 +877,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   createFolder(): void {
     if (!this.newFolderName.trim()) return;
     const path = this.join(this.currentPath(), this.newFolderName.trim());
-    this.api.createDir(this.activeSpaceId(), path).subscribe({
+    this.filesApi.createDir(this.activeSpaceId(), path).subscribe({
       next: () => {
         this.newFolderName = '';
         this.showNewFolder.set(false);
@@ -894,7 +897,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     const from = this.join(this.currentPath(), entry.name);
     const parentDir = this.currentPath();
     const to = this.join(parentDir, this.renameValue.trim());
-    this.api.moveFile(this.activeSpaceId(), from, to).subscribe({
+    this.filesApi.moveFile(this.activeSpaceId(), from, to).subscribe({
       next: () => {
         this.renamingEntry.set('');
         this.loadDir(this.currentPath());
@@ -912,7 +915,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     });
     if (!ok) return;
     const path = this.join(this.currentPath(), entry.name);
-    this.api.deleteFile(this.activeSpaceId(), path).subscribe({
+    this.filesApi.deleteFile(this.activeSpaceId(), path).subscribe({
       next: () => { this.loadDir(this.currentPath()); this.fileDeleted.emit(); },
       error: () => this.toast.error(this.transloco.translate('files.error.deleteFailed')),
     });
@@ -920,7 +923,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   /** The file GET URL (no token — auth goes in the fetch header, never the URL). */
   private fileApiUrl(entry: FileEntry): string {
-    return this.api.getFileDownloadUrl(this.activeSpaceId(), this.join(this.currentPath(), entry.name));
+    return this.filesApi.getFileDownloadUrl(this.activeSpaceId(), this.join(this.currentPath(), entry.name));
   }
 
   /**
@@ -987,7 +990,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   private loadTreeRoot(): void {
     const spaceId = this.activeSpaceId();
     if (!spaceId) return;
-    this.api.listFiles(spaceId, '/').subscribe({
+    this.filesApi.listFiles(spaceId, '/').subscribe({
       next: ({ entries }) => {
         this.treeRoot.set(
           entries
@@ -1017,7 +1020,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     }
     node.loading = true;
     this.treeRoot.set([...this.treeRoot()]);
-    this.api.listFiles(this.activeSpaceId(), node.path).subscribe({
+    this.filesApi.listFiles(this.activeSpaceId(), node.path).subscribe({
       next: ({ entries }) => {
         node.children = entries
           .filter(e => e.isDirectory)

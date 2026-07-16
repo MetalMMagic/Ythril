@@ -1,7 +1,7 @@
 import { Component, Input, Output, EventEmitter, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
-import { PropertySchema } from '../core/api.service';
+import { PropertySchema } from '../core/api.types';
 import { PhIconComponent } from './ph-icon.component';
 
 export interface PropSchemaRow {

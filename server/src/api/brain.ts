@@ -26,7 +26,7 @@ import { needsReindex, clearReindexFlag } from '../spaces/spaces.js';
 import { log } from '../util/log.js';
 import { parseLimit, parseSkip, capPage } from '../util/pagination.js';
 import { checkQuota, QuotaError } from '../quota/quota.js';
-import { resolveMemberSpaces, resolveWriteTarget, findSpace, isProxySpace, isStrictLinkage } from '../spaces/proxy.js';
+import { resolveMemberSpaces, resolveWriteTarget, findSpace, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../spaces/proxy.js';
 import { validateEntity, validateEdge, validateMemory, validateChrono, resolveMetaRefs, getAllowedChronoTypes, type SchemaViolation } from '../spaces/schema-validation.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc, ChronoType, ChronoStatus, SpaceMeta } from '../config/types.js';
 import { reindexInProgress } from '../metrics/registry.js';
@@ -178,11 +178,9 @@ brainRouter.get('/spaces/:spaceId/memories/:id', globalRateLimit, requireSpaceAu
     res.status(404).json({ error: `Space '${spaceId}' not found` });
     return;
   }
-  const memberIds = resolveMemberSpaces(spaceId);
-  for (const mid of memberIds) {
-    const doc = await col<MemoryDoc>(`${mid}_memories`).findOne(asFilter<MemoryDoc>({ _id: id })) as MemoryDoc | null;
-    if (doc) { res.json(doc); return; }
-  }
+  const doc = await findFirstAcrossMembers(spaceId,
+    mid => col<MemoryDoc>(`${mid}_memories`).findOne(asFilter<MemoryDoc>({ _id: id })));
+  if (doc) { res.json(doc); return; }
   res.status(404).json({ error: 'Memory not found' });
 });
 
@@ -222,8 +220,7 @@ brainRouter.get('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAuth, 
   const limit = parseLimit(req.query['limit'], 100, 500);
   const skip = parseSkip(req.query['skip']);
   const filter = buildMemoryFilter(req.query as Record<string, unknown>);
-  const memberIds = resolveMemberSpaces(spaceId);
-  const all = (await Promise.all(memberIds.map(mid => listMemories(mid, filter, limit, skip)))).flat();
+  const all = await collectAcrossMembers(spaceId, mid => listMemories(mid, filter, limit, skip));
   res.json({ memories: capPage(all, limit), limit, skip });
 });
 
@@ -231,13 +228,8 @@ brainRouter.get('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAuth, 
 brainRouter.delete('/spaces/:spaceId/memories/:id', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
-  const memberIds = resolveMemberSpaces(spaceId);
-  for (const mid of memberIds) {
-    if (await deleteMemory(mid, id, webhookToken(req))) {
-      res.status(204).end();
-      return;
-    }
-  }
+  const deleted = await findFirstAcrossMembers(spaceId, mid => deleteMemory(mid, id, webhookToken(req)));
+  if (deleted) { res.status(204).end(); return; }
   res.status(404).json({ error: 'Memory not found' });
 });
 
@@ -479,8 +471,7 @@ brainRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAuth, 
   if (typeof req.query['name'] === 'string') filter['name'] = req.query['name'];
   if (typeof req.query['type'] === 'string') filter['type'] = req.query['type'];
   if (typeof req.query['tag'] === 'string') filter['tags'] = req.query['tag'];
-  const memberIds = resolveMemberSpaces(spaceId);
-  const all = (await Promise.all(memberIds.map(mid => listEntities(mid, filter, limit, skip)))).flat();
+  const all = await collectAcrossMembers(spaceId, mid => listEntities(mid, filter, limit, skip));
   res.json({ entities: capPage(all, limit), limit, skip });
 });
 
@@ -499,8 +490,7 @@ brainRouter.get('/spaces/:spaceId/entities/by-ids', globalRateLimit, requireSpac
   }
   const ids = [...new Set(raw.split(',').map(s => s.trim()).filter(Boolean))].slice(0, 100);
   if (!ids.length) { res.json({ entities: [] }); return; }
-  const memberIds = resolveMemberSpaces(spaceId);
-  const all = (await Promise.all(memberIds.map(mid => listEntities(mid, { _id: { $in: ids } }, 100)))).flat();
+  const all = await collectAcrossMembers(spaceId, mid => listEntities(mid, { _id: { $in: ids } }, 100));
   res.json({ entities: all });
 });
 
@@ -517,10 +507,9 @@ brainRouter.get('/spaces/:spaceId/entities/by-name', globalRateLimit, requireSpa
     res.status(400).json({ error: '`name` query parameter required' });
     return;
   }
-  const memberIds = resolveMemberSpaces(spaceId);
   // Case-insensitive substring search — escape user input to prevent ReDoS
   const escaped = escapeRegex(name.trim());
-  const all = (await Promise.all(memberIds.map(mid => listEntities(mid, { name: { $regex: escaped, $options: 'i' } }, 20)))).flat();
+  const all = await collectAcrossMembers(spaceId, mid => listEntities(mid, { name: { $regex: escaped, $options: 'i' } }, 20));
   res.json({ entities: all });
 });
 
@@ -528,11 +517,8 @@ brainRouter.get('/spaces/:spaceId/entities/by-name', globalRateLimit, requireSpa
 brainRouter.get('/spaces/:spaceId/entities/:id', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
-  const memberIds = resolveMemberSpaces(spaceId);
-  for (const mid of memberIds) {
-    const doc = await getEntityById(mid, id);
-    if (doc) { res.json(doc); return; }
-  }
+  const doc = await findFirstAcrossMembers(spaceId, mid => getEntityById(mid, id));
+  if (doc) { res.json(doc); return; }
   res.status(404).json({ error: 'Entity not found' });
 });
 
@@ -761,18 +747,16 @@ brainRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
   if (typeof req.query['label'] === 'string') filter.label = req.query['label'];
   if (typeof req.query['type'] === 'string') filter.type = req.query['type'];
   if (typeof req.query['tag'] === 'string') filter.tag = req.query['tag'];
-  const memberIds = resolveMemberSpaces(spaceId);
-  const all = (await Promise.all(memberIds.map(mid => listEdges(mid, filter, limit, skip)))).flat();
+  const all = await collectAcrossMembers(spaceId, mid => listEdges(mid, filter, limit, skip));
   // Batch-resolve entity names for from/to so the client can display names instead of raw UUIDs
   const allEntityIds = [...new Set(all.flatMap(e => [e.from, e.to]))];
   const nameMap = new Map<string, string>();
   if (allEntityIds.length) {
-    await Promise.all(memberIds.map(async (mid) => {
-      const docs = await col<{ _id: string; name: string }>(`${mid}_entities`)
+    const nameDocs = await collectAcrossMembers(spaceId, mid =>
+      col<{ _id: string; name: string }>(`${mid}_entities`)
         .find(asFilter<{ _id: string; name: string }>({ _id: { $in: allEntityIds } }), { projection: { _id: 1, name: 1 } })
-        .toArray();
-      for (const d of docs) nameMap.set(String(d._id), d.name);
-    }));
+        .toArray());
+    for (const d of nameDocs) nameMap.set(String(d._id), d.name);
   }
   const enriched = all.map(e => ({ ...e, fromName: nameMap.get(e.from), toName: nameMap.get(e.to) }));
   res.json({ edges: capPage(enriched, limit), limit, skip });
@@ -782,11 +766,8 @@ brainRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
 brainRouter.get('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
-  const memberIds = resolveMemberSpaces(spaceId);
-  for (const mid of memberIds) {
-    const doc = await getEdgeById(mid, id);
-    if (doc) { res.json(doc); return; }
-  }
+  const doc = await findFirstAcrossMembers(spaceId, mid => getEdgeById(mid, id));
+  if (doc) { res.json(doc); return; }
   res.status(404).json({ error: 'Edge not found' });
 });
 
@@ -794,13 +775,8 @@ brainRouter.get('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAuth,
 brainRouter.delete('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
-  const memberIds = resolveMemberSpaces(spaceId);
-  for (const mid of memberIds) {
-    if (await deleteEdge(mid, id, webhookToken(req))) {
-      res.status(204).end();
-      return;
-    }
-  }
+  const deleted = await findFirstAcrossMembers(spaceId, mid => deleteEdge(mid, id, webhookToken(req)));
+  if (deleted) { res.status(204).end(); return; }
   res.status(404).json({ error: 'Edge not found' });
 });
 
@@ -1124,17 +1100,11 @@ brainRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAu
       ? (properties as Record<string, string | number | boolean>)
       : undefined;
 
-  const memberIds = resolveMemberSpaces(wt.target);
-  for (const mid of memberIds) {
-    const updated = await updateChrono(mid, id, {
-      title, type, startsAt, endsAt, status, confidence,
-      tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
-    }, webhookToken(req));
-    if (updated) {
-      res.json(updated);
-      return;
-    }
-  }
+  const updated = await findFirstAcrossMembers(wt.target, mid => updateChrono(mid, id, {
+    title, type, startsAt, endsAt, status, confidence,
+    tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
+  }, webhookToken(req)));
+  if (updated) { res.json(updated); return; }
   res.status(404).json({ error: 'Chrono entry not found' });
 });
 
@@ -1142,11 +1112,8 @@ brainRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAu
 brainRouter.get('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAuth, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
-  const memberIds = resolveMemberSpaces(spaceId);
-  for (const mid of memberIds) {
-    const doc = await getChronoById(mid, id);
-    if (doc) { res.json(doc); return; }
-  }
+  const doc = await findFirstAcrossMembers(spaceId, mid => getChronoById(mid, id));
+  if (doc) { res.json(doc); return; }
   res.status(404).json({ error: 'Chrono entry not found' });
 });
 
@@ -1184,8 +1151,7 @@ brainRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, as
   if (typeof req.query['before'] === 'string') filter.before = req.query['before'];
   if (typeof req.query['search'] === 'string') filter.search = req.query['search'];
 
-  const memberIds = resolveMemberSpaces(spaceId);
-  const all = (await Promise.all(memberIds.map(mid => listChrono(mid, filter, limit, skip)))).flat();
+  const all = await collectAcrossMembers(spaceId, mid => listChrono(mid, filter, limit, skip));
   res.json({ chrono: capPage(all, limit), limit, skip });
 });
 
@@ -1193,13 +1159,8 @@ brainRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, as
 brainRouter.delete('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
   const spaceId = req.params['spaceId'] as string;
   const id = req.params['id'] as string;
-  const memberIds = resolveMemberSpaces(spaceId);
-  for (const mid of memberIds) {
-    if (await deleteChrono(mid, id, webhookToken(req))) {
-      res.status(204).end();
-      return;
-    }
-  }
+  const deleted = await findFirstAcrossMembers(spaceId, mid => deleteChrono(mid, id, webhookToken(req)));
+  if (deleted) { res.status(204).end(); return; }
   res.status(404).json({ error: 'Chrono entry not found' });
 });
 
@@ -1240,15 +1201,14 @@ brainRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, asy
   if (!includeChunks) filter['parentFileId'] = { $exists: false };
   if (typeof req.query['tag'] === 'string') filter['tags'] = req.query['tag'];
   if (typeof req.query['path'] === 'string') filter['path'] = toDocId(req.query['path']);
-  const memberIds = resolveMemberSpaces(spaceId);
-  const all = (await Promise.all(memberIds.map(mid =>
+  const all = await collectAcrossMembers(spaceId, mid =>
     col(`${mid}_files`)
       .find(asFilter(filter))
       .sort({ updatedAt: -1 })
       .skip(skip)
       .limit(limit)
       .toArray(),
-  ))).flat();
+  );
   res.json({ files: capPage(all, limit), limit, skip });
 });
 
@@ -1308,11 +1268,9 @@ brainRouter.patch('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, d
     res.status(400).json({ error: '`properties` must be a plain object' }); return;
   }
 
-  const memberIds = resolveMemberSpaces(wt.target);
-  for (const mid of memberIds) {
-    const updated = await updateFileMeta(mid, path, { description, tags, entityIds, chronoIds, memoryIds, properties });
-    if (updated) { res.json(updated); return; }
-  }
+  const updated = await findFirstAcrossMembers(wt.target,
+    mid => updateFileMeta(mid, path, { description, tags, entityIds, chronoIds, memoryIds, properties }));
+  if (updated) { res.json(updated); return; }
   res.status(404).json({ error: 'File metadata record not found' });
 });
 
@@ -1342,19 +1300,16 @@ brainRouter.post('/spaces/:spaceId/query', globalRateLimit, requireSpaceAuth, as
   const safeMaxTimeMS = typeof maxTimeMS === 'number' ? maxTimeMS : 5000;
 
   try {
-    const memberIds = resolveMemberSpaces(spaceId);
-    const docs = (await Promise.all(
-      memberIds.map(mid =>
-        queryBrain(
-          mid,
-          collection as typeof validCollections[number],
-          safeFilter,
-          safeProjection,
-          safeLimit,
-          safeMaxTimeMS,
-        ),
+    const docs = await collectAcrossMembers(spaceId, mid =>
+      queryBrain(
+        mid,
+        collection as typeof validCollections[number],
+        safeFilter,
+        safeProjection,
+        safeLimit,
+        safeMaxTimeMS,
       ),
-    )).flat();
+    );
     res.json({ results: docs, collection, count: docs.length });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);

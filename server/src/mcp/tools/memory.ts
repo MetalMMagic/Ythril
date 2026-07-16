@@ -10,7 +10,7 @@ import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
 import { QuotaError, checkQuota } from '../../quota/quota.js';
 import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
-import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
+import { isStrictLinkage, resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { getAllowedChronoTypes, resolveMetaRefs, validateChrono, validateEdge, validateEntity, validateMemory } from '../../spaces/schema-validation.js';
 
 export const rememberTool: ToolHandler = {
@@ -173,13 +173,8 @@ export const update_memoryTool: ToolHandler = {
 
     if (Object.keys(updates).length === 0 && !dfPaths) throw new Error('At least one of fact, tags, entityIds, description, properties, or deleteFields must be provided');
 
-    const memberIds = resolveMemberSpaces(wt.target);
     // Search member spaces sequentially — consistent with REST endpoint behaviour.
-    let updated = null;
-    for (const mid of memberIds) {
-      updated = await updateMemory(mid, id, updates, dfPaths, ctx.actor);
-      if (updated) break;
-    }
+    const updated = await findFirstAcrossMembers(wt.target, mid => updateMemory(mid, id, updates, dfPaths, ctx.actor));
     if (!updated) throw new Error(`Memory '${id}' not found`);
     return {
       content: [{ type: 'text' as const, text: `Memory updated (ID ${updated._id}, seq ${updated.seq}).` }],
@@ -209,11 +204,7 @@ export const delete_memoryTool: ToolHandler = {
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
 
-    const memberIds = resolveMemberSpaces(wt.target);
-    let deleted = false;
-    for (const mid of memberIds) {
-      if (await deleteMemory(mid, id, ctx.actor)) { deleted = true; break; }
-    }
+    const deleted = await findFirstAcrossMembers(wt.target, mid => deleteMemory(mid, id, ctx.actor));
     if (!deleted) throw new Error(`Memory '${id}' not found`);
     return {
       content: [{ type: 'text' as const, text: `Memory deleted (ID ${id}).` }],
@@ -459,8 +450,7 @@ export const queryTool: ToolHandler = {
         ? (a['projection'] as Record<string, unknown>)
         : undefined;
 
-    const memberIds = resolveMemberSpaces(callSpace);
-    const docs = (await Promise.all(memberIds.map(mid =>
+    const docs = await collectAcrossMembers(callSpace, mid =>
       queryBrain(
         mid,
         collName as 'memories' | 'entities' | 'edges' | 'chrono' | 'files',
@@ -468,8 +458,7 @@ export const queryTool: ToolHandler = {
         projection,
         limit,
         maxTimeMS,
-      ),
-    ))).flat();
+      ));
     return {
       content: [
         {

@@ -646,6 +646,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Centralised the proxy member-space fan-out into two shared helpers
+  (`findFirstAcrossMembers` / `collectAcrossMembers`).** A proxy space reads and writes across its
+  member spaces, and two idioms were hand-rolled ~40 times across the REST brain routes and MCP
+  tools: "try each member in order, stop at the first hit" (get/update/delete by id) and "query
+  every member and flatten" (list/search). Both now live once in `spaces/proxy.ts`, so proxy
+  semantics (member ordering, the resolve step, the first-hit `accept` rule) can't drift between
+  surfaces. 22 clean call sites were converted (`api/brain.ts` and the MCP memory/entity/edge
+  tools); the remaining member loops are intentionally left as-is because they aren't the two clean
+  idioms — schema-validation loops with early error returns, directory-listing aggregation with
+  per-member `try/catch` tolerance and name de-duplication, and graph traversal that already takes a
+  pre-resolved member array. Pure refactor, no behavior change; covered by the existing
+  `proxy-spaces` integration suite (which exercises proxy read/list/update/delete end-to-end).
+  (ARCHITECTURE-TODO A16.)
+
 - **Unified file-processing dispatch into one shared helper (`files/dispatch.ts`), and MCP
   `write_file` now converts documents asynchronously like REST.** The "resolve format → media job |
   document conversion" sequence was inlined in three places — the REST single-request upload, the

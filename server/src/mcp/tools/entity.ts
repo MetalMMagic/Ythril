@@ -4,7 +4,7 @@ import { validateDeleteFields } from '../../brain/delete-fields.js';
 import { findEntitiesByName, updateEntityById, upsertEntity } from '../../brain/entities.js';
 import { type PropertyResolution, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
 import { getConfig } from '../../config/loader.js';
-import { isProxySpace, resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
+import { isProxySpace, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateEntity } from '../../spaces/schema-validation.js';
 
 export const upsert_entityTool: ToolHandler = {
@@ -119,12 +119,7 @@ export const update_entityTool: ToolHandler = {
       updates.properties = a['properties'] as Record<string, string | number | boolean>;
     }
     if (Object.keys(updates).length === 0 && !dfPaths) throw new Error('At least one of name, type, description, tags, properties, or deleteFields must be provided');
-    const memberIds = resolveMemberSpaces(wt.target);
-    let updatedEnt = null;
-    for (const mid of memberIds) {
-      updatedEnt = await updateEntityById(mid, id, updates, dfPaths, ctx.actor);
-      if (updatedEnt) break;
-    }
+    const updatedEnt = await findFirstAcrossMembers(wt.target, mid => updateEntityById(mid, id, updates, dfPaths, ctx.actor));
     if (!updatedEnt) throw new Error(`Entity '${id}' not found`);
     return {
       content: [{ type: 'text' as const, text: `Entity '${updatedEnt.name}' (${updatedEnt.type}) updated (ID ${updatedEnt._id}, seq ${updatedEnt.seq}).` }],
@@ -268,8 +263,7 @@ export const find_entities_by_nameTool: ToolHandler = {
     const { args: a, callSpace, name } = ctx;
     const searchName = String(a['name'] ?? '').trim();
     if (!searchName) throw new Error('name must not be empty');
-    const memberIds = resolveMemberSpaces(callSpace);
-    const all = (await Promise.all(memberIds.map(mid => findEntitiesByName(mid, searchName)))).flat();
+    const all = await collectAcrossMembers(callSpace, mid => findEntitiesByName(mid, searchName));
     if (all.length === 0) {
       return { content: [{ type: 'text' as const, text: `No entities found with name '${searchName}'.` }] };
     }

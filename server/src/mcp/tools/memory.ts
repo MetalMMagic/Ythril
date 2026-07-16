@@ -1,4 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { bulkWrite, bulkWriteTotal } from '../../brain/bulk.js';
 import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, type McpRecallTraverseItem } from './shared.js';
 import { createChrono } from '../../brain/chrono.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
@@ -570,180 +571,16 @@ export const bulk_writeTool: ToolHandler = {
     if (!wt.ok) throw new Error(wt.error);
     const ts = wt.target;
 
-    // Schema validation context
-    const bwMetaRaw = getConfig().spaces.find(s => s.id === ts)?.meta;
-    const bwMeta = bwMetaRaw ? resolveMetaRefs(bwMetaRaw) : undefined;
-    const bwValidation = bwMeta?.validationMode ?? 'off';
-
-    const BULK_MAX = 500;
-    const rawMemories = Array.isArray(a['memories']) ? (a['memories'] as unknown[]).slice(0, BULK_MAX) : [];
-    const rawEntities = Array.isArray(a['entities']) ? (a['entities'] as unknown[]).slice(0, BULK_MAX) : [];
-    const rawEdges    = Array.isArray(a['edges'])    ? (a['edges']    as unknown[]).slice(0, BULK_MAX) : [];
-    const rawChrono   = Array.isArray(a['chrono'])   ? (a['chrono']   as unknown[]).slice(0, BULK_MAX) : [];
-
-    const inserted = { memories: 0, entities: 0, edges: 0, chrono: 0 };
-    const updated  = { memories: 0, entities: 0, edges: 0, chrono: 0 };
-    const errors: { type: string; index: number; reason: string }[] = [];
-
-    // memories
-    for (let i = 0; i < rawMemories.length; i++) {
-      const item = rawMemories[i] as Record<string, unknown>;
-      const fact = typeof item['fact'] === 'string' ? item['fact'].trim() : '';
-      if (!fact) { errors.push({ type: 'memory', index: i, reason: 'missing required field: fact' }); continue; }
-      const tags     = Array.isArray(item['tags'])      ? (item['tags']      as unknown[]).filter((t): t is string => typeof t === 'string') : [];
-      const entityIds = Array.isArray(item['entityIds']) ? (item['entityIds'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
-      const description = typeof item['description'] === 'string' ? item['description'] : undefined;
-      const props = (item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties']))
-        ? (item['properties'] as Record<string, string | number | boolean>) : undefined;
-      // Without `type`, validateMemory() cannot find a per-type schema and always returns
-      // zero violations — so strict mode was unenforceable on this path. See `remember`.
-      const memType = typeof item['type'] === 'string' && item['type'].trim() ? (item['type'] as string) : undefined;
-      try {
-        // Schema validation per memory
-        if (bwValidation !== 'off' && bwMeta) {
-          const sv = validateMemory(bwMeta, { type: memType, properties: props });
-          if (sv.length > 0) {
-            if (bwValidation === 'strict') { errors.push({ type: 'memory', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
-            for (const v of sv) errors.push({ type: 'memory', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
-          }
-        }
-        await remember(ts, fact, entityIds, tags, description, props, undefined, memType);
-        inserted.memories++;
-      } catch (err) {
-        errors.push({ type: 'memory', index: i, reason: err instanceof Error ? err.message : String(err) });
-      }
+    const result = await bulkWrite(ts, {
+      memories: a['memories'], entities: a['entities'], edges: a['edges'], chrono: a['chrono'],
+    });
+    if (bulkWriteTotal(result) > 0) {
+      // Bulk suppresses per-item webhooks; emit ONE summary a workflow can inspect.
+      emitWebhookEvent({ event: 'bulk.write', spaceId: ts, entry: { inserted: result.inserted, updated: result.updated, errorCount: result.errors.length }, ...(ctx.actor ?? {}) });
     }
-
-    // entities
-    for (let i = 0; i < rawEntities.length; i++) {
-      const item = rawEntities[i] as Record<string, unknown>;
-      const eName = typeof item['name'] === 'string' ? item['name'].trim() : '';
-      const eType = typeof item['type'] === 'string' ? item['type'].trim() : '';
-      if (!eName) { errors.push({ type: 'entity', index: i, reason: 'missing required field: name' }); continue; }
-      if (!eType) { errors.push({ type: 'entity', index: i, reason: 'missing required field: type' }); continue; }
-      const rawId = typeof item['id'] === 'string' ? item['id'].trim() : undefined;
-      if (rawId !== undefined && !UUID_V4_RE.test(rawId)) {
-        errors.push({ type: 'entity', index: i, reason: '`id` must be a valid UUID v4' }); continue;
-      }
-      const tags = Array.isArray(item['tags']) ? (item['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : [];
-      const description = typeof item['description'] === 'string' ? item['description'] : undefined;
-      const props = (item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties']))
-        ? (item['properties'] as Record<string, string | number | boolean>) : {};
-      try {
-        // Schema validation per entity
-        if (bwValidation !== 'off' && bwMeta) {
-          const sv = validateEntity(bwMeta, { name: eName, type: eType, properties: props });
-          if (sv.length > 0) {
-            if (bwValidation === 'strict') { errors.push({ type: 'entity', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
-            for (const v of sv) errors.push({ type: 'entity', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
-          }
-        }
-        // Check for existing entity by ID (if supplied) to determine inserted vs updated
-        const existing = rawId
-          ? await col<import('../../config/types.js').EntityDoc>(`${ts}_entities`).findOne(asFilter({ _id: rawId, spaceId: ts }))
-          : null;
-        const result = await upsertEntity(ts, eName, eType, tags, props, description, rawId);
-        if (existing) { updated.entities++; } else { inserted.entities++; }
-        if (result.warning) { errors.push({ type: 'entity', index: i, reason: result.warning }); }
-      } catch (err) {
-        errors.push({ type: 'entity', index: i, reason: err instanceof Error ? err.message : String(err) });
-      }
-    }
-
-    // edges
-    for (let i = 0; i < rawEdges.length; i++) {
-      const item = rawEdges[i] as Record<string, unknown>;
-      const from  = typeof item['from']  === 'string' ? item['from'].trim()  : '';
-      const to    = typeof item['to']    === 'string' ? item['to'].trim()    : '';
-      const label = typeof item['label'] === 'string' ? item['label'].trim() : '';
-      if (!from)  { errors.push({ type: 'edge', index: i, reason: 'missing required field: from' });  continue; }
-      if (isStrictLinkage(ts) && !UUID_V4_RE.test(from)) { errors.push({ type: 'edge', index: i, reason: '`from` must be a valid UUID v4 (entity ID), not a name' }); continue; }
-      if (!to)    { errors.push({ type: 'edge', index: i, reason: 'missing required field: to' });    continue; }
-      if (isStrictLinkage(ts) && !UUID_V4_RE.test(to)) { errors.push({ type: 'edge', index: i, reason: '`to` must be a valid UUID v4 (entity ID), not a name' }); continue; }
-      if (!label) { errors.push({ type: 'edge', index: i, reason: 'missing required field: label' }); continue; }
-      const weight      = typeof item['weight'] === 'number' ? item['weight'] : undefined;
-      const edgeType    = typeof item['type']   === 'string' ? item['type']   : undefined;
-      const description = typeof item['description'] === 'string' ? item['description'] : undefined;
-      const tags        = Array.isArray(item['tags']) ? (item['tags'] as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
-      const props       = (item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties']))
-        ? (item['properties'] as Record<string, string | number | boolean>) : undefined;
-      try {
-        // Schema validation per edge — `properties` must be passed, or property schemas
-        // (required keys, types, enums) are never checked and strict mode is a no-op here.
-        // MCP upsert_edge and REST both pass it; only this bulk path omitted it.
-        if (bwValidation !== 'off' && bwMeta) {
-          const sv = validateEdge(bwMeta, { label, properties: props });
-          if (sv.length > 0) {
-            if (bwValidation === 'strict') { errors.push({ type: 'edge', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
-            for (const v of sv) errors.push({ type: 'edge', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
-          }
-        }
-        const existing = await col<import('../../config/types.js').EdgeDoc>(`${ts}_edges`).findOne(asFilter({ spaceId: ts, from, to, label }));
-        await upsertEdge(ts, from, to, label, weight, edgeType, description, props, tags);
-        if (existing) { updated.edges++; } else { inserted.edges++; }
-      } catch (err) {
-        errors.push({ type: 'edge', index: i, reason: err instanceof Error ? err.message : String(err) });
-      }
-    }
-
-    // chrono
-    const bwAllowedChronoTypes = getAllowedChronoTypes(bwMeta);
-    for (let i = 0; i < rawChrono.length; i++) {
-      const item = rawChrono[i] as Record<string, unknown>;
-      const title    = typeof item['title']    === 'string' ? item['title'].trim() : '';
-      const bwType   = typeof item['type']     === 'string' ? item['type']         : '';
-      const startsAt = typeof item['startsAt'] === 'string' ? item['startsAt']     : '';
-      if (!title)   { errors.push({ type: 'chrono', index: i, reason: 'missing required field: title' });   continue; }
-      if (!bwAllowedChronoTypes.has(bwType)) { errors.push({ type: 'chrono', index: i, reason: `\`type\` must be one of: ${[...bwAllowedChronoTypes].join(', ')}` }); continue; }
-      if (!startsAt) { errors.push({ type: 'chrono', index: i, reason: 'missing required field: startsAt' }); continue; }
-      const endsAt      = typeof item['endsAt']      === 'string' ? item['endsAt']      : undefined;
-      const status      = typeof item['status']      === 'string' ? item['status']      : undefined;
-      const confidence  = typeof item['confidence']  === 'number' ? item['confidence']  : undefined;
-      const description = typeof item['description'] === 'string' ? item['description'] : undefined;
-      const tags        = Array.isArray(item['tags'])       ? (item['tags']       as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
-      const entityIds   = Array.isArray(item['entityIds'])  ? (item['entityIds']  as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
-      const memoryIds   = Array.isArray(item['memoryIds'])  ? (item['memoryIds']  as unknown[]).filter((t): t is string => typeof t === 'string') : undefined;
-      if (entityIds && isStrictLinkage(ts)) {
-        const invalidEIds = entityIds.filter(id => !UUID_V4_RE.test(id));
-        if (invalidEIds.length > 0) { errors.push({ type: 'chrono', index: i, reason: '`entityIds` must contain valid UUID v4 values (entity IDs), not names' }); continue; }
-      }
-      if (memoryIds && isStrictLinkage(ts)) {
-        const invalidMIds = memoryIds.filter(id => !UUID_V4_RE.test(id));
-        if (invalidMIds.length > 0) { errors.push({ type: 'chrono', index: i, reason: '`memoryIds` must contain valid UUID v4 values (memory IDs), not names' }); continue; }
-      }
-      const props       = (item['properties'] != null && typeof item['properties'] === 'object' && !Array.isArray(item['properties']))
-        ? (item['properties'] as Record<string, string | number | boolean>) : undefined;
-      try {
-        // Schema validation per chrono
-        if (bwValidation !== 'off' && bwMeta) {
-          const sv = validateChrono(bwMeta, { type: bwType, properties: props });
-          if (sv.length > 0) {
-            if (bwValidation === 'strict') { errors.push({ type: 'chrono', index: i, reason: `schema_violation: ${sv.map(v => v.reason).join('; ')}` }); continue; }
-            for (const v of sv) errors.push({ type: 'chrono', index: i, reason: `schema_warning: ${v.field} — ${v.reason}` });
-          }
-        }
-        await createChrono(ts, {
-          title, type: bwType as import('../../config/types.js').ChronoType, startsAt, endsAt,
-          status: status as import('../../config/types.js').ChronoStatus | undefined,
-          confidence, description, tags, entityIds, memoryIds, properties: props,
-        });
-        inserted.chrono++;
-      } catch (err) {
-        errors.push({ type: 'chrono', index: i, reason: err instanceof Error ? err.message : String(err) });
-      }
-    }
-
-    // Per-item webhooks are suppressed for bulk (the shared functions get no actor); emit ONE
-    // summary event a workflow can inspect afterwards, matching the REST /bulk endpoint.
-    const bulkTotal = inserted.memories + inserted.entities + inserted.edges + inserted.chrono
-      + updated.entities + updated.edges;
-    if (bulkTotal > 0) {
-      emitWebhookEvent({ event: 'bulk.write', spaceId: ts, entry: { inserted, updated, errorCount: errors.length }, ...(ctx.actor ?? {}) });
-    }
-
-    const summary = `bulk_write complete — inserted: ${JSON.stringify(inserted)}, updated: ${JSON.stringify(updated)}, errors: ${errors.length}`;
+    const summary = `bulk_write complete — inserted: ${JSON.stringify(result.inserted)}, updated: ${JSON.stringify(result.updated)}, errors: ${result.errors.length}`;
     return {
-      content: [{ type: 'text' as const, text: summary + (errors.length > 0 ? '\n' + JSON.stringify(errors, null, 2) : '') }],
+      content: [{ type: 'text' as const, text: summary + (result.errors.length > 0 ? '\n' + JSON.stringify(result.errors, null, 2) : '') }],
       isError: false,
     };
   },

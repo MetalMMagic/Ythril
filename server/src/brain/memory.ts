@@ -9,6 +9,7 @@ import { propsEmbedText } from './embed-text.js';
 import { getConfig, getEmbeddingConfig } from '../config/loader.js';
 import { needsReindex, vectorFilterFieldsFor } from '../spaces/spaces.js';
 import { applyDeleteFields } from './delete-fields.js';
+import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { MemoryDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
 
 // ── Prefiltered recall ────────────────────────────────────────────────────
@@ -164,6 +165,7 @@ export async function remember(
   entityNames?: string[],
   type?: string,
   opts?: DupeCheckOpts,
+  actor?: WebhookActor,
 ): Promise<MemoryDoc & { similar?: SimilarMatch[] }> {
   const names = entityNames ?? await resolveEntityNames(spaceId, entityIds);
   const embedText = memoryEmbedText(fact, tags, names, description, properties);
@@ -202,6 +204,7 @@ export async function remember(
   if (getConfig().spaces.find(s => s.id === spaceId)?.dupeRulesOnInsert) {
     import('./dupe-scanner.js').then(m => m.evaluateRecordForDuplicates(spaceId, 'memory', doc._id)).catch(() => { /* best-effort */ });
   }
+  if (actor) emitWebhookEvent({ event: 'memory.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   return similar ? { ...doc, similar } : doc;
 }
 
@@ -714,6 +717,7 @@ export async function updateMemory(
   memoryId: string,
   updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; type?: string },
   deleteFieldsPaths?: string[],
+  actor?: WebhookActor,
 ): Promise<MemoryDoc | null> {
   const existing = await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: memoryId, spaceId })) as MemoryDoc | null;
   if (!existing) return null;
@@ -791,6 +795,7 @@ export async function updateMemory(
     applyDeleteFields(result as unknown as Record<string, unknown>, deleteFieldsPaths);
   }
 
+  if (actor) emitWebhookEvent({ event: 'memory.updated', spaceId, entry: { ...result, embedding: undefined }, ...actor });
   return result;
 }
 
@@ -798,6 +803,7 @@ export async function updateMemory(
 export async function deleteMemory(
   spaceId: string,
   memoryId: string,
+  actor?: WebhookActor,
 ): Promise<boolean> {
   const existing = await col<MemoryDoc>(`${spaceId}_memories`)
     .findOne(asFilter<MemoryDoc>({ _id: memoryId, spaceId }), { projection: { seq: 1 } }) as { seq?: number } | null;
@@ -822,6 +828,7 @@ export async function deleteMemory(
     asDoc<TombstoneDoc>(tombstone),
     { upsert: true },
   );
+  if (actor) emitWebhookEvent({ event: 'memory.deleted', spaceId, entry: { _id: memoryId }, ...actor });
   return true;
 }
 

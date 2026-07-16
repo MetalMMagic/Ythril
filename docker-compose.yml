@@ -148,13 +148,13 @@
       - ythril-media     # deliberately NOT on ythril-db
 
   # ── Document-conversion sidecar (PDF / DOCX / EPUB → Markdown) ─────────────
-  # Bundles the `unstructured-api-full` server (C2). Without it, `docker compose up`
+  # Bundles the `unstructured-api` server (C2). Without it, `docker compose up`
   # leaves CONVERSION_SIDECAR_URL pointing at nothing and PDF/DOCX/EPUB uploads fail
   # `sidecar_down` — Ythril itself still runs, so it is intentionally NOT a startup
   # dependency of the ythril service (conversion degrades gracefully until it is up).
   #
-  # HEAVY IMAGE: unstructured-api-full bundles OCR model weights (Tesseract/PaddleOCR)
-  # and is ~8–12 GB; first boot is slow (hence the long start_period). See
+  # HEAVY IMAGE: unstructured-api bundles OCR model weights (Tesseract) and is
+  # ~4.5 GB compressed (~6–8 GB on disk); first boot is slow (hence the long start_period). See
   # docs/dependencies.md. To skip it on a resource-constrained workstation, stop it
   # (`docker compose stop unstructured`) or scale it to zero
   # (`docker compose up --scale unstructured=0`); in-process text/HTML conversion and
@@ -167,7 +167,11 @@
   unstructured:
     # Pin the tag and verify the bundled LICENSE (Apache-2.0) before upgrading:
     #   docker run --rm --entrypoint cat <image> /app/LICENSE
-    image: downloads.unstructured.io/unstructured-io/unstructured-api-full:0.0.75
+    # NOTE: the `-full` variant was made private on quay.io (401 UNAUTHORIZED on pull).
+    # The public `unstructured-api` image is the same release minus extra Tesseract
+    # language packs / LibreOffice, and fully supports the hi_res OCR + image-extraction
+    # path Ythril uses. Upstream's README points self-hosters at this image too.
+    image: downloads.unstructured.io/unstructured-io/unstructured-api:0.0.75
     container_name: ythril-unstructured
     restart: unless-stopped
     healthcheck:

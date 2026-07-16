@@ -123,9 +123,7 @@ async function tryAutoMerge(spaceId: string, seed: RecallResult, match: RecallRe
     const { plan, fullyResolved, survivor, absorbed } = result;
     if (!fullyResolved) return false;   // a property value conflict — not lossless, leave for review
     const mergedProps = applyResolutions(survivor.properties ?? {}, absorbed.properties ?? {}, plan.propertyConflicts, plan.absorbedOnlyProperties);
-    const res = await executeMerge(spaceId, survivor, absorbed, mergedProps);
-    emitWebhookEvent({ event: 'entity.merged', spaceId, entry: { survivor: { ...res.entity, embedding: undefined }, absorbedId: absorbed._id, auto: true } });
-    emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...res.entity, embedding: undefined } });
+    await executeMerge(spaceId, survivor, absorbed, mergedProps, { tokenLabel: 'dupe-scanner' });
     log.info(`Auto-merged entity ${absorbed._id} → ${survivor._id} in '${spaceId}' (score ${(match.score ?? 0).toFixed(3)})`);
     return true;
   } catch (err) {

@@ -339,6 +339,7 @@
   "brain.fileMeta.embedding": "Osadzanie…",
   "brain.fileMeta.embeddingFailed": "Osadzanie nie powiodło się",
   "brain.fileMeta.embeddingPartial": "Częściowo osadzone",
+  "brain.fileMeta.deleted": "Usunięto",
   "brain.fileMeta.retryEmbedding": "Ponów",
   "brain.fileMeta.picker.searchMemories": "Szukaj wspomnień…",
   "brain.fileMeta.picker.searchChrono": "Szukaj chrono…",

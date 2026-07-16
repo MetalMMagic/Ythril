@@ -1,0 +1,115 @@
+name: Image Pin Check
+
+# Verifies that every externally-hosted image/model Ythril pins is still pullable
+# with anonymous credentials — WITHOUT downloading them (manifest HEAD only).
+#
+# Why this exists: upstreams have twice broken a pinned reference out from under us
+# with no code change on our side —
+#   - #218/#220: `unstructured-api-full` was made PRIVATE on quay.io (401 on pull).
+#   - #219:      the Ollama vision model `moondream2` was renamed to `moondream` (404).
+# Both surfaced only when a developer ran `docker compose up`. This job catches the
+# next one on a schedule (and at PR time when a pin changes) instead.
+#
+# It needs no secrets: every check uses anonymous registry auth, exactly like a fresh
+# `docker pull` on a clean machine would.
+
+on:
+  schedule:
+    # Weekly, Monday 07:00 UTC. A failed scheduled run emails the repo's watchers and
+    # shows red in the Actions tab — that is the notification.
+    - cron: '0 7 * * 1'
+  workflow_dispatch: {}
+  pull_request:
+    # Also verify at PR time whenever a pinned reference could change, so a bad new
+    # pin fails the PR instead of a teammate's first `docker compose up`.
+    paths:
+      - 'docker-compose.yml'
+      - 'testing/docker-compose.test.yml'
+      - 'kubernetes/manifests/**'
+      - '.github/workflows/image-pin-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Verify pinned images are pullable
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        # `docker buildx imagetools inspect` resolves a remote manifest via the registry's
+        # normal anonymous token flow and never pulls layers — the faithful, registry-agnostic
+        # equivalent of "can `docker pull` see this?" for Docker Hub, quay, and the
+        # downloads.unstructured.io mirror alike.
+        uses: docker/setup-buildx-action@v3
+
+      - name: Check container image manifests
+        run: |
+          set -uo pipefail
+
+          # Collect every `image:` reference from the files that pin external images,
+          # strip any trailing `# comment`, and dedupe. Parsing the real deploy files
+          # (rather than a hand-maintained list here) means this check cannot drift from
+          # what we actually ship.
+          mapfile -t ALL_REFS < <(
+            grep -rhoE '^\s*image:[[:space:]]*[^[:space:]#]+' \
+              docker-compose.yml testing/docker-compose.test.yml kubernetes/manifests/ \
+              | sed -E 's/^\s*image:[[:space:]]*//' \
+              | sort -u
+          )
+
+          # First-party images are built in-repo / published by our own release pipeline —
+          # not an upstream that can disappear — so they are out of scope for this check.
+          FIRST_PARTY='^(ghcr\.io/ythril-network/ythril|ythril-local|ythril-test)'
+
+          fail=0
+          echo "## Image pin check" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Reference | Status |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+
+          for ref in "${ALL_REFS[@]}"; do
+            if printf '%s' "$ref" | grep -qE "$FIRST_PARTY"; then
+              echo "skip (first-party): $ref"
+              continue
+            fi
+            if docker buildx imagetools inspect "$ref" > /dev/null 2>&1; then
+              echo "OK    $ref"
+              echo "| \`$ref\` | ✅ pullable |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "FAIL  $ref  — manifest not resolvable with anonymous credentials"
+              echo "| \`$ref\` | ❌ **not pullable** |" >> "$GITHUB_STEP_SUMMARY"
+              fail=1
+            fi
+          done
+
+          # Ollama vision model. Not an `image:` line — the sidecar pulls it at runtime from
+          # the Ollama registry — but it is a pinned upstream reference with the same failure
+          # mode (#219). Default model name lives in server/src/files/media/providers.ts.
+          OLLAMA_MODEL='moondream'
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+            "https://registry.ollama.ai/v2/library/${OLLAMA_MODEL}/manifests/latest")
+          if [ "$code" = "200" ]; then
+            echo "OK    ollama model: ${OLLAMA_MODEL} (HTTP ${code})"
+            echo "| ollama model \`${OLLAMA_MODEL}\` | ✅ pullable |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "FAIL  ollama model: ${OLLAMA_MODEL} — HTTP ${code} from registry.ollama.ai"
+            echo "| ollama model \`${OLLAMA_MODEL}\` | ❌ **HTTP ${code}** |" >> "$GITHUB_STEP_SUMMARY"
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo ""
+            echo "::error::One or more pinned upstream references are no longer pullable anonymously."
+            echo "An upstream likely privatised, removed, or renamed a tag (see the FAIL rows above)."
+            echo "Fix: find the current replacement image/tag, update the pin in the compose and"
+            echo "kubernetes manifests, and verify the new tag's LICENSE before merging."
+            exit 1
+          fi
+          echo ""
+          echo "All pinned upstream references are pullable."

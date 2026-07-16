@@ -34,6 +34,7 @@ describe('Webhook event types (real ALL_WEBHOOK_EVENTS from the compiled build)'
       'edge.created', 'edge.updated', 'edge.deleted',
       'chrono.created', 'chrono.updated', 'chrono.deleted',
       'file.created', 'file.updated', 'file.deleted',
+      'bulk.write',
       'link_violation.created',
       'duplicate.detected',
       'test.ping',

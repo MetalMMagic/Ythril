@@ -61,7 +61,7 @@ export const upsert_entityTool: ToolHandler = {
     const entDupeCheck = a['checkDuplicates'] !== false;
     const entDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
     const { entity, warning, similar } = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId,
-      { checkDuplicates: entDupeCheck, dupeThreshold: entDupeThreshold });
+      { checkDuplicates: entDupeCheck, dupeThreshold: entDupeThreshold }, ctx.actor);
     let msg = `Entity '${entity.name}' (${entity.type}) upserted (ID ${entity._id}).${warning ? `\n⚠️ ${warning}` : ''}`;
     if (similar && similar.length > 0) {
       msg += `\n⚠️ Possible duplicate — ${similar.length} existing entit${similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. Pass checkDuplicates:false to skip, or provide the existing id to update it instead.`;
@@ -122,7 +122,7 @@ export const update_entityTool: ToolHandler = {
     const memberIds = resolveMemberSpaces(wt.target);
     let updatedEnt = null;
     for (const mid of memberIds) {
-      updatedEnt = await updateEntityById(mid, id, updates, dfPaths);
+      updatedEnt = await updateEntityById(mid, id, updates, dfPaths, ctx.actor);
       if (updatedEnt) break;
     }
     if (!updatedEnt) throw new Error(`Entity '${id}' not found`);
@@ -231,7 +231,7 @@ export const merge_entitiesTool: ToolHandler = {
       plan.absorbedOnlyProperties,
     );
 
-    const mergeResult = await executeMerge(wt.target, survivor, absorbed, mergedProperties);
+    const mergeResult = await executeMerge(wt.target, survivor, absorbed, mergedProperties, ctx.actor);
     const mergedEntity = mergeResult.entity;
 
     const lines: string[] = [

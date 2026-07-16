@@ -170,6 +170,69 @@ describe('File sync — cross-instance', () => {
     assert.equal(check.status, 404, 'Deleted file must not exist on B after sync');
   });
 
+  it('folder deleted on A propagates deletion to B (folder tombstones)', async () => {
+    const dir = `sync-test-${RUN}-deldir`;
+    const f1 = `${dir}/one.txt`;
+    const f2 = `${dir}/nested/two.txt`;
+
+    // Upload two files under the folder and sync both to B.
+    await uploadFile(INSTANCES.a, tokenA, 'general', f1, `a-${RUN}`);
+    await uploadFile(INSTANCES.a, tokenA, 'general', f2, `b-${RUN}`);
+    await triggerAndWait(networkId, tokenA, async () => {
+      const r1 = await downloadFile(INSTANCES.b, tokenB, 'general', f1);
+      const r2 = await downloadFile(INSTANCES.b, tokenB, 'general', f2);
+      return r1.status === 200 && r2.status === 200;
+    });
+
+    // Delete the whole folder on A (requires confirm). Without per-file tombstones,
+    // B's manifest would push these files straight back on the next sync.
+    const delR = await reqJson(INSTANCES.a, tokenA, `/api/files/general?path=${encodeURIComponent(dir)}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ confirm: true }),
+    });
+    assert.equal(delR.status, 204, `Folder delete on A: ${JSON.stringify(delR.body)}`);
+
+    // After sync, BOTH files must be gone on B and must NOT resurrect.
+    await triggerAndWait(networkId, tokenA, async () => {
+      const r1 = await downloadFile(INSTANCES.b, tokenB, 'general', f1);
+      const r2 = await downloadFile(INSTANCES.b, tokenB, 'general', f2);
+      return r1.status === 404 && r2.status === 404;
+    });
+    const c1 = await downloadFile(INSTANCES.b, tokenB, 'general', f1);
+    const c2 = await downloadFile(INSTANCES.b, tokenB, 'general', f2);
+    assert.equal(c1.status, 404, 'Deleted folder file one.txt must not exist on B after sync');
+    assert.equal(c2.status, 404, 'Deleted folder file nested/two.txt must not exist on B after sync');
+  });
+
+  it('file moved on A propagates as a move to B (old path tombstoned, no resurrection)', async () => {
+    const src = `sync-test-${RUN}-movesrc.txt`;
+    const dst = `sync-test-${RUN}-movedst.txt`;
+    const content = `move-me-${RUN}`;
+
+    await uploadFile(INSTANCES.a, tokenA, 'general', src, content);
+    await triggerAndWait(networkId, tokenA, async () =>
+      (await downloadFile(INSTANCES.b, tokenB, 'general', src)).status === 200);
+
+    // Move on A. Without an old-path tombstone, B's manifest would re-push `src` back.
+    const mvR = await reqJson(INSTANCES.a, tokenA, `/api/files/general?path=${encodeURIComponent(src)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ destination: dst }),
+    });
+    assert.equal(mvR.status, 200, `Move on A: ${JSON.stringify(mvR.body)}`);
+
+    // After sync: B has the file at dst, and src is gone and stays gone.
+    await triggerAndWait(networkId, tokenA, async () => {
+      const rd = await downloadFile(INSTANCES.b, tokenB, 'general', dst);
+      const rs = await downloadFile(INSTANCES.b, tokenB, 'general', src);
+      return rd.status === 200 && rs.status === 404;
+    });
+    const cd = await downloadFile(INSTANCES.b, tokenB, 'general', dst);
+    const cs = await downloadFile(INSTANCES.b, tokenB, 'general', src);
+    assert.equal(cd.status, 200, 'Moved file must exist at destination on B');
+    assert.equal(cd.body, content, 'Destination content must match');
+    assert.equal(cs.status, 404, 'Old path must NOT resurrect on B after sync');
+  });
+
   it('hash mismatch creates conflict copy on receiving side — local file preserved', async () => {
     const filePath = `sync-test-${RUN}-conflict.txt`;
     const contentA = `version-A-${RUN}`;

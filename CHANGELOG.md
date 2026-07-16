@@ -8,6 +8,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Webhooks now fire for agent-driven (MCP) brain mutations, emitted from one place.** Previously
+  only the REST API emitted `memory.*`/`entity.*`/`edge.*`/`chrono.*` events; the equivalent MCP
+  tools (`remember`, `upsert_entity`, `upsert_edge`, `create_chrono`, `update_*`, `delete_*`,
+  `merge_entities`) emitted nothing, so subscribers silently missed everything agents did — the bulk
+  of writes in an MCP-first deployment. Emission is now **centralised inside the shared brain
+  functions** (`remember`/`updateMemory`/`deleteMemory`, `upsertEntity`/`updateEntityById`/
+  `deleteEntity`, `upsertEdge`/`updateEdgeById`/`deleteEdge`, `createChrono`/`updateChrono`/
+  `deleteChrono`, `executeMerge`), which emit when handed a `WebhookActor` — so REST and MCP both
+  emit (with token attribution threaded through the MCP tool context, fixing the missing
+  `tokenId`/`tokenLabel` on MCP file webhooks too) while internal callers (sync, import) stay silent.
+  The manual per-route emits were removed, so each event has a single source of truth. A latent bug
+  is fixed in passing: a by-id entity update emitted `entity.created` (the route keyed off a dup
+  warning) — it now correctly emits `entity.updated`. **Bulk writes** (`POST /bulk`, MCP `bulk_write`)
+  intentionally do **not** fire per-item events (no 10k-webhook firehose); they emit one new
+  **`bulk.write`** summary event (`{ inserted, updated, errorCount }`) a workflow can inspect.
+  *(Note: the single-memory REST create still inlines its own emit — a duplication tracked for the
+  modularity pass.)*
+
+- **Optional soft-delete for file metadata (`softDeleteFileMeta`) + a metadata-delete guard.**
+  A new top-level config flag (default `false`, preserving today's hard-delete behavior) changes
+  what happens to a file's metadata record when the file is deleted: instead of removing the record,
+  it is flagged `deletedAt = <now>` and retained. Flagged records stay listed and searchable but show
+  a **"deleted" badge** in the Brain → File Meta view; re-uploading the same path clears the flag.
+  Independently of the setting, the metadata-delete endpoint (`DELETE /api/brain/spaces/:id/files`)
+  now **refuses (409) to remove a record whose file still exists on disk** — deleting metadata for a
+  live file would silently orphan it; delete the file itself instead. Only a flagged or orphaned
+  record (file already gone) can be purged. Derived records (conversion chunks / `_converted` /
+  `_extracted`) are always hard-removed regardless of the setting. Applies across the file, folder,
+  MCP, and media-worker delete paths.
+
+- **CI guard against upstream image/tag breakage (`Image Pin Check` workflow).** Twice now an
+  upstream has broken a pinned reference with no change on our side — `unstructured-api-full` went
+  private on quay.io (this release) and the Ollama model `moondream2` was renamed to `moondream`
+  (#219) — each surfacing only when a developer ran `docker compose up`. A new scheduled workflow
+  (`.github/workflows/image-pin-check.yml`) now HEAD-checks every externally-hosted pin **without
+  pulling**: it parses the `image:` references straight out of `docker-compose.yml`, the test compose,
+  and `kubernetes/manifests/` (so it can't drift from what we ship), verifies each is still resolvable
+  with anonymous credentials via `docker buildx imagetools inspect`, and separately checks the Ollama
+  `moondream` model manifest. Runs weekly, on `workflow_dispatch`, and on any PR that touches a file
+  which pins an image — so a bad pin fails the PR instead of a teammate's first boot. Needs no secrets.
+
 - **Type & tag filtering across the Brain views (FEATURES F5 + F6).** Filtering was uneven and
   mostly absent: list tabs could only be narrowed by clicking an existing tag, and the semantic
   Search tab's only "filter by schema" affordance was a raw JSON textarea. Now a shared
@@ -92,63 +133,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a shared `httpErrorReason` helper) and cleared on a successful load; Retry re-runs that view's fetch.
   Covered by `error-state.component.spec.ts` and verified end-to-end (a forced 500 shows the error
   state + reason + Retry, not the empty state, and Retry recovers).
-
-### Fixed
-
-- **Image/PDF previews and file downloads were broken (blank pane / failed download).** They loaded
-  the file via a browser-native `<img src>` / `<iframe src>` / `<a href download>`, none of which can
-  send the `Authorization` header — and the client papered over that by appending `?…&token=` to the
-  URL, a fallback that was **scoped to the two SSE endpoints only** in the auth-surface hardening
-  (query-token scope, #134). So every image/PDF preview and every download hit the file endpoint with
-  no valid auth → **401 → blank preview / failed download** (text previews survived because they
-  already used `fetch` with the header). Previews and downloads now `fetch` the file **with the token
-  in the header** and hand the view a same-origin `blob:` object URL (revoked on close), so the token
-  never rides in the URL (keeping #134's intent) and a failed preview shows a reason instead of a blank
-  pane. Covered by a regression test (download sends `Authorization`, never `token=` in the URL) and
-  verified end-to-end (an uploaded PNG previews from a `blob:` URL with a 200 authenticated GET).
-
-- **Bundled image captioning never worked out of the box — the default vision model name was
-  invalid.** The default was `moondream2`, which is **not** a name in the Ollama registry (`moondream`
-  is), so the Compose auto-pull (`ollama pull moondream2 || echo WARN`) silently failed and every
-  caption request came back `HTTP 404 model 'moondream2' not found` → the image's `embeddingStatus`
-  flipped to `failed`. Corrected the name to `moondream` everywhere (the config default and provider
-  fallback, the Compose and Kubernetes pull commands, the Settings → Models placeholder, and the
-  docs), and — so existing installs self-heal without a manual config edit — the config loader now
-  **normalizes** a saved/env `moondream2` to `moondream` at load time. Covered by media-config unit
-  tests (default is `moondream`; a saved or env `moondream2` heals to `moondream`).
-  *Existing deployments: restart the `ollama` container (or run `docker exec ythril-ollama ollama pull
-  moondream`) so the model is actually present.*
-
-- **docker-compose now matches what the docs promise (AUDIT C2 + C4).** Two `docker compose up`
-  gaps: (1) the `unstructured-api-full` document-conversion sidecar existed only in the Kubernetes
-  manifests, so on Compose `CONVERSION_SIDECAR_URL` pointed at nothing and every PDF/DOCX/EPUB upload
-  failed `sidecar_down` — despite the README calling it "bundled". It's now a service in
-  `docker-compose.yml`, wired via `CONVERSION_SIDECAR_URL`, on its own **internal** `ythril-convert`
-  network (no database access, no internet egress — it parses untrusted documents and its OCR models
-  are baked into the image). It is intentionally *not* a startup dependency of `ythril`, so the ~8–12 GB
-  image never blocks boot and conversion degrades gracefully until it's ready; `docs/dependencies.md`
-  documents the size and how to skip it on a small workstation. (2) `MONGO_URI` — the documented way to
-  point at an external MongoDB — was never forwarded into the `ythril` container's `environment`, so
-  the value silently never reached the server. It's now forwarded (empty default keeps the bundled
-  database), making the documented external-Mongo path actually work.
-
-- **The recurring "vote-signing relay" sync-test flake is fixed at its root — a test setup race,
-  not a relay bug.** The test pins a third instance's signing key by writing `config.json` directly,
-  then reloads. Under full-suite load that write races the server's own `saveConfig`: an in-flight
-  sync cycle (left over from a prior test's fire-and-forget trigger) captured the config *before* the
-  patch and writes its stale copy back, silently dropping the pinned key — after which the relaying
-  instance rejects the third instance's cast on **every** cycle, so the relay can never converge and
-  the assertion times out. Widening the wait (as two prior PRs did) cannot fix an un-pinned key. The
-  fix makes the out-of-band injection *stick*: a `patchAndConfirm` helper re-applies the patch until
-  it is confirmed stable across consecutive live reads (idempotently, so a re-apply never duplicates
-  the member/round), and the assertion now polls the guaranteed eventual convergence with a
-  self-diagnosing message (it reports whether the key is pinned and whether the round arrived) — the
-  wait was *reduced* 90s→60s, not widened. The production relay itself was already timing-independent:
-  every cycle re-pulls the peer's full open-round set and re-merges missing casts, so a delayed or
-  dropped message is re-derived from source of truth on the next cycle. Verified across three
-  back-to-back full-suite runs under load. Test-only change.
-
-### Added
 
 - **Mobile navigation drawer restores the app on phones (UX U2).** Below 768px the sidebar was
   simply `display: none` with no replacement — no hamburger, no drawer, no top-nav fallback — so on a
@@ -283,6 +267,361 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rolls out to existing networks without a flag day. New tests: `testing/standalone/vote-signing.test.js`
   (20 unit cases) and `testing/sync/vote-signing.test.js` (signed cast + key distribution + safe relay
   of a third-party signed cast, tampered cast rejected).
+
+### Fixed
+
+- **Moving a file/folder resurrected the pre-move copy on sync peers (both HTTP and MCP).** A move
+  removes the file from its old path on disk, but neither the `PATCH /api/files` route nor the MCP
+  `move_file` tool wrote a tombstone for it — and sync has no rename detection, so a peer's manifest
+  still advertised the old path and pushed it straight back (leaving the file at *both* paths). Both
+  movers now tombstone the old path(s) — the source file, or every child file for a directory move —
+  before renaming. Covered by a new move-propagation sync test.
+
+- **MCP file tools had divergent side effects from the equivalent HTTP routes.** `write_file`,
+  `delete_file`, and `move_file` did not emit the `file.created` / `file.deleted` / `file.updated`
+  webhooks their HTTP counterparts do (so webhook subscribers missed all agent-driven file changes);
+  `delete_file` skipped `invalidateUsageCache` (stale quota after a delete); `move_file` only re-rooted
+  the single source record, not the child records under a moved **directory** (`renameFileMetaByPrefix`),
+  orphaning their metadata; `write_file` did not project the incoming size into its storage-quota check
+  (so an over-limit agent write wasn't rejected up-front) and did not clear stale conversion artifacts
+  when overwriting a document (leaving duplicate chunk records). All now match the HTTP API. (Brain MCP
+  tools — `remember`, `upsert_entity`, etc. — still emit no webhooks; tracked as a separate follow-up.)
+
+- **Deleting a folder (or a file via MCP) did not propagate to sync peers (files resurrected).**
+  Single-file delete over the HTTP API wrote a `FileTombstoneDoc` so peers remove the file too, but
+  recursive folder delete wrote none, and the MCP `delete_file` tool wrote none either — so on the
+  next sync a peer's manifest still advertised the files and pushed them straight back. Tombstone
+  creation is now a shared helper (`writeFileTombstones`) used by all three paths: folder delete
+  enumerates every removed file (the folder tree plus its `_converted`/`_extracted` sidecars) before
+  deletion and writes a tombstone for each, and MCP `delete_file` writes one for the deleted file.
+
+- **Deleting a file or folder orphaned its embedding metadata and left a media job retrying
+  forever.** Deleting a file (or a folder containing one) removed the file from disk but never
+  cancelled its queued media/text embedding job, so the worker kept reclaiming the job and failing
+  it with `ENOENT: no such file` — endlessly, because the stalled-job sweep re-queued it. It also
+  left orphaned filemeta records behind: folder deletion only cleaned records under `<folder>/`, but
+  document-conversion sidecars live under the separate `_converted/<path>` and `_extracted/<path>`
+  prefixes, so those DB records and their on-disk files survived (and `deleteConversionArtifacts`
+  never removed the sidecar files from disk even on single-file delete). Now (1) file, folder, and
+  MCP deletes cancel the associated media jobs (`cancelMediaJob` / `cancelMediaJobsByPrefix`);
+  (2) folder delete also clears conversion artifacts for the whole subtree, records **and** disk
+  (`deleteConversionArtifactsByPrefix`), and `deleteConversionArtifacts` now removes the
+  `_converted/`/`_extracted/` files too; and (3) the media worker treats a missing source file
+  (`ENOENT`) as **terminal, not retryable** — it reconciles to disk truth by dropping the job and any
+  orphaned metadata/artifacts instead of looping. Regression test covers folder delete leaving zero
+  records (including hidden chunks) under the deleted path.
+
+- **`docker compose up` failed to pull the document-conversion sidecar (`401 UNAUTHORIZED`).** The
+  bundled `unstructured` service (C2, #218) pinned `unstructured-io/unstructured-api-full:0.0.75`, but
+  Unstructured made the `-full` repository private on quay.io — an anonymous pull of the whole repo now
+  returns `401 UNAUTHORIZED` (registries return 401, not 404, for inaccessible manifests), so the tag
+  no longer resolves. Switched the sidecar (both `docker-compose.yml` and the pod-local
+  `kubernetes/manifests/ythril-deployment.yaml`) to the still-public `unstructured-io/unstructured-api:0.0.75`
+  — the same upstream release minus the `-full` extras (extra Tesseract language packs + LibreOffice),
+  which Ythril's `hi_res` OCR + embedded-image extraction path does not use. It is also the image
+  upstream's own README points self-hosters at, is ~4.5 GB compressed (vs the heavier `-full`), and stays
+  Apache-2.0. No server or config change was needed; the sidecar API (`/general/v0/general`) is identical.
+
+- **Image/PDF previews and file downloads were broken (blank pane / failed download).** They loaded
+  the file via a browser-native `<img src>` / `<iframe src>` / `<a href download>`, none of which can
+  send the `Authorization` header — and the client papered over that by appending `?…&token=` to the
+  URL, a fallback that was **scoped to the two SSE endpoints only** in the auth-surface hardening
+  (query-token scope, #134). So every image/PDF preview and every download hit the file endpoint with
+  no valid auth → **401 → blank preview / failed download** (text previews survived because they
+  already used `fetch` with the header). Previews and downloads now `fetch` the file **with the token
+  in the header** and hand the view a same-origin `blob:` object URL (revoked on close), so the token
+  never rides in the URL (keeping #134's intent) and a failed preview shows a reason instead of a blank
+  pane. Covered by a regression test (download sends `Authorization`, never `token=` in the URL) and
+  verified end-to-end (an uploaded PNG previews from a `blob:` URL with a 200 authenticated GET).
+
+- **Bundled image captioning never worked out of the box — the default vision model name was
+  invalid.** The default was `moondream2`, which is **not** a name in the Ollama registry (`moondream`
+  is), so the Compose auto-pull (`ollama pull moondream2 || echo WARN`) silently failed and every
+  caption request came back `HTTP 404 model 'moondream2' not found` → the image's `embeddingStatus`
+  flipped to `failed`. Corrected the name to `moondream` everywhere (the config default and provider
+  fallback, the Compose and Kubernetes pull commands, the Settings → Models placeholder, and the
+  docs), and — so existing installs self-heal without a manual config edit — the config loader now
+  **normalizes** a saved/env `moondream2` to `moondream` at load time. Covered by media-config unit
+  tests (default is `moondream`; a saved or env `moondream2` heals to `moondream`).
+  *Existing deployments: restart the `ollama` container (or run `docker exec ythril-ollama ollama pull
+  moondream`) so the model is actually present.*
+
+- **docker-compose now matches what the docs promise (AUDIT C2 + C4).** Two `docker compose up`
+  gaps: (1) the `unstructured-api-full` document-conversion sidecar existed only in the Kubernetes
+  manifests, so on Compose `CONVERSION_SIDECAR_URL` pointed at nothing and every PDF/DOCX/EPUB upload
+  failed `sidecar_down` — despite the README calling it "bundled". It's now a service in
+  `docker-compose.yml`, wired via `CONVERSION_SIDECAR_URL`, on its own **internal** `ythril-convert`
+  network (no database access, no internet egress — it parses untrusted documents and its OCR models
+  are baked into the image). It is intentionally *not* a startup dependency of `ythril`, so the ~8–12 GB
+  image never blocks boot and conversion degrades gracefully until it's ready; `docs/dependencies.md`
+  documents the size and how to skip it on a small workstation. (2) `MONGO_URI` — the documented way to
+  point at an external MongoDB — was never forwarded into the `ythril` container's `environment`, so
+  the value silently never reached the server. It's now forwarded (empty default keeps the bundled
+  database), making the documented external-Mongo path actually work.
+
+- **The recurring "vote-signing relay" sync-test flake is fixed at its root — a test setup race,
+  not a relay bug.** The test pins a third instance's signing key by writing `config.json` directly,
+  then reloads. Under full-suite load that write races the server's own `saveConfig`: an in-flight
+  sync cycle (left over from a prior test's fire-and-forget trigger) captured the config *before* the
+  patch and writes its stale copy back, silently dropping the pinned key — after which the relaying
+  instance rejects the third instance's cast on **every** cycle, so the relay can never converge and
+  the assertion times out. Widening the wait (as two prior PRs did) cannot fix an un-pinned key. The
+  fix makes the out-of-band injection *stick*: a `patchAndConfirm` helper re-applies the patch until
+  it is confirmed stable across consecutive live reads (idempotently, so a re-apply never duplicates
+  the member/round), and the assertion now polls the guaranteed eventual convergence with a
+  self-diagnosing message (it reports whether the key is pinned and whether the round arrived) — the
+  wait was *reduced* 90s→60s, not widened. The production relay itself was already timing-independent:
+  every cycle re-pulls the peer's full open-round set and re-merges missing casts, so a delayed or
+  dropped message is re-derived from source of truth on the next cycle. Verified across three
+  back-to-back full-suite runs under load. Test-only change.
+
+- **Client base `tsconfig.json` no longer reports a spurious `rootDir` error in the editor.** The
+  base config sets `rootDir: ./src` but had no `include`, so TypeScript fell back to its default
+  `**/*` pattern and pulled in `vitest.config.ts` at the client root — a file outside `rootDir` —
+  raising `TS6059` whenever an editor (or a direct `tsc -p tsconfig.json`) loaded the base project.
+  It was latent until the Vitest client-test infra added that root-level config file. Scoped the
+  base's `include` to `src/**/*.ts` so it agrees with `rootDir`. Editor-only; `ng build`
+  (`tsconfig.app.json`) and the Vitest suite (`tsconfig.spec.json`) set their own `include` and were
+  never affected.
+
+- **User guide, integration guide, usecase examples, workstation guide, and the top-level docs
+  brought back in line with the code** — the rest of the same full docs audit. Highlights:
+  two dangerous user-guide MFA errors fixed (disabling MFA **requires** a current TOTP code; the
+  TOTP secret is server-generated, not browser-only), the Webhooks section rewritten as an API
+  how-to (no management UI exists yet), the About page corrected (no live log — that's the Audit
+  Log), and the guide re-synced with the current UI (Brain has eight tabs; Graph/Files are tabs
+  not routes; MFA lives under Preferences; corrected admin nav, labels, and destructive-op
+  locations). Integration guide: `GET /api/about` is not public, the OIDC spaces-claim is
+  fail-closed, `files` added to the MCP `query` enum, entities list max is 500, recall filter keys
+  include `status`/`label` with native `$vectorSearch` pre-filtering, draft-7 rate-limit headers,
+  plus newly documented `indexStatus`, bulk wipes, the `help` tool, and several endpoints.
+  Usecase examples: `recall_global` → `recall`, no `"expired"` chrono status, and a caveat that
+  `remember()` does not auto-create entities. Workstation guide: the port-override that never frees
+  3200 removed (use `YTHRIL_PORT`), `MONGO_URI` must be in the compose environment to reach the
+  container, and the connector binds `0.0.0.0` (bearer-protected). README/NOTICE/contribution-guide/
+  dependencies: `recall_global` → `recall`, `list_spaces`/`help` added (31 tools), webhook event
+  counts (16/19), embedding features, NOTICE dependency list (drop zone.js, add undici), and the
+  local-dev DB/proxy setup. Doc-only; no behavior change.
+
+- **Sync-protocol and network-types docs brought back in line with the code** after a full docs
+  audit cross-checked every claim. `docs/sync-protocol.md`: corrected the phase order (governance
+  gossip + vote propagation deliberately run *first*, ahead of the data phases) and documented the
+  previously missing presync warm-up (`POST /api/sync/warm`) and opt-in Merkle divergence check
+  (`GET /api/sync/merkle`); rewrote the file-sync section to match reality (file tombstones travel
+  both directions, files are pushed as well as pulled, and hash divergence produces a conflict
+  copy plus a `ConflictDoc` — never an overwrite); fixed the manual-trigger semantics (async fire-and-forget
+  returning `{ status: 'triggered' }`), the direction-enforcement 403 body, the file-download URL
+  shape (`?path=` query parameter), and the tombstone endpoint/pull descriptions (chrono is a
+  fourth synced type; tombstone push pages 500/request until drained); removed the nonexistent
+  `GET /api/sync/info` (identity comes from `GET /api/about` and the gossip `self` record);
+  documented the ingest safety caps (implausible-seq ceiling, fork depth/fan-out ≤ 10), the
+  50-page-per-type pull cap, watermark persistence via the coalesced config flush, gossip signing
+  fields, and the real auth model of the sync surface. `docs/network-types.md`: fixed the broken
+  tombstone-guard link, the invite-generate auth level (admin), the vote-deadline default (24 h,
+  configurable 1–72 h), and replaced the misleading offline-peer timing estimate with the accurate
+  bounded-timeout statement. Doc-only; no behavior change.
+
+- **Schema validation was a total no-op on MCP — the surface agents actually use.** `validateMemory()` keys
+  the whole per-type schema lookup off `memory.type`, but the MCP `remember` and `bulk_write` tools never
+  exposed `type` and passed `undefined` to the engine. With no type there is no schema, so validation always
+  returned **zero violations** and the `validationMode: 'strict'` gate **could never fire**. A space that
+  enforces required memory properties enforced them over REST and **silently ignored them over MCP**. Both
+  tools now accept `type`, forward it to the validator and persist it. (The existing schema-validation suite
+  set up exactly this scenario and asserted a 400 — but **only through REST**: the one surface that could
+  fail was never tested. Same shape as the space-rename bug.)
+
+- **MCP `bulk_write` never validated edge `properties`.** It called `validateEdge(meta, { label })`, omitting
+  `properties`, so required/typed edge properties were never checked and strict mode was unenforceable on
+  that path — while MCP `upsert_edge` and REST both got it right.
+
+- **Chrono `recurrence` was unreachable from MCP and unvalidated over REST.** The engine has supported it all
+  along, but no MCP tool declared it, so agents could not create or modify recurring entries. Meanwhile REST
+  destructured it straight out of the request body and persisted it **with no shape check at all** — unlike
+  every sibling field — so an arbitrary object could be stored and later read as a recurrence rule. Both
+  surfaces now share one validator (`freq` enum, positive integer `interval`, ISO `until`).
+
+- **Completed the space-rename data-integrity fix — three more instances of the same bug.** The audit that
+  followed the rename fix found the same "stale `spaceId`" flaw in places the first pass missed:
+  - **Deleted files could resurrect.** `{spaceId}_file_tombstones` carries a `spaceId` field and its readers
+    filter on it, but the collection was **missing from the repair's hardcoded list**, so after a rename every
+    pre-rename deletion became invisible to sync — and peers that still held the file pushed it straight back.
+    The repair now **discovers a space's collections by prefix** instead of walking a fixed list, so this and
+    any future per-space collection are covered automatically. (It only rewrites a `spaceId` that is present
+    but wrong, never inventing one — `{spaceId}_file_hashes` legitimately has no such field.)
+  - **A rename silently stopped a space syncing.** The seq counter lives in the *global* `ythril_counters`
+    collection keyed by `_id: <spaceId>`, so the prefix-based collection rename missed it and `nextSeq()`
+    restarted at **1** — while the rename deliberately carries the OLD, high sync watermarks over to the new
+    id. Every subsequent write got a seq *below* the watermark and was **never pushed to peers**: the space
+    kept working locally while quietly never syncing again. The counter (and the dupe-scan cursor) now move
+    with the rename.
+  - **Cross-space import wrote invisible data.** The export embeds the source space's id in every document,
+    and import wrote them verbatim — so importing space A's export into space B produced documents that were
+    counted but invisible to every list. Imported documents are now re-tagged to the target space.
+  - `traverseFromSeeds` filtered entities but not edges by `spaceId`, so a stale value returned an edge whose
+    neighbour entity silently vanished — half a graph, no error. The redundant filter is gone; the collection
+    name is the only real scope.
+
+  Tests now cover **chrono** and the **seq counter** across a rename, and **cross-space import** — the gaps
+  that let all of this through. (The original rename test asserted only memories, the one read path that does
+  not filter on `spaceId`, and the import tests asserted only counts and memory-by-id — likewise immune.)
+
+- **Renaming a space no longer makes its entities and edges vanish from the UI.** `moveSpaceData`
+  renamed the collections (`{old}_entities` → `{new}_entities`) but never rewrote the `spaceId` field
+  *inside* the documents, so every one still pointed at the OLD space id. `listEntities`, `listEdges`,
+  entity lookup-by-name, the edge-dedup lookup and the cascade deletes all filter on that field — so a
+  renamed space looked **catastrophic but was actually intact**: the entry counts still showed the data
+  (counts read the collection) while every list came back **empty**. Worse, because lookup-by-name
+  stopped matching, `remember` would start creating **duplicate entities** instead of linking to the
+  existing one. Memories were unaffected (`listMemories` does not filter on `spaceId`) — which is
+  exactly why the existing rename test, which only checked memories, never caught this. The rename now
+  rewrites the field, and **existing affected databases self-heal on boot** (`repairStaleSpaceIds`,
+  run from `initSpace`): documents living in `{spaceId}_*` belong to `spaceId` by definition, so the
+  repair is safe and idempotent. Sync had the same flaw — a `spaceMap`-aliased pull wrote peer documents
+  into the local collection while keeping the *remote* space id — and now re-tags them to the local
+  space. Regression test added covering entities, edges and lookup-by-name across a rename.
+
+- **The test stack no longer races four concurrent builds onto one image tag.** Giving every instance the
+  shared `ythril-test:latest` tag (so CI can pre-build once against a layer cache) made `docker compose
+  build` build the *same* tag from four services simultaneously, which races on the image export and could
+  corrupt it locally (`failed to extract layer … EOF`). Only `ythril-a` builds the image now; b/c/d simply
+  reference the tag. CI is unaffected — it pre-builds the tag itself.
+
+- **Rebuilding the test stack no longer leaks Docker disk without bound.** Every `--build` orphaned the
+  previous multi-GB image (each bakes a ~520 MB embedding model, node_modules and ffmpeg) and grew the
+  BuildKit cache forever — on one workstation this reached **35 GB of build cache plus 20 GB of orphaned
+  images**, filled the drive and took Docker Desktop down. `test:up:rebuild` now runs `test:prune` (drop
+  dangling images, cap the cache at 5 GB), and a new `npm run docker:reclaim` handles an already-ballooned
+  install: it prunes, then `fstrim`s inside the VM, then prints the exact elevated `diskpart` steps to
+  **compact** `docker_data.vhdx` — necessary because pruning frees space *inside* the VM while the
+  dynamically-expanding disk only ever grows on the host. It locates the disk even when relocated to
+  another drive (`CustomWslDistroDir`).
+
+- **Sync tests can no longer turn a persistent, actionable error into an unexplained timeout.** The sync
+  suites re-trigger a sync on every poll (deliberate — a single up-front trigger races a slow gossip
+  cycle), but they did it as `triggerSync(...).catch(() => {})`, which treats a transient blip and a
+  permanent misconfiguration identically. That trap is *why* the notify rate-limit bug survived three wrong
+  fixes: every trigger was coming back `429`, the `.catch()` ate it, no sync cycle ever ran, and all anyone
+  saw was `waitFor timed out after 90000ms`. `waitFor` now takes a `diagnose` argument appended to its
+  timeout message, and `makeTriggerProbe` still tolerates a failed poll but **remembers the last failure**
+  and reports it — so the message becomes "every sync trigger to A was failing (…); last error:
+  triggerSync failed: 429 …" instead of a bare stall. Test-harness only. Pinned by
+  `testing/standalone/waitfor-diagnostics.test.js`.
+
+- **The notify limiter now honours the test kill-switch — the real cause of the “flaky” signed-vote relay test.**
+  `POST /api/notify/trigger` is how the test harness drives a sync cycle, and it is guarded by
+  `notifyRateLimit` (60/min per IP). Every request from the harness shares one source IP, so the sync suites
+  collectively blew past 60/min and started getting `429`s — which the tests' trigger call swallowed, so the
+  sync cycle silently never ran and load-sensitive assertions timed out looking like flakes. `notifyRateLimit`
+  was the **only** limiter with no `skip:` clause (`authRateLimit`, `globalRateLimit`, `syncRateLimit` and
+  `bulkWipeRateLimit` all have one); it now honours `SKIP_SYNC_RATE_LIMIT` like the rest of the sync plane.
+  **No production impact:** the kill-switch is inert unless `NODE_ENV !== 'production'`, scheduled sync calls
+  the engine in-process (it never touches this limiter at all), and instance C deliberately omits the env so
+  the genuine 429 behaviour stays covered. Pinned by `testing/standalone/notify-rate-limit.test.js`, which
+  asserts both halves: A must not throttle, C still must.
+
+- **OIDC sign-in no longer hangs when the whole SPA is embedded in a portal iframe.** The callback
+  inferred "this is a silent-refresh frame" from simply being inside an iframe (`window.self !== window.top`)
+  and tried to `postMessage` the authorization code to `window.parent` targeted at Ythril's own origin. That
+  is correct for a genuine silent refresh (whose hidden iframe's parent *is* the SPA), but when the entire
+  Ythril SPA runs inside a host portal's iframe, the interactive redirect callback is also framed and its
+  parent is the *portal's* origin — so the browser refuses the cross-origin `postMessage` and the user is
+  stuck on "Completing sign-in…" forever. The silent-refresh flow now marks its request explicitly with a
+  `state` prefix (`silent.`), and the callback branches on that marker instead of on being framed — so an
+  embedded interactive sign-in completes normally while genuine silent refreshes are still recognised.
+  Client-only. Reported from a production embedded (iframe) deployment.
+
+- **Governance votes and member gossip now converge even when data sync is slow or failing.** In each
+  sync cycle, gossip (member list, signing-key pinning) and vote propagation ran **after** the per-space
+  data and file sync for a peer — and that data loop is not isolated, so any timed-out pull, unreachable
+  member, or slow file transfer threw out of the member's sync and **skipped governance entirely for that
+  cycle**. On a lightly loaded system the data plane is fast so this never showed, but under heavy load a
+  saturated peer could starve time-sensitive vote propagation (rounds have deadlines) for many cycles in
+  a row — the root cause behind the intermittently-timing-out signed-vote relay test. Governance now runs
+  **first**, ahead of the data loop, so it converges promptly and independently of data-plane health. The
+  two calls remain internally best-effort and are additionally wrapped so a later data-plane failure can
+  never mask governance progress. Covered by the existing sync/vote suites.
+
+- **Importing a schema no longer fails silently.** In **Settings → Spaces → Schema → Import JSON**, a
+  valid-JSON file that contained none of the recognised `entity`/`edge`/`memory`/`chrono` keys — which
+  includes Ythril's **own** per-type export shape `{knowledgeType, typeName, schema}` — fell straight
+  through the import loop and then *cleared the error field*, so it looked like it worked while doing
+  nothing. Import now: (1) also accepts the `{knowledgeType, typeName, schema}` export shape; (2) shows a
+  specific error listing the expected keys and what the file actually contained when nothing is
+  recognised; and (3) confirms success with a note that the imported types are **staged — press Save to
+  apply**. Client-only.
+
+- **Record properties are now fully embedded, so semantic recall can use them.** The text embedded for
+  a record mishandled `properties`: memory and entity embedded only the property **values** and dropped
+  the **keys**, while **edge and chrono embedded properties not at all**. So recall couldn't match on a
+  property name (a query about "role" had no "role" signal), and values lost their field context —
+  `{birthplace: "Paris"}` and `{currentCity: "Paris"}` embedded identically. All five builders (memory,
+  entity, edge, chrono, and the entity-merge copy) now fold `key value` pairs into the embedded text
+  via a single shared `propsEmbedText` helper, and chrono re-embeds when only its properties change.
+  Existing records keep their old (weaker) vectors until re-embedded — run
+  `POST /api/brain/spaces/:id/reindex` to rebuild them with property keys. Covered by
+  `testing/integration/embed-properties.test.js`.
+
+- **Recall no longer errors while a new space's vector indexes are still building.** Space creation now
+  builds its `$vectorSearch` indexes asynchronously (see the space-creation fix above), and Atlas
+  refuses queries against an index still in `INITIAL_SYNC` — so a recall during that brief window
+  failed the whole request with a `400` ("cannot query vector index … while in state INITIAL_SYNC")
+  instead of returning results from the collections that were ready. Recall now treats a
+  not-yet-queryable index like a missing one — no results from that collection — so it degrades to a
+  partial/empty result during the build window instead of erroring. Covered by
+  `testing/integration/space-creation-async.test.js`.
+
+- **Creating a space no longer times out or "appears only after a reload".** `createSpace` awaited the
+  build of a space's 5+ Atlas `$vectorSearch` indexes, each polling for READY up to 60 s (worst case
+  minutes) — so the `201` landed far past the client's 30 s timeout, on a dead subscription, and the
+  space seemed to vanish until the page was refreshed. Creation now returns in seconds: collections and
+  regular indexes are created synchronously (the space always has a backing DB), the vector-index READY
+  wait is **deferred**, and the space is returned with `indexStatus: 'building'` and finalized to
+  `ready`/`failed` by a background task. The space is writable immediately; only semantic recall waits
+  for READY. The UI shows a "Preparing indexes…" badge until it clears. `GET /api/spaces` surfaces
+  `indexStatus`. Covered by `testing/integration/space-creation-async.test.js`.
+
+- **Document embedding failures are reported instead of faked as success.** When a text/document
+  upload's chunks failed to embed, an empty `catch` swallowed the error and the job still reported
+  `embeddingStatus: 'complete'` — so a file that was permanently invisible to `$vectorSearch` looked
+  fully indexed, with no failure signal and never engaging the existing retry/backoff machinery. A
+  total failure now routes into that retry path (ending `failed` if it can't recover); a partial
+  failure is recorded as `embeddingStatus: 'partial'` (new state) and is retriable. A **Retry** button
+  and a "Partly embedded" badge were added to the file list, wiring the previously-unused
+  `retry_embedding` endpoint. Covered by `testing/standalone/embedding-failure-reporting.test.js`.
+
+- **Space rename/delete are now crash-safe.** A rename or delete spans `config.json`, MongoDB
+  collections, and the filesystem and cannot be atomic — a crash mid-operation (after renaming some
+  collections, or after moving files but before the config write) could leave them permanently
+  inconsistent with no recovery. A `pendingSpaceOp` write-ahead marker is now persisted before any
+  physical change and cleared only on commit; the physical steps are idempotent, and an interrupted
+  operation is completed on the next boot (and on `reload-config`). Covered by
+  `testing/standalone/space-op-recovery.test.js`.
+
+- **The governance vote "No" button now works (and casts a veto).** The Networks UI offered **Yes/No**
+  buttons, but the server accepts only `yes`/`veto` (`VoteValue`), so clicking **No** returned `400`
+  and there was no way to cast a blocking vote from the UI at all. The negative button now casts a
+  `veto` — the blocking vote the model and docs already describe ("a single no blocks it") — and is
+  relabelled **Veto** to match. Client-only fix.
+
+- **`<html lang>` now tracks the active UI language.** It was hardcoded to `en`, so screen-reader
+  pronunciation and browser hyphenation stayed English for German and Polish users even though the UI
+  was fully translated. The document language is now set on startup and updated on every language
+  switch.
+
+- **Close/remove buttons use a consistent icon everywhere.** Close and remove controls across the app
+  rendered a mix of raw `✕` and `×` glyphs at different weights/baselines than the `ph-icon` used
+  elsewhere. Every one — dialog close buttons, chip/tag remove buttons, and danger remove actions in
+  networks, spaces, schema-library, tokens, and the shared property/tag editors — now uses the `x`
+  icon, and dialog close buttons that were missing an `aria-label` gained one.
+
+- **Legacy tokens are no longer silently invalidated on upgrade** — a startup/reload migration
+  *deleted* any PAT created before the `prefix` field existed, on the assumption it "cannot be
+  verified." In fact a prefix-less token can still be bcrypt-verified; the prefix is only a lookup
+  optimization. The deletion meant that after an innocuous restart/upgrade, every client sharing such
+  a token — web UI, monitors, MCP connectors — dropped to `401` at once, with nothing but a single log
+  line to explain it. Legacy tokens are now **verified via a fallback scan and self-heal**: the prefix
+  is backfilled on first use so subsequent lookups take the fast path, and no token is ever deleted by
+  the migration. Covered by `testing/integration/auth.test.js`.
 
 ### Changed
 
@@ -550,256 +889,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/api/brain/:spaceId/memories…` with `/api/brain/spaces/:spaceId/memories…`. The web client already
   uses the canonical paths. (All other brain resources — entities, edges, chrono, stats — were already
   canonical-only and are unaffected.)
-
-### Fixed
-
-- **Client base `tsconfig.json` no longer reports a spurious `rootDir` error in the editor.** The
-  base config sets `rootDir: ./src` but had no `include`, so TypeScript fell back to its default
-  `**/*` pattern and pulled in `vitest.config.ts` at the client root — a file outside `rootDir` —
-  raising `TS6059` whenever an editor (or a direct `tsc -p tsconfig.json`) loaded the base project.
-  It was latent until the Vitest client-test infra added that root-level config file. Scoped the
-  base's `include` to `src/**/*.ts` so it agrees with `rootDir`. Editor-only; `ng build`
-  (`tsconfig.app.json`) and the Vitest suite (`tsconfig.spec.json`) set their own `include` and were
-  never affected.
-
-- **User guide, integration guide, usecase examples, workstation guide, and the top-level docs
-  brought back in line with the code** — the rest of the same full docs audit. Highlights:
-  two dangerous user-guide MFA errors fixed (disabling MFA **requires** a current TOTP code; the
-  TOTP secret is server-generated, not browser-only), the Webhooks section rewritten as an API
-  how-to (no management UI exists yet), the About page corrected (no live log — that's the Audit
-  Log), and the guide re-synced with the current UI (Brain has eight tabs; Graph/Files are tabs
-  not routes; MFA lives under Preferences; corrected admin nav, labels, and destructive-op
-  locations). Integration guide: `GET /api/about` is not public, the OIDC spaces-claim is
-  fail-closed, `files` added to the MCP `query` enum, entities list max is 500, recall filter keys
-  include `status`/`label` with native `$vectorSearch` pre-filtering, draft-7 rate-limit headers,
-  plus newly documented `indexStatus`, bulk wipes, the `help` tool, and several endpoints.
-  Usecase examples: `recall_global` → `recall`, no `"expired"` chrono status, and a caveat that
-  `remember()` does not auto-create entities. Workstation guide: the port-override that never frees
-  3200 removed (use `YTHRIL_PORT`), `MONGO_URI` must be in the compose environment to reach the
-  container, and the connector binds `0.0.0.0` (bearer-protected). README/NOTICE/contribution-guide/
-  dependencies: `recall_global` → `recall`, `list_spaces`/`help` added (31 tools), webhook event
-  counts (16/19), embedding features, NOTICE dependency list (drop zone.js, add undici), and the
-  local-dev DB/proxy setup. Doc-only; no behavior change.
-
-- **Sync-protocol and network-types docs brought back in line with the code** after a full docs
-  audit cross-checked every claim. `docs/sync-protocol.md`: corrected the phase order (governance
-  gossip + vote propagation deliberately run *first*, ahead of the data phases) and documented the
-  previously missing presync warm-up (`POST /api/sync/warm`) and opt-in Merkle divergence check
-  (`GET /api/sync/merkle`); rewrote the file-sync section to match reality (file tombstones travel
-  both directions, files are pushed as well as pulled, and hash divergence produces a conflict
-  copy plus a `ConflictDoc` — never an overwrite); fixed the manual-trigger semantics (async fire-and-forget
-  returning `{ status: 'triggered' }`), the direction-enforcement 403 body, the file-download URL
-  shape (`?path=` query parameter), and the tombstone endpoint/pull descriptions (chrono is a
-  fourth synced type; tombstone push pages 500/request until drained); removed the nonexistent
-  `GET /api/sync/info` (identity comes from `GET /api/about` and the gossip `self` record);
-  documented the ingest safety caps (implausible-seq ceiling, fork depth/fan-out ≤ 10), the
-  50-page-per-type pull cap, watermark persistence via the coalesced config flush, gossip signing
-  fields, and the real auth model of the sync surface. `docs/network-types.md`: fixed the broken
-  tombstone-guard link, the invite-generate auth level (admin), the vote-deadline default (24 h,
-  configurable 1–72 h), and replaced the misleading offline-peer timing estimate with the accurate
-  bounded-timeout statement. Doc-only; no behavior change.
-
-- **Schema validation was a total no-op on MCP — the surface agents actually use.** `validateMemory()` keys
-  the whole per-type schema lookup off `memory.type`, but the MCP `remember` and `bulk_write` tools never
-  exposed `type` and passed `undefined` to the engine. With no type there is no schema, so validation always
-  returned **zero violations** and the `validationMode: 'strict'` gate **could never fire**. A space that
-  enforces required memory properties enforced them over REST and **silently ignored them over MCP**. Both
-  tools now accept `type`, forward it to the validator and persist it. (The existing schema-validation suite
-  set up exactly this scenario and asserted a 400 — but **only through REST**: the one surface that could
-  fail was never tested. Same shape as the space-rename bug.)
-
-- **MCP `bulk_write` never validated edge `properties`.** It called `validateEdge(meta, { label })`, omitting
-  `properties`, so required/typed edge properties were never checked and strict mode was unenforceable on
-  that path — while MCP `upsert_edge` and REST both got it right.
-
-- **Chrono `recurrence` was unreachable from MCP and unvalidated over REST.** The engine has supported it all
-  along, but no MCP tool declared it, so agents could not create or modify recurring entries. Meanwhile REST
-  destructured it straight out of the request body and persisted it **with no shape check at all** — unlike
-  every sibling field — so an arbitrary object could be stored and later read as a recurrence rule. Both
-  surfaces now share one validator (`freq` enum, positive integer `interval`, ISO `until`).
-
-- **Completed the space-rename data-integrity fix — three more instances of the same bug.** The audit that
-  followed the rename fix found the same "stale `spaceId`" flaw in places the first pass missed:
-  - **Deleted files could resurrect.** `{spaceId}_file_tombstones` carries a `spaceId` field and its readers
-    filter on it, but the collection was **missing from the repair's hardcoded list**, so after a rename every
-    pre-rename deletion became invisible to sync — and peers that still held the file pushed it straight back.
-    The repair now **discovers a space's collections by prefix** instead of walking a fixed list, so this and
-    any future per-space collection are covered automatically. (It only rewrites a `spaceId` that is present
-    but wrong, never inventing one — `{spaceId}_file_hashes` legitimately has no such field.)
-  - **A rename silently stopped a space syncing.** The seq counter lives in the *global* `ythril_counters`
-    collection keyed by `_id: <spaceId>`, so the prefix-based collection rename missed it and `nextSeq()`
-    restarted at **1** — while the rename deliberately carries the OLD, high sync watermarks over to the new
-    id. Every subsequent write got a seq *below* the watermark and was **never pushed to peers**: the space
-    kept working locally while quietly never syncing again. The counter (and the dupe-scan cursor) now move
-    with the rename.
-  - **Cross-space import wrote invisible data.** The export embeds the source space's id in every document,
-    and import wrote them verbatim — so importing space A's export into space B produced documents that were
-    counted but invisible to every list. Imported documents are now re-tagged to the target space.
-  - `traverseFromSeeds` filtered entities but not edges by `spaceId`, so a stale value returned an edge whose
-    neighbour entity silently vanished — half a graph, no error. The redundant filter is gone; the collection
-    name is the only real scope.
-
-  Tests now cover **chrono** and the **seq counter** across a rename, and **cross-space import** — the gaps
-  that let all of this through. (The original rename test asserted only memories, the one read path that does
-  not filter on `spaceId`, and the import tests asserted only counts and memory-by-id — likewise immune.)
-
-- **Renaming a space no longer makes its entities and edges vanish from the UI.** `moveSpaceData`
-  renamed the collections (`{old}_entities` → `{new}_entities`) but never rewrote the `spaceId` field
-  *inside* the documents, so every one still pointed at the OLD space id. `listEntities`, `listEdges`,
-  entity lookup-by-name, the edge-dedup lookup and the cascade deletes all filter on that field — so a
-  renamed space looked **catastrophic but was actually intact**: the entry counts still showed the data
-  (counts read the collection) while every list came back **empty**. Worse, because lookup-by-name
-  stopped matching, `remember` would start creating **duplicate entities** instead of linking to the
-  existing one. Memories were unaffected (`listMemories` does not filter on `spaceId`) — which is
-  exactly why the existing rename test, which only checked memories, never caught this. The rename now
-  rewrites the field, and **existing affected databases self-heal on boot** (`repairStaleSpaceIds`,
-  run from `initSpace`): documents living in `{spaceId}_*` belong to `spaceId` by definition, so the
-  repair is safe and idempotent. Sync had the same flaw — a `spaceMap`-aliased pull wrote peer documents
-  into the local collection while keeping the *remote* space id — and now re-tags them to the local
-  space. Regression test added covering entities, edges and lookup-by-name across a rename.
-
-- **The test stack no longer races four concurrent builds onto one image tag.** Giving every instance the
-  shared `ythril-test:latest` tag (so CI can pre-build once against a layer cache) made `docker compose
-  build` build the *same* tag from four services simultaneously, which races on the image export and could
-  corrupt it locally (`failed to extract layer … EOF`). Only `ythril-a` builds the image now; b/c/d simply
-  reference the tag. CI is unaffected — it pre-builds the tag itself.
-
-- **Rebuilding the test stack no longer leaks Docker disk without bound.** Every `--build` orphaned the
-  previous multi-GB image (each bakes a ~520 MB embedding model, node_modules and ffmpeg) and grew the
-  BuildKit cache forever — on one workstation this reached **35 GB of build cache plus 20 GB of orphaned
-  images**, filled the drive and took Docker Desktop down. `test:up:rebuild` now runs `test:prune` (drop
-  dangling images, cap the cache at 5 GB), and a new `npm run docker:reclaim` handles an already-ballooned
-  install: it prunes, then `fstrim`s inside the VM, then prints the exact elevated `diskpart` steps to
-  **compact** `docker_data.vhdx` — necessary because pruning frees space *inside* the VM while the
-  dynamically-expanding disk only ever grows on the host. It locates the disk even when relocated to
-  another drive (`CustomWslDistroDir`).
-
-- **Sync tests can no longer turn a persistent, actionable error into an unexplained timeout.** The sync
-  suites re-trigger a sync on every poll (deliberate — a single up-front trigger races a slow gossip
-  cycle), but they did it as `triggerSync(...).catch(() => {})`, which treats a transient blip and a
-  permanent misconfiguration identically. That trap is *why* the notify rate-limit bug survived three wrong
-  fixes: every trigger was coming back `429`, the `.catch()` ate it, no sync cycle ever ran, and all anyone
-  saw was `waitFor timed out after 90000ms`. `waitFor` now takes a `diagnose` argument appended to its
-  timeout message, and `makeTriggerProbe` still tolerates a failed poll but **remembers the last failure**
-  and reports it — so the message becomes "every sync trigger to A was failing (…); last error:
-  triggerSync failed: 429 …" instead of a bare stall. Test-harness only. Pinned by
-  `testing/standalone/waitfor-diagnostics.test.js`.
-
-- **The notify limiter now honours the test kill-switch — the real cause of the “flaky” signed-vote relay test.**
-  `POST /api/notify/trigger` is how the test harness drives a sync cycle, and it is guarded by
-  `notifyRateLimit` (60/min per IP). Every request from the harness shares one source IP, so the sync suites
-  collectively blew past 60/min and started getting `429`s — which the tests' trigger call swallowed, so the
-  sync cycle silently never ran and load-sensitive assertions timed out looking like flakes. `notifyRateLimit`
-  was the **only** limiter with no `skip:` clause (`authRateLimit`, `globalRateLimit`, `syncRateLimit` and
-  `bulkWipeRateLimit` all have one); it now honours `SKIP_SYNC_RATE_LIMIT` like the rest of the sync plane.
-  **No production impact:** the kill-switch is inert unless `NODE_ENV !== 'production'`, scheduled sync calls
-  the engine in-process (it never touches this limiter at all), and instance C deliberately omits the env so
-  the genuine 429 behaviour stays covered. Pinned by `testing/standalone/notify-rate-limit.test.js`, which
-  asserts both halves: A must not throttle, C still must.
-
-- **OIDC sign-in no longer hangs when the whole SPA is embedded in a portal iframe.** The callback
-  inferred "this is a silent-refresh frame" from simply being inside an iframe (`window.self !== window.top`)
-  and tried to `postMessage` the authorization code to `window.parent` targeted at Ythril's own origin. That
-  is correct for a genuine silent refresh (whose hidden iframe's parent *is* the SPA), but when the entire
-  Ythril SPA runs inside a host portal's iframe, the interactive redirect callback is also framed and its
-  parent is the *portal's* origin — so the browser refuses the cross-origin `postMessage` and the user is
-  stuck on "Completing sign-in…" forever. The silent-refresh flow now marks its request explicitly with a
-  `state` prefix (`silent.`), and the callback branches on that marker instead of on being framed — so an
-  embedded interactive sign-in completes normally while genuine silent refreshes are still recognised.
-  Client-only. Reported from a production embedded (iframe) deployment.
-
-- **Governance votes and member gossip now converge even when data sync is slow or failing.** In each
-  sync cycle, gossip (member list, signing-key pinning) and vote propagation ran **after** the per-space
-  data and file sync for a peer — and that data loop is not isolated, so any timed-out pull, unreachable
-  member, or slow file transfer threw out of the member's sync and **skipped governance entirely for that
-  cycle**. On a lightly loaded system the data plane is fast so this never showed, but under heavy load a
-  saturated peer could starve time-sensitive vote propagation (rounds have deadlines) for many cycles in
-  a row — the root cause behind the intermittently-timing-out signed-vote relay test. Governance now runs
-  **first**, ahead of the data loop, so it converges promptly and independently of data-plane health. The
-  two calls remain internally best-effort and are additionally wrapped so a later data-plane failure can
-  never mask governance progress. Covered by the existing sync/vote suites.
-
-- **Importing a schema no longer fails silently.** In **Settings → Spaces → Schema → Import JSON**, a
-  valid-JSON file that contained none of the recognised `entity`/`edge`/`memory`/`chrono` keys — which
-  includes Ythril's **own** per-type export shape `{knowledgeType, typeName, schema}` — fell straight
-  through the import loop and then *cleared the error field*, so it looked like it worked while doing
-  nothing. Import now: (1) also accepts the `{knowledgeType, typeName, schema}` export shape; (2) shows a
-  specific error listing the expected keys and what the file actually contained when nothing is
-  recognised; and (3) confirms success with a note that the imported types are **staged — press Save to
-  apply**. Client-only.
-
-- **Record properties are now fully embedded, so semantic recall can use them.** The text embedded for
-  a record mishandled `properties`: memory and entity embedded only the property **values** and dropped
-  the **keys**, while **edge and chrono embedded properties not at all**. So recall couldn't match on a
-  property name (a query about "role" had no "role" signal), and values lost their field context —
-  `{birthplace: "Paris"}` and `{currentCity: "Paris"}` embedded identically. All five builders (memory,
-  entity, edge, chrono, and the entity-merge copy) now fold `key value` pairs into the embedded text
-  via a single shared `propsEmbedText` helper, and chrono re-embeds when only its properties change.
-  Existing records keep their old (weaker) vectors until re-embedded — run
-  `POST /api/brain/spaces/:id/reindex` to rebuild them with property keys. Covered by
-  `testing/integration/embed-properties.test.js`.
-
-- **Recall no longer errors while a new space's vector indexes are still building.** Space creation now
-  builds its `$vectorSearch` indexes asynchronously (see the space-creation fix above), and Atlas
-  refuses queries against an index still in `INITIAL_SYNC` — so a recall during that brief window
-  failed the whole request with a `400` ("cannot query vector index … while in state INITIAL_SYNC")
-  instead of returning results from the collections that were ready. Recall now treats a
-  not-yet-queryable index like a missing one — no results from that collection — so it degrades to a
-  partial/empty result during the build window instead of erroring. Covered by
-  `testing/integration/space-creation-async.test.js`.
-
-- **Creating a space no longer times out or "appears only after a reload".** `createSpace` awaited the
-  build of a space's 5+ Atlas `$vectorSearch` indexes, each polling for READY up to 60 s (worst case
-  minutes) — so the `201` landed far past the client's 30 s timeout, on a dead subscription, and the
-  space seemed to vanish until the page was refreshed. Creation now returns in seconds: collections and
-  regular indexes are created synchronously (the space always has a backing DB), the vector-index READY
-  wait is **deferred**, and the space is returned with `indexStatus: 'building'` and finalized to
-  `ready`/`failed` by a background task. The space is writable immediately; only semantic recall waits
-  for READY. The UI shows a "Preparing indexes…" badge until it clears. `GET /api/spaces` surfaces
-  `indexStatus`. Covered by `testing/integration/space-creation-async.test.js`.
-
-- **Document embedding failures are reported instead of faked as success.** When a text/document
-  upload's chunks failed to embed, an empty `catch` swallowed the error and the job still reported
-  `embeddingStatus: 'complete'` — so a file that was permanently invisible to `$vectorSearch` looked
-  fully indexed, with no failure signal and never engaging the existing retry/backoff machinery. A
-  total failure now routes into that retry path (ending `failed` if it can't recover); a partial
-  failure is recorded as `embeddingStatus: 'partial'` (new state) and is retriable. A **Retry** button
-  and a "Partly embedded" badge were added to the file list, wiring the previously-unused
-  `retry_embedding` endpoint. Covered by `testing/standalone/embedding-failure-reporting.test.js`.
-
-- **Space rename/delete are now crash-safe.** A rename or delete spans `config.json`, MongoDB
-  collections, and the filesystem and cannot be atomic — a crash mid-operation (after renaming some
-  collections, or after moving files but before the config write) could leave them permanently
-  inconsistent with no recovery. A `pendingSpaceOp` write-ahead marker is now persisted before any
-  physical change and cleared only on commit; the physical steps are idempotent, and an interrupted
-  operation is completed on the next boot (and on `reload-config`). Covered by
-  `testing/standalone/space-op-recovery.test.js`.
-
-- **The governance vote "No" button now works (and casts a veto).** The Networks UI offered **Yes/No**
-  buttons, but the server accepts only `yes`/`veto` (`VoteValue`), so clicking **No** returned `400`
-  and there was no way to cast a blocking vote from the UI at all. The negative button now casts a
-  `veto` — the blocking vote the model and docs already describe ("a single no blocks it") — and is
-  relabelled **Veto** to match. Client-only fix.
-
-- **`<html lang>` now tracks the active UI language.** It was hardcoded to `en`, so screen-reader
-  pronunciation and browser hyphenation stayed English for German and Polish users even though the UI
-  was fully translated. The document language is now set on startup and updated on every language
-  switch.
-
-- **Close/remove buttons use a consistent icon everywhere.** Close and remove controls across the app
-  rendered a mix of raw `✕` and `×` glyphs at different weights/baselines than the `ph-icon` used
-  elsewhere. Every one — dialog close buttons, chip/tag remove buttons, and danger remove actions in
-  networks, spaces, schema-library, tokens, and the shared property/tag editors — now uses the `x`
-  icon, and dialog close buttons that were missing an `aria-label` gained one.
-
-- **Legacy tokens are no longer silently invalidated on upgrade** — a startup/reload migration
-  *deleted* any PAT created before the `prefix` field existed, on the assumption it "cannot be
-  verified." In fact a prefix-less token can still be bcrypt-verified; the prefix is only a lookup
-  optimization. The deletion meant that after an innocuous restart/upgrade, every client sharing such
-  a token — web UI, monitors, MCP connectors — dropped to `401` at once, with nothing but a single log
-  line to explain it. Legacy tokens are now **verified via a fallback scan and self-heal**: the prefix
-  is backfilled on first use so subsequent lookups take the fast path, and no token is ever deleted by
-  the migration. Covered by `testing/integration/auth.test.js`.
 
 ### Security
 
@@ -1424,6 +1513,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `whisper:8000`) which resolve in both Docker Compose bridge DNS and the K8s
   `ythril` namespace.
 
+- **`PUT /api/spaces/:id/schema`** — New endpoint for *full* typeSchemas replacement
+  (PUT semantics).  Before overwriting, the previous schema is written to a timestamped
+  JSON backup file (`_schema-backup-<timestamp>.json`) inside the space's file store so it
+  can be recovered or re-imported.  Use this endpoint when an intentional full replacement is
+  required instead of an incremental update.  Returns the updated space on success.
+
+---
+
 ### Fixed
 
 - **`PATCH /api/spaces/:id` now uses true merge semantics for `meta`** — Previously,
@@ -1434,16 +1531,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   merged per-knowledge-type and per-type-name, so types absent from the request body are
   preserved.  This also means existing meta fields are no longer lost when only `typeSchemas`
   is patched.
-
-### Added
-
-- **`PUT /api/spaces/:id/schema`** — New endpoint for *full* typeSchemas replacement
-  (PUT semantics).  Before overwriting, the previous schema is written to a timestamped
-  JSON backup file (`_schema-backup-<timestamp>.json`) inside the space's file store so it
-  can be recovered or re-imported.  Use this endpoint when an intentional full replacement is
-  required instead of an incremental update.  Returns the updated space on success.
-
----
 
 ## [1.2.0] — 2026-04-24
 
@@ -1479,7 +1566,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`.gitignore`** — added `config/schema-catalogs.json` and `testing/sync/configs/*/schema-catalogs.json` (and test-instance `schema-library.json`) to prevent accidental commits of runtime data files.
 
 ---
-
 
 ## [1.1.0] — 2026-04-22
 
@@ -1527,7 +1613,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `config/schema-library.json` added to `.gitignore` — the instance-level library file is runtime data and must not be committed alongside `config.json` and `secrets.json`.
 
-
 ## [1.0.0] — 2026-04-20
 
 ### ⚠ Breaking Changes
@@ -1541,17 +1626,20 @@ Two breaking API changes are present in this release. Clients, tests, and script
 The `kind` field on chrono entries has been renamed to `type` to be consistent with all other knowledge types in the API (`memory.type`, `entity.type`, `edge.type`).
 
 **Affected endpoints:**
+
 - `POST /api/brain/spaces/:spaceId/chrono` — request body
 - `POST /api/brain/spaces/:spaceId/bulk` — `chrono[]` items in the bulk body
 - `GET /api/brain/spaces/:spaceId/chrono` — response documents
 - MCP tools: `create_chrono`, `bulk_write` (chrono items), `list_chrono` (filter param and response)
 
 **Migration — before:**
+
 ```json
 { "title": "Sprint review", "kind": "event", "startsAt": "2026-05-01T10:00:00Z" }
 ```
 
 **Migration — after:**
+
 ```json
 { "title": "Sprint review", "type": "event", "startsAt": "2026-05-01T10:00:00Z" }
 ```
@@ -1567,12 +1655,14 @@ The TypeScript type alias `ChronoKind` remains exported as a deprecated alias fo
 The flat schema fields on `SpaceMeta` (`entityTypes`, `edgeLabels`, `namingPatterns`, `requiredProperties`, `propertySchemas`) have been replaced by a single nested `typeSchemas` object. The old flat fields are no longer accepted — `PATCH /api/spaces/:id` uses a strict Zod schema and will return 400 `unrecognized_key` for any old field names.
 
 **Affected endpoints:**
+
 - `PATCH /api/spaces/:id` — `meta` field in request body
 - `GET /api/spaces/:id/meta` — response shape (no `entityTypes` array in response)
 - `POST /api/spaces/:id/validate-schema` — schema in `meta` payload
 - MCP tools: `update_space` (meta argument), `get_space_meta` (response)
 
 **Migration — before (flat format):**
+
 ```json
 {
   "validationMode": "strict",
@@ -1595,6 +1685,7 @@ The flat schema fields on `SpaceMeta` (`entityTypes`, `edgeLabels`, `namingPatte
 ```
 
 **Migration — after (`typeSchemas` format):**
+
 ```json
 {
   "validationMode": "strict",
@@ -1639,6 +1730,7 @@ The flat schema fields on `SpaceMeta` (`entityTypes`, `edgeLabels`, `namingPatte
 ```
 
 Key differences:
+
 - `entityTypes` and `edgeLabels` are gone — allowed types/labels are now inferred from the keys of `typeSchemas.entity` and `typeSchemas.edge`
 - `namingPatterns` (global map) → `typeSchemas.entity.<typeName>.namingPattern` (per-type inline string)
 - `requiredProperties` (list per knowledge-type) → `required: true` flag inline on each `propertySchemas` entry
@@ -1991,6 +2083,7 @@ Initial public release.
 ### Added
 
 #### Core
+
 - Space-isolated knowledge management: memories, entities, edges, tombstones.
 - Semantic search via OpenAI-compatible embedding endpoint (`/v1/embeddings`).
 - Proxy spaces — virtual read-aggregation across multiple real spaces.
@@ -1999,6 +2092,7 @@ Initial public release.
 - Storage quota enforcement (soft/hard limits for files and brain data).
 
 #### Authentication & Security
+
 - PAT token auth (`ythril_*`) with bcrypt-hashed storage, space-scoped allowlists.
 - Optional MFA (TOTP) for admin mutations.
 - RSA-4096-OAEP zero-knowledge invite handshake.
@@ -2010,6 +2104,7 @@ Initial public release.
 - Global rate-limiting middleware (configurable per-endpoint).
 
 #### Brain Networks & Sync
+
 - Network types: Closed, Democratic, Club, Braintree (hierarchical push-only).
 - Watermark-based incremental sync: pull → push → file manifest (SHA-256) → gossip.
 - Voting system for membership changes (unanimous, majority, supermajority, ancestor-path).
@@ -2018,17 +2113,20 @@ Initial public release.
 - Sync history tracking with per-run stats and error reporting.
 
 #### Client (Angular 21)
+
 - Web UI: brain explorer, file manager, space manager, token manager, network manager.
 - Conflict resolution page with bulk actions.
 - MFA enrollment flow with QR code display.
 - Accessible forms with aria-labels and HTML5 validation.
 
 #### Infrastructure
+
 - Single `docker-compose.yml` deployment with MongoDB Atlas Local.
 - Docker healthcheck on `/health` endpoint.
 - Hot-reloadable configuration with permissions enforcement.
 - First-run setup wizard (admin password, instance label, embedding config).
 
 #### Documentation
+
 - User guide, integration guide (full REST & MCP API reference), contribution guide.
 - Network types specification, sync protocol specification, dependency inventory.

@@ -79,6 +79,17 @@ export async function deleteFile(spaceId: string, filePath: string): Promise<voi
   await fs.unlink(abs);
 }
 
+/** True if a regular file exists at the given space-relative path. */
+export async function fileExists(spaceId: string, filePath: string): Promise<boolean> {
+  try {
+    const abs = await resolveSafePathChecked(spaceId, filePath);
+    const st = await fs.stat(abs);
+    return st.isFile();
+  } catch {
+    return false;
+  }
+}
+
 /** Create a directory (including parents) */
 export async function createDir(spaceId: string, dirPath: string): Promise<void> {
   const abs = await resolveSafePathChecked(spaceId, dirPath);
@@ -118,6 +129,41 @@ export async function getDirSizeBytes(dir: string): Promise<number> {
     }
   }
   return total;
+}
+
+/**
+ * Recursively list every file under a space-relative directory, returning
+ * space-relative forward-slash paths (e.g. `notes/2024/jan.md`). Returns [] if the
+ * directory does not exist. Used to enumerate a subtree before deleting it so a sync
+ * tombstone can be written for each removed file.
+ */
+export async function listFilesRecursive(spaceId: string, dirPath: string): Promise<string[]> {
+  const root = spaceRoot(spaceId);
+  let absDir: string;
+  try {
+    absDir = await resolveSafePathChecked(spaceId, dirPath);
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return; // missing or unreadable — nothing to list
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+      } else if (entry.isFile()) {
+        out.push(path.relative(root, full).replace(/\\/g, '/'));
+      }
+    }
+  }
+  await walk(absDir);
+  return out;
 }
 
 export interface QuotaCheckResult {

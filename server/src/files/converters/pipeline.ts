@@ -9,6 +9,7 @@
  */
 
 import path from 'path';
+import fs from 'fs/promises';
 import { UnstructuredConverter } from './unstructured.js';
 import type { ExtractedImage } from './unstructured.js';
 import { HtmlConverter } from './html.js';
@@ -19,6 +20,7 @@ import { paragraphChunk } from './paragraph-chunker.js';
 import type { Chunk } from './types.js';
 import { ConversionUnavailableError } from './types.js';
 import { writeFile, writeFileBytes } from '../files.js';
+import { resolveSafePathChecked } from '../sandbox.js';
 import { col, asFilter, asDoc } from '../../db/mongo.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
@@ -402,17 +404,68 @@ export async function storeConversionResults(
   return { chunkCount: chunks.length, convertedFileId, embedFailures };
 }
 
-/** Delete all chunk records and the _converted/ file for a given original file. */
+/** Escape a string for safe use inside a RegExp. */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Best-effort recursive delete of a space-relative path. Never throws (missing = success). */
+async function rmArtifactPath(spaceId: string, relPath: string): Promise<void> {
+  try {
+    const abs = await resolveSafePathChecked(spaceId, relPath);
+    await fs.rm(abs, { recursive: true, force: true });
+  } catch (err) {
+    log.warn(`Failed to remove conversion artifact path ${spaceId}/${relPath}: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/**
+ * Delete every conversion artifact belonging to a single original file:
+ * its chunk / `_converted/` / `_extracted/` filemeta records AND the mirrored
+ * on-disk sidecar files (`_converted/<id>.md`, `_extracted/<id>/`).
+ */
 export async function deleteConversionArtifacts(
   spaceId: string,
   originalFilePath: string,
 ): Promise<void> {
   const originalId = normPath(originalFilePath);
 
-  // Delete all filemeta records with parentFileId = originalId
+  // DB: all filemeta records with parentFileId = originalId (chunks, converted, extracted).
   await col<FileMetaDoc>(`${spaceId}_files`).deleteMany(
     asFilter<FileMetaDoc>({ parentFileId: originalId }),
   );
 
+  // Disk: the sidecar files those records described. deleteMany above does not touch disk,
+  // so without this the `_converted/`/`_extracted/` trees would be orphaned on the filesystem.
+  await rmArtifactPath(spaceId, `_converted/${originalId}.md`);
+  await rmArtifactPath(spaceId, `_extracted/${originalId}`);
+
   log.info(`Deleted conversion artifacts for ${spaceId}/${originalId}`);
+}
+
+/**
+ * Delete conversion artifacts for EVERY original file under `dirPath/` — used
+ * when a directory is deleted recursively. The sidecar records/files live under
+ * the separate `_converted/<path>` and `_extracted/<path>` top-level prefixes,
+ * so a `<dirPath>/`-only cleanup (deleteFileMetaByPrefix + fs.rm) leaves them
+ * orphaned; this removes them by parent-path prefix and clears the sidecar trees.
+ */
+export async function deleteConversionArtifactsByPrefix(
+  spaceId: string,
+  dirPath: string,
+): Promise<void> {
+  const dir = normPath(dirPath).replace(/\/?$/, '');
+  if (!dir) return; // guard: empty path would match everything
+  const escaped = escapeRegex(dir + '/');
+
+  // DB: every child record whose parent lived under the folder.
+  await col<FileMetaDoc>(`${spaceId}_files`).deleteMany(
+    asFilter<FileMetaDoc>({ parentFileId: { $regex: `^${escaped}` } }),
+  );
+
+  // Disk: the mirrored sidecar subtrees.
+  await rmArtifactPath(spaceId, `_converted/${dir}`);
+  await rmArtifactPath(spaceId, `_extracted/${dir}`);
+
+  log.info(`Deleted conversion artifacts under ${spaceId}/${dir}/`);
 }

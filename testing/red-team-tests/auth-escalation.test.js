@@ -137,14 +137,21 @@ describe('H2 — MFA cannot be rotated/disabled with just an admin PAT once enab
   // reliable — no TOTP generation needed.
   async function disableMfaViaRestart() {
     execSync(`docker exec ythril-a node -e "const fs=require('fs');const p='/config/secrets.json';const s=JSON.parse(fs.readFileSync(p,'utf8'));delete s.totpSecret;fs.writeFileSync(p,JSON.stringify(s,null,2),{mode:0o600})"`);
-    execSync('docker restart ythril-a', { stdio: 'ignore' });
+    // `-t 3`: force-kill after a 3s graceful window instead of docker's default 10s. Under
+    // full-suite load the instance is mid-sync with its peers, and a slow graceful stop plus a
+    // busy daemon was pushing the whole restart past the readiness deadline below.
+    execSync('docker restart -t 3 ythril-a', { stdio: 'ignore' });
     // Wait for the API to actually serve again — poll the readiness endpoint
     // (not just docker's health status), retrying through the stale keep-alive
     // sockets still pointing at the dead process. Throw loudly on timeout so we
     // never run assertions against a half-restarted server. The old 45s docker-
     // health loop returned SILENTLY on timeout, so a slow restart left `before`
     // hitting a dead server and the MFA request hung to its timeout — the flake.
-    const deadline = Date.now() + 90_000;
+    // 240s (not 90s): when this test runs late in the full suite, peer instances b/c/d are
+    // still syncing against A, so a fresh A is flooded on boot and readiness lags — in
+    // isolation this restart is ~2s, but under that background load it has been observed to
+    // take ~175s, so the deadline needs comfortable headroom above that.
+    const deadline = Date.now() + 240_000;
     while (Date.now() < deadline) {
       try {
         const r = await fetch(`${INSTANCES.a}/ready`);

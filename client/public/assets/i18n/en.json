@@ -338,6 +338,7 @@
   "brain.fileMeta.embedding": "Embedding…",
   "brain.fileMeta.embeddingFailed": "Embedding failed",
   "brain.fileMeta.embeddingPartial": "Partly embedded",
+  "brain.fileMeta.deleted": "Deleted",
   "brain.fileMeta.retryEmbedding": "Retry",
   "brain.fileMeta.picker.searchMemories": "Search memories…",
   "brain.fileMeta.picker.searchChrono": "Search chrono…",

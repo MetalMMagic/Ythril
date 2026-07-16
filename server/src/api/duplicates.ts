@@ -16,7 +16,6 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { scanSpace } from '../brain/dupe-scanner.js';
 import { computeMergePlan, applyResolutions, executeMerge } from '../brain/merge.js';
-import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import type { DupeCandidateDoc } from '../config/types.js';
 
 /** Find a candidate across the caller's accessible spaces. */
@@ -130,9 +129,7 @@ duplicatesRouter.post('/:id/merge', globalRateLimit, requireAuth, denyReadOnly, 
     if (!plan.fullyResolved) { res.status(409).json({ error: 'Property value conflict — resolve manually', plan: plan.plan }); return; }
 
     const mergedProps = applyResolutions(plan.survivor.properties ?? {}, plan.absorbed.properties ?? {}, plan.plan.propertyConflicts, plan.plan.absorbedOnlyProperties);
-    const result = await executeMerge(spaceId, plan.survivor, plan.absorbed, mergedProps);
-    emitWebhookEvent({ event: 'entity.merged', spaceId, entry: { survivor: { ...result.entity, embedding: undefined }, absorbedId: plan.absorbed._id } });
-    emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...result.entity, embedding: undefined } });
+    const result = await executeMerge(spaceId, plan.survivor, plan.absorbed, mergedProps, { tokenId: req.authToken?.id, tokenLabel: req.authToken?.name });
 
     await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).updateOne(
       asFilter<DupeCandidateDoc>({ _id: doc._id }),

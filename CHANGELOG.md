@@ -646,6 +646,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Split the 1734-line `api/brain.ts` (39 routes) into per-resource sub-routers (internal, no
+  behavior change).** The file the owner called out is now `api/brain/` — `memories.ts` (6 routes),
+  `entities.ts` (9), `edges.ts` (6), `chrono.ts` (7), `file-meta.ts` (3), `search.ts` (7: stats,
+  traverse, query, recall, find-similar, reindex) and `bulk.ts` (1), over a `_shared.ts` holding the
+  pieces every sub-router needs (`webhookToken`, `getSpaceMeta`, `applyValidation`,
+  `buildMemoryFilter`, `UUID_V4_RE`). `index.ts` mounts them onto the same `brainRouter`, each
+  sub-router declaring full paths, so **every URL is unchanged**; original route order is preserved
+  within each file (it matters where paths overlap — entities `/by-name` and `/by-ids` must stay
+  ahead of `/:id`). Handlers were moved verbatim. Two things worth noting: the brain file-metadata
+  router is named `fileMetaRouter`, not `filesRouter`, because `api/files.ts` already exports a
+  `filesRouter` — the duplicate name made the audit-coverage guard resolve those routes to the wrong
+  prefix; and the two route-analysis guards (`audit-route-coverage`, `route-guard-coverage`) now
+  discover route files recursively and resolve sub-routers mounted via `parentRouter.use(child)` to
+  the parent's prefix, so the brain surface can't silently drop out of either check.
+  (ARCHITECTURE-TODO A17.3.)
+
 - **Split the 1187-line client `api.service.ts` monolith into per-domain API services + a types
   module (internal, no behavior change).** One `ApiService` held ~120 HTTP-wrapper methods and ~450
   lines of DTO declarations, injected by two dozen components. It is now: `api.types.ts` (all 50

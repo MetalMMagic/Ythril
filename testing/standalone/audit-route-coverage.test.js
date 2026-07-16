@@ -63,6 +63,16 @@ let resolveOperation;
 /** @type {{method: string, routerPath: string, fullPath: string, file: string}[]} */
 let routes = [];
 
+/** Every .ts file under the api dir, recursively — routes live in `api/` AND `api/brain/` (A17.3). */
+function apiFiles(dir = API_DIR, out = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) apiFiles(p, out);
+    else if (e.name.endsWith('.ts')) out.push(p);
+  }
+  return out;
+}
+
 /** Map `xxxRouter` -> its mount prefix, read from app.ts (`app.use('/api/xxx', xxxRouter)`). */
 function readMounts() {
   const src = fs.readFileSync(APP_TS, 'utf8');
@@ -70,6 +80,23 @@ function readMounts() {
   const re = /app\.use\(\s*'([^']+)'\s*,\s*([A-Za-z_]\w*)/g;
   let m;
   while ((m = re.exec(src)) !== null) mounts.set(m[2], m[1]);
+
+  // Sub-routers mounted on a parent router serve the parent's prefix — e.g. api/brain/index.ts does
+  // `brainRouter.use(memoriesRouter)`, so memoriesRouter's routes are under /api/brain. Without this
+  // the whole brain surface would silently vanish from the audit check.
+  const links = [];
+  for (const f of apiFiles()) {
+    const s = fs.readFileSync(f, 'utf8');
+    const childRe = /(\w+Router)\s*\.\s*use\(\s*(\w+Router)\s*\)/g;
+    let c;
+    while ((c = childRe.exec(s)) !== null) links.push([c[1], c[2]]);
+  }
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [parent, child] of links) {
+      if (mounts.has(parent) && !mounts.has(child)) { mounts.set(child, mounts.get(parent)); changed = true; }
+    }
+  }
   return mounts;
 }
 
@@ -83,9 +110,9 @@ describe('Audit coverage — every mutating route must resolve to an operation',
     ({ resolveOperation } = await import('../../server/dist/audit/middleware.js'));
 
     const mounts = readMounts();
-    for (const file of fs.readdirSync(API_DIR).filter(f => f.endsWith('.ts'))) {
-      const src = fs.readFileSync(path.join(API_DIR, file), 'utf8');
-      // e.g.  brainRouter.post('/spaces/:spaceId/memories', ...)   (also multi-line)
+    for (const filePath of apiFiles()) {
+      const src = fs.readFileSync(filePath, 'utf8');
+      // e.g.  memoriesRouter.post('/spaces/:spaceId/memories', ...)   (also multi-line)
       const re = /(\w+Router)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*'([^']+)'/g;
       let m;
       while ((m = re.exec(src)) !== null) {
@@ -97,7 +124,7 @@ describe('Audit coverage — every mutating route must resolve to an operation',
           method: method.toUpperCase(),
           routerPath,
           fullPath: concretise(joined),
-          file,
+          file: path.relative(API_DIR, filePath).replace(/\\/g, '/'),
         });
       }
     }

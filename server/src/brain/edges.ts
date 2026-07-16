@@ -3,7 +3,7 @@ import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
-import { propsEmbedText } from './embed-text.js';
+import { edgeEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { getEntityById } from './entities.js';
@@ -36,32 +36,12 @@ function authorRef() {
 }
 
 /** Resolve entity IDs to names for embedding. Falls back to the raw ID if the entity is not found. */
-async function resolveEdgeEntityNames(spaceId: string, fromId: string, toId: string): Promise<[string, string]> {
+export async function resolveEdgeEntityNames(spaceId: string, fromId: string, toId: string): Promise<[string, string]> {
   const [fromDoc, toDoc] = await Promise.all([
     getEntityById(spaceId, fromId),
     getEntityById(spaceId, toId),
   ]);
   return [fromDoc?.name ?? fromId, toDoc?.name ?? toId];
-}
-
-/** Derive the text to embed for an edge (tags + from + label + to + optional type + optional description). */
-function edgeEmbedText(
-  from: string,
-  label: string,
-  to: string,
-  tags: string[] = [],
-  type?: string,
-  description?: string,
-  properties?: Record<string, string | number | boolean>,
-): string {
-  const parts: string[] = [];
-  if (tags.length > 0) parts.push(tags.join(' '));
-  parts.push(from, label, to);
-  if (type?.trim()) parts.push(type.trim());
-  if (description?.trim()) parts.push(description.trim());
-  const propsText = propsEmbedText(properties);
-  if (propsText) parts.push(propsText);
-  return parts.join(' ');
 }
 
 /**

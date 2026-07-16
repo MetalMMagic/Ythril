@@ -6,7 +6,8 @@ import { globalRateLimit, bulkWipeRateLimit } from '../rate-limit/middleware.js'
 import { NotFoundError } from '../util/errors.js';
 import { listMemories, deleteMemory, countMemories, bulkDeleteMemories, remember, updateMemory, queryBrain, findSimilar, recall, validateFilterExpression, type RecallKnowledgeType, type FilterExpression } from '../brain/memory.js';
 import { listEntities, deleteEntity, upsertEntity, getEntityById, updateEntityById, bulkDeleteEntities, findEntitiesByName, findEntityBacklinks } from '../brain/entities.js';
-import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges, traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE } from '../brain/edges.js';
+import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges, traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../brain/edges.js';
+import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from '../brain/embed-text.js';
 import { computeMergePlan, applyResolutions, executeMerge, validateResolution, type PropertyResolution } from '../brain/merge.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../brain/delete-fields.js';
 /** Regex that matches a UUID v4 (case-insensitive). */
@@ -1601,18 +1602,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
                       .toArray() as Array<{ name: string }>
                   : [];
                 const entityNames = entityDocs.map(e => e.name);
-                const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
-                const parts: string[] = [];
-                if (tags.length > 0) parts.push(tags.join(' '));
-                if (entityNames.length > 0) parts.push(entityNames.join(' '));
-                parts.push(doc.fact);
-                if (doc.description?.trim()) parts.push(doc.description.trim());
-                if (doc.properties) {
-                  const propEntries = Object.entries(doc.properties);
-                  if (propEntries.length > 0) parts.push(propEntries.map(([_k, v]) => String(v)).join(' '));
-                }
-                const text = parts.join(' ');
-                const result = await embed(text);
+                const result = await embed(memoryEmbedText(doc.fact, doc.tags ?? [], entityNames, doc.description, doc.properties));
                 await col<MemoryDoc>(`${mid}_memories`).updateOne(
                   { _id: doc._id },
                   { $set: { embedding: result.vector, embeddingModel: result.model } },
@@ -1638,15 +1628,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
             if (batch.length === 0) break;
             for (const doc of batch) {
               try {
-                const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
-                const parts: string[] = [doc.name, doc.type];
-                if (tags.length > 0) parts.push(tags.join(' '));
-                if (doc.description?.trim()) parts.push(doc.description.trim());
-                if (doc.properties) {
-                  const propEntries = Object.entries(doc.properties);
-                  if (propEntries.length > 0) parts.push(propEntries.map(([_k, v]) => String(v)).join(' '));
-                }
-                const result = await embed(parts.join(' '));
+                const result = await embed(entityEmbedText(doc.name, doc.type, doc.tags ?? [], doc.description, doc.properties ?? {}));
                 await col<EntityDoc>(`${mid}_entities`).updateOne(
                   { _id: doc._id },
                   { $set: { embedding: result.vector, embeddingModel: result.model } },
@@ -1658,27 +1640,24 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
           }
         }
 
-        // Re-embed edges (tags + from + label + to + type + description)
+        // Re-embed edges (tags + from-name + label + to-name + type + description + properties)
         {
           let cursor: string | null = null;
           // eslint-disable-next-line no-constant-condition
           while (true) {
             const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
             const batch: EdgeDoc[] = await col<EdgeDoc>(`${mid}_edges`)
-              .find(asFilter<EdgeDoc>(q), { projection: { _id: 1, from: 1, label: 1, to: 1, type: 1, tags: 1, description: 1 } })
+              .find(asFilter<EdgeDoc>(q), { projection: { _id: 1, from: 1, label: 1, to: 1, type: 1, tags: 1, description: 1, properties: 1 } })
               .sort({ _id: 1 })
               .limit(BATCH)
               .toArray() as EdgeDoc[];
             if (batch.length === 0) break;
             for (const doc of batch) {
               try {
-                const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
-                const parts: string[] = [];
-                if (tags.length > 0) parts.push(tags.join(' '));
-                parts.push(doc.from, doc.label, doc.to);
-                if (doc.type?.trim()) parts.push(doc.type.trim());
-                if (doc.description?.trim()) parts.push(doc.description.trim());
-                const result = await embed(parts.join(' '));
+                // Resolve from/to to entity NAMES (not IDs) and include properties — matching
+                // edgeEmbedText so a reindex reproduces exactly what upsertEdge embedded.
+                const [fromName, toName] = await resolveEdgeEntityNames(mid, doc.from, doc.to);
+                const result = await embed(edgeEmbedText(fromName, doc.label, toName, doc.tags ?? [], doc.type, doc.description, doc.properties));
                 await col<EdgeDoc>(`${mid}_edges`).updateOne(
                   { _id: doc._id },
                   { $set: { embedding: result.vector, embeddingModel: result.model } },
@@ -1690,25 +1669,21 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
           }
         }
 
-        // Re-embed chrono (kind + status + title + description + tags)
+        // Re-embed chrono (type + status + title + tags + description + properties)
         {
           let cursor: string | null = null;
           // eslint-disable-next-line no-constant-condition
           while (true) {
             const q: Record<string, unknown> = cursor ? { _id: { $gt: cursor } } : {};
             const batch: ChronoEntry[] = await col<ChronoEntry>(`${mid}_chrono`)
-              .find(asFilter<ChronoEntry>(q), { projection: { _id: 1, title: 1, type: 1, status: 1, description: 1, tags: 1 } })
+              .find(asFilter<ChronoEntry>(q), { projection: { _id: 1, title: 1, type: 1, status: 1, description: 1, tags: 1, properties: 1 } })
               .sort({ _id: 1 })
               .limit(BATCH)
               .toArray() as ChronoEntry[];
             if (batch.length === 0) break;
             for (const doc of batch) {
               try {
-                const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
-                const parts: string[] = [doc.type, doc.status, doc.title];
-                if (tags.length > 0) parts.push(tags.join(' '));
-                if (doc.description?.trim()) parts.push(doc.description.trim());
-                const result = await embed(parts.join(' '));
+                const result = await embed(chronoEmbedText(doc.title, doc.type, doc.status, doc.description, doc.tags ?? [], doc.properties));
                 await col<ChronoEntry>(`${mid}_chrono`).updateOne(
                   { _id: doc._id },
                   { $set: { embedding: result.vector, embeddingModel: result.model } },
@@ -1737,7 +1712,6 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
             if (batch.length === 0) break;
             for (const doc of batch) {
               try {
-                const tags: string[] = Array.isArray(doc.tags) ? doc.tags : [];
                 const entityIds: string[] = Array.isArray(doc.entityIds) ? doc.entityIds : [];
                 const entityDocs = entityIds.length > 0
                   ? await col<EntityDoc>(`${mid}_entities`)
@@ -1745,15 +1719,7 @@ brainRouter.post('/spaces/:spaceId/reindex', globalRateLimit, requireSpaceAuth, 
                       .toArray() as Array<{ name: string }>
                   : [];
                 const entityNames = entityDocs.map(e => e.name);
-                const parts: string[] = [doc.path];
-                if (entityNames.length > 0) parts.push(entityNames.join(' '));
-                if (tags.length > 0) parts.push(tags.join(' '));
-                if (doc.description?.trim()) parts.push(doc.description.trim());
-                if (doc.properties) {
-                  const propEntries = Object.entries(doc.properties);
-                  if (propEntries.length > 0) parts.push(propEntries.map(([_k, v]) => String(v)).join(' '));
-                }
-                const result = await embed(parts.join(' '));
+                const result = await embed(fileEmbedText(doc.path, doc.tags ?? [], doc.description, doc.properties, entityNames));
                 await col<FileMetaDoc>(`${mid}_files`).updateOne(
                   { _id: doc._id },
                   { $set: { embedding: result.vector, embeddingModel: result.model } },

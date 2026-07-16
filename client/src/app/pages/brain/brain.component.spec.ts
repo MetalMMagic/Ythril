@@ -17,7 +17,10 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { of } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
-import { ApiService, type Memory } from '../../core/api.service';
+import { type Memory } from '../../core/api.types';
+import { SpacesApi } from '../../core/spaces-api.service';
+import { BrainApi } from '../../core/brain-api.service';
+import { FilesApi } from '../../core/files-api.service';
 import { AuthService } from '../../core/auth.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { BrainComponent } from './brain.component';
@@ -43,7 +46,7 @@ function makeApi() {
     getSpaceMeta: () => of({ tagSuggestions: [], typeSchemas: {} }),
     listMemories: () => of({ memories: [] }),
     getEntitiesByIds: () => of({ entities: [] }),
-  } as unknown as ApiService;
+  } as any;
 }
 
 describe('BrainComponent (OnPush)', () => {
@@ -51,7 +54,9 @@ describe('BrainComponent (OnPush)', () => {
     TestBed.configureTestingModule({
       imports: [BrainComponent, getTranslocoModule()],
       providers: [
-        { provide: ApiService, useValue: makeApi() },
+        { provide: SpacesApi, useValue: makeApi() },
+        { provide: BrainApi, useValue: makeApi() },
+        { provide: FilesApi, useValue: makeApi() },
         { provide: AuthService, useValue: { token: () => '' } },
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
       ],

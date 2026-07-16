@@ -1,7 +1,7 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService } from '../../core/api.service';
+import { AdminApi } from '../../core/admin-api.service';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
@@ -396,7 +396,7 @@ interface BackupConfig {
   `,
 })
 export class DataComponent implements OnInit {
-  private api = inject(ApiService);
+  private adminApi = inject(AdminApi);
   private transloco = inject(TranslocoService);
   private confirmDialog = inject(ConfirmDialogService);
 
@@ -493,7 +493,7 @@ export class DataComponent implements OnInit {
   }
 
   private loadConfig(): void {
-    this.api.getDataConfig().subscribe({
+    this.adminApi.getDataConfig().subscribe({
       next: ({ source, mongoUriRedacted, migrationEnabled }) => {
         this.uriSource.set(source);
         this.currentUriRedacted.set(mongoUriRedacted);
@@ -505,14 +505,14 @@ export class DataComponent implements OnInit {
   }
 
   private loadMaintenance(): void {
-    this.api.getMaintenanceStatus().subscribe({
+    this.adminApi.getMaintenanceStatus().subscribe({
       next: ({ active }) => this.maintenanceActive.set(active),
       error: () => {},
     });
   }
 
   private loadBackupConfig(): void {
-    this.api.getBackupConfig().subscribe({
+    this.adminApi.getBackupConfig().subscribe({
       next: ({ config, backupsPath }) => {
         this.backupConfig.set(config);
         if (backupsPath) this.backupsPath.set(backupsPath);
@@ -529,7 +529,7 @@ export class DataComponent implements OnInit {
 
   private refreshBackups(): void {
     this.loadingBackups.set(true);
-    this.api.listBackups().subscribe({
+    this.adminApi.listBackups().subscribe({
       next: ({ backups }) => {
         this.backups.set(backups);
         this.loadingBackups.set(false);
@@ -542,7 +542,7 @@ export class DataComponent implements OnInit {
     this.backingUp.set(true);
     this.backupTaken.set(false);
     this.backupError.set(null);
-    this.api.triggerBackup().subscribe({
+    this.adminApi.triggerBackup().subscribe({
       next: () => {
         this.backingUp.set(false);
         this.backupTaken.set(true);
@@ -569,7 +569,7 @@ export class DataComponent implements OnInit {
     this.restoringId.set(backupId);
     this.restoreSuccess.set(false);
     this.restoreError.set(null);
-    this.api.restoreBackup(backupId).subscribe({
+    this.adminApi.restoreBackup(backupId).subscribe({
       next: () => {
         this.restoringId.set(null);
         this.restoreSuccess.set(true);
@@ -586,7 +586,7 @@ export class DataComponent implements OnInit {
     this.savingSchedule.set(true);
     this.scheduleSaveSuccess.set(false);
     this.scheduleSaveError.set(null);
-    this.api.saveBackupConfig(this.buildConfig()).subscribe({
+    this.adminApi.saveBackupConfig(this.buildConfig()).subscribe({
       next: ({ config }) => {
         this.backupConfig.set(config);
         this.savingSchedule.set(false);
@@ -603,7 +603,7 @@ export class DataComponent implements OnInit {
     this.savingDest.set(true);
     this.destSaveSuccess.set(false);
     this.destSaveError.set(null);
-    this.api.saveBackupConfig(this.buildConfig()).subscribe({
+    this.adminApi.saveBackupConfig(this.buildConfig()).subscribe({
       next: ({ config }) => {
         this.backupConfig.set(config);
         this.savingDest.set(false);
@@ -709,7 +709,7 @@ export class DataComponent implements OnInit {
     if (!uri) return;
     this.testing.set(true);
     this.testResult.set(null);
-    this.api.testMongoConnection(uri).subscribe({
+    this.adminApi.testMongoConnection(uri).subscribe({
       next: result => {
         this.testResult.set(result);
         this.testing.set(false);
@@ -725,7 +725,7 @@ export class DataComponent implements OnInit {
     const next = !this.maintenanceActive();
     this.togglingMaintenance.set(true);
     this.maintenanceError.set(null);
-    this.api.setMaintenance(next).subscribe({
+    this.adminApi.setMaintenance(next).subscribe({
       next: ({ active }) => {
         this.maintenanceActive.set(active);
         this.togglingMaintenance.set(false);
@@ -754,7 +754,7 @@ export class DataComponent implements OnInit {
     this.migrateSuccess.set(false);
     this.migrateError.set(null);
     this.testResult.set(null);
-    this.api.startMigration(uri).subscribe({
+    this.adminApi.startMigration(uri).subscribe({
       next: () => {
         this.migrating.set(false);
         this.migrateSuccess.set(true);

@@ -10,7 +10,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { throwError } from 'rxjs';
-import { ApiService } from '../core/api.service';
+import { BrainApi } from '../core/brain-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 type RecordType = 'entity' | 'edge' | 'memory' | 'chrono';
@@ -380,7 +380,7 @@ interface FieldEntry {
   `,
 })
 export class EntryPopupComponent {
-  private api = inject(ApiService);
+  private brainApi = inject(BrainApi);
 
   @Input() record: Record<string, unknown> | null = null;
   @Input() recordType: RecordType = 'entity';
@@ -567,13 +567,13 @@ export class EntryPopupComponent {
     const b = body as any;
     switch (this.recordType) {
       case 'entity':
-        return this.api.updateEntity(this.spaceId, id, b);
+        return this.brainApi.updateEntity(this.spaceId, id, b);
       case 'edge':
-        return this.api.updateEdge(this.spaceId, id, b);
+        return this.brainApi.updateEdge(this.spaceId, id, b);
       case 'memory':
-        return this.api.updateMemory(this.spaceId, id, b);
+        return this.brainApi.updateMemory(this.spaceId, id, b);
       case 'chrono':
-        return this.api.updateChrono(this.spaceId, id, b);
+        return this.brainApi.updateChrono(this.spaceId, id, b);
       default: {
         const _exhaustive: never = this.recordType;
         return throwError(() => new Error(`Unknown record type: ${_exhaustive}`));

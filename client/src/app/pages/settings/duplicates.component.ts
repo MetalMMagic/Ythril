@@ -1,7 +1,8 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService, DuplicateRecord } from '../../core/api.service';
+import { DuplicateRecord } from '../../core/api.types';
+import { DuplicatesApi } from '../../core/duplicates-api.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
@@ -90,7 +91,7 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
   `,
 })
 export class DuplicatesComponent implements OnInit {
-  private api = inject(ApiService);
+  private duplicatesApi = inject(DuplicatesApi);
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
   private confirmDialog = inject(ConfirmDialogService);
@@ -107,7 +108,7 @@ export class DuplicatesComponent implements OnInit {
   load(): void {
     this.loading.set(true);
     this.error.set(false);
-    this.api.listDuplicates(this.statusFilter).subscribe({
+    this.duplicatesApi.listDuplicates(this.statusFilter).subscribe({
       next: ({ duplicates }) => { this.rows.set(duplicates); this.loading.set(false); },
       error: () => { this.error.set(true); this.loading.set(false); },
     });
@@ -115,7 +116,7 @@ export class DuplicatesComponent implements OnInit {
 
   scan(): void {
     this.scanning.set(true);
-    this.api.scanDuplicates().subscribe({
+    this.duplicatesApi.scanDuplicates().subscribe({
       next: () => { this.scanning.set(false); this.load(); },
       error: (e) => {
         this.scanning.set(false);
@@ -126,7 +127,7 @@ export class DuplicatesComponent implements OnInit {
 
   dismiss(d: DuplicateRecord): void {
     this.busy.set(d.id);
-    this.api.dismissDuplicate(d.id).subscribe({
+    this.duplicatesApi.dismissDuplicate(d.id).subscribe({
       next: () => { this.rows.update(list => this.statusFilter === 'open' ? list.filter(x => x.id !== d.id) : list.map(x => x.id === d.id ? { ...x, status: 'dismissed' } : x)); this.busy.set(null); },
       error: (e) => { this.busy.set(null); this.toast.error(e?.error?.error || this.transloco.translate('duplicates.dismissError')); },
     });
@@ -140,7 +141,7 @@ export class DuplicatesComponent implements OnInit {
     });
     if (!ok) return;
     this.busy.set(d.id);
-    this.api.mergeDuplicate(d.id).subscribe({
+    this.duplicatesApi.mergeDuplicate(d.id).subscribe({
       next: () => { this.rows.update(list => list.filter(x => x.id !== d.id)); this.busy.set(null); },
       error: (e) => { this.busy.set(null); this.toast.error(e?.error?.error || this.transloco.translate('duplicates.mergeError')); },
     });

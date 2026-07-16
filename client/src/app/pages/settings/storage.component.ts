@@ -1,6 +1,6 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ApiService } from '../../core/api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 interface StorageData {
@@ -113,7 +113,7 @@ interface StorageData {
   `,
 })
 export class StorageComponent implements OnInit {
-  private api = inject(ApiService);
+  private spacesApi = inject(SpacesApi);
   protected Math = Math;
 
   data = signal<StorageData | null>(null);
@@ -124,7 +124,7 @@ export class StorageComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
-    this.api.listSpaces().subscribe({
+    this.spacesApi.listSpaces().subscribe({
       next: ({ storage }) => {
         if (storage) {
           this.data.set(storage as StorageData);

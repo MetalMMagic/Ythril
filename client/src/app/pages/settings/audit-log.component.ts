@@ -1,7 +1,9 @@
 import { ChangeDetectionStrategy, Component, inject, signal, OnInit, OnDestroy, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService, type AuditLogEntry, type AuditLogParams, type Space } from '../../core/api.service';
+import { type AuditLogEntry, type AuditLogParams, type Space } from '../../core/api.types';
+import { AdminApi } from '../../core/admin-api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 @Component({
@@ -319,7 +321,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
   `,
 })
 export class AuditLogComponent implements OnInit, OnDestroy {
-  private api = inject(ApiService);
+  private adminApi = inject(AdminApi);
+  private spacesApi = inject(SpacesApi);
 
   activeLogTab = signal<'audit' | 'server'>('audit');
   loading = signal(true);
@@ -376,7 +379,7 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   ];
 
   ngOnInit(): void {
-    this.api.listSpaces().subscribe({
+    this.spacesApi.listSpaces().subscribe({
       next: (data) => this.spaces.set(data.spaces),
       error: () => { /* non-fatal */ },
     });
@@ -427,7 +430,7 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   private load(): void {
     this.loading.set(true);
     this.error.set('');
-    this.api.getAuditLog(this.buildParams()).subscribe({
+    this.adminApi.getAuditLog(this.buildParams()).subscribe({
       next: (data) => {
         this.entries.set(data.entries);
         this.total.set(data.total);
@@ -479,7 +482,7 @@ export class AuditLogComponent implements OnInit, OnDestroy {
 
   loadServerLogs(): void {
     this.serverLogLoading.set(true);
-    this.api.getAboutLogs(500).subscribe({
+    this.adminApi.getAboutLogs(500).subscribe({
       next: ({ lines }) => {
         this.serverLogLines.set(lines);
         this.serverLogLoading.set(false);

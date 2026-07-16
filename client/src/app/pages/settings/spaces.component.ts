@@ -3,10 +3,13 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { finalize, timeout, TimeoutError } from 'rxjs';
 import {
-  ApiService, Network, Space, SpaceMeta, SpaceStats,
+  Network, Space, SpaceMeta, SpaceStats,
   KnowledgeType, PropertySchema, TypeSchema, ValidationMode, SchemaLibraryEntry,
   DupeActionRule,
-} from '../../core/api.service';
+} from '../../core/api.types';
+import { NetworksApi } from '../../core/networks-api.service';
+import { SchemaApi } from '../../core/schema-api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
@@ -838,7 +841,9 @@ interface TypeSchemaState {
   `,
 })
 export class SpacesComponent implements OnInit {
-  private api = inject(ApiService);
+  private networksApi = inject(NetworksApi);
+  private schemaApi   = inject(SchemaApi);
+  private spacesApi   = inject(SpacesApi);
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
   private confirmDialog = inject(ConfirmDialogService);
@@ -989,11 +994,11 @@ export class SpacesComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
-    this.api.listSpaces().subscribe({
+    this.spacesApi.listSpaces().subscribe({
       next: ({ spaces }) => { this.spaces.set(spaces); this.loading.set(false); },
       error: () => this.loading.set(false),
     });
-    this.api.listNetworks().subscribe({
+    this.networksApi.listNetworks().subscribe({
       next: ({ networks }) => this.networks.set(networks),
       error: () => {},
     });
@@ -1004,7 +1009,7 @@ export class SpacesComponent implements OnInit {
     const list = [...this.spaces()];
     moveItemInArray(list, event.previousIndex, event.currentIndex);
     this.spaces.set(list);
-    this.api.reorderSpaces(list.map(s => s.id)).subscribe({
+    this.spacesApi.reorderSpaces(list.map(s => s.id)).subscribe({
       next: ({ spaces }) => { this.spaces.set(spaces); },
       error: () => this.load(),
     });
@@ -1046,7 +1051,7 @@ export class SpacesComponent implements OnInit {
     if (!this.form.label.trim()) return;
     this.creating.set(true);
     this.createError.set('');
-    const body: Parameters<ApiService['createSpace']>[0] = { label: this.form.label.trim() };
+    const body: Parameters<SpacesApi['createSpace']>[0] = { label: this.form.label.trim() };
     if (this.form.id.trim()) body.id = this.form.id.trim();
     if (this.form.maxGiB) body.maxGiB = this.form.maxGiB;
     if (this.proxyForAll) body.proxyFor = ['*'];
@@ -1056,7 +1061,7 @@ export class SpacesComponent implements OnInit {
     if (this.form.validationMode !== 'off') meta.validationMode = this.form.validationMode;
     if (this.form.strictLinkage) meta.strictLinkage = true;
     if (Object.keys(meta).length) body.meta = meta;
-    this.api.createSpace(body).pipe(
+    this.spacesApi.createSpace(body).pipe(
       timeout(30_000),
       finalize(() => this.creating.set(false)),
     ).subscribe({
@@ -1090,7 +1095,7 @@ export class SpacesComponent implements OnInit {
   private pollIndexStatus(attempt = 0): void {
     if (attempt > 40) return; // ~2 min cap
     setTimeout(() => {
-      this.api.listSpaces().subscribe({
+      this.spacesApi.listSpaces().subscribe({
         next: ({ spaces }) => {
           this.spaces.set(spaces);
           if (spaces.some(s => s.indexStatus === 'building')) this.pollIndexStatus(attempt + 1);
@@ -1143,7 +1148,7 @@ export class SpacesComponent implements OnInit {
     this.dupeSaving.set(true);
     this.dupeError.set('');
     this.dupeSaved.set(false);
-    this.api.updateSpace(target.id, { dupeRules: rules, dupeMergeSurvivor: this.dupeSurvivor, dupeRulesOnInsert: this.dupeOnInsert }).subscribe({
+    this.spacesApi.updateSpace(target.id, { dupeRules: rules, dupeMergeSurvivor: this.dupeSurvivor, dupeRulesOnInsert: this.dupeOnInsert }).subscribe({
       next: ({ space }) => {
         this.dupeSaving.set(false);
         this.dupeSaved.set(true);
@@ -1213,7 +1218,7 @@ export class SpacesComponent implements OnInit {
     this.dangerWipeError.set('');
     this.dangerWiping.set(false);
     this.dangerWipeLoading.set(true);
-    this.api.getSpaceStats(s.id).subscribe({
+    this.spacesApi.getSpaceStats(s.id).subscribe({
       next: (stats) => { this.dangerWipeStats.set(stats); this.dangerWipeLoading.set(false); },
       error: () => this.dangerWipeLoading.set(false),
     });
@@ -1226,7 +1231,7 @@ export class SpacesComponent implements OnInit {
     if (!target) return;
     this.settingsSaving.set(true);
     this.settingsError.set('');
-    this.api.updateSpace(target.id, {
+    this.spacesApi.updateSpace(target.id, {
       label:  this.stForm.label.trim() || target.label,
       maxGiB: this.stForm.maxGiB,
       meta:   this.buildMeta(),
@@ -1659,13 +1664,13 @@ export class SpacesComponent implements OnInit {
     if (!ok) return;
     this.dangerRenaming.set(true);
     this.dangerRenameError.set('');
-    this.api.renameSpace(target.id, newId).subscribe({
+    this.spacesApi.renameSpace(target.id, newId).subscribe({
       next: ({ space }) => {
         this.dangerRenaming.set(false);
         this.spaces.update(list => list.map(s => s.id === target.id ? space : s));
         this.settingsSpace.set(space);
         this.dangerRenameId = space.id;
-        this.api.listNetworks().subscribe({ next: ({ networks }) => this.networks.set(networks), error: () => {} });
+        this.networksApi.listNetworks().subscribe({ next: ({ networks }) => this.networks.set(networks), error: () => {} });
       },
       error: (err) => { this.dangerRenaming.set(false); this.dangerRenameError.set(err.error?.error ?? this.transloco.translate('spaces.error.renameFailed')); },
     });
@@ -1686,12 +1691,12 @@ export class SpacesComponent implements OnInit {
     if (!ok) return;
     this.dangerWiping.set(true);
     this.dangerWipeError.set('');
-    this.api.wipeSpace(target.id).subscribe({
+    this.spacesApi.wipeSpace(target.id).subscribe({
       next: () => {
         this.dangerWiping.set(false);
         this.dangerWipeStats.set(null);
         this.dangerWipeLoading.set(true);
-        this.api.getSpaceStats(target.id).subscribe({
+        this.spacesApi.getSpaceStats(target.id).subscribe({
           next: (stats) => { this.dangerWipeStats.set(stats); this.dangerWipeLoading.set(false); },
           error: () => this.dangerWipeLoading.set(false),
         });
@@ -1715,7 +1720,7 @@ export class SpacesComponent implements OnInit {
     if (!ok) return;
     this.dangerDeleting.set(true);
     this.dangerDeleteError.set('');
-    this.api.deleteSpace(target.id).subscribe({
+    this.spacesApi.deleteSpace(target.id).subscribe({
       next: () => {
         this.dangerDeleting.set(false);
         this.spaces.update(list => list.filter(s => s.id !== target.id));
@@ -1733,8 +1738,8 @@ export class SpacesComponent implements OnInit {
       danger: true,
     });
     if (!ok) return;
-    this.api.leaveNetwork(networkId).subscribe({
-      next: () => this.api.listNetworks().subscribe({ next: ({ networks }) => this.networks.set(networks), error: () => {} }),
+    this.networksApi.leaveNetwork(networkId).subscribe({
+      next: () => this.networksApi.listNetworks().subscribe({ next: ({ networks }) => this.networks.set(networks), error: () => {} }),
       error: () => this.toast.error(this.transloco.translate('spaces.error.leaveNetworkFailed')),
     });
   }
@@ -1768,7 +1773,7 @@ export class SpacesComponent implements OnInit {
     }
 
     const body = { knowledgeType: kt, typeName: name, schema: schema as Omit<TypeSchema, '$ref'> };
-    this.api.upsertSchemaLibraryEntry(entryName, body).subscribe({
+    this.schemaApi.upsertSchemaLibraryEntry(entryName, body).subscribe({
       next: () => {
         // Convert the in-space type to a $ref pointing at the new library entry
         const refState: TypeSchemaState & { _libRef?: string } = {
@@ -1802,7 +1807,7 @@ export class SpacesComponent implements OnInit {
     this._libPickerTarget = { kt, name };
     this.libPickerLoading.set(true);
     this.showLibPickerDialog.set(true);
-    this.api.listSchemaLibrary().subscribe({
+    this.schemaApi.listSchemaLibrary().subscribe({
       next: ({ entries }) => {
         this.libPickerEntries.set(entries.filter(e => e.knowledgeType === kt));
         this.libPickerLoading.set(false);
@@ -1818,7 +1823,7 @@ export class SpacesComponent implements OnInit {
     this._libPickerTarget = { kt, name: '' };
     this.libPickerLoading.set(true);
     this.showLibPickerDialog.set(true);
-    this.api.listSchemaLibrary().subscribe({
+    this.schemaApi.listSchemaLibrary().subscribe({
       next: ({ entries }) => {
         this.libPickerEntries.set(entries.filter(e => e.knowledgeType === kt));
         this.libPickerLoading.set(false);

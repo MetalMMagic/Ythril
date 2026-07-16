@@ -1,7 +1,7 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService } from '../../core/api.service';
+import { AuthApi } from '../../core/auth-api.service';
 import QRCode from 'qrcode';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
@@ -111,7 +111,7 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
   `,
 })
 export class MfaComponent implements OnInit {
-  private api = inject(ApiService);
+  private authApi = inject(AuthApi);
   private transloco = inject(TranslocoService);
 
   loading = signal(true);
@@ -131,7 +131,7 @@ export class MfaComponent implements OnInit {
 
   refresh(): void {
     this.loading.set(true);
-    this.api.getMfaStatus().subscribe({
+    this.authApi.getMfaStatus().subscribe({
       next: ({ enabled }) => { this.enabled.set(enabled); this.loading.set(false); },
       error: () => this.loading.set(false),
     });
@@ -139,7 +139,7 @@ export class MfaComponent implements OnInit {
 
   startEnroll(): void {
     this.successMsg.set('');
-    this.api.setupMfa().subscribe({
+    this.authApi.setupMfa().subscribe({
       next: ({ secret, otpauth }) => {
         this.secret.set(secret);
         // Generate QR code entirely client-side — the TOTP secret never
@@ -159,7 +159,7 @@ export class MfaComponent implements OnInit {
     if (this.confirmCode.length < 6) return;
     this.confirming.set(true);
     this.enrollError.set('');
-    this.api.verifyMfaCode(this.confirmCode).subscribe({
+    this.authApi.verifyMfaCode(this.confirmCode).subscribe({
       next: ({ valid }) => {
         this.confirming.set(false);
         if (valid) {
@@ -184,7 +184,7 @@ export class MfaComponent implements OnInit {
 
   confirmDisable(): void {
     this.disabling.set(true);
-    this.api.disableMfa().subscribe({
+    this.authApi.disableMfa().subscribe({
       next: () => {
         this.disabling.set(false);
         this.enabled.set(false);

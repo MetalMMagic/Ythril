@@ -39,7 +39,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject, Subscription, of } from 'rxjs';
 import { debounceTime, distinctUntilChanged, switchMap, catchError, map } from 'rxjs/operators';
-import { ApiService, Entity, RecallResult } from '../core/api.service';
+import { Entity, RecallResult } from '../core/api.types';
+import { BrainApi } from '../core/brain-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 @Component({
@@ -245,7 +246,7 @@ export class EntitySearchComponent implements OnInit, OnDestroy, OnChanges {
   @Output() queryChange = new EventEmitter<string>();
   @Output() cleared = new EventEmitter<void>();
 
-  private api = inject(ApiService);
+  private brainApi = inject(BrainApi);
 
   searchMode = signal<'name' | 'semantic'>('semantic');
   results = signal<Entity[]>([]);
@@ -279,7 +280,7 @@ export class EntitySearchComponent implements OnInit, OnDestroy, OnChanges {
           }
           this.loading.set(true);
           if (this.searchMode() === 'semantic') {
-            return this.api.recallBrain(this.spaceId, { query: q, types: ['entity'], topK: 10 }).pipe(
+            return this.brainApi.recallBrain(this.spaceId, { query: q, types: ['entity'], topK: 10 }).pipe(
               catchError(() => of({ results: [] as RecallResult[], count: 0 })),
               map(res => ({
                 entities: res.results
@@ -299,7 +300,7 @@ export class EntitySearchComponent implements OnInit, OnDestroy, OnChanges {
               })),
             );
           }
-          return this.api.searchEntitiesByName(this.spaceId, q).pipe(
+          return this.brainApi.searchEntitiesByName(this.spaceId, q).pipe(
             catchError(() => of({ entities: [] as Entity[] })),
           );
         }),

@@ -1,7 +1,9 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { DatePipe, SlicePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService, ConflictRecord } from '../../core/api.service';
+import { ConflictRecord } from '../../core/api.types';
+import { FilesApi } from '../../core/files-api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
 import { RouterLink } from '@angular/router';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -125,7 +127,8 @@ type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-spa
   `,
 })
 export class ConflictsComponent implements OnInit {
-  private api = inject(ApiService);
+  private filesApi = inject(FilesApi);
+  private spacesApi = inject(SpacesApi);
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
   private confirmDialog = inject(ConfirmDialogService);
@@ -143,7 +146,7 @@ export class ConflictsComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
-    this.api.listSpaces().subscribe({
+    this.spacesApi.listSpaces().subscribe({
       next: (r) => this.spaces.set(r.spaces || []),
       error: () => {},
     });
@@ -169,7 +172,7 @@ export class ConflictsComponent implements OnInit {
 
   private load(): void {
     this.loading.set(true);
-    this.api.listConflicts().subscribe({
+    this.filesApi.listConflicts().subscribe({
       next: ({ conflicts }) => {
         this.conflicts.set(conflicts);
         for (const c of conflicts) {
@@ -192,7 +195,7 @@ export class ConflictsComponent implements OnInit {
       }
     }
     this.resolving.set(c.id);
-    this.api.resolveConflict(c.id, action, opts).subscribe({
+    this.filesApi.resolveConflict(c.id, action, opts).subscribe({
       next: () => {
         this.conflicts.update(list => list.filter(x => x.id !== c.id));
         this.selectedIds.update(ids => ids.filter(x => x !== c.id));
@@ -204,7 +207,7 @@ export class ConflictsComponent implements OnInit {
 
   dismiss(c: ConflictRecord): void {
     this.resolving.set(c.id);
-    this.api.dismissConflict(c.id).subscribe({
+    this.filesApi.dismissConflict(c.id).subscribe({
       next: () => {
         this.conflicts.update(list => list.filter(x => x.id !== c.id));
         this.selectedIds.update(ids => ids.filter(x => x !== c.id));
@@ -226,7 +229,7 @@ export class ConflictsComponent implements OnInit {
     });
     if (!ok) return;
     this.bulkResolving.set(true);
-    this.api.bulkResolveConflicts(ids, this.bulkAction).subscribe({
+    this.filesApi.bulkResolveConflicts(ids, this.bulkAction).subscribe({
       next: (r) => {
         const resolvedSet = new Set(ids.filter(id => !r.failed.some(f => f.id === id)));
         this.conflicts.update(list => list.filter(x => !resolvedSet.has(x.id)));

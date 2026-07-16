@@ -1,7 +1,10 @@
 ﻿import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService, Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, SpaceMetaResponse, KnowledgeType, PropertySchema, FileMeta } from '../../core/api.service';
+import { Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, SpaceMetaResponse, KnowledgeType, PropertySchema, FileMeta } from '../../core/api.types';
+import { SpacesApi } from '../../core/spaces-api.service';
+import { BrainApi } from '../../core/brain-api.service';
+import { FilesApi } from '../../core/files-api.service';
 import { GraphComponent } from '../graph/graph.component';
 import { FileManagerComponent } from '../files/file-manager.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
@@ -2137,7 +2140,9 @@ interface SpaceView {
   `,
 })
 export class BrainComponent implements OnInit {
-  private api = inject(ApiService);
+  private spacesApi = inject(SpacesApi);
+  private brainApi = inject(BrainApi);
+  private filesApi = inject(FilesApi);
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
 
@@ -2428,7 +2433,7 @@ export class BrainComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.api.listSpaces().subscribe({
+    this.spacesApi.listSpaces().subscribe({
       next: ({ spaces }) => {
         this.spaces.set(spaces.map(s => ({ space: s })));
         this.loadingSpaces.set(false);
@@ -2530,7 +2535,7 @@ export class BrainComponent implements OnInit {
     if (this.entitySearch()) ef.search = this.entitySearch();
     if (this.recordFilter().type) ef.type = this.recordFilter().type;
     if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
-    this.api.listEntities(spaceId, this.pageSize, this.entitySkip(), ef).subscribe({
+    this.brainApi.listEntities(spaceId, this.pageSize, this.entitySkip(), ef).subscribe({
       next: ({ entities }) => this.entities.set(entities),
       error: () => {},
     });
@@ -2556,7 +2561,7 @@ export class BrainComponent implements OnInit {
     const q = this.memorySearch().trim();
     const spaceId = this.activeSpaceId();
     if (!q || !spaceId) { this.memories.set([]); return; }
-    this.api.recallBrain(spaceId, { query: q, types: ['memory'], topK: 20 }).pipe(
+    this.brainApi.recallBrain(spaceId, { query: q, types: ['memory'], topK: 20 }).pipe(
       catchError(() => of({ results: [], count: 0 })),
     ).subscribe(res => {
       this.memories.set(res.results.filter(r => r.type === 'memory').map(r => ({
@@ -2592,7 +2597,7 @@ export class BrainComponent implements OnInit {
     const q = this.edgeSearch().trim();
     const spaceId = this.activeSpaceId();
     if (!q || !spaceId) { this.edges.set([]); return; }
-    this.api.recallBrain(spaceId, { query: q, types: ['edge'], topK: 20 }).pipe(
+    this.brainApi.recallBrain(spaceId, { query: q, types: ['edge'], topK: 20 }).pipe(
       catchError(() => of({ results: [], count: 0 })),
     ).subscribe(res => {
       this.edges.set(res.results.filter(r => r.type === 'edge').map(r => ({
@@ -2631,7 +2636,7 @@ export class BrainComponent implements OnInit {
     const q = this.chronoSearch().trim();
     const spaceId = this.activeSpaceId();
     if (!q || !spaceId) { this.chrono.set([]); return; }
-    this.api.recallBrain(spaceId, { query: q, types: ['chrono'], topK: 20 }).pipe(
+    this.brainApi.recallBrain(spaceId, { query: q, types: ['chrono'], topK: 20 }).pipe(
       catchError(() => of({ results: [], count: 0 })),
     ).subscribe(res => {
       this.chrono.set(res.results.filter(r => r.type === 'chrono').map(r => ({
@@ -2658,7 +2663,7 @@ export class BrainComponent implements OnInit {
   applyChronoSearch(): void { this.chronoSkip.set(0); this.loadCurrentTab(this.activeSpaceId()); }
 
   loadStats(spaceId: string): void {
-    this.api.getSpaceStats(spaceId).subscribe({
+    this.spacesApi.getSpaceStats(spaceId).subscribe({
       next: (stats) => {
         this.spaces.update(list =>
           list.map(sv => sv.space.id === spaceId ? { ...sv, stats } : sv),
@@ -2666,7 +2671,7 @@ export class BrainComponent implements OnInit {
       },
       error: () => {},
     });
-    this.api.getReindexStatus(spaceId).subscribe({
+    this.spacesApi.getReindexStatus(spaceId).subscribe({
       next: ({ needsReindex }) => this.needsReindex.set(needsReindex),
       error: () => {},
     });
@@ -2689,7 +2694,7 @@ export class BrainComponent implements OnInit {
         if (this.recordFilter().tag) filters.tag = this.recordFilter().tag;
         if (this.filterEntity()) filters.entity = this.filterEntity();
         if (this.recordFilter().type) filters.type = this.recordFilter().type;
-        this.api.listMemories(spaceId, this.pageSize, this.skip(), filters).subscribe({
+        this.brainApi.listMemories(spaceId, this.pageSize, this.skip(), filters).subscribe({
           next: ({ memories }) => {
             this.memories.set(memories);
             const ids = [...new Set(memories.flatMap(m => m.entityIds ?? []))];
@@ -2705,7 +2710,7 @@ export class BrainComponent implements OnInit {
         if (this.entitySearch()) ef.search = this.entitySearch();
         if (this.recordFilter().type) ef.type = this.recordFilter().type;
         if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
-        this.api.listEntities(spaceId, this.pageSize, this.entitySkip(), ef).subscribe({
+        this.brainApi.listEntities(spaceId, this.pageSize, this.entitySkip(), ef).subscribe({
           next: ({ entities }) => { this.entities.set(entities); this.loading.set(false); },
           error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
@@ -2715,7 +2720,7 @@ export class BrainComponent implements OnInit {
         const gf: { type?: string; tag?: string } = {};
         if (this.recordFilter().type) gf.type = this.recordFilter().type;
         if (this.recordFilter().tag) gf.tag = this.recordFilter().tag;
-        this.api.listEdges(spaceId, this.pageSize, this.edgeSkip(), gf).subscribe({
+        this.brainApi.listEdges(spaceId, this.pageSize, this.edgeSkip(), gf).subscribe({
           next: ({ edges }) => { this.edges.set(edges); this.loading.set(false); },
           error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
@@ -2726,7 +2731,7 @@ export class BrainComponent implements OnInit {
         if (this.chronoSearch()) cf.search = this.chronoSearch();
         if (this.recordFilter().type) cf.type = this.recordFilter().type;
         if (this.recordFilter().tag) cf.tag = this.recordFilter().tag;
-        this.api.listChrono(spaceId, this.pageSize, this.chronoSkip(), cf).subscribe({
+        this.brainApi.listChrono(spaceId, this.pageSize, this.chronoSkip(), cf).subscribe({
           next: ({ chrono }) => {
             this.chrono.set(chrono);
             const ids = [...new Set(chrono.flatMap(e => e.entityIds ?? []))];
@@ -2750,7 +2755,7 @@ export class BrainComponent implements OnInit {
         this.loading.set(false);
         break;
       case 'filemeta':
-        this.api.listFileMeta(spaceId, this.pageSize, this.fileMetaSkip(), this.fileMetaSearch() || undefined).subscribe({
+        this.filesApi.listFileMeta(spaceId, this.pageSize, this.fileMetaSkip(), this.fileMetaSearch() || undefined).subscribe({
           next: ({ files }) => { this.fileMetas.set(files); this.loading.set(false); },
           error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
@@ -2768,7 +2773,7 @@ export class BrainComponent implements OnInit {
       this.retryingEmbedding.update(s => { const n = new Set(s); n.delete(fm.path); return n; });
       this.loadCurrentTab(spaceId);
     };
-    this.api.retryEmbedding(spaceId, fm.path).subscribe({ next: done, error: done });
+    this.filesApi.retryEmbedding(spaceId, fm.path).subscribe({ next: done, error: done });
   }
 
   applyFilter(type: 'tag' | 'entity', value: string): void {
@@ -2855,7 +2860,7 @@ export class BrainComponent implements OnInit {
     this.editSaving.set(true);
     this.editError.set('');
     const memProps = this.editMemory.properties;
-    this.api.updateMemory(this.activeSpaceId(), id, {
+    this.brainApi.updateMemory(this.activeSpaceId(), id, {
       fact: this.editMemory.fact.trim(),
       tags: this.editMemory.tags,
       entityIds: this.editMemory.entityIds.split(',').map(s => s.trim()).filter(Boolean),
@@ -2875,7 +2880,7 @@ export class BrainComponent implements OnInit {
     this.editSaving.set(true);
     this.editError.set('');
     const entProps = this.stripEmptyOptionalProps(this.editEntity.properties, this.entitySchema(this.editEntity.type));
-    this.api.updateEntity(this.activeSpaceId(), id, {
+    this.brainApi.updateEntity(this.activeSpaceId(), id, {
       name: this.editEntity.name.trim(),
       type: this.editEntity.type.trim(),
       tags: this.editEntity.tags,
@@ -2895,7 +2900,7 @@ export class BrainComponent implements OnInit {
     this.editSaving.set(true);
     this.editError.set('');
     const edgeProps = this.stripEmptyOptionalProps(this.editEdge.properties, this.edgeSchema(this.editEdge.label));
-    this.api.updateEdge(this.activeSpaceId(), id, {
+    this.brainApi.updateEdge(this.activeSpaceId(), id, {
       label: this.editEdge.label.trim(),
       tags: this.editEdge.tags,
       description: this.editEdge.description.trim(),
@@ -2914,7 +2919,7 @@ export class BrainComponent implements OnInit {
   saveEditChrono(id: string): void {
     this.editSaving.set(true);
     this.editError.set('');
-    this.api.updateChrono(this.activeSpaceId(), id, {
+    this.brainApi.updateChrono(this.activeSpaceId(), id, {
       title: this.editChrono.title.trim(),
       type: this.editChrono.kind as ChronoType,
       status: this.editChrono.status as ChronoStatus,
@@ -2935,7 +2940,7 @@ export class BrainComponent implements OnInit {
 
   deleteMemory(id: string): void {
     this.confirmDeleteId.set('');
-    this.api.deleteMemory(this.activeSpaceId(), id).subscribe({
+    this.brainApi.deleteMemory(this.activeSpaceId(), id).subscribe({
       next: () => { this.memories.update(list => list.filter(m => m._id !== id)); this.loadStats(this.activeSpaceId()); },
       error: () => {},
     });
@@ -2960,7 +2965,7 @@ export class BrainComponent implements OnInit {
   saveEditFileMeta(id: string): void {
     this.editSaving.set(true);
     this.editError.set('');
-    this.api.updateFileMeta(this.activeSpaceId(), id, {
+    this.filesApi.updateFileMeta(this.activeSpaceId(), id, {
       description: this.editFileMeta.description.trim(),
       tags: this.editFileMeta.tags,
       entityIds: this.editFileMeta.entityIds.split(',').map(s => s.trim()).filter(Boolean),
@@ -2980,7 +2985,7 @@ export class BrainComponent implements OnInit {
     // Deleting just removes the metadata record, not the file itself.
     const fm = this.fileMetas().find(f => f._id === id);
     if (!fm) { this.confirmDeleteId.set(''); return; }
-    this.api.deleteFileMeta(this.activeSpaceId(), fm.path).subscribe({
+    this.filesApi.deleteFileMeta(this.activeSpaceId(), fm.path).subscribe({
       next: () => {
         this.confirmDeleteId.set('');
         this.fileMetas.update(list => list.filter(f => f._id !== id));
@@ -3018,7 +3023,7 @@ export class BrainComponent implements OnInit {
       if (this._fmDrawerMemTimer) clearTimeout(this._fmDrawerMemTimer);
       if (!q.trim()) { this.fmDrawerMemPickerResults.set([]); return; }
       this._fmDrawerMemTimer = setTimeout(() => {
-        this.api.listMemories(this.activeSpaceId(), 8, 0, {}).subscribe({
+        this.brainApi.listMemories(this.activeSpaceId(), 8, 0, {}).subscribe({
           next: ({ memories }) => this.fmDrawerMemPickerResults.set(
             memories.filter(m => m.fact.toLowerCase().includes(q.toLowerCase())).slice(0, 6),
           ),
@@ -3030,7 +3035,7 @@ export class BrainComponent implements OnInit {
       if (this._fmMemTimer) clearTimeout(this._fmMemTimer);
       if (!q.trim()) { this.fmMemPickerResults.set([]); return; }
       this._fmMemTimer = setTimeout(() => {
-        this.api.listMemories(this.activeSpaceId(), 8, 0, {}).subscribe({
+        this.brainApi.listMemories(this.activeSpaceId(), 8, 0, {}).subscribe({
           next: ({ memories }) => this.fmMemPickerResults.set(
             memories.filter(m => m.fact.toLowerCase().includes(q.toLowerCase())).slice(0, 6),
           ),
@@ -3046,7 +3051,7 @@ export class BrainComponent implements OnInit {
       if (this._fmDrawerChronoTimer) clearTimeout(this._fmDrawerChronoTimer);
       if (!q.trim()) { this.fmDrawerChronoPickerResults.set([]); return; }
       this._fmDrawerChronoTimer = setTimeout(() => {
-        this.api.listChrono(this.activeSpaceId(), 8, 0, { search: q }).subscribe({
+        this.brainApi.listChrono(this.activeSpaceId(), 8, 0, { search: q }).subscribe({
           next: ({ chrono }) => this.fmDrawerChronoPickerResults.set(chrono.slice(0, 6)),
           error: () => {},
         });
@@ -3056,7 +3061,7 @@ export class BrainComponent implements OnInit {
       if (this._fmChronoTimer) clearTimeout(this._fmChronoTimer);
       if (!q.trim()) { this.fmChronoPickerResults.set([]); return; }
       this._fmChronoTimer = setTimeout(() => {
-        this.api.listChrono(this.activeSpaceId(), 8, 0, { search: q }).subscribe({
+        this.brainApi.listChrono(this.activeSpaceId(), 8, 0, { search: q }).subscribe({
           next: ({ chrono }) => this.fmChronoPickerResults.set(chrono.slice(0, 6)),
           error: () => {},
         });
@@ -3103,12 +3108,12 @@ export class BrainComponent implements OnInit {
     this.creatingMemory.set(true);
     this.createMemoryError.set('');
     const entityIds = this.memoryForm.entityIds.split(',').map(s => s.trim()).filter(Boolean);
-    const body: Parameters<ApiService['createMemory']>[1] = { fact: this.memoryForm.fact.trim() };
+    const body: Parameters<BrainApi['createMemory']>[1] = { fact: this.memoryForm.fact.trim() };
     if (this.memoryForm.tags.length) body.tags = this.memoryForm.tags;
     if (entityIds.length) body.entityIds = entityIds;
     if (this.memoryForm.description.trim()) body.description = this.memoryForm.description.trim();
     if (Object.keys(this.memoryForm.properties).length) body.properties = this.memoryForm.properties;
-    this.api.createMemory(this.activeSpaceId(), body).subscribe({
+    this.brainApi.createMemory(this.activeSpaceId(), body).subscribe({
       next: () => {
         this.creatingMemory.set(false);
         this.showMemoryForm.set(false);
@@ -3124,13 +3129,13 @@ export class BrainComponent implements OnInit {
     if (!this.entityForm.name.trim()) return;
     this.creatingEntity.set(true);
     this.createEntityError.set('');
-    const body: Parameters<ApiService['createEntity']>[1] = { name: this.entityForm.name.trim() };
+    const body: Parameters<BrainApi['createEntity']>[1] = { name: this.entityForm.name.trim() };
     if (this.entityForm.type.trim()) body.type = this.entityForm.type.trim();
     if (this.entityForm.tags.length) body.tags = this.entityForm.tags;
     if (this.entityForm.description.trim()) body.description = this.entityForm.description.trim();
     const props = this.stripEmptyOptionalProps(this.entityForm.properties, this.entitySchema(this.entityForm.type));
     if (Object.keys(props).length) body.properties = props;
-    this.api.createEntity(this.activeSpaceId(), body).subscribe({
+    this.brainApi.createEntity(this.activeSpaceId(), body).subscribe({
       next: () => {
         this.creatingEntity.set(false);
         this.showEntityForm.set(false);
@@ -3146,7 +3151,7 @@ export class BrainComponent implements OnInit {
     if (!this.edgeForm.from.trim() || !this.edgeForm.to.trim() || !this.edgeForm.label.trim()) return;
     this.creatingEdge.set(true);
     this.createEdgeError.set('');
-    const body: Parameters<ApiService['createEdge']>[1] = {
+    const body: Parameters<BrainApi['createEdge']>[1] = {
       from: this.edgeForm.from.trim(),
       to: this.edgeForm.to.trim(),
       label: this.edgeForm.label.trim(),
@@ -3156,7 +3161,7 @@ export class BrainComponent implements OnInit {
     if (this.edgeForm.description.trim()) body.description = this.edgeForm.description.trim();
     const edgeProps = this.stripEmptyOptionalProps(this.edgeForm.properties, this.edgeSchema(this.edgeForm.label));
     if (Object.keys(edgeProps).length) body.properties = edgeProps;
-    this.api.createEdge(this.activeSpaceId(), body).subscribe({
+    this.brainApi.createEdge(this.activeSpaceId(), body).subscribe({
       next: () => {
         this.creatingEdge.set(false);
         this.showEdgeForm.set(false);
@@ -3170,7 +3175,7 @@ export class BrainComponent implements OnInit {
 
   deleteEntity(id: string): void {
     this.confirmDeleteId.set('');
-    this.api.deleteEntity(this.activeSpaceId(), id).subscribe({
+    this.brainApi.deleteEntity(this.activeSpaceId(), id).subscribe({
       next: () => { this.entities.update(list => list.filter(e => e._id !== id)); this.loadStats(this.activeSpaceId()); },
       error: () => {},
     });
@@ -3178,7 +3183,7 @@ export class BrainComponent implements OnInit {
 
   deleteEdge(id: string): void {
     this.confirmDeleteId.set('');
-    this.api.deleteEdge(this.activeSpaceId(), id).subscribe({
+    this.brainApi.deleteEdge(this.activeSpaceId(), id).subscribe({
       next: () => this.edges.update(list => list.filter(e => e._id !== id)),
       error: () => {},
     });
@@ -3194,7 +3199,7 @@ export class BrainComponent implements OnInit {
     this.creatingChrono.set(true);
     this.createChronoError.set('');
     const entityIds = this.chronoForm.entityIds.split(',').map(s => s.trim()).filter(Boolean);
-    const body: Parameters<ApiService['createChrono']>[1] = {
+    const body: Parameters<BrainApi['createChrono']>[1] = {
       title: this.chronoForm.title.trim(),
       type: resolvedKind,
       startsAt: new Date(this.chronoForm.startsAt).toISOString(),
@@ -3203,7 +3208,7 @@ export class BrainComponent implements OnInit {
     if (this.chronoForm.description.trim()) body.description = this.chronoForm.description.trim();
     if (this.chronoForm.tags.length) body.tags = this.chronoForm.tags;
     if (entityIds.length) body.entityIds = entityIds;
-    this.api.createChrono(this.activeSpaceId(), body).subscribe({
+    this.brainApi.createChrono(this.activeSpaceId(), body).subscribe({
       next: () => {
         this.creatingChrono.set(false);
         this.showChronoForm.set(false);
@@ -3216,7 +3221,7 @@ export class BrainComponent implements OnInit {
 
   deleteChrono(id: string): void {
     this.confirmDeleteId.set('');
-    this.api.deleteChrono(this.activeSpaceId(), id).subscribe({
+    this.brainApi.deleteChrono(this.activeSpaceId(), id).subscribe({
       next: () => this.chrono.update(list => list.filter(c => c._id !== id)),
       error: () => {},
     });
@@ -3225,7 +3230,7 @@ export class BrainComponent implements OnInit {
   runReindex(): void {
     this.reindexing.set(true);
     this.reindexResult.set('');
-    this.api.reindex(this.activeSpaceId()).subscribe({
+    this.spacesApi.reindex(this.activeSpaceId()).subscribe({
       next: (result) => {
         this.reindexing.set(false);
         const total = Object.values(result).reduce((s: number, n) => s + (typeof n === 'number' ? n : 0), 0);
@@ -3263,7 +3268,7 @@ export class BrainComponent implements OnInit {
     }
 
     this.queryRunning.set(true);
-    this.api.queryBrain(this.activeSpaceId(), {
+    this.brainApi.queryBrain(this.activeSpaceId(), {
       collection: this.queryForm.collection,
       filter,
       projection,
@@ -3327,7 +3332,7 @@ export class BrainComponent implements OnInit {
     this.recallRunning.set(true);
     this.recallError.set('');
     this.recallResults.set([]);
-    this.api.recallBrain(this.activeSpaceId(), {
+    this.brainApi.recallBrain(this.activeSpaceId(), {
       query: this.recallForm.query.trim(),
       topK: this.recallForm.topK,
       minScore: this.recallForm.minScore || undefined,
@@ -3354,7 +3359,7 @@ export class BrainComponent implements OnInit {
 
   loadSpaceMeta(spaceId: string): void {
     if (!spaceId) return;
-    this.api.getSpaceMeta(spaceId).subscribe({
+    this.spacesApi.getSpaceMeta(spaceId).subscribe({
       next: (meta) => this.spaceMeta.set(meta),
       error: () => this.spaceMeta.set(null),
     });
@@ -3516,7 +3521,7 @@ export class BrainComponent implements OnInit {
     const spaceId = this.activeSpaceId();
     if (dr.kind === 'memory') {
       const props = this.drawerEditMemory.properties;
-      this.api.updateMemory(spaceId, id, {
+      this.brainApi.updateMemory(spaceId, id, {
         fact: this.drawerEditMemory.fact.trim(),
         tags: this.drawerEditMemory.tags,
         entityIds: this.drawerEditMemory.entityIds.split(',').map(s => s.trim()).filter(Boolean),
@@ -3532,7 +3537,7 @@ export class BrainComponent implements OnInit {
       });
     } else if (dr.kind === 'entity') {
       const props = this.stripEmptyOptionalProps(this.drawerEditEntity.properties, this.entitySchema(this.drawerEditEntity.type));
-      this.api.updateEntity(spaceId, id, {
+      this.brainApi.updateEntity(spaceId, id, {
         name: this.drawerEditEntity.name.trim(),
         type: this.drawerEditEntity.type.trim(),
         tags: this.drawerEditEntity.tags,
@@ -3548,7 +3553,7 @@ export class BrainComponent implements OnInit {
       });
     } else if (dr.kind === 'edge') {
       const props = this.stripEmptyOptionalProps(this.drawerEditEdge.properties, this.edgeSchema(this.drawerEditEdge.label));
-      this.api.updateEdge(spaceId, id, {
+      this.brainApi.updateEdge(spaceId, id, {
         label: this.drawerEditEdge.label.trim(),
         ...(this.drawerEditEdge.type.trim() ? { type: this.drawerEditEdge.type.trim() } : {}),
         ...(this.drawerEditEdge.weight != null ? { weight: this.drawerEditEdge.weight } : {}),
@@ -3567,7 +3572,7 @@ export class BrainComponent implements OnInit {
       const resolvedKind = this.drawerEditChrono.kind === '__custom__'
         ? (this.drawerEditChrono.customKind.trim() as ChronoType)
         : this.drawerEditChrono.kind as ChronoType;
-      this.api.updateChrono(spaceId, id, {
+      this.brainApi.updateChrono(spaceId, id, {
         title: this.drawerEditChrono.title.trim(),
         type: resolvedKind,
         status: this.drawerEditChrono.status as ChronoStatus,
@@ -3594,7 +3599,7 @@ export class BrainComponent implements OnInit {
     if (!spaceId) return;
     const unknown = ids.filter(id => !this.entityNameCache()[id]);
     if (!unknown.length) return;
-    this.api.getEntitiesByIds(spaceId, unknown).subscribe({
+    this.brainApi.getEntitiesByIds(spaceId, unknown).subscribe({
       next: ({ entities }) => {
         const patch: Record<string, string> = {};
         for (const e of entities) patch[e._id] = e.name;
@@ -3646,7 +3651,7 @@ export class BrainComponent implements OnInit {
     const unknown = ids.split(',').map(s => s.trim())
       .filter(s => s && !this.entityNameCache()[s]);
     if (!unknown.length) return;
-    this.api.getEntitiesByIds(spaceId, unknown).subscribe({
+    this.brainApi.getEntitiesByIds(spaceId, unknown).subscribe({
       next: ({ entities }) => {
         const patch: Record<string, string> = {};
         for (const e of entities) patch[e._id] = e.name;

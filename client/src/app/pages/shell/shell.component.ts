@@ -4,7 +4,7 @@ import { A11yModule } from '@angular/cdk/a11y';
 import { filter } from 'rxjs';
 import { Subscription } from 'rxjs';
 import { AuthService } from '../../core/auth.service';
-import { ApiService } from '../../core/api.service';
+import { FilesApi } from '../../core/files-api.service';
 import { EmbedService } from '../../core/embed.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -293,7 +293,7 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 export class ShellComponent implements OnInit, OnDestroy {
   private auth = inject(AuthService);
   private router = inject(Router);
-  private api = inject(ApiService);
+  private filesApi = inject(FilesApi);
   private transloco = inject(TranslocoService);
   /** Public — the template reads embed.embedded() to hide the topbar. */
   protected embed = inject(EmbedService);
@@ -336,7 +336,7 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   private loadConflictCount(): void {
-    this.api.listConflicts().subscribe({
+    this.filesApi.listConflicts().subscribe({
       next: ({ conflicts }) => this.conflictCount.set(conflicts.length),
       error: () => { /* non-fatal — badge stays at last known value */ },
     });

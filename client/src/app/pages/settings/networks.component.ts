@@ -1,7 +1,10 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService, InviteBundle, Network, Space, SyncHistoryRecord, VoteRound } from '../../core/api.service';
+import { InviteBundle, Network, Space, SyncHistoryRecord, VoteRound } from '../../core/api.types';
+import { NetworksApi } from '../../core/networks-api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
+import { AdminApi } from '../../core/admin-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
@@ -592,7 +595,9 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
   `,
 })
 export class NetworksComponent implements OnInit {
-  private api = inject(ApiService);
+  private networksApi = inject(NetworksApi);
+  private spacesApi = inject(SpacesApi);
+  private adminApi = inject(AdminApi);
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
   private confirmDialog = inject(ConfirmDialogService);
@@ -660,13 +665,13 @@ export class NetworksComponent implements OnInit {
   ngOnInit(): void {
     this.enableOs = this.detectLocalOs();
     this.load();
-    this.api.listSpaces().subscribe({
+    this.spacesApi.listSpaces().subscribe({
       next: ({ spaces }) => this.availableSpaces.set(spaces),
       error: () => this.spacesLoadFailed.set(true),
     });
     // Auto-fill this brain's URL: prefer the server-configured publicUrl, fall
     // back to the current browser origin (works for most single-brain deployments).
-    this.api.getAbout().subscribe({
+    this.adminApi.getAbout().subscribe({
       next: (info) => {
         // Prefer server-configured publicUrl; fall back to current browser origin.
         // window.location.origin returns the string 'null' in sandboxed/restricted contexts.
@@ -754,7 +759,7 @@ export class NetworksComponent implements OnInit {
     this.enableAutoRunning.set(true);
     if (!this.localAgentCanExecute()) {
       this.localAgentStatusMessage.set(this.transloco.translate('networks.wizard.status.bootstrappingConnector'));
-      this.api.bootstrapLocalAgent({ os: this.enableOs }).subscribe({
+      this.networksApi.bootstrapLocalAgent({ os: this.enableOs }).subscribe({
         next: () => this.executeEnableNetworks(host),
         error: (err) => {
           this.enableAutoRunning.set(false);
@@ -768,7 +773,7 @@ export class NetworksComponent implements OnInit {
   }
 
   private executeEnableNetworks(host: string): void {
-    this.api.executeEnableNetworksViaLocalAgent({
+    this.networksApi.executeEnableNetworksViaLocalAgent({
       hostname: host,
       os: this.enableOs,
       autostart: this.enableAutostart,
@@ -793,7 +798,7 @@ export class NetworksComponent implements OnInit {
   private bootstrapLocalAgent(): void {
     // Try status first — if the connector is already running (e.g. feature enabled via env var,
     // or connector was started manually), automatic mode becomes available without bootstrap.
-    this.api.getLocalAgentStatus().subscribe({
+    this.networksApi.getLocalAgentStatus().subscribe({
       next: (status) => {
         if (status.canExecute) {
           this.localAgentCanExecute.set(true);
@@ -810,7 +815,7 @@ export class NetworksComponent implements OnInit {
 
   private triggerBootstrap(): void {
     this.localAgentStatusMessage.set(this.transloco.translate('networks.wizard.status.startingConnector'));
-    this.api.bootstrapLocalAgent({ os: this.enableOs }).subscribe({
+    this.networksApi.bootstrapLocalAgent({ os: this.enableOs }).subscribe({
       next: (result) => {
         this.localAgentStatusMessage.set(result.message ?? this.transloco.translate('networks.wizard.status.connectorStarted'));
         this.refreshLocalAgentStatus();
@@ -825,7 +830,7 @@ export class NetworksComponent implements OnInit {
   }
 
   private refreshLocalAgentStatus(): void {
-    this.api.getLocalAgentStatus().subscribe({
+    this.networksApi.getLocalAgentStatus().subscribe({
       next: (status) => {
         this.localAgentCanExecute.set(status.canExecute);
         this.localAgentChecking.set(false);
@@ -904,7 +909,7 @@ export class NetworksComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
-    this.api.listNetworks().subscribe({
+    this.networksApi.listNetworks().subscribe({
       next: ({ networks }) => {
         this.networks.set(networks);
         this.loading.set(false);
@@ -931,7 +936,7 @@ export class NetworksComponent implements OnInit {
       spaces = [...this.networkSelectedSpaces];
     }
 
-    this.api.createNetwork({
+    this.networksApi.createNetwork({
       label: this.form.label.trim(),
       type: this.form.type,
       spaces,
@@ -982,14 +987,14 @@ export class NetworksComponent implements OnInit {
       danger: true,
     });
     if (!ok) return;
-    this.api.leaveNetwork(net.id).subscribe({
+    this.networksApi.leaveNetwork(net.id).subscribe({
       next: () => this.networks.update(list => list.filter(n => n.id !== net.id)),
       error: (err) => this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.leaveFailed')),
     });
   }
 
   generateInvite(networkId: string): void {
-    this.api.generateInvite(networkId).subscribe({
+    this.networksApi.generateInvite(networkId).subscribe({
       next: (bundle) => {
         this.inviteBundles[networkId] = bundle;
         this.networks.update(n => [...n]);
@@ -1009,7 +1014,7 @@ export class NetworksComponent implements OnInit {
 
   saveSchedule(net: Network): void {
     const schedule = this.netSchedule[net.id] ?? net.syncSchedule ?? '';
-    this.api.updateNetworkSchedule(net.id, schedule).subscribe({
+    this.networksApi.updateNetworkSchedule(net.id, schedule).subscribe({
       next: () => {
         this.networks.update(list =>
           list.map(n => n.id === net.id ? { ...n, syncSchedule: schedule || undefined } : n)
@@ -1103,7 +1108,7 @@ export class NetworksComponent implements OnInit {
     }
 
     this.joining.set(true);
-    this.api.joinRemote({
+    this.networksApi.joinRemote({
       handshakeId: bundle.handshakeId,
       inviteUrl:   bundle.inviteUrl,
       rsaPublicKeyPem: bundle.rsaPublicKeyPem,
@@ -1140,7 +1145,7 @@ export class NetworksComponent implements OnInit {
         this.joinSpaceAliases = {};
         this.load();
         // Refresh spaces list to include newly created spaces
-        this.api.listSpaces().subscribe({
+        this.spacesApi.listSpaces().subscribe({
           next: ({ spaces }) => this.availableSpaces.set(spaces),
           error: () => {},
         });
@@ -1162,7 +1167,7 @@ export class NetworksComponent implements OnInit {
     if (!ok) return;
     const key = `${net.id}:${instanceId}`;
     this.removingMember[key] = true;
-    this.api.removeMember(net.id, instanceId).subscribe({
+    this.networksApi.removeMember(net.id, instanceId).subscribe({
       next: () => {
         delete this.removingMember[key];
         this.load();
@@ -1175,7 +1180,7 @@ export class NetworksComponent implements OnInit {
   }
 
   sync(networkId: string): void {
-    this.api.triggerSync(networkId).subscribe({
+    this.networksApi.triggerSync(networkId).subscribe({
       next: (r) => {
         this.syncResults[networkId] = r;
         this.networks.update(n => [...n]);
@@ -1211,7 +1216,7 @@ export class NetworksComponent implements OnInit {
 
   private loadHistory(networkId: string): void {
     this.historyLoading.set(true);
-    this.api.getSyncHistory(networkId).subscribe({
+    this.networksApi.getSyncHistory(networkId).subscribe({
       next: ({ history }) => {
         this.historyByNetwork[networkId] = history;
         this.historyLoading.set(false);
@@ -1222,7 +1227,7 @@ export class NetworksComponent implements OnInit {
   }
 
   private loadVotes(networkId: string): void {
-    this.api.listVotes(networkId).subscribe({
+    this.networksApi.listVotes(networkId).subscribe({
       next: ({ rounds }) => {
         this.votesByNetwork[networkId] = rounds.filter(r => r.status === 'open');
         this.networks.update(n => [...n]);
@@ -1236,7 +1241,7 @@ export class NetworksComponent implements OnInit {
   }
 
   castVote(networkId: string, roundId: string, vote: 'yes' | 'veto'): void {
-    this.api.castVote(networkId, roundId, vote).subscribe({
+    this.networksApi.castVote(networkId, roundId, vote).subscribe({
       next: () => this.loadVotes(networkId),
       error: (err) => this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.castVoteFailed')),
     });

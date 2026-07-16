@@ -13,7 +13,9 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { of, Observable, Subject } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
-import { ApiService, type FileEntry, type UploadProgress } from '../../core/api.service';
+import { type FileEntry, type UploadProgress } from '../../core/api.types';
+import { FilesApi } from '../../core/files-api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
 import { AuthService } from '../../core/auth.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { FileManagerComponent } from './file-manager.component';
@@ -33,7 +35,7 @@ function makeApi(entries: FileEntry[]) {
     listSpaces: () => of({ spaces: [] }),
     listFiles: () => of({ entries }),
     getFileDownloadUrl: (spaceId: string, path: string) => `/api/files/${spaceId}${path}`,
-  } as unknown as ApiService;
+  } as any;
 }
 
 describe('FileManagerComponent (OnPush)', () => {
@@ -43,7 +45,8 @@ describe('FileManagerComponent (OnPush)', () => {
     TestBed.configureTestingModule({
       imports: [FileManagerComponent, getTranslocoModule()],
       providers: [
-        { provide: ApiService, useValue: makeApi(entries) },
+        { provide: FilesApi, useValue: makeApi(entries) },
+        { provide: SpacesApi, useValue: makeApi(entries) },
         { provide: AuthService, useValue: { token: () => '' } },
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
       ],
@@ -126,7 +129,7 @@ function makeUploadApi() {
     listFiles: () => of({ entries: [] }),
     getFileDownloadUrl: (s: string, p: string) => `/api/files/${s}${p}`,
     uploadFileChunked,
-  } as unknown as ApiService;
+  } as any;
   return { api, streams, calls, uploadFileChunked };
 }
 
@@ -143,7 +146,8 @@ describe('FileManagerComponent — upload queue (U12)', () => {
     TestBed.configureTestingModule({
       imports: [FileManagerComponent, getTranslocoModule()],
       providers: [
-        { provide: ApiService, useValue: mock.api },
+        { provide: FilesApi, useValue: mock.api },
+        { provide: SpacesApi, useValue: mock.api },
         { provide: AuthService, useValue: { token: () => '' } },
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
       ],
@@ -245,7 +249,8 @@ describe('FileManagerComponent — preview/download auth', () => {
     TestBed.configureTestingModule({
       imports: [FileManagerComponent, getTranslocoModule()],
       providers: [
-        { provide: ApiService, useValue: makeApi([]) },
+        { provide: FilesApi, useValue: makeApi([]) },
+        { provide: SpacesApi, useValue: makeApi([]) },
         { provide: AuthService, useValue: { token: () => token } },
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
       ],

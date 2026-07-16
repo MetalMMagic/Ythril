@@ -138,58 +138,15 @@ brainRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAuth,
     return;
   }
 
-  // Resolve entity names for richer embedding
-  let entityNames: string[] = [];
-  if (safeEntityIds.length > 0) {
-    try {
-      const entityDocs = await col<EntityDoc>(`${targetSpace}_entities`)
-        .find(asFilter<EntityDoc>({ _id: { $in: safeEntityIds } }), { projection: { name: 1 } })
-        .toArray() as Array<{ name: string }>;
-      entityNames = entityDocs.map(e => e.name);
-    } catch { /* ignore — entity names are best-effort */ }
-  }
-
-  // Assemble embedding text from all content fields
-  const embedParts: string[] = [];
-  if (safeTags.length > 0) embedParts.push(safeTags.join(' '));
-  if (entityNames.length > 0) embedParts.push(entityNames.join(' '));
-  embedParts.push(fact);
-  if (safeDesc?.trim()) embedParts.push(safeDesc.trim());
-  if (safeProps) {
-    const propEntries = Object.entries(safeProps);
-    if (propEntries.length > 0) embedParts.push(propEntries.map(([_k, v]) => String(v)).join(' '));
-  }
-
-  // Attempt embedding; fall back to empty vector if server not configured/reachable
-  let embedding: number[] = [];
-  let embeddingModel = 'none';
-  try {
-    const result = await embed(embedParts.join(' '));
-    embedding = result.vector;
-    embeddingModel = result.model;
-  } catch (err) {
-    log.warn(`Embedding unavailable, storing without vector: ${err}`);
-  }
-  const seq = await nextSeq(targetSpace);
-  const now = new Date().toISOString();
-  const doc: MemoryDoc = {
-    _id: uuidv4(),
-    spaceId: targetSpace,
-    fact,
-    embedding,
-    tags: safeTags,
-    entityIds: safeEntityIds,
-    author: { instanceId: cfg.instanceId, instanceLabel: cfg.instanceLabel },
-    createdAt: now,
-    updatedAt: now,
-    seq,
-    embeddingModel,
-  };
-  if (safeDesc !== undefined) doc.description = safeDesc;
-  if (safeProps !== undefined) doc.properties = safeProps;
-  if (safeMemoryType !== undefined) doc.type = safeMemoryType;
-  await col<MemoryDoc>(`${targetSpace}_memories`).insertOne(asDoc<MemoryDoc>(doc));
-  emitWebhookEvent({ event: 'memory.created', spaceId: targetSpace, entry: { ...doc, embedding: undefined }, ...webhookToken(req) });
+  // Persist through the shared remember() so REST and MCP produce identical records: the same
+  // embed-text derivation (properties folded as `key value` via propsEmbedText, entity names
+  // resolved consistently), the `matchedText` source string, the author, insert-time duplicate-
+  // rule evaluation, and the memory.created webhook. Previously inlined here, which had drifted
+  // into three bugs: values-only property embedding, no `matchedText`, and no dupe-rule firing.
+  const doc = await remember(
+    targetSpace, fact, safeEntityIds, safeTags, safeDesc, safeProps,
+    undefined, safeMemoryType, undefined, webhookToken(req),
+  );
   const body: Record<string, unknown> = { ...doc };
   if (quotaResult?.softBreached) body['storageWarning'] = true;
   if (validation.warnings.length > 0) body['warnings'] = validation.warnings;

@@ -270,6 +270,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Memories created over the REST API embedded properties without their keys (semantic-recall
+  regression).** `POST /api/brain/spaces/:id/memories` re-implemented the create logic inline instead
+  of calling the shared `remember()`, and the copy had drifted: it folded properties **values-only**
+  (`"pilot"`) instead of `key value` (`"occupation pilot"`) via the shared `propsEmbedText` helper —
+  the exact regression the helper was extracted to prevent — so a memory created via REST embedded
+  differently from the identical one created via MCP, and recall couldn't match on a property name.
+  The inline copy also never set `matchedText` and never fired the insert-time duplicate-rule check.
+  The route now routes through `remember()`, so REST and MCP produce identical records; ~55 lines of
+  duplication removed. Covered by a new memory case in the property-key embedding test.
+
 - **Moving a file/folder resurrected the pre-move copy on sync peers (both HTTP and MCP).** A move
   removes the file from its old path on disk, but neither the `PATCH /api/files` route nor the MCP
   `move_file` tool wrote a tombstone for it — and sync has no rename detection, so a peer's manifest

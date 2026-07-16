@@ -7,8 +7,10 @@
  * embedded text via the shared propsEmbedText helper.
  *
  * These tests assert the stored embedding text (`matchedText`, returned by recall)
- * contains the property KEY for an entity, an edge, and a chrono entry — the edge and
- * chrono cases embedded no property data at all before this fix.
+ * contains the property KEY for a memory, an entity, an edge, and a chrono entry — the edge
+ * and chrono cases embedded no property data at all before the original fix, and the REST
+ * memory-create path had *regressed* to values-only (it inlined its own embed-text derivation
+ * instead of calling the shared `remember()` — fixed by routing it through the shared function).
  *
  * Run: node --test testing/integration/embed-properties.test.js
  */
@@ -59,6 +61,21 @@ describe('Property keys are embedded (B4)', () => {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ confirm: true }),
     }).catch(() => {});
+  });
+
+  it('memory embedding text includes the property key (REST create, via shared remember())', async (t) => {
+    if (!embeddingAvailable) return t.skip('Embedding not available');
+    const r = await post(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/memories`,
+      { fact: `MemPropKey-${RUN}`, properties: { occupation: 'pilot' } });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    // remember() stores matchedText on the doc, so the create response now exposes it directly —
+    // before the fix the REST create set no matchedText and embedded values only ("pilot").
+    assert.match(r.body.matchedText ?? '', /occupation pilot/,
+      `memory create must fold "key value" into matchedText: ${r.body.matchedText}`);
+    const hit = await recallMatch(r.body._id, `MemPropKey-${RUN}`, ['memory']);
+    assert.ok(hit, 'memory should be recallable once indexed');
+    assert.match(hit.matchedText ?? '', /occupation/,
+      `memory embed text must include the property key: ${hit.matchedText}`);
   });
 
   it('entity embedding text includes the property key', async (t) => {

@@ -31,6 +31,7 @@
  */
 
 import { getConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
+import { toSafeRelPath } from '../../util/paths.js';
 import { isProxySpace } from '../../spaces/proxy.js';
 import type { MediaJobDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
@@ -436,7 +437,7 @@ function getLocalSpaceIds(): string[] {
 function resolveFilePath(spaceId: string, filePath: string): string {
   const base = spaceRoot(spaceId);
   // Prevent path traversal: only forward-slash paths, no `..` segments
-  const safe = filePath.replace(/\\/g, '/').replace(/\.\.\//g, '').replace(/^\/+/, '');
+  const safe = toSafeRelPath(filePath);
   return path.join(base, safe);
 }
 

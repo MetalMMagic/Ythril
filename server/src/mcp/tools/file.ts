@@ -1,4 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { toDocId } from '../../util/paths.js';
 import { recall } from '../../brain/memory.js';
 import { getConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
@@ -89,7 +90,7 @@ export const write_fileTool: ToolHandler = {
     const ifFmt = typeof a['inputFormat'] === 'string' ? a['inputFormat'] as InputFormat : 'auto';
     const fileBytes = Buffer.from(content, 'utf8');
     const resolvedFmt = resolveInputFormat(filePath, undefined, ifFmt);
-    const normId = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const normId = toDocId(filePath);
 
     if (isMediaFormat(resolvedFmt)) {
       // MCP write_file is text-only; media content via MCP is not expected,

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { toDocId } from '../util/paths.js';
 import { escapeRegex } from '../util/redos.js';
 import type express from 'express';
 import { v4 as uuidv4 } from 'uuid';
@@ -1237,7 +1238,7 @@ brainRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, asy
   const filter: Record<string, unknown> = {};
   if (!includeChunks) filter['parentFileId'] = { $exists: false };
   if (typeof req.query['tag'] === 'string') filter['tags'] = req.query['tag'];
-  if (typeof req.query['path'] === 'string') filter['path'] = req.query['path'].replace(/\\/g, '/').replace(/^\/+/, '');
+  if (typeof req.query['path'] === 'string') filter['path'] = toDocId(req.query['path']);
   const memberIds = resolveMemberSpaces(spaceId);
   const all = (await Promise.all(memberIds.map(mid =>
     col(`${mid}_files`)
@@ -1264,7 +1265,7 @@ brainRouter.delete('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, 
   const wt = resolveWriteTarget(spaceId, req.query['targetSpace'] as string | undefined);
   if (!wt.ok) { res.status(400).json({ error: wt.error }); return; }
   const memberIds = resolveMemberSpaces(wt.target);
-  const norm = path.replace(/\\/g, '/').replace(/^\/+/, '');
+  const norm = toDocId(path);
   // Guard: a metadata record may only be removed if its file is gone (orphan) or the
   // record is flagged deleted. Deleting the metadata of a file that still exists would
   // silently orphan a live file — refuse and tell the caller to delete the file itself.

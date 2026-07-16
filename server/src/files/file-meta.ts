@@ -13,6 +13,7 @@
  */
 
 import path from 'node:path';
+import { toDocId } from '../util/paths.js';
 import { escapeRegex } from '../util/redos.js';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
@@ -22,10 +23,6 @@ import { getConfig } from '../config/loader.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../config/types.js';
 
 
-/** Normalise a path to forward-slash convention and strip leading slashes (used as _id). */
-function normPath(p: string): string {
-  return p.replace(/\\/g, '/').replace(/^\/+/, '');
-}
 
 
 /** Resolve entity names from a list of entity IDs in this space. Best-effort — returns [] on error. */
@@ -50,7 +47,7 @@ export async function upsertFileMeta(
   sizeBytes: number,
   opts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> } = {},
 ): Promise<void> {
-  const normalised = normPath(filePath);
+  const normalised = toDocId(filePath);
   const now = new Date().toISOString();
 
   const existing = await col<FileMetaDoc>(`${spaceId}_files`).findOne(
@@ -116,7 +113,7 @@ export async function updateFileMeta(
     properties?: Record<string, string | number | boolean>;
   },
 ): Promise<FileMetaDoc | null> {
-  const normalised = normPath(filePath);
+  const normalised = toDocId(filePath);
   const existing = await col<FileMetaDoc>(`${spaceId}_files`).findOne(asFilter<FileMetaDoc>({ _id: normalised })) as FileMetaDoc | null;
   if (!existing) return null;
 
@@ -207,7 +204,7 @@ export async function deleteFileMeta(
   spaceId: string,
   filePath: string,
 ): Promise<void> {
-  const normalised = normPath(filePath);
+  const normalised = toDocId(filePath);
   await col<FileMetaDoc>(`${spaceId}_files`).deleteOne(
     asFilter<FileMetaDoc>({ _id: normalised }),
   );
@@ -221,7 +218,7 @@ export async function deleteFileMetaByPrefix(
   spaceId: string,
   dirPath: string,
 ): Promise<void> {
-  const norm = normPath(dirPath).replace(/\/?$/, '');
+  const norm = toDocId(dirPath).replace(/\/?$/, '');
   if (!norm) return; // guard: empty path would match everything
   const prefix = norm + '/';
   // Escape regex special characters in the prefix so a path like "my.dir/"
@@ -241,7 +238,7 @@ export async function markFileMetaDeleted(
   spaceId: string,
   filePath: string,
 ): Promise<void> {
-  const normalised = normPath(filePath);
+  const normalised = toDocId(filePath);
   await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
     asFilter<FileMetaDoc>({ _id: normalised }),
     asUpdate<FileMetaDoc>({ $set: { deletedAt: new Date().toISOString() } }),
@@ -258,7 +255,7 @@ export async function markFileMetaDeletedByPrefix(
   spaceId: string,
   dirPath: string,
 ): Promise<void> {
-  const norm = normPath(dirPath).replace(/\/?$/, '');
+  const norm = toDocId(dirPath).replace(/\/?$/, '');
   if (!norm) return; // guard: empty path would match everything
   const escaped = escapeRegex(norm + '/');
   const coll = col<FileMetaDoc>(`${spaceId}_files`);
@@ -283,8 +280,8 @@ export async function renameFileMeta(
   srcPath: string,
   dstPath: string,
 ): Promise<void> {
-  const normSrc = normPath(srcPath);
-  const normDst = normPath(dstPath);
+  const normSrc = toDocId(srcPath);
+  const normDst = toDocId(dstPath);
   if (normSrc === normDst) return;
 
   const existing = await col<FileMetaDoc>(`${spaceId}_files`).findOne(
@@ -318,8 +315,8 @@ export async function renameFileMetaByPrefix(
   srcDir: string,
   dstDir: string,
 ): Promise<void> {
-  const normSrc = normPath(srcDir).replace(/\/?$/, '');
-  const normDst = normPath(dstDir).replace(/\/?$/, '');
+  const normSrc = toDocId(srcDir).replace(/\/?$/, '');
+  const normDst = toDocId(dstDir).replace(/\/?$/, '');
   if (!normSrc || !normDst) return; // guard: empty path would match everything
   const srcPrefix = normSrc + '/';
   const dstPrefix = normDst + '/';

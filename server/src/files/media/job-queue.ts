@@ -6,6 +6,7 @@
  */
 
 import { col, asFilter, asDoc, asUpdate } from '../../db/mongo.js';
+import { toDocId } from '../../util/paths.js';
 import { escapeRegex } from '../../util/redos.js';
 import type { MediaJobDoc, FileMetaDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
@@ -27,10 +28,6 @@ function nextClaimableAfter(nextAttempt: number): string {
   return new Date(Date.now() + delay).toISOString();
 }
 
-/** Normalise a path to forward-slash convention and strip leading slashes. */
-export function normPath(p: string): string {
-  return p.replace(/\\/g, '/').replace(/^\/+/, '');
-}
 
 function jobCollection(spaceId: string) {
   return col<MediaJobDoc>(`${spaceId}_media_jobs`);
@@ -54,7 +51,7 @@ export async function enqueueMediaJob(
   mimeType: string,
   mediaType: 'image' | 'audio' | 'video',
 ): Promise<void> {
-  const id = normPath(filePath);
+  const id = toDocId(filePath);
   const now = new Date().toISOString();
 
   const existing = await jobCollection(spaceId).findOne(
@@ -121,7 +118,7 @@ export async function enqueueTextJob(
   resolvedFormat: string,
   mimeType = 'text/plain',
 ): Promise<void> {
-  const id = normPath(filePath);
+  const id = toDocId(filePath);
   const now = new Date().toISOString();
 
   const existing = await jobCollection(spaceId).findOne(
@@ -450,7 +447,7 @@ export async function resetStalledJobs(
  * against a path that no longer exists.
  */
 export async function cancelMediaJob(spaceId: string, filePath: string): Promise<void> {
-  const id = normPath(filePath);
+  const id = toDocId(filePath);
   await jobCollection(spaceId).deleteOne(asFilter<MediaJobDoc>({ _id: id }));
 }
 
@@ -460,7 +457,7 @@ export async function cancelMediaJob(spaceId: string, filePath: string): Promise
  * job ids do not share the folder prefix. Called on recursive directory delete.
  */
 export async function cancelMediaJobsByPrefix(spaceId: string, dirPath: string): Promise<void> {
-  const dir = normPath(dirPath).replace(/\/?$/, '');
+  const dir = toDocId(dirPath).replace(/\/?$/, '');
   if (!dir) return; // guard: empty path would match everything
   const prefixes = [`${dir}/`, `_converted/${dir}/`, `_extracted/${dir}/`];
   await jobCollection(spaceId).deleteMany(

@@ -16,6 +16,7 @@
  */
 
 import { getConfig, saveConfig, saveConfigSoon, getSecrets, getFaceRecognitionConfig } from '../config/loader.js';
+import { toSafeRelPath } from '../util/paths.js';
 import { col, asFilter, asDoc, asBulk } from '../db/mongo.js';
 import { applyRemoteTombstone, listTombstones } from '../brain/tombstones.js';
 import { recordSyncResult, type SyncCounts } from './history.js';
@@ -1131,7 +1132,7 @@ async function syncFiles(
         for (const ts of tombstones) {
           try {
             // Normalise to prevent path traversal (sandbox-safe relative path).
-            const rel = ts.path.replace(/\\/g, '/').replace(/^\/+/, '');
+            const rel = toSafeRelPath(ts.path);
             const abs = path.join(spaceFiles, rel);
             if (!abs.startsWith(spaceFiles + path.sep) && abs !== spaceFiles) continue;
             await fs.unlink(abs).catch(() => { /* already gone — ignore */ });

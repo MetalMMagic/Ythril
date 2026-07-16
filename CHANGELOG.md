@@ -646,6 +646,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Centralized path normalisation into `util/paths.ts` (`toDocId` / `toSafeRelPath`).** The
+  `p.replace(/\\/g, '/').replace(/^\/+/, '')` idiom was hand-rolled in ~13 places (3 named `normPath`
+  defs + ~10 inline), and the copies had **diverged**: the media worker's variant also stripped `../`
+  for path-traversal defense while every other copy did not. Split into two clearly-named helpers —
+  `toDocId` (Mongo `_id`/path keys, keeps `..`) and `toSafeRelPath` (values joined to a filesystem
+  root, strips `..`) — and pointed each call site at the right one. Behavior-preserving for the id/key
+  sites; the sync tombstone-application paths (`api/sync.ts`, `sync/engine.ts`), which join a peer-
+  supplied path to the space files root, now strip `..` as **defense-in-depth** alongside their
+  existing boundary check (a no-op for legitimate paths). Locked by a unit test. (ARCHITECTURE-TODO A13.)
+
 - **Deduplicated two copy-pasted helpers onto shared modules (internal, no behavior change).**
   `authorRef()` — the `{ instanceId, instanceLabel }` write stamp — was defined identically in nine
   files across the brain and file subsystems; it now lives once in `config/author.ts`. The RegExp

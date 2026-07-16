@@ -646,6 +646,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Split the 1196-line `api/networks.ts` (19 routes) into per-concern sub-routers (internal, no
+  behavior change).** Now `api/networks/`: `crud.ts` (7 — list/get/create/patch/leave + sync trigger
+  and history), `members.ts` (3 — add, remove, rotate signing key), `join.ts` (4 — invite, join,
+  join-remote, fork), `topology.ts` (3 — reparent-self, adopt, revert-parent), `votes.ts` (2 — list
+  rounds, cast) and a `_shared.ts` holding only what genuinely spans groups (`BCRYPT_ROUNDS`,
+  `SSRF_SAFE_URL`, `safeMemberList`); a request schema used by exactly one route stays with it.
+  `index.ts` mounts them on the same `networksRouter`, each declaring full paths, so **every URL is
+  unchanged**. One piece of pre-existing dead code was dropped in passing (an unused
+  `rsaPublicKeyPem` destructure in join-remote; the field is still schema-validated). Known coupling
+  left as-is for now: `votes.ts` imports `concludeRoundIfReady` from `api/sync.ts`, i.e. one route
+  module importing domain logic from another — the round state itself is config
+  (`net.pendingRounds`), not in-memory, so the split is safe; giving that helper a proper home is
+  A17.6's job, which opens `sync.ts` anyway. (ARCHITECTURE-TODO A17.5.)
+
 - **Split the 993-line `brain/memory.ts` into four cohesive modules (internal, no behavior change).**
   It mixed three unrelated engines with memory CRUD. Now: `filter.ts` (the recall `FilterExpression`
   DSL — validate, lower to a Mongo filter, lower to a native `$vectorSearch` prefilter), `recall.ts`

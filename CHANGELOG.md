@@ -689,6 +689,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The record drawer's shared schema/format helpers moved off `BrainComponent` to their proper homes,
+  clearing the last coupling before the drawer becomes its own component.** After the picker split
+  (above), the drawer still shared five helpers with every tab form: `buildPropertiesObject` and
+  `stripEmptyOptionalProps` (schema-driven property transforms) and the `chronoKinds` constant moved to
+  `BrainStore` — which already owns the space meta and schema accessors they read — and the two pure
+  formatters `toLocalDatetime` and `fmtApiError` moved to a new dependency-free `brain-format.ts` that
+  the shell, the drawer, and the tab components can all import. All ~45 call sites repointed; verbatim
+  moves, behaviour unchanged. Ten new characterization tests pin the pure logic before it is built on:
+  the schema-seeded defaults (`enum`→first, number→0, boolean→false, else `''`, existing values kept),
+  the strip rule (empty *optional* dropped, empty *required* kept), and the schema-violation message
+  formatting. `brain.component.ts` 3403 → 3349. Client suite: 158 → 168.
+
 - **`BrainComponent`'s shared entity/memory/chrono reference picker is now its own `EntityRefPicker`
   service, and its string-keyed god-switch is gone.** One flyout and one entity-name cache serve every
   form on the brain page; they used to be wired by `pickEntity(ent, mode, field)` and

@@ -2,8 +2,9 @@
 import { CommonModule } from '@angular/common';
 import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
+import { toLocalDatetime, fmtApiError } from './brain-format';
 import { FormsModule } from '@angular/forms';
-import { Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, KnowledgeType, PropertySchema, FileMeta } from '../../core/api.types';
+import { Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, FileMeta } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { FilesApi } from '../../core/files-api.service';
@@ -1207,7 +1208,7 @@ interface SpaceView {
           </div>
           <div class="list-filter-row">
             <app-record-filter-bar
-              [typeOptions]="chronoKinds"
+              [typeOptions]="store.chronoKinds"
               [tagSuggestions]="store.chronoTagSuggestions()"
               typeLabel="common.form.kind"
               typeAllLabel="brain.filter.allKinds"
@@ -1226,7 +1227,7 @@ interface SpaceView {
                 <label>{{ 'brain.chrono.form.kind' | transloco }}</label>
                 @if (chronoForm.kind !== '__custom__') {
                   <select [(ngModel)]="chronoForm.kind" name="kind">
-                    @for (k of chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
+                    @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
                     <option value="__custom__">{{ 'brain.chrono.form.customKind' | transloco }}</option>
                   </select>
                 } @else {
@@ -1309,7 +1310,7 @@ interface SpaceView {
                           <div class="field" style="width:130px; margin-bottom:0;">
                             <label>{{ 'brain.chrono.form.kind' | transloco }}</label>
                             <select [(ngModel)]="editChrono.kind" name="editChronoKind">
-                              @for (k of chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
+                              @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
                             </select>
                           </div>
                           <div class="field" style="width:130px; margin-bottom:0;">
@@ -2041,7 +2042,7 @@ interface SpaceView {
                   <div class="drawer-label">{{ 'common.form.kind' | transloco }} <span style="color:var(--error)">*</span></div>
                   @if (drawerEditChrono.kind !== '__custom__') {
                     <select [(ngModel)]="drawerEditChrono.kind" name="drwChronoKind">
-                      @for (k of chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
+                      @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
                       <option value="__custom__">{{ 'brain.chrono.form.customKind' | transloco }}</option>
                     </select>
                   } @else {
@@ -2250,7 +2251,6 @@ export class BrainComponent implements OnInit {
   showChronoForm = signal(false);
   creatingChrono = signal(false);
   createChronoError = signal('');
-  chronoKinds: ChronoType[] = ['event', 'deadline', 'plan', 'prediction', 'milestone'];
   chronoStatusOptions: ChronoStatus[] = ['upcoming', 'active', 'completed', 'overdue', 'cancelled'];
   chronoForm = { title: '', kind: 'event' as ChronoType | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '' };
 
@@ -2683,7 +2683,7 @@ export class BrainComponent implements OnInit {
       tags: mem.tags ?? [],
       entityIds: (mem.entityIds ?? []).join(', '),
       description: mem.description ?? '',
-      properties: this.buildPropertiesObject('memory', mem.properties ?? {}),
+      properties: this.store.buildPropertiesObject('memory', mem.properties ?? {}),
     };
   }
 
@@ -2695,7 +2695,7 @@ export class BrainComponent implements OnInit {
       type: ent.type ?? '',
       tags: ent.tags ?? [],
       description: ent.description ?? '',
-      properties: this.buildPropertiesObject('entity', ent.properties ?? {}, ent.type),
+      properties: this.store.buildPropertiesObject('entity', ent.properties ?? {}, ent.type),
     };
   }
 
@@ -2711,7 +2711,7 @@ export class BrainComponent implements OnInit {
       weight: edge.weight ?? null,
       tags: edge.tags ?? [],
       description: edge.description ?? '',
-      properties: this.buildPropertiesObject('edge', edge.properties ?? {}, edge.label),
+      properties: this.store.buildPropertiesObject('edge', edge.properties ?? {}, edge.label),
     };
   }
 
@@ -2722,8 +2722,8 @@ export class BrainComponent implements OnInit {
       title: entry.title,
       kind: entry.type,
       status: entry.status,
-      startsAt: entry.startsAt ? this.toLocalDatetime(entry.startsAt) : '',
-      endsAt: entry.endsAt ? this.toLocalDatetime(entry.endsAt) : '',
+      startsAt: entry.startsAt ? toLocalDatetime(entry.startsAt) : '',
+      endsAt: entry.endsAt ? toLocalDatetime(entry.endsAt) : '',
       description: entry.description ?? '',
       tags: entry.tags ?? [],
       entityIds: (entry.entityIds ?? []).join(', '),
@@ -2751,14 +2751,14 @@ export class BrainComponent implements OnInit {
         this.editingId.set('');
         this.store.memories.update(list => list.map(m => m._id === id ? updated : m));
       },
-      error: (err) => { this.editSaving.set(false); this.editError.set(this.fmtApiError(err, 'Failed to save')); },
+      error: (err) => { this.editSaving.set(false); this.editError.set(fmtApiError(err, 'Failed to save')); },
     });
   }
 
   saveEditEntity(id: string): void {
     this.editSaving.set(true);
     this.editError.set('');
-    const entProps = this.stripEmptyOptionalProps(this.editEntity.properties, this.store.entitySchema(this.editEntity.type));
+    const entProps = this.store.stripEmptyOptionalProps(this.editEntity.properties, this.store.entitySchema(this.editEntity.type));
     this.brainApi.updateEntity(this.activeSpaceId(), id, {
       name: this.editEntity.name.trim(),
       type: this.editEntity.type.trim(),
@@ -2771,14 +2771,14 @@ export class BrainComponent implements OnInit {
         this.editingId.set('');
         this.store.entities.update(list => list.map(e => e._id === id ? updated : e));
       },
-      error: (err) => { this.editSaving.set(false); this.editError.set(this.fmtApiError(err, 'Failed to save')); },
+      error: (err) => { this.editSaving.set(false); this.editError.set(fmtApiError(err, 'Failed to save')); },
     });
   }
 
   saveEditEdge(id: string): void {
     this.editSaving.set(true);
     this.editError.set('');
-    const edgeProps = this.stripEmptyOptionalProps(this.editEdge.properties, this.store.edgeSchema(this.editEdge.label));
+    const edgeProps = this.store.stripEmptyOptionalProps(this.editEdge.properties, this.store.edgeSchema(this.editEdge.label));
     this.brainApi.updateEdge(this.activeSpaceId(), id, {
       label: this.editEdge.label.trim(),
       tags: this.editEdge.tags,
@@ -2791,7 +2791,7 @@ export class BrainComponent implements OnInit {
         this.editingId.set('');
         this.store.edges.update(list => list.map(e => e._id === id ? updated : e));
       },
-      error: (err) => { this.editSaving.set(false); this.editError.set(this.fmtApiError(err, 'Failed to save')); },
+      error: (err) => { this.editSaving.set(false); this.editError.set(fmtApiError(err, 'Failed to save')); },
     });
   }
 
@@ -2813,7 +2813,7 @@ export class BrainComponent implements OnInit {
         this.editingId.set('');
         this.store.chrono.update(list => list.map(c => c._id === id ? updated : c));
       },
-      error: (err) => { this.editSaving.set(false); this.editError.set(this.fmtApiError(err, 'Failed to save')); },
+      error: (err) => { this.editSaving.set(false); this.editError.set(fmtApiError(err, 'Failed to save')); },
     });
   }
 
@@ -2856,7 +2856,7 @@ export class BrainComponent implements OnInit {
         this.editingId.set('');
         this.store.fileMetas.update(list => list.map(f => f._id === id ? updated : f));
       },
-      error: (err) => { this.editSaving.set(false); this.editError.set(this.fmtApiError(err, 'Failed to save')); },
+      error: (err) => { this.editSaving.set(false); this.editError.set(fmtApiError(err, 'Failed to save')); },
     });
   }
 
@@ -2912,7 +2912,7 @@ export class BrainComponent implements OnInit {
         this.loadStats(this.activeSpaceId());
         this.loadCurrentTab(this.activeSpaceId());
       },
-      error: (err) => { this.creatingMemory.set(false); this.createMemoryError.set(this.fmtApiError(err, 'Failed to create memory')); },
+      error: (err) => { this.creatingMemory.set(false); this.createMemoryError.set(fmtApiError(err, 'Failed to create memory')); },
     });
   }
 
@@ -2924,7 +2924,7 @@ export class BrainComponent implements OnInit {
     if (this.entityForm.type.trim()) body.type = this.entityForm.type.trim();
     if (this.entityForm.tags.length) body.tags = this.entityForm.tags;
     if (this.entityForm.description.trim()) body.description = this.entityForm.description.trim();
-    const props = this.stripEmptyOptionalProps(this.entityForm.properties, this.store.entitySchema(this.entityForm.type));
+    const props = this.store.stripEmptyOptionalProps(this.entityForm.properties, this.store.entitySchema(this.entityForm.type));
     if (Object.keys(props).length) body.properties = props;
     this.brainApi.createEntity(this.activeSpaceId(), body).subscribe({
       next: () => {
@@ -2934,7 +2934,7 @@ export class BrainComponent implements OnInit {
         this.loadStats(this.activeSpaceId());
         this.loadCurrentTab(this.activeSpaceId());
       },
-      error: (err) => { this.creatingEntity.set(false); this.createEntityError.set(this.fmtApiError(err, 'Failed to create entity')); },
+      error: (err) => { this.creatingEntity.set(false); this.createEntityError.set(fmtApiError(err, 'Failed to create entity')); },
     });
   }
 
@@ -2950,7 +2950,7 @@ export class BrainComponent implements OnInit {
     if (this.edgeForm.weight != null) body.weight = this.edgeForm.weight;
     if (this.edgeForm.tags.length) body.tags = this.edgeForm.tags;
     if (this.edgeForm.description.trim()) body.description = this.edgeForm.description.trim();
-    const edgeProps = this.stripEmptyOptionalProps(this.edgeForm.properties, this.store.edgeSchema(this.edgeForm.label));
+    const edgeProps = this.store.stripEmptyOptionalProps(this.edgeForm.properties, this.store.edgeSchema(this.edgeForm.label));
     if (Object.keys(edgeProps).length) body.properties = edgeProps;
     this.brainApi.createEdge(this.activeSpaceId(), body).subscribe({
       next: () => {
@@ -2960,7 +2960,7 @@ export class BrainComponent implements OnInit {
         this.loadStats(this.activeSpaceId());
         this.loadCurrentTab(this.activeSpaceId());
       },
-      error: (err) => { this.creatingEdge.set(false); this.createEdgeError.set(this.fmtApiError(err, 'Failed to create edge')); },
+      error: (err) => { this.creatingEdge.set(false); this.createEdgeError.set(fmtApiError(err, 'Failed to create edge')); },
     });
   }
 
@@ -3006,7 +3006,7 @@ export class BrainComponent implements OnInit {
         this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '' };
         this.loadCurrentTab(this.activeSpaceId());
       },
-      error: (err) => { this.creatingChrono.set(false); this.createChronoError.set(this.fmtApiError(err, 'Failed to create chrono entry')); },
+      error: (err) => { this.creatingChrono.set(false); this.createChronoError.set(fmtApiError(err, 'Failed to create chrono entry')); },
     });
   }
 
@@ -3031,14 +3031,6 @@ export class BrainComponent implements OnInit {
       },
       error: () => { this.reindexing.set(false); this.reindexResult.set('Reindex failed — check server logs.'); },
     });
-  }
-
-  /** Convert an ISO date string to the YYYY-MM-DDTHH:mm format required by datetime-local inputs */
-  private toLocalDatetime(iso: string): string {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
   runQuery(): void {
@@ -3158,83 +3150,37 @@ export class BrainComponent implements OnInit {
 
   // ── Form openers with schema prefill ────────────────────────────────────
 
-  /** Format an API error response into a human-readable string.
-   *  When the server returns { error: 'schema_violation', violations: [...] }
-   *  this produces a message listing each violating field and why. */
-  private fmtApiError(err: { error?: { error?: string; violations?: { field: string; value: unknown; reason: string }[] } }, fallback: string): string {
-    const body = err?.error;
-    if (body?.error === 'schema_violation' && Array.isArray(body.violations) && body.violations.length > 0) {
-      const details = body.violations.map(v => `${v.field}: ${v.reason}`).join('; ');
-      return `Schema violation — ${details}`;
-    }
-    return body?.error ?? fallback;
-  }
-
   openEntityForm(): void {
     const firstType = Object.keys(this.store.spaceMeta()?.typeSchemas?.entity ?? {})[0] ?? '';
-    this.entityForm = { name: '', type: firstType, tags: [], description: '', properties: this.buildPropertiesObject('entity', {}, firstType) };
+    this.entityForm = { name: '', type: firstType, tags: [], description: '', properties: this.store.buildPropertiesObject('entity', {}, firstType) };
     this.showEntityForm.set(true);
   }
 
   /** Called when the entity type dropdown changes. Rebuilds properties: keeps existing values, adds defaults for any new schema-required fields. */
   onEntityTypeChange(type: string, target: 'create' | 'inline' | 'drawer'): void {
     if (target === 'create') {
-      this.entityForm.properties = this.buildPropertiesObject('entity', this.entityForm.properties, type);
+      this.entityForm.properties = this.store.buildPropertiesObject('entity', this.entityForm.properties, type);
     } else if (target === 'inline') {
-      this.editEntity.properties = this.buildPropertiesObject('entity', this.editEntity.properties, type);
+      this.editEntity.properties = this.store.buildPropertiesObject('entity', this.editEntity.properties, type);
     } else {
-      this.drawerEditEntity.properties = this.buildPropertiesObject('entity', this.drawerEditEntity.properties, type);
+      this.drawerEditEntity.properties = this.store.buildPropertiesObject('entity', this.drawerEditEntity.properties, type);
     }
   }
 
   openEdgeForm(): void {
     const firstLabel = Object.keys(this.store.spaceMeta()?.typeSchemas?.edge ?? {})[0] ?? '';
-    this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: firstLabel, weight: null, tags: [], description: '', properties: this.buildPropertiesObject('edge', {}, firstLabel) };
+    this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: firstLabel, weight: null, tags: [], description: '', properties: this.store.buildPropertiesObject('edge', {}, firstLabel) };
     this.showEdgeForm.set(true);
   }
 
   openMemoryForm(): void {
-    this.memoryForm = { fact: '', tags: [], entityIds: '', description: '', properties: this.buildPropertiesObject('memory') };
+    this.memoryForm = { fact: '', tags: [], entityIds: '', description: '', properties: this.store.buildPropertiesObject('memory') };
     this.showMemoryForm.set(true);
   }
 
   openChronoForm(): void {
     this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '' };
     this.showChronoForm.set(true);
-  }
-
-  private buildPropertiesObject(type: KnowledgeType, existing: Record<string, string | number | boolean> = {}, typeName?: string): Record<string, string | number | boolean> {
-    const meta = this.store.spaceMeta();
-    const typeSchemas = meta?.typeSchemas?.[type];
-    if (!typeSchemas || Object.keys(typeSchemas).length === 0) return existing;
-    // Use the specified type's schema; fall back to the first type when no name is given
-    const schemas = (typeName ? typeSchemas[typeName] : Object.values(typeSchemas)[0])?.propertySchemas ?? {};
-    if (Object.keys(schemas).length === 0) return existing;
-    const result = { ...existing };
-    for (const [key, schema] of Object.entries(schemas)) {
-      if (key in result) continue;
-      if (schema.enum?.length) {
-        result[key] = schema.enum[0] as string | number | boolean;
-      } else if (schema.type === 'number') {
-        result[key] = 0;
-      } else if (schema.type === 'boolean') {
-        result[key] = false;
-      } else {
-        result[key] = '';
-      }
-    }
-    return result;
-  }
-
-  /** Strip optional properties whose value is an empty string; required fields are preserved even if empty (server will reject them with a clear error). */
-  private stripEmptyOptionalProps(
-    props: Record<string, string | number | boolean>,
-    schema: Record<string, PropertySchema> | undefined,
-  ): Record<string, string | number | boolean> {
-    if (!schema) return props;
-    return Object.fromEntries(
-      Object.entries(props).filter(([k, v]) => v !== '' || (schema[k]?.required ?? false)),
-    );
   }
 
   // ── Detail drawer ──────────────────────────────────────────────────────
@@ -3260,7 +3206,7 @@ export class BrainComponent implements OnInit {
         tags: [...(record.tags ?? [])],
         entityIds: (record.entityIds ?? []).join(', '),
         description: record.description ?? '',
-        properties: this.buildPropertiesObject('memory', record.properties ?? {}),
+        properties: this.store.buildPropertiesObject('memory', record.properties ?? {}),
       };
     } else if (kind === 'entity') {
       this.drawerEditEntity = {
@@ -3268,7 +3214,7 @@ export class BrainComponent implements OnInit {
         type: record.type ?? '',
         tags: [...(record.tags ?? [])],
         description: record.description ?? '',
-        properties: this.buildPropertiesObject('entity', record.properties ?? {}, record.type),
+        properties: this.store.buildPropertiesObject('entity', record.properties ?? {}, record.type),
       };
     } else if (kind === 'edge') {
       this.drawerEditEdge = {
@@ -3277,17 +3223,17 @@ export class BrainComponent implements OnInit {
         weight: record.weight ?? null,
         tags: [...(record.tags ?? [])],
         description: record.description ?? '',
-        properties: this.buildPropertiesObject('edge', record.properties ?? {}, record.label),
+        properties: this.store.buildPropertiesObject('edge', record.properties ?? {}, record.label),
       };
     } else if (kind === 'chrono') {
-      const isPredefined = this.chronoKinds.includes(record.type as ChronoType);
+      const isPredefined = this.store.chronoKinds.includes(record.type as ChronoType);
       this.drawerEditChrono = {
         title: record.title,
         kind: isPredefined ? record.type : '__custom__',
         customKind: isPredefined ? '' : record.type,
         status: record.status,
-        startsAt: record.startsAt ? this.toLocalDatetime(record.startsAt) : '',
-        endsAt: record.endsAt ? this.toLocalDatetime(record.endsAt) : '',
+        startsAt: record.startsAt ? toLocalDatetime(record.startsAt) : '',
+        endsAt: record.endsAt ? toLocalDatetime(record.endsAt) : '',
         description: record.description ?? '',
         tags: [...(record.tags ?? [])],
         entityIds: (record.entityIds ?? []).join(', '),
@@ -3338,10 +3284,10 @@ export class BrainComponent implements OnInit {
           this.drawerRecord.set({ kind: 'memory', record: updated });
           this.store.memories.update(list => list.map(m => m._id === id ? updated : m));
         },
-        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(this.fmtApiError(err, 'Failed to save')); },
+        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
       });
     } else if (dr.kind === 'entity') {
-      const props = this.stripEmptyOptionalProps(this.drawerEditEntity.properties, this.store.entitySchema(this.drawerEditEntity.type));
+      const props = this.store.stripEmptyOptionalProps(this.drawerEditEntity.properties, this.store.entitySchema(this.drawerEditEntity.type));
       this.brainApi.updateEntity(spaceId, id, {
         name: this.drawerEditEntity.name.trim(),
         type: this.drawerEditEntity.type.trim(),
@@ -3354,10 +3300,10 @@ export class BrainComponent implements OnInit {
           this.drawerRecord.set({ kind: 'entity', record: updated });
           this.store.entities.update(list => list.map(e => e._id === id ? updated : e));
         },
-        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(this.fmtApiError(err, 'Failed to save')); },
+        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
       });
     } else if (dr.kind === 'edge') {
-      const props = this.stripEmptyOptionalProps(this.drawerEditEdge.properties, this.store.edgeSchema(this.drawerEditEdge.label));
+      const props = this.store.stripEmptyOptionalProps(this.drawerEditEdge.properties, this.store.edgeSchema(this.drawerEditEdge.label));
       this.brainApi.updateEdge(spaceId, id, {
         label: this.drawerEditEdge.label.trim(),
         ...(this.drawerEditEdge.type.trim() ? { type: this.drawerEditEdge.type.trim() } : {}),
@@ -3371,7 +3317,7 @@ export class BrainComponent implements OnInit {
           this.drawerRecord.set({ kind: 'edge', record: updated });
           this.store.edges.update(list => list.map(e => e._id === id ? updated : e));
         },
-        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(this.fmtApiError(err, 'Failed to save')); },
+        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
       });
     } else if (dr.kind === 'chrono') {
       const resolvedKind = this.drawerEditChrono.kind === '__custom__'
@@ -3394,7 +3340,7 @@ export class BrainComponent implements OnInit {
           this.drawerRecord.set({ kind: 'chrono', record: updated });
           this.store.chrono.update(list => list.map(c => c._id === id ? updated : c));
         },
-        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(this.fmtApiError(err, 'Failed to save')); },
+        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
       });
     }
   }

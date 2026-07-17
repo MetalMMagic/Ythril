@@ -1,6 +1,7 @@
 import { Injectable, signal, computed } from '@angular/core';
 import {
   Memory, Entity, Edge, ChronoEntry, FileMeta, SpaceMetaResponse, PropertySchema,
+  KnowledgeType, ChronoType,
 } from '../../core/api.types';
 
 /**
@@ -148,5 +149,46 @@ export class BrainStore {
   edgeTypeOptions(): string[] {
     // Edge `type` is not schema-backed; offer the distinct types in the current list.
     return this.typeOptionsFrom([], this.edges().map(e => e.type));
+  }
+
+  // ── Schema-driven property helpers (shared by every create/edit form + the drawer) ──
+
+  /** The predefined chrono kinds offered before "custom". */
+  readonly chronoKinds: ChronoType[] = ['event', 'deadline', 'plan', 'prediction', 'milestone'];
+
+  /** Seed a properties object from a type's schema: fill missing keys with a typed default
+   *  (enum → first option, number → 0, boolean → false, else ''), preserving existing values. */
+  buildPropertiesObject(type: KnowledgeType, existing: Record<string, string | number | boolean> = {}, typeName?: string): Record<string, string | number | boolean> {
+    const meta = this.spaceMeta();
+    const typeSchemas = meta?.typeSchemas?.[type];
+    if (!typeSchemas || Object.keys(typeSchemas).length === 0) return existing;
+    // Use the specified type's schema; fall back to the first type when no name is given
+    const schemas = (typeName ? typeSchemas[typeName] : Object.values(typeSchemas)[0])?.propertySchemas ?? {};
+    if (Object.keys(schemas).length === 0) return existing;
+    const result = { ...existing };
+    for (const [key, schema] of Object.entries(schemas)) {
+      if (key in result) continue;
+      if (schema.enum?.length) {
+        result[key] = schema.enum[0] as string | number | boolean;
+      } else if (schema.type === 'number') {
+        result[key] = 0;
+      } else if (schema.type === 'boolean') {
+        result[key] = false;
+      } else {
+        result[key] = '';
+      }
+    }
+    return result;
+  }
+
+  /** Strip optional properties whose value is an empty string; required fields are preserved even if empty (server will reject them with a clear error). */
+  stripEmptyOptionalProps(
+    props: Record<string, string | number | boolean>,
+    schema: Record<string, PropertySchema> | undefined,
+  ): Record<string, string | number | boolean> {
+    if (!schema) return props;
+    return Object.fromEntries(
+      Object.entries(props).filter(([k, v]) => v !== '' || (schema[k]?.required ?? false)),
+    );
   }
 }

@@ -646,6 +646,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Finished the `spaces/spaces.ts` split — `lifecycle.ts`, `rename.ts`, `_shared.ts` (internal, no
+  behavior change).** With the vector-index lift, `spaces.ts` goes **1204 → 102 lines** and now holds
+  only space settings (`updateSpace`, `reorderSpaces`). Alongside it: `lifecycle.ts` (init, create,
+  remove, wipe, and `reconcilePendingSpaceOp` crash recovery), `rename.ts` (collection movement plus
+  the config rewrite that follows), and `_shared.ts`. The module boundaries were dictated by the real
+  call graph rather than taste: `repairStaleSpaceIds` (needed by `initSpace` **and** `moveSpaceData`)
+  and `pendingOpConflictMessage` (needed by `removeSpace` **and** `renameSpace`) are each used by both
+  halves, so they cannot live in either — hence a leaf `_shared`. The result is acyclic:
+  `_shared` and `vector-index` import no sibling; `rename → _shared`; `lifecycle → {vector-index,
+  _shared, rename}` (it reaches into rename because `reconcilePendingSpaceOp` recovers interrupted
+  *rename* ops too); `spaces → {vector-index, _shared}`. One encapsulation improvement in passing:
+  the reindex-tracking `Set` stays private to `_shared` behind a new `setReindexNeeded(spaceId,
+  needed)` rather than being exported for `lifecycle` to mutate directly. All nine importers were
+  repointed to the module that actually owns each symbol. (ARCHITECTURE-TODO A17.7, step 2 of 2 —
+  A17.7 complete.)
+
 - **Lifted vector-index management out of `spaces/spaces.ts` into `spaces/vector-index.ts`
   (internal, no behavior change).** The new module owns building/diffing each collection's Atlas
   `$vectorSearch` index (`ensureVectorSearchIndex`), polling it to READY (`pollVectorIndexReady`,

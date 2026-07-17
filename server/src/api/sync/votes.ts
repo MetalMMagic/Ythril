@@ -90,7 +90,7 @@ syncVotesRouter.post('/networks/:networkId/votes/:roundId', syncRateLimit, requi
     if (round.concluded && round.type === 'space_deletion') {
       const vetoCount = round.votes.filter(v => v.vote === 'veto').length;
       if (vetoCount === 0 && round.spaceId) {
-        import('../../spaces/spaces.js').then(({ removeSpace }) => {
+        import('../../spaces/lifecycle.js').then(({ removeSpace }) => {
           removeSpace(round.spaceId!).catch(err => log.error(`space_deletion gossip side-effect: ${err}`));
         }).catch(err => log.error(`space_deletion import: ${err}`));
       }

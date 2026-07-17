@@ -90,12 +90,6 @@ describe('BrainComponent — create payloads', () => {
     expect('endsAt' in body).toBe(false);
   });
 
-  it('createEdge requires from+to+label and spreads weight only when set', () => {
-    const c = make();
-    c.edgeForm = { from: 'a', fromDisplay: '', to: 'b', toDisplay: '', label: 'knows', weight: null, tags: [], description: '', properties: {} };
-    c.createEdge();
-    expect(api.createEdge).toHaveBeenCalledWith('work', { from: 'a', to: 'b', label: 'knows' });
-  });
 });
 
 describe('BrainComponent — inline edit', () => {
@@ -110,16 +104,6 @@ describe('BrainComponent — inline edit', () => {
 });
 
 describe('BrainComponent — delete', () => {
-  it('deleteEdge removes from the store but does NOT refresh stats (asymmetry with memory/entity)', () => {
-    const c = make();
-    c.store.edges.set([{ _id: 'x1' } as Edge]);
-    api.getSpaceStats.mockClear();
-    c.deleteEdge('x1');
-    expect(api.deleteEdge).toHaveBeenCalledWith('work', 'x1');
-    expect(c.store.edges()).toEqual([]);
-    expect(api.getSpaceStats).not.toHaveBeenCalled();
-  });
-
   it('deleteFileMeta deletes by PATH via the files API and removes the metadata record', () => {
     const c = make();
     c.store.fileMetas.set([{ _id: 'f1', path: '/docs/a.md' } as FileMeta]);

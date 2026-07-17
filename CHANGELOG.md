@@ -702,6 +702,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Edges tab is now its own self-loading OnPush component (`edges-tab.component`), the third record
+  tab out of the shell.** Same pattern; edges have a text/semantic search-mode pill (via
+  `store.edgeSearch`/`edgeSearchMode`, like memories). Two edge-specific behaviours preserved and pinned:
+  create AND inline-edit strip empty optional properties via the edge schema, and **`deleteEdge` does
+  NOT refresh the space stats** (so it emits no `mutated`) — the asymmetry with memory/entity that the
+  A17.9b-6b tests pin. The edge from/to endpoint pickers (`pickEdgeFrom`/`pickEdgeTo`, on the shell since
+  the picker split) moved into the tab with `edgeForm`. The 6b `createEdge`/`deleteEdge` characterization
+  cases + the two edge-endpoint tests relocated to `edges-tab.component.spec.ts`. Removing the last of
+  memories/entities/edges also made `PropertiesViewComponent`/`PropertiesEditorComponent` unused in the
+  shell (chrono/filemeta have no schema-property editor) — dropped from its imports. `brain.component.ts`
+  1762 → 1402. Client suite: 197 → 200.
+
 - **The Entities tab is now its own self-loading OnPush component (`entities-tab.component`), the second
   record tab out of the shell.** Same pattern as memories: it owns the entity create form, inline edit,
   delete, and its own entity-search / type-tag filter / pagination + loader; self-loads via a `spaceId`

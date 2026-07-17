@@ -1,7 +1,8 @@
 ﻿import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { BrainStore } from './brain-store.service';
 import { FormsModule } from '@angular/forms';
-import { Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, SpaceMetaResponse, KnowledgeType, PropertySchema, FileMeta } from '../../core/api.types';
+import { Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, KnowledgeType, PropertySchema, FileMeta } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { FilesApi } from '../../core/files-api.service';
@@ -40,6 +41,7 @@ interface SpaceView {
   // signal write would fail CI rather than silently render a stale form.
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, TranslocoPipe],
+  providers: [BrainStore],
   styles: [`
     .space-tabs {
       display: flex;
@@ -591,12 +593,12 @@ interface SpaceView {
           <div class="content-header">
             <input type="search"
               [placeholder]="'brain.memories.searchPlaceholder' | transloco"
-              [value]="memorySearch()"
+              [value]="store.memorySearch()"
               (input)="onMemorySearch($any($event.target).value)"
               [attr.aria-label]="'brain.memories.searchPlaceholder' | transloco" />
             <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
-              <button [class.active]="memorySearchMode() === 'text'" (click)="setMemorySearchMode('text')">{{ 'common.sortAZ' | transloco }}</button>
-              <button [class.active]="memorySearchMode() === 'semantic'" (click)="setMemorySearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
+              <button [class.active]="store.memorySearchMode() === 'text'" (click)="setMemorySearchMode('text')">{{ 'common.sortAZ' | transloco }}</button>
+              <button [class.active]="store.memorySearchMode() === 'semantic'" (click)="setMemorySearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
             </div>
             <button class="btn-primary btn btn-sm" (click)="openMemoryForm()" [disabled]="showMemoryForm()">{{ 'brain.memories.addButton' | transloco }}</button>
           </div>
@@ -610,7 +612,7 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:180px;">
                 <label>{{ 'common.form.tags' | transloco }}</label>
-                <app-tag-input [(value)]="memoryForm.tags" [suggestions]="memoryTagSuggestions()" inputName="memFormTags" />
+                <app-tag-input [(value)]="memoryForm.tags" [suggestions]="store.memoryTagSuggestions()" inputName="memFormTags" />
               </div>
               <div class="field" style="flex:1; min-width:140px;">
                 <label>{{ 'common.form.entities' | transloco }}</label>
@@ -643,7 +645,7 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:220px;">
                 <label>{{ 'common.form.properties' | transloco }}</label>
-                <app-properties-editor [schema]="memorySchema()" [required]="requiredProps(memorySchema())" [(value)]="memoryForm.properties" />
+                <app-properties-editor [schema]="store.memorySchema()" [required]="store.requiredProps(store.memorySchema())" [(value)]="memoryForm.properties" />
               </div>
               <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingMemory() || !memoryForm.fact.trim()">
                 @if (creatingMemory()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
@@ -660,8 +662,8 @@ interface SpaceView {
           <!-- Shared type/tag filter (F6). Tag-clicks in the table feed this bar too. -->
           <div class="list-filter-row">
             <app-record-filter-bar
-              [typeOptions]="memoryTypeOptions()"
-              [tagSuggestions]="memoryTagSuggestions()"
+              [typeOptions]="store.memoryTypeOptions()"
+              [tagSuggestions]="store.memoryTagSuggestions()"
               [value]="recordFilter()"
               (filterChange)="onFilterChange($event)"
             />
@@ -678,7 +680,7 @@ interface SpaceView {
                 </tr>
               </thead>
               <tbody>
-                @for (mem of filteredMemories(); track mem._id) {
+                @for (mem of store.filteredMemories(); track mem._id) {
                   @if (editingId() === mem._id) {
                     <tr>
                       <td colspan="7">
@@ -693,7 +695,7 @@ interface SpaceView {
                           </div>
                           <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
                             <label>{{ 'common.form.tags' | transloco }}</label>
-                            <app-tag-input [(value)]="editMemory.tags" [suggestions]="memoryTagSuggestions()" inputName="memEditTags" />
+                            <app-tag-input [(value)]="editMemory.tags" [suggestions]="store.memoryTagSuggestions()" inputName="memEditTags" />
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                             <label>{{ 'common.form.entities' | transloco }}</label>
@@ -723,8 +725,8 @@ interface SpaceView {
                           <div class="field" style="flex:1; min-width:220px; margin-bottom:0;">
                             <label>{{ 'common.form.properties' | transloco }}</label>
                             <app-properties-editor
-                              [schema]="memorySchema()"
-                              [required]="requiredProps(memorySchema())"
+                              [schema]="store.memorySchema()"
+                              [required]="store.requiredProps(store.memorySchema())"
                               [(value)]="editMemory.properties"
                             />
                           </div>
@@ -757,7 +759,7 @@ interface SpaceView {
                           </div>
                         } @else { <span style="color:var(--text-muted)">—</span> }
                       </td>
-                      <td><app-properties-view [properties]="mem.properties" [schema]="memorySchema()" /></td>
+                      <td><app-properties-view [properties]="mem.properties" [schema]="store.memorySchema()" /></td>
                       <td style="color:var(--text-muted)">{{ mem.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="openDrawer('memory', mem)"><ph-icon name="eye" [size]="16"/></button>
@@ -780,9 +782,9 @@ interface SpaceView {
                     } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="brain" [size]="48"/></div>
-                      @if (memorySearch() && memories().length) {
+                      @if (store.memorySearch() && store.memories().length) {
                         <h3>{{ 'common.noMatches' | transloco }}</h3>
-                        <p>{{ 'brain.memories.empty.noMatchQuery' | transloco: { query: memorySearch() } }}</p>
+                        <p>{{ 'brain.memories.empty.noMatchQuery' | transloco: { query: store.memorySearch() } }}</p>
                       } @else {
                         <h3>{{ 'brain.memories.empty.title' | transloco }}</h3>
                         <p>{{ 'brain.memories.empty.body' | transloco }}</p>
@@ -794,11 +796,11 @@ interface SpaceView {
               </tbody>
             </table>
           </div>
-          @if (memorySearchMode() !== 'semantic') {
+          @if (store.memorySearchMode() !== 'semantic') {
             <div class="pagination">
               <button class="btn btn-sm btn-secondary" [disabled]="skip() === 0" (click)="prevPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ filteredMemories().length ? (skip() + 1) + '–' + (skip() + filteredMemories().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="memories().length < pageSize" (click)="nextPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
+              <span class="pager-info">{{ store.filteredMemories().length ? (skip() + 1) + '–' + (skip() + store.filteredMemories().length) : '–' }}</span>
+              <button class="btn btn-sm btn-secondary" [disabled]="store.memories().length < pageSize" (click)="nextPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
         }
@@ -820,8 +822,8 @@ interface SpaceView {
           </div>
           <div class="list-filter-row">
             <app-record-filter-bar
-              [typeOptions]="entityTypeOptions()"
-              [tagSuggestions]="entityTagSuggestions()"
+              [typeOptions]="store.entityTypeOptions()"
+              [tagSuggestions]="store.entityTagSuggestions()"
               [value]="recordFilter()"
               (filterChange)="onFilterChange($event)"
             />
@@ -834,10 +836,10 @@ interface SpaceView {
                 <input type="text" [(ngModel)]="entityForm.name" name="name" required />
               </div>
               <div class="field" style="width:140px;">
-                <label>Type @if (entityTypeNames().length) { <span style="color:var(--error)">*</span> }</label>
-                @if (entityTypeNames().length) {
+                <label>Type @if (store.entityTypeNames().length) { <span style="color:var(--error)">*</span> }</label>
+                @if (store.entityTypeNames().length) {
                   <select [(ngModel)]="entityForm.type" name="type" required (ngModelChange)="onEntityTypeChange($event, 'create')">
-                    @for (t of entityTypeNames(); track t) {
+                    @for (t of store.entityTypeNames(); track t) {
                       <option [value]="t">{{ t }}</option>
                     }
                   </select>
@@ -847,7 +849,7 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:180px;">
                 <label>{{ 'brain.entities.table.tags' | transloco }}</label>
-                <app-tag-input [(value)]="entityForm.tags" [suggestions]="entityTagSuggestions()" inputName="entFormTags" />
+                <app-tag-input [(value)]="entityForm.tags" [suggestions]="store.entityTagSuggestions()" inputName="entFormTags" />
               </div>
               <div class="field" style="flex:1; min-width:200px;">
                 <label>{{ 'brain.entities.table.description' | transloco }}</label>
@@ -856,12 +858,12 @@ interface SpaceView {
               <div class="field" style="flex:1; min-width:220px;">
                 <label>{{ 'brain.entities.table.properties' | transloco }}</label>
                 <app-properties-editor
-                  [schema]="entitySchema(entityForm.type)"
-                  [required]="requiredProps(entitySchema(entityForm.type))"
+                  [schema]="store.entitySchema(entityForm.type)"
+                  [required]="store.requiredProps(store.entitySchema(entityForm.type))"
                   [(value)]="entityForm.properties"
                 />
               </div>
-              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEntity() || !entityForm.name.trim() || (entityTypeNames().length ? !entityForm.type : false)">
+              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEntity() || !entityForm.name.trim() || (store.entityTypeNames().length ? !entityForm.type : false)">
                 @if (creatingEntity()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
                 {{ 'common.save' | transloco }}
               </button>
@@ -881,7 +883,7 @@ interface SpaceView {
                 </tr>
               </thead>
               <tbody>
-                @for (ent of entities(); track ent._id) {
+                @for (ent of store.entities(); track ent._id) {
                   @if (editingId() === ent._id) {
                     <tr>
                       <td colspan="7">
@@ -891,10 +893,10 @@ interface SpaceView {
                             <input type="text" [(ngModel)]="editEntity.name" name="editEntName" />
                           </div>
                           <div class="field" style="width:120px; margin-bottom:0;">
-                            <label>Type @if (entityTypeNames().length) { <span style="color:var(--error)">*</span> }</label>
-                            @if (entityTypeNames().length) {
+                            <label>Type @if (store.entityTypeNames().length) { <span style="color:var(--error)">*</span> }</label>
+                            @if (store.entityTypeNames().length) {
                               <select [(ngModel)]="editEntity.type" name="editEntType" (ngModelChange)="onEntityTypeChange($event, 'inline')">
-                                @for (t of entityTypeNames(); track t) {
+                                @for (t of store.entityTypeNames(); track t) {
                                   <option [value]="t">{{ t }}</option>
                                 }
                               </select>
@@ -908,13 +910,13 @@ interface SpaceView {
                           </div>
                           <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
                             <label>{{ 'brain.entities.table.tags' | transloco }}</label>
-                            <app-tag-input [(value)]="editEntity.tags" [suggestions]="entityTagSuggestions()" inputName="entEditTags" />
+                            <app-tag-input [(value)]="editEntity.tags" [suggestions]="store.entityTagSuggestions()" inputName="entEditTags" />
                           </div>
                           <div class="field" style="flex:1; min-width:220px; margin-bottom:0;">
                             <label>{{ 'brain.entities.table.properties' | transloco }}</label>
                             <app-properties-editor
-                              [schema]="entitySchema(editEntity.type)"
-                              [required]="requiredProps(entitySchema(editEntity.type))"
+                              [schema]="store.entitySchema(editEntity.type)"
+                              [required]="store.requiredProps(store.entitySchema(editEntity.type))"
                               [(value)]="editEntity.properties"
                             />
                           </div>
@@ -941,7 +943,7 @@ interface SpaceView {
                         @for (tag of (ent.tags ?? []); track tag) { <span class="tag">{{ tag }}</span> }
                         @if (!(ent.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
                       </td>
-                      <td><app-properties-view [properties]="ent.properties" [schema]="entitySchema(ent.type)" /></td>
+                      <td><app-properties-view [properties]="ent.properties" [schema]="store.entitySchema(ent.type)" /></td>
                       <td style="color:var(--text-muted)">{{ ent.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="openDrawer('entity', ent)"><ph-icon name="eye" [size]="16"/></button>
@@ -974,8 +976,8 @@ interface SpaceView {
           </div>
           <div class="pagination">
             <button class="btn btn-sm btn-secondary" [disabled]="entitySkip() === 0" (click)="prevEntityPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-            <span class="pager-info">{{ entities().length ? (entitySkip() + 1) + '–' + (entitySkip() + entities().length) : '–' }}</span>
-            <button class="btn btn-sm btn-secondary" [disabled]="entities().length < pageSize" (click)="nextEntityPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
+            <span class="pager-info">{{ store.entities().length ? (entitySkip() + 1) + '–' + (entitySkip() + store.entities().length) : '–' }}</span>
+            <button class="btn btn-sm btn-secondary" [disabled]="store.entities().length < pageSize" (click)="nextEntityPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
           </div>
         }
 
@@ -984,19 +986,19 @@ interface SpaceView {
 
           <div class="content-header">
             <input type="search" [placeholder]="'brain.edges.searchPlaceholder' | transloco"
-              [value]="edgeSearch()"
+              [value]="store.edgeSearch()"
               (input)="onEdgeSearch($any($event.target).value)"
               [attr.aria-label]="'brain.edges.searchPlaceholder' | transloco" />
             <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
-              <button [class.active]="edgeSearchMode() === 'text'" (click)="setEdgeSearchMode('text')">{{ 'common.sortAZ' | transloco }}</button>
-              <button [class.active]="edgeSearchMode() === 'semantic'" (click)="setEdgeSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
+              <button [class.active]="store.edgeSearchMode() === 'text'" (click)="setEdgeSearchMode('text')">{{ 'common.sortAZ' | transloco }}</button>
+              <button [class.active]="store.edgeSearchMode() === 'semantic'" (click)="setEdgeSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
             </div>
             <button class="btn-primary btn btn-sm" (click)="openEdgeForm()" [disabled]="showEdgeForm()">{{ 'brain.edges.addButton' | transloco }}</button>
           </div>
           <div class="list-filter-row">
             <app-record-filter-bar
-              [typeOptions]="edgeTypeOptions()"
-              [tagSuggestions]="edgeTagSuggestions()"
+              [typeOptions]="store.edgeTypeOptions()"
+              [tagSuggestions]="store.edgeTagSuggestions()"
               [value]="recordFilter()"
               (filterChange)="onFilterChange($event)"
             />
@@ -1017,9 +1019,9 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:120px;">
                 <label>{{ 'brain.edges.form.relation' | transloco }} <span style="color:var(--error)">*</span></label>
-                @if (edgeLabelNames().length) {
+                @if (store.edgeLabelNames().length) {
                   <select [(ngModel)]="edgeForm.label" name="label" required>
-                    @for (l of edgeLabelNames(); track l) {
+                    @for (l of store.edgeLabelNames(); track l) {
                       <option [value]="l">{{ l }}</option>
                     }
                   </select>
@@ -1044,7 +1046,7 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:180px;">
                 <label>{{ 'brain.edges.table.tags' | transloco }}</label>
-                <app-tag-input [(value)]="edgeForm.tags" [suggestions]="edgeTagSuggestions()" inputName="edgeFormTags" />
+                <app-tag-input [(value)]="edgeForm.tags" [suggestions]="store.edgeTagSuggestions()" inputName="edgeFormTags" />
               </div>
               <div class="field" style="flex:2; min-width:200px;">
                 <label>{{ 'brain.edges.table.description' | transloco }}</label>
@@ -1053,8 +1055,8 @@ interface SpaceView {
               <div class="field" style="flex:1; min-width:220px;">
                 <label>{{ 'brain.edges.table.properties' | transloco }}</label>
                 <app-properties-editor
-                  [schema]="edgeSchema(edgeForm.label)"
-                  [required]="requiredProps(edgeSchema(edgeForm.label))"
+                  [schema]="store.edgeSchema(edgeForm.label)"
+                  [required]="store.requiredProps(store.edgeSchema(edgeForm.label))"
                   [(value)]="edgeForm.properties"
                 />
               </div>
@@ -1077,7 +1079,7 @@ interface SpaceView {
                 </tr>
               </thead>
               <tbody>
-                @for (edge of filteredEdges(); track edge._id) {
+                @for (edge of store.filteredEdges(); track edge._id) {
                   @if (editingId() === edge._id) {
                     <tr>
                       <td colspan="9">
@@ -1090,9 +1092,9 @@ interface SpaceView {
                           </div>
                           <div class="field" style="flex:1; min-width:120px; margin-bottom:0;">
                             <label>{{ 'brain.edges.form.relation' | transloco }}</label>
-                            @if (edgeLabelNames().length) {
+                            @if (store.edgeLabelNames().length) {
                               <select [(ngModel)]="editEdge.label" name="editEdgeLabel">
-                                @for (l of edgeLabelNames(); track l) {
+                                @for (l of store.edgeLabelNames(); track l) {
                                   <option [value]="l">{{ l }}</option>
                                 }
                               </select>
@@ -1110,13 +1112,13 @@ interface SpaceView {
                           </div>
                           <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
                             <label>{{ 'brain.edges.table.tags' | transloco }}</label>
-                            <app-tag-input [(value)]="editEdge.tags" [suggestions]="edgeTagSuggestions()" inputName="edgeEditTags" />
+                            <app-tag-input [(value)]="editEdge.tags" [suggestions]="store.edgeTagSuggestions()" inputName="edgeEditTags" />
                           </div>
                           <div class="field" style="flex:1; min-width:220px; margin-bottom:0;">
                             <label>{{ 'brain.edges.table.properties' | transloco }}</label>
                             <app-properties-editor
-                              [schema]="edgeSchema(editEdge.label)"
-                              [required]="requiredProps(edgeSchema(editEdge.label))"
+                              [schema]="store.edgeSchema(editEdge.label)"
+                              [required]="store.requiredProps(store.edgeSchema(editEdge.label))"
                               [(value)]="editEdge.properties"
                             />
                           </div>
@@ -1143,7 +1145,7 @@ interface SpaceView {
                       <td style="font-size:12px; color:var(--text-muted); white-space:normal; word-break:break-word; min-width:140px; min-height:4.2em;">
                         {{ edge.description || '—' }}
                       </td>
-                      <td><app-properties-view [properties]="edge.properties" [schema]="edgeSchema(edge.label)" /></td>
+                      <td><app-properties-view [properties]="edge.properties" [schema]="store.edgeSchema(edge.label)" /></td>
                       <td style="color:var(--text-muted); white-space:nowrap;">{{ edge.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="openDrawer('edge', edge)"><ph-icon name="eye" [size]="16"/></button>
@@ -1166,9 +1168,9 @@ interface SpaceView {
                     } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="graph" [size]="48"/></div>
-                      @if (edgeSearch() && edges().length) {
+                      @if (store.edgeSearch() && store.edges().length) {
                         <h3>{{ 'common.noMatches' | transloco }}</h3>
-                        <p>{{ 'brain.edges.empty.noMatchQuery' | transloco: { query: edgeSearch() } }}</p>
+                        <p>{{ 'brain.edges.empty.noMatchQuery' | transloco: { query: store.edgeSearch() } }}</p>
                       } @else {
                         <h3>{{ 'brain.edges.empty.title' | transloco }}</h3>
                       }
@@ -1179,11 +1181,11 @@ interface SpaceView {
               </tbody>
             </table>
           </div>
-          @if (edgeSearchMode() !== 'semantic') {
+          @if (store.edgeSearchMode() !== 'semantic') {
             <div class="pagination">
               <button class="btn btn-sm btn-secondary" [disabled]="edgeSkip() === 0" (click)="prevEdgePage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ filteredEdges().length ? (edgeSkip() + 1) + '–' + (edgeSkip() + filteredEdges().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="edges().length < pageSize" (click)="nextEdgePage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
+              <span class="pager-info">{{ store.filteredEdges().length ? (edgeSkip() + 1) + '–' + (edgeSkip() + store.filteredEdges().length) : '–' }}</span>
+              <button class="btn btn-sm btn-secondary" [disabled]="store.edges().length < pageSize" (click)="nextEdgePage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
         }
@@ -1193,19 +1195,19 @@ interface SpaceView {
 
           <div class="content-header">
             <input type="search" [placeholder]="'brain.chrono.searchPlaceholder' | transloco"
-              [value]="chronoSearch()"
+              [value]="store.chronoSearch()"
               (input)="onChronoSearch($any($event.target).value)"
               [attr.aria-label]="'brain.chrono.searchPlaceholder' | transloco" />
             <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
-              <button [class.active]="chronoSearchMode() === 'text'" (click)="setChronoSearchMode('text')">{{ 'common.sortAZ' | transloco }}</button>
-              <button [class.active]="chronoSearchMode() === 'semantic'" (click)="setChronoSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
+              <button [class.active]="store.chronoSearchMode() === 'text'" (click)="setChronoSearchMode('text')">{{ 'common.sortAZ' | transloco }}</button>
+              <button [class.active]="store.chronoSearchMode() === 'semantic'" (click)="setChronoSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
             </div>
             <button class="btn-primary btn btn-sm" (click)="openChronoForm()" [disabled]="showChronoForm()">{{ 'brain.chrono.addButton' | transloco }}</button>
           </div>
           <div class="list-filter-row">
             <app-record-filter-bar
               [typeOptions]="chronoKinds"
-              [tagSuggestions]="chronoTagSuggestions()"
+              [tagSuggestions]="store.chronoTagSuggestions()"
               typeLabel="common.form.kind"
               typeAllLabel="brain.filter.allKinds"
               [value]="recordFilter()"
@@ -1247,7 +1249,7 @@ interface SpaceView {
               </div>
               <div class="field" style="flex:1; min-width:180px;">
                 <label>{{ 'brain.chrono.table.tags' | transloco }}</label>
-                <app-tag-input [(value)]="chronoForm.tags" [suggestions]="chronoTagSuggestions()" inputName="chronoFormTags" />
+                <app-tag-input [(value)]="chronoForm.tags" [suggestions]="store.chronoTagSuggestions()" inputName="chronoFormTags" />
               </div>
               <div class="field" style="flex:1; min-width:140px;">
                 <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
@@ -1286,8 +1288,6 @@ interface SpaceView {
             <div class="alert alert-error" style="margin-bottom:12px;">{{ createChronoError() }}</div>
           }
 
-
-
           <div class="table-wrapper">
             <table>
               <thead>
@@ -1296,7 +1296,7 @@ interface SpaceView {
                 </tr>
               </thead>
               <tbody>
-                @for (entry of filteredChrono(); track entry._id) {
+                @for (entry of store.filteredChrono(); track entry._id) {
                   @if (editingId() === entry._id) {
                     <tr>
                       <td colspan="9">
@@ -1331,7 +1331,7 @@ interface SpaceView {
                           </div>
                           <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
                             <label>{{ 'brain.chrono.table.tags' | transloco }}</label>
-                            <app-tag-input [(value)]="editChrono.tags" [suggestions]="chronoTagSuggestions()" inputName="chronoEditTags" />
+                            <app-tag-input [(value)]="editChrono.tags" [suggestions]="store.chronoTagSuggestions()" inputName="chronoEditTags" />
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                             <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
@@ -1411,7 +1411,7 @@ interface SpaceView {
                     } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="timer" [size]="48"/></div>
-                      @if (chronoSearch()) {
+                      @if (store.chronoSearch()) {
                         <h3>{{ 'common.noMatches' | transloco }}</h3>
                         <p>{{ 'brain.chrono.empty.noMatchQuery' | transloco }}</p>
                       } @else {
@@ -1424,11 +1424,11 @@ interface SpaceView {
               </tbody>
             </table>
           </div>
-          @if (chronoSearchMode() !== 'semantic') {
+          @if (store.chronoSearchMode() !== 'semantic') {
             <div class="pagination">
               <button class="btn btn-sm btn-secondary" [disabled]="chronoSkip() === 0" (click)="prevChronoPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ chrono().length ? (chronoSkip() + 1) + '–' + (chronoSkip() + chrono().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="chrono().length < pageSize" (click)="nextChronoPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
+              <span class="pager-info">{{ store.chrono().length ? (chronoSkip() + 1) + '–' + (chronoSkip() + store.chrono().length) : '–' }}</span>
+              <button class="btn btn-sm btn-secondary" [disabled]="store.chrono().length < pageSize" (click)="nextChronoPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
         }
@@ -1436,13 +1436,13 @@ interface SpaceView {
         <!-- File Meta -->
         @if (activeTab() === 'filemeta') {
           <div class="content-header">
-            <input type="search" [value]="fileMetaSearch()" (input)="onFileMetaSearch($any($event.target).value)" [placeholder]="'brain.fileMeta.filterPlaceholder' | transloco" [attr.aria-label]="'brain.fileMeta.filterAriaLabel' | transloco" />
+            <input type="search" [value]="store.fileMetaSearch()" (input)="onFileMetaSearch($any($event.target).value)" [placeholder]="'brain.fileMeta.filterPlaceholder' | transloco" [attr.aria-label]="'brain.fileMeta.filterAriaLabel' | transloco" />
           </div>
           @if (loading()) {
             <div class="empty-state"><span class="spinner"></span></div>
           } @else if (loadError() !== null) {
             <app-error-state [message]="'brain.error.loadFileMeta' | transloco" [reason]="loadError() ?? ''" (retry)="retryCurrentTab()" />
-          } @else if (!fileMetas().length) {
+          } @else if (!store.fileMetas().length) {
             <div class="empty-state">{{ 'brain.fileMeta.empty' | transloco }}</div>
           } @else {
             <div class="table-wrapper">
@@ -1461,7 +1461,7 @@ interface SpaceView {
                   </tr>
                 </thead>
                 <tbody>
-                  @for (fm of filteredFileMetas(); track fm._id) {
+                  @for (fm of store.filteredFileMetas(); track fm._id) {
                     @if (editingId() === fm._id) {
                       <tr class="edit-row"><td colspan="9">
                         <form class="edit-form" (ngSubmit)="saveEditFileMeta(fm._id)" #fmEditForm="ngForm">
@@ -1624,8 +1624,8 @@ interface SpaceView {
             </div>
             <div class="pagination">
               <button class="btn btn-sm btn-secondary" [disabled]="fileMetaSkip() === 0" (click)="prevFileMetaPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ fileMetas().length ? (fileMetaSkip() + 1) + '–' + (fileMetaSkip() + fileMetas().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="fileMetas().length < pageSize" (click)="nextFileMetaPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
+              <span class="pager-info">{{ store.fileMetas().length ? (fileMetaSkip() + 1) + '–' + (fileMetaSkip() + store.fileMetas().length) : '–' }}</span>
+              <button class="btn btn-sm btn-secondary" [disabled]="store.fileMetas().length < pageSize" (click)="nextFileMetaPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
         }
@@ -1890,7 +1890,7 @@ interface SpaceView {
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
-                  <app-tag-input [(value)]="drawerEditMemory.tags" [suggestions]="memoryTagSuggestions()" inputName="drwMemTags" />
+                  <app-tag-input [(value)]="drawerEditMemory.tags" [suggestions]="store.memoryTagSuggestions()" inputName="drwMemTags" />
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.entityIds' | transloco }}</div>
@@ -1913,7 +1913,7 @@ interface SpaceView {
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.properties' | transloco }}</div>
-                  <app-properties-editor [schema]="memorySchema()" [required]="requiredProps(memorySchema())" [(value)]="drawerEditMemory.properties" />
+                  <app-properties-editor [schema]="store.memorySchema()" [required]="store.requiredProps(store.memorySchema())" [(value)]="drawerEditMemory.properties" />
                 </div>
                 <hr class="drawer-hr">
                 <div class="drawer-field">
@@ -1943,10 +1943,10 @@ interface SpaceView {
                   <input type="text" [(ngModel)]="drawerEditEntity.name" name="drwEntName" />
                 </div>
                 <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.type' | transloco }} @if (entityTypeNames().length) { <span style="color:var(--error)">*</span> }</div>
-                  @if (entityTypeNames().length) {
+                  <div class="drawer-label">{{ 'common.form.type' | transloco }} @if (store.entityTypeNames().length) { <span style="color:var(--error)">*</span> }</div>
+                  @if (store.entityTypeNames().length) {
                     <select [(ngModel)]="drawerEditEntity.type" name="drwEntType" (ngModelChange)="onEntityTypeChange($event, 'drawer')">
-                      @for (t of entityTypeNames(); track t) {
+                      @for (t of store.entityTypeNames(); track t) {
                         <option [value]="t">{{ t }}</option>
                       }
                     </select>
@@ -1960,11 +1960,11 @@ interface SpaceView {
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
-                  <app-tag-input [(value)]="drawerEditEntity.tags" [suggestions]="entityTagSuggestions()" inputName="drwEntTags" />
+                  <app-tag-input [(value)]="drawerEditEntity.tags" [suggestions]="store.entityTagSuggestions()" inputName="drwEntTags" />
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.properties' | transloco }}</div>
-                  <app-properties-editor [schema]="entitySchema(drawerEditEntity.type)" [required]="requiredProps(entitySchema(drawerEditEntity.type))" [(value)]="drawerEditEntity.properties" />
+                  <app-properties-editor [schema]="store.entitySchema(drawerEditEntity.type)" [required]="store.requiredProps(store.entitySchema(drawerEditEntity.type))" [(value)]="drawerEditEntity.properties" />
                 </div>
                 <hr class="drawer-hr">
                 <div class="drawer-field">
@@ -1985,9 +1985,9 @@ interface SpaceView {
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'brain.edges.table.relation' | transloco }} <span style="color:var(--error)">*</span></div>
-                  @if (edgeLabelNames().length) {
+                  @if (store.edgeLabelNames().length) {
                     <select [(ngModel)]="drawerEditEdge.label" name="drwEdgeLabel">
-                      @for (l of edgeLabelNames(); track l) {
+                      @for (l of store.edgeLabelNames(); track l) {
                         <option [value]="l">{{ l }}</option>
                       }
                     </select>
@@ -2013,11 +2013,11 @@ interface SpaceView {
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
-                  <app-tag-input [(value)]="drawerEditEdge.tags" [suggestions]="edgeTagSuggestions()" inputName="drwEdgeTags" />
+                  <app-tag-input [(value)]="drawerEditEdge.tags" [suggestions]="store.edgeTagSuggestions()" inputName="drwEdgeTags" />
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.properties' | transloco }}</div>
-                  <app-properties-editor [schema]="edgeSchema(drawerEditEdge.label)" [required]="requiredProps(edgeSchema(drawerEditEdge.label))" [(value)]="drawerEditEdge.properties" />
+                  <app-properties-editor [schema]="store.edgeSchema(drawerEditEdge.label)" [required]="store.requiredProps(store.edgeSchema(drawerEditEdge.label))" [(value)]="drawerEditEdge.properties" />
                 </div>
                 <hr class="drawer-hr">
                 <div class="drawer-field">
@@ -2074,7 +2074,7 @@ interface SpaceView {
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
-                  <app-tag-input [(value)]="drawerEditChrono.tags" [suggestions]="chronoTagSuggestions()" inputName="drwChronoTags" />
+                  <app-tag-input [(value)]="drawerEditChrono.tags" [suggestions]="store.chronoTagSuggestions()" inputName="drwChronoTags" />
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.entityIds' | transloco }}</div>
@@ -2140,6 +2140,7 @@ interface SpaceView {
   `,
 })
 export class BrainComponent implements OnInit {
+  readonly store = inject(BrainStore);
   private spacesApi = inject(SpacesApi);
   private brainApi = inject(BrainApi);
   private filesApi = inject(FilesApi);
@@ -2166,13 +2167,7 @@ export class BrainComponent implements OnInit {
   loadError = signal<string | null>(null);
   loadingSpaces = signal(true);
 
-  memories = signal<Memory[]>([]);
-  entities = signal<Entity[]>([]);
-  edges = signal<Edge[]>([]);
-  chrono = signal<ChronoEntry[]>([]);
-  fileMetas = signal<FileMeta[]>([]);
   fileMetaSkip = signal(0);
-  fileMetaSearch = signal('');
   /** Paths whose embedding retry is currently in flight (disables the Retry button). */
   retryingEmbedding = signal<Set<string>>(new Set());
   fileManagerNavPath = signal('');
@@ -2192,67 +2187,9 @@ export class BrainComponent implements OnInit {
   private _fmDrawerMemTimer: ReturnType<typeof setTimeout> | null = null;
   private _fmDrawerChronoTimer: ReturnType<typeof setTimeout> | null = null;
 
-  memoryTagSuggestions = computed(() => [...new Set([
-    ...(this.spaceMeta()?.tagSuggestions ?? []),
-    ...this.memories().flatMap(m => m.tags ?? []),
-  ])]);
-  entityTagSuggestions = computed(() => [...new Set([
-    ...(this.spaceMeta()?.tagSuggestions ?? []),
-    ...this.entities().flatMap(e => e.tags ?? []),
-  ])]);
-  edgeTagSuggestions = computed(() => [...new Set([
-    ...(this.spaceMeta()?.tagSuggestions ?? []),
-    ...this.edges().flatMap(e => e.tags ?? []),
-  ])]);
-  chronoTagSuggestions = computed(() => [...new Set([
-    ...(this.spaceMeta()?.tagSuggestions ?? []),
-    ...this.chrono().flatMap(c => c.tags ?? []),
-  ])]);
-
-  entityTypeNames(): string[] {
-    return Object.keys(this.spaceMeta()?.typeSchemas?.entity ?? {});
-  }
-  edgeLabelNames(): string[] {
-    return Object.keys(this.spaceMeta()?.typeSchemas?.edge ?? {});
-  }
-  entitySchema(typeName: string | undefined): Record<string, PropertySchema> | undefined {
-    if (!typeName) return undefined;
-    return this.spaceMeta()?.typeSchemas?.entity?.[typeName]?.propertySchemas;
-  }
-  edgeSchema(labelName: string | undefined): Record<string, PropertySchema> | undefined {
-    if (!labelName) return undefined;
-    return this.spaceMeta()?.typeSchemas?.edge?.[labelName]?.propertySchemas;
-  }
-  memorySchema(): Record<string, PropertySchema> | undefined {
-    const ts = this.spaceMeta()?.typeSchemas?.memory;
-    if (!ts) return undefined;
-    return Object.values(ts)[0]?.propertySchemas;
-  }
-  requiredProps(schema: Record<string, PropertySchema> | undefined): string[] {
-    if (!schema) return [];
-    return Object.entries(schema).filter(([, s]) => s.required).map(([k]) => k);
-  }
-
   // ── Shared list filter (F6): type + tag, reused across the list tabs ────────
   /** The active list tab's type+tag filter, driven by <app-record-filter-bar>. */
   recordFilter = signal<RecordFilter>({ type: '', tag: '' });
-
-  /** Type options for the filter bar's dropdown, per collection: the space's schema
-   *  type names UNION the distinct `type` values actually present in the loaded list,
-   *  so the filter is usable whether or not a schema is defined. */
-  private typeOptionsFrom(schemaNames: string[], present: (string | undefined)[]): string[] {
-    return [...new Set([...schemaNames, ...present.filter((t): t is string => !!t)])].sort();
-  }
-  memoryTypeOptions(): string[] {
-    return this.typeOptionsFrom(Object.keys(this.spaceMeta()?.typeSchemas?.memory ?? {}), this.memories().map(m => m.type));
-  }
-  entityTypeOptions(): string[] {
-    return this.typeOptionsFrom(this.entityTypeNames(), this.entities().map(e => e.type));
-  }
-  edgeTypeOptions(): string[] {
-    // Edge `type` is not schema-backed; offer the distinct types in the current list.
-    return this.typeOptionsFrom([], this.edges().map(e => e.type));
-  }
 
   /** The filter bar changed — reset the active tab's paging and reload. */
   onFilterChange(f: RecordFilter): void {
@@ -2267,46 +2204,6 @@ export class BrainComponent implements OnInit {
     this.loadCurrentTab(this.activeSpaceId());
   }
 
-  filteredMemories = computed(() => {
-    if (this.memorySearchMode() === 'semantic') return this.memories();
-    const q = this.memorySearch().toLowerCase().trim();
-    if (!q) return this.memories();
-    return this.memories().filter(m => m.fact.toLowerCase().includes(q));
-  });
-
-  filteredChrono = computed(() => {
-    if (this.chronoSearchMode() === 'semantic') return this.chrono();
-    const q = this.chronoSearch().toLowerCase().trim();
-    if (!q) return this.chrono();
-    return this.chrono().filter(e =>
-      e.title.toLowerCase().includes(q) ||
-      (e.description ?? '').toLowerCase().includes(q) ||
-      e.type.toLowerCase().includes(q) ||
-      e.tags.some(t => t.toLowerCase().includes(q)),
-    );
-  });
-
-  filteredEdges = computed(() => {
-    if (this.edgeSearchMode() === 'semantic') return this.edges();
-    const q = this.edgeSearch().toLowerCase().trim();
-    if (!q) return this.edges();
-    return this.edges().filter(e =>
-      e.label.toLowerCase().includes(q) ||
-      (e.fromName ?? '').toLowerCase().includes(q) ||
-      (e.toName ?? '').toLowerCase().includes(q)
-    );
-  });
-
-  filteredFileMetas = computed(() => {
-    const q = this.fileMetaSearch().toLowerCase().trim();
-    if (!q) return this.fileMetas();
-    return this.fileMetas().filter(fm =>
-      fm.path.toLowerCase().includes(q) ||
-      (fm.description ?? '').toLowerCase().includes(q) ||
-      fm.tags.some(t => t.toLowerCase().includes(q)),
-    );
-  });
-
   // Memories pagination + filter (tag/type live in `recordFilter`; entity is separate)
   skip = signal(0);
   filterEntity = signal('');
@@ -2314,12 +2211,6 @@ export class BrainComponent implements OnInit {
   // Entities pagination + search
   entitySkip = signal(0);
   entitySearch = signal('');
-  memorySearch = signal('');
-  edgeSearch = signal('');
-  chronoSearch = signal('');
-  memorySearchMode = signal<'text' | 'semantic'>('text');
-  edgeSearchMode = signal<'text' | 'semantic'>('text');
-  chronoSearchMode = signal<'text' | 'semantic'>('text');
   private _memSemTimer: ReturnType<typeof setTimeout> | null = null;
   private _edgeSemTimer: ReturnType<typeof setTimeout> | null = null;
   private _chronoSemTimer: ReturnType<typeof setTimeout> | null = null;
@@ -2391,13 +2282,13 @@ export class BrainComponent implements OnInit {
    *  names for the space UNION the distinct `type` values present in the loaded
    *  records, so it's usable whether or not a schema is defined. */
   recallTypeSchemaOptions(): string[] {
-    const ts = this.spaceMeta()?.typeSchemas;
+    const ts = this.store.spaceMeta()?.typeSchemas;
     return [...new Set([
       ...Object.keys(ts?.entity ?? {}),
       ...Object.keys(ts?.memory ?? {}),
-      ...this.memories().map(m => m.type),
-      ...this.entities().map(e => e.type),
-      ...this.edges().map(e => e.type),
+      ...this.store.memories().map(m => m.type),
+      ...this.store.entities().map(e => e.type),
+      ...this.store.edges().map(e => e.type),
     ].filter((t): t is string => !!t))].sort();
   }
   /** Type restriction + per-type minimums. Unchecked types are simply not sent. */
@@ -2408,9 +2299,6 @@ export class BrainComponent implements OnInit {
   recallRunning = signal(false);
   recallResults = signal<RecallResult[]>([]);
   recallError = signal('');
-
-  // Settings tab (schema only — UI lives in Admin → Spaces)
-  spaceMeta = signal<SpaceMetaResponse | null>(null);
 
   // Entity picker
 
@@ -2456,12 +2344,12 @@ export class BrainComponent implements OnInit {
     this.recordFilter.set({ type: '', tag: '' });
     this.filterEntity.set('');
     this.entitySearch.set('');
-    this.memorySearch.set('');
-    this.edgeSearch.set('');
-    this.chronoSearch.set('');
-    this.memorySearchMode.set('text');
-    this.edgeSearchMode.set('text');
-    this.chronoSearchMode.set('text');
+    this.store.memorySearch.set('');
+    this.store.edgeSearch.set('');
+    this.store.chronoSearch.set('');
+    this.store.memorySearchMode.set('text');
+    this.store.edgeSearchMode.set('text');
+    this.store.chronoSearchMode.set('text');
     this.confirmDeleteId.set('');
     this.reindexResult.set('');
     this.loadStats(id);
@@ -2478,13 +2366,13 @@ export class BrainComponent implements OnInit {
     this.fileMetaSkip.set(0);
     this.recordFilter.set({ type: '', tag: '' });
     this.filterEntity.set('');
-    this.memorySearch.set('');
-    this.edgeSearch.set('');
-    this.chronoSearch.set('');
-    this.fileMetaSearch.set('');
-    this.memorySearchMode.set('text');
-    this.edgeSearchMode.set('text');
-    this.chronoSearchMode.set('text');
+    this.store.memorySearch.set('');
+    this.store.edgeSearch.set('');
+    this.store.chronoSearch.set('');
+    this.store.fileMetaSearch.set('');
+    this.store.memorySearchMode.set('text');
+    this.store.edgeSearchMode.set('text');
+    this.store.chronoSearchMode.set('text');
     this.confirmDeleteId.set('');
     this.loadCurrentTab(this.activeSpaceId());
   }
@@ -2505,7 +2393,7 @@ export class BrainComponent implements OnInit {
   nextFileMetaPage(): void { this.fileMetaSkip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
 
   onFileMetaSearch(q: string): void {
-    this.fileMetaSearch.set(q);
+    this.store.fileMetaSearch.set(q);
     // client-side filter via filteredFileMetas computed() — no API call per keystroke
   }
 
@@ -2536,35 +2424,35 @@ export class BrainComponent implements OnInit {
     if (this.recordFilter().type) ef.type = this.recordFilter().type;
     if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
     this.brainApi.listEntities(spaceId, this.pageSize, this.entitySkip(), ef).subscribe({
-      next: ({ entities }) => this.entities.set(entities),
+      next: ({ entities }) => this.store.entities.set(entities),
       error: () => {},
     });
   }
 
   // ── Memory / Edge / Chrono search with mode toggle ─────────────────────────
   onMemorySearch(q: string): void {
-    this.memorySearch.set(q);
-    if (this.memorySearchMode() === 'semantic') {
+    this.store.memorySearch.set(q);
+    if (this.store.memorySearchMode() === 'semantic') {
       if (this._memSemTimer) clearTimeout(this._memSemTimer);
-      if (!q.trim()) { this.memories.set([]); return; }
+      if (!q.trim()) { this.store.memories.set([]); return; }
       this._memSemTimer = setTimeout(() => this.runSemanticMemorySearch(), 300);
     }
   }
   setMemorySearchMode(m: 'text' | 'semantic'): void {
-    this.memorySearchMode.set(m);
-    const q = this.memorySearch().trim();
+    this.store.memorySearchMode.set(m);
+    const q = this.store.memorySearch().trim();
     if (!q) return;
     if (m === 'semantic') this.runSemanticMemorySearch();
     else { this.skip.set(0); this.loadCurrentTab(this.activeSpaceId()); }
   }
   runSemanticMemorySearch(): void {
-    const q = this.memorySearch().trim();
+    const q = this.store.memorySearch().trim();
     const spaceId = this.activeSpaceId();
-    if (!q || !spaceId) { this.memories.set([]); return; }
+    if (!q || !spaceId) { this.store.memories.set([]); return; }
     this.brainApi.recallBrain(spaceId, { query: q, types: ['memory'], topK: 20 }).pipe(
       catchError(() => of({ results: [], count: 0 })),
     ).subscribe(res => {
-      this.memories.set(res.results.filter(r => r.type === 'memory').map(r => ({
+      this.store.memories.set(res.results.filter(r => r.type === 'memory').map(r => ({
         _id: r['_id'] as string,
         fact: (r['fact'] as string) ?? '',
         tags: (r['tags'] as string[]) ?? [],
@@ -2579,28 +2467,28 @@ export class BrainComponent implements OnInit {
   }
 
   onEdgeSearch(q: string): void {
-    this.edgeSearch.set(q);
-    if (this.edgeSearchMode() === 'semantic') {
+    this.store.edgeSearch.set(q);
+    if (this.store.edgeSearchMode() === 'semantic') {
       if (this._edgeSemTimer) clearTimeout(this._edgeSemTimer);
-      if (!q.trim()) { this.edges.set([]); return; }
+      if (!q.trim()) { this.store.edges.set([]); return; }
       this._edgeSemTimer = setTimeout(() => this.runSemanticEdgeSearch(), 300);
     }
   }
   setEdgeSearchMode(m: 'text' | 'semantic'): void {
-    this.edgeSearchMode.set(m);
-    const q = this.edgeSearch().trim();
+    this.store.edgeSearchMode.set(m);
+    const q = this.store.edgeSearch().trim();
     if (!q) return;
     if (m === 'semantic') this.runSemanticEdgeSearch();
     else { this.edgeSkip.set(0); this.loadCurrentTab(this.activeSpaceId()); }
   }
   runSemanticEdgeSearch(): void {
-    const q = this.edgeSearch().trim();
+    const q = this.store.edgeSearch().trim();
     const spaceId = this.activeSpaceId();
-    if (!q || !spaceId) { this.edges.set([]); return; }
+    if (!q || !spaceId) { this.store.edges.set([]); return; }
     this.brainApi.recallBrain(spaceId, { query: q, types: ['edge'], topK: 20 }).pipe(
       catchError(() => of({ results: [], count: 0 })),
     ).subscribe(res => {
-      this.edges.set(res.results.filter(r => r.type === 'edge').map(r => ({
+      this.store.edges.set(res.results.filter(r => r.type === 'edge').map(r => ({
         _id: r['_id'] as string,
         from: (r['from'] as string) ?? '',
         fromName: r['fromName'] as string | undefined,
@@ -2617,29 +2505,29 @@ export class BrainComponent implements OnInit {
   }
 
   onChronoSearch(q: string): void {
-    this.chronoSearch.set(q);
-    if (this.chronoSearchMode() === 'semantic') {
+    this.store.chronoSearch.set(q);
+    if (this.store.chronoSearchMode() === 'semantic') {
       if (this._chronoSemTimer) clearTimeout(this._chronoSemTimer);
-      if (!q.trim()) { this.chrono.set([]); return; }
+      if (!q.trim()) { this.store.chrono.set([]); return; }
       this._chronoSemTimer = setTimeout(() => this.runSemanticChronoSearch(), 300);
     }
     // text mode: filteredChrono computed() handles filtering automatically
   }
   setChronoSearchMode(m: 'text' | 'semantic'): void {
-    this.chronoSearchMode.set(m);
-    const q = this.chronoSearch().trim();
+    this.store.chronoSearchMode.set(m);
+    const q = this.store.chronoSearch().trim();
     if (!q) return;
     if (m === 'semantic') this.runSemanticChronoSearch();
     // text mode: filteredChrono computed() handles filtering automatically
   }
   runSemanticChronoSearch(): void {
-    const q = this.chronoSearch().trim();
+    const q = this.store.chronoSearch().trim();
     const spaceId = this.activeSpaceId();
-    if (!q || !spaceId) { this.chrono.set([]); return; }
+    if (!q || !spaceId) { this.store.chrono.set([]); return; }
     this.brainApi.recallBrain(spaceId, { query: q, types: ['chrono'], topK: 20 }).pipe(
       catchError(() => of({ results: [], count: 0 })),
     ).subscribe(res => {
-      this.chrono.set(res.results.filter(r => r.type === 'chrono').map(r => ({
+      this.store.chrono.set(res.results.filter(r => r.type === 'chrono').map(r => ({
         _id: r['_id'] as string,
         spaceId: (r['spaceId'] as string) ?? spaceId,
         title: (r['title'] as string) ?? '',
@@ -2696,7 +2584,7 @@ export class BrainComponent implements OnInit {
         if (this.recordFilter().type) filters.type = this.recordFilter().type;
         this.brainApi.listMemories(spaceId, this.pageSize, this.skip(), filters).subscribe({
           next: ({ memories }) => {
-            this.memories.set(memories);
+            this.store.memories.set(memories);
             const ids = [...new Set(memories.flatMap(m => m.entityIds ?? []))];
             if (ids.length) this.resolveEntityNames(ids);
             this.loading.set(false);
@@ -2711,7 +2599,7 @@ export class BrainComponent implements OnInit {
         if (this.recordFilter().type) ef.type = this.recordFilter().type;
         if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
         this.brainApi.listEntities(spaceId, this.pageSize, this.entitySkip(), ef).subscribe({
-          next: ({ entities }) => { this.entities.set(entities); this.loading.set(false); },
+          next: ({ entities }) => { this.store.entities.set(entities); this.loading.set(false); },
           error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
         break;
@@ -2721,19 +2609,19 @@ export class BrainComponent implements OnInit {
         if (this.recordFilter().type) gf.type = this.recordFilter().type;
         if (this.recordFilter().tag) gf.tag = this.recordFilter().tag;
         this.brainApi.listEdges(spaceId, this.pageSize, this.edgeSkip(), gf).subscribe({
-          next: ({ edges }) => { this.edges.set(edges); this.loading.set(false); },
+          next: ({ edges }) => { this.store.edges.set(edges); this.loading.set(false); },
           error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
         break;
       }
       case 'chrono': {
         const cf: { search?: string; type?: string; tag?: string } = {};
-        if (this.chronoSearch()) cf.search = this.chronoSearch();
+        if (this.store.chronoSearch()) cf.search = this.store.chronoSearch();
         if (this.recordFilter().type) cf.type = this.recordFilter().type;
         if (this.recordFilter().tag) cf.tag = this.recordFilter().tag;
         this.brainApi.listChrono(spaceId, this.pageSize, this.chronoSkip(), cf).subscribe({
           next: ({ chrono }) => {
-            this.chrono.set(chrono);
+            this.store.chrono.set(chrono);
             const ids = [...new Set(chrono.flatMap(e => e.entityIds ?? []))];
             if (ids.length) this.resolveEntityNames(ids);
             this.loading.set(false);
@@ -2755,8 +2643,8 @@ export class BrainComponent implements OnInit {
         this.loading.set(false);
         break;
       case 'filemeta':
-        this.filesApi.listFileMeta(spaceId, this.pageSize, this.fileMetaSkip(), this.fileMetaSearch() || undefined).subscribe({
-          next: ({ files }) => { this.fileMetas.set(files); this.loading.set(false); },
+        this.filesApi.listFileMeta(spaceId, this.pageSize, this.fileMetaSkip(), this.store.fileMetaSearch() || undefined).subscribe({
+          next: ({ files }) => { this.store.fileMetas.set(files); this.loading.set(false); },
           error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
         });
         break;
@@ -2870,7 +2758,7 @@ export class BrainComponent implements OnInit {
       next: (updated) => {
         this.editSaving.set(false);
         this.editingId.set('');
-        this.memories.update(list => list.map(m => m._id === id ? updated : m));
+        this.store.memories.update(list => list.map(m => m._id === id ? updated : m));
       },
       error: (err) => { this.editSaving.set(false); this.editError.set(this.fmtApiError(err, 'Failed to save')); },
     });
@@ -2879,7 +2767,7 @@ export class BrainComponent implements OnInit {
   saveEditEntity(id: string): void {
     this.editSaving.set(true);
     this.editError.set('');
-    const entProps = this.stripEmptyOptionalProps(this.editEntity.properties, this.entitySchema(this.editEntity.type));
+    const entProps = this.stripEmptyOptionalProps(this.editEntity.properties, this.store.entitySchema(this.editEntity.type));
     this.brainApi.updateEntity(this.activeSpaceId(), id, {
       name: this.editEntity.name.trim(),
       type: this.editEntity.type.trim(),
@@ -2890,7 +2778,7 @@ export class BrainComponent implements OnInit {
       next: (updated) => {
         this.editSaving.set(false);
         this.editingId.set('');
-        this.entities.update(list => list.map(e => e._id === id ? updated : e));
+        this.store.entities.update(list => list.map(e => e._id === id ? updated : e));
       },
       error: (err) => { this.editSaving.set(false); this.editError.set(this.fmtApiError(err, 'Failed to save')); },
     });
@@ -2899,7 +2787,7 @@ export class BrainComponent implements OnInit {
   saveEditEdge(id: string): void {
     this.editSaving.set(true);
     this.editError.set('');
-    const edgeProps = this.stripEmptyOptionalProps(this.editEdge.properties, this.edgeSchema(this.editEdge.label));
+    const edgeProps = this.stripEmptyOptionalProps(this.editEdge.properties, this.store.edgeSchema(this.editEdge.label));
     this.brainApi.updateEdge(this.activeSpaceId(), id, {
       label: this.editEdge.label.trim(),
       tags: this.editEdge.tags,
@@ -2910,7 +2798,7 @@ export class BrainComponent implements OnInit {
       next: (updated) => {
         this.editSaving.set(false);
         this.editingId.set('');
-        this.edges.update(list => list.map(e => e._id === id ? updated : e));
+        this.store.edges.update(list => list.map(e => e._id === id ? updated : e));
       },
       error: (err) => { this.editSaving.set(false); this.editError.set(this.fmtApiError(err, 'Failed to save')); },
     });
@@ -2932,7 +2820,7 @@ export class BrainComponent implements OnInit {
       next: (updated) => {
         this.editSaving.set(false);
         this.editingId.set('');
-        this.chrono.update(list => list.map(c => c._id === id ? updated : c));
+        this.store.chrono.update(list => list.map(c => c._id === id ? updated : c));
       },
       error: (err) => { this.editSaving.set(false); this.editError.set(this.fmtApiError(err, 'Failed to save')); },
     });
@@ -2941,7 +2829,7 @@ export class BrainComponent implements OnInit {
   deleteMemory(id: string): void {
     this.confirmDeleteId.set('');
     this.brainApi.deleteMemory(this.activeSpaceId(), id).subscribe({
-      next: () => { this.memories.update(list => list.filter(m => m._id !== id)); this.loadStats(this.activeSpaceId()); },
+      next: () => { this.store.memories.update(list => list.filter(m => m._id !== id)); this.loadStats(this.activeSpaceId()); },
       error: () => {},
     });
   }
@@ -2975,7 +2863,7 @@ export class BrainComponent implements OnInit {
       next: (updated) => {
         this.editSaving.set(false);
         this.editingId.set('');
-        this.fileMetas.update(list => list.map(f => f._id === id ? updated : f));
+        this.store.fileMetas.update(list => list.map(f => f._id === id ? updated : f));
       },
       error: (err) => { this.editSaving.set(false); this.editError.set(this.fmtApiError(err, 'Failed to save')); },
     });
@@ -2983,12 +2871,12 @@ export class BrainComponent implements OnInit {
 
   deleteFileMeta(id: string): void {
     // Deleting just removes the metadata record, not the file itself.
-    const fm = this.fileMetas().find(f => f._id === id);
+    const fm = this.store.fileMetas().find(f => f._id === id);
     if (!fm) { this.confirmDeleteId.set(''); return; }
     this.filesApi.deleteFileMeta(this.activeSpaceId(), fm.path).subscribe({
       next: () => {
         this.confirmDeleteId.set('');
-        this.fileMetas.update(list => list.filter(f => f._id !== id));
+        this.store.fileMetas.update(list => list.filter(f => f._id !== id));
         this.loadStats(this.activeSpaceId());
       },
       error: () => {
@@ -3002,7 +2890,7 @@ export class BrainComponent implements OnInit {
 
   /** Called from Files tab file preview: switch to Filemeta tab filtered by path. */
   openFileMetaEntry(path: string): void {
-    this.fileMetaSearch.set(path.replace(/^\/+/, ''));
+    this.store.fileMetaSearch.set(path.replace(/^\/+/, ''));
     this.fileMetaSkip.set(0);
     this.activeTab.set('filemeta');
     this.loadCurrentTab(this.activeSpaceId());
@@ -3094,12 +2982,12 @@ export class BrainComponent implements OnInit {
   }
 
   fmMemoryTitle(id: string): string {
-    const mem = this.memories().find(m => m._id === id);
+    const mem = this.store.memories().find(m => m._id === id);
     return mem ? mem.fact.slice(0, 40) + (mem.fact.length > 40 ? '…' : '') : id.slice(0, 8) + '…';
   }
 
   fmChronoTitle(id: string): string {
-    const c = this.chrono().find(c => c._id === id);
+    const c = this.store.chrono().find(c => c._id === id);
     return c ? c.title.slice(0, 40) + (c.title.length > 40 ? '…' : '') : id.slice(0, 8) + '…';
   }
 
@@ -3133,7 +3021,7 @@ export class BrainComponent implements OnInit {
     if (this.entityForm.type.trim()) body.type = this.entityForm.type.trim();
     if (this.entityForm.tags.length) body.tags = this.entityForm.tags;
     if (this.entityForm.description.trim()) body.description = this.entityForm.description.trim();
-    const props = this.stripEmptyOptionalProps(this.entityForm.properties, this.entitySchema(this.entityForm.type));
+    const props = this.stripEmptyOptionalProps(this.entityForm.properties, this.store.entitySchema(this.entityForm.type));
     if (Object.keys(props).length) body.properties = props;
     this.brainApi.createEntity(this.activeSpaceId(), body).subscribe({
       next: () => {
@@ -3159,7 +3047,7 @@ export class BrainComponent implements OnInit {
     if (this.edgeForm.weight != null) body.weight = this.edgeForm.weight;
     if (this.edgeForm.tags.length) body.tags = this.edgeForm.tags;
     if (this.edgeForm.description.trim()) body.description = this.edgeForm.description.trim();
-    const edgeProps = this.stripEmptyOptionalProps(this.edgeForm.properties, this.edgeSchema(this.edgeForm.label));
+    const edgeProps = this.stripEmptyOptionalProps(this.edgeForm.properties, this.store.edgeSchema(this.edgeForm.label));
     if (Object.keys(edgeProps).length) body.properties = edgeProps;
     this.brainApi.createEdge(this.activeSpaceId(), body).subscribe({
       next: () => {
@@ -3176,7 +3064,7 @@ export class BrainComponent implements OnInit {
   deleteEntity(id: string): void {
     this.confirmDeleteId.set('');
     this.brainApi.deleteEntity(this.activeSpaceId(), id).subscribe({
-      next: () => { this.entities.update(list => list.filter(e => e._id !== id)); this.loadStats(this.activeSpaceId()); },
+      next: () => { this.store.entities.update(list => list.filter(e => e._id !== id)); this.loadStats(this.activeSpaceId()); },
       error: () => {},
     });
   }
@@ -3184,7 +3072,7 @@ export class BrainComponent implements OnInit {
   deleteEdge(id: string): void {
     this.confirmDeleteId.set('');
     this.brainApi.deleteEdge(this.activeSpaceId(), id).subscribe({
-      next: () => this.edges.update(list => list.filter(e => e._id !== id)),
+      next: () => this.store.edges.update(list => list.filter(e => e._id !== id)),
       error: () => {},
     });
   }
@@ -3222,7 +3110,7 @@ export class BrainComponent implements OnInit {
   deleteChrono(id: string): void {
     this.confirmDeleteId.set('');
     this.brainApi.deleteChrono(this.activeSpaceId(), id).subscribe({
-      next: () => this.chrono.update(list => list.filter(c => c._id !== id)),
+      next: () => this.store.chrono.update(list => list.filter(c => c._id !== id)),
       error: () => {},
     });
   }
@@ -3360,8 +3248,8 @@ export class BrainComponent implements OnInit {
   loadSpaceMeta(spaceId: string): void {
     if (!spaceId) return;
     this.spacesApi.getSpaceMeta(spaceId).subscribe({
-      next: (meta) => this.spaceMeta.set(meta),
-      error: () => this.spaceMeta.set(null),
+      next: (meta) => this.store.spaceMeta.set(meta),
+      error: () => this.store.spaceMeta.set(null),
     });
   }
 
@@ -3380,7 +3268,7 @@ export class BrainComponent implements OnInit {
   }
 
   openEntityForm(): void {
-    const firstType = Object.keys(this.spaceMeta()?.typeSchemas?.entity ?? {})[0] ?? '';
+    const firstType = Object.keys(this.store.spaceMeta()?.typeSchemas?.entity ?? {})[0] ?? '';
     this.entityForm = { name: '', type: firstType, tags: [], description: '', properties: this.buildPropertiesObject('entity', {}, firstType) };
     this.showEntityForm.set(true);
   }
@@ -3397,7 +3285,7 @@ export class BrainComponent implements OnInit {
   }
 
   openEdgeForm(): void {
-    const firstLabel = Object.keys(this.spaceMeta()?.typeSchemas?.edge ?? {})[0] ?? '';
+    const firstLabel = Object.keys(this.store.spaceMeta()?.typeSchemas?.edge ?? {})[0] ?? '';
     this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: firstLabel, weight: null, tags: [], description: '', properties: this.buildPropertiesObject('edge', {}, firstLabel) };
     this.showEdgeForm.set(true);
   }
@@ -3413,7 +3301,7 @@ export class BrainComponent implements OnInit {
   }
 
   private buildPropertiesObject(type: KnowledgeType, existing: Record<string, string | number | boolean> = {}, typeName?: string): Record<string, string | number | boolean> {
-    const meta = this.spaceMeta();
+    const meta = this.store.spaceMeta();
     const typeSchemas = meta?.typeSchemas?.[type];
     if (!typeSchemas || Object.keys(typeSchemas).length === 0) return existing;
     // Use the specified type's schema; fall back to the first type when no name is given
@@ -3531,12 +3419,12 @@ export class BrainComponent implements OnInit {
         next: (updated) => {
           this.drawerSaving.set(false);
           this.drawerRecord.set({ kind: 'memory', record: updated });
-          this.memories.update(list => list.map(m => m._id === id ? updated : m));
+          this.store.memories.update(list => list.map(m => m._id === id ? updated : m));
         },
         error: (err) => { this.drawerSaving.set(false); this.drawerError.set(this.fmtApiError(err, 'Failed to save')); },
       });
     } else if (dr.kind === 'entity') {
-      const props = this.stripEmptyOptionalProps(this.drawerEditEntity.properties, this.entitySchema(this.drawerEditEntity.type));
+      const props = this.stripEmptyOptionalProps(this.drawerEditEntity.properties, this.store.entitySchema(this.drawerEditEntity.type));
       this.brainApi.updateEntity(spaceId, id, {
         name: this.drawerEditEntity.name.trim(),
         type: this.drawerEditEntity.type.trim(),
@@ -3547,12 +3435,12 @@ export class BrainComponent implements OnInit {
         next: (updated) => {
           this.drawerSaving.set(false);
           this.drawerRecord.set({ kind: 'entity', record: updated });
-          this.entities.update(list => list.map(e => e._id === id ? updated : e));
+          this.store.entities.update(list => list.map(e => e._id === id ? updated : e));
         },
         error: (err) => { this.drawerSaving.set(false); this.drawerError.set(this.fmtApiError(err, 'Failed to save')); },
       });
     } else if (dr.kind === 'edge') {
-      const props = this.stripEmptyOptionalProps(this.drawerEditEdge.properties, this.edgeSchema(this.drawerEditEdge.label));
+      const props = this.stripEmptyOptionalProps(this.drawerEditEdge.properties, this.store.edgeSchema(this.drawerEditEdge.label));
       this.brainApi.updateEdge(spaceId, id, {
         label: this.drawerEditEdge.label.trim(),
         ...(this.drawerEditEdge.type.trim() ? { type: this.drawerEditEdge.type.trim() } : {}),
@@ -3564,7 +3452,7 @@ export class BrainComponent implements OnInit {
         next: (updated) => {
           this.drawerSaving.set(false);
           this.drawerRecord.set({ kind: 'edge', record: updated });
-          this.edges.update(list => list.map(e => e._id === id ? updated : e));
+          this.store.edges.update(list => list.map(e => e._id === id ? updated : e));
         },
         error: (err) => { this.drawerSaving.set(false); this.drawerError.set(this.fmtApiError(err, 'Failed to save')); },
       });
@@ -3587,7 +3475,7 @@ export class BrainComponent implements OnInit {
         next: (updated) => {
           this.drawerSaving.set(false);
           this.drawerRecord.set({ kind: 'chrono', record: updated });
-          this.chrono.update(list => list.map(c => c._id === id ? updated : c));
+          this.store.chrono.update(list => list.map(c => c._id === id ? updated : c));
         },
         error: (err) => { this.drawerSaving.set(false); this.drawerError.set(this.fmtApiError(err, 'Failed to save')); },
       });

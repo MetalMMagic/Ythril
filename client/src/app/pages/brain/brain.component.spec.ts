@@ -77,7 +77,7 @@ describe('BrainComponent (OnPush)', () => {
     const c = fixture.componentInstance;
 
     c.activeTab.set('memories');
-    c.memories.set([memory('the sky is blue'), memory('water is wet')]);
+    c.store.memories.set([memory('the sky is blue'), memory('water is wet')]);
     fixture.detectChanges();
 
     const body = (fixture.nativeElement.querySelector('table tbody') as HTMLElement).textContent ?? '';
@@ -91,11 +91,11 @@ describe('BrainComponent (OnPush)', () => {
     const body = () => (fixture.nativeElement.querySelector('table tbody') as HTMLElement).textContent ?? '';
 
     c.activeTab.set('memories');
-    c.memories.set([memory('first fact')]);
+    c.store.memories.set([memory('first fact')]);
     fixture.detectChanges();
     expect(body()).toContain('first fact');
 
-    c.memories.set([memory('second fact')]);
+    c.store.memories.set([memory('second fact')]);
     fixture.detectChanges();
     expect(body()).toContain('second fact');
     expect(body()).not.toContain('first fact');
@@ -151,7 +151,7 @@ describe('BrainComponent (OnPush)', () => {
     const fixture = create();
     const c = fixture.componentInstance;
     c.activeTab.set('memories');
-    c.memories.set([{ ...memory('a fact'), description: 'x\ny' } as Memory]);
+    c.store.memories.set([{ ...memory('a fact'), description: 'x\ny' } as Memory]);
     fixture.detectChanges();
 
     const cell = fixture.nativeElement.querySelector('table tbody .desc-cell') as HTMLElement | null;

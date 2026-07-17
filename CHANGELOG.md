@@ -675,6 +675,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Extracted `BrainStore` from the 3701-line `BrainComponent` — the record lists and their derived
+  view (internal, no behavior change).** First step of the A17.9 split (the flagship monolith), using
+  the store pattern proven on the spaces page. `BrainStore` owns the five record lists
+  (memories/entities/edges/chrono/fileMetas), the active space's `spaceMeta`, the per-collection
+  search text + mode, and everything derived from them: the four `filtered*` lists, the
+  `*TagSuggestions`, and the schema-backed `*TypeOptions` (with the private `typeOptionsFrom` and the
+  schema accessors). This is the cohesive "a list and the way it is being viewed" — splitting a list
+  from its own filter would be artificial. The shell's navigation (space list, `activeTab`,
+  `activeSpaceId`), the loaders, the per-tab forms, the query/recall state and the record drawer stay
+  on the component this round; they move to their own owners as the tabs become components (9b-2/9b-3).
+  Member names are unchanged (move, not rewrite), so each moved computed/accessor was diffed against
+  source — all byte-identical. The 18 characterization assertions from the previous PR moved with the
+  code they cover to `brain-store.service.spec.ts` — unchanged, and now testing a plain service
+  without a component fixture; the 9 rendering tests stay on the component. The two load-bearing
+  behaviours those tests pin are intact: semantic search mode bypasses the client-side filter, and
+  files have no such mode. `brain.component.ts`: 3701 → 3589.
+
 - **Split the settings `SpacesComponent` into per-concern components — 1893 → 262 lines (internal,
   no behavior change).** Completes A17.8. The create dialog and the four settings tabs
   (settings/schema/duplicates/danger) are now their own components, and the page is just the space

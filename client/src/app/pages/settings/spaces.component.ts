@@ -16,19 +16,15 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { PhIconComponent } from '../../shared/ph-icon.component';
-
-interface TypeSchemaState {
-  namingPattern:   string;
-  tagSuggestions:  string[];
-  propertySchemas: { key: string; s: PropertySchema; _enumInput: string }[];
-  _newPropInput:   string;
-  _newTagInput:    string;
-}
+import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state.service';
 
 @Component({
   selector: 'app-spaces',
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, DragDropModule, PhIconComponent],
+  // Provided here (not root) so each mount gets its own settings state, with a lifetime tied to
+  // this component rather than the app.
+  providers: [SpaceSettingsState],
   styles: [`
     /* chip inputs */
     .chip-wrap {
@@ -199,48 +195,48 @@ interface TypeSchemaState {
     }
 
     <!-- SETTINGS POPUP -->
-    @if (settingsSpace()) {
-      <div class="sp-backdrop" (click)="closeSettings()">
+    @if (state.settingsSpace()) {
+      <div class="sp-backdrop" (click)="state.closeSettings()">
         <div class="sp-panel" (click)="$event.stopPropagation()">
           <div class="sp-header">
             <div style="flex:1;min-width:0;">
-              <div style="font-weight:600;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ settingsSpace()!.label }}</div>
-              <div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">{{ settingsSpace()!.id }}</div>
+              <div style="font-weight:600;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ state.settingsSpace()!.label }}</div>
+              <div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">{{ state.settingsSpace()!.id }}</div>
             </div>
-            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="closeSettings()"><ph-icon name="x" [size]="14"/></button>
+            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="state.closeSettings()"><ph-icon name="x" [size]="14"/></button>
           </div>
           <div class="sp-tabs">
-            <button class="sp-tab" [class.active]="settingsTab()==='settings'" (click)="settingsTab.set('settings')">{{ 'spaces.popup.tab.settings' | transloco }}</button>
-            <button class="sp-tab" [class.active]="settingsTab()==='schema'"   (click)="settingsTab.set('schema')">{{ 'spaces.popup.tab.schema' | transloco }}</button>
-            <button class="sp-tab" [class.active]="settingsTab()==='duplicates'" (click)="settingsTab.set('duplicates')">{{ 'spaces.popup.tab.duplicates' | transloco }}</button>
-            <button class="sp-tab danger-tab" [class.active]="settingsTab()==='danger'" (click)="settingsTab.set('danger')">{{ 'spaces.popup.tab.dangerZone' | transloco }}</button>
+            <button class="sp-tab" [class.active]="state.settingsTab()==='settings'" (click)="state.settingsTab.set('settings')">{{ 'spaces.popup.tab.settings' | transloco }}</button>
+            <button class="sp-tab" [class.active]="state.settingsTab()==='schema'"   (click)="state.settingsTab.set('schema')">{{ 'spaces.popup.tab.schema' | transloco }}</button>
+            <button class="sp-tab" [class.active]="state.settingsTab()==='duplicates'" (click)="state.settingsTab.set('duplicates')">{{ 'spaces.popup.tab.duplicates' | transloco }}</button>
+            <button class="sp-tab danger-tab" [class.active]="state.settingsTab()==='danger'" (click)="state.settingsTab.set('danger')">{{ 'spaces.popup.tab.dangerZone' | transloco }}</button>
           </div>
           <div class="sp-body">
 
             <!-- SETTINGS TAB -->
-            @if (settingsTab() === 'settings') {
+            @if (state.settingsTab() === 'settings') {
               <div style="max-width:720px;">
                 <div class="field">
                   <label>{{ 'spaces.settings.label' | transloco }}</label>
-                  <input type="text" [(ngModel)]="stForm.label" maxlength="200" />
+                  <input type="text" [(ngModel)]="state.stForm.label" maxlength="200" />
                 </div>
                 <div class="field">
                   <label>{{ 'spaces.settings.purpose' | transloco }} <span style="font-size:11px;color:var(--text-muted);font-weight:normal;">{{ 'spaces.settings.purposeHint' | transloco }}</span></label>
-                  <textarea [(ngModel)]="stForm.purpose" rows="6" maxlength="4000" style="resize:vertical;"></textarea>
+                  <textarea [(ngModel)]="state.stForm.purpose" rows="6" maxlength="4000" style="resize:vertical;"></textarea>
                 </div>
                 <div class="field">
                   <label>{{ 'spaces.settings.usageNotes' | transloco }} <span style="font-size:11px;color:var(--text-muted);font-weight:normal;">{{ 'spaces.settings.usageNotesHint' | transloco }}</span></label>
-                  <textarea [(ngModel)]="stForm.usageNotes" rows="3" maxlength="2000" style="resize:vertical;"></textarea>
+                  <textarea [(ngModel)]="state.stForm.usageNotes" rows="3" maxlength="2000" style="resize:vertical;"></textarea>
                 </div>
                 <div class="field" style="max-width:220px;">
                   <label>{{ 'spaces.settings.maxStorage' | transloco }}</label>
-                  <input type="number" [(ngModel)]="stForm.maxGiB" min="0" step="0.1" [placeholder]="'spaces.settings.unlimitedPlaceholder' | transloco" />
+                  <input type="number" [(ngModel)]="state.stForm.maxGiB" min="0" step="0.1" [placeholder]="'spaces.settings.unlimitedPlaceholder' | transloco" />
                   <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.maxStorageHint' | transloco }}</div>
                 </div>
                 <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;">
                   <div class="field" style="margin:0;">
                     <label>{{ 'spaces.settings.validationMode' | transloco }}</label>
-                    <select [(ngModel)]="schValidation" style="width:220px;">
+                    <select [(ngModel)]="state.schValidation" style="width:220px;">
                       <option value="off">{{ 'spaces.settings.validation.off' | transloco }}</option>
                       <option value="warn">{{ 'spaces.settings.validation.warn' | transloco }}</option>
                       <option value="strict">{{ 'spaces.settings.validation.strict' | transloco }}</option>
@@ -248,7 +244,7 @@ interface TypeSchemaState {
                   </div>
                   <div class="field" style="margin:0;padding-top:22px;">
                     <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
-                      <input type="checkbox" [(ngModel)]="schStrictLinkage" />
+                      <input type="checkbox" [(ngModel)]="state.schStrictLinkage" />
                       {{ 'spaces.settings.strictLinkage' | transloco }}
                       <span style="font-size:11px;color:var(--text-muted);font-weight:normal;">{{ 'spaces.settings.strictLinkageHint' | transloco }}</span>
                     </label>
@@ -258,7 +254,7 @@ interface TypeSchemaState {
             }
 
             <!-- SCHEMA TAB -->
-            @if (settingsTab() === 'schema') {
+            @if (state.settingsTab() === 'schema') {
               <!-- export / import toolbar -->
               <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
                 <button class="btn btn-secondary btn-sm" type="button" (click)="exportSchema()" [attr.title]="'spaces.schema.exportTitle' | transloco"><ph-icon name="upload" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.exportJsonButton' | transloco }}</button>
@@ -269,51 +265,51 @@ interface TypeSchemaState {
               </div>
               <!-- collection tabs -->
               <div class="sch-coll-tabs">
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='entity'" (click)="schemaCollTab.set('entity');schImportError='';schImportInfo=''">
+                <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='entity'" (click)="state.schemaCollTab.set('entity');schImportError='';schImportInfo=''">
                   {{ 'spaces.schema.tab.entities' | transloco }}
-                  @if (typeCount('entity')) { <span class="sch-cnt-badge">{{ typeCount('entity') }}</span> }
+                  @if (state.typeCount('entity')) { <span class="sch-cnt-badge">{{ state.typeCount('entity') }}</span> }
                 </button>
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='edge'" (click)="schemaCollTab.set('edge');schImportError='';schImportInfo=''">
+                <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='edge'" (click)="state.schemaCollTab.set('edge');schImportError='';schImportInfo=''">
                   {{ 'spaces.schema.tab.edges' | transloco }}
-                  @if (typeCount('edge')) { <span class="sch-cnt-badge">{{ typeCount('edge') }}</span> }
+                  @if (state.typeCount('edge')) { <span class="sch-cnt-badge">{{ state.typeCount('edge') }}</span> }
                 </button>
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='memory'" (click)="schemaCollTab.set('memory');schImportError='';schImportInfo=''">
+                <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='memory'" (click)="state.schemaCollTab.set('memory');schImportError='';schImportInfo=''">
                   {{ 'spaces.schema.tab.memories' | transloco }}
-                  @if (typeCount('memory')) { <span class="sch-cnt-badge">{{ typeCount('memory') }}</span> }
+                  @if (state.typeCount('memory')) { <span class="sch-cnt-badge">{{ state.typeCount('memory') }}</span> }
                 </button>
-                <button class="sch-coll-tab" [class.active]="schemaCollTab()==='chrono'" (click)="schemaCollTab.set('chrono');schImportError='';schImportInfo=''">
+                <button class="sch-coll-tab" [class.active]="state.schemaCollTab()==='chrono'" (click)="state.schemaCollTab.set('chrono');schImportError='';schImportInfo=''">
                   {{ 'spaces.schema.tab.chrono' | transloco }}
-                  @if (typeCount('chrono')) { <span class="sch-cnt-badge">{{ typeCount('chrono') }}</span> }
+                  @if (state.typeCount('chrono')) { <span class="sch-cnt-badge">{{ state.typeCount('chrono') }}</span> }
                 </button>
               </div>
               <div class="sch-coll-body">
 
-                @if (schemaCollTab() === 'entity') {
+                @if (state.schemaCollTab() === 'entity') {
                   <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.entityTypeHint' | transloco }}</span></div>
                 }
-                @if (schemaCollTab() === 'edge') {
+                @if (state.schemaCollTab() === 'edge') {
                   <div class="sch-sub">{{ 'spaces.schema.subtitle.labels' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.edgeLabelHint' | transloco }}</span></div>
                 }
-                @if (schemaCollTab() === 'memory') {
+                @if (state.schemaCollTab() === 'memory') {
                   <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.memoryTypeHint' | transloco }}</span></div>
                 }
-                @if (schemaCollTab() === 'chrono') {
+                @if (state.schemaCollTab() === 'chrono') {
                   <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.chronoTypeHint' | transloco }}</span></div>
                 }
 
                 <!-- type list -->
-                <ng-container *ngTemplateOutlet="typeList; context: { kt: schemaCollTab() }"></ng-container>
+                <ng-container *ngTemplateOutlet="typeList; context: { kt: state.schemaCollTab() }"></ng-container>
 
                 <!-- Global tag suggestions (entity tab) -->
-                @if (schemaCollTab() === 'entity') {
+                @if (state.schemaCollTab() === 'entity') {
                   <div class="sch-sub" style="margin-top:28px;">{{ 'spaces.schema.globalTagSuggestions' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.globalTagSuggestionsHint' | transloco }}</span></div>
                   <div class="chip-wrap">
-                    @for (t of schTagSuggestions; track t) {
-                      <span class="chip">{{ t }}<button type="button" class="chip-rm" (click)="schTagSuggestions=schTagSuggestions.filter(x=>x!==t)"><ph-icon name="x" [size]="12"/></button></span>
+                    @for (t of state.schTagSuggestions; track t) {
+                      <span class="chip">{{ t }}<button type="button" class="chip-rm" (click)="state.schTagSuggestions=state.schTagSuggestions.filter(x=>x!==t)"><ph-icon name="x" [size]="12"/></button></span>
                     }
-                    <input type="text" class="chip-field" [(ngModel)]="schNewTagInput"
-                      [placeholder]="schTagSuggestions.length ? '' : ('spaces.schema.addTagSuggestionPlaceholder' | transloco)"
-                      (keydown.enter)="$event.preventDefault();addGlobalTag()" />
+                    <input type="text" class="chip-field" [(ngModel)]="state.schNewTagInput"
+                      [placeholder]="state.schTagSuggestions.length ? '' : ('spaces.schema.addTagSuggestionPlaceholder' | transloco)"
+                      (keydown.enter)="$event.preventDefault();state.addGlobalTag()" />
                   </div>
                 }
 
@@ -330,21 +326,21 @@ interface TypeSchemaState {
                       </tr>
                     </thead>
                     <tbody>
-                      @for (name of typeNames(kt); track name) {
-                        <tr class="prop-row" [class.prow-open]="isTypeExpanded(kt,name)">
-                          <td (click)="toggleTypeExpand(kt,name)" style="cursor:pointer;">
+                      @for (name of state.typeNames(kt); track name) {
+                        <tr class="prop-row" [class.prow-open]="state.isTypeExpanded(kt,name)">
+                          <td (click)="state.toggleTypeExpand(kt,name)" style="cursor:pointer;">
                             <div style="display:flex;align-items:center;gap:8px;">
                               <span style="font-family:var(--font-mono);font-size:13px;color:var(--accent);">{{ name }}</span>
-                              @if (typeLibRef(kt,name)) {
+                              @if (state.typeLibRef(kt,name)) {
                                 <span class="badge badge-blue" style="font-size:10px;">Library</span>
                               } @else {
-                                @if (typeState(kt,name).propertySchemas.length) {
-                                  <span class="badge badge-gray" style="font-size:10px;">{{ typeState(kt,name).propertySchemas.length }} prop{{ typeState(kt,name).propertySchemas.length !== 1 ? 's' : '' }}</span>
+                                @if (state.typeState(kt,name).propertySchemas.length) {
+                                  <span class="badge badge-gray" style="font-size:10px;">{{ state.typeState(kt,name).propertySchemas.length }} prop{{ state.typeState(kt,name).propertySchemas.length !== 1 ? 's' : '' }}</span>
                                 }
-                                @if (typeState(kt,name).tagSuggestions.length) {
-                                  <span class="badge badge-gray" style="font-size:10px;">{{ typeState(kt,name).tagSuggestions.length }} tag{{ typeState(kt,name).tagSuggestions.length !== 1 ? 's' : '' }}</span>
+                                @if (state.typeState(kt,name).tagSuggestions.length) {
+                                  <span class="badge badge-gray" style="font-size:10px;">{{ state.typeState(kt,name).tagSuggestions.length }} tag{{ state.typeState(kt,name).tagSuggestions.length !== 1 ? 's' : '' }}</span>
                                 }
-                                @if (kt === 'entity' && typeState(kt,name).namingPattern) {
+                                @if (kt === 'entity' && state.typeState(kt,name).namingPattern) {
                                   <span class="badge badge-gray" style="font-size:10px;">pattern</span>
                                 }
                               }
@@ -354,21 +350,21 @@ interface TypeSchemaState {
                             <div style="display:flex;gap:4px;justify-content:flex-end;">
                               <button class="btn btn-ghost btn-sm" type="button" (click)="exportTypeSchema(kt,name)"
                                 style="padding:2px 6px;" [attr.title]="'spaces.schema.exportTypeTitle' | transloco"><ph-icon name="upload" [size]="12"/></button>
-                              @if (!typeLibRef(kt,name)) {
+                              @if (!state.typeLibRef(kt,name)) {
                                 <button class="btn btn-ghost btn-sm" type="button" (click)="saveTypeToLibrary(kt,name)"
                                   style="font-size:10px;padding:2px 6px;" [attr.title]="'spaces.schema.saveToLibraryTitle' | transloco">{{ 'spaces.schema.saveToLibraryButton' | transloco }}</button>
                               }
-                              <button class="btn btn-ghost btn-sm" type="button" (click)="toggleTypeExpand(kt,name)"
-                                style="font-size:10px;padding:2px 8px;min-width:28px;">{{ isTypeExpanded(kt,name) ? '▲' : '▼' }}</button>
-                              <button class="icon-btn danger" type="button" (click)="removeType(kt,name)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
+                              <button class="btn btn-ghost btn-sm" type="button" (click)="state.toggleTypeExpand(kt,name)"
+                                style="font-size:10px;padding:2px 8px;min-width:28px;">{{ state.isTypeExpanded(kt,name) ? '▲' : '▼' }}</button>
+                              <button class="icon-btn danger" type="button" (click)="state.removeType(kt,name)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
                             </div>
                           </td>
                         </tr>
-                        @if (isTypeExpanded(kt,name)) {
+                        @if (state.isTypeExpanded(kt,name)) {
                           <tr class="prop-expand-row" (click)="$event.stopPropagation()">
                             <td colspan="2" style="padding:0;">
                               <div class="pdet">
-                                @if (typeLibRef(kt,name); as libRef) {
+                                @if (state.typeLibRef(kt,name); as libRef) {
                                   <!-- Linked library schema — non-editable -->
                                   <div style="display:flex;align-items:center;gap:10px;padding:4px 0;color:var(--text-secondary);font-size:13px;">
                                     <ph-icon name="bookmarks" [size]="16" style="color:var(--accent);flex-shrink:0;"/>
@@ -380,7 +376,7 @@ interface TypeSchemaState {
                                   <div class="pdet-fields" style="margin-bottom:12px;">
                                     <div class="field" style="margin:0;">
                                       <label>{{ 'spaces.schema.namingPattern' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.namingPatternHint' | transloco }}</span></label>
-                                      <input type="text" [(ngModel)]="typeState(kt,name).namingPattern" [placeholder]="'spaces.schema.namingPatternPlaceholder' | transloco" style="max-width:320px;" />
+                                      <input type="text" [(ngModel)]="state.typeState(kt,name).namingPattern" [placeholder]="'spaces.schema.namingPatternPlaceholder' | transloco" style="max-width:320px;" />
                                     </div>
                                   </div>
                                 }
@@ -389,12 +385,12 @@ interface TypeSchemaState {
                                   <div class="field" style="margin:0;">
                                     <label>{{ 'spaces.schema.tagSuggestions' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.tagSuggestionsHint' | transloco }}</span></label>
                                     <div class="chip-wrap">
-                                      @for (tag of typeState(kt,name).tagSuggestions; track tag) {
-                                        <span class="chip">{{ tag }}<button type="button" class="chip-rm" (click)="typeState(kt,name).tagSuggestions=typeState(kt,name).tagSuggestions.filter(x=>x!==tag)"><ph-icon name="x" [size]="12"/></button></span>
+                                      @for (tag of state.typeState(kt,name).tagSuggestions; track tag) {
+                                        <span class="chip">{{ tag }}<button type="button" class="chip-rm" (click)="state.typeState(kt,name).tagSuggestions=state.typeState(kt,name).tagSuggestions.filter(x=>x!==tag)"><ph-icon name="x" [size]="12"/></button></span>
                                       }
-                                      <input type="text" class="chip-field" [(ngModel)]="typeState(kt,name)._newTagInput"
-                                        [placeholder]="typeState(kt,name).tagSuggestions.length ? '' : ('spaces.schema.addTagPlaceholder' | transloco)"
-                                        (keydown.enter)="$event.preventDefault();addTypeTag(kt,name)" />
+                                      <input type="text" class="chip-field" [(ngModel)]="state.typeState(kt,name)._newTagInput"
+                                        [placeholder]="state.typeState(kt,name).tagSuggestions.length ? '' : ('spaces.schema.addTagPlaceholder' | transloco)"
+                                        (keydown.enter)="$event.preventDefault();state.addTypeTag(kt,name)" />
                                     </div>
                                   </div>
                                 </div>
@@ -411,9 +407,9 @@ interface TypeSchemaState {
                                       </tr>
                                     </thead>
                                     <tbody>
-                                      @for (p of typeState(kt,name).propertySchemas; track p.key) {
-                                        <tr class="prop-row" [class.prow-open]="isPropExpanded(kt,name,p.key)"
-                                          (click)="togglePropExpand(kt,name,p.key)">
+                                      @for (p of state.typeState(kt,name).propertySchemas; track p.key) {
+                                        <tr class="prop-row" [class.prow-open]="state.isPropExpanded(kt,name,p.key)"
+                                          (click)="state.togglePropExpand(kt,name,p.key)">
                                           <td>
                                             <div style="display:flex;align-items:center;gap:7px;">
                                               <span style="font-family:var(--font-mono);font-size:12px;">{{ p.key }}</span>
@@ -434,11 +430,11 @@ interface TypeSchemaState {
                                           </td>
                                           <td (click)="$event.stopPropagation()">
                                             <div style="display:flex;gap:4px;justify-content:flex-end;">
-                                              <button class="icon-btn danger" type="button" (click)="removeProp(kt,name,p.key)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
+                                              <button class="icon-btn danger" type="button" (click)="state.removeProp(kt,name,p.key)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
                                             </div>
                                           </td>
                                         </tr>
-                                        @if (isPropExpanded(kt,name,p.key)) {
+                                        @if (state.isPropExpanded(kt,name,p.key)) {
                                           <tr class="prop-expand-row" (click)="$event.stopPropagation()">
                                             <td colspan="4" style="padding:0;">
                                               <div class="pdet">
@@ -490,10 +486,10 @@ interface TypeSchemaState {
                                                       <label>{{ 'spaces.schema.propDetail.enumValues' | transloco }} <span style="font-size:11px;font-weight:normal;color:var(--text-muted);">{{ 'spaces.schema.propDetail.enumHint' | transloco }}</span></label>
                                                       <div class="chip-wrap">
                                                         @for (ev of (p.s.enum??[]); track ev) {
-                                                          <span class="chip">{{ ev }}<button type="button" class="chip-rm" (click)="removeEnumVal(kt,name,p.key,ev)"><ph-icon name="x" [size]="12"/></button></span>
+                                                          <span class="chip">{{ ev }}<button type="button" class="chip-rm" (click)="state.removeEnumVal(kt,name,p.key,ev)"><ph-icon name="x" [size]="12"/></button></span>
                                                         }
                                                         <input type="text" class="chip-field" [(ngModel)]="p._enumInput"
-                                                          [placeholder]="'spaces.schema.propDetail.enumPlaceholder' | transloco" (keydown)="onEnumKey($event,kt,name,p.key)" />
+                                                          [placeholder]="'spaces.schema.propDetail.enumPlaceholder' | transloco" (keydown)="state.onEnumKey($event,kt,name,p.key)" />
                                                       </div>
                                                     </div>
                                                   </div>
@@ -514,11 +510,11 @@ interface TypeSchemaState {
                                 </div>
                                 <!-- add property -->
                                 <div style="display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-                                  <input type="text" [(ngModel)]="typeState(kt,name)._newPropInput" [placeholder]="'spaces.schema.newPropNamePlaceholder' | transloco"
+                                  <input type="text" [(ngModel)]="state.typeState(kt,name)._newPropInput" [placeholder]="'spaces.schema.newPropNamePlaceholder' | transloco"
                                     style="flex:1;max-width:220px;"
-                                    (keydown.enter)="$event.preventDefault();addProp(kt,name)" />
+                                    (keydown.enter)="$event.preventDefault();state.addProp(kt,name)" />
                                   <button class="btn btn-secondary btn-sm" type="button"
-                                    (click)="addProp(kt,name)" [disabled]="!typeState(kt,name)._newPropInput.trim()">{{ 'spaces.schema.addPropertyButton' | transloco }}</button>
+                                    (click)="state.addProp(kt,name)" [disabled]="!state.typeState(kt,name)._newPropInput.trim()">{{ 'spaces.schema.addPropertyButton' | transloco }}</button>
                                 </div>
                                 } <!-- end @else (not a lib-ref type) -->
                               </div>
@@ -537,11 +533,11 @@ interface TypeSchemaState {
                 </div>
                 <!-- add type/label -->
                 <div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;">
-                  <input type="text" [(ngModel)]="schNewTypeInputs[kt]" [placeholder]="kt === 'edge' ? ('spaces.schema.newLabelPlaceholder' | transloco) : ('spaces.schema.newTypeNamePlaceholder' | transloco)"
+                  <input type="text" [(ngModel)]="state.schNewTypeInputs[kt]" [placeholder]="kt === 'edge' ? ('spaces.schema.newLabelPlaceholder' | transloco) : ('spaces.schema.newTypeNamePlaceholder' | transloco)"
                     style="flex:1;max-width:200px;"
-                    (keydown.enter)="$event.preventDefault();addType(kt)" />
+                    (keydown.enter)="$event.preventDefault();state.addType(kt)" />
                   <button class="btn btn-secondary btn-sm" type="button"
-                    (click)="addType(kt)" [disabled]="!schNewTypeInputs[kt]?.trim()">{{ kt === 'edge' ? ('spaces.schema.addLabelButton' | transloco) : ('spaces.schema.addTypeButton' | transloco) }}</button>
+                    (click)="state.addType(kt)" [disabled]="!state.schNewTypeInputs[kt]?.trim()">{{ kt === 'edge' ? ('spaces.schema.addLabelButton' | transloco) : ('spaces.schema.addTypeButton' | transloco) }}</button>
                   <button class="btn btn-secondary btn-sm" type="button"
                     (click)="triggerImportTypeSchemaNew(kt)"
                     [attr.title]="'spaces.schema.importFromFileButton' | transloco"><ph-icon name="download-simple" [size]="13" style="margin-right:4px;vertical-align:-2px;"/>{{ 'spaces.schema.importFromFileButton' | transloco }}</button>
@@ -559,20 +555,20 @@ interface TypeSchemaState {
             }
 
             <!-- DUPLICATES TAB -->
-            @if (settingsTab() === 'duplicates') {
+            @if (state.settingsTab() === 'duplicates') {
               <div style="max-width:760px;">
                 <p style="font-size:13px;color:var(--text-muted);margin:0 0 16px;">{{ 'spaces.dupe.intro' | transloco }}</p>
 
                 <div class="field">
                   <label>{{ 'spaces.dupe.survivor' | transloco }}</label>
-                  <select [(ngModel)]="dupeSurvivor" style="max-width:220px;">
+                  <select [(ngModel)]="state.dupeSurvivor" style="max-width:220px;">
                     <option value="older">{{ 'spaces.dupe.survivorOlder' | transloco }}</option>
                     <option value="newer">{{ 'spaces.dupe.survivorNewer' | transloco }}</option>
                   </select>
                 </div>
 
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px;font-size:13px;">
-                  <input type="checkbox" [(ngModel)]="dupeOnInsert" />
+                  <input type="checkbox" [(ngModel)]="state.dupeOnInsert" />
                   <span>{{ 'spaces.dupe.onInsert' | transloco }}</span>
                 </label>
                 <p style="font-size:12px;color:var(--text-muted);margin:-6px 0 16px;">{{ 'spaces.dupe.onInsertHint' | transloco }}</p>
@@ -580,7 +576,7 @@ interface TypeSchemaState {
                 <div class="dz-section-title" style="margin-top:8px;">{{ 'spaces.dupe.rulesTitle' | transloco }}</div>
                 <p style="font-size:12px;color:var(--text-muted);margin:4px 0 12px;">{{ 'spaces.dupe.rulesHint' | transloco }}</p>
 
-                @for (r of dupeRulesState; track $index) {
+                @for (r of state.dupeRulesState; track $index) {
                   <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:10px;background:var(--bg-secondary);border-radius:8px;margin-bottom:8px;">
                     <div class="field" style="margin:0;width:120px;">
                       <label style="font-size:11px;">{{ 'spaces.dupe.minScore' | transloco }}</label>
@@ -600,60 +596,60 @@ interface TypeSchemaState {
                         <input type="url" [(ngModel)]="r.webhookUrl" [placeholder]="'spaces.dupe.webhookPlaceholder' | transloco" />
                       </div>
                     }
-                    <button class="btn btn-secondary btn-sm" type="button" (click)="removeDupeRule($index)"
+                    <button class="btn btn-secondary btn-sm" type="button" (click)="state.removeDupeRule($index)"
                             [attr.aria-label]="'spaces.dupe.removeRule' | transloco"><ph-icon name="x" [size]="14"/></button>
                   </div>
                 }
 
-                <button class="btn btn-secondary btn-sm" type="button" (click)="addDupeRule()" style="margin-top:4px;">
+                <button class="btn btn-secondary btn-sm" type="button" (click)="state.addDupeRule()" style="margin-top:4px;">
                   <ph-icon name="plus" [size]="14"/> {{ 'spaces.dupe.addRule' | transloco }}
                 </button>
 
-                @if (hasAutomergeRule()) {
+                @if (state.hasAutomergeRule()) {
                   <div class="alert alert-warning" style="margin-top:16px;display:flex;gap:8px;align-items:flex-start;">
                     <ph-icon name="warning" [size]="18"/>
                     <span>{{ 'spaces.dupe.automergeWarning' | transloco }}</span>
                   </div>
                 }
 
-                @if (dupeError()) { <div class="alert alert-error" style="margin-top:12px;">{{ dupeError() }}</div> }
+                @if (state.dupeError()) { <div class="alert alert-error" style="margin-top:12px;">{{ state.dupeError() }}</div> }
 
                 <div style="margin-top:20px;display:flex;gap:8px;align-items:center;">
-                  <button class="btn btn-primary" type="button" (click)="saveDupeRules()" [disabled]="dupeSaving()">
-                    @if (dupeSaving()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dupe.save' | transloco }}
+                  <button class="btn btn-primary" type="button" (click)="saveDupeRules()" [disabled]="state.dupeSaving()">
+                    @if (state.dupeSaving()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dupe.save' | transloco }}
                   </button>
-                  @if (dupeSaved()) { <span style="font-size:13px;color:var(--success);">{{ 'spaces.dupe.saved' | transloco }}</span> }
+                  @if (state.dupeSaved()) { <span style="font-size:13px;color:var(--success);">{{ 'spaces.dupe.saved' | transloco }}</span> }
                 </div>
               </div>
             }
 
             <!-- DANGER ZONE TAB -->
-            @if (settingsTab() === 'danger') {
+            @if (state.settingsTab() === 'danger') {
               <div class="dz-section">
                 <div class="dz-section-title">{{ 'spaces.dangerZone.renameTitle' | transloco }}</div>
                 <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">{{ 'spaces.dangerZone.renameDescription' | transloco }}</p>
                 <form (ngSubmit)="submitDangerRename()" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
                   <div class="field" style="margin:0;flex:1;max-width:280px;">
                     <label>{{ 'spaces.dangerZone.newId' | transloco }}</label>
-                    <input type="text" [(ngModel)]="dangerRenameId" name="dangerRenameId" pattern="[a-z0-9-]+" maxlength="40" [placeholder]="settingsSpace()!.id" />
+                    <input type="text" [(ngModel)]="state.dangerRenameId" name="state.dangerRenameId" pattern="[a-z0-9-]+" maxlength="40" [placeholder]="state.settingsSpace()!.id" />
                   </div>
-                  <button class="btn btn-secondary" type="submit" [disabled]="dangerRenaming()||!dangerRenameId.trim()||dangerRenameId.trim()===settingsSpace()!.id">
-                    @if (dangerRenaming()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dangerZone.renameButton' | transloco }}
+                  <button class="btn btn-secondary" type="submit" [disabled]="state.dangerRenaming()||!state.dangerRenameId.trim()||state.dangerRenameId.trim()===state.settingsSpace()!.id">
+                    @if (state.dangerRenaming()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dangerZone.renameButton' | transloco }}
                   </button>
                 </form>
-                @if (dangerRenameError()) { <div class="alert alert-error" style="margin-top:8px;">{{ dangerRenameError() }}</div> }
+                @if (state.dangerRenameError()) { <div class="alert alert-error" style="margin-top:8px;">{{ state.dangerRenameError() }}</div> }
               </div>
 
               <div class="dz-section">
                 <div class="dz-section-title">{{ 'spaces.dangerZone.wipeTitle' | transloco }}</div>
                 <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">{{ 'spaces.dangerZone.wipeDescription' | transloco }}</p>
-                @if (dangerWipeLoading()) {
+                @if (state.dangerWipeLoading()) {
                   <div style="display:flex;gap:8px;align-items:center;color:var(--text-muted);font-size:13px;margin-bottom:12px;">
                     <span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> {{ 'spaces.dangerZone.loadingCounts' | transloco }}
                   </div>
-                } @else if (dangerWipeStats()) {
+                } @else if (state.dangerWipeStats()) {
                   <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px;">
-                    @for (col of wipeStatCols(); track col.label) {
+                    @for (col of state.wipeStatCols(); track col.label) {
                       <div style="text-align:center;padding:10px 6px;background:var(--bg-elevated);border-radius:var(--radius-sm);">
                         <div style="font-size:20px;font-weight:700;font-family:var(--font-mono);">{{ col.value }}</div>
                         <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">{{ col.label }}</div>
@@ -661,13 +657,13 @@ interface TypeSchemaState {
                     }
                   </div>
                 }
-                @if (dangerWipeError()) { <div class="alert alert-error" style="margin-bottom:8px;">{{ dangerWipeError() }}</div> }
-                <button class="btn btn-danger" type="button" (click)="confirmDangerWipe()" [disabled]="dangerWiping()">
-                  @if (dangerWiping()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dangerZone.wipeButton' | transloco }}
+                @if (state.dangerWipeError()) { <div class="alert alert-error" style="margin-bottom:8px;">{{ state.dangerWipeError() }}</div> }
+                <button class="btn btn-danger" type="button" (click)="confirmDangerWipe()" [disabled]="state.dangerWiping()">
+                  @if (state.dangerWiping()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dangerZone.wipeButton' | transloco }}
                 </button>
               </div>
 
-              @let spaceNets = networksForSpace(settingsSpace()!.id);
+              @let spaceNets = networksForSpace(state.settingsSpace()!.id);
               @if (spaceNets.length > 0) {
                 <div class="dz-section">
                   <div class="dz-section-title">{{ 'spaces.dangerZone.leaveNetworksTitle' | transloco }}</div>
@@ -684,26 +680,26 @@ interface TypeSchemaState {
                 </div>
               }
 
-              @if (!settingsSpace()!.builtIn) {
+              @if (!state.settingsSpace()!.builtIn) {
                 <div class="dz-section dz-red">
                   <div class="dz-section-title">{{ 'spaces.dangerZone.deleteTitle' | transloco }}</div>
                   <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">{{ 'spaces.dangerZone.deleteDescription' | transloco }}</p>
-                  @if (dangerDeleteError()) { <div class="alert alert-error" style="margin-bottom:8px;">{{ dangerDeleteError() }}</div> }
-                  <button class="btn btn-danger" type="button" (click)="confirmDangerDelete()" [disabled]="dangerDeleting()">
-                    @if (dangerDeleting()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dangerZone.deleteButton' | transloco }}
+                  @if (state.dangerDeleteError()) { <div class="alert alert-error" style="margin-bottom:8px;">{{ state.dangerDeleteError() }}</div> }
+                  <button class="btn btn-danger" type="button" (click)="confirmDangerDelete()" [disabled]="state.dangerDeleting()">
+                    @if (state.dangerDeleting()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dangerZone.deleteButton' | transloco }}
                   </button>
                 </div>
               }
             }
           </div><!-- sp-body -->
 
-          @if (settingsTab() !== 'danger' && settingsTab() !== 'duplicates') {
+          @if (state.settingsTab() !== 'danger' && state.settingsTab() !== 'duplicates') {
             <div class="sp-footer">
-              @if (settingsError()) {
-                <div class="alert alert-error" style="flex:1;margin:0;padding:6px 12px;font-size:13px;">{{ settingsError() }}</div>
+              @if (state.settingsError()) {
+                <div class="alert alert-error" style="flex:1;margin:0;padding:6px 12px;font-size:13px;">{{ state.settingsError() }}</div>
               }
-              <button class="btn btn-primary" type="button" (click)="saveSettings()" [disabled]="settingsSaving()">
-                @if (settingsSaving()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.popup.footer.saveChanges' | transloco }}
+              <button class="btn btn-primary" type="button" (click)="saveSettings()" [disabled]="state.settingsSaving()">
+                @if (state.settingsSaving()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.popup.footer.saveChanges' | transloco }}
               </button>
             </div>
           }
@@ -828,7 +824,7 @@ interface TypeSchemaState {
                       }
                     } @else { <span style="color:var(--text-muted)">—</span> }
                   </td>
-                  <td><button class="icon-btn" [attr.title]="'spaces.table.configureTitle' | transloco" (click)="openSettings(s)">⚙</button></td>
+                  <td><button class="icon-btn" [attr.title]="'spaces.table.configureTitle' | transloco" (click)="state.openSettings(s)">⚙</button></td>
                 </tr>
               } @empty {
                 <tr><td colspan="7"><div class="empty-state" style="padding:24px;"><h3>{{ 'spaces.table.empty' | transloco }}</h3></div></td></tr>
@@ -847,11 +843,8 @@ export class SpacesComponent implements OnInit {
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
   private confirmDialog = inject(ConfirmDialogService);
-
-  readonly KINDS: KnowledgeType[] = ['entity', 'memory', 'edge', 'chrono'];
-  readonly KIND_LABELS: Record<KnowledgeType, string> = {
-    entity: 'Entities', memory: 'Memories', edge: 'Edges', chrono: 'Chrono',
-  };
+  /** Settings-dialog state, shared with the tabs. Public: the template binds to it. */
+  readonly state = inject(SpaceSettingsState);
 
   spaces   = signal<Space[]>([]);
   networks = signal<Network[]>([]);
@@ -939,33 +932,6 @@ export class SpacesComponent implements OnInit {
     strictLinkage: false,
   };
 
-  // settings popup
-  settingsSpace  = signal<Space | null>(null);
-  settingsTab    = signal<'settings' | 'schema' | 'duplicates' | 'danger'>('settings');
-  settingsSaving = signal(false);
-  settingsError  = signal('');
-  schemaCollTab  = signal<KnowledgeType>('entity');
-
-  // Duplicate-action rules tab
-  dupeRulesState: DupeActionRule[] = [];
-  dupeSurvivor: 'older' | 'newer' = 'older';
-  dupeOnInsert = false;
-  dupeSaving = signal(false);
-  dupeSaved  = signal(false);
-  dupeError  = signal('');
-
-  stForm = { label: '', purpose: '', usageNotes: '', maxGiB: null as number | null };
-
-  schValidation:     ValidationMode = 'off';
-  schStrictLinkage   = false;
-  schTagSuggestions: string[] = [];
-  schNewTagInput     = '';
-  schTypeSchemas:    Partial<Record<KnowledgeType, Record<string, TypeSchemaState>>> = {
-    entity: {}, memory: {}, edge: {}, chrono: {},
-  };
-  schNewTypeInputs:  Record<string, string> = { entity: '', memory: '', edge: '', chrono: '' };
-  schExpandedType:   { kt: KnowledgeType; name: string } | null = null;
-  schExpandedProp:   { kt: KnowledgeType; typeName: string; propKey: string } | null = null;
   schImportError     = '';
   /** Success/info note after a schema import stages types (cleared on the next action). */
   schImportInfo      = '';
@@ -978,17 +944,6 @@ export class SpacesComponent implements OnInit {
 
   /** Tracks the kt/typeName target for per-type import. */
   private _typeImportTarget: { kt: KnowledgeType; name: string } | null = null;
-
-  // danger zone
-  dangerRenameId    = '';
-  dangerRenaming    = signal(false);
-  dangerRenameError = signal('');
-  dangerWipeStats   = signal<SpaceStats | null>(null);
-  dangerWipeLoading = signal(false);
-  dangerWiping      = signal(false);
-  dangerWipeError   = signal('');
-  dangerDeleting    = signal(false);
-  dangerDeleteError = signal('');
 
   ngOnInit(): void { this.load(); }
 
@@ -1105,32 +1060,18 @@ export class SpacesComponent implements OnInit {
     }, 3000);
   }
 
-  addDupeRule(): void {
-    this.dupeRulesState = [...this.dupeRulesState, { minScore: 0.95, action: 'flag' }];
-    this.dupeSaved.set(false);
-  }
-
-  removeDupeRule(i: number): void {
-    this.dupeRulesState = this.dupeRulesState.filter((_, idx) => idx !== i);
-    this.dupeSaved.set(false);
-  }
-
-  hasAutomergeRule(): boolean {
-    return this.dupeRulesState.some(r => r.action === 'automerge');
-  }
-
   async saveDupeRules(): Promise<void> {
-    const target = this.settingsSpace();
+    const target = this.state.settingsSpace();
     if (!target) return;
     // Validate notify override URLs client-side (the field is not inside a <form>).
-    for (const r of this.dupeRulesState) {
+    for (const r of this.state.dupeRulesState) {
       if (r.action === 'notify' && r.webhookUrl?.trim()) {
         try { new URL(r.webhookUrl.trim()); }
-        catch { this.dupeError.set(this.transloco.translate('spaces.dupe.invalidUrl')); return; }
+        catch { this.state.dupeError.set(this.transloco.translate('spaces.dupe.invalidUrl')); return; }
       }
     }
     // Auto-merge is destructive and unattended — confirm before enabling it.
-    if (this.hasAutomergeRule()) {
+    if (this.state.hasAutomergeRule()) {
       const ok = await this.confirmDialog.confirm({
         title: this.transloco.translate('spaces.dupe.automergeConfirmTitle'),
         message: this.transloco.translate('spaces.dupe.automergeConfirm'),
@@ -1139,166 +1080,52 @@ export class SpacesComponent implements OnInit {
       if (!ok) return;
     }
     // Normalise: clamp scores, drop empty override URLs.
-    const rules: DupeActionRule[] = this.dupeRulesState.map(r => ({
+    const rules: DupeActionRule[] = this.state.dupeRulesState.map(r => ({
       minScore: Math.min(Math.max(Number(r.minScore) || 0, 0), 1),
       action: r.action,
       ...(r.types && r.types.length > 0 ? { types: r.types } : {}),
       ...(r.action === 'notify' && r.webhookUrl?.trim() ? { webhookUrl: r.webhookUrl.trim() } : {}),
     }));
-    this.dupeSaving.set(true);
-    this.dupeError.set('');
-    this.dupeSaved.set(false);
-    this.spacesApi.updateSpace(target.id, { dupeRules: rules, dupeMergeSurvivor: this.dupeSurvivor, dupeRulesOnInsert: this.dupeOnInsert }).subscribe({
+    this.state.dupeSaving.set(true);
+    this.state.dupeError.set('');
+    this.state.dupeSaved.set(false);
+    this.spacesApi.updateSpace(target.id, { dupeRules: rules, dupeMergeSurvivor: this.state.dupeSurvivor, dupeRulesOnInsert: this.state.dupeOnInsert }).subscribe({
       next: ({ space }) => {
-        this.dupeSaving.set(false);
-        this.dupeSaved.set(true);
+        this.state.dupeSaving.set(false);
+        this.state.dupeSaved.set(true);
         // Reflect saved state back onto the space object.
-        this.settingsSpace.set(space);
+        this.state.settingsSpace.set(space);
         this.spaces.update(list => list.map(x => x.id === space.id ? space : x));
       },
-      error: (e) => { this.dupeSaving.set(false); this.dupeError.set(e?.error?.error || this.transloco.translate('spaces.dupe.saveError')); },
+      error: (e) => { this.state.dupeSaving.set(false); this.state.dupeError.set(e?.error?.error || this.transloco.translate('spaces.dupe.saveError')); },
     });
   }
-
-  openSettings(s: Space): void {
-    this.settingsSpace.set(s);
-    this.settingsTab.set('settings');
-    this.schemaCollTab.set('entity');
-    this.settingsError.set('');
-    this.settingsSaving.set(false);
-    this.stForm = { label: s.label, purpose: s.meta?.purpose ?? '', usageNotes: s.meta?.usageNotes ?? '', maxGiB: s.maxGiB ?? null };
-    this.dupeRulesState = (s.dupeRules ?? []).map(r => ({ ...r }));
-    this.dupeSurvivor = s.dupeMergeSurvivor ?? 'older';
-    this.dupeOnInsert = s.dupeRulesOnInsert ?? false;
-    this.dupeSaving.set(false);
-    this.dupeSaved.set(false);
-    this.dupeError.set('');
-    const meta = s.meta ?? {};
-    this.schValidation     = meta.validationMode ?? 'off';
-    this.schStrictLinkage  = meta.strictLinkage ?? false;
-    this.schTagSuggestions = [...(meta.tagSuggestions ?? [])];
-    this.schNewTagInput    = '';
-    this.schNewTypeInputs  = { entity: '', memory: '', edge: '', chrono: '' };
-    this.schExpandedType   = null;
-    this.schExpandedProp   = null;
-    const loadKt = (kt: KnowledgeType): Record<string, TypeSchemaState> => {
-      const map: Record<string, TypeSchemaState> = {};
-      for (const [name, ts] of Object.entries(meta.typeSchemas?.[kt] ?? {})) {
-        // Preserve $ref as _libRef sentinel so buildMeta() can round-trip it
-        if (ts.$ref?.startsWith('library:')) {
-          (map[name] as TypeSchemaState & { _libRef?: string }) = {
-            namingPattern: '', tagSuggestions: [], propertySchemas: [],
-            _newPropInput: '', _newTagInput: '',
-            _libRef: ts.$ref.slice('library:'.length),
-          };
-        } else {
-          map[name] = {
-            namingPattern:   ts.namingPattern   ?? '',
-            tagSuggestions:  [...(ts.tagSuggestions ?? [])],
-            propertySchemas: Object.entries(ts.propertySchemas ?? {}).map(([k, ps]) => ({ key: k, s: { ...ps }, _enumInput: '' })),
-            _newPropInput: '',
-            _newTagInput:  '',
-          };
-        }
-      }
-      return map;
-    };
-    this.schTypeSchemas = {
-      entity: loadKt('entity'),
-      memory: loadKt('memory'),
-      edge:   loadKt('edge'),
-      chrono: loadKt('chrono'),
-    };
-    this.dangerRenameId = s.id;
-    this.dangerRenameError.set('');
-    this.dangerRenaming.set(false);
-    this.dangerDeleteError.set('');
-    this.dangerDeleting.set(false);
-    this.dangerWipeStats.set(null);
-    this.dangerWipeError.set('');
-    this.dangerWiping.set(false);
-    this.dangerWipeLoading.set(true);
-    this.spacesApi.getSpaceStats(s.id).subscribe({
-      next: (stats) => { this.dangerWipeStats.set(stats); this.dangerWipeLoading.set(false); },
-      error: () => this.dangerWipeLoading.set(false),
-    });
-  }
-
-  closeSettings(): void { this.settingsSpace.set(null); }
 
   saveSettings(): void {
-    const target = this.settingsSpace();
+    const target = this.state.settingsSpace();
     if (!target) return;
-    this.settingsSaving.set(true);
-    this.settingsError.set('');
+    this.state.settingsSaving.set(true);
+    this.state.settingsError.set('');
     this.spacesApi.updateSpace(target.id, {
-      label:  this.stForm.label.trim() || target.label,
-      maxGiB: this.stForm.maxGiB,
-      meta:   this.buildMeta(),
+      label:  this.state.stForm.label.trim() || target.label,
+      maxGiB: this.state.stForm.maxGiB,
+      meta:   this.state.buildMeta(),
     }).subscribe({
       next: ({ space }) => {
-        this.settingsSaving.set(false);
+        this.state.settingsSaving.set(false);
         this.spaces.update(list => list.map(s => s.id === space.id ? { ...s, ...space } : s));
-        this.closeSettings();
+        this.state.closeSettings();
       },
-      error: (err) => { this.settingsSaving.set(false); this.settingsError.set(err.error?.error ?? this.transloco.translate('spaces.error.saveFailed')); },
+      error: (err) => { this.state.settingsSaving.set(false); this.state.settingsError.set(err.error?.error ?? this.transloco.translate('spaces.error.saveFailed')); },
     });
-  }
-
-  buildMeta(): Partial<SpaceMeta> {
-    const meta: Partial<SpaceMeta> = {};
-    if (this.stForm.purpose.trim())    meta.purpose    = this.stForm.purpose.trim();
-    if (this.stForm.usageNotes.trim()) meta.usageNotes = this.stForm.usageNotes.trim();
-    meta.validationMode = this.schValidation;
-    if (this.schStrictLinkage)         meta.strictLinkage  = true;
-    if (this.schTagSuggestions.length) meta.tagSuggestions = [...this.schTagSuggestions];
-    const typeSchemas: Partial<Record<KnowledgeType, Record<string, TypeSchema>>> = {};
-    for (const kt of this.KINDS) {
-      const ktMap = this.schTypeSchemas[kt] ?? {};
-      const names = Object.keys(ktMap);
-      if (names.length) {
-        const out: Record<string, TypeSchema> = {};
-        for (const name of names) {
-          const state = ktMap[name] as TypeSchemaState & { _libRef?: string };
-          // If this type was set via "import as $ref", emit a $ref TypeSchema
-          if (state._libRef) {
-            out[name] = { $ref: `library:${state._libRef}` };
-            continue;
-          }
-          const ts: TypeSchema = {};
-          if (kt === 'entity' && state.namingPattern.trim()) ts.namingPattern = state.namingPattern.trim();
-          if (state.tagSuggestions.length) ts.tagSuggestions = [...state.tagSuggestions];
-          if (state.propertySchemas.length) {
-            const ps: Record<string, PropertySchema> = {};
-            for (const { key, s } of state.propertySchemas) {
-              const schema: PropertySchema = {};
-              if (s.type)            schema.type    = s.type;
-              if (s.enum?.length)    schema.enum    = [...s.enum];
-              if (s.minimum != null) schema.minimum = s.minimum;
-              if (s.maximum != null) schema.maximum = s.maximum;
-              if (s.pattern?.trim()) schema.pattern = s.pattern.trim();
-              if (s.mergeFn)         schema.mergeFn = s.mergeFn;
-              if (s.required)        schema.required = s.required;
-              if (s.default != null) schema.default  = s.default;
-              ps[key] = schema;
-            }
-            ts.propertySchemas = ps;
-          }
-          out[name] = ts;
-        }
-        typeSchemas[kt] = out;
-      }
-    }
-    if (Object.keys(typeSchemas).length) meta.typeSchemas = typeSchemas;
-    return meta;
   }
 
   // ── Schema export / import ─────────────────────────────────────────────────
 
   exportSchema(): void {
-    const space = this.settingsSpace();
+    const space = this.state.settingsSpace();
     if (!space) return;
-    const meta = this.buildMeta();
+    const meta = this.state.buildMeta();
     const payload = {
       spaceId:     space.id,
       spaceLabel:  space.label,
@@ -1356,7 +1183,7 @@ export class SpacesComponent implements OnInit {
         }
         const tsObj = ts as Record<string, unknown>;
         const KINDS: KnowledgeType[] = ['entity', 'edge', 'memory', 'chrono'];
-        const merged = { ...this.schTypeSchemas };
+        const merged = { ...this.state.schTypeSchemas };
         let imported = 0;
 
         if (typeof tsObj['knowledgeType'] === 'string'
@@ -1392,7 +1219,7 @@ export class SpacesComponent implements OnInit {
           return;
         }
 
-        this.schTypeSchemas = merged;
+        this.state.schTypeSchemas = merged;
         this.schImportError = '';
         // Import only STAGES the schemas — they aren't persisted until Save is pressed.
         this.schImportInfo = this.transloco.translate('spaces.schema.import.staged', { count: imported });
@@ -1410,9 +1237,9 @@ export class SpacesComponent implements OnInit {
 
   /** Download a single type definition as a JSON snippet. */
   exportTypeSchema(kt: KnowledgeType, name: string): void {
-    const space = this.settingsSpace();
+    const space = this.state.settingsSpace();
     if (!space) return;
-    const state = this.typeState(kt, name);
+    const state = this.state.typeState(kt, name);
     const schema: TypeSchema = {};
     const trimmedPattern = state.namingPattern.trim();
     if (kt === 'entity' && trimmedPattern) schema.namingPattern = trimmedPattern;
@@ -1496,15 +1323,15 @@ export class SpacesComponent implements OnInit {
           _newTagInput:  '',
         };
         // When importing as a new type (name derived from file), check for collision
-        if (!this._typeImportTarget?.name && this.typeNames(kt).includes(name)) {
+        if (!this._typeImportTarget?.name && this.state.typeNames(kt).includes(name)) {
           // Stash parsed state and show conflict dialog instead of erroring
           this.importConflict.set({ kt, name, state: imported, allowAddAs: true });
           this.importConflictAddAsName.set(name + '-2');
           return;
         }
-        this.schTypeSchemas = {
-          ...this.schTypeSchemas,
-          [kt]: { ...(this.schTypeSchemas[kt] ?? {}), [name]: imported },
+        this.state.schTypeSchemas = {
+          ...this.state.schTypeSchemas,
+          [kt]: { ...(this.state.schTypeSchemas[kt] ?? {}), [name]: imported },
         };
         this.schImportError = '';
       } catch {
@@ -1525,9 +1352,9 @@ export class SpacesComponent implements OnInit {
   resolveImportConflictOverride(): void {
     const c = this.importConflict();
     if (!c) return;
-    this.schTypeSchemas = {
-      ...this.schTypeSchemas,
-      [c.kt]: { ...(this.schTypeSchemas[c.kt] ?? {}), [c.name]: c.state },
+    this.state.schTypeSchemas = {
+      ...this.state.schTypeSchemas,
+      [c.kt]: { ...(this.state.schTypeSchemas[c.kt] ?? {}), [c.name]: c.state },
     };
     this.dismissImportConflict();
   }
@@ -1536,125 +1363,21 @@ export class SpacesComponent implements OnInit {
     const c = this.importConflict();
     const newName = this.importConflictAddAsName().trim();
     if (!c || !newName) return;
-    if (this.typeNames(c.kt).includes(newName)) {
+    if (this.state.typeNames(c.kt).includes(newName)) {
       // Still conflicts — update the suggested name signal so the input shakes visually
       this.importConflictAddAsName.set(newName);
       return;
     }
-    this.schTypeSchemas = {
-      ...this.schTypeSchemas,
-      [c.kt]: { ...(this.schTypeSchemas[c.kt] ?? {}), [newName]: c.state },
+    this.state.schTypeSchemas = {
+      ...this.state.schTypeSchemas,
+      [c.kt]: { ...(this.state.schTypeSchemas[c.kt] ?? {}), [newName]: c.state },
     };
     this.dismissImportConflict();
   }
 
-  // ── typeSchemas helpers ────────────────────────────────────────────────────
-  typeNames(kt: KnowledgeType): string[] { return Object.keys(this.schTypeSchemas[kt] ?? {}); }
-  typeState(kt: KnowledgeType, name: string): TypeSchemaState { return (this.schTypeSchemas[kt] ?? {})[name]!; }
-  typeCount(kt: KnowledgeType): number { return Object.keys(this.schTypeSchemas[kt] ?? {}).length; }
-  /** Returns the library entry name if this type is set as a $ref, otherwise null. */
-  typeLibRef(kt: KnowledgeType, name: string): string | null {
-    return ((this.schTypeSchemas[kt] ?? {})[name] as TypeSchemaState & { _libRef?: string })?._libRef ?? null;
-  }
-
-  isTypeExpanded(kt: KnowledgeType, name: string): boolean {
-    return this.schExpandedType?.kt === kt && this.schExpandedType?.name === name;
-  }
-
-  toggleTypeExpand(kt: KnowledgeType, name: string): void {
-    this.schExpandedType = this.isTypeExpanded(kt, name) ? null : { kt, name };
-  }
-
-  addType(kt: KnowledgeType): void {
-    const raw = (this.schNewTypeInputs[kt] ?? '').trim();
-    if (!raw || (this.schTypeSchemas[kt] ?? {})[raw]) return;
-    this.schTypeSchemas = {
-      ...this.schTypeSchemas,
-      [kt]: { ...(this.schTypeSchemas[kt] ?? {}), [raw]: { namingPattern: '', tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '' } },
-    };
-    this.schNewTypeInputs = { ...this.schNewTypeInputs, [kt]: '' };
-    this.schExpandedType  = { kt, name: raw };
-  }
-
-  removeType(kt: KnowledgeType, name: string): void {
-    const { [name]: _dropped, ...rest } = this.schTypeSchemas[kt] ?? {};
-    this.schTypeSchemas = { ...this.schTypeSchemas, [kt]: rest };
-    if (this.schExpandedType?.kt === kt && this.schExpandedType.name === name) this.schExpandedType = null;
-  }
-
-  isPropExpanded(kt: KnowledgeType, typeName: string, propKey: string): boolean {
-    return this.schExpandedProp?.kt === kt && this.schExpandedProp?.typeName === typeName && this.schExpandedProp?.propKey === propKey;
-  }
-
-  togglePropExpand(kt: KnowledgeType, typeName: string, propKey: string): void {
-    this.schExpandedProp = this.isPropExpanded(kt, typeName, propKey) ? null : { kt, typeName, propKey };
-  }
-
-  addProp(kt: KnowledgeType, typeName: string): void {
-    const state = this.typeState(kt, typeName);
-    const key = (state._newPropInput ?? '').trim();
-    if (!key || state.propertySchemas.some(e => e.key === key)) { state._newPropInput = ''; return; }
-    state.propertySchemas = [...state.propertySchemas, { key, s: {}, _enumInput: '' }];
-    state._newPropInput   = '';
-    this.schExpandedProp  = { kt, typeName, propKey: key };
-  }
-
-  removeProp(kt: KnowledgeType, typeName: string, propKey: string): void {
-    const state = this.typeState(kt, typeName);
-    state.propertySchemas = state.propertySchemas.filter(e => e.key !== propKey);
-    if (this.isPropExpanded(kt, typeName, propKey)) this.schExpandedProp = null;
-  }
-
-  addTypeTag(kt: KnowledgeType, typeName: string): void {
-    const state = this.typeState(kt, typeName);
-    const raw = (state._newTagInput ?? '').trim();
-    if (!raw || state.tagSuggestions.includes(raw)) { state._newTagInput = ''; return; }
-    state.tagSuggestions = [...state.tagSuggestions, raw];
-    state._newTagInput   = '';
-  }
-
-  addGlobalTag(): void {
-    const raw = this.schNewTagInput.trim();
-    if (!raw || this.schTagSuggestions.includes(raw)) { this.schNewTagInput = ''; return; }
-    this.schTagSuggestions = [...this.schTagSuggestions, raw];
-    this.schNewTagInput    = '';
-  }
-
-  onEnumKey(e: KeyboardEvent, kt: KnowledgeType, typeName: string, propKey: string): void {
-    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); this.addEnumVal(kt, typeName, propKey); }
-  }
-
-  addEnumVal(kt: KnowledgeType, typeName: string, propKey: string): void {
-    const entry = this.typeState(kt, typeName).propertySchemas.find(e => e.key === propKey);
-    if (!entry) return;
-    const val = (entry._enumInput ?? '').trim();
-    if (!val) return;
-    const curr = entry.s.enum ?? [];
-    if (!curr.some(v => String(v) === val)) entry.s = { ...entry.s, enum: [...curr, val] };
-    entry._enumInput = '';
-  }
-
-  removeEnumVal(kt: KnowledgeType, typeName: string, propKey: string, val: string | number | boolean): void {
-    const entry = this.typeState(kt, typeName).propertySchemas.find(e => e.key === propKey);
-    if (!entry) return;
-    entry.s = { ...entry.s, enum: (entry.s.enum ?? []).filter(v => v !== val) };
-  }
-
-  wipeStatCols(): { label: string; value: number }[] {
-    const s = this.dangerWipeStats();
-    if (!s) return [];
-    return [
-      { label: this.transloco.translate('spaces.stats.memories'), value: s.memories },
-      { label: this.transloco.translate('spaces.stats.entities'), value: s.entities },
-      { label: this.transloco.translate('spaces.stats.edges'),    value: s.edges    },
-      { label: this.transloco.translate('spaces.stats.chrono'),   value: s.chrono   },
-      { label: this.transloco.translate('spaces.stats.files'),    value: s.files    },
-    ];
-  }
-
   async submitDangerRename(): Promise<void> {
-    const target = this.settingsSpace();
-    const newId  = this.dangerRenameId.trim();
+    const target = this.state.settingsSpace();
+    const newId  = this.state.dangerRenameId.trim();
     if (!target || !newId || newId === target.id) return;
     const ok = await this.confirmDialog.confirm({
       title: this.transloco.translate('spaces.dangerZone.confirmRenameTitle'),
@@ -1662,22 +1385,22 @@ export class SpacesComponent implements OnInit {
       confirmLabel: this.transloco.translate('spaces.dangerZone.renameButton'),
     });
     if (!ok) return;
-    this.dangerRenaming.set(true);
-    this.dangerRenameError.set('');
+    this.state.dangerRenaming.set(true);
+    this.state.dangerRenameError.set('');
     this.spacesApi.renameSpace(target.id, newId).subscribe({
       next: ({ space }) => {
-        this.dangerRenaming.set(false);
+        this.state.dangerRenaming.set(false);
         this.spaces.update(list => list.map(s => s.id === target.id ? space : s));
-        this.settingsSpace.set(space);
-        this.dangerRenameId = space.id;
+        this.state.settingsSpace.set(space);
+        this.state.dangerRenameId = space.id;
         this.networksApi.listNetworks().subscribe({ next: ({ networks }) => this.networks.set(networks), error: () => {} });
       },
-      error: (err) => { this.dangerRenaming.set(false); this.dangerRenameError.set(err.error?.error ?? this.transloco.translate('spaces.error.renameFailed')); },
+      error: (err) => { this.state.dangerRenaming.set(false); this.state.dangerRenameError.set(err.error?.error ?? this.transloco.translate('spaces.error.renameFailed')); },
     });
   }
 
   async confirmDangerWipe(): Promise<void> {
-    const target = this.settingsSpace();
+    const target = this.state.settingsSpace();
     if (!target) return;
     // Irreversible: require the operator to type the space id (GitHub-style, C3).
     const ok = await this.confirmDialog.confirm({
@@ -1689,24 +1412,24 @@ export class SpacesComponent implements OnInit {
       requireTextLabel: this.transloco.translate('spaces.dangerZone.typeIdToConfirm', { id: target.id }),
     });
     if (!ok) return;
-    this.dangerWiping.set(true);
-    this.dangerWipeError.set('');
+    this.state.dangerWiping.set(true);
+    this.state.dangerWipeError.set('');
     this.spacesApi.wipeSpace(target.id).subscribe({
       next: () => {
-        this.dangerWiping.set(false);
-        this.dangerWipeStats.set(null);
-        this.dangerWipeLoading.set(true);
+        this.state.dangerWiping.set(false);
+        this.state.dangerWipeStats.set(null);
+        this.state.dangerWipeLoading.set(true);
         this.spacesApi.getSpaceStats(target.id).subscribe({
-          next: (stats) => { this.dangerWipeStats.set(stats); this.dangerWipeLoading.set(false); },
-          error: () => this.dangerWipeLoading.set(false),
+          next: (stats) => { this.state.dangerWipeStats.set(stats); this.state.dangerWipeLoading.set(false); },
+          error: () => this.state.dangerWipeLoading.set(false),
         });
       },
-      error: (err) => { this.dangerWiping.set(false); this.dangerWipeError.set(err.error?.error ?? this.transloco.translate('spaces.error.wipeFailed')); },
+      error: (err) => { this.state.dangerWiping.set(false); this.state.dangerWipeError.set(err.error?.error ?? this.transloco.translate('spaces.error.wipeFailed')); },
     });
   }
 
   async confirmDangerDelete(): Promise<void> {
-    const target = this.settingsSpace();
+    const target = this.state.settingsSpace();
     if (!target) return;
     // Irreversible: require the operator to type the space id (GitHub-style, C3).
     const ok = await this.confirmDialog.confirm({
@@ -1718,15 +1441,15 @@ export class SpacesComponent implements OnInit {
       requireTextLabel: this.transloco.translate('spaces.dangerZone.typeIdToConfirm', { id: target.id }),
     });
     if (!ok) return;
-    this.dangerDeleting.set(true);
-    this.dangerDeleteError.set('');
+    this.state.dangerDeleting.set(true);
+    this.state.dangerDeleteError.set('');
     this.spacesApi.deleteSpace(target.id).subscribe({
       next: () => {
-        this.dangerDeleting.set(false);
+        this.state.dangerDeleting.set(false);
         this.spaces.update(list => list.filter(s => s.id !== target.id));
-        this.closeSettings();
+        this.state.closeSettings();
       },
-      error: (err) => { this.dangerDeleting.set(false); this.dangerDeleteError.set(err.error?.error ?? this.transloco.translate('spaces.error.deleteFailed')); },
+      error: (err) => { this.state.dangerDeleting.set(false); this.state.dangerDeleteError.set(err.error?.error ?? this.transloco.translate('spaces.error.deleteFailed')); },
     });
   }
 
@@ -1747,7 +1470,7 @@ export class SpacesComponent implements OnInit {
   // ── Library: save a type to library ───────────────────────────────────────
 
   saveTypeToLibrary(kt: KnowledgeType, name: string): void {
-    const state = this.typeState(kt, name);
+    const state = this.state.typeState(kt, name);
     // Auto-derive entry name from the type name (slug)
     const entryName = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 200);
     if (!entryName) return;
@@ -1784,9 +1507,9 @@ export class SpacesComponent implements OnInit {
           _newTagInput:    '',
           _libRef:         entryName,
         };
-        this.schTypeSchemas = {
-          ...this.schTypeSchemas,
-          [kt]: { ...(this.schTypeSchemas[kt] ?? {}), [name]: refState },
+        this.state.schTypeSchemas = {
+          ...this.state.schTypeSchemas,
+          [kt]: { ...(this.state.schTypeSchemas[kt] ?? {}), [name]: refState },
         };
       },
       error: (err) => {
@@ -1856,9 +1579,9 @@ export class SpacesComponent implements OnInit {
       _newPropInput: '',
       _newTagInput:  '',
     };
-    this.schTypeSchemas = {
-      ...this.schTypeSchemas,
-      [target.kt]: { ...(this.schTypeSchemas[target.kt] ?? {}), [typeName]: imported },
+    this.state.schTypeSchemas = {
+      ...this.state.schTypeSchemas,
+      [target.kt]: { ...(this.state.schTypeSchemas[target.kt] ?? {}), [typeName]: imported },
     };
     this.closeLibPicker();
   }
@@ -1879,14 +1602,14 @@ export class SpacesComponent implements OnInit {
       _libRef:         entry.name,
     };
     // When adding a new type from lib (no pre-existing name), check for collision
-    if (!target.name && this.typeNames(target.kt).includes(typeName)) {
+    if (!target.name && this.state.typeNames(target.kt).includes(typeName)) {
       this.closeLibPicker();
       this.importConflict.set({ kt: target.kt, name: typeName, state: refState, allowAddAs: false });
       return;
     }
-    this.schTypeSchemas = {
-      ...this.schTypeSchemas,
-      [target.kt]: { ...(this.schTypeSchemas[target.kt] ?? {}), [typeName]: refState },
+    this.state.schTypeSchemas = {
+      ...this.state.schTypeSchemas,
+      [target.kt]: { ...(this.state.schTypeSchemas[target.kt] ?? {}), [typeName]: refState },
     };
     this.closeLibPicker();
   }

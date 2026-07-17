@@ -35,7 +35,7 @@ import { configExists, reloadConfig, getConfig, saveConfig, loadSecrets } from '
 import { requireAuth, requireAdminMfa, requireAdminMfaScoped } from './auth/middleware.js';
 import { clearTokenCache } from './auth/tokens.js';
 import { clearOidcCache } from './auth/oidc.js';
-import { initSpace, ensureGeneralSpace, wipeSpace, reconcilePendingSpaceOp, WIPE_COLLECTION_TYPES, type WipeCollectionType } from './spaces/spaces.js';
+import { initSpace, ensureGeneralSpace, wipeSpace, reconcilePendingSpaceOp, WIPE_COLLECTION_TYPES, type WipeCollectionType } from './spaces/lifecycle.js';
 import { col, asFilter, asDoc } from './db/mongo.js';
 import { log } from './util/log.js';
 import { getReadiness } from './ready.js';

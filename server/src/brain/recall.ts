@@ -9,7 +9,7 @@ import { col, isVectorSearchAvailable, asFilter } from '../db/mongo.js';
 import { NotFoundError } from '../util/errors.js';
 import { embed } from './embedding.js';
 import { getEmbeddingConfig } from '../config/loader.js';
-import { needsReindex } from '../spaces/spaces.js';
+import { needsReindex } from '../spaces/_shared.js';
 import { vectorFilterFieldsFor } from '../spaces/vector-index.js';
 import { FilterExpression, buildMongoFilter, toNativeVectorFilter } from './filter.js';
 

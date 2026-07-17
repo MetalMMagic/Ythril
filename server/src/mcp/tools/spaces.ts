@@ -2,7 +2,8 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { getConfig } from '../../config/loader.js';
 import { col } from '../../db/mongo.js';
 import { resolveMemberSpaces } from '../../spaces/proxy.js';
-import { WIPE_COLLECTION_TYPES, type WipeCollectionType, updateSpace, wipeSpace } from '../../spaces/spaces.js';
+import { WIPE_COLLECTION_TYPES, type WipeCollectionType, wipeSpace } from '../../spaces/lifecycle.js';
+import { updateSpace } from '../../spaces/spaces.js';
 
 export const list_spacesTool: ToolHandler = {
   name: 'list_spaces',

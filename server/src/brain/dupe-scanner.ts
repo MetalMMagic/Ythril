@@ -25,7 +25,7 @@
 import { schedule, validate, type ScheduledTask } from 'node-cron';
 import { col, asFilter, asUpdate, isVectorSearchAvailable } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
-import { needsReindex } from '../spaces/spaces.js';
+import { needsReindex } from '../spaces/_shared.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
 import {

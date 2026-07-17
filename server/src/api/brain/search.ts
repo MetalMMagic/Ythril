@@ -16,7 +16,7 @@ import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileE
 import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
-import { needsReindex, clearReindexFlag } from '../../spaces/spaces.js';
+import { needsReindex, clearReindexFlag } from '../../spaces/_shared.js';
 import { log } from '../../util/log.js';
 import { resolveMemberSpaces, collectAcrossMembers } from '../../spaces/proxy.js';
 import type { MemoryDoc, EntityDoc, EdgeDoc, ChronoEntry, FileMetaDoc } from '../../config/types.js';

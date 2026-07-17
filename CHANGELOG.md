@@ -702,6 +702,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The record tabs' search bars are unified in one `RecordSearchBar` component, resolving the
+  four-different-shapes inconsistency.** memories/edges/chrono had byte-identical inline markup (a search
+  input + an A–Z/Semantic pill wired to the store's `*SearchMode` signal) and file-meta a plain input;
+  they now all render `<app-record-search-bar>`, a dumb presentational component that takes `value`/
+  `mode`/`placeholder` in and emits `valueChange`/`modeChange` — omit `mode` to hide the pill (file-meta's
+  client-side filter). `:host { display: contents }` keeps the input and pill as direct flex children of
+  the header, so the layout is byte-for-byte unchanged; an optional `ariaLabel` preserves file-meta's
+  distinct label. Two boundaries are deliberate: the **entities** tab keeps `<app-entity-search>` (its
+  bar does entity autocomplete, a richer interaction), and the semantic-search LOGIC stays in each tab
+  (its recall-result mapping is per-collection). Behaviour unchanged — all tests green (215; +7 for the
+  new component's spec).
+
 - **`NOTICE` now attributes the three runtime sidecar container images that were missing.** The file
   already documented the `mongodb/mongodb-atlas-local` image as a "not bundled, pulled independently"
   runtime dependency, but the other three sidecars referenced by `docker-compose.yml` / the Kubernetes

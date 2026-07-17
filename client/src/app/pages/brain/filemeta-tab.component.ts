@@ -11,6 +11,7 @@ import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { RecordTabBase } from './record-tab-base';
+import { RecordSearchBarComponent } from './record-search-bar.component';
 import { fmtApiError } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
@@ -29,11 +30,11 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-filemeta-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
           <div class="content-header">
-            <input type="search" [value]="store.fileMetaSearch()" (input)="onFileMetaSearch($any($event.target).value)" [placeholder]="'brain.fileMeta.filterPlaceholder' | transloco" [attr.aria-label]="'brain.fileMeta.filterAriaLabel' | transloco" />
+            <app-record-search-bar [value]="store.fileMetaSearch()" (valueChange)="onFileMetaSearch($event)" placeholder="brain.fileMeta.filterPlaceholder" ariaLabel="brain.fileMeta.filterAriaLabel" />
           </div>
           @if (recordList.loading()) {
             <div class="empty-state"><span class="spinner"></span></div>

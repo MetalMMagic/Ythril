@@ -2,7 +2,7 @@ import { Component, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthApi } from '../../core/auth-api.service';
-import QRCode from 'qrcode';
+import { renderSVG } from 'uqr';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
 
@@ -142,11 +142,11 @@ export class MfaComponent implements OnInit {
     this.authApi.setupMfa().subscribe({
       next: ({ secret, otpauth }) => {
         this.secret.set(secret);
-        // Generate QR code entirely client-side — the TOTP secret never
-        // leaves the browser (avoids leaking it to external chart services).
-        QRCode.toDataURL(otpauth, { width: 200, margin: 1 }).then(dataUrl => {
-          this.qrUrl.set(dataUrl);
-        });
+        // Render the QR entirely client-side — the TOTP secret never leaves
+        // the browser (avoids leaking it to external chart services). uqr is a
+        // pure-ESM, zero-dependency renderer; the SVG scales to the <img> box.
+        const svg = renderSVG(otpauth, { border: 1 });
+        this.qrUrl.set('data:image/svg+xml;utf8,' + encodeURIComponent(svg));
         this.confirmCode = '';
         this.enrollError.set('');
         this.state.set('enrolling');

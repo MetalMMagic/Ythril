@@ -1,5 +1,5 @@
 /**
- * BrainComponent — CHARACTERIZATION tests for the derived list state.
+ * BrainStore — CHARACTERIZATION tests for the derived list state.
  *
  * Written against the unmodified 3701-line component BEFORE the A17.9 split, and landed as their own
  * PR. A characterization test only means anything if it was green against the ORIGINAL code; written
@@ -18,15 +18,8 @@
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect } from 'vitest';
-import { of } from 'rxjs';
-import { ActivatedRoute } from '@angular/router';
 import type { ChronoEntry, Edge, Entity, FileMeta, Memory, SpaceMetaResponse } from '../../core/api.types';
-import { SpacesApi } from '../../core/spaces-api.service';
-import { BrainApi } from '../../core/brain-api.service';
-import { FilesApi } from '../../core/files-api.service';
-import { AuthService } from '../../core/auth.service';
-import { getTranslocoModule } from '../../testing/transloco-testing';
-import { BrainComponent } from './brain.component';
+import { BrainStore } from './brain-store.service';
 
 const mem = (fact: string, over: Partial<Memory> = {}): Memory =>
   ({ _id: fact, fact, tags: [], createdAt: '', seq: 1, ...over } as Memory);
@@ -39,36 +32,13 @@ const chrono = (title: string, over: Partial<ChronoEntry> = {}): ChronoEntry =>
 const fileMeta = (path: string, over: Partial<FileMeta> = {}): FileMeta =>
   ({ _id: path, path, tags: [], sizeBytes: 0, spaceId: 'work', createdAt: '', updatedAt: '', ...over } as FileMeta);
 
-function makeApi() {
-  return {
-    listSpaces: () => of({ spaces: [{ id: 'work', label: 'Work' }] }),
-    getSpaceStats: () => of({ memories: 0, entities: 0, edges: 0, chrono: 0, files: 0 }),
-    getReindexStatus: () => of({ needsReindex: false }),
-    getSpaceMeta: () => of({ tagSuggestions: [], typeSchemas: {} }),
-    listMemories: () => of({ memories: [] }),
-    getEntitiesByIds: () => of({ entities: [] }),
-    listFileMeta: () => of({ files: [] }),
-  } as any;
-}
-
-function create() {
+function create(): BrainStore {
   TestBed.resetTestingModule();
-  TestBed.configureTestingModule({
-    imports: [BrainComponent, getTranslocoModule()],
-    providers: [
-      { provide: SpacesApi, useValue: makeApi() },
-      { provide: BrainApi, useValue: makeApi() },
-      { provide: FilesApi, useValue: makeApi() },
-      { provide: AuthService, useValue: { token: () => '' } },
-      { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
-    ],
-  });
-  const fixture = TestBed.createComponent(BrainComponent);
-  fixture.detectChanges();
-  return fixture.componentInstance;
+  TestBed.configureTestingModule({ providers: [BrainStore] });
+  return TestBed.inject(BrainStore);
 }
 
-describe('BrainComponent — filteredMemories', () => {
+describe('BrainStore — filteredMemories', () => {
   it('no query returns everything', () => {
     const c = create();
     c.memories.set([mem('a'), mem('b')]);
@@ -98,7 +68,7 @@ describe('BrainComponent — filteredMemories', () => {
   });
 });
 
-describe('BrainComponent — filteredChrono', () => {
+describe('BrainStore — filteredChrono', () => {
   it('searches title, description, type AND tags', () => {
     const c = create();
     c.chrono.set([
@@ -123,7 +93,7 @@ describe('BrainComponent — filteredChrono', () => {
   });
 });
 
-describe('BrainComponent — filteredEdges', () => {
+describe('BrainStore — filteredEdges', () => {
   it('searches label, fromName and toName', () => {
     const c = create();
     c.edges.set([
@@ -152,7 +122,7 @@ describe('BrainComponent — filteredEdges', () => {
   });
 });
 
-describe('BrainComponent — filteredFileMetas', () => {
+describe('BrainStore — filteredFileMetas', () => {
   it('searches path, description and tags', () => {
     const c = create();
     c.fileMetas.set([
@@ -176,7 +146,7 @@ describe('BrainComponent — filteredFileMetas', () => {
   });
 });
 
-describe('BrainComponent — tag suggestions', () => {
+describe('BrainStore — tag suggestions', () => {
   const meta = (tagSuggestions: string[]) => ({ tagSuggestions, typeSchemas: {} } as unknown as SpaceMetaResponse);
 
   it('unions the space schema suggestions with tags present on loaded records, deduped', () => {
@@ -203,7 +173,7 @@ describe('BrainComponent — tag suggestions', () => {
   });
 });
 
-describe('BrainComponent — type options for the filter bar', () => {
+describe('BrainStore — type options for the filter bar', () => {
   it('unions schema type names with the types actually present, deduped and sorted', () => {
     const c = create();
     c.spaceMeta.set({ typeSchemas: { memory: { note: {}, decision: {} } } } as unknown as SpaceMetaResponse);

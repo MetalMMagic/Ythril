@@ -661,6 +661,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Gave the spaces page's server data a real owner (`SpacesStore`), and made the space list's
+  per-row network lookup O(1) (internal, no behavior change).** The space list, the networks, and
+  every mutation of them now live in a `SpacesStore` service, kept deliberately separate from
+  `SpaceSettingsState`: they are different kinds of state with different lifetimes — one is server
+  data shared by the list and every dialog, the other is ephemeral form state that dies when the
+  dialog closes. The old component owned both. The practical payoff is that the settings tabs can
+  mutate the list by *calling the store*, so the child components extracted next need **no
+  `@Output()` plumbing** and no component owns data that outlives it — and it is the same
+  signal-store shape the audit already prescribes for `brain.component` (A17.9), proven here on the
+  smaller page first, as the audit asks.
+  **Performance:** the list template called `networksForSpace(id)` — a full `networks().filter(...)`
+  — **twice per row** (once for `.length`, once for the `@for`), on every change-detection pass, each
+  call allocating a fresh array whose changing identity also defeated `@for` tracking. It is now a
+  `networksBySpace` computed index: built once per `networks()` change, O(1) per row, stable array
+  identity. Pinned by a test asserting reads return the *same* instance, since that is the property
+  `@for` depends on. `spaces.component.ts`: 1616 → 1578; client suite 109 → 121.
+  Recorded but deliberately **not** done here: `SpacesComponent` is the only major page not using
+  OnPush (`brain`, `file-manager`, `graph`, `audit-log` all do). It cannot simply be flipped —
+  `FileReader.onload` callbacks mutate plain fields (`schImportError`, `state.schTypeSchemas`) with
+  no signal write, so OnPush would leave the view stale. That is easy to fix per child component and
+  painful as a retrofit on a 1600-line parent, so it is tracked to land with the component extraction
+  (ARCHITECTURE-TODO A17.8, 8b-2b).
+
 - **Extracted the space-settings dialog state out of `SpacesComponent` into `SpaceSettingsState`
   (internal, no behavior change).** First half of A17.8: the settings state (`openSettings`,
   `buildMeta`, the type-schema helpers, the duplicate-rule helpers, and the four tabs' fields) now

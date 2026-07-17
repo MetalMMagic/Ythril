@@ -702,6 +702,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Entities tab is now its own self-loading OnPush component (`entities-tab.component`), the second
+  record tab out of the shell.** Same pattern as memories: it owns the entity create form, inline edit,
+  delete, and its own entity-search / type-tag filter / pagination + loader; self-loads via a `spaceId`
+  effect; emits `mutated` so the shell refreshes tab-count stats; the shell's `loadCurrentTab`
+  early-returns for entities. Entity-specific behaviour preserved (and pinned by the relocated 6b case):
+  both create AND inline-edit strip empty optional properties via the entity schema (unlike memory,
+  which sends them raw), and entity search uses the `<app-entity-search>` bar (semantic default) with no
+  per-tab search-mode pill. Reuses the shared `brain-table.styles.ts`. The 6b `createEntity`
+  characterization case moved to `entities-tab.component.spec.ts` alongside new self-load / edit / delete
+  / search / pagination tests. `brain.component.ts` 2070 → 1762. Client suite: 190 → 197.
+
 - **The Memories tab is now its own self-loading OnPush component (`memories-tab.component`), the first
   record tab out of the shell.** It owns the memory create form, the inline edit, delete, and its own
   search / type-tag filter / pagination + list loader; it reads records and derived views from

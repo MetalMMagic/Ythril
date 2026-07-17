@@ -79,15 +79,6 @@ function make() {
 beforeEach(() => { for (const fn of [...Object.values(api), ...Object.values(filesApi)]) (fn as any).mockClear(); });
 
 describe('BrainComponent — create payloads', () => {
-  it('createEntity strips empty optional props via the schema (unlike memory)', () => {
-    const c = make();
-    c.store.spaceMeta.set({ typeSchemas: { entity: { Person: { propertySchemas: { note: { required: false } } } } } } as any);
-    c.entityForm = { name: ' Ann ', type: 'Person', tags: [], description: '', properties: { note: '' } };
-    c.createEntity();
-    // note is empty + optional → stripped → no properties key at all
-    expect(api.createEntity).toHaveBeenCalledWith('work', { name: 'Ann', type: 'Person' });
-  });
-
   it('createChrono resolves a __custom__ kind to the free-text customKind and ISO-encodes startsAt', () => {
     const c = make();
     c.chronoForm = { title: 'T', kind: '__custom__', customKind: ' launch ', startsAt: '2026-03-04T09:07', endsAt: '', description: '', tags: [], entityIds: '' };

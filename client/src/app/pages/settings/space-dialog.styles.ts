@@ -1,0 +1,102 @@
+/**
+ * Styles shared by the spaces page and its dialog/tab child components (A17.8b).
+ *
+ * Angular scopes component styles, so a child that renders the chip inputs or the sp-* dialog
+ * chrome needs these rules in its OWN metadata. Rather than paste ~90 lines into each of the six
+ * components — five copies free to drift apart — they share this one const. The repo styles
+ * components inline (there is no styleUrls anywhere), so this stays DRY without breaking that
+ * convention. Angular AOT statically resolves an imported const, so `styles: [SPACE_DIALOG_STYLES]`
+ * compiles; if it ever could not, the build would fail loudly rather than drop the styles.
+ */
+export const SPACE_DIALOG_STYLES = `
+/* chip inputs */
+.chip-wrap {
+  display:flex; flex-wrap:wrap; gap:4px; align-items:center;
+  border:1px solid var(--border); border-radius:var(--radius-sm);
+  padding:4px 8px; min-height:34px; background:var(--bg-surface); cursor:text;
+}
+.chip {
+  display:inline-flex; align-items:center; gap:3px;
+  background:color-mix(in srgb,var(--accent) 15%,transparent);
+  color:var(--accent); border-radius:3px; padding:1px 6px; font-size:12px;
+}
+.chip-rm { background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0 2px; font-size:14px; line-height:1; }
+.chip-rm:hover { color:var(--danger); }
+.chip-field { border:none; background:none; outline:none; font-size:12px; min-width:100px; flex:1; color:var(--text-primary); font-family:var(--font); padding:1px 0; }
+/* storage bar */
+.st-bar { height:6px; border-radius:3px; background:var(--border); overflow:hidden; }
+.st-bar-fill { height:100%; border-radius:3px; transition:width .3s; }
+.st-bar-fill.ok     { background:var(--success); }
+.st-bar-fill.warn   { background:var(--warning); }
+.st-bar-fill.danger { background:var(--danger); }
+/* drag handle */
+.drag-handle { cursor:grab; color:var(--text-muted); padding:0 4px; user-select:none; font-size:16px; line-height:1; }
+.drag-handle:hover { color:var(--text-primary); }
+.drag-handle-disabled { cursor:default; opacity:0.3; }
+.drag-handle-disabled:hover { color:var(--text-muted); }
+.cdk-drag-preview { background:var(--bg-primary); border:1px solid var(--accent); border-radius:var(--radius-sm); box-shadow:var(--shadow-lg); opacity:0.95; }
+.cdk-drag-placeholder { opacity:0.3; }
+.cdk-drag-animating { transition:transform 250ms cubic-bezier(0,0,0.2,1); }
+/* sort buttons */
+.sort-group { display:flex; gap:2px; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; }
+.sort-btn { background:none; border:none; padding:3px 8px; font-size:12px; cursor:pointer; color:var(--text-muted); font-family:var(--font); transition:background .15s,color .15s; white-space:nowrap; }
+.sort-btn:hover { background:var(--bg-surface); color:var(--text-primary); }
+.sort-btn.active { background:var(--accent-dim); color:var(--accent); font-weight:600; }
+/* search input */
+.space-search-input { height:28px; padding:0 8px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-surface); color:var(--text-primary); font-size:13px; min-width:160px; }
+/* create dialog */
+.dialog-backdrop { position:fixed; inset:0; background:var(--bg-scrim); display:flex; align-items:center; justify-content:center; z-index:100; }
+.dialog { background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--radius-lg); padding:24px; width:90%; max-width:960px; max-height:90vh; overflow-y:auto; }
+.dialog-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+/* settings popup */
+.sp-backdrop { position:fixed; inset:0; background:var(--bg-scrim); z-index:200; display:flex; align-items:center; justify-content:center; }
+.sp-panel { width:92vw; height:92vh; max-width:1200px; background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--radius-lg); display:flex; flex-direction:column; overflow:hidden; }
+.sp-header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.sp-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; background:var(--bg-surface); }
+.sp-tab { background:none; border:none; border-bottom:2px solid transparent; padding:10px 20px; cursor:pointer; font-size:13px; font-family:var(--font); color:var(--text-muted); transition:color .15s; }
+.sp-tab:hover { color:var(--text-primary); }
+.sp-tab.active { color:var(--text-primary); border-bottom-color:var(--accent); font-weight:500; }
+.sp-tab.danger-tab.active { color:var(--danger); border-bottom-color:var(--danger); }
+.sp-body { flex:1; overflow-y:auto; padding:24px; }
+.sp-footer { display:flex; align-items:center; gap:8px; padding:12px 20px; border-top:1px solid var(--border); flex-shrink:0; }
+/* schema */
+.sch-section { margin-bottom:28px; }
+.sch-section-title { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--text-muted); margin-bottom:12px; padding-bottom:6px; border-bottom:1px solid var(--border); }
+.sch-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.sch-grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+.prop-table { width:100%; border-collapse:collapse; font-size:13px; }
+.prop-table th { text-align:left; font-size:11px; font-weight:600; color:var(--text-muted); padding:5px 8px; border-bottom:1px solid var(--border); }
+.prop-table td { padding:6px 8px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.prop-expand-row td { background:var(--bg-elevated); padding:0; }
+.prop-expand-inner { padding:12px 16px; }
+/* danger zone */
+.dz-section { border:1px solid var(--border); border-radius:var(--radius-md); padding:16px; margin-bottom:16px; }
+.dz-section.dz-red { border-color:var(--danger); }
+.dz-section-title { font-weight:600; margin-bottom:6px; font-size:14px; }
+.dz-section.dz-red .dz-section-title { color:var(--danger); }
+/* ── schema: top-level collection tabs ── */
+.sch-coll-tabs { display:flex; border-bottom:2px solid var(--border); margin-bottom:0; overflow-x:auto; gap:0; flex-shrink:0; }
+.sch-coll-tab { background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-2px; padding:10px 22px; cursor:pointer; font-size:13px; font-family:var(--font); color:var(--text-muted); display:inline-flex; align-items:center; gap:6px; transition:color .15s; white-space:nowrap; }
+.sch-coll-tab:hover { color:var(--text-primary); }
+.sch-coll-tab.active { color:var(--text-primary); border-bottom-color:var(--accent); font-weight:600; }
+.sch-cnt-badge { background:color-mix(in srgb,var(--accent) 15%,transparent); color:var(--accent); font-size:10px; font-weight:700; border-radius:10px; padding:1px 6px; min-width:18px; text-align:center; }
+.sch-coll-body { padding:20px 0 0; }
+/* ── type-list table (entity types / edge labels) ── */
+.type-table { width:100%; border-collapse:collapse; font-size:13px; margin-bottom:0; }
+.type-table th { text-align:left; font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; padding:5px 10px; border-bottom:1px solid var(--border); background:var(--bg-elevated); }
+.type-table td { padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.type-table tr:hover td { background:var(--bg-elevated); }
+/* ── property rows ── */
+.prop-row { cursor:pointer; user-select:none; }
+.prop-row:hover td { background:var(--bg-elevated); }
+.prop-row.prow-open td { background:color-mix(in srgb,var(--accent) 6%,transparent); }
+/* ── property detail card ── */
+.pdet { background:var(--bg-surface); border-top:2px solid color-mix(in srgb,var(--accent) 30%,transparent); }
+.pdet-fields { display:grid; grid-template-columns:repeat(3,1fr); gap:10px 16px; padding:14px; }
+.pdet-full { padding:0 14px 14px; }
+.req-toggle { display:inline-flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; color:var(--text-muted); background:none; border:1px solid var(--border); font-family:var(--font); padding:3px 10px; border-radius:var(--radius-sm); transition:all .15s; }
+.req-toggle:hover { background:var(--bg-elevated); color:var(--text-primary); border-color:color-mix(in srgb,var(--accent) 40%,transparent); }
+.req-toggle.is-req { color:var(--warning); border-color:color-mix(in srgb,var(--warning) 50%,transparent); background:color-mix(in srgb,var(--warning) 8%,transparent); font-weight:600; }
+/* ── schema sub-section headers ── */
+.sch-sub { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--text-muted); padding:14px 0 8px; margin-bottom:2px; }
+`;

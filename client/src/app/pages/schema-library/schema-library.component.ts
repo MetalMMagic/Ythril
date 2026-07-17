@@ -256,7 +256,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
                     <span class="prop-badge" style="color:var(--accent);background:var(--accent-dim);">{{ usageCounts()[entry.name] }} link{{ usageCounts()[entry.name] !== 1 ? 's' : '' }}</span>
                   }
                   @if (entry.schemaGroup) {
-                    <span class="badge-group" [title]="'schemaLib.badge.groupTitle' | transloco" (click)="$event.stopPropagation(); groupFilter.set(groupFilter() === entry.schemaGroup ? null : (entry.schemaGroup ?? null))"><ph-icon name="tag" [size]="10" style="margin-right:2px;vertical-align:-1px;"/>{{ entry.schemaGroup }}</span>
+                    <span class="badge-group" [title]="'schemaLib.badge.groupTitle' | transloco" (click)="$event.stopPropagation(); groupFilter.set(groupFilter() === entry.schemaGroup ? null : entry.schemaGroup)"><ph-icon name="tag" [size]="10" style="margin-right:2px;vertical-align:-1px;"/>{{ entry.schemaGroup }}</span>
                   }
                   @if (entry.published) {
                     <span class="badge-published">{{ 'schemaLib.badge.published' | transloco }}</span>

@@ -661,6 +661,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Split the settings `SpacesComponent` into per-concern components — 1893 → 262 lines (internal,
+  no behavior change).** Completes A17.8. The create dialog and the four settings tabs
+  (settings/schema/duplicates/danger) are now their own components, and the page is just the space
+  list. Because the two state owners are services (`SpacesStore` for server data,
+  `SpaceSettingsState` for dialog form state), the children need **no data `@Output()` plumbing** —
+  the only output anywhere is the create dialog's `closed`, since its visibility genuinely is the
+  page's view state. The ~90-line style block is a shared `SPACE_DIALOG_STYLES` const rather than
+  pasted into six components (Angular scopes styles per component, so the alternative was five copies
+  free to drift; the repo styles inline everywhere, so a const keeps that convention while staying
+  DRY).
+  **Every extracted component is OnPush from birth**, asserted by
+  `space-components.onpush.spec.ts` — matching what `brain`, `file-manager`, `graph` and `audit-log`
+  already do. The old monolith was the one major page that was not OnPush, and it could not simply be
+  flipped: `FileReader.onload` mutated plain fields (`schImportError`, `schImportInfo`) with **no
+  signal write**, so OnPush would have left the import result silently unrendered. Extraction made it
+  tractable — those two are signals now, in the schema tab where they live. The remaining 262-line
+  page shell is still default change detection; flipping it is small and safe now, and is tracked
+  separately rather than bundled here.
+  All **36 characterization assertions from #237 survive**, each having moved with the code it
+  covers and none rewritten to make a refactor pass: 14 on the page (list view state + rendering),
+  22 on `SpaceSettingsState`, 2 on the create dialog. Client suite: 121 → 127. The build is now
+  warning-free apart from one pre-existing third-party issue (`qrcode` ships CommonJS, causing an
+  optimization bailout — logged as A20 with the fix, an ESM QR library, rather than silenced).
+
 - **Gave the spaces page's server data a real owner (`SpacesStore`), and made the space list's
   per-row network lookup O(1) (internal, no behavior change).** The space list, the networks, and
   every mutation of them now live in a `SpacesStore` service, kept deliberately separate from

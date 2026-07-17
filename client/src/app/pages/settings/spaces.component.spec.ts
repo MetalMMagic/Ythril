@@ -12,13 +12,14 @@
  *
  *  - `sortedSpaces` — the sort/filter pipeline, including the order of the two steps
  *  - `storageInfo` / `fmtGiB` thresholds
- *  - proxy-target selection rules
  *  - the tab panes actually rendering
  *
- * A17.8b moved the settings-dialog state (`openSettings`/`buildMeta`, the type-schema helpers and
- * the duplicate rules) into `SpaceSettingsState`. Those assertions moved with them, unchanged, to
- * space-settings-state.service.spec.ts — including the library `$ref` round-trip. What stayed here
- * is what the component still owns: the list, and rendering.
+ * A17.8b moved almost everything out, and each assertion moved with the code it covers, unchanged:
+ *   - settings state (`openSettings`/`buildMeta`, type-schema + duplicate helpers, and the library
+ *     `$ref` round-trip) -> space-settings-state.service.spec.ts
+ *   - server data (the list, networks, the networksBySpace index) -> spaces-store.service.spec.ts
+ *   - proxy-target selection -> space-create-dialog.component.spec.ts
+ * What stayed here is what the component still owns: the list view state and rendering.
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -154,29 +155,6 @@ describe('SpacesComponent — storageInfo / fmtGiB', () => {
   });
 });
 
-describe('SpacesComponent — proxy target selection (create dialog)', () => {
-  it('toggleProxyFor adds then removes an id', () => {
-    const c = create().componentInstance;
-    c.toggleProxyFor('a');
-    expect(c.proxyForSelected).toEqual(['a']);
-    expect(c.isProxyForSelected('a')).toBe(true);
-    c.toggleProxyFor('a');
-    expect(c.proxyForSelected).toEqual([]);
-  });
-
-  it('selecting "all" clears individual picks, and blocks further individual toggles', () => {
-    const c = create().componentInstance;
-    c.toggleProxyFor('a');
-    c.toggleProxyForAll();
-    expect(c.proxyForAll).toBe(true);
-    expect(c.proxyForSelected).toEqual([]);
-    c.toggleProxyFor('b');                 // ignored while "all" is on
-    expect(c.proxyForSelected).toEqual([]);
-    c.toggleProxyForAll();                 // back off — individual selection works again
-    c.toggleProxyFor('b');
-    expect(c.proxyForSelected).toEqual(['b']);
-  });
-});
 
 describe('SpacesComponent — settings dialog rendering', () => {
   const s = space({ id: 'work', label: 'Work' });

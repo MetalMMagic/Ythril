@@ -15,6 +15,7 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
 import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordTabBase } from './record-tab-base';
+import { RecordSearchBarComponent } from './record-search-bar.component';
 import { fmtApiError } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
@@ -32,19 +33,15 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-edges-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordSearchBarComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
           <div class="content-header">
-            <input type="search" [placeholder]="'brain.edges.searchPlaceholder' | transloco"
-              [value]="store.edgeSearch()"
-              (input)="onEdgeSearch($any($event.target).value)"
-              [attr.aria-label]="'brain.edges.searchPlaceholder' | transloco" />
-            <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
-              <button [class.active]="store.edgeSearchMode() === 'text'" (click)="setEdgeSearchMode('text')">{{ 'common.sortAZ' | transloco }}</button>
-              <button [class.active]="store.edgeSearchMode() === 'semantic'" (click)="setEdgeSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
-            </div>
+            <app-record-search-bar
+              [value]="store.edgeSearch()" (valueChange)="onEdgeSearch($event)"
+              [mode]="store.edgeSearchMode()" (modeChange)="setEdgeSearchMode($event)"
+              placeholder="brain.edges.searchPlaceholder" />
             <button class="btn-primary btn btn-sm" (click)="openEdgeForm()" [disabled]="showEdgeForm()">{{ 'brain.edges.addButton' | transloco }}</button>
           </div>
           <div class="list-filter-row">

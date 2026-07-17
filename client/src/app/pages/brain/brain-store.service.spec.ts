@@ -201,3 +201,48 @@ describe('BrainStore — type options for the filter bar', () => {
     expect(c.memoryTypeOptions()).toEqual([]);
   });
 });
+
+describe('BrainStore — buildPropertiesObject (schema-seeded defaults)', () => {
+  const withEntitySchema = (c: BrainStore, propertySchemas: Record<string, unknown>) =>
+    c.spaceMeta.set({ typeSchemas: { entity: { Person: { propertySchemas } } } } as unknown as SpaceMetaResponse);
+
+  it('seeds each missing key with a typed default (enum→first, number→0, boolean→false, else "")', () => {
+    const c = create();
+    withEntitySchema(c, {
+      role: { type: 'string', enum: ['admin', 'user'] },
+      age: { type: 'number' },
+      active: { type: 'boolean' },
+      note: { type: 'string' },
+    });
+    expect(c.buildPropertiesObject('entity', {}, 'Person')).toEqual({
+      role: 'admin', age: 0, active: false, note: '',
+    });
+  });
+
+  it('preserves values already present (does not overwrite existing keys)', () => {
+    const c = create();
+    withEntitySchema(c, { age: { type: 'number' }, note: { type: 'string' } });
+    expect(c.buildPropertiesObject('entity', { age: 42 }, 'Person')).toEqual({ age: 42, note: '' });
+  });
+
+  it('returns the existing object unchanged when the type has no schema', () => {
+    const c = create();
+    c.spaceMeta.set(null);
+    const existing = { a: 1 };
+    expect(c.buildPropertiesObject('entity', existing)).toBe(existing);
+  });
+});
+
+describe('BrainStore — stripEmptyOptionalProps', () => {
+  it('drops empty OPTIONAL props but keeps empty REQUIRED ones (and all non-empty)', () => {
+    const c = create();
+    const schema = { req: { required: true }, opt: {} } as unknown as Record<string, import('../../core/api.types').PropertySchema>;
+    expect(c.stripEmptyOptionalProps({ req: '', opt: '', keep: 'x' }, schema)).toEqual({ req: '', keep: 'x' });
+  });
+
+  it('returns props untouched when there is no schema', () => {
+    const c = create();
+    const props = { a: '' };
+    expect(c.stripEmptyOptionalProps(props, undefined)).toBe(props);
+  });
+});

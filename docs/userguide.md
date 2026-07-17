@@ -58,12 +58,14 @@ Clicking **Sign out** in the topbar clears the session. (In embedded mode — se
 
 The left sidebar is the main navigation. It is divided into two sections:
 
-**Workspace**
+### Workspace
+
 - **Brain** — store, browse, and search everything you know. Graph and Files are *tabs inside Brain*, not separate pages — there are no `/graph` or `/files` routes (those URLs just redirect to Brain).
 - **Schema Library** — reusable data definitions shared across spaces
 - **Conflicts** — appears only when file conflicts are waiting to be resolved, with a red count badge showing how many.
 
-**Admin** (admin tokens only)
+### Admin (admin tokens only)
+
 - **Settings** → Tokens, Spaces, Storage, Networks, Preferences, Audit Log, Data, Models, Duplicates, About
 
 There is no global space selector in the sidebar. Space switching happens per page — the Brain page shows a row of space chips, and the Graph tab has its own space picker in the toolbar. Everything you see is scoped to the space you pick there.
@@ -123,6 +125,7 @@ Each entity has a **name**, optional **type** (e.g. `person`, `service`), option
 **Creating an entity:** Click **+ Add entity**, fill in the fields, and click **Save**.
 
 When a **type** is selected and the space has a schema defined for that type, the properties section is automatically pre-populated with all property fields from that type's schema:
+
 - **Required properties** — shown with a `*` badge; must be filled in before the record can be saved (strict mode) or will generate a warning (warn mode).
 - **Optional properties** — shown with a remove (×) button; any field left blank when you click Save is silently omitted from the stored record.
 - Switching the type dropdown **immediately rebuilds** the properties form for the newly selected type; values you have already filled in are preserved where the field name matches.
@@ -189,11 +192,13 @@ Click **Show advanced** for more control:
 Runs a structured MongoDB-style query against one collection. Select a collection (`memories`, `entities`, `edges`, `chrono`, or `files`), optionally set a **limit** and **max time (ms)**, enter a filter as JSON, and click **Run**. Results appear below.
 
 Example — find all entities of type `service`:
+
 ```json
 { "type": "service" }
 ```
 
 Example — find memories tagged `infra`:
+
 ```json
 { "tags": "infra" }
 ```
@@ -215,6 +220,7 @@ Each row can be opened inline to edit its links: you can attach **entities**, **
 The Graph view lets you explore how entities relate to each other visually.
 
 **Getting started:**
+
 1. Open the **Graph** tab in Brain.
 2. Select a space from the tab's toolbar.
 3. Type an entity name in the search bar and click the result to load its graph.
@@ -231,6 +237,7 @@ The Graph view lets you explore how entities relate to each other visually.
 | **Reset** | Clear the graph |
 
 **Interacting with the graph:**
+
 - **Single-click** a node to select it and open the detail panel below.
 - **Double-click** a node to make it the new root.
 - **Click** an edge to see its details in a popup.
@@ -306,6 +313,7 @@ This tab lists all schema definitions on this instance.
 **Browsing:** Use the search bar to filter by name or description. Use the type filter pills (entity / memory / edge / chrono) to narrow by knowledge type.
 
 **Creating an entry:** Click **+ New entry**. Fill in:
+
 - **Default Type Name** — the display name (e.g. `Service`). A unique identifier is derived from it automatically.
 - **Knowledge Type** — which kind of data this schema applies to.
 - **Description** — optional, surfaced to AI assistants.
@@ -631,6 +639,7 @@ Configure automatic backups and an optional offsite destination from **Settings 
 | `offsite.retention.keepCount` | Maximum number of offsite backup sets to retain (default: unlimited). |
 
 Each backup set at the offsite destination contains:
+
 - `<backupId>/` — MongoDB NDJSON dump (same format as local backups)
 - `<backupId>-files/` — copy of `<data-root>/files/` (user-uploaded files), if present
 
@@ -642,7 +651,7 @@ All fields are optional. Omit `offsite` to disable offsite copying; omit `schedu
 
 ---
 
-**Docker Desktop on Windows**
+##### Docker Desktop on Windows
 
 Docker Desktop runs containers inside a lightweight Linux VM. Windows paths (`C:\…`) are not directly visible inside the container. You must add a volume mount so that a Windows folder appears at a Linux path inside the container.
 
@@ -661,7 +670,7 @@ Then set **Backup location** to `/backups` in the UI. Docker Desktop translates 
 
 ---
 
-**Docker on Linux / macOS**
+##### Docker on Linux / macOS
 
 Mount any local directory, USB drive, or network share as a volume:
 
@@ -677,7 +686,7 @@ Set **Backup location** to `/backups` (or whatever container-side mount path you
 
 ---
 
-**Kubernetes**
+##### Kubernetes
 
 Mount a PersistentVolumeClaim, NFS export, or `hostPath` into the Ythril pod at a chosen mount path, then set `offsite.destPath` to that mount path:
 
@@ -695,7 +704,7 @@ volumes:
 
 ---
 
-**Workstation mode (no Docker)**
+##### Workstation mode (no Docker)
 
 Ythril runs directly on your OS. Set **Backup location** to any absolute path your OS user can write to:
 
@@ -707,6 +716,7 @@ Ythril runs directly on your OS. Set **Backup location** to any absolute path yo
 ### Restore
 
 To restore a backup, click **Restore** on any backup row. The instance will:
+
 1. Enter maintenance mode automatically.
 2. Replace all data in MongoDB with the backup snapshot.
 3. Exit maintenance mode.
@@ -716,12 +726,13 @@ Restore is irreversible — all data written after the backup timestamp will be 
 ### Database migration
 
 > **This feature must be explicitly enabled by your infrastructure administrator** (`YTHRIL_DB_MIGRATION_ENABLED=true`). It is disabled by default on all instances.
-
+>
 > **Infrastructure-managed connections are locked.** When `MONGO_URI` comes from the environment, the UI shows an informational note that the connection is externally managed. The *hard* server-side block on changing database settings, however, is the separate `YTHRIL_MONGO_INFRA_MANAGED=true` environment variable: with it set, the **Migrate Database** card is disabled entirely. To change the database in a managed deployment, update your deployment configuration (the `MONGO_URI` your orchestrator injects) and restart.
 
 Database migration moves the entire database to a different MongoDB server — for example, from the bundled container to Atlas, or between clusters.
 
 Enter the target MongoDB URI and click **Test Connection** to verify reachability before committing. Once you click **Migrate**:
+
 1. Maintenance mode is activated.
 2. The current database is dumped to `<data-root>/migration-backup/`.
 3. A migration marker is written and the new URI is saved to `config.json`.

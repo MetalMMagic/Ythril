@@ -702,6 +702,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`docs/` is now markdownlint-clean and gated in CI so it can't rot again.** The docs had never
+  passed `markdownlint-cli2` (~318 violations). Fixed all of them — added a language to every fenced
+  code block (mostly `http` for REST examples, `text` for CLI output/diagrams), gave the standalone
+  bold-as-heading labels real heading levels, nested the troubleshooting/validation lists correctly so
+  their numbering renders as authored, merged adjacent blockquote callouts, and normalized list/fence
+  blank lines. Added a `lint:docs` npm script (`markdownlint-cli2`, now a pinned devDependency) and a
+  **Lint docs** step to the CI job. Formatting only — no documented behaviour changed.
+
 - **Replaced the CommonJS `qrcode` dependency with the pure-ESM `uqr` for the MFA-enrolment QR.** The
   old `qrcode` package (and its transitive `dijkstrajs`/`pngjs` stack) forced an Angular AOT
   optimization bailout on every build; `uqr` is zero-dependency, MIT-licensed, and tree-shakes cleanly,

@@ -62,6 +62,7 @@ graph LR
 > **Democratic** governance means a new joiner (like Dave) needs majority approval. Any member can veto a problematic join. The full-mesh topology ensures everyone has the complete picture — no single point of failure.
 
 **Additional benefits:**
+
 - Conflict resolution via fork-on-concurrent-edit keeps both versions of contested docs.
 - The knowledge graph (entities + edges) maps relationships between services, teams, and incidents across everyone's contributions.
 
@@ -92,6 +93,7 @@ graph TD
 > A **braintree** network pushes content top-down. Regional offices always have the latest policies without being able to modify the authoritative source. One-directional flow guarantees consistency.
 
 **Additional benefits:**
+
 - Chrono entries for policy effective dates and compliance deadlines sync alongside the documents.
 - Files (PDF policies, signed documents) distribute through the same channel.
 
@@ -126,6 +128,7 @@ graph TD
 > Braintree's multi-level hierarchy relays content through intermediate nodes. Product teams receive raw research from the lab and their filtered knowledge cascades further down. If Product Team A goes offline, the lab can reparent field engineers temporarily to maintain the chain.
 
 **Additional benefits:**
+
 - Entity types (`material`, `algorithm`, `finding`) with edges (`validated_by`, `supersedes`) create a structured research graph that flows downstream intact.
 - Each tier adds their own memories to their local spaces — only the networked space syncs.
 
@@ -159,6 +162,7 @@ graph LR
 > **Club** governance lets the lead maintainer issue invite keys and approve joins unilaterally — no vote rounds needed. Fast onboarding when a new contributor earns trust, immediate removal if someone steps back.
 
 **Additional benefits:**
+
 - Release milestones as chrono entries (type: `milestone`, `deadline`) keep the team aligned on timelines.
 - Files sync design docs and diagrams alongside the knowledge graph.
 
@@ -185,6 +189,7 @@ graph LR
 > A **closed** two-member network requires both parties to approve the link. Once established, deliverables sync bidirectionally — the client can push questions and context back. When the engagement ends, either party leaves the network and sync stops cleanly.
 
 **Additional benefits:**
+
 - Space scoping means only the agreed-upon project space is shared — the consultant's other clients and the company's internal spaces remain private.
 - Read-only tokens let the client grant auditors access to the received knowledge without risking edits.
 
@@ -216,6 +221,7 @@ graph LR
 > The same security space is added to **two separate networks**. Each network is a closed pair. Engineering and Operations never sync with each other, but both stay current with security's output. The security team writes once — both consumers receive.
 
 **Additional benefits:**
+
 - Space-scoped tokens can limit engineering's access to code-relevant findings and ops' access to infrastructure-relevant findings via proxy spaces.
 
 ---
@@ -244,6 +250,7 @@ graph LR
 > **Democratic** full-mesh ensures all three teams stay aligned. The knowledge graph tracks which datasets (`entity: dataset`) were used in which experiments (`edge: trained_on`), with chrono entries marking evaluation milestones. Memory fork-on-conflict preserves both versions when two teams annotate the same data point differently.
 
 **Additional benefits:**
+
 - Files sync model configs, evaluation scripts, and small dataset samples.
 - MCP tool access lets LLM clients query the shared brain for dataset lineage and benchmark history.
 
@@ -268,6 +275,7 @@ graph LR
 > This is the door-opener. Connect any MCP-compatible LLM client to Ythril and it gains: `recall` for semantic memory search, `query` for structured retrieval, `list_chrono` for time-awareness, and `read_file`/`write_file` for document access. **Switch from Claude to GPT to Llama — the memory stays.** The brain belongs to you, not the model provider. No vendor lock-in on your own knowledge.
 
 **Wow factor:**
+
 - The LLM builds a knowledge graph *about you* over time — entities for your projects, edges for relationships, chrono entries for deadlines — and any future conversation can traverse it.
 - `recall` with the `space` parameter omitted searches across *all* your accessible spaces at once: "What do I know about Kubernetes across my work KB, personal notes, and homelab docs?"
 - `create_chrono(type: "prediction", confidence: 0.7)` → the LLM can track its own predictions and score itself over time.
@@ -300,6 +308,7 @@ graph LR
 **Consumers:** The next person on-call. Their LLM runs `recall("payment-service is down")` and gets back every past incident contextually ranked.
 
 **Wow factor:**
+
 - The knowledge graph connects **services → failure modes → fixes**: `upsert_edge("payment-service", "OOM", "fails_with")`, `upsert_edge("OOM", "maxItems=10000", "fixed_by")`. Next incident, the LLM walks the graph: "What has fixed OOM before?" — instant answer without digging through a wiki.
 - Chrono entries with `type: "event"` timestamp every incident. `query(chrono, {entityIds: "payment-service", type: "event"})` → "payment-service has had 4 incidents this quarter" — pattern detection for free.
 - This syncs across the team. Engineer 1's 3am fix is in Engineer 2's brain by morning.
@@ -329,6 +338,7 @@ graph TD
 **Consumers:** Department heads receive deadline-aware knowledge that their LLM can query.
 
 **Wow factor:**
+
 - `list_chrono({status: "overdue"})` — lists every obligation **explicitly marked** `overdue`. (Status lives on the entry; a passed `startsAt` does not auto-flag it — mark deadlines overdue as you triage them.)
 - `create_chrono({type: "deadline", title: "DORA ICT risk assessment due", startsAt: "2026-06-30", entityIds: ["DORA", "ICT-risk"]})` → departments' LLMs can ask "What compliance deadlines do we have this quarter?" and get structured answers, not just documents.
 - Braintree pushes mean the legal team publishes once and all departments receive. Departments **cannot** alter the authoritative deadline — temporal integrity by architecture.
@@ -359,6 +369,7 @@ graph LR
 **Consumers:** Customers see only their data. Support agents search across all customers.
 
 **Wow factor:**
+
 - One Ythril instance, N customers, full isolation via spaces + space-scoped tokens. No separate databases, no tenant ID middleware hell.
 - Customer gives their MCP client a space-scoped token → the LLM can `remember`, `recall`, `write_file` only within their silo. Zero chance of cross-tenant leakage — it's token-enforced at the API layer, not application-logic.
 - Support agent connects with a proxy space → `recall("connection timeout")` with `space` omitted → finds matching incidents across ALL customers, ranked by relevance. "This looks like the same issue Customer B had last week."
@@ -383,6 +394,7 @@ graph LR
 **Consumers:** Future you, before the next meeting with Sarah.
 
 **Wow factor:**
+
 - `recall("Sarah Chen")` → every interaction, semantically ranked. Not a flat contact list — full conversational context.
 - `upsert_entity("Sarah Chen", "person", ["contact"], {company: "Acme Corp", role: "VP Platform"})` → structured data queryable with `query(entities, {properties.company: "Acme Corp"})` — "Who do I know at Acme Corp?"
 - `upsert_edge("Sarah Chen", "Acme Corp", "works_at")` + `upsert_edge("Sarah Chen", "KubeCon 2026", "met_at")` → graph traversal: "Who did I meet at KubeCon?" → follow edges → full context per person.
@@ -417,6 +429,7 @@ graph LR
 **Consumers:** Everyone — but each role queries differently.
 
 **Wow factor:**
+
 - Sales rep after a call: `remember("Acme Corp switched from Competitor X to Competitor Y because of pricing. Deal was $50k ARR.", entities: ["Acme Corp", "Competitor X", "Competitor Y"], tags: ["churn", "pricing"])`.
 - Product manager asks: `recall("Why are customers leaving Competitor X?")` → semantic search surfaces every relevant sales field note — no CRM required.
 - `query(edges, {to: "Competitor X", label: "churned_from"})` → structured view: who left Competitor X and why.
@@ -446,6 +459,7 @@ graph LR
 **Consumers:** The new hire's LLM client, from minute one.
 
 **Wow factor:**
+
 - New hire connects MCP client to Ythril → club organiser approves → full sync completes in seconds.
 - New hire's LLM: `recall("how does authentication work in this project")` → gets back ADRs, implementation notes, gotchas, all semantically ranked. No "go read the wiki" that's 6 months stale.
 - `query(edges, {label: "depends_on"})` → complete service dependency map. `query(entities, {type: "service"})` → all services with their properties (port, repo, team owner).
@@ -471,6 +485,7 @@ graph LR
 **Consumers:** The researcher's LLM when drafting, reviewing, or exploring connections.
 
 **Wow factor:**
+
 - Read a paper → `remember("Smith et al. 2025 show that transformer attention degrades above 128k context. Tested on 3 benchmarks.", entities: ["Smith2025", "transformer-attention", "context-window"], tags: ["paper", "limitation"])` + `upsert_edge("Smith2025", "transformer-attention", "studies")` + `upsert_edge("Smith2025", "Jones2024", "contradicts")`.
 - Writing a paragraph → `recall("evidence for context window limitations")` → semantically ranked citations with full notes. Ask the LLM: "What papers support this claim?" — it walks the graph for `contradicts`, `supports`, `extends` edges.
 - `query(edges, {label: "contradicts"})` → instant map of all contradictions in your literature. `query(entities, {type: "paper", tags: {$in: ["unread"]}})` → reading backlog.
@@ -512,6 +527,7 @@ graph TD
 **Consumers:** The M&A lead connects their LLM to the `deal-overview` proxy space.
 
 **Wow factor:**
+
 - `recall("antitrust risk")` on the proxy → semantic search fans out across all three deal spaces in parallel, returns ranked results with `spaceId` attribution. One query, three deals, zero data mixing.
 - Each space syncs with its own closed network — Acme's advisor sees only Acme's space, Globex's advisor sees only Globex. The proxy never syncs externally — it's a local read-only aggregation layer.
 - `query(entities, {type: "risk"})` on the proxy → entities from all three deals. `query(edges, {label: "mitigated_by"})` → which risks have mitigation plans across all targets.
@@ -550,12 +566,14 @@ graph TD
 ```
 
 **Source:** The Platform Team's `platform` space is in two networks simultaneously:
+
 1. **Braintree** — CTO pushes org-wide standards, architecture mandates, and compliance policies downward. Platform team receives but cannot push up.
 2. **Democratic** — Platform lead, SRE, and architect collaborate as equals. ADRs, runbooks, and incident learnings sync bidirectionally with majority+veto governance.
 
 **Consumers:** The platform team's LLM sees everything — both the top-down mandates and the team's own collaborative knowledge — in one unified `recall`.
 
 **Wow factor:**
+
 - The CTO publishes `remember("All services must implement mTLS by Q3 2026", tags: ["mandate", "security"])` → braintree pushes it to Platform, Mobile, and Data. The platform team's space now contains it alongside their own ADRs and runbooks.
 - Platform SRE writes `remember("mTLS rollout blocked by legacy proxy — need sidecar approach", entities: ["mTLS", "legacy-proxy"], tags: ["blocker"])` → democratic sync shares it with the architect and lead. The CTO's braintree does **not** pull this up (push-only direction). Operational detail stays at the team level.
 - `recall("mTLS")` on the platform instance → returns both the CTO mandate AND the team-level blocker, ranked by relevance. Full picture without crossing governance boundaries.
@@ -600,6 +618,7 @@ graph TD
 ```
 
 **Source:**
+
 - `internal-kb` (club network): Templates, methodologies, lessons learned. All consultants sync.
 - `client-alpha`, `client-beta` (closed networks each): Client-specific findings, deliverables, files. Each client syncs only their own space.
 - `partner-view` (proxy, local only): Aggregates all three spaces. Never syncs externally.
@@ -607,6 +626,7 @@ graph TD
 **Consumers:** Partners and practice leads connect their LLM to `partner-view`.
 
 **Wow factor:**
+
 - Partner asks: `recall("cloud migration cost overrun")` on the proxy → gets results from internal templates AND both client engagements, ranked by relevance, with `spaceId` showing which client each result came from.
 - Consultant on-site with Client Alpha has two spaces syncing to their laptop: `internal-kb` (club) and `client-alpha` (closed). Their LLM uses `recall` with `space` omitted to search both. They get the firm's methodology templates alongside Alpha-specific context in one query.
 - Client Alpha's external instance syncs only `client-alpha` — they never see `internal-kb` or `client-beta`. Token-scoped, network-scoped, zero crossover.
@@ -664,6 +684,7 @@ graph TD
 3. **`clinical-search` proxy** — On a dedicated search instance. `recall("drug interaction with warfarin in elderly patients")` → searches ED, cardiology, and radiology knowledge spaces in parallel. Results come back with `spaceId` attribution — the clinician sees which department reported each finding.
 
 **Wow factor:**
+
 - Each department runs its own Ythril instance with two spaces: `protocols` (receive-only from braintree) and their own knowledge space (democratic peer-to-peer). Two different governance models on the same instance, zero conflict.
 - The proxy search hub has read-only tokens — it can query but never write. Even if compromised, clinical data integrity is preserved.
 - `query(entities, {type: "drug"})` on the proxy → every drug entity across all departments. `query(edges, {from: "warfarin", label: "interacts_with"})` → cross-department interaction graph built from real clinical observations.
@@ -701,6 +722,7 @@ graph LR
 **Consumers:** Your LLM connected to `finance-overview` proxy.
 
 **Wow factor:**
+
 - `remember("Sold 50 NVDA at $180, bought 100 AMD at $165. Thesis: AMD catching up on inference chips.", entities: ["NVDA", "AMD"], tags: ["trade", "semiconductor"])` into `trading` space.
 - `remember("Roof repair $12k on rental property. Insurance claim filed ref #4821.", entities: ["rental-oak-st", "insurance"], tags: ["expense", "maintenance"])` into `property` space.
 - `recall("semiconductor exposure")` on the proxy → pulls trade history from `trading`, any related notes from `savings` (maybe a semiconductor ETF in your 401k), all ranked by relevance with `spaceId` attribution.
@@ -744,6 +766,7 @@ graph TD
 **Consumers:** Desk head's LLM queries the proxy; individual analysts query their own space.
 
 **Wow factor:**
+
 - FX analyst: `remember("EUR/USD broke 1.12 support on weak PMI. Next support at 1.095. ECB likely dovish June.", entities: ["EUR/USD", "ECB"], tags: ["technical", "macro"])`. Macro analyst: `remember("US PMI miss — manufacturing at 48.2, services at 51.1. Dollar weakening thesis intact.", entities: ["US-PMI", "USD"], tags: ["data", "leading-indicator"])`.
 - Desk head on the proxy: `recall("dollar weakening")` → gets the FX technical AND the macro data backing it, cross-correlated by semantic relevance. Two analysts, two spaces, one coherent picture.
 - `upsert_edge("EUR/USD", "ECB", "driven_by")` + `upsert_edge("ECB", "US-PMI", "reacts_to")` → the knowledge graph connects the causal chain across desks. `query(edges, {from: "ECB"})` → every factor the team has linked to ECB decisions.
@@ -788,6 +811,7 @@ graph TD
 **Consumers:** Fusion analysts connect to the proxy. Compartment analysts see only their space.
 
 **Wow factor:**
+
 - HUMINT: `remember("Source JADE reports facility X expanded production capacity — 3 new buildings observed.", entities: ["facility-X", "JADE"], tags: ["humint", "production"])`. SIGINT: `remember("Intercept confirms increased shipments from facility X to port Y.", entities: ["facility-X", "port-Y"], tags: ["sigint", "logistics"])`. OSINT: `remember("Satellite imagery shows construction at facility X coordinates 34.05N 118.25W.", entities: ["facility-X"], tags: ["osint", "imagery"])`.
 - Fusion analyst: `recall("facility X activity")` on the proxy → all three sources, correlated by semantic similarity, attributed by `spaceId` (source discipline). The analyst sees HUMINT, SIGINT, and OSINT concur — without any single source team seeing the other disciplines.
 - `query(entities, {name: "facility-X"})` on the proxy → entity exists in all three spaces. `query(edges, {from: "facility-X"})` → relationships mapped by each discipline independently.
@@ -831,6 +855,7 @@ graph LR
 **Consumers:** Everyone's LLM queries their own instance. Shared knowledge syncs; private stays private.
 
 **Wow factor:**
+
 - Parent A: `remember("Boiler annual service due in October. Last serviced by PlumbCo, invoice #8812.", entities: ["boiler", "PlumbCo"], tags: ["maintenance"])` → syncs to everyone. Next year, any family member's LLM: `recall("boiler service")` → full history.
 - `create_chrono({type: "deadline", title: "Kid soccer tournament registration closes", startsAt: "2026-04-15", entityIds: ["soccer"]})` → `list_chrono({status: "upcoming"})` → the household LLM surfaces it to whoever asks.
 - `upsert_entity("family-van", "vehicle", ["maintenance"], {mileage: 82000, nextService: "85000km"})` → `query(entities, {type: "vehicle"})` → "When is the van due for service?" Structured, not buried in a note.
@@ -866,6 +891,7 @@ graph TD
 ```
 
 **Source:**
+
 - `energy`: Solar production, grid consumption, battery state, tariff history. Ingested via scripts or manually.
 - `devices`: Device inventory, firmware versions, maintenance dates, failure history.
 - `automations`: Home Assistant rules, automations rationale, "why I set this up" context.
@@ -873,6 +899,7 @@ graph TD
 **Consumers:** Your LLM connected to `home-brain` proxy. Phone syncs energy and devices for on-the-go queries.
 
 **Wow factor:**
+
 - `remember("HVAC compressor failed 2026-03-15. Error code E-48. Tech replaced capacitor, $180.", entities: ["hvac-main", "E-48"], tags: ["failure", "repair"])` in `devices`. `remember("Energy spike 2026-03-14: 38 kWh consumed (vs 22 kWh avg). HVAC ran continuously.", entities: ["hvac-main"], tags: ["anomaly", "consumption"])` in `energy`.
 - `recall("why was energy high last week")` on the proxy → correlates the energy anomaly with the HVAC failure across two different spaces. Your LLM connects the dots: "The HVAC compressor was failing, causing it to run continuously the day before it died."
 - `upsert_entity("hvac-main", "device", ["climate"], {model: "Daikin RXB35", installed: "2022-06", warrantyEnd: "2027-06"})` → `query(entities, {type: "device", properties.warrantyEnd: {$lte: "2026-12"}})` → "Which devices have warranties expiring this year?"
@@ -910,12 +937,14 @@ graph TD
 ```
 
 **Source:**
+
 - `my-project` (democratic network): Your team's ADRs, architecture notes, bug postmortems, gotchas. Syncs with the team.
 - `react-docs`, `prisma-docs`, `tailwind-docs` (no network — local only): Ingested library documentation. Populate via `write_file` for markdown pages, `remember` for key concepts and patterns, `upsert_entity` + `upsert_edge` for API relationships.
 
 **Consumers:** Your IDE's LLM connects to `fullstack-brain` proxy.
 
 **Wow factor:**
+
 - Ingest React docs into `react-docs`: `remember("useEffect cleanup runs before re-execution and on unmount. Return a function from the effect callback.", entities: ["useEffect"], tags: ["hooks", "lifecycle"])`. Do the same for Prisma: `remember("Prisma $transaction sequential mode runs queries in order; interactive mode gives you a tx client.", entities: ["$transaction"], tags: ["orm", "transactions"])`.
 - You're coding and ask: `recall("how to handle cleanup in effects")` on the proxy → React docs hit. `recall("nested writes with transactions")` → Prisma docs hit. **Your LLM gets library-specific answers without hallucinating** — the docs are right there in the brain, semantically indexed.
 - `upsert_entity("useEffect", "hook", ["react"], {since: "16.8"})` + `upsert_edge("useEffect", "useState", "commonly_used_with")` → build a relationship graph of the API surface. `query(edges, {from: "useEffect"})` → "What's commonly used with useEffect?"
@@ -954,6 +983,7 @@ graph TD
 > A **pub/sub** network eliminates the invite-accept friction entirely. The publisher generates an invite link or key, shares it publicly (README, website, Slack channel), and anyone who applies is auto-accepted as a subscriber. Subscribers pull content; the publisher pushes updates. Subscribers **cannot** modify the published content — data flows one way.
 
 **Wow factor:**
+
 - Publisher writes: `remember("Breaking change in v3: auth middleware now requires explicit scope parameter", entities: ["auth-middleware", "v3"], tags: ["breaking", "migration"])` → every subscriber's LLM has it on next sync. No "check the changelog" — it's in their brain, semantically searchable.
 - `write_file("migration-guide-v3.md", ...)` → full migration doc lands on every subscriber's instance automatically.
 - Subscribers run `recall("how does auth work in v3")` locally — zero API calls to the publisher, fully offline once synced.
@@ -970,20 +1000,24 @@ graph TD
 **Workflow:**
 
 1. **Discover duplicates** — agent uses `find_similar` to find high-similarity entities:
+
    ```json
    { "space": "<space-id>", "entryId": "<docker-entity-1-uuid>", "entryType": "entity", "minScore": 0.85 }
    ```
 
 2. **Inspect the merge plan** — call `merge_entities` with an empty resolution map:
+
    ```json
    { "space": "<space-id>", "survivorId": "<docker-entity-1-uuid>", "absorbedId": "<docker-entity-2-uuid>", "resolutions": [] }
    ```
+
    The MCP `merge_entities` tool returns the plan as a **text response flagged `isError: true`** (so the agent reads it and retries with resolutions); the REST endpoint returns the equivalent `409` with a `MergePlan` body. Either surface shows:
    - Property conflicts (e.g. `score: 80 vs 95`, `active: true vs false`)
    - Absorbed-only properties (auto-added, no resolution needed)
    - Duplicate edge warnings (edges that become identical after relinking)
 
 3. **Resolve conflicts** — agent fills in resolutions (numeric via function, text via LLM judgment):
+
    ```json
    {
      "space": "<space-id>",
@@ -1002,4 +1036,3 @@ graph TD
 **Aggregation variant:** Merge two metric entities using `fn:sum` on numeric fields to aggregate counts — same endpoint, same flow. Candidate selection is the caller's responsibility.
 
 **Schema-driven defaults:** When `propertySchemas` includes `mergeFn` (e.g. `"score": { "type": "number", "mergeFn": "avg" }`), the merge plan surfaces it as `suggestedFn` — the agent can accept or override per call.
-

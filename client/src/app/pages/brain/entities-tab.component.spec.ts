@@ -102,14 +102,14 @@ describe('EntitiesTabComponent', () => {
     expect(mutated).toHaveBeenCalled();
   });
 
-  it('the search bar reloads silently with the search term; nextEntityPage advances skip', () => {
+  it('the search bar reloads silently with the search term; nextPage advances skip', () => {
     const fixture = make();
     const c = fixture.componentInstance;
     api.listEntities.mockClear();
     c.onEntitySearchChange('ali');
     expect(api.listEntities).toHaveBeenCalledWith('work', 20, 0, { search: 'ali' });
-    c.nextEntityPage();
-    expect(c.entitySkip()).toBe(20);
+    c.nextPage();
+    expect(c.skip()).toBe(20);
     expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 20, { search: 'ali' });
   });
 });

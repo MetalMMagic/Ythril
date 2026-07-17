@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, effect, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -13,10 +13,8 @@ import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
-import { BrainStore } from './brain-store.service';
-import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordDrawerState } from './record-drawer-state.service';
-import { RecordListState } from './record-list-state.service';
+import { RecordTabBase } from './record-tab-base';
 import { fmtApiError } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
@@ -260,20 +258,13 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
           }
   `,
 })
-export class MemoriesTabComponent {
-  readonly store = inject(BrainStore);
-  readonly picker = inject(EntityRefPicker);
+export class MemoriesTabComponent extends RecordTabBase {
   readonly drawerState = inject(RecordDrawerState);
-  readonly recordList = inject(RecordListState);
   private brainApi = inject(BrainApi);
 
-  readonly spaceId = input.required<string>();
   /** Emitted after a create/delete so the shell can refresh the space's tab-count stats. */
   readonly mutated = output<void>();
 
-  readonly pageSize = 20;
-
-  skip = signal(0);
   recordFilter = signal<RecordFilter>({ type: '', tag: '' });
   filterEntity = signal('');
 
@@ -285,18 +276,12 @@ export class MemoriesTabComponent {
 
   private _memSemTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor() {
-    // Self-load on creation (tab activation) and on a space switch while mounted.
-    effect(() => {
-      const id = this.spaceId();
-      this.skip.set(0);
-      this.recordFilter.set({ type: '', tag: '' });
-      this.filterEntity.set('');
-      if (id) this.load();
-    });
+  protected override resetOnSpaceChange(): void {
+    this.recordFilter.set({ type: '', tag: '' });
+    this.filterEntity.set('');
   }
 
-  private load(): void {
+  protected override load(): void {
     const spaceId = this.spaceId();
     if (!spaceId) return;
     this.recordList.loading.set(true);
@@ -315,14 +300,6 @@ export class MemoriesTabComponent {
       error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
     });
   }
-
-  retryCurrentTab(): void { this.load(); }
-
-  prevPage(): void { this.skip.update(s => Math.max(0, s - this.pageSize)); this.load(); }
-  nextPage(): void { this.skip.update(s => s + this.pageSize); this.load(); }
-
-  requestDelete(id: string): void { this.recordList.confirmDeleteId.set(id); }
-  cancelDelete(): void { this.recordList.confirmDeleteId.set(''); }
 
   onMemorySearch(q: string): void {
     this.store.memorySearch.set(q);

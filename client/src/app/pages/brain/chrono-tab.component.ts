@@ -13,6 +13,7 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
 import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordTabBase } from './record-tab-base';
+import { RecordSearchBarComponent } from './record-search-bar.component';
 import { fmtApiError, toLocalDatetime } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
@@ -32,19 +33,15 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-chrono-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordSearchBarComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
           <div class="content-header">
-            <input type="search" [placeholder]="'brain.chrono.searchPlaceholder' | transloco"
-              [value]="store.chronoSearch()"
-              (input)="onChronoSearch($any($event.target).value)"
-              [attr.aria-label]="'brain.chrono.searchPlaceholder' | transloco" />
-            <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
-              <button [class.active]="store.chronoSearchMode() === 'text'" (click)="setChronoSearchMode('text')">{{ 'common.sortAZ' | transloco }}</button>
-              <button [class.active]="store.chronoSearchMode() === 'semantic'" (click)="setChronoSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
-            </div>
+            <app-record-search-bar
+              [value]="store.chronoSearch()" (valueChange)="onChronoSearch($event)"
+              [mode]="store.chronoSearchMode()" (modeChange)="setChronoSearchMode($event)"
+              placeholder="brain.chrono.searchPlaceholder" />
             <button class="btn-primary btn btn-sm" (click)="openChronoForm()" [disabled]="showChronoForm()">{{ 'brain.chrono.addButton' | transloco }}</button>
           </div>
           <div class="list-filter-row">

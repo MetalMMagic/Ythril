@@ -8,18 +8,17 @@ import { QueryTabComponent } from './query-tab.component';
 import { RecordListState } from './record-list-state.service';
 import { MemoriesTabComponent } from './memories-tab.component';
 import { EntitiesTabComponent } from './entities-tab.component';
+import { EdgesTabComponent } from './edges-tab.component';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { toLocalDatetime, fmtApiError } from './brain-format';
 import { FormsModule } from '@angular/forms';
-import { Space, SpaceStats, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, FileMeta } from '../../core/api.types';
+import { Space, SpaceStats, ChronoEntry, ChronoType, ChronoStatus, FileMeta } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { FilesApi } from '../../core/files-api.service';
 import { GraphComponent } from '../graph/graph.component';
 import { FileManagerComponent } from '../files/file-manager.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
-import { PropertiesViewComponent } from '../../shared/properties-view.component';
-import { PropertiesEditorComponent } from '../../shared/properties-editor.component';
 import { TagInputComponent } from '../../shared/tag-input.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
@@ -48,7 +47,7 @@ interface SpaceView {
   // or happens in a template event handler, both of which mark the view dirty. That coupling is
   // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, TranslocoPipe],
   providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
   styles: [BRAIN_CHIP_STYLES, `
     .space-tabs {
@@ -471,213 +470,7 @@ interface SpaceView {
         @if (activeTab() === 'entities') { <app-entities-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" /> }
 
         <!-- Edges -->
-        @if (activeTab() === 'edges') {
-
-          <div class="content-header">
-            <input type="search" [placeholder]="'brain.edges.searchPlaceholder' | transloco"
-              [value]="store.edgeSearch()"
-              (input)="onEdgeSearch($any($event.target).value)"
-              [attr.aria-label]="'brain.edges.searchPlaceholder' | transloco" />
-            <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
-              <button [class.active]="store.edgeSearchMode() === 'text'" (click)="setEdgeSearchMode('text')">{{ 'common.sortAZ' | transloco }}</button>
-              <button [class.active]="store.edgeSearchMode() === 'semantic'" (click)="setEdgeSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
-            </div>
-            <button class="btn-primary btn btn-sm" (click)="openEdgeForm()" [disabled]="showEdgeForm()">{{ 'brain.edges.addButton' | transloco }}</button>
-          </div>
-          <div class="list-filter-row">
-            <app-record-filter-bar
-              [typeOptions]="store.edgeTypeOptions()"
-              [tagSuggestions]="store.edgeTagSuggestions()"
-              [value]="recordFilter()"
-              (filterChange)="onFilterChange($event)"
-            />
-          </div>
-
-          @if (showEdgeForm()) {
-            <form class="create-form" (ngSubmit)="createEdge()">
-              <div class="field" style="flex:1; min-width:120px;">
-                <label>{{ 'common.form.from' | transloco }}</label>
-                <app-entity-search
-                  mode="picker"
-                  [spaceId]="activeSpaceId()"
-                  placeholder="common.searchEntitiesPlaceholder"
-
-                  [value]="edgeForm.fromDisplay"
-                  (selected)="pickEdgeFrom($event)"
-                />
-              </div>
-              <div class="field" style="flex:1; min-width:120px;">
-                <label>{{ 'brain.edges.form.relation' | transloco }} <span style="color:var(--error)">*</span></label>
-                @if (store.edgeLabelNames().length) {
-                  <select [(ngModel)]="edgeForm.label" name="label" required>
-                    @for (l of store.edgeLabelNames(); track l) {
-                      <option [value]="l">{{ l }}</option>
-                    }
-                  </select>
-                } @else {
-                  <input type="text" [(ngModel)]="edgeForm.label" name="label" required />
-                }
-              </div>
-              <div class="field" style="flex:1; min-width:120px;">
-                <label>{{ 'common.form.to' | transloco }}</label>
-                <app-entity-search
-                  mode="picker"
-                  [spaceId]="activeSpaceId()"
-                  placeholder="common.searchEntitiesPlaceholder"
-
-                  [value]="edgeForm.toDisplay"
-                  (selected)="pickEdgeTo($event)"
-                />
-              </div>
-              <div class="field" style="width:80px;">
-                <label>{{ 'common.form.weight' | transloco }}</label>
-                <input type="number" [(ngModel)]="edgeForm.weight" name="weight" step="0.1" />
-              </div>
-              <div class="field" style="flex:1; min-width:180px;">
-                <label>{{ 'brain.edges.table.tags' | transloco }}</label>
-                <app-tag-input [(value)]="edgeForm.tags" [suggestions]="store.edgeTagSuggestions()" inputName="edgeFormTags" />
-              </div>
-              <div class="field" style="flex:2; min-width:200px;">
-                <label>{{ 'brain.edges.table.description' | transloco }}</label>
-                <textarea [(ngModel)]="edgeForm.description" name="description" rows="3" style="resize:vertical;"></textarea>
-              </div>
-              <div class="field" style="flex:1; min-width:220px;">
-                <label>{{ 'brain.edges.table.properties' | transloco }}</label>
-                <app-properties-editor
-                  [schema]="store.edgeSchema(edgeForm.label)"
-                  [required]="store.requiredProps(store.edgeSchema(edgeForm.label))"
-                  [(value)]="edgeForm.properties"
-                />
-              </div>
-              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEdge() || !edgeForm.from.trim() || !edgeForm.to.trim() || !edgeForm.label.trim()">
-                @if (creatingEdge()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-                {{ 'common.save' | transloco }}
-              </button>
-              <button class="btn-secondary btn btn-sm" type="button" (click)="showEdgeForm.set(false)">{{ 'common.cancel' | transloco }}</button>
-            </form>
-          }
-
-          @if (createEdgeError()) {
-            <div class="alert alert-error" style="margin-bottom:12px;">{{ createEdgeError() }}</div>
-          }
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>{{ 'brain.edges.table.from' | transloco }}</th><th>{{ 'brain.edges.table.relation' | transloco }}</th><th>{{ 'brain.edges.table.to' | transloco }}</th><th>{{ 'brain.edges.table.weight' | transloco }}</th><th>{{ 'brain.edges.table.tags' | transloco }}</th><th>{{ 'brain.edges.table.description' | transloco }}</th><th>{{ 'brain.edges.table.properties' | transloco }}</th><th>{{ 'brain.edges.table.created' | transloco }}</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (edge of store.filteredEdges(); track edge._id) {
-                  @if (recordList.editingId() === edge._id) {
-                    <tr>
-                      <td colspan="9">
-                        <div class="create-form" style="border:none; padding:8px 0;">
-                          <div class="field" style="min-width:200px; margin-bottom:0;">
-                            <label style="font-size:11px; color:var(--text-muted);">{{ 'brain.edges.form.editingLabel' | transloco }}</label>
-                            <div style="font-size:12px; padding:6px 8px; background:var(--bg-secondary); border-radius:4px; color:var(--text-muted);">
-                              {{ editEdge.fromName || editEdge.from }} → {{ editEdge.toName || editEdge.to }}
-                            </div>
-                          </div>
-                          <div class="field" style="flex:1; min-width:120px; margin-bottom:0;">
-                            <label>{{ 'brain.edges.form.relation' | transloco }}</label>
-                            @if (store.edgeLabelNames().length) {
-                              <select [(ngModel)]="editEdge.label" name="editEdgeLabel">
-                                @for (l of store.edgeLabelNames(); track l) {
-                                  <option [value]="l">{{ l }}</option>
-                                }
-                              </select>
-                            } @else {
-                              <input type="text" [(ngModel)]="editEdge.label" name="editEdgeLabel" />
-                            }
-                          </div>
-                          <div class="field" style="width:80px; margin-bottom:0;">
-                            <label>{{ 'common.form.weight' | transloco }}</label>
-                            <input type="number" [(ngModel)]="editEdge.weight" name="editEdgeWeight" step="0.1" />
-                          </div>
-                          <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
-                            <label>{{ 'brain.edges.table.description' | transloco }}</label>
-                            <textarea [(ngModel)]="editEdge.description" name="editEdgeDesc" rows="2" style="resize:vertical;"></textarea>
-                          </div>
-                          <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
-                            <label>{{ 'brain.edges.table.tags' | transloco }}</label>
-                            <app-tag-input [(value)]="editEdge.tags" [suggestions]="store.edgeTagSuggestions()" inputName="edgeEditTags" />
-                          </div>
-                          <div class="field" style="flex:1; min-width:220px; margin-bottom:0;">
-                            <label>{{ 'brain.edges.table.properties' | transloco }}</label>
-                            <app-properties-editor
-                              [schema]="store.edgeSchema(editEdge.label)"
-                              [required]="store.requiredProps(store.edgeSchema(editEdge.label))"
-                              [(value)]="editEdge.properties"
-                            />
-                          </div>
-                          <div style="display:flex; gap:6px; align-items:flex-end;">
-                            <button class="btn btn-sm btn-primary" [disabled]="recordList.editSaving()" (click)="saveEditEdge(edge._id)">
-                              @if (recordList.editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } {{ 'common.save' | transloco }}
-                            </button>
-                            <button class="btn btn-sm btn-secondary" (click)="recordList.cancelEdit()">{{ 'common.cancel' | transloco }}</button>
-                          </div>
-                          @if (recordList.editError()) { <div style="font-size:12px; color:var(--error);">{{ recordList.editError() }}</div> }
-                        </div>
-                      </td>
-                    </tr>
-                  } @else {
-                    <tr style="vertical-align:top;">
-                      <td style="font-size:12px; white-space:nowrap;">{{ edge.fromName || edge.from }}</td>
-                      <td><span class="badge badge-blue">{{ edge.label }}</span></td>
-                      <td style="font-size:12px; white-space:nowrap;">{{ edge.toName || edge.to }}</td>
-                      <td style="color:var(--text-muted);">{{ edge.weight ?? '—' }}</td>
-                      <td style="font-size:11px;">
-                        @for (tag of (edge.tags ?? []); track tag) { <span class="tag">{{ tag }}</span> }
-                        @if (!(edge.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
-                      </td>
-                      <td style="font-size:12px; color:var(--text-muted); white-space:normal; word-break:break-word; min-width:140px; min-height:4.2em;">
-                        {{ edge.description || '—' }}
-                      </td>
-                      <td><app-properties-view [properties]="edge.properties" [schema]="store.edgeSchema(edge.label)" /></td>
-                      <td style="color:var(--text-muted); white-space:nowrap;">{{ edge.createdAt | date:'dd.MM.yyyy' }}</td>
-                      <td style="white-space:nowrap;">
-                        <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('edge', edge)"><ph-icon name="eye" [size]="16"/></button>
-                        @if (recordList.confirmDeleteId() === edge._id) {
-                          <span class="inline-confirm">
-                            {{ 'common.deleteConfirm' | transloco }}
-                            <button class="btn btn-sm btn-danger" (click)="deleteEdge(edge._id)">{{ 'common.yes' | transloco }}</button>
-                            <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">{{ 'common.no' | transloco }}</button>
-                          </span>
-                        } @else {
-                          <button class="icon-btn danger" [attr.aria-label]="'brain.edges.deleteAriaLabel' | transloco" (click)="requestDelete(edge._id)"><ph-icon name="x" [size]="16"/></button>
-                        }
-                      </td>
-                    </tr>
-                  }
-                } @empty {
-                  <tr><td colspan="9">
-                    @if (recordList.loadError() !== null) {
-                      <app-error-state [message]="'brain.error.loadEdges' | transloco" [reason]="recordList.loadError() ?? ''" (retry)="retryCurrentTab()" />
-                    } @else {
-                    <div class="empty-state" style="padding:32px">
-                      <div class="empty-state-icon"><ph-icon name="graph" [size]="48"/></div>
-                      @if (store.edgeSearch() && store.edges().length) {
-                        <h3>{{ 'common.noMatches' | transloco }}</h3>
-                        <p>{{ 'brain.edges.empty.noMatchQuery' | transloco: { query: store.edgeSearch() } }}</p>
-                      } @else {
-                        <h3>{{ 'brain.edges.empty.title' | transloco }}</h3>
-                      }
-                    </div>
-                    }
-                  </td></tr>
-                }
-              </tbody>
-            </table>
-          </div>
-          @if (store.edgeSearchMode() !== 'semantic') {
-            <div class="pagination">
-              <button class="btn btn-sm btn-secondary" [disabled]="edgeSkip() === 0" (click)="prevEdgePage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ store.filteredEdges().length ? (edgeSkip() + 1) + '–' + (edgeSkip() + store.filteredEdges().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="store.edges().length < pageSize" (click)="nextEdgePage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
-            </div>
-          }
-        }
+        @if (activeTab() === 'edges') { <app-edges-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" /> }
 
         <!-- Chrono -->
         @if (activeTab() === 'chrono') {
@@ -1171,7 +964,6 @@ export class BrainComponent implements OnInit {
     this.recordFilter.set(f);
     switch (this.activeTab()) {
       case 'memories': this.skip.set(0); break;
-      case 'edges': this.edgeSkip.set(0); break;
       case 'chrono': this.chronoSkip.set(0); break;
       default: break;
     }
@@ -1182,11 +974,7 @@ export class BrainComponent implements OnInit {
   skip = signal(0);
   filterEntity = signal('');
 
-  private _edgeSemTimer: ReturnType<typeof setTimeout> | null = null;
   private _chronoSemTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // Edges pagination
-  edgeSkip = signal(0);
 
   // Chrono pagination
   chronoSkip = signal(0);
@@ -1196,14 +984,7 @@ export class BrainComponent implements OnInit {
   reindexing = signal(false);
   reindexResult = signal('');
 
-  editEdge = { from: '', to: '', fromName: undefined as string | undefined, toName: undefined as string | undefined, label: '', weight: null as number | null, tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
   editChrono = { title: '', kind: '' as string, status: '' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '' };
-
-  // Create edge form
-  showEdgeForm = signal(false);
-  creatingEdge = signal(false);
-  createEdgeError = signal('');
-  edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: '', weight: null as number | null, tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
 
   // Create chrono form
   showChronoForm = signal(false);
@@ -1251,7 +1032,6 @@ export class BrainComponent implements OnInit {
     this.picker.spaceId.set(id);
     this.drawerState.spaceId.set(id);
     this.skip.set(0);
-    this.edgeSkip.set(0);
     this.chronoSkip.set(0);
     this.recordFilter.set({ type: '', tag: '' });
     this.filterEntity.set('');
@@ -1271,7 +1051,6 @@ export class BrainComponent implements OnInit {
   setTab(tab: BrainTab): void {
     this.activeTab.set(tab);
     this.skip.set(0);
-    this.edgeSkip.set(0);
     this.chronoSkip.set(0);
     this.fileMetaSkip.set(0);
     this.recordFilter.set({ type: '', tag: '' });
@@ -1287,9 +1066,6 @@ export class BrainComponent implements OnInit {
     this.loadCurrentTab(this.activeSpaceId());
   }
 
-  prevEdgePage(): void { this.edgeSkip.update(s => Math.max(0, s - this.pageSize)); this.loadCurrentTab(this.activeSpaceId()); }
-  nextEdgePage(): void { this.edgeSkip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
-
   prevChronoPage(): void { this.chronoSkip.update(s => Math.max(0, s - this.pageSize)); this.loadCurrentTab(this.activeSpaceId()); }
   nextChronoPage(): void { this.chronoSkip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
 
@@ -1299,44 +1075,6 @@ export class BrainComponent implements OnInit {
   onFileMetaSearch(q: string): void {
     this.store.fileMetaSearch.set(q);
     // client-side filter via filteredFileMetas computed() — no API call per keystroke
-  }
-
-  onEdgeSearch(q: string): void {
-    this.store.edgeSearch.set(q);
-    if (this.store.edgeSearchMode() === 'semantic') {
-      if (this._edgeSemTimer) clearTimeout(this._edgeSemTimer);
-      if (!q.trim()) { this.store.edges.set([]); return; }
-      this._edgeSemTimer = setTimeout(() => this.runSemanticEdgeSearch(), 300);
-    }
-  }
-  setEdgeSearchMode(m: 'text' | 'semantic'): void {
-    this.store.edgeSearchMode.set(m);
-    const q = this.store.edgeSearch().trim();
-    if (!q) return;
-    if (m === 'semantic') this.runSemanticEdgeSearch();
-    else { this.edgeSkip.set(0); this.loadCurrentTab(this.activeSpaceId()); }
-  }
-  runSemanticEdgeSearch(): void {
-    const q = this.store.edgeSearch().trim();
-    const spaceId = this.activeSpaceId();
-    if (!q || !spaceId) { this.store.edges.set([]); return; }
-    this.brainApi.recallBrain(spaceId, { query: q, types: ['edge'], topK: 20 }).pipe(
-      catchError(() => of({ results: [], count: 0 })),
-    ).subscribe(res => {
-      this.store.edges.set(res.results.filter(r => r.type === 'edge').map(r => ({
-        _id: r['_id'] as string,
-        from: (r['from'] as string) ?? '',
-        fromName: r['fromName'] as string | undefined,
-        to: (r['to'] as string) ?? '',
-        toName: r['toName'] as string | undefined,
-        label: (r['label'] as string) ?? '',
-        weight: r['weight'] as number | undefined,
-        tags: (r['tags'] as string[]) ?? [],
-        description: r['description'] as string | undefined,
-        properties: (r['properties'] as Record<string, string | number | boolean>) ?? {},
-        createdAt: (r['createdAt'] as string) ?? '',
-      } as Edge)));
-    });
   }
 
   onChronoSearch(q: string): void {
@@ -1410,20 +1148,11 @@ export class BrainComponent implements OnInit {
     if (!spaceId) return;
     if (this.activeTab() === 'memories') return; // self-loading component
     if (this.activeTab() === 'entities') return; // self-loading component
+    if (this.activeTab() === 'edges') return; // self-loading component
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
 
     switch (this.activeTab()) {
-      case 'edges': {
-        const gf: { type?: string; tag?: string } = {};
-        if (this.recordFilter().type) gf.type = this.recordFilter().type;
-        if (this.recordFilter().tag) gf.tag = this.recordFilter().tag;
-        this.brainApi.listEdges(spaceId, this.pageSize, this.edgeSkip(), gf).subscribe({
-          next: ({ edges }) => { this.store.edges.set(edges); this.recordList.loading.set(false); },
-          error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
-        });
-        break;
-      }
       case 'chrono': {
         const cf: { search?: string; type?: string; tag?: string } = {};
         if (this.store.chronoSearch()) cf.search = this.store.chronoSearch();
@@ -1492,22 +1221,6 @@ export class BrainComponent implements OnInit {
   requestDelete(id: string): void { this.recordList.confirmDeleteId.set(id); }
   cancelDelete(): void { this.recordList.confirmDeleteId.set(''); }
 
-  startEditEdge(edge: Edge): void {
-    this.recordList.editingId.set(edge._id);
-    this.recordList.editError.set('');
-    this.editEdge = {
-      from: edge.from,
-      to: edge.to,
-      fromName: edge.fromName,
-      toName: edge.toName,
-      label: edge.label,
-      weight: edge.weight ?? null,
-      tags: edge.tags ?? [],
-      description: edge.description ?? '',
-      properties: this.store.buildPropertiesObject('edge', edge.properties ?? {}, edge.label),
-    };
-  }
-
   startEditChrono(entry: ChronoEntry): void {
     this.recordList.editingId.set(entry._id);
     this.recordList.editError.set('');
@@ -1521,26 +1234,6 @@ export class BrainComponent implements OnInit {
       tags: entry.tags ?? [],
       entityIds: (entry.entityIds ?? []).join(', '),
     };
-  }
-
-  saveEditEdge(id: string): void {
-    this.recordList.editSaving.set(true);
-    this.recordList.editError.set('');
-    const edgeProps = this.store.stripEmptyOptionalProps(this.editEdge.properties, this.store.edgeSchema(this.editEdge.label));
-    this.brainApi.updateEdge(this.activeSpaceId(), id, {
-      label: this.editEdge.label.trim(),
-      tags: this.editEdge.tags,
-      description: this.editEdge.description.trim(),
-      ...(this.editEdge.weight != null ? { weight: this.editEdge.weight } : {}),
-      ...(Object.keys(edgeProps).length ? { properties: edgeProps } : {}),
-    }).subscribe({
-      next: (updated) => {
-        this.recordList.editSaving.set(false);
-        this.recordList.editingId.set('');
-        this.store.edges.update(list => list.map(e => e._id === id ? updated : e));
-      },
-      error: (err) => { this.recordList.editSaving.set(false); this.recordList.editError.set(fmtApiError(err, 'Failed to save')); },
-    });
   }
 
   saveEditChrono(id: string): void {
@@ -1634,40 +1327,6 @@ export class BrainComponent implements OnInit {
     this.setTab('files');
   }
 
-  createEdge(): void {
-    if (!this.edgeForm.from.trim() || !this.edgeForm.to.trim() || !this.edgeForm.label.trim()) return;
-    this.creatingEdge.set(true);
-    this.createEdgeError.set('');
-    const body: Parameters<BrainApi['createEdge']>[1] = {
-      from: this.edgeForm.from.trim(),
-      to: this.edgeForm.to.trim(),
-      label: this.edgeForm.label.trim(),
-    };
-    if (this.edgeForm.weight != null) body.weight = this.edgeForm.weight;
-    if (this.edgeForm.tags.length) body.tags = this.edgeForm.tags;
-    if (this.edgeForm.description.trim()) body.description = this.edgeForm.description.trim();
-    const edgeProps = this.store.stripEmptyOptionalProps(this.edgeForm.properties, this.store.edgeSchema(this.edgeForm.label));
-    if (Object.keys(edgeProps).length) body.properties = edgeProps;
-    this.brainApi.createEdge(this.activeSpaceId(), body).subscribe({
-      next: () => {
-        this.creatingEdge.set(false);
-        this.showEdgeForm.set(false);
-        this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: '', weight: null, tags: [], description: '', properties: {} as Record<string, string | number | boolean> };
-        this.loadStats(this.activeSpaceId());
-        this.loadCurrentTab(this.activeSpaceId());
-      },
-      error: (err) => { this.creatingEdge.set(false); this.createEdgeError.set(fmtApiError(err, 'Failed to create edge')); },
-    });
-  }
-
-  deleteEdge(id: string): void {
-    this.recordList.confirmDeleteId.set('');
-    this.brainApi.deleteEdge(this.activeSpaceId(), id).subscribe({
-      next: () => this.store.edges.update(list => list.filter(e => e._id !== id)),
-      error: () => {},
-    });
-  }
-
   createChrono(): void {
     if (!this.chronoForm.title.trim() || !this.chronoForm.startsAt) return;
     const resolvedKind = this.chronoForm.kind === '__custom__'
@@ -1733,30 +1392,11 @@ export class BrainComponent implements OnInit {
 
   // ── Form openers with schema prefill ────────────────────────────────────
 
-  openEdgeForm(): void {
-    const firstLabel = Object.keys(this.store.spaceMeta()?.typeSchemas?.edge ?? {})[0] ?? '';
-    this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: firstLabel, weight: null, tags: [], description: '', properties: this.store.buildPropertiesObject('edge', {}, firstLabel) };
-    this.showEdgeForm.set(true);
-  }
-
   openChronoForm(): void {
     this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '' };
     this.showChronoForm.set(true);
   }
 
-  // ── Edge endpoint pickers ───────────────────────────────────────────────
-  // Edge from/to set display fields on the shell-owned edgeForm and do NOT touch the entity-name
-  // cache — the two branches of the old pickEntity that stay here rather than move to the picker.
-
-  pickEdgeFrom(ent: Entity): void {
-    this.edgeForm.from = ent._id;
-    this.edgeForm.fromDisplay = ent.name;
-  }
-
-  pickEdgeTo(ent: Entity): void {
-    this.edgeForm.to = ent._id;
-    this.edgeForm.toDisplay = ent.name;
-  }
 
 }
 

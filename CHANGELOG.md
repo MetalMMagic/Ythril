@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Characterization tests for the settings `SpacesComponent` (36 tests), landed before it is split.**
+  The 1893-line component had **no test coverage at all**, and the client suite as a whole (71 tests)
+  is far thinner than the server's — the AOT build proves a component compiles, not that it still
+  behaves. These pin what the component *does today* so the upcoming split into per-tab child
+  components (A17.8) has something to be measured against: the `sortedSpaces` sort/filter pipeline
+  (all five modes, search across label/id/description, and the fact that it sorts *then* filters),
+  `storageInfo`/`fmtGiB` thresholds, `openSettings` populating all four tabs (by value — editing the
+  form must not mutate the space object), `buildMeta`'s field-by-field emission, proxy-target
+  selection, duplicate rules, and tab/dialog rendering. Most importantly they cover the
+  **library `$ref` round-trip**: a schema linked as `$ref: "library:x"` is held as a private
+  `_libRef` sentinel while editing and must be emitted as `$ref` again — lose it and saving a space
+  silently converts a linked schema into an empty inline one. The suite was verified green against
+  the unmodified component *and* verified to fail when that round-trip is deliberately broken; a
+  characterization test that cannot fail is worthless. Client suite: 71 → 107 tests.
+
 - **Webhooks now fire for agent-driven (MCP) brain mutations, emitted from one place.** Previously
   only the REST API emitted `memory.*`/`entity.*`/`edge.*`/`chrono.*` events; the equivalent MCP
   tools (`remember`, `upsert_entity`, `upsert_edge`, `create_chrono`, `update_*`, `delete_*`,

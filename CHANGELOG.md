@@ -702,6 +702,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`NOTICE` now attributes the three runtime sidecar container images that were missing.** The file
+  already documented the `mongodb/mongodb-atlas-local` image as a "not bundled, pulled independently"
+  runtime dependency, but the other three sidecars referenced by `docker-compose.yml` / the Kubernetes
+  manifests were absent: `unstructured-io/unstructured-api` (Apache 2.0 — the OCR/document-conversion
+  sidecar), `ollama/ollama` (MIT — the vision/embedding model host), and `fedirz/faster-whisper-server`
+  (MIT — the speech-to-text sidecar). Each now has a section mirroring the mongodb one: role, license,
+  the not-bundled / network-isolated framing, and a note that models are pulled separately under their
+  own licenses (default `moondream` Apache 2.0; Whisper models Apache 2.0). All npm dependencies across
+  both workspaces were already attributed and were re-verified complete — the gap was only the images.
+  Licenses are grounded in `docs/dependencies.md`.
+
 - **The Chrono and File Meta tabs are now their own OnPush components, completing the record-tab split —
   and `BrainComponent` is now a thin nav shell (3701 → 637 lines across A17.9b).** With the last two
   tabs out, the shell's `loadCurrentTab` dispatcher is gone (every tab self-loads on its `spaceId`

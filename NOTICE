@@ -529,6 +529,73 @@ deployment without `mongot`.
 
 ---
 
+## Runtime Dependency: unstructured-io/unstructured-api (Docker image)
+
+Ythril's `docker-compose.yml` and `kubernetes/manifests/ythril-deployment.yaml` reference the
+`downloads.unstructured.io/unstructured-io/unstructured-api` container image published by
+Unstructured Technologies, Inc. This image is **not bundled with or distributed by Ythril** - it is
+pulled independently by Docker / Kubernetes at deployment time.
+
+Role: server-side PDF / DOCX / EPUB conversion (`hi_res` OCR + layout detection, table and
+embedded-image extraction).
+
+License: Apache License 2.0.
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        https://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+The image tag is pinned deliberately: its bundled `LICENSE` is verified as Apache-2.0 (no
+commercial-use restriction) before every version bump - the procedure is documented in
+`docker-compose.yml` and the Kubernetes manifest. Ythril communicates with the sidecar only over an
+HTTP socket on an isolated internal network with no database access and no internet egress; no
+unstructured-api code is linked into or incorporated into the Ythril application binary or source tree.
+
+---
+
+## Runtime Dependency: ollama/ollama (Docker image)
+
+Ythril's `docker-compose.yml` and `kubernetes/manifests/ollama-deploy.yaml` reference the
+`ollama/ollama` container image published by the Ollama project. This image is **not bundled with or
+distributed by Ythril** - it is pulled independently at deployment time.
+
+Role: hosts the vision model that captions uploaded images for the media-embedding pipeline (default
+model `moondream`).
+
+License: MIT (the Ollama runtime). The full MIT text, with its copyright notice, ships in the image's
+bundled `LICENSE`; Ythril does not redistribute the image. Vision/LLM models are pulled separately at
+runtime under their own licenses - the default `moondream` is Apache 2.0.
+
+Ythril communicates with Ollama only over an HTTP socket on an isolated internal media network; no
+Ollama code is linked into or incorporated into the Ythril application.
+
+---
+
+## Runtime Dependency: fedirz/faster-whisper-server (Docker image)
+
+Ythril's `docker-compose.yml` and `kubernetes/manifests/whisper-deploy.yaml` reference the
+`fedirz/faster-whisper-server` container image. This image is **not bundled with or distributed by
+Ythril** - it is pulled independently at deployment time.
+
+Role: speech-to-text - transcribes uploaded / segmented audio via an OpenAI-compatible endpoint.
+
+License: MIT (the server). The full MIT text, with its copyright notice, ships in the image's bundled
+`LICENSE`; Ythril does not redistribute the image. Whisper models are pulled separately at runtime and
+are Apache 2.0 licensed.
+
+Ythril communicates with the sidecar only over an HTTP socket on an isolated internal media network; no
+faster-whisper-server code is linked into or incorporated into the Ythril application.
+
+---
+
 ## @phosphor-icons/core
 
 License: MIT

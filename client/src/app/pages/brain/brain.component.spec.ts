@@ -17,7 +17,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { of } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
-import { type Memory } from '../../core/api.types';
+import { type Memory, type Entity } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { FilesApi } from '../../core/files-api.service';
@@ -197,5 +197,27 @@ describe('BrainComponent (OnPush)', () => {
     expect(title).toContain('Braintree');
     // Test transloco renders raw keys, so the status word resolves to its key.
     expect(title).toContain('brain.spaceChip.network.vote');
+  });
+
+  // ── Edge endpoint pickers (characterization) ───────────────────────────────
+  // These two branches did NOT move to EntityRefPicker (A17.9b-3): edge from/to set display fields
+  // on the shell-owned edgeForm and, unlike the entity-id chip fields, do NOT touch the name cache.
+  const ent = (id: string, name = id): Entity =>
+    ({ _id: id, name, tags: [], properties: {}, createdAt: '' } as unknown as Entity);
+
+  it('pickEdgeFrom sets edgeForm.from + fromDisplay without caching the name', () => {
+    const c = create().componentInstance;
+    c.pickEdgeFrom(ent('e1', 'Alice'));
+    expect(c.edgeForm.from).toBe('e1');
+    expect(c.edgeForm.fromDisplay).toBe('Alice');
+    expect(c.picker.entityNameCache()['e1']).toBeUndefined();
+  });
+
+  it('pickEdgeTo sets edgeForm.to + toDisplay without caching the name', () => {
+    const c = create().componentInstance;
+    c.pickEdgeTo(ent('e2', 'Bob'));
+    expect(c.edgeForm.to).toBe('e2');
+    expect(c.edgeForm.toDisplay).toBe('Bob');
+    expect(c.picker.entityNameCache()['e2']).toBeUndefined();
   });
 });

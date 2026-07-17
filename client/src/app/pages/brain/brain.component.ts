@@ -1,6 +1,7 @@
 ﻿import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { BrainStore } from './brain-store.service';
+import { EntityRefPicker } from './entity-ref-picker.service';
 import { FormsModule } from '@angular/forms';
 import { Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, KnowledgeType, PropertySchema, FileMeta } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -41,7 +42,7 @@ interface SpaceView {
   // signal write would fail CI rather than silently render a stale form.
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, TranslocoPipe],
-  providers: [BrainStore],
+  providers: [BrainStore, EntityRefPicker],
   styles: [`
     .space-tabs {
       display: flex;
@@ -507,7 +508,7 @@ interface SpaceView {
       </div>
     } @else {
 
-      @if (flyoutField()) { <div class="flyout-backdrop" (click)="closeFlyout()"></div> }
+      @if (picker.flyoutField()) { <div class="flyout-backdrop" (click)="picker.closeFlyout()"></div> }
 
       <!-- Space selector -->
       <div class="space-tabs">
@@ -618,22 +619,22 @@ interface SpaceView {
                 <label>{{ 'common.form.entities' | transloco }}</label>
                 <div class="flyout-wrap">
                   <div class="entity-multi">
-                    @for (chip of entityChips(memoryForm.entityIds); track chip.id) {
-                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(memoryForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
+                    @for (chip of picker.entityChips(memoryForm.entityIds); track chip.id) {
+                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(memoryForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                     }
-                    <button type="button" class="chip-add" (click)="openFlyout('create-memory-entityIds')">{{ 'common.addMore' | transloco }}</button>
+                    <button type="button" class="chip-add" (click)="picker.openFlyout('create-memory-entityIds', memoryForm)">{{ 'common.addMore' | transloco }}</button>
                   </div>
-                  @if (flyoutField() === 'create-memory-entityIds') {
+                  @if (picker.flyoutField() === 'create-memory-entityIds') {
                     <div class="flyout-panel">
                       <app-entity-search
                         mode="picker"
                         [spaceId]="activeSpaceId()"
                         placeholder="common.searchEntitiesPlaceholder"
 
-                        (selected)="pickEntity($event, 'multi', 'create-memory-entityIds')"
+                        (selected)="picker.pickEntity($event, memoryForm)"
                       />
                       <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                        <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">{{ 'common.done' | transloco }}</button>
+                        <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
                       </div>
                     </div>
                   }
@@ -701,22 +702,22 @@ interface SpaceView {
                             <label>{{ 'common.form.entities' | transloco }}</label>
                             <div class="flyout-wrap">
                               <div class="entity-multi">
-                                @for (chip of entityChips(editMemory.entityIds); track chip.id) {
-                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(editMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
+                                @for (chip of picker.entityChips(editMemory.entityIds); track chip.id) {
+                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(editMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                                 }
-                                <button type="button" class="chip-add" (click)="openFlyout('edit-memory-entityIds')">{{ 'common.addMore' | transloco }}</button>
+                                <button type="button" class="chip-add" (click)="picker.openFlyout('edit-memory-entityIds', editMemory)">{{ 'common.addMore' | transloco }}</button>
                               </div>
-                              @if (flyoutField() === 'edit-memory-entityIds') {
+                              @if (picker.flyoutField() === 'edit-memory-entityIds') {
                                 <div class="flyout-panel">
                                   <app-entity-search
                                     mode="picker"
                                     [spaceId]="activeSpaceId()"
                                     placeholder="common.searchEntitiesPlaceholder"
 
-                                    (selected)="pickEntity($event, 'multi', 'edit-memory-entityIds')"
+                                    (selected)="picker.pickEntity($event, editMemory)"
                                   />
                                   <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                    <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">{{ 'common.done' | transloco }}</button>
+                                    <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
                                   </div>
                                 </div>
                               }
@@ -754,7 +755,7 @@ interface SpaceView {
                         @if (mem.entityIds?.length) {
                           <div class="chip-list">
                             @for (id of mem.entityIds!; track id) {
-                              <span class="chip" [title]="id">{{ entityNameCache()[id] || id.slice(0,8) + '…' }}</span>
+                              <span class="chip" [title]="id">{{ picker.entityNameCache()[id] || id.slice(0,8) + '…' }}</span>
                             }
                           </div>
                         } @else { <span style="color:var(--text-muted)">—</span> }
@@ -1014,7 +1015,7 @@ interface SpaceView {
                   placeholder="common.searchEntitiesPlaceholder"
 
                   [value]="edgeForm.fromDisplay"
-                  (selected)="pickEntity($event, 'single', 'create-edge-from')"
+                  (selected)="pickEdgeFrom($event)"
                 />
               </div>
               <div class="field" style="flex:1; min-width:120px;">
@@ -1037,7 +1038,7 @@ interface SpaceView {
                   placeholder="common.searchEntitiesPlaceholder"
 
                   [value]="edgeForm.toDisplay"
-                  (selected)="pickEntity($event, 'single', 'create-edge-to')"
+                  (selected)="pickEdgeTo($event)"
                 />
               </div>
               <div class="field" style="width:80px;">
@@ -1255,22 +1256,22 @@ interface SpaceView {
                 <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
                 <div class="flyout-wrap">
                   <div class="entity-multi">
-                    @for (chip of entityChips(chronoForm.entityIds); track chip.id) {
-                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(chronoForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
+                    @for (chip of picker.entityChips(chronoForm.entityIds); track chip.id) {
+                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(chronoForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                     }
-                    <button type="button" class="chip-add" (click)="openFlyout('create-chrono-entityIds')">{{ 'common.addMore' | transloco }}</button>
+                    <button type="button" class="chip-add" (click)="picker.openFlyout('create-chrono-entityIds', chronoForm)">{{ 'common.addMore' | transloco }}</button>
                   </div>
-                  @if (flyoutField() === 'create-chrono-entityIds') {
+                  @if (picker.flyoutField() === 'create-chrono-entityIds') {
                     <div class="flyout-panel">
                       <app-entity-search
                         mode="picker"
                         [spaceId]="activeSpaceId()"
                         placeholder="common.searchEntitiesPlaceholder"
 
-                        (selected)="pickEntity($event, 'multi', 'create-chrono-entityIds')"
+                        (selected)="picker.pickEntity($event, chronoForm)"
                       />
                       <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                        <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">{{ 'common.done' | transloco }}</button>
+                        <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
                       </div>
                     </div>
                   }
@@ -1337,22 +1338,22 @@ interface SpaceView {
                             <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
                             <div class="flyout-wrap">
                               <div class="entity-multi">
-                                @for (chip of entityChips(editChrono.entityIds); track chip.id) {
-                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(editChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
+                                @for (chip of picker.entityChips(editChrono.entityIds); track chip.id) {
+                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(editChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                                 }
-                                <button type="button" class="chip-add" (click)="openFlyout('edit-chrono-entityIds')">{{ 'common.addMore' | transloco }}</button>
+                                <button type="button" class="chip-add" (click)="picker.openFlyout('edit-chrono-entityIds', editChrono)">{{ 'common.addMore' | transloco }}</button>
                               </div>
-                              @if (flyoutField() === 'edit-chrono-entityIds') {
+                              @if (picker.flyoutField() === 'edit-chrono-entityIds') {
                                 <div class="flyout-panel">
                                   <app-entity-search
                                     mode="picker"
                                     [spaceId]="activeSpaceId()"
                                     placeholder="common.searchEntitiesPlaceholder"
 
-                                    (selected)="pickEntity($event, 'multi', 'edit-chrono-entityIds')"
+                                    (selected)="picker.pickEntity($event, editChrono)"
                                   />
                                   <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                    <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">{{ 'common.done' | transloco }}</button>
+                                    <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
                                   </div>
                                 </div>
                               }
@@ -1385,7 +1386,7 @@ interface SpaceView {
                         @if (entry.entityIds.length) {
                           <div class="chip-list">
                             @for (id of entry.entityIds; track id) {
-                              <span class="chip" [title]="id">{{ entityNameCache()[id] || id.slice(0,8) + '…' }}</span>
+                              <span class="chip" [title]="id">{{ picker.entityNameCache()[id] || id.slice(0,8) + '…' }}</span>
                             }
                           </div>
                         } @else { <span style="color:var(--text-muted)">—</span> }
@@ -1478,16 +1479,16 @@ interface SpaceView {
                               <label>{{ 'brain.fileMeta.table.entities' | transloco }}</label>
                               <div class="flyout-wrap">
                                 <div class="entity-multi">
-                                  @for (chip of entityChips(editFileMeta.entityIds); track chip.id) {
-                                    <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(editFileMeta, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
+                                  @for (chip of picker.entityChips(editFileMeta.entityIds); track chip.id) {
+                                    <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(editFileMeta, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                                   }
-                                  <button type="button" class="chip-add" (click)="openFlyout('edit-filemeta-entityIds')">{{ 'common.addMore' | transloco }}</button>
+                                  <button type="button" class="chip-add" (click)="picker.openFlyout('edit-filemeta-entityIds', editFileMeta)">{{ 'common.addMore' | transloco }}</button>
                                 </div>
-                                @if (flyoutField() === 'edit-filemeta-entityIds') {
+                                @if (picker.flyoutField() === 'edit-filemeta-entityIds') {
                                   <div class="flyout-panel">
-                                    <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="pickEntity($event, 'multi', 'edit-filemeta-entityIds')" />
+                                    <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, editFileMeta)" />
                                     <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                      <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">{{ 'common.done' | transloco }}</button>
+                                      <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
                                     </div>
                                   </div>
                                 }
@@ -1498,20 +1499,20 @@ interface SpaceView {
                               <div class="flyout-wrap">
                                 <div class="entity-multi">
                                   @for (id of editFileMeta.memoryIds; track id) {
-                                    <span class="chip" [title]="id"><span class="chip-name">{{ fmMemoryTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="removeFmMemoryId(editFileMeta, id)"><ph-icon name="x" [size]="12"/></button></span>
+                                    <span class="chip" [title]="id"><span class="chip-name">{{ picker.fmMemoryTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeFmMemoryId(editFileMeta, id)"><ph-icon name="x" [size]="12"/></button></span>
                                   }
-                                  <button type="button" class="chip-add" (click)="openFlyout('edit-filemeta-memoryIds')">{{ 'common.addMore' | transloco }}</button>
+                                  <button type="button" class="chip-add" (click)="picker.openFlyout('edit-filemeta-memoryIds')">{{ 'common.addMore' | transloco }}</button>
                                 </div>
-                                @if (flyoutField() === 'edit-filemeta-memoryIds') {
+                                @if (picker.flyoutField() === 'edit-filemeta-memoryIds') {
                                   <div class="flyout-panel">
-                                    <input type="text" [value]="fmMemPickerQuery()" (input)="onFmMemPickerInput($any($event.target).value)" [placeholder]="'brain.fileMeta.picker.searchMemories' | transloco" style="width:100%; margin-bottom:6px;" />
-                                    @for (mem of fmMemPickerResults(); track mem._id) {
-                                      <div class="flyout-result" (click)="addFmMemoryId(editFileMeta, mem._id); closeFlyout()" style="cursor:pointer; padding:4px 6px; border-radius:4px;">
+                                    <input type="text" [value]="picker.fmMemPickerQuery()" (input)="picker.onFmMemPickerInput($any($event.target).value)" [placeholder]="'brain.fileMeta.picker.searchMemories' | transloco" style="width:100%; margin-bottom:6px;" />
+                                    @for (mem of picker.fmMemPickerResults(); track mem._id) {
+                                      <div class="flyout-result" (click)="picker.addFmMemoryId(editFileMeta, mem._id); picker.closeFlyout()" style="cursor:pointer; padding:4px 6px; border-radius:4px;">
                                         {{ mem.fact.slice(0, 60) }}{{ mem.fact.length > 60 ? '…' : '' }}
                                       </div>
                                     }
                                     <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                      <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">{{ 'common.done' | transloco }}</button>
+                                      <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
                                     </div>
                                   </div>
                                 }
@@ -1522,20 +1523,20 @@ interface SpaceView {
                               <div class="flyout-wrap">
                                 <div class="entity-multi">
                                   @for (id of editFileMeta.chronoIds; track id) {
-                                    <span class="chip" [title]="id"><span class="chip-name">{{ fmChronoTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="removeFmChronoId(editFileMeta, id)"><ph-icon name="x" [size]="12"/></button></span>
+                                    <span class="chip" [title]="id"><span class="chip-name">{{ picker.fmChronoTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeFmChronoId(editFileMeta, id)"><ph-icon name="x" [size]="12"/></button></span>
                                   }
-                                  <button type="button" class="chip-add" (click)="openFlyout('edit-filemeta-chronoIds')">{{ 'common.addMore' | transloco }}</button>
+                                  <button type="button" class="chip-add" (click)="picker.openFlyout('edit-filemeta-chronoIds')">{{ 'common.addMore' | transloco }}</button>
                                 </div>
-                                @if (flyoutField() === 'edit-filemeta-chronoIds') {
+                                @if (picker.flyoutField() === 'edit-filemeta-chronoIds') {
                                   <div class="flyout-panel">
-                                    <input type="text" [value]="fmChronoPickerQuery()" (input)="onFmChronoPickerInput($any($event.target).value)" [placeholder]="'brain.fileMeta.picker.searchChrono' | transloco" style="width:100%; margin-bottom:6px;" />
-                                    @for (c of fmChronoPickerResults(); track c._id) {
-                                      <div class="flyout-result" (click)="addFmChronoId(editFileMeta, c._id); closeFlyout()" style="cursor:pointer; padding:4px 6px; border-radius:4px;">
+                                    <input type="text" [value]="picker.fmChronoPickerQuery()" (input)="picker.onFmChronoPickerInput($any($event.target).value)" [placeholder]="'brain.fileMeta.picker.searchChrono' | transloco" style="width:100%; margin-bottom:6px;" />
+                                    @for (c of picker.fmChronoPickerResults(); track c._id) {
+                                      <div class="flyout-result" (click)="picker.addFmChronoId(editFileMeta, c._id); picker.closeFlyout()" style="cursor:pointer; padding:4px 6px; border-radius:4px;">
                                         {{ c.title.slice(0, 60) }}{{ c.title.length > 60 ? '…' : '' }}
                                       </div>
                                     }
                                     <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                      <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">{{ 'common.done' | transloco }}</button>
+                                      <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
                                     </div>
                                   </div>
                                 }
@@ -1585,21 +1586,21 @@ interface SpaceView {
                         <td>
                           <div class="chip-list">
                             @for (id of (fm.entityIds ?? []); track id) {
-                              <span class="chip" [title]="id">{{ entityNameCache()[id] || id.slice(0,8) + '…' }}</span>
+                              <span class="chip" [title]="id">{{ picker.entityNameCache()[id] || id.slice(0,8) + '…' }}</span>
                             }
                           </div>
                         </td>
                         <td>
                           <div class="chip-list">
                             @for (id of (fm.memoryIds ?? []); track id) {
-                              <span class="chip" [title]="id">{{ fmMemoryTitle(id) }}</span>
+                              <span class="chip" [title]="id">{{ picker.fmMemoryTitle(id) }}</span>
                             }
                           </div>
                         </td>
                         <td>
                           <div class="chip-list">
                             @for (id of (fm.chronoIds ?? []); track id) {
-                              <span class="chip" [title]="id">{{ fmChronoTitle(id) }}</span>
+                              <span class="chip" [title]="id">{{ picker.fmChronoTitle(id) }}</span>
                             }
                           </div>
                         </td>
@@ -1896,16 +1897,16 @@ interface SpaceView {
                   <div class="drawer-label">{{ 'common.entityIds' | transloco }}</div>
                   <div class="flyout-wrap">
                     <div class="entity-multi">
-                      @for (chip of entityChips(drawerEditMemory.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
+                      @for (chip of picker.entityChips(drawerEditMemory.entityIds); track chip.id) {
+                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(drawerEditMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                       }
-                      <button type="button" class="chip-add" (click)="openFlyout('drawer-memory-entityIds')">{{ 'common.addMore' | transloco }}</button>
+                      <button type="button" class="chip-add" (click)="picker.openFlyout('drawer-memory-entityIds', drawerEditMemory)">{{ 'common.addMore' | transloco }}</button>
                     </div>
-                    @if (flyoutField() === 'drawer-memory-entityIds') {
+                    @if (picker.flyoutField() === 'drawer-memory-entityIds') {
                       <div class="flyout-panel">
-                        <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="pickEntity($event, 'multi', 'drawer-memory-entityIds')" />
+                        <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, drawerEditMemory)" />
                         <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                          <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">{{ 'common.done' | transloco }}</button>
+                          <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
                         </div>
                       </div>
                     }
@@ -2080,16 +2081,16 @@ interface SpaceView {
                   <div class="drawer-label">{{ 'common.entityIds' | transloco }}</div>
                   <div class="flyout-wrap">
                     <div class="entity-multi">
-                      @for (chip of entityChips(drawerEditChrono.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
+                      @for (chip of picker.entityChips(drawerEditChrono.entityIds); track chip.id) {
+                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(drawerEditChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                       }
-                      <button type="button" class="chip-add" (click)="openFlyout('drawer-chrono-entityIds')">{{ 'common.addMore' | transloco }}</button>
+                      <button type="button" class="chip-add" (click)="picker.openFlyout('drawer-chrono-entityIds', drawerEditChrono)">{{ 'common.addMore' | transloco }}</button>
                     </div>
-                    @if (flyoutField() === 'drawer-chrono-entityIds') {
+                    @if (picker.flyoutField() === 'drawer-chrono-entityIds') {
                       <div class="flyout-panel">
-                        <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="pickEntity($event, 'multi', 'drawer-chrono-entityIds')" />
+                        <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, drawerEditChrono)" />
                         <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                          <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">{{ 'common.done' | transloco }}</button>
+                          <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
                         </div>
                       </div>
                     }
@@ -2141,6 +2142,7 @@ interface SpaceView {
 })
 export class BrainComponent implements OnInit {
   readonly store = inject(BrainStore);
+  readonly picker = inject(EntityRefPicker);
   private spacesApi = inject(SpacesApi);
   private brainApi = inject(BrainApi);
   private filesApi = inject(FilesApi);
@@ -2174,18 +2176,6 @@ export class BrainComponent implements OnInit {
 
   editFileMeta = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };
   drawerEditFileMeta = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };
-  fmMemPickerQuery = signal('');
-  fmMemPickerResults = signal<Memory[]>([]);
-  fmChronoPickerQuery = signal('');
-  fmChronoPickerResults = signal<ChronoEntry[]>([]);
-  fmDrawerMemPickerQuery = signal('');
-  fmDrawerMemPickerResults = signal<Memory[]>([]);
-  fmDrawerChronoPickerQuery = signal('');
-  fmDrawerChronoPickerResults = signal<ChronoEntry[]>([]);
-  private _fmMemTimer: ReturnType<typeof setTimeout> | null = null;
-  private _fmChronoTimer: ReturnType<typeof setTimeout> | null = null;
-  private _fmDrawerMemTimer: ReturnType<typeof setTimeout> | null = null;
-  private _fmDrawerChronoTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ── Shared list filter (F6): type + tag, reused across the list tabs ────────
   /** The active list tab's type+tag filter, driven by <app-record-filter-bar>. */
@@ -2337,6 +2327,7 @@ export class BrainComponent implements OnInit {
 
   selectSpace(id: string): void {
     this.activeSpaceId.set(id);
+    this.picker.spaceId.set(id);
     this.skip.set(0);
     this.entitySkip.set(0);
     this.edgeSkip.set(0);
@@ -2586,7 +2577,7 @@ export class BrainComponent implements OnInit {
           next: ({ memories }) => {
             this.store.memories.set(memories);
             const ids = [...new Set(memories.flatMap(m => m.entityIds ?? []))];
-            if (ids.length) this.resolveEntityNames(ids);
+            if (ids.length) this.picker.resolveEntityNames(ids);
             this.loading.set(false);
           },
           error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
@@ -2623,7 +2614,7 @@ export class BrainComponent implements OnInit {
           next: ({ chrono }) => {
             this.store.chrono.set(chrono);
             const ids = [...new Set(chrono.flatMap(e => e.entityIds ?? []))];
-            if (ids.length) this.resolveEntityNames(ids);
+            if (ids.length) this.picker.resolveEntityNames(ids);
             this.loading.set(false);
           },
           error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
@@ -2847,7 +2838,7 @@ export class BrainComponent implements OnInit {
       chronoIds: [...(entry.chronoIds ?? [])],
     };
     // Resolve entity names for chips display
-    this.resolveEntityNamesForFlyout('edit-filemeta-entityIds');
+    this.picker.resolveEntityNamesFor(this.editFileMeta.entityIds);
   }
 
   saveEditFileMeta(id: string): void {
@@ -2901,94 +2892,6 @@ export class BrainComponent implements OnInit {
     const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) || '/' : '/';
     this.fileManagerNavPath.set(dir === '/' ? '' : dir);
     this.setTab('files');
-  }
-
-  // ── File Meta memory/chrono pickers ──────────────────────────────────────
-
-  onFmMemPickerInput(q: string, isDrawer = false): void {
-    if (isDrawer) {
-      this.fmDrawerMemPickerQuery.set(q);
-      if (this._fmDrawerMemTimer) clearTimeout(this._fmDrawerMemTimer);
-      if (!q.trim()) { this.fmDrawerMemPickerResults.set([]); return; }
-      this._fmDrawerMemTimer = setTimeout(() => {
-        this.brainApi.listMemories(this.activeSpaceId(), 8, 0, {}).subscribe({
-          next: ({ memories }) => this.fmDrawerMemPickerResults.set(
-            memories.filter(m => m.fact.toLowerCase().includes(q.toLowerCase())).slice(0, 6),
-          ),
-          error: () => {},
-        });
-      }, 300);
-    } else {
-      this.fmMemPickerQuery.set(q);
-      if (this._fmMemTimer) clearTimeout(this._fmMemTimer);
-      if (!q.trim()) { this.fmMemPickerResults.set([]); return; }
-      this._fmMemTimer = setTimeout(() => {
-        this.brainApi.listMemories(this.activeSpaceId(), 8, 0, {}).subscribe({
-          next: ({ memories }) => this.fmMemPickerResults.set(
-            memories.filter(m => m.fact.toLowerCase().includes(q.toLowerCase())).slice(0, 6),
-          ),
-          error: () => {},
-        });
-      }, 300);
-    }
-  }
-
-  onFmChronoPickerInput(q: string, isDrawer = false): void {
-    if (isDrawer) {
-      this.fmDrawerChronoPickerQuery.set(q);
-      if (this._fmDrawerChronoTimer) clearTimeout(this._fmDrawerChronoTimer);
-      if (!q.trim()) { this.fmDrawerChronoPickerResults.set([]); return; }
-      this._fmDrawerChronoTimer = setTimeout(() => {
-        this.brainApi.listChrono(this.activeSpaceId(), 8, 0, { search: q }).subscribe({
-          next: ({ chrono }) => this.fmDrawerChronoPickerResults.set(chrono.slice(0, 6)),
-          error: () => {},
-        });
-      }, 300);
-    } else {
-      this.fmChronoPickerQuery.set(q);
-      if (this._fmChronoTimer) clearTimeout(this._fmChronoTimer);
-      if (!q.trim()) { this.fmChronoPickerResults.set([]); return; }
-      this._fmChronoTimer = setTimeout(() => {
-        this.brainApi.listChrono(this.activeSpaceId(), 8, 0, { search: q }).subscribe({
-          next: ({ chrono }) => this.fmChronoPickerResults.set(chrono.slice(0, 6)),
-          error: () => {},
-        });
-      }, 300);
-    }
-  }
-
-  addFmMemoryId(form: { memoryIds: string[] }, id: string): void {
-    if (!form.memoryIds.includes(id)) form.memoryIds.push(id);
-    this.fmMemPickerQuery.set('');
-    this.fmMemPickerResults.set([]);
-    this.fmDrawerMemPickerQuery.set('');
-    this.fmDrawerMemPickerResults.set([]);
-  }
-
-  removeFmMemoryId(form: { memoryIds: string[] }, id: string): void {
-    form.memoryIds = form.memoryIds.filter(m => m !== id);
-  }
-
-  addFmChronoId(form: { chronoIds: string[] }, id: string): void {
-    if (!form.chronoIds.includes(id)) form.chronoIds.push(id);
-    this.fmChronoPickerQuery.set('');
-    this.fmChronoPickerResults.set([]);
-    this.fmDrawerChronoPickerQuery.set('');
-    this.fmDrawerChronoPickerResults.set([]);
-  }
-
-  removeFmChronoId(form: { chronoIds: string[] }, id: string): void {
-    form.chronoIds = form.chronoIds.filter(c => c !== id);
-  }
-
-  fmMemoryTitle(id: string): string {
-    const mem = this.store.memories().find(m => m._id === id);
-    return mem ? mem.fact.slice(0, 40) + (mem.fact.length > 40 ? '…' : '') : id.slice(0, 8) + '…';
-  }
-
-  fmChronoTitle(id: string): string {
-    const c = this.store.chrono().find(c => c._id === id);
-    return c ? c.title.slice(0, 40) + (c.title.length > 40 ? '…' : '') : id.slice(0, 8) + '…';
   }
 
   createMemory(): void {
@@ -3350,7 +3253,7 @@ export class BrainComponent implements OnInit {
     this.drawerError.set('');
     this.drawerSaving.set(false);
     const ids: string[] = record.entityIds ?? [];
-    if (ids.length) this.resolveEntityNames(ids);
+    if (ids.length) this.picker.resolveEntityNames(ids);
     if (kind === 'memory') {
       this.drawerEditMemory = {
         fact: record.fact,
@@ -3397,7 +3300,21 @@ export class BrainComponent implements OnInit {
   closeDrawer(): void {
     this.drawerRecord.set(null);
     this.drawerError.set('');
-    this.closeFlyout();
+    this.picker.closeFlyout();
+  }
+
+  // ── Edge endpoint pickers ───────────────────────────────────────────────
+  // Edge from/to set display fields on the shell-owned edgeForm and do NOT touch the entity-name
+  // cache — the two branches of the old pickEntity that stay here rather than move to the picker.
+
+  pickEdgeFrom(ent: Entity): void {
+    this.edgeForm.from = ent._id;
+    this.edgeForm.fromDisplay = ent.name;
+  }
+
+  pickEdgeTo(ent: Entity): void {
+    this.edgeForm.to = ent._id;
+    this.edgeForm.toDisplay = ent.name;
   }
 
   saveDrawer(): void {
@@ -3482,108 +3399,5 @@ export class BrainComponent implements OnInit {
     }
   }
 
-  private resolveEntityNames(ids: string[]): void {
-    const spaceId = this.activeSpaceId();
-    if (!spaceId) return;
-    const unknown = ids.filter(id => !this.entityNameCache()[id]);
-    if (!unknown.length) return;
-    this.brainApi.getEntitiesByIds(spaceId, unknown).subscribe({
-      next: ({ entities }) => {
-        const patch: Record<string, string> = {};
-        for (const e of entities) patch[e._id] = e.name;
-        this.entityNameCache.update(c => ({ ...c, ...patch }));
-      },
-      error: () => {},
-    });
-  }
-
-  // ── Entity picker & flyouts ─────────────────────────────────────────────
-
-  flyoutField = signal('');
-  entityNameCache = signal<Record<string, string>>({});
-
-  openFlyout(key: string): void {
-    this.flyoutField.set(key);
-    if (key.endsWith('entityIds')) this.resolveEntityNamesForFlyout(key);
-  }
-
-  closeFlyout(): void {
-    this.flyoutField.set('');
-  }
-
-  removeEntityId(target: { entityIds: string }, id: string): void {
-    const parts = target.entityIds.split(',').map(s => s.trim()).filter(s => s && s !== id);
-    target.entityIds = parts.join(', ');
-  }
-
-  entityChips(ids: string): Array<{ id: string; name: string }> {
-    const cache = this.entityNameCache();
-    return ids.split(',').map(s => s.trim()).filter(Boolean)
-      .map(id => ({ id, name: cache[id] ?? id }));
-  }
-
-  private resolveEntityNamesForFlyout(key: string): void {
-    let ids = '';
-    switch (key) {
-      case 'create-memory-entityIds': ids = this.memoryForm.entityIds; break;
-      case 'edit-memory-entityIds': ids = this.editMemory.entityIds; break;
-      case 'drawer-memory-entityIds': ids = this.drawerEditMemory.entityIds; break;
-      case 'create-chrono-entityIds': ids = this.chronoForm.entityIds; break;
-      case 'edit-chrono-entityIds': ids = this.editChrono.entityIds; break;
-      case 'drawer-chrono-entityIds': ids = this.drawerEditChrono.entityIds; break;
-      case 'edit-filemeta-entityIds': ids = this.editFileMeta.entityIds; break;
-      case 'drawer-filemeta-entityIds': ids = this.drawerEditFileMeta.entityIds; break;
-    }
-    const spaceId = this.activeSpaceId();
-    if (!spaceId) return;
-    const unknown = ids.split(',').map(s => s.trim())
-      .filter(s => s && !this.entityNameCache()[s]);
-    if (!unknown.length) return;
-    this.brainApi.getEntitiesByIds(spaceId, unknown).subscribe({
-      next: ({ entities }) => {
-        const patch: Record<string, string> = {};
-        for (const e of entities) patch[e._id] = e.name;
-        this.entityNameCache.update(c => ({ ...c, ...patch }));
-      },
-      error: () => {},
-    });
-  }
-
-  pickEntity(ent: Entity, mode: 'single' | 'multi', field: string): void {
-    switch (field) {
-      case 'create-edge-from':         this.edgeForm.from = ent._id; this.edgeForm.fromDisplay = ent.name; break;
-      case 'create-edge-to':           this.edgeForm.to = ent._id; this.edgeForm.toDisplay = ent.name; break;
-      case 'create-memory-entityIds':
-        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
-        this.memoryForm.entityIds = this.appendEntityId(this.memoryForm.entityIds, ent._id); break;
-      case 'create-chrono-entityIds':
-        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
-        this.chronoForm.entityIds = this.appendEntityId(this.chronoForm.entityIds, ent._id); break;
-      case 'edit-memory-entityIds':
-        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
-        this.editMemory.entityIds = this.appendEntityId(this.editMemory.entityIds, ent._id); break;
-      case 'drawer-memory-entityIds':
-        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
-        this.drawerEditMemory.entityIds = this.appendEntityId(this.drawerEditMemory.entityIds, ent._id); break;
-      case 'edit-chrono-entityIds':
-        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
-        this.editChrono.entityIds = this.appendEntityId(this.editChrono.entityIds, ent._id); break;
-      case 'drawer-chrono-entityIds':
-        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
-        this.drawerEditChrono.entityIds = this.appendEntityId(this.drawerEditChrono.entityIds, ent._id); break;
-      case 'edit-filemeta-entityIds':
-        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
-        this.editFileMeta.entityIds = this.appendEntityId(this.editFileMeta.entityIds, ent._id); break;
-      case 'drawer-filemeta-entityIds':
-        this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
-        this.drawerEditFileMeta.entityIds = this.appendEntityId(this.drawerEditFileMeta.entityIds, ent._id); break;
-    }
-  }
-
-  private appendEntityId(current: string, id: string): string {
-    const parts = current.split(',').map(s => s.trim()).filter(Boolean);
-    if (!parts.includes(id)) parts.push(id);
-    return parts.join(', ');
-  }
 }
 

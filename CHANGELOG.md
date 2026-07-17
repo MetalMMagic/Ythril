@@ -689,6 +689,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`BrainComponent`'s shared entity/memory/chrono reference picker is now its own `EntityRefPicker`
+  service, and its string-keyed god-switch is gone.** One flyout and one entity-name cache serve every
+  form on the brain page; they used to be wired by `pickEntity(ent, mode, field)` and
+  `resolveEntityNamesForFlyout(key)` branching on a field key like `'drawer-memory-entityIds'` and
+  reaching directly into all ten form objects (the create/edit/drawer forms + edge endpoints). That
+  single seam coupled the drawer and every tab view to the shell, blocking their extraction. The
+  picker now exposes a **target-based** API — `pickEntity(ent, target)` appends to whatever form ref
+  it is handed and `openFlyout(key, target)` resolves that target's uncached names — exactly as
+  `removeEntityId(target, id)` already worked. The ten `pickEntity` branches collapse to one; the two
+  edge endpoints (which set display fields without touching the name cache) stay on the shell as
+  `pickEdgeFrom`/`pickEdgeTo`. Behaviour is unchanged and pinned by the A17.9b-2 characterization
+  tests, relocated to drive the service. `brain.component.ts` 3589 → 3403; new
+  `entity-ref-picker.service.ts` (~215 lines). This is the keystone that unblocks the record-drawer
+  and per-tab component splits (A17.9b-4/5).
+
 - **Extracted `BrainStore` from the 3701-line `BrainComponent` — the record lists and their derived
   view (internal, no behavior change).** First step of the A17.9 split (the flagship monolith), using
   the store pattern proven on the spaces page. `BrainStore` owns the five record lists

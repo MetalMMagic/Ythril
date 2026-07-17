@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Characterization tests for the five record tabs' CRUD (12 tests), landed before those tabs are
+  split into their own components.** The memories/entities/edges/chrono/filemeta create/edit/delete/load
+  payload shaping had no coverage, and it is riddled with asymmetries that a per-tab split could quietly
+  "tidy away" — so these pin them against the unmodified shell: create strips empty optional properties
+  for **entity** and **edge** (schema-aware) but memory sends its properties **raw**; create resolves a
+  chrono `__custom__` kind to the free-text `customKind`, while inline-**edit** chrono sends
+  `editChrono.kind` **verbatim** (no such resolution); delete refreshes the space stats for **memory**
+  and **entity** but **not** for edge/chrono; file-meta deletes by **path** (not id) via the files API.
+  Also pinned: every successful edit clears `editingId` and patches the store list in place, every delete
+  clears `confirmDeleteId` and filters the list, and the memories loader sends page size + skip + the
+  active tag/type/entity filter (with `nextPage`/`prevPage` moving skip by `pageSize` and clamping at 0).
+  Verified green against the original component. Client suite: 174 → 186.
+
 - **Characterization tests for `BrainComponent`'s shared entity-reference picker + flyout (18 tests),
   landed before that subsystem is extracted.** One flyout and one entity-name cache are shared by
   every form on the brain page — the create forms, the inline edit forms, the file-meta editors, and

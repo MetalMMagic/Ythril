@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Characterization tests for `BrainComponent`'s shared entity-reference picker + flyout (18 tests),
+  landed before that subsystem is extracted.** One flyout and one entity-name cache are shared by
+  every form on the brain page — the create forms, the inline edit forms, the file-meta editors, and
+  the detail drawer — and today they are wired together by a string-keyed god-switch: `pickEntity`
+  and `resolveEntityNamesForFlyout` branch on a field key like `'drawer-memory-entityIds'` and reach
+  directly into the matching form object. That single seam is what couples the drawer and the tab
+  views to the shell, so it blocks splitting them out; the split will replace the god-switch with a
+  target-based API. These pin the exact behaviour that must survive: every `pickEntity` branch (which
+  form's `entityIds` the id lands in, that the name-cache is updated for entity fields, and that the
+  edge from/to fields set id + display *without* touching the cache), that `pickEntity`'s `mode`
+  argument is inert today, `appendEntityId`/`removeEntityId`/`entityChips` string handling, and
+  `openFlyout` resolving only the *uncached* ids of the matching form. Verified green against the
+  unmodified component. Client suite: 145 → 163.
+
 - **Characterization tests for `BrainComponent`'s derived list state (18 tests), landed before the
   A17.9 split.** The flagship 3701-line component has only 9 tests, and they cover rendering (OnPush,
   the record drawer, the network indicator) — none touch the pure derived state, which is exactly

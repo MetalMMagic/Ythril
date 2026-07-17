@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, effect, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -13,10 +13,8 @@ import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
-import { BrainStore } from './brain-store.service';
-import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordDrawerState } from './record-drawer-state.service';
-import { RecordListState } from './record-list-state.service';
+import { RecordTabBase } from './record-tab-base';
 import { fmtApiError } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
@@ -237,27 +235,20 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
           </div>
           @if (store.edgeSearchMode() !== 'semantic') {
             <div class="pagination">
-              <button class="btn btn-sm btn-secondary" [disabled]="edgeSkip() === 0" (click)="prevEdgePage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ store.filteredEdges().length ? (edgeSkip() + 1) + '–' + (edgeSkip() + store.filteredEdges().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="store.edges().length < pageSize" (click)="nextEdgePage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
+              <button class="btn btn-sm btn-secondary" [disabled]="skip() === 0" (click)="prevPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
+              <span class="pager-info">{{ store.filteredEdges().length ? (skip() + 1) + '–' + (skip() + store.filteredEdges().length) : '–' }}</span>
+              <button class="btn btn-sm btn-secondary" [disabled]="store.edges().length < pageSize" (click)="nextPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
   `,
 })
-export class EdgesTabComponent {
-  readonly store = inject(BrainStore);
-  readonly picker = inject(EntityRefPicker);
+export class EdgesTabComponent extends RecordTabBase {
   readonly drawerState = inject(RecordDrawerState);
-  readonly recordList = inject(RecordListState);
   private brainApi = inject(BrainApi);
 
-  readonly spaceId = input.required<string>();
   /** Emitted after a create so the shell can refresh the space's tab-count stats. (Delete does NOT — matches the shell's original edge behaviour.) */
   readonly mutated = output<void>();
 
-  readonly pageSize = 20;
-
-  edgeSkip = signal(0);
   recordFilter = signal<RecordFilter>({ type: '', tag: '' });
 
   showEdgeForm = signal(false);
@@ -268,16 +259,11 @@ export class EdgesTabComponent {
 
   private _edgeSemTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor() {
-    effect(() => {
-      const id = this.spaceId();
-      this.edgeSkip.set(0);
-      this.recordFilter.set({ type: '', tag: '' });
-      if (id) this.load();
-    });
+  protected override resetOnSpaceChange(): void {
+    this.recordFilter.set({ type: '', tag: '' });
   }
 
-  private load(): void {
+  protected override load(): void {
     const spaceId = this.spaceId();
     if (!spaceId) return;
     this.recordList.loading.set(true);
@@ -285,19 +271,11 @@ export class EdgesTabComponent {
     const gf: { type?: string; tag?: string } = {};
     if (this.recordFilter().type) gf.type = this.recordFilter().type;
     if (this.recordFilter().tag) gf.tag = this.recordFilter().tag;
-    this.brainApi.listEdges(spaceId, this.pageSize, this.edgeSkip(), gf).subscribe({
+    this.brainApi.listEdges(spaceId, this.pageSize, this.skip(), gf).subscribe({
       next: ({ edges }) => { this.store.edges.set(edges); this.recordList.loading.set(false); },
       error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
     });
   }
-
-  retryCurrentTab(): void { this.load(); }
-
-  prevEdgePage(): void { this.edgeSkip.update(s => Math.max(0, s - this.pageSize)); this.load(); }
-  nextEdgePage(): void { this.edgeSkip.update(s => s + this.pageSize); this.load(); }
-
-  requestDelete(id: string): void { this.recordList.confirmDeleteId.set(id); }
-  cancelDelete(): void { this.recordList.confirmDeleteId.set(''); }
 
   onEdgeSearch(q: string): void {
     this.store.edgeSearch.set(q);
@@ -313,7 +291,7 @@ export class EdgesTabComponent {
     const q = this.store.edgeSearch().trim();
     if (!q) return;
     if (m === 'semantic') this.runSemanticEdgeSearch();
-    else { this.edgeSkip.set(0); this.load(); }
+    else { this.skip.set(0); this.load(); }
   }
 
   runSemanticEdgeSearch(): void {
@@ -341,7 +319,7 @@ export class EdgesTabComponent {
 
   onFilterChange(f: RecordFilter): void {
     this.recordFilter.set(f);
-    this.edgeSkip.set(0);
+    this.skip.set(0);
     this.load();
   }
 

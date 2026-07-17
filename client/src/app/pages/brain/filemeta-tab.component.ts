@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, effect, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -10,9 +10,7 @@ import { TagInputComponent } from '../../shared/tag-input.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
-import { BrainStore } from './brain-store.service';
-import { EntityRefPicker } from './entity-ref-picker.service';
-import { RecordListState } from './record-list-state.service';
+import { RecordTabBase } from './record-tab-base';
 import { fmtApiError } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
@@ -222,59 +220,38 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
               </table>
             </div>
             <div class="pagination">
-              <button class="btn btn-sm btn-secondary" [disabled]="fileMetaSkip() === 0" (click)="prevFileMetaPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ store.fileMetas().length ? (fileMetaSkip() + 1) + '–' + (fileMetaSkip() + store.fileMetas().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="store.fileMetas().length < pageSize" (click)="nextFileMetaPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
+              <button class="btn btn-sm btn-secondary" [disabled]="skip() === 0" (click)="prevPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
+              <span class="pager-info">{{ store.fileMetas().length ? (skip() + 1) + '–' + (skip() + store.fileMetas().length) : '–' }}</span>
+              <button class="btn btn-sm btn-secondary" [disabled]="store.fileMetas().length < pageSize" (click)="nextPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
   `,
 })
-export class FilemetaTabComponent {
-  readonly store = inject(BrainStore);
-  readonly picker = inject(EntityRefPicker);
-  readonly recordList = inject(RecordListState);
+export class FilemetaTabComponent extends RecordTabBase {
   private filesApi = inject(FilesApi);
   private toast = inject(ToastService);
   private transloco = inject(TranslocoService);
 
-  readonly spaceId = input.required<string>();
   /** Emitted after a delete so the shell can refresh the space's tab-count stats. */
   readonly mutated = output<void>();
   /** Emitted to open a file's directory in the Files tab (shell navigation). */
   readonly openInManager = output<string>();
 
-  readonly pageSize = 20;
-
-  fileMetaSkip = signal(0);
   retryingEmbedding = signal<Set<string>>(new Set());
   editFileMeta = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };
 
-  constructor() {
-    effect(() => {
-      const id = this.spaceId();
-      this.fileMetaSkip.set(0);
-      if (id) this.load();
-    });
-  }
+  // No resetOnSpaceChange override: file-meta has no filter bar, so the base's skip reset is enough.
 
-  private load(): void {
+  protected override load(): void {
     const spaceId = this.spaceId();
     if (!spaceId) return;
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
-    this.filesApi.listFileMeta(spaceId, this.pageSize, this.fileMetaSkip(), this.store.fileMetaSearch() || undefined).subscribe({
+    this.filesApi.listFileMeta(spaceId, this.pageSize, this.skip(), this.store.fileMetaSearch() || undefined).subscribe({
       next: ({ files }) => { this.store.fileMetas.set(files); this.recordList.loading.set(false); },
       error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
     });
   }
-
-  retryCurrentTab(): void { this.load(); }
-
-  prevFileMetaPage(): void { this.fileMetaSkip.update(s => Math.max(0, s - this.pageSize)); this.load(); }
-  nextFileMetaPage(): void { this.fileMetaSkip.update(s => s + this.pageSize); this.load(); }
-
-  requestDelete(id: string): void { this.recordList.confirmDeleteId.set(id); }
-  cancelDelete(): void { this.recordList.confirmDeleteId.set(''); }
 
   onFileMetaSearch(q: string): void {
     this.store.fileMetaSearch.set(q);

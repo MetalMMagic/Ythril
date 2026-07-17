@@ -5,6 +5,7 @@ import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordDrawerComponent } from './record-drawer.component';
 import { QueryTabComponent } from './query-tab.component';
+import { RecordListState } from './record-list-state.service';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { toLocalDatetime, fmtApiError } from './brain-format';
 import { FormsModule } from '@angular/forms';
@@ -46,7 +47,7 @@ interface SpaceView {
   // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordDrawerComponent, QueryTabComponent, TranslocoPipe],
-  providers: [BrainStore, EntityRefPicker, RecordDrawerState],
+  providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
   styles: [BRAIN_CHIP_STYLES, `
     .space-tabs {
       display: flex;
@@ -447,7 +448,7 @@ interface SpaceView {
       </div>
 
       <!-- Content -->
-      @if (loading()) {
+      @if (recordList.loading()) {
         <div class="loading-overlay"><span class="spinner"></span></div>
       } @else {
 
@@ -555,7 +556,7 @@ interface SpaceView {
               </thead>
               <tbody>
                 @for (mem of store.filteredMemories(); track mem._id) {
-                  @if (editingId() === mem._id) {
+                  @if (recordList.editingId() === mem._id) {
                     <tr>
                       <td colspan="7">
                         <div class="create-form" style="border:none; padding:8px 0;">
@@ -605,12 +606,12 @@ interface SpaceView {
                             />
                           </div>
                           <div style="display:flex; gap:6px; align-items:flex-end;">
-                            <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditMemory(mem._id)">
-                              @if (editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } {{ 'common.save' | transloco }}
+                            <button class="btn btn-sm btn-primary" [disabled]="recordList.editSaving()" (click)="saveEditMemory(mem._id)">
+                              @if (recordList.editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } {{ 'common.save' | transloco }}
                             </button>
-                            <button class="btn btn-sm btn-secondary" (click)="cancelEdit()">{{ 'common.cancel' | transloco }}</button>
+                            <button class="btn btn-sm btn-secondary" (click)="recordList.cancelEdit()">{{ 'common.cancel' | transloco }}</button>
                           </div>
-                          @if (editError()) { <div style="font-size:12px; color:var(--error);">{{ editError() }}</div> }
+                          @if (recordList.editError()) { <div style="font-size:12px; color:var(--error);">{{ recordList.editError() }}</div> }
                         </div>
                       </td>
                     </tr>
@@ -637,7 +638,7 @@ interface SpaceView {
                       <td style="color:var(--text-muted)">{{ mem.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('memory', mem)"><ph-icon name="eye" [size]="16"/></button>
-                        @if (confirmDeleteId() === mem._id) {
+                        @if (recordList.confirmDeleteId() === mem._id) {
                           <span class="inline-confirm">
                             {{ 'common.deleteConfirm' | transloco }}
                             <button class="btn btn-sm btn-danger" (click)="deleteMemory(mem._id)">{{ 'common.yes' | transloco }}</button>
@@ -651,8 +652,8 @@ interface SpaceView {
                   }
                 } @empty {
                   <tr><td colspan="7">
-                    @if (loadError() !== null) {
-                      <app-error-state [message]="'brain.error.loadMemories' | transloco" [reason]="loadError() ?? ''" (retry)="retryCurrentTab()" />
+                    @if (recordList.loadError() !== null) {
+                      <app-error-state [message]="'brain.error.loadMemories' | transloco" [reason]="recordList.loadError() ?? ''" (retry)="retryCurrentTab()" />
                     } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="brain" [size]="48"/></div>
@@ -758,7 +759,7 @@ interface SpaceView {
               </thead>
               <tbody>
                 @for (ent of store.entities(); track ent._id) {
-                  @if (editingId() === ent._id) {
+                  @if (recordList.editingId() === ent._id) {
                     <tr>
                       <td colspan="7">
                         <div class="create-form" style="border:none; padding:8px 0;">
@@ -795,12 +796,12 @@ interface SpaceView {
                             />
                           </div>
                           <div style="display:flex; gap:6px; align-items:flex-end;">
-                            <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditEntity(ent._id)">
-                              @if (editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } Save
+                            <button class="btn btn-sm btn-primary" [disabled]="recordList.editSaving()" (click)="saveEditEntity(ent._id)">
+                              @if (recordList.editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } Save
                             </button>
-                            <button class="btn btn-sm btn-secondary" (click)="cancelEdit()">{{ 'common.cancel' | transloco }}</button>
+                            <button class="btn btn-sm btn-secondary" (click)="recordList.cancelEdit()">{{ 'common.cancel' | transloco }}</button>
                           </div>
-                          @if (editError()) { <div style="font-size:12px; color:var(--error);">{{ editError() }}</div> }
+                          @if (recordList.editError()) { <div style="font-size:12px; color:var(--error);">{{ recordList.editError() }}</div> }
                         </div>
                       </td>
                     </tr>
@@ -821,7 +822,7 @@ interface SpaceView {
                       <td style="color:var(--text-muted)">{{ ent.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('entity', ent)"><ph-icon name="eye" [size]="16"/></button>
-                        @if (confirmDeleteId() === ent._id) {
+                        @if (recordList.confirmDeleteId() === ent._id) {
                           <span class="inline-confirm">
                             Delete?
                             <button class="btn btn-sm btn-danger" (click)="deleteEntity(ent._id)">{{ 'common.yes' | transloco }}</button>
@@ -835,8 +836,8 @@ interface SpaceView {
                   }
                 } @empty {
                   <tr><td colspan="7">
-                    @if (loadError() !== null) {
-                      <app-error-state [message]="'brain.error.loadEntities' | transloco" [reason]="loadError() ?? ''" (retry)="retryCurrentTab()" />
+                    @if (recordList.loadError() !== null) {
+                      <app-error-state [message]="'brain.error.loadEntities' | transloco" [reason]="recordList.loadError() ?? ''" (retry)="retryCurrentTab()" />
                     } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="tag" [size]="48"/></div>
@@ -954,7 +955,7 @@ interface SpaceView {
               </thead>
               <tbody>
                 @for (edge of store.filteredEdges(); track edge._id) {
-                  @if (editingId() === edge._id) {
+                  @if (recordList.editingId() === edge._id) {
                     <tr>
                       <td colspan="9">
                         <div class="create-form" style="border:none; padding:8px 0;">
@@ -997,12 +998,12 @@ interface SpaceView {
                             />
                           </div>
                           <div style="display:flex; gap:6px; align-items:flex-end;">
-                            <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditEdge(edge._id)">
-                              @if (editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } {{ 'common.save' | transloco }}
+                            <button class="btn btn-sm btn-primary" [disabled]="recordList.editSaving()" (click)="saveEditEdge(edge._id)">
+                              @if (recordList.editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } {{ 'common.save' | transloco }}
                             </button>
-                            <button class="btn btn-sm btn-secondary" (click)="cancelEdit()">{{ 'common.cancel' | transloco }}</button>
+                            <button class="btn btn-sm btn-secondary" (click)="recordList.cancelEdit()">{{ 'common.cancel' | transloco }}</button>
                           </div>
-                          @if (editError()) { <div style="font-size:12px; color:var(--error);">{{ editError() }}</div> }
+                          @if (recordList.editError()) { <div style="font-size:12px; color:var(--error);">{{ recordList.editError() }}</div> }
                         </div>
                       </td>
                     </tr>
@@ -1023,7 +1024,7 @@ interface SpaceView {
                       <td style="color:var(--text-muted); white-space:nowrap;">{{ edge.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('edge', edge)"><ph-icon name="eye" [size]="16"/></button>
-                        @if (confirmDeleteId() === edge._id) {
+                        @if (recordList.confirmDeleteId() === edge._id) {
                           <span class="inline-confirm">
                             {{ 'common.deleteConfirm' | transloco }}
                             <button class="btn btn-sm btn-danger" (click)="deleteEdge(edge._id)">{{ 'common.yes' | transloco }}</button>
@@ -1037,8 +1038,8 @@ interface SpaceView {
                   }
                 } @empty {
                   <tr><td colspan="9">
-                    @if (loadError() !== null) {
-                      <app-error-state [message]="'brain.error.loadEdges' | transloco" [reason]="loadError() ?? ''" (retry)="retryCurrentTab()" />
+                    @if (recordList.loadError() !== null) {
+                      <app-error-state [message]="'brain.error.loadEdges' | transloco" [reason]="recordList.loadError() ?? ''" (retry)="retryCurrentTab()" />
                     } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="graph" [size]="48"/></div>
@@ -1171,7 +1172,7 @@ interface SpaceView {
               </thead>
               <tbody>
                 @for (entry of store.filteredChrono(); track entry._id) {
-                  @if (editingId() === entry._id) {
+                  @if (recordList.editingId() === entry._id) {
                     <tr>
                       <td colspan="9">
                         <div class="create-form" style="border:none; padding:8px 0;">
@@ -1233,12 +1234,12 @@ interface SpaceView {
                             </div>
                           </div>
                           <div style="display:flex; gap:6px; align-items:flex-end;">
-                            <button class="btn btn-sm btn-primary" [disabled]="editSaving()" (click)="saveEditChrono(entry._id)">
-                              @if (editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } {{ 'common.save' | transloco }}
+                            <button class="btn btn-sm btn-primary" [disabled]="recordList.editSaving()" (click)="saveEditChrono(entry._id)">
+                              @if (recordList.editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } {{ 'common.save' | transloco }}
                             </button>
-                            <button class="btn btn-sm btn-secondary" (click)="cancelEdit()">{{ 'common.cancel' | transloco }}</button>
+                            <button class="btn btn-sm btn-secondary" (click)="recordList.cancelEdit()">{{ 'common.cancel' | transloco }}</button>
                           </div>
-                          @if (editError()) { <div style="font-size:12px; color:var(--error);">{{ editError() }}</div> }
+                          @if (recordList.editError()) { <div style="font-size:12px; color:var(--error);">{{ recordList.editError() }}</div> }
                         </div>
                       </td>
                     </tr>
@@ -1266,7 +1267,7 @@ interface SpaceView {
                       </td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('chrono', entry)"><ph-icon name="eye" [size]="16"/></button>
-                        @if (confirmDeleteId() === entry._id) {
+                        @if (recordList.confirmDeleteId() === entry._id) {
                           <span class="inline-confirm">
                             {{ 'common.deleteConfirm' | transloco }}
                             <button class="btn btn-sm btn-danger" (click)="deleteChrono(entry._id)">{{ 'common.yes' | transloco }}</button>
@@ -1280,8 +1281,8 @@ interface SpaceView {
                   }
                 } @empty {
                   <tr><td colspan="9">
-                    @if (loadError() !== null) {
-                      <app-error-state [message]="'brain.error.loadChrono' | transloco" [reason]="loadError() ?? ''" (retry)="retryCurrentTab()" />
+                    @if (recordList.loadError() !== null) {
+                      <app-error-state [message]="'brain.error.loadChrono' | transloco" [reason]="recordList.loadError() ?? ''" (retry)="retryCurrentTab()" />
                     } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="timer" [size]="48"/></div>
@@ -1312,10 +1313,10 @@ interface SpaceView {
           <div class="content-header">
             <input type="search" [value]="store.fileMetaSearch()" (input)="onFileMetaSearch($any($event.target).value)" [placeholder]="'brain.fileMeta.filterPlaceholder' | transloco" [attr.aria-label]="'brain.fileMeta.filterAriaLabel' | transloco" />
           </div>
-          @if (loading()) {
+          @if (recordList.loading()) {
             <div class="empty-state"><span class="spinner"></span></div>
-          } @else if (loadError() !== null) {
-            <app-error-state [message]="'brain.error.loadFileMeta' | transloco" [reason]="loadError() ?? ''" (retry)="retryCurrentTab()" />
+          } @else if (recordList.loadError() !== null) {
+            <app-error-state [message]="'brain.error.loadFileMeta' | transloco" [reason]="recordList.loadError() ?? ''" (retry)="retryCurrentTab()" />
           } @else if (!store.fileMetas().length) {
             <div class="empty-state">{{ 'brain.fileMeta.empty' | transloco }}</div>
           } @else {
@@ -1336,7 +1337,7 @@ interface SpaceView {
                 </thead>
                 <tbody>
                   @for (fm of store.filteredFileMetas(); track fm._id) {
-                    @if (editingId() === fm._id) {
+                    @if (recordList.editingId() === fm._id) {
                       <tr class="edit-row"><td colspan="9">
                         <form class="edit-form" (ngSubmit)="saveEditFileMeta(fm._id)" #fmEditForm="ngForm">
                           <div class="edit-form-fields">
@@ -1416,15 +1417,15 @@ interface SpaceView {
                               </div>
                             </div>
                           </div>
-                          @if (editError()) {
-                            <div class="error-msg">{{ editError() }}</div>
+                          @if (recordList.editError()) {
+                            <div class="error-msg">{{ recordList.editError() }}</div>
                           }
                           <div class="edit-form-actions">
-                            <button class="btn btn-sm btn-primary" type="submit" [disabled]="editSaving()">
-                              @if (editSaving()) { <span class="spinner" style="width:10px;height:10px;border-width:2px;"></span> }
+                            <button class="btn btn-sm btn-primary" type="submit" [disabled]="recordList.editSaving()">
+                              @if (recordList.editSaving()) { <span class="spinner" style="width:10px;height:10px;border-width:2px;"></span> }
                               {{ 'common.save' | transloco }}
                             </button>
-                            <button class="btn btn-sm btn-secondary" type="button" (click)="cancelEdit()">{{ 'common.cancel' | transloco }}</button>
+                            <button class="btn btn-sm btn-secondary" type="button" (click)="recordList.cancelEdit()">{{ 'common.cancel' | transloco }}</button>
                           </div>
                         </form>
                       </td></tr>
@@ -1480,7 +1481,7 @@ interface SpaceView {
                         <td class="text-muted" style="white-space:nowrap;">{{ (fm.sizeBytes / 1024).toFixed(1) }} KB</td>
                         <td class="text-muted" style="white-space:nowrap;">{{ fm.updatedAt | date:'dd.MM.yyyy HH:mm' }}</td>
                         <td class="actions-cell">
-                          @if (confirmDeleteId() === fm._id) {
+                          @if (recordList.confirmDeleteId() === fm._id) {
                             <span class="delete-confirm">
                               <button class="btn btn-xs btn-danger" (click)="deleteFileMeta(fm._id)">{{ 'common.confirm' | transloco }}</button>
                               <button class="btn btn-xs btn-secondary" (click)="cancelDelete()">{{ 'common.cancel' | transloco }}</button>
@@ -1518,6 +1519,7 @@ export class BrainComponent implements OnInit {
   readonly store = inject(BrainStore);
   readonly picker = inject(EntityRefPicker);
   readonly drawerState = inject(RecordDrawerState);
+  readonly recordList = inject(RecordListState);
   private spacesApi = inject(SpacesApi);
   private brainApi = inject(BrainApi);
   private filesApi = inject(FilesApi);
@@ -1537,11 +1539,6 @@ export class BrainComponent implements OnInit {
   spaces = signal<SpaceView[]>([]);
   activeSpaceId = signal('');
   activeTab = signal<BrainTab>('query');
-  loading = signal(false);
-  /** Set to the failure reason when the current tab's list load fails; null when
-   *  the load succeeded (or hasn't run). Rendered as a distinct error state
-   *  BEFORE the empty state so a failed load never reads as "no data" (U3). */
-  loadError = signal<string | null>(null);
   loadingSpaces = signal(true);
 
   fileMetaSkip = signal(0);
@@ -1590,13 +1587,6 @@ export class BrainComponent implements OnInit {
   reindexing = signal(false);
   reindexResult = signal('');
 
-  // Inline delete confirmation (stores the ID pending confirmation)
-  confirmDeleteId = signal('');
-
-  // Inline edit state
-  editingId = signal('');
-  editSaving = signal(false);
-  editError = signal('');
   editMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
   editEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
   editEdge = { from: '', to: '', fromName: undefined as string | undefined, toName: undefined as string | undefined, label: '', weight: null as number | null, tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
@@ -1678,7 +1668,7 @@ export class BrainComponent implements OnInit {
     this.store.memorySearchMode.set('text');
     this.store.edgeSearchMode.set('text');
     this.store.chronoSearchMode.set('text');
-    this.confirmDeleteId.set('');
+    this.recordList.confirmDeleteId.set('');
     this.reindexResult.set('');
     this.loadStats(id);
     this.loadSpaceMeta(id);
@@ -1701,7 +1691,7 @@ export class BrainComponent implements OnInit {
     this.store.memorySearchMode.set('text');
     this.store.edgeSearchMode.set('text');
     this.store.chronoSearchMode.set('text');
-    this.confirmDeleteId.set('');
+    this.recordList.confirmDeleteId.set('');
     this.loadCurrentTab(this.activeSpaceId());
   }
 
@@ -1901,8 +1891,8 @@ export class BrainComponent implements OnInit {
 
   private loadCurrentTab(spaceId: string): void {
     if (!spaceId) return;
-    this.loading.set(true);
-    this.loadError.set(null);
+    this.recordList.loading.set(true);
+    this.recordList.loadError.set(null);
 
     switch (this.activeTab()) {
       case 'memories': {
@@ -1915,9 +1905,9 @@ export class BrainComponent implements OnInit {
             this.store.memories.set(memories);
             const ids = [...new Set(memories.flatMap(m => m.entityIds ?? []))];
             if (ids.length) this.picker.resolveEntityNames(ids);
-            this.loading.set(false);
+            this.recordList.loading.set(false);
           },
-          error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
+          error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
         });
         break;
       }
@@ -1927,8 +1917,8 @@ export class BrainComponent implements OnInit {
         if (this.recordFilter().type) ef.type = this.recordFilter().type;
         if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
         this.brainApi.listEntities(spaceId, this.pageSize, this.entitySkip(), ef).subscribe({
-          next: ({ entities }) => { this.store.entities.set(entities); this.loading.set(false); },
-          error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
+          next: ({ entities }) => { this.store.entities.set(entities); this.recordList.loading.set(false); },
+          error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
         });
         break;
       }
@@ -1937,8 +1927,8 @@ export class BrainComponent implements OnInit {
         if (this.recordFilter().type) gf.type = this.recordFilter().type;
         if (this.recordFilter().tag) gf.tag = this.recordFilter().tag;
         this.brainApi.listEdges(spaceId, this.pageSize, this.edgeSkip(), gf).subscribe({
-          next: ({ edges }) => { this.store.edges.set(edges); this.loading.set(false); },
-          error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
+          next: ({ edges }) => { this.store.edges.set(edges); this.recordList.loading.set(false); },
+          error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
         });
         break;
       }
@@ -1952,28 +1942,28 @@ export class BrainComponent implements OnInit {
             this.store.chrono.set(chrono);
             const ids = [...new Set(chrono.flatMap(e => e.entityIds ?? []))];
             if (ids.length) this.picker.resolveEntityNames(ids);
-            this.loading.set(false);
+            this.recordList.loading.set(false);
           },
-          error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
+          error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
         });
         break;
       }
       case 'query':
         // Query tab manages its own loading state; just clear the global overlay
-        this.loading.set(false);
+        this.recordList.loading.set(false);
         break;
       case 'graph':
         // Graph tab is self-contained; no data pre-fetch needed
-        this.loading.set(false);
+        this.recordList.loading.set(false);
         break;
       case 'files':
         // File manager handles its own loading
-        this.loading.set(false);
+        this.recordList.loading.set(false);
         break;
       case 'filemeta':
         this.filesApi.listFileMeta(spaceId, this.pageSize, this.fileMetaSkip(), this.store.fileMetaSearch() || undefined).subscribe({
-          next: ({ files }) => { this.store.fileMetas.set(files); this.loading.set(false); },
-          error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
+          next: ({ files }) => { this.store.fileMetas.set(files); this.recordList.loading.set(false); },
+          error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
         });
         break;
     }
@@ -2007,14 +1997,14 @@ export class BrainComponent implements OnInit {
     this.loadCurrentTab(this.activeSpaceId());
   }
 
-  requestDelete(id: string): void { this.confirmDeleteId.set(id); }
-  cancelDelete(): void { this.confirmDeleteId.set(''); }
+  requestDelete(id: string): void { this.recordList.confirmDeleteId.set(id); }
+  cancelDelete(): void { this.recordList.confirmDeleteId.set(''); }
 
   // ── Inline edit methods ────────────────────────────────────────────────
 
   startEditMemory(mem: Memory): void {
-    this.editingId.set(mem._id);
-    this.editError.set('');
+    this.recordList.editingId.set(mem._id);
+    this.recordList.editError.set('');
     this.editMemory = {
       fact: mem.fact,
       tags: mem.tags ?? [],
@@ -2025,8 +2015,8 @@ export class BrainComponent implements OnInit {
   }
 
   startEditEntity(ent: Entity): void {
-    this.editingId.set(ent._id);
-    this.editError.set('');
+    this.recordList.editingId.set(ent._id);
+    this.recordList.editError.set('');
     this.editEntity = {
       name: ent.name,
       type: ent.type ?? '',
@@ -2037,8 +2027,8 @@ export class BrainComponent implements OnInit {
   }
 
   startEditEdge(edge: Edge): void {
-    this.editingId.set(edge._id);
-    this.editError.set('');
+    this.recordList.editingId.set(edge._id);
+    this.recordList.editError.set('');
     this.editEdge = {
       from: edge.from,
       to: edge.to,
@@ -2053,8 +2043,8 @@ export class BrainComponent implements OnInit {
   }
 
   startEditChrono(entry: ChronoEntry): void {
-    this.editingId.set(entry._id);
-    this.editError.set('');
+    this.recordList.editingId.set(entry._id);
+    this.recordList.editError.set('');
     this.editChrono = {
       title: entry.title,
       kind: entry.type,
@@ -2067,14 +2057,9 @@ export class BrainComponent implements OnInit {
     };
   }
 
-  cancelEdit(): void {
-    this.editingId.set('');
-    this.editError.set('');
-  }
-
   saveEditMemory(id: string): void {
-    this.editSaving.set(true);
-    this.editError.set('');
+    this.recordList.editSaving.set(true);
+    this.recordList.editError.set('');
     const memProps = this.editMemory.properties;
     this.brainApi.updateMemory(this.activeSpaceId(), id, {
       fact: this.editMemory.fact.trim(),
@@ -2084,17 +2069,17 @@ export class BrainComponent implements OnInit {
       ...(Object.keys(memProps).length ? { properties: memProps } : {}),
     }).subscribe({
       next: (updated) => {
-        this.editSaving.set(false);
-        this.editingId.set('');
+        this.recordList.editSaving.set(false);
+        this.recordList.editingId.set('');
         this.store.memories.update(list => list.map(m => m._id === id ? updated : m));
       },
-      error: (err) => { this.editSaving.set(false); this.editError.set(fmtApiError(err, 'Failed to save')); },
+      error: (err) => { this.recordList.editSaving.set(false); this.recordList.editError.set(fmtApiError(err, 'Failed to save')); },
     });
   }
 
   saveEditEntity(id: string): void {
-    this.editSaving.set(true);
-    this.editError.set('');
+    this.recordList.editSaving.set(true);
+    this.recordList.editError.set('');
     const entProps = this.store.stripEmptyOptionalProps(this.editEntity.properties, this.store.entitySchema(this.editEntity.type));
     this.brainApi.updateEntity(this.activeSpaceId(), id, {
       name: this.editEntity.name.trim(),
@@ -2104,17 +2089,17 @@ export class BrainComponent implements OnInit {
       ...(Object.keys(entProps).length ? { properties: entProps } : {}),
     }).subscribe({
       next: (updated) => {
-        this.editSaving.set(false);
-        this.editingId.set('');
+        this.recordList.editSaving.set(false);
+        this.recordList.editingId.set('');
         this.store.entities.update(list => list.map(e => e._id === id ? updated : e));
       },
-      error: (err) => { this.editSaving.set(false); this.editError.set(fmtApiError(err, 'Failed to save')); },
+      error: (err) => { this.recordList.editSaving.set(false); this.recordList.editError.set(fmtApiError(err, 'Failed to save')); },
     });
   }
 
   saveEditEdge(id: string): void {
-    this.editSaving.set(true);
-    this.editError.set('');
+    this.recordList.editSaving.set(true);
+    this.recordList.editError.set('');
     const edgeProps = this.store.stripEmptyOptionalProps(this.editEdge.properties, this.store.edgeSchema(this.editEdge.label));
     this.brainApi.updateEdge(this.activeSpaceId(), id, {
       label: this.editEdge.label.trim(),
@@ -2124,17 +2109,17 @@ export class BrainComponent implements OnInit {
       ...(Object.keys(edgeProps).length ? { properties: edgeProps } : {}),
     }).subscribe({
       next: (updated) => {
-        this.editSaving.set(false);
-        this.editingId.set('');
+        this.recordList.editSaving.set(false);
+        this.recordList.editingId.set('');
         this.store.edges.update(list => list.map(e => e._id === id ? updated : e));
       },
-      error: (err) => { this.editSaving.set(false); this.editError.set(fmtApiError(err, 'Failed to save')); },
+      error: (err) => { this.recordList.editSaving.set(false); this.recordList.editError.set(fmtApiError(err, 'Failed to save')); },
     });
   }
 
   saveEditChrono(id: string): void {
-    this.editSaving.set(true);
-    this.editError.set('');
+    this.recordList.editSaving.set(true);
+    this.recordList.editError.set('');
     this.brainApi.updateChrono(this.activeSpaceId(), id, {
       title: this.editChrono.title.trim(),
       type: this.editChrono.kind as ChronoType,
@@ -2146,16 +2131,16 @@ export class BrainComponent implements OnInit {
       entityIds: this.editChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean),
     }).subscribe({
       next: (updated) => {
-        this.editSaving.set(false);
-        this.editingId.set('');
+        this.recordList.editSaving.set(false);
+        this.recordList.editingId.set('');
         this.store.chrono.update(list => list.map(c => c._id === id ? updated : c));
       },
-      error: (err) => { this.editSaving.set(false); this.editError.set(fmtApiError(err, 'Failed to save')); },
+      error: (err) => { this.recordList.editSaving.set(false); this.recordList.editError.set(fmtApiError(err, 'Failed to save')); },
     });
   }
 
   deleteMemory(id: string): void {
-    this.confirmDeleteId.set('');
+    this.recordList.confirmDeleteId.set('');
     this.brainApi.deleteMemory(this.activeSpaceId(), id).subscribe({
       next: () => { this.store.memories.update(list => list.filter(m => m._id !== id)); this.loadStats(this.activeSpaceId()); },
       error: () => {},
@@ -2165,8 +2150,8 @@ export class BrainComponent implements OnInit {
   // ── File Meta inline edit ─────────────────────────────────────────────────
 
   startEditFileMeta(entry: FileMeta): void {
-    this.editingId.set(entry._id);
-    this.editError.set('');
+    this.recordList.editingId.set(entry._id);
+    this.recordList.editError.set('');
     this.editFileMeta = {
       description: entry.description ?? '',
       tags: entry.tags ?? [],
@@ -2179,8 +2164,8 @@ export class BrainComponent implements OnInit {
   }
 
   saveEditFileMeta(id: string): void {
-    this.editSaving.set(true);
-    this.editError.set('');
+    this.recordList.editSaving.set(true);
+    this.recordList.editError.set('');
     this.filesApi.updateFileMeta(this.activeSpaceId(), id, {
       description: this.editFileMeta.description.trim(),
       tags: this.editFileMeta.tags,
@@ -2189,26 +2174,26 @@ export class BrainComponent implements OnInit {
       chronoIds: this.editFileMeta.chronoIds,
     }).subscribe({
       next: (updated) => {
-        this.editSaving.set(false);
-        this.editingId.set('');
+        this.recordList.editSaving.set(false);
+        this.recordList.editingId.set('');
         this.store.fileMetas.update(list => list.map(f => f._id === id ? updated : f));
       },
-      error: (err) => { this.editSaving.set(false); this.editError.set(fmtApiError(err, 'Failed to save')); },
+      error: (err) => { this.recordList.editSaving.set(false); this.recordList.editError.set(fmtApiError(err, 'Failed to save')); },
     });
   }
 
   deleteFileMeta(id: string): void {
     // Deleting just removes the metadata record, not the file itself.
     const fm = this.store.fileMetas().find(f => f._id === id);
-    if (!fm) { this.confirmDeleteId.set(''); return; }
+    if (!fm) { this.recordList.confirmDeleteId.set(''); return; }
     this.filesApi.deleteFileMeta(this.activeSpaceId(), fm.path).subscribe({
       next: () => {
-        this.confirmDeleteId.set('');
+        this.recordList.confirmDeleteId.set('');
         this.store.fileMetas.update(list => list.filter(f => f._id !== id));
         this.loadStats(this.activeSpaceId());
       },
       error: () => {
-        this.confirmDeleteId.set('');
+        this.recordList.confirmDeleteId.set('');
         this.toast.error(this.transloco.translate('brain.error.deleteFileMetaFailed'));
       },
     });
@@ -2302,7 +2287,7 @@ export class BrainComponent implements OnInit {
   }
 
   deleteEntity(id: string): void {
-    this.confirmDeleteId.set('');
+    this.recordList.confirmDeleteId.set('');
     this.brainApi.deleteEntity(this.activeSpaceId(), id).subscribe({
       next: () => { this.store.entities.update(list => list.filter(e => e._id !== id)); this.loadStats(this.activeSpaceId()); },
       error: () => {},
@@ -2310,7 +2295,7 @@ export class BrainComponent implements OnInit {
   }
 
   deleteEdge(id: string): void {
-    this.confirmDeleteId.set('');
+    this.recordList.confirmDeleteId.set('');
     this.brainApi.deleteEdge(this.activeSpaceId(), id).subscribe({
       next: () => this.store.edges.update(list => list.filter(e => e._id !== id)),
       error: () => {},
@@ -2348,7 +2333,7 @@ export class BrainComponent implements OnInit {
   }
 
   deleteChrono(id: string): void {
-    this.confirmDeleteId.set('');
+    this.recordList.confirmDeleteId.set('');
     this.brainApi.deleteChrono(this.activeSpaceId(), id).subscribe({
       next: () => this.store.chrono.update(list => list.filter(c => c._id !== id)),
       error: () => {},

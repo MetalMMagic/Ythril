@@ -326,6 +326,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`mcp-tools` integration suite: embedding-availability gate is no longer racy during ollama
+  warm-up.** Each embedding-dependent `describe` block probed availability once (a single `remember`)
+  and cached the result, so a mid-warm-up model could pass the probe and then flake a later `recall`
+  while it was still loading. A shared `waitForEmbeddingReady` helper now gates on a real
+  remember→recall round-trip that must return a non-zero count, retried with backoff across warm-up,
+  and returns `false` immediately when the endpoint is unreachable — so CI (which runs no embedding
+  server) still skips deterministically with no added cost, while a cold local stack waits for the
+  model instead of failing. Unifies all six probe sites (one previously inlined the degraded-mode
+  recall-count check; the others were plain one-shot probes). Test harness only. Warm stack: 94/94.
+
 - **Reindexing degraded embeddings — dropped edge/chrono properties and embedded raw entity IDs
   for edges.** The `POST /reindex` job re-derived each record's embedding text with its own inline
   copies of the per-type builders, and those copies had drifted badly from the real writers: memory

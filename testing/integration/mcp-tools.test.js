@@ -184,6 +184,46 @@ async function ensureReindexed(baseUrl, token) {
   }
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Probe embedding readiness at USE time, not once. Readiness is defined by a full round-trip:
+ * a uniquely-remembered fact must be *recallable with a non-zero count*. That is stricter than
+ * "the endpoint answered" on purpose — memory storage succeeds in a degraded mode with no
+ * embedding server, but recall then returns empty without vectors, and a mid-warm-up model can
+ * answer one call and then fail the next. This retries across ollama warm-up, which is the flake
+ * it replaces: the old one-shot probe passed the instant the endpoint answered, then a later
+ * recall failed while the model was still loading (observed once on a cold stack).
+ *
+ * Returns false fast when the endpoint is unreachable — the server says "Could not reach embedding
+ * endpoint …" (server/src/brain/embedding.ts), which the CI test stack always hits (no embedding
+ * service), so CI keeps skipping deterministically with no retry cost. Transient warm-up states
+ * (HTTP 5xx while the model loads, empty vector, recall count 0) are retried with backoff.
+ */
+async function waitForEmbeddingReady(session, space = 'general', { attempts = 8, delayMs = 2000 } = {}) {
+  const unreachable = (text) => text.includes('could not reach') || text.includes('unreachable');
+  for (let i = 0; i < attempts; i++) {
+    const fact = `__embedding-probe-${Date.now()}-${i}__`;
+    const remembered = await session.callTool('remember', { space, fact, tags: [] });
+    const remText = (remembered?.content?.[0]?.text ?? '').toLowerCase();
+    if (remembered?.isError && unreachable(remText)) return false; // endpoint down → deterministic skip
+    if (!remembered?.isError) {
+      // remember succeeded; the real readiness signal is a recall that returns actual results.
+      const recalled = await session.callTool('recall', { space, query: fact, topK: 1 });
+      if (!recalled?.isError) {
+        let count = 0;
+        try { count = JSON.parse(recalled?.content?.[0]?.text ?? '{}').count ?? 0; }
+        catch { count = (recalled?.content?.[0]?.text ?? '').length > 0 ? 1 : 0; }
+        if (count > 0) return true;
+      } else if (unreachable((recalled?.content?.[0]?.text ?? '').toLowerCase())) {
+        return false;
+      }
+    }
+    if (i < attempts - 1) await sleep(delayMs); // transient warm-up (loading / empty) → retry
+  }
+  return false;
+}
+
 // ── Brain tool tests ──────────────────────────────────────────────────────
 
 describe('MCP brain tools — remember / recall / query', () => {
@@ -195,11 +235,9 @@ describe('MCP brain tools — remember / recall / query', () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     await ensureReindexed(INSTANCES.a, tokenA);
     session = await openMcpSession(tokenA);
-    // Probe: attempt one remember to find out if embedding is configured.
-    // If it returns isError with an embedding-unreachable message, skip embedding tests.
-    const probe = await session.callTool('remember', { space: 'general', fact: `__embedding-probe-${Date.now()}__`, tags: [] });
-    const probeText = probe?.content?.[0]?.text ?? '';
-    embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
+    // Gate embedding-dependent tests on a real remember→recall round-trip, retried across
+    // ollama warm-up so a mid-warm-up probe can't pass and then flake a later recall.
+    embeddingAvailable = await waitForEmbeddingReady(session);
   });
   after(() => session?.close());
 
@@ -774,10 +812,8 @@ describe('MCP recall_global — full-access token, multi-space isolation', () =>
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     await ensureReindexed(INSTANCES.a, tokenA);
     session = await openMcpSession(tokenA);
-    // Probe embedding availability before attempting to remember a seed fact.
-    const probe = await session.callTool('remember', { space: 'general', fact: `__rg-probe-${Date.now()}__`, tags: [] });
-    const probeText = probe?.content?.[0]?.text ?? '';
-    embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
+    // Gate on a real remember→recall round-trip (retried across warm-up) before seeding the fact.
+    embeddingAvailable = await waitForEmbeddingReady(session);
     if (embeddingAvailable) {
       await session.callTool('remember', { space: 'general', fact: spaceAFact, tags: ['global-recall-test'] });
     }
@@ -1135,10 +1171,7 @@ describe('MCP recall � types filter restricts result set', () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     await ensureReindexed(INSTANCES.a, tokenA);
     session = await openMcpSession(tokenA);
-    // Probe embedding availability
-    const probe = await session.callTool('remember', { space: 'general', fact: `__types-probe-${Date.now()}__`, tags: [] });
-    const probeText = probe?.content?.[0]?.text ?? '';
-    embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
+    embeddingAvailable = await waitForEmbeddingReady(session);
     if (embeddingAvailable) {
       // Seed an entity so entity-type results exist
       await session.callTool('upsert_entity', { space: 'general', name: entityName, type: 'concept', tags: ['types-filter-test'] });
@@ -1193,9 +1226,7 @@ describe('MCP brain tools � remember with description and properties', () => {
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     session = await openMcpSession(tokenA);
-    const probe = await session.callTool('remember', { space: 'general', fact: `__rich-fields-probe-${Date.now()}__`, tags: [] });
-    const probeText = probe?.content?.[0]?.text ?? '';
-    embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
+    embeddingAvailable = await waitForEmbeddingReady(session);
   });
   after(() => session?.close());
 
@@ -1477,24 +1508,9 @@ describe('MCP brain tools � recall and recall_global with minPerType', () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     await ensureReindexed(INSTANCES.a, tokenA);
     session = await openMcpSession(tokenA);
-    const probeFact = `__minpertype-probe-${Date.now()}__`;
-    const probe = await session.callTool('remember', { space: 'general', fact: probeFact, tags: [] });
-    const probeText = probe?.content?.[0]?.text ?? '';
-    const storeSucceeded = !probe?.isError || !probeText.toLowerCase().includes('embedding');
-    if (storeSucceeded) {
-      // Verify recall actually returns results — memory storage succeeds in degraded
-      // mode (no embedding server) but recall returns empty without vectors.
-      const recallProbe = await session.callTool('recall', { space: 'general', query: probeFact, topK: 1 });
-      if (!recallProbe?.isError) {
-        try {
-          const rp = JSON.parse(recallProbe?.content?.[0]?.text ?? '{}');
-          embeddingAvailable = (rp.count ?? 0) > 0;
-        } catch {
-          // Non-JSON response means the tool returned formatted text — assume available
-          embeddingAvailable = (recallProbe?.content?.[0]?.text ?? '').length > 0;
-        }
-      }
-    }
+    // waitForEmbeddingReady already validates recall returns a non-zero count (the degraded-mode
+    // guard this block used to inline), now retried across warm-up.
+    embeddingAvailable = await waitForEmbeddingReady(session);
     if (embeddingAvailable) {
       await session.callTool('upsert_entity', { space: 'general', name: entityName, type: 'concept', tags: ['minpertype-test'] });
     }
@@ -1559,9 +1575,7 @@ describe('MCP brain tools � recall and recall_global with minScore', () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
     await ensureReindexed(INSTANCES.a, tokenA);
     session = await openMcpSession(tokenA);
-    const probe = await session.callTool('remember', { space: 'general', fact: `__minscore-probe-${Date.now()}__`, tags: [] });
-    const probeText = probe?.content?.[0]?.text ?? '';
-    embeddingAvailable = !probe?.isError || !probeText.toLowerCase().includes('embedding');
+    embeddingAvailable = await waitForEmbeddingReady(session);
     if (embeddingAvailable) {
       await session.callTool('remember', { space: 'general', fact: factForScore, tags: ['minscore-test'] });
     }

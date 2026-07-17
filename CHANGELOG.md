@@ -646,6 +646,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Lifted vector-index management out of `spaces/spaces.ts` into `spaces/vector-index.ts`
+  (internal, no behavior change).** The new module owns building/diffing each collection's Atlas
+  `$vectorSearch` index (`ensureVectorSearchIndex`), polling it to READY (`pollVectorIndexReady`,
+  `waitForSpaceIndexesReady`, `finalizeSpaceIndexReady`, which is what flips a space's
+  `indexStatus` to `ready`/`failed`), and deriving the filter fields that let a recall use native ANN
+  pre-filtering instead of an exhaustive ENN scan (`vectorFilterFieldsFor`). The dependency is
+  one-way — `spaces.ts` calls in, `vector-index.ts` never reaches back — and `brain/recall.ts` now
+  imports `vectorFilterFieldsFor` from it directly. `spaces.ts` drops 1204 → 959 lines. Three pieces
+  of **pre-existing dead code** were removed in passing, all confirmed dead in the original: an
+  `asUpdate` import, and an unused `const embCfg = getEmbeddingConfig()` in `initSpace` (the file had
+  two such declarations; only the one inside the vector-index code was ever read — the repo build has
+  `noUnusedLocals` off, so it never surfaced). The space-lifecycle and rename splits the audit also
+  calls for are **not** in this change — that block does heavy live-`Config` mutation and is tracked
+  as the remaining half of A17.7. (ARCHITECTURE-TODO A17.7, step 1 of 2.)
+
 - **Split the 1713-line `api/sync.ts` (24 routes) into per-concern sub-routers, and moved network
   governance out of the route layer (internal, no behavior change).** Now `api/sync/`: `docs.ts`
   (13 — the four record families plus batch-upsert), `tombstones.ts` (4 — record and file

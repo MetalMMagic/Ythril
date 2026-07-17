@@ -2,6 +2,9 @@
 import { CommonModule } from '@angular/common';
 import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
+import { RecordDrawerState } from './record-drawer-state.service';
+import { RecordDrawerComponent } from './record-drawer.component';
+import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { toLocalDatetime, fmtApiError } from './brain-format';
 import { FormsModule } from '@angular/forms';
 import { Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, QueryCollection, QueryResult, RecallResult, RecallKnowledgeType, FileMeta } from '../../core/api.types';
@@ -32,19 +35,18 @@ interface SpaceView {
 @Component({
   selector: 'app-brain',
   standalone: true,
-  // OnPush (P5): the heaviest page in the app — 49 signals, five record tabs, a detail drawer and
-  // an embedded graph. Safe because every async path (list/create/save subscribes, the 300 ms search
-  // debounces) writes signals, which notify OnPush regardless of zone; nothing mutates a signal's
-  // value in place. NOTE the plain (non-signal) form models — `memoryForm`, `drawerEdit*`, … — are
-  // rendered via ngModel and are re-checked only because each write is accompanied by a signal write
-  // in the same turn (e.g. `openDrawer` sets `drawerRecord`; the create callbacks set
-  // `creatingX`/`showXForm`) or happens in a template event handler, both of which mark the view
-  // dirty. That coupling is load-bearing: the drawer spec below pins it, so dropping the sibling
-  // signal write would fail CI rather than silently render a stale form.
+  // OnPush (P5): the heaviest page in the app — five record tabs and an embedded graph (the detail
+  // drawer is now its own OnPush component). Safe because every async path (list/create/save
+  // subscribes, the 300 ms search debounces) writes signals, which notify OnPush regardless of zone;
+  // nothing mutates a signal's value in place. NOTE the plain (non-signal) form models — `memoryForm`,
+  // `editMemory`, … — are rendered via ngModel and are re-checked only because each write is
+  // accompanied by a signal write in the same turn (the create callbacks set `creatingX`/`showXForm`)
+  // or happens in a template event handler, both of which mark the view dirty. That coupling is
+  // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, TranslocoPipe],
-  providers: [BrainStore, EntityRefPicker],
-  styles: [`
+  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordDrawerComponent, TranslocoPipe],
+  providers: [BrainStore, EntityRefPicker, RecordDrawerState],
+  styles: [BRAIN_CHIP_STYLES, `
     .space-tabs {
       display: flex;
       gap: 8px;
@@ -413,38 +415,6 @@ interface SpaceView {
     }
     .tab-spacer { flex: 1; }
 
-    .flyout-backdrop { position: fixed; inset: 0; z-index: 55; }
-    .flyout-wrap { position: relative; display: block; width: 100%; }
-    .flyout-trigger {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-      font-size: 12px; background: var(--bg-primary); color: var(--text-secondary);
-      cursor: pointer; width: 100%; text-align: left; transition: border-color var(--transition);
-    }
-    .flyout-trigger:hover { border-color: var(--accent); color: var(--text-primary); }
-    .flyout-trigger.has-value { color: var(--text-primary); }
-    .flyout-panel {
-      position: absolute; top: calc(100% + 4px); left: 0; min-width: 300px; z-index: 60;
-      background: var(--bg-primary); border: 1px solid var(--border);
-      border-radius: var(--radius-md); box-shadow: var(--shadow-lg); padding: 12px;
-    }
-    .chip-list { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; min-height: 24px; }
-    .chip {
-      display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px;
-      border-radius: 10px; background: var(--accent-dim); border: 1px solid var(--accent);
-      color: var(--accent); font-size: 11px; font-weight: 500; max-width: 200px;
-    }
-    .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .chip-remove {
-      background: none; border: none; color: var(--accent); cursor: pointer;
-      font-size: 13px; line-height: 1; padding: 0 1px; flex-shrink: 0;
-    }
-    .entity-multi { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-height: 28px; padding: 2px 0; }
-    .chip-add { font-size: 11px; padding: 2px 8px; background: transparent;
-      border: 1px dashed var(--border); border-radius: 10px;
-      color: var(--text-muted); cursor: pointer;
-    }
-    .chip-add:hover { border-color: var(--accent); color: var(--accent); }
     .link-btn {
       background: none; border: none; cursor: pointer; color: var(--accent);
       text-decoration: underline; padding: 0; font-size: inherit; text-align: left;
@@ -453,45 +423,6 @@ interface SpaceView {
     .icon-btn-danger { color: var(--error); }
     .icon-btn-danger:hover { color: var(--error); }
     .flyout-result:hover { background: var(--bg-secondary); }
-    .drawer-overlay {
-      position: fixed; inset: 0; background: var(--bg-scrim);
-      z-index: 200; display: flex; justify-content: flex-end;
-    }
-    .drawer {
-      width: min(480px, 100vw); background: var(--bg-primary); height: 100%;
-      overflow-y: auto; padding: 20px 24px;
-      box-shadow: var(--shadow-drawer);
-      display: flex; flex-direction: column;
-      animation: drawer-in .18s ease;
-    }
-    @keyframes drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
-    .drawer-header {
-      display: flex; justify-content: space-between; align-items: flex-start;
-      margin-bottom: 20px; padding-bottom: 14px;
-      border-bottom: 1px solid var(--border); gap: 12px;
-    }
-    .drawer-title { font-size: 16px; font-weight: 600; color: var(--text-primary); word-break: break-word; }
-    .drawer-field { margin-bottom: 16px; }
-    .drawer-label {
-      font-size: 10px; font-weight: 600; color: var(--text-muted);
-      text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px;
-    }
-    .drawer-value { font-size: 13px; color: var(--text-primary); white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
-    .drawer-muted { color: var(--text-muted); }
-    .drawer-hr { border: none; border-top: 1px solid var(--border-muted); margin: 16px 0; }
-    .drawer-readonly-value {
-      font-size: 13px; color: var(--text-muted); padding: 5px 8px;
-      border: 1px solid var(--border-muted); border-radius: var(--radius-sm);
-      background: var(--bg-surface); word-break: break-all; line-height: 1.4;
-    }
-    .drawer input[type=text], .drawer input[type=number], .drawer input[type=datetime-local],
-    .drawer textarea, .drawer select {
-      width: 100%; padding: 5px 8px; border: 1px solid var(--border);
-      border-radius: var(--radius-sm); font-size: 13px;
-      background: var(--bg-primary); color: var(--text-primary); box-sizing: border-box;
-    }
-    .drawer textarea { resize: vertical; }
-    .drawer select { cursor: pointer; }
     .pill-group { display:flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; flex-shrink:0; }
     .pill-group button { padding:5px 10px; font-size:11px; background:transparent; border:none; border-right:1px solid var(--border); color:var(--text-secondary); cursor:pointer; white-space:nowrap; }
     .pill-group button:last-child { border-right:none; }
@@ -764,7 +695,7 @@ interface SpaceView {
                       <td><app-properties-view [properties]="mem.properties" [schema]="store.memorySchema()" /></td>
                       <td style="color:var(--text-muted)">{{ mem.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
-                        <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="openDrawer('memory', mem)"><ph-icon name="eye" [size]="16"/></button>
+                        <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('memory', mem)"><ph-icon name="eye" [size]="16"/></button>
                         @if (confirmDeleteId() === mem._id) {
                           <span class="inline-confirm">
                             {{ 'common.deleteConfirm' | transloco }}
@@ -948,7 +879,7 @@ interface SpaceView {
                       <td><app-properties-view [properties]="ent.properties" [schema]="store.entitySchema(ent.type)" /></td>
                       <td style="color:var(--text-muted)">{{ ent.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
-                        <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="openDrawer('entity', ent)"><ph-icon name="eye" [size]="16"/></button>
+                        <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('entity', ent)"><ph-icon name="eye" [size]="16"/></button>
                         @if (confirmDeleteId() === ent._id) {
                           <span class="inline-confirm">
                             Delete?
@@ -1150,7 +1081,7 @@ interface SpaceView {
                       <td><app-properties-view [properties]="edge.properties" [schema]="store.edgeSchema(edge.label)" /></td>
                       <td style="color:var(--text-muted); white-space:nowrap;">{{ edge.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
-                        <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="openDrawer('edge', edge)"><ph-icon name="eye" [size]="16"/></button>
+                        <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('edge', edge)"><ph-icon name="eye" [size]="16"/></button>
                         @if (confirmDeleteId() === edge._id) {
                           <span class="inline-confirm">
                             {{ 'common.deleteConfirm' | transloco }}
@@ -1316,7 +1247,7 @@ interface SpaceView {
                           <div class="field" style="width:130px; margin-bottom:0;">
                             <label>{{ 'brain.chrono.table.status' | transloco }}</label>
                             <select [(ngModel)]="editChrono.status" name="editChronoStatus">
-                              @for (s of chronoStatusOptions; track s) { <option [value]="s">{{ s }}</option> }
+                              @for (s of store.chronoStatusOptions; track s) { <option [value]="s">{{ s }}</option> }
                             </select>
                           </div>
                           <div class="field" style="width:190px; margin-bottom:0;">
@@ -1393,7 +1324,7 @@ interface SpaceView {
                         } @else { <span style="color:var(--text-muted)">—</span> }
                       </td>
                       <td style="white-space:nowrap;">
-                        <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="openDrawer('chrono', entry)"><ph-icon name="eye" [size]="16"/></button>
+                        <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('chrono', entry)"><ph-icon name="eye" [size]="16"/></button>
                         @if (confirmDeleteId() === entry._id) {
                           <span class="inline-confirm">
                             {{ 'common.deleteConfirm' | transloco }}
@@ -1852,298 +1783,14 @@ interface SpaceView {
       }
 
       <!-- Detail Drawer -->
-      @if (drawerRecord(); as dr) {
-        <div class="drawer-overlay" (click)="closeDrawer()">
-          <div class="drawer" (click)="$event.stopPropagation()" role="dialog" [attr.aria-label]="'brain.drawer.recordDetailsAriaLabel' | transloco">
-            <div class="drawer-header">
-              <div style="flex:1; min-width:0;">
-                @if (dr.kind === 'memory') { <span class="badge badge-blue" style="margin-bottom:6px; display:inline-block;">{{ 'brain.drawer.badge.memory' | transloco }}</span> }
-                @if (dr.kind === 'entity') { <span class="badge badge-purple" style="margin-bottom:6px; display:inline-block;">{{ 'brain.drawer.badge.entity' | transloco }}</span> }
-                @if (dr.kind === 'edge') { <span class="badge badge-blue" style="margin-bottom:6px; display:inline-block;">{{ 'brain.drawer.badge.edge' | transloco }}</span> }
-                @if (dr.kind === 'chrono') { <span class="badge" style="margin-bottom:6px; display:inline-block;">{{ 'brain.drawer.badge.chrono' | transloco }}</span> }
-                <div class="drawer-title">
-                  @if (dr.kind === 'memory') { {{ drawerEditMemory.fact.length > 80 ? (drawerEditMemory.fact | slice:0:80) + '\u2026' : drawerEditMemory.fact }} }
-                  @if (dr.kind === 'entity') { {{ drawerEditEntity.name || dr.record.name }} }
-                  @if (dr.kind === 'edge') { {{ (dr.record.fromName || dr.record.from) + ' \u2192 ' + (dr.record.toName || dr.record.to) }} }
-                  @if (dr.kind === 'chrono') { {{ drawerEditChrono.title || dr.record.title }} }
-                </div>
-              </div>
-              <div style="display:flex; gap:8px; flex-shrink:0; align-items:flex-start; padding-top:2px;">
-                <button class="btn btn-sm btn-primary" [disabled]="drawerSaving()" (click)="saveDrawer()">
-                  @if (drawerSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } {{ 'common.save' | transloco }}
-                </button>
-                <button class="icon-btn" [attr.title]="'common.close' | transloco" [attr.aria-label]="'brain.drawer.closeDetailsAriaLabel' | transloco" (click)="closeDrawer()"><ph-icon name="x" [size]="16"/></button>
-              </div>
-            </div>
-            @if (drawerError()) {
-              <div class="alert alert-error" style="margin-bottom:16px; font-size:13px;">{{ drawerError() }}</div>
-            }
-
-            <form>
-              <!-- ── MEMORY ── -->
-              @if (dr.kind === 'memory') {
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.fact' | transloco }} <span style="color:var(--error)">*</span></div>
-                  <textarea [(ngModel)]="drawerEditMemory.fact" name="drwMemFact" rows="4"></textarea>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.description' | transloco }}</div>
-                  <textarea [(ngModel)]="drawerEditMemory.description" name="drwMemDesc" rows="3" style="resize:vertical;"></textarea>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
-                  <app-tag-input [(value)]="drawerEditMemory.tags" [suggestions]="store.memoryTagSuggestions()" inputName="drwMemTags" />
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.entityIds' | transloco }}</div>
-                  <div class="flyout-wrap">
-                    <div class="entity-multi">
-                      @for (chip of picker.entityChips(drawerEditMemory.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(drawerEditMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                      }
-                      <button type="button" class="chip-add" (click)="picker.openFlyout('drawer-memory-entityIds', drawerEditMemory)">{{ 'common.addMore' | transloco }}</button>
-                    </div>
-                    @if (picker.flyoutField() === 'drawer-memory-entityIds') {
-                      <div class="flyout-panel">
-                        <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, drawerEditMemory)" />
-                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                          <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                        </div>
-                      </div>
-                    }
-                  </div>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.properties' | transloco }}</div>
-                  <app-properties-editor [schema]="store.memorySchema()" [required]="store.requiredProps(store.memorySchema())" [(value)]="drawerEditMemory.properties" />
-                </div>
-                <hr class="drawer-hr">
-                <div class="drawer-field">
-                  <div class="drawer-label">_id</div>
-                  <div class="drawer-readonly-value" style="font-family:var(--font-mono,monospace); font-size:11px;">{{ dr.record._id }}</div>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.seq' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ dr.record.seq }}</div>
-                </div>
-                @if (dr.record.author) {
-                  <div class="drawer-field">
-                    <div class="drawer-label">{{ 'common.authorInstanceId' | transloco }}</div>
-                    <div class="drawer-readonly-value">{{ dr.record.author.instanceId }}</div>
-                  </div>
-                }
-                <div class="drawer-field" style="margin-bottom:0;">
-                  <div class="drawer-label">{{ 'common.createdAt' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ dr.record.createdAt | date:'yyyy-MM-dd HH:mm:ss' }}</div>
-                </div>
-              }
-
-              <!-- ── ENTITY ── -->
-              @if (dr.kind === 'entity') {
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'brain.entities.table.name' | transloco }} <span style="color:var(--error)">*</span></div>
-                  <input type="text" [(ngModel)]="drawerEditEntity.name" name="drwEntName" />
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.type' | transloco }} @if (store.entityTypeNames().length) { <span style="color:var(--error)">*</span> }</div>
-                  @if (store.entityTypeNames().length) {
-                    <select [(ngModel)]="drawerEditEntity.type" name="drwEntType" (ngModelChange)="onEntityTypeChange($event, 'drawer')">
-                      @for (t of store.entityTypeNames(); track t) {
-                        <option [value]="t">{{ t }}</option>
-                      }
-                    </select>
-                  } @else {
-                    <input type="text" [(ngModel)]="drawerEditEntity.type" name="drwEntType" />
-                  }
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.description' | transloco }}</div>
-                  <textarea [(ngModel)]="drawerEditEntity.description" name="drwEntDesc" rows="3" style="resize:vertical;"></textarea>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
-                  <app-tag-input [(value)]="drawerEditEntity.tags" [suggestions]="store.entityTagSuggestions()" inputName="drwEntTags" />
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.properties' | transloco }}</div>
-                  <app-properties-editor [schema]="store.entitySchema(drawerEditEntity.type)" [required]="store.requiredProps(store.entitySchema(drawerEditEntity.type))" [(value)]="drawerEditEntity.properties" />
-                </div>
-                <hr class="drawer-hr">
-                <div class="drawer-field">
-                  <div class="drawer-label">_id</div>
-                  <div class="drawer-readonly-value" style="font-family:var(--font-mono,monospace); font-size:11px;">{{ dr.record._id }}</div>
-                </div>
-                <div class="drawer-field" style="margin-bottom:0;">
-                  <div class="drawer-label">{{ 'common.createdAt' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ dr.record.createdAt | date:'yyyy-MM-dd HH:mm:ss' }}</div>
-                </div>
-              }
-
-              <!-- ── EDGE ── -->
-              @if (dr.kind === 'edge') {
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.from' | transloco }} <span class="drawer-muted">{{ 'common.readOnly' | transloco }}</span></div>
-                  <div class="drawer-readonly-value">{{ dr.record.fromName || dr.record.from }}<span style="font-size:11px;"> ({{ dr.record.from }})</span></div>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'brain.edges.table.relation' | transloco }} <span style="color:var(--error)">*</span></div>
-                  @if (store.edgeLabelNames().length) {
-                    <select [(ngModel)]="drawerEditEdge.label" name="drwEdgeLabel">
-                      @for (l of store.edgeLabelNames(); track l) {
-                        <option [value]="l">{{ l }}</option>
-                      }
-                    </select>
-                  } @else {
-                    <input type="text" [(ngModel)]="drawerEditEdge.label" name="drwEdgeLabel" />
-                  }
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.to' | transloco }} <span class="drawer-muted">{{ 'common.readOnly' | transloco }}</span></div>
-                  <div class="drawer-readonly-value">{{ dr.record.toName || dr.record.to }}<span style="font-size:11px;"> ({{ dr.record.to }})</span></div>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.type' | transloco }}</div>
-                  <input type="text" [(ngModel)]="drawerEditEdge.type" name="drwEdgeType" />
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.weight' | transloco }}</div>
-                  <input type="number" [(ngModel)]="drawerEditEdge.weight" name="drwEdgeWeight" step="0.1" />
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.description' | transloco }}</div>
-                  <textarea [(ngModel)]="drawerEditEdge.description" name="drwEdgeDesc" rows="3" style="resize:vertical;"></textarea>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
-                  <app-tag-input [(value)]="drawerEditEdge.tags" [suggestions]="store.edgeTagSuggestions()" inputName="drwEdgeTags" />
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.properties' | transloco }}</div>
-                  <app-properties-editor [schema]="store.edgeSchema(drawerEditEdge.label)" [required]="store.requiredProps(store.edgeSchema(drawerEditEdge.label))" [(value)]="drawerEditEdge.properties" />
-                </div>
-                <hr class="drawer-hr">
-                <div class="drawer-field">
-                  <div class="drawer-label">_id</div>
-                  <div class="drawer-readonly-value" style="font-family:var(--font-mono,monospace); font-size:11px;">{{ dr.record._id }}</div>
-                </div>
-                <div class="drawer-field" style="margin-bottom:0;">
-                  <div class="drawer-label">{{ 'common.createdAt' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ dr.record.createdAt | date:'yyyy-MM-dd HH:mm:ss' }}</div>
-                </div>
-              }
-
-              <!-- ── CHRONO ── -->
-              @if (dr.kind === 'chrono') {
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.title' | transloco }} <span style="color:var(--error)">*</span></div>
-                  <input type="text" [(ngModel)]="drawerEditChrono.title" name="drwChronoTitle" />
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.kind' | transloco }} <span style="color:var(--error)">*</span></div>
-                  @if (drawerEditChrono.kind !== '__custom__') {
-                    <select [(ngModel)]="drawerEditChrono.kind" name="drwChronoKind">
-                      @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
-                      <option value="__custom__">{{ 'brain.chrono.form.customKind' | transloco }}</option>
-                    </select>
-                  } @else {
-                    <div style="display:flex; gap:4px;">
-                      <input type="text" [(ngModel)]="drawerEditChrono.customKind" name="drwChronoCustomKind" style="flex:1;" />
-                      <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="drawerEditChrono.kind = 'event'; drawerEditChrono.customKind = ''" [attr.title]="'brain.chrono.form.backToPresets' | transloco"><ph-icon name="x" [size]="14"/></button>
-                    </div>
-                  }
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'brain.chrono.table.status' | transloco }}</div>
-                  <select [(ngModel)]="drawerEditChrono.status" name="drwChronoStatus">
-                    @for (s of chronoStatusOptions; track s) { <option [value]="s">{{ s }}</option> }
-                  </select>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.startsAt' | transloco }} <span style="color:var(--error)">*</span></div>
-                  <input type="datetime-local" [(ngModel)]="drawerEditChrono.startsAt" name="drwChronoStarts" />
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.endsAt' | transloco }}</div>
-                  <input type="datetime-local" [(ngModel)]="drawerEditChrono.endsAt" name="drwChronoEnds" />
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.confidence' | transloco }} <span class="drawer-muted">(0-1)</span></div>
-                  <input type="number" [(ngModel)]="drawerEditChrono.confidence" name="drwChronoConf" min="0" max="1" step="0.01" />
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.description' | transloco }}</div>
-                  <textarea [(ngModel)]="drawerEditChrono.description" name="drwChronoDesc" rows="3"></textarea>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.form.tags' | transloco }}</div>
-                  <app-tag-input [(value)]="drawerEditChrono.tags" [suggestions]="store.chronoTagSuggestions()" inputName="drwChronoTags" />
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.entityIds' | transloco }}</div>
-                  <div class="flyout-wrap">
-                    <div class="entity-multi">
-                      @for (chip of picker.entityChips(drawerEditChrono.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(drawerEditChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                      }
-                      <button type="button" class="chip-add" (click)="picker.openFlyout('drawer-chrono-entityIds', drawerEditChrono)">{{ 'common.addMore' | transloco }}</button>
-                    </div>
-                    @if (picker.flyoutField() === 'drawer-chrono-entityIds') {
-                      <div class="flyout-panel">
-                        <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, drawerEditChrono)" />
-                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                          <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                        </div>
-                      </div>
-                    }
-                  </div>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.memoryIds' | transloco }} <span class="drawer-muted">{{ 'common.commaSeparatedIds' | transloco }}</span></div>
-                  <textarea [(ngModel)]="drawerEditChrono.memoryIds" name="drwChronoMemIds" rows="2" style="font-family:var(--font-mono,monospace); font-size:11px;"></textarea>
-                </div>
-                <hr class="drawer-hr">
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.spaceId' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ dr.record.spaceId }}</div>
-                </div>
-                @if (dr.record.recurrence) {
-                  <div class="drawer-field">
-                    <div class="drawer-label">{{ 'common.recurrence' | transloco }}</div>
-                    <div class="drawer-readonly-value" style="font-family:var(--font-mono,monospace); font-size:11px;">{{ dr.record.recurrence | json }}</div>
-                  </div>
-                }
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.author' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ dr.record.author?.instanceLabel }} ({{ dr.record.author?.instanceId }})</div>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.seq' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ dr.record.seq }}</div>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">_id</div>
-                  <div class="drawer-readonly-value" style="font-family:var(--font-mono,monospace); font-size:11px;">{{ dr.record._id }}</div>
-                </div>
-                <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.createdAt' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ dr.record.createdAt | date:'yyyy-MM-dd HH:mm:ss' }}</div>
-                </div>
-                <div class="drawer-field" style="margin-bottom:0;">
-                  <div class="drawer-label">{{ 'common.updatedAt' | transloco }}</div>
-                  <div class="drawer-readonly-value">{{ dr.record.updatedAt | date:'yyyy-MM-dd HH:mm:ss' }}</div>
-                </div>
-              }
-            </form>
-
-          </div>
-        </div>
-      }
+      <app-record-drawer />
     }
   `,
 })
 export class BrainComponent implements OnInit {
   readonly store = inject(BrainStore);
   readonly picker = inject(EntityRefPicker);
+  readonly drawerState = inject(RecordDrawerState);
   private spacesApi = inject(SpacesApi);
   private brainApi = inject(BrainApi);
   private filesApi = inject(FilesApi);
@@ -2176,7 +1823,6 @@ export class BrainComponent implements OnInit {
   fileManagerNavPath = signal('');
 
   editFileMeta = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };
-  drawerEditFileMeta = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };
 
   // ── Shared list filter (F6): type + tag, reused across the list tabs ────────
   /** The active list tab's type+tag filter, driven by <app-record-filter-bar>. */
@@ -2251,7 +1897,6 @@ export class BrainComponent implements OnInit {
   showChronoForm = signal(false);
   creatingChrono = signal(false);
   createChronoError = signal('');
-  chronoStatusOptions: ChronoStatus[] = ['upcoming', 'active', 'completed', 'overdue', 'cancelled'];
   chronoForm = { title: '', kind: 'event' as ChronoType | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '' };
 
   // Query panel
@@ -2328,6 +1973,7 @@ export class BrainComponent implements OnInit {
   selectSpace(id: string): void {
     this.activeSpaceId.set(id);
     this.picker.spaceId.set(id);
+    this.drawerState.spaceId.set(id);
     this.skip.set(0);
     this.entitySkip.set(0);
     this.edgeSkip.set(0);
@@ -3157,13 +2803,11 @@ export class BrainComponent implements OnInit {
   }
 
   /** Called when the entity type dropdown changes. Rebuilds properties: keeps existing values, adds defaults for any new schema-required fields. */
-  onEntityTypeChange(type: string, target: 'create' | 'inline' | 'drawer'): void {
+  onEntityTypeChange(type: string, target: 'create' | 'inline'): void {
     if (target === 'create') {
       this.entityForm.properties = this.store.buildPropertiesObject('entity', this.entityForm.properties, type);
-    } else if (target === 'inline') {
-      this.editEntity.properties = this.store.buildPropertiesObject('entity', this.editEntity.properties, type);
     } else {
-      this.drawerEditEntity.properties = this.store.buildPropertiesObject('entity', this.drawerEditEntity.properties, type);
+      this.editEntity.properties = this.store.buildPropertiesObject('entity', this.editEntity.properties, type);
     }
   }
 
@@ -3183,72 +2827,6 @@ export class BrainComponent implements OnInit {
     this.showChronoForm.set(true);
   }
 
-  // ── Detail drawer ──────────────────────────────────────────────────────
-
-  drawerRecord = signal<{ kind: 'memory' | 'entity' | 'edge' | 'chrono'; record: any } | null>(null);
-  drawerSaving = signal(false);
-  drawerError = signal('');
-
-  drawerEditMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
-  drawerEditEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
-  drawerEditEdge = { label: '', type: '', weight: null as number | null, tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
-  drawerEditChrono = { title: '', kind: 'event' as string, customKind: '', status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', confidence: null as number | null, memoryIds: '' };
-
-  openDrawer(kind: 'memory' | 'entity' | 'edge' | 'chrono', record: any): void {
-    this.drawerRecord.set({ kind, record });
-    this.drawerError.set('');
-    this.drawerSaving.set(false);
-    const ids: string[] = record.entityIds ?? [];
-    if (ids.length) this.picker.resolveEntityNames(ids);
-    if (kind === 'memory') {
-      this.drawerEditMemory = {
-        fact: record.fact,
-        tags: [...(record.tags ?? [])],
-        entityIds: (record.entityIds ?? []).join(', '),
-        description: record.description ?? '',
-        properties: this.store.buildPropertiesObject('memory', record.properties ?? {}),
-      };
-    } else if (kind === 'entity') {
-      this.drawerEditEntity = {
-        name: record.name,
-        type: record.type ?? '',
-        tags: [...(record.tags ?? [])],
-        description: record.description ?? '',
-        properties: this.store.buildPropertiesObject('entity', record.properties ?? {}, record.type),
-      };
-    } else if (kind === 'edge') {
-      this.drawerEditEdge = {
-        label: record.label,
-        type: record.type ?? '',
-        weight: record.weight ?? null,
-        tags: [...(record.tags ?? [])],
-        description: record.description ?? '',
-        properties: this.store.buildPropertiesObject('edge', record.properties ?? {}, record.label),
-      };
-    } else if (kind === 'chrono') {
-      const isPredefined = this.store.chronoKinds.includes(record.type as ChronoType);
-      this.drawerEditChrono = {
-        title: record.title,
-        kind: isPredefined ? record.type : '__custom__',
-        customKind: isPredefined ? '' : record.type,
-        status: record.status,
-        startsAt: record.startsAt ? toLocalDatetime(record.startsAt) : '',
-        endsAt: record.endsAt ? toLocalDatetime(record.endsAt) : '',
-        description: record.description ?? '',
-        tags: [...(record.tags ?? [])],
-        entityIds: (record.entityIds ?? []).join(', '),
-        confidence: record.confidence ?? null,
-        memoryIds: (record.memoryIds ?? []).join(', '),
-      };
-    }
-  }
-
-  closeDrawer(): void {
-    this.drawerRecord.set(null);
-    this.drawerError.set('');
-    this.picker.closeFlyout();
-  }
-
   // ── Edge endpoint pickers ───────────────────────────────────────────────
   // Edge from/to set display fields on the shell-owned edgeForm and do NOT touch the entity-name
   // cache — the two branches of the old pickEntity that stay here rather than move to the picker.
@@ -3261,88 +2839,6 @@ export class BrainComponent implements OnInit {
   pickEdgeTo(ent: Entity): void {
     this.edgeForm.to = ent._id;
     this.edgeForm.toDisplay = ent.name;
-  }
-
-  saveDrawer(): void {
-    const dr = this.drawerRecord();
-    if (!dr) return;
-    this.drawerSaving.set(true);
-    this.drawerError.set('');
-    const id = dr.record._id;
-    const spaceId = this.activeSpaceId();
-    if (dr.kind === 'memory') {
-      const props = this.drawerEditMemory.properties;
-      this.brainApi.updateMemory(spaceId, id, {
-        fact: this.drawerEditMemory.fact.trim(),
-        tags: this.drawerEditMemory.tags,
-        entityIds: this.drawerEditMemory.entityIds.split(',').map(s => s.trim()).filter(Boolean),
-        description: this.drawerEditMemory.description.trim(),
-        ...(Object.keys(props).length ? { properties: props } : {}),
-      }).subscribe({
-        next: (updated) => {
-          this.drawerSaving.set(false);
-          this.drawerRecord.set({ kind: 'memory', record: updated });
-          this.store.memories.update(list => list.map(m => m._id === id ? updated : m));
-        },
-        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
-      });
-    } else if (dr.kind === 'entity') {
-      const props = this.store.stripEmptyOptionalProps(this.drawerEditEntity.properties, this.store.entitySchema(this.drawerEditEntity.type));
-      this.brainApi.updateEntity(spaceId, id, {
-        name: this.drawerEditEntity.name.trim(),
-        type: this.drawerEditEntity.type.trim(),
-        tags: this.drawerEditEntity.tags,
-        description: this.drawerEditEntity.description.trim(),
-        ...(Object.keys(props).length ? { properties: props } : {}),
-      }).subscribe({
-        next: (updated) => {
-          this.drawerSaving.set(false);
-          this.drawerRecord.set({ kind: 'entity', record: updated });
-          this.store.entities.update(list => list.map(e => e._id === id ? updated : e));
-        },
-        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
-      });
-    } else if (dr.kind === 'edge') {
-      const props = this.store.stripEmptyOptionalProps(this.drawerEditEdge.properties, this.store.edgeSchema(this.drawerEditEdge.label));
-      this.brainApi.updateEdge(spaceId, id, {
-        label: this.drawerEditEdge.label.trim(),
-        ...(this.drawerEditEdge.type.trim() ? { type: this.drawerEditEdge.type.trim() } : {}),
-        ...(this.drawerEditEdge.weight != null ? { weight: this.drawerEditEdge.weight } : {}),
-        tags: this.drawerEditEdge.tags,
-        description: this.drawerEditEdge.description.trim(),
-        ...(Object.keys(props).length ? { properties: props } : {}),
-      }).subscribe({
-        next: (updated) => {
-          this.drawerSaving.set(false);
-          this.drawerRecord.set({ kind: 'edge', record: updated });
-          this.store.edges.update(list => list.map(e => e._id === id ? updated : e));
-        },
-        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
-      });
-    } else if (dr.kind === 'chrono') {
-      const resolvedKind = this.drawerEditChrono.kind === '__custom__'
-        ? (this.drawerEditChrono.customKind.trim() as ChronoType)
-        : this.drawerEditChrono.kind as ChronoType;
-      this.brainApi.updateChrono(spaceId, id, {
-        title: this.drawerEditChrono.title.trim(),
-        type: resolvedKind,
-        status: this.drawerEditChrono.status as ChronoStatus,
-        ...(this.drawerEditChrono.startsAt ? { startsAt: new Date(this.drawerEditChrono.startsAt).toISOString() } : {}),
-        ...(this.drawerEditChrono.endsAt ? { endsAt: new Date(this.drawerEditChrono.endsAt).toISOString() } : {}),
-        description: this.drawerEditChrono.description.trim(),
-        tags: this.drawerEditChrono.tags,
-        entityIds: this.drawerEditChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean),
-        ...(this.drawerEditChrono.memoryIds.trim() ? { memoryIds: this.drawerEditChrono.memoryIds.split(',').map(s => s.trim()).filter(Boolean) } : {}),
-        ...(this.drawerEditChrono.confidence != null ? { confidence: this.drawerEditChrono.confidence } : {}),
-      }).subscribe({
-        next: (updated) => {
-          this.drawerSaving.set(false);
-          this.drawerRecord.set({ kind: 'chrono', record: updated });
-          this.store.chrono.update(list => list.map(c => c._id === id ? updated : c));
-        },
-        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
-      });
-    }
   }
 
 }

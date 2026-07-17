@@ -689,6 +689,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The record detail drawer is now its own OnPush component (`record-drawer.component`) over a
+  `RecordDrawerState` service, lifted out of `BrainComponent`.** The drawer edits one
+  memory/entity/edge/chrono record and is opened from every record tab; it was ~290 lines of inline
+  template plus its open/save/close cycle living in the shell. `RecordDrawerState` now owns the
+  drawer's signals + four edit models + `open`/`save`/`close`, consuming the already-split
+  collaborators (`BrainStore`, `EntityRefPicker`, `BrainApi`) and the `brain-format` utils; the
+  component just injects and renders them. The chip/flyout + drawer CSS moved to a shared
+  `brain-form.styles.ts` const (Angular scopes styles per component, so the shell's forms and the
+  drawer must both source them — from one place, to prevent drift). The `chronoStatusOptions` constant
+  joined `chronoKinds` on `BrainStore`. The drawer's OnPush contract is load-bearing — its plain
+  ngModel form models render only because `open()` writes the `drawerRecord` signal in the same turn —
+  and the two rendering tests that pin it (plus an OnPush assertion) moved to
+  `record-drawer.component.spec.ts`, driving the component directly. Also removed a dead
+  `drawerEditFileMeta` field (unreachable since the file-meta drawer path lost its last caller).
+  `brain.component.ts` 3349 → 2845 (the shell has now shed ~860 lines across A17.9b). Client suite:
+  168 → 169.
+
 - **The record drawer's shared schema/format helpers moved off `BrainComponent` to their proper homes,
   clearing the last coupling before the drawer becomes its own component.** After the picker split
   (above), the drawer still shared five helpers with every tab form: `buildPropertiesObject` and

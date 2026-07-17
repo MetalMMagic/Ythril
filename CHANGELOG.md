@@ -712,6 +712,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own licenses (default `moondream` Apache 2.0; Whisper models Apache 2.0). All npm dependencies across
   both workspaces were already attributed and were re-verified complete — the gap was only the images.
   Licenses are grounded in `docs/dependencies.md`.
+- **The five record-tab components now share a `RecordTabBase`, removing ~140 lines of duplicated
+  boilerplate.** After all five landed, each carried a byte-identical copy of the same machinery — the
+  `store`/`picker`/`recordList` injects, the `spaceId` input, `pageSize`, the paging cursor, the
+  self-load `effect`, `prevPage`/`nextPage`, `retryCurrentTab`, and `requestDelete`/`cancelDelete`.
+  Those move to an abstract `@Directive()` base each tab extends; the skip signal and pagination methods
+  are normalized to one name (`skip`/`prevPage`/`nextPage`) across all tabs. **Deliberately minimal:**
+  everything that VARIES stays in the subclass — the `brainApi`/`filesApi`/`drawerState` a tab may not
+  need, the `mutated`/`openInManager` outputs, the per-tab filter/search state, and every
+  create/edit/delete/search body. That boundary is the point: a base that absorbed those would erase the
+  per-tab asymmetries the A17.9b-6b tests pin (memory sends properties raw while entity/edge strip;
+  delete refreshes stats for some tabs but not others; chrono has no `mutated`; file-meta has no filter
+  bar). A `resetOnSpaceChange()` template-method hook lets each tab clear its own filter/search on a
+  space switch. Behaviour is identical — all 208 tests green, unchanged, now exercising the inherited
+  methods. Net: −113 lines across the six files.
 
 - **The Chrono and File Meta tabs are now their own OnPush components, completing the record-tab split —
   and `BrainComponent` is now a thin nav shell (3701 → 637 lines across A17.9b).** With the last two

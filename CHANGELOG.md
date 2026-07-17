@@ -689,6 +689,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The brain page's Query tab is now its own OnPush component (`query-tab.component`), the first of
+  the six tabs to leave the shell.** It is the read-only one — advanced (MongoDB-style) query + semantic
+  recall, no create/edit forms — so it proves the "tab → component over a `spaceId` input" pattern
+  before the heavier record tabs. It owns the query/recall forms + results and talks only to `BrainApi`
+  (plus `BrainStore` for the recall "filter by type" options); the active space id is a required signal
+  input, read at call time so a mid-flight space switch can't stale an in-flight request. The query-only
+  CSS moved with it. The shell renders `@if (activeTab() === 'query') { <app-query-tab … /> }` so the
+  inactive tab isn't instantiated. Five tests pin the OnPush flag, `formatQueryDoc`, the panel render,
+  and the two guard paths (blank recall query is a no-op; an invalid-JSON filter surfaces a form error
+  instead of hitting the API). `brain.component.ts` 2845 → 2431. Client suite: 169 → 174.
+
 - **The record detail drawer is now its own OnPush component (`record-drawer.component`) over a
   `RecordDrawerState` service, lifted out of `BrainComponent`.** The drawer edits one
   memory/entity/edge/chrono record and is opened from every record tab; it was ~290 lines of inline

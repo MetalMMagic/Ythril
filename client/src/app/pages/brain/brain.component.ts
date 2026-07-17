@@ -6,10 +6,11 @@ import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordDrawerComponent } from './record-drawer.component';
 import { QueryTabComponent } from './query-tab.component';
 import { RecordListState } from './record-list-state.service';
+import { MemoriesTabComponent } from './memories-tab.component';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { toLocalDatetime, fmtApiError } from './brain-format';
 import { FormsModule } from '@angular/forms';
-import { Space, SpaceStats, Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, FileMeta } from '../../core/api.types';
+import { Space, SpaceStats, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus, FileMeta } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { FilesApi } from '../../core/files-api.service';
@@ -46,7 +47,7 @@ interface SpaceView {
   // or happens in a template event handler, both of which mark the view dirty. That coupling is
   // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordDrawerComponent, QueryTabComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, PropertiesViewComponent, PropertiesEditorComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, TranslocoPipe],
   providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
   styles: [BRAIN_CHIP_STYLES, `
     .space-tabs {
@@ -463,222 +464,7 @@ interface SpaceView {
         }
 
         <!-- Memories -->
-        @if (activeTab() === 'memories') {
-
-          <div class="content-header">
-            <input type="search"
-              [placeholder]="'brain.memories.searchPlaceholder' | transloco"
-              [value]="store.memorySearch()"
-              (input)="onMemorySearch($any($event.target).value)"
-              [attr.aria-label]="'brain.memories.searchPlaceholder' | transloco" />
-            <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
-              <button [class.active]="store.memorySearchMode() === 'text'" (click)="setMemorySearchMode('text')">{{ 'common.sortAZ' | transloco }}</button>
-              <button [class.active]="store.memorySearchMode() === 'semantic'" (click)="setMemorySearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
-            </div>
-            <button class="btn-primary btn btn-sm" (click)="openMemoryForm()" [disabled]="showMemoryForm()">{{ 'brain.memories.addButton' | transloco }}</button>
-          </div>
-
-          <!-- Add memory form -->
-          @if (showMemoryForm()) {
-            <form class="create-form" (ngSubmit)="createMemory()">
-              <div class="field" style="flex:2; min-width:200px;">
-                <label>{{ 'common.form.fact' | transloco }}</label>
-                <textarea [(ngModel)]="memoryForm.fact" name="fact" rows="2" required style="width:100%;"></textarea>
-              </div>
-              <div class="field" style="flex:1; min-width:180px;">
-                <label>{{ 'common.form.tags' | transloco }}</label>
-                <app-tag-input [(value)]="memoryForm.tags" [suggestions]="store.memoryTagSuggestions()" inputName="memFormTags" />
-              </div>
-              <div class="field" style="flex:1; min-width:140px;">
-                <label>{{ 'common.form.entities' | transloco }}</label>
-                <div class="flyout-wrap">
-                  <div class="entity-multi">
-                    @for (chip of picker.entityChips(memoryForm.entityIds); track chip.id) {
-                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(memoryForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                    }
-                    <button type="button" class="chip-add" (click)="picker.openFlyout('create-memory-entityIds', memoryForm)">{{ 'common.addMore' | transloco }}</button>
-                  </div>
-                  @if (picker.flyoutField() === 'create-memory-entityIds') {
-                    <div class="flyout-panel">
-                      <app-entity-search
-                        mode="picker"
-                        [spaceId]="activeSpaceId()"
-                        placeholder="common.searchEntitiesPlaceholder"
-
-                        (selected)="picker.pickEntity($event, memoryForm)"
-                      />
-                      <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                        <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                      </div>
-                    </div>
-                  }
-                </div>
-              </div>
-              <div class="field" style="flex:2; min-width:200px;">
-                <label>{{ 'common.form.description' | transloco }}</label>
-                <textarea [(ngModel)]="memoryForm.description" name="description" rows="3" style="resize:vertical;"></textarea>
-              </div>
-              <div class="field" style="flex:1; min-width:220px;">
-                <label>{{ 'common.form.properties' | transloco }}</label>
-                <app-properties-editor [schema]="store.memorySchema()" [required]="store.requiredProps(store.memorySchema())" [(value)]="memoryForm.properties" />
-              </div>
-              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingMemory() || !memoryForm.fact.trim()">
-                @if (creatingMemory()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-                {{ 'common.save' | transloco }}
-              </button>
-              <button class="btn-secondary btn btn-sm" type="button" (click)="showMemoryForm.set(false)">{{ 'common.cancel' | transloco }}</button>
-            </form>
-          }
-
-          @if (createMemoryError()) {
-            <div class="alert alert-error" style="margin-bottom:12px;">{{ createMemoryError() }}</div>
-          }
-
-          <!-- Shared type/tag filter (F6). Tag-clicks in the table feed this bar too. -->
-          <div class="list-filter-row">
-            <app-record-filter-bar
-              [typeOptions]="store.memoryTypeOptions()"
-              [tagSuggestions]="store.memoryTagSuggestions()"
-              [value]="recordFilter()"
-              (filterChange)="onFilterChange($event)"
-            />
-            @if (filterEntity(); as ent) {
-              <span class="filter-chip">{{ 'brain.filter.entityPrefix' | transloco }} {{ ent }} <button [attr.aria-label]="'brain.filter.clearEntityAriaLabel' | transloco" (click)="clearFilter('entity')"><ph-icon name="x" [size]="12"/></button></span>
-            }
-          </div>
-
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>{{ 'brain.memories.table.fact' | transloco }}</th><th>{{ 'brain.memories.table.description' | transloco }}</th><th>{{ 'brain.memories.table.tags' | transloco }}</th><th>{{ 'brain.memories.table.entities' | transloco }}</th><th>{{ 'brain.memories.table.properties' | transloco }}</th><th>{{ 'brain.memories.table.created' | transloco }}</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (mem of store.filteredMemories(); track mem._id) {
-                  @if (recordList.editingId() === mem._id) {
-                    <tr>
-                      <td colspan="7">
-                        <div class="create-form" style="border:none; padding:8px 0;">
-                          <div class="field" style="flex:2; min-width:200px; margin-bottom:0;">
-                            <label>{{ 'common.form.fact' | transloco }}</label>
-                            <textarea [(ngModel)]="editMemory.fact" name="editFact" rows="2" style="width:100%;"></textarea>
-                          </div>
-                          <div class="field" style="flex:1; min-width:160px; margin-bottom:0;">
-                            <label>{{ 'common.form.description' | transloco }}</label>
-                            <textarea [(ngModel)]="editMemory.description" name="editDesc" rows="2" style="resize:vertical;"></textarea>
-                          </div>
-                          <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
-                            <label>{{ 'common.form.tags' | transloco }}</label>
-                            <app-tag-input [(value)]="editMemory.tags" [suggestions]="store.memoryTagSuggestions()" inputName="memEditTags" />
-                          </div>
-                          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-                            <label>{{ 'common.form.entities' | transloco }}</label>
-                            <div class="flyout-wrap">
-                              <div class="entity-multi">
-                                @for (chip of picker.entityChips(editMemory.entityIds); track chip.id) {
-                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(editMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                                }
-                                <button type="button" class="chip-add" (click)="picker.openFlyout('edit-memory-entityIds', editMemory)">{{ 'common.addMore' | transloco }}</button>
-                              </div>
-                              @if (picker.flyoutField() === 'edit-memory-entityIds') {
-                                <div class="flyout-panel">
-                                  <app-entity-search
-                                    mode="picker"
-                                    [spaceId]="activeSpaceId()"
-                                    placeholder="common.searchEntitiesPlaceholder"
-
-                                    (selected)="picker.pickEntity($event, editMemory)"
-                                  />
-                                  <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                    <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                                  </div>
-                                </div>
-                              }
-                            </div>
-                          </div>
-                          <div class="field" style="flex:1; min-width:220px; margin-bottom:0;">
-                            <label>{{ 'common.form.properties' | transloco }}</label>
-                            <app-properties-editor
-                              [schema]="store.memorySchema()"
-                              [required]="store.requiredProps(store.memorySchema())"
-                              [(value)]="editMemory.properties"
-                            />
-                          </div>
-                          <div style="display:flex; gap:6px; align-items:flex-end;">
-                            <button class="btn btn-sm btn-primary" [disabled]="recordList.editSaving()" (click)="saveEditMemory(mem._id)">
-                              @if (recordList.editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } {{ 'common.save' | transloco }}
-                            </button>
-                            <button class="btn btn-sm btn-secondary" (click)="recordList.cancelEdit()">{{ 'common.cancel' | transloco }}</button>
-                          </div>
-                          @if (recordList.editError()) { <div style="font-size:12px; color:var(--error);">{{ recordList.editError() }}</div> }
-                        </div>
-                      </td>
-                    </tr>
-                  } @else {
-                    <tr>
-                      <td style="max-width:300px; white-space:pre-wrap; word-break:break-word;">{{ mem.fact }}</td>
-                      <td class="desc-cell" style="max-width:180px;" [title]="mem.description ?? ''">
-                        {{ mem.description || '—' }}
-                      </td>
-                      <td style="font-size:11px;">
-                        @for (tag of (mem.tags ?? []); track tag) { <span class="tag tag-clickable" (click)="applyFilter('tag', tag)">{{ tag }}</span> }
-                        @if (!(mem.tags?.length)) { <span style="color:var(--text-muted)">—</span> }
-                      </td>
-                      <td style="font-size:11px;">
-                        @if (mem.entityIds?.length) {
-                          <div class="chip-list">
-                            @for (id of mem.entityIds!; track id) {
-                              <span class="chip" [title]="id">{{ picker.entityNameCache()[id] || id.slice(0,8) + '…' }}</span>
-                            }
-                          </div>
-                        } @else { <span style="color:var(--text-muted)">—</span> }
-                      </td>
-                      <td><app-properties-view [properties]="mem.properties" [schema]="store.memorySchema()" /></td>
-                      <td style="color:var(--text-muted)">{{ mem.createdAt | date:'dd.MM.yyyy' }}</td>
-                      <td style="white-space:nowrap;">
-                        <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('memory', mem)"><ph-icon name="eye" [size]="16"/></button>
-                        @if (recordList.confirmDeleteId() === mem._id) {
-                          <span class="inline-confirm">
-                            {{ 'common.deleteConfirm' | transloco }}
-                            <button class="btn btn-sm btn-danger" (click)="deleteMemory(mem._id)">{{ 'common.yes' | transloco }}</button>
-                            <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">{{ 'common.no' | transloco }}</button>
-                          </span>
-                        } @else {
-                          <button class="icon-btn danger" [attr.title]="'brain.memories.deleteTitle' | transloco" [attr.aria-label]="'brain.memories.deleteAriaLabel' | transloco" (click)="requestDelete(mem._id)"><ph-icon name="x" [size]="16"/></button>
-                        }
-                      </td>
-                    </tr>
-                  }
-                } @empty {
-                  <tr><td colspan="7">
-                    @if (recordList.loadError() !== null) {
-                      <app-error-state [message]="'brain.error.loadMemories' | transloco" [reason]="recordList.loadError() ?? ''" (retry)="retryCurrentTab()" />
-                    } @else {
-                    <div class="empty-state" style="padding:32px">
-                      <div class="empty-state-icon"><ph-icon name="brain" [size]="48"/></div>
-                      @if (store.memorySearch() && store.memories().length) {
-                        <h3>{{ 'common.noMatches' | transloco }}</h3>
-                        <p>{{ 'brain.memories.empty.noMatchQuery' | transloco: { query: store.memorySearch() } }}</p>
-                      } @else {
-                        <h3>{{ 'brain.memories.empty.title' | transloco }}</h3>
-                        <p>{{ 'brain.memories.empty.body' | transloco }}</p>
-                      }
-                    </div>
-                    }
-                  </td></tr>
-                }
-              </tbody>
-            </table>
-          </div>
-          @if (store.memorySearchMode() !== 'semantic') {
-            <div class="pagination">
-              <button class="btn btn-sm btn-secondary" [disabled]="skip() === 0" (click)="prevPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ store.filteredMemories().length ? (skip() + 1) + '–' + (skip() + store.filteredMemories().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="store.memories().length < pageSize" (click)="nextPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
-            </div>
-          }
-        }
+        @if (activeTab() === 'memories') { <app-memories-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" /> }
 
         <!-- Entities -->
         @if (activeTab() === 'entities') {
@@ -1572,7 +1358,6 @@ export class BrainComponent implements OnInit {
   // Entities pagination + search
   entitySkip = signal(0);
   entitySearch = signal('');
-  private _memSemTimer: ReturnType<typeof setTimeout> | null = null;
   private _edgeSemTimer: ReturnType<typeof setTimeout> | null = null;
   private _chronoSemTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1587,16 +1372,9 @@ export class BrainComponent implements OnInit {
   reindexing = signal(false);
   reindexResult = signal('');
 
-  editMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
   editEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
   editEdge = { from: '', to: '', fromName: undefined as string | undefined, toName: undefined as string | undefined, label: '', weight: null as number | null, tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
   editChrono = { title: '', kind: '' as string, status: '' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '' };
-
-  // Create memory form
-  showMemoryForm = signal(false);
-  creatingMemory = signal(false);
-  createMemoryError = signal('');
-  memoryForm = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
 
   // Create entity form
   showEntityForm = signal(false);
@@ -1695,9 +1473,6 @@ export class BrainComponent implements OnInit {
     this.loadCurrentTab(this.activeSpaceId());
   }
 
-  prevPage(): void { this.skip.update(s => Math.max(0, s - this.pageSize)); this.loadCurrentTab(this.activeSpaceId()); }
-  nextPage(): void { this.skip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
-
   prevEntityPage(): void { this.entitySkip.update(s => Math.max(0, s - this.pageSize)); this.loadCurrentTab(this.activeSpaceId()); }
   nextEntityPage(): void { this.entitySkip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
 
@@ -1744,43 +1519,6 @@ export class BrainComponent implements OnInit {
     this.brainApi.listEntities(spaceId, this.pageSize, this.entitySkip(), ef).subscribe({
       next: ({ entities }) => this.store.entities.set(entities),
       error: () => {},
-    });
-  }
-
-  // ── Memory / Edge / Chrono search with mode toggle ─────────────────────────
-  onMemorySearch(q: string): void {
-    this.store.memorySearch.set(q);
-    if (this.store.memorySearchMode() === 'semantic') {
-      if (this._memSemTimer) clearTimeout(this._memSemTimer);
-      if (!q.trim()) { this.store.memories.set([]); return; }
-      this._memSemTimer = setTimeout(() => this.runSemanticMemorySearch(), 300);
-    }
-  }
-  setMemorySearchMode(m: 'text' | 'semantic'): void {
-    this.store.memorySearchMode.set(m);
-    const q = this.store.memorySearch().trim();
-    if (!q) return;
-    if (m === 'semantic') this.runSemanticMemorySearch();
-    else { this.skip.set(0); this.loadCurrentTab(this.activeSpaceId()); }
-  }
-  runSemanticMemorySearch(): void {
-    const q = this.store.memorySearch().trim();
-    const spaceId = this.activeSpaceId();
-    if (!q || !spaceId) { this.store.memories.set([]); return; }
-    this.brainApi.recallBrain(spaceId, { query: q, types: ['memory'], topK: 20 }).pipe(
-      catchError(() => of({ results: [], count: 0 })),
-    ).subscribe(res => {
-      this.store.memories.set(res.results.filter(r => r.type === 'memory').map(r => ({
-        _id: r['_id'] as string,
-        fact: (r['fact'] as string) ?? '',
-        tags: (r['tags'] as string[]) ?? [],
-        entityIds: (r['entityIds'] as string[]) ?? [],
-        description: r['description'] as string | undefined,
-        properties: (r['properties'] as Record<string, string | number | boolean>) ?? {},
-        createdAt: (r['createdAt'] as string) ?? '',
-        seq: (r['seq'] as number) ?? 0,
-        author: r['author'] as { instanceId: string } | undefined,
-      } as Memory)));
     });
   }
 
@@ -1891,26 +1629,11 @@ export class BrainComponent implements OnInit {
 
   private loadCurrentTab(spaceId: string): void {
     if (!spaceId) return;
+    if (this.activeTab() === 'memories') return; // self-loading component
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
 
     switch (this.activeTab()) {
-      case 'memories': {
-        const filters: { tag?: string; entity?: string; type?: string } = {};
-        if (this.recordFilter().tag) filters.tag = this.recordFilter().tag;
-        if (this.filterEntity()) filters.entity = this.filterEntity();
-        if (this.recordFilter().type) filters.type = this.recordFilter().type;
-        this.brainApi.listMemories(spaceId, this.pageSize, this.skip(), filters).subscribe({
-          next: ({ memories }) => {
-            this.store.memories.set(memories);
-            const ids = [...new Set(memories.flatMap(m => m.entityIds ?? []))];
-            if (ids.length) this.picker.resolveEntityNames(ids);
-            this.recordList.loading.set(false);
-          },
-          error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
-        });
-        break;
-      }
       case 'entities': {
         const ef: { search?: string; type?: string; tag?: string } = {};
         if (this.entitySearch()) ef.search = this.entitySearch();
@@ -2000,20 +1723,6 @@ export class BrainComponent implements OnInit {
   requestDelete(id: string): void { this.recordList.confirmDeleteId.set(id); }
   cancelDelete(): void { this.recordList.confirmDeleteId.set(''); }
 
-  // ── Inline edit methods ────────────────────────────────────────────────
-
-  startEditMemory(mem: Memory): void {
-    this.recordList.editingId.set(mem._id);
-    this.recordList.editError.set('');
-    this.editMemory = {
-      fact: mem.fact,
-      tags: mem.tags ?? [],
-      entityIds: (mem.entityIds ?? []).join(', '),
-      description: mem.description ?? '',
-      properties: this.store.buildPropertiesObject('memory', mem.properties ?? {}),
-    };
-  }
-
   startEditEntity(ent: Entity): void {
     this.recordList.editingId.set(ent._id);
     this.recordList.editError.set('');
@@ -2055,26 +1764,6 @@ export class BrainComponent implements OnInit {
       tags: entry.tags ?? [],
       entityIds: (entry.entityIds ?? []).join(', '),
     };
-  }
-
-  saveEditMemory(id: string): void {
-    this.recordList.editSaving.set(true);
-    this.recordList.editError.set('');
-    const memProps = this.editMemory.properties;
-    this.brainApi.updateMemory(this.activeSpaceId(), id, {
-      fact: this.editMemory.fact.trim(),
-      tags: this.editMemory.tags,
-      entityIds: this.editMemory.entityIds.split(',').map(s => s.trim()).filter(Boolean),
-      description: this.editMemory.description.trim(),
-      ...(Object.keys(memProps).length ? { properties: memProps } : {}),
-    }).subscribe({
-      next: (updated) => {
-        this.recordList.editSaving.set(false);
-        this.recordList.editingId.set('');
-        this.store.memories.update(list => list.map(m => m._id === id ? updated : m));
-      },
-      error: (err) => { this.recordList.editSaving.set(false); this.recordList.editError.set(fmtApiError(err, 'Failed to save')); },
-    });
   }
 
   saveEditEntity(id: string): void {
@@ -2136,14 +1825,6 @@ export class BrainComponent implements OnInit {
         this.store.chrono.update(list => list.map(c => c._id === id ? updated : c));
       },
       error: (err) => { this.recordList.editSaving.set(false); this.recordList.editError.set(fmtApiError(err, 'Failed to save')); },
-    });
-  }
-
-  deleteMemory(id: string): void {
-    this.recordList.confirmDeleteId.set('');
-    this.brainApi.deleteMemory(this.activeSpaceId(), id).subscribe({
-      next: () => { this.store.memories.update(list => list.filter(m => m._id !== id)); this.loadStats(this.activeSpaceId()); },
-      error: () => {},
     });
   }
 
@@ -2214,28 +1895,6 @@ export class BrainComponent implements OnInit {
     const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) || '/' : '/';
     this.fileManagerNavPath.set(dir === '/' ? '' : dir);
     this.setTab('files');
-  }
-
-  createMemory(): void {
-    if (!this.memoryForm.fact.trim()) return;
-    this.creatingMemory.set(true);
-    this.createMemoryError.set('');
-    const entityIds = this.memoryForm.entityIds.split(',').map(s => s.trim()).filter(Boolean);
-    const body: Parameters<BrainApi['createMemory']>[1] = { fact: this.memoryForm.fact.trim() };
-    if (this.memoryForm.tags.length) body.tags = this.memoryForm.tags;
-    if (entityIds.length) body.entityIds = entityIds;
-    if (this.memoryForm.description.trim()) body.description = this.memoryForm.description.trim();
-    if (Object.keys(this.memoryForm.properties).length) body.properties = this.memoryForm.properties;
-    this.brainApi.createMemory(this.activeSpaceId(), body).subscribe({
-      next: () => {
-        this.creatingMemory.set(false);
-        this.showMemoryForm.set(false);
-        this.memoryForm = { fact: '', tags: [], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
-        this.loadStats(this.activeSpaceId());
-        this.loadCurrentTab(this.activeSpaceId());
-      },
-      error: (err) => { this.creatingMemory.set(false); this.createMemoryError.set(fmtApiError(err, 'Failed to create memory')); },
-    });
   }
 
   createEntity(): void {
@@ -2386,11 +2045,6 @@ export class BrainComponent implements OnInit {
     const firstLabel = Object.keys(this.store.spaceMeta()?.typeSchemas?.edge ?? {})[0] ?? '';
     this.edgeForm = { from: '', fromDisplay: '', to: '', toDisplay: '', label: firstLabel, weight: null, tags: [], description: '', properties: this.store.buildPropertiesObject('edge', {}, firstLabel) };
     this.showEdgeForm.set(true);
-  }
-
-  openMemoryForm(): void {
-    this.memoryForm = { fact: '', tags: [], entityIds: '', description: '', properties: this.store.buildPropertiesObject('memory') };
-    this.showMemoryForm.set(true);
   }
 
   openChronoForm(): void {

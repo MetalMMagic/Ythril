@@ -702,6 +702,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Swept the now-dead record-table CSS out of `BrainComponent` — the final A17.9 brain-decomposition
+  cleanup.** Once every record tab became its own component, ~25 style rules the shell no longer renders
+  (the search/filter header, create form, filter chips, inline-confirm, description cell, entity-picker
+  dropdown, dialog, pill-group, and assorted list styling) were left behind in its inline `styles`.
+  Removed them (rule-by-rule, verified each class has zero references in the shell's remaining template)
+  and inlined the single `flyout-backdrop` rule the shell still uses so it no longer pulls in the whole
+  `BRAIN_CHIP_STYLES` const. `brain.component.ts` 637 → 412 — the shell is now purely navigation
+  (space chips, the tab bar, the loading/empty states, and `<app-*-tab>` + `<app-record-drawer/>`).
+  Pure CSS/dead-code removal, no behaviour change; all 215 tests green.
 - **Bumped the `unstructured-api` document-conversion sidecar `0.0.75` → `0.1.2`** in
   `docker-compose.yml` and `kubernetes/manifests/ythril-deployment.yaml`. The pin's license gate holds:
   the 0.1.2 release is Apache-2.0 (verified against the upstream repo). The converter's contract points

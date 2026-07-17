@@ -11,7 +11,6 @@ import { EntitiesTabComponent } from './entities-tab.component';
 import { EdgesTabComponent } from './edges-tab.component';
 import { ChronoTabComponent } from './chrono-tab.component';
 import { FilemetaTabComponent } from './filemeta-tab.component';
-import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { FormsModule } from '@angular/forms';
 import { Space, SpaceStats } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -41,7 +40,10 @@ interface SpaceView {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, FilemetaTabComponent, TranslocoPipe],
   providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
-  styles: [BRAIN_CHIP_STYLES, `
+  styles: [`
+    /* The shared entity-picker flyout backdrop is rendered at the shell level (the panels live in the
+       tab components). It is the only chip/flyout style the shell itself uses. */
+    .flyout-backdrop { position: fixed; inset: 0; z-index: 55; }
     .space-tabs {
       display: flex;
       gap: 8px;
@@ -96,14 +98,6 @@ interface SpaceView {
     .space-chip-net.net-syncing, .space-chip-net.net-vote { animation: chip-net-pulse 1.4s ease-in-out infinite; }
     @media (prefers-reduced-motion: reduce) { .space-chip-net { animation: none !important; } }
 
-    .content-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-    }
-
     .tab-count {
       display: inline-flex;
       align-items: center;
@@ -124,103 +118,6 @@ interface SpaceView {
       color: var(--accent);
     }
 
-    .tab-files-info {
-      margin-left: auto;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 8px 12px;
-      font-size: 12px;
-      color: var(--text-muted);
-      border-bottom: 2px solid transparent;
-      text-decoration: none;
-      cursor: pointer;
-      transition: color var(--transition), border-color var(--transition);
-      white-space: nowrap;
-    }
-    .tab-files-info:hover {
-      color: var(--text-primary);
-      border-bottom-color: var(--border);
-      text-decoration: none;
-    }
-
-    .memory-item {
-      padding: 14px 16px;
-      border-radius: var(--radius-md);
-      background: var(--bg-surface);
-    }
-    .filter-bar-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
-    /* Shared list filter row (F6) — holds <app-record-filter-bar> + any active chips. */
-    .list-filter-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
-    }
-    .filter-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 3px 10px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 500;
-      border: 1px solid var(--accent);
-      background: var(--accent-dim);
-      color: var(--accent);
-    }
-    .filter-chip button {
-      background: none;
-      border: none;
-      color: var(--accent);
-      cursor: pointer;
-      font-size: 14px;
-      line-height: 1;
-      padding: 0 2px;
-    }
-    .tag-clickable, .entity-clickable {
-      cursor: pointer;
-      transition: opacity var(--transition);
-    }
-    .tag-clickable:hover, .entity-clickable:hover { opacity: 0.7; }
-
-    .create-form {
-      display: flex;
-      gap: 10px;
-      align-items: flex-start;
-      flex-wrap: wrap;
-      padding: 12px 14px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      background: var(--bg-surface);
-      margin-bottom: 12px;
-    }
-    .create-form .field { margin-bottom: 0; }
-    .create-form label { font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 2px; }
-    .create-form input, .create-form textarea {
-      padding: 5px 8px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      font-size: 13px;
-      background: var(--bg-primary);
-      color: var(--text-primary);
-    }
-    .create-form textarea { resize: vertical; }
-
-    .chrono-desc-preview {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-top: 2px;
-      white-space: pre-wrap;
-      max-width: 280px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-    }
-
     .reindex-banner {
       display: flex;
       align-items: center;
@@ -239,130 +136,8 @@ interface SpaceView {
       margin-left: auto;
     }
 
-    .content-header input[type=search] {
-      flex: 1;
-      min-width: 180px;
-      max-width: 400px;
-      padding: 5px 10px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      font-size: 13px;
-      background: var(--bg-surface);
-      color: var(--text-primary);
-    }
-    .content-header app-entity-search {
-      flex: 1;
-      min-width: 180px;
-      max-width: 520px;
-    }
-
-    .inline-confirm {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      color: var(--error);
-    }
-    .inline-confirm button { font-size: 11px; }
-
-    .memory-description {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-top: 4px;
-      line-height: 1.4;
-    }
-
-    /* Description table cells: clamp to a few lines but honour newlines (F7).
-       pre-wrap renders the multi-line text the textareas now allow; the box
-       clamp keeps rows compact, and each cell keeps its [title] for the full text. */
-    .desc-cell {
-      font-size: 12px;
-      color: var(--text-muted);
-      overflow: hidden;
-      display: -webkit-box;
-      -webkit-line-clamp: 3;
-      -webkit-box-orient: vertical;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    .dialog-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.5);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 100;
-    }
-    .dialog {
-      background: var(--bg-primary);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 24px;
-      width: 90%;
-      max-width: 600px;
-      max-height: 90vh;
-      overflow-y: auto;
-    }
-    .dialog-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 16px;
-    }
-
-    .entity-picker-wrap {
-      position: relative;
-    }
-    .entity-picker-dropdown {
-      position: absolute;
-      top: calc(100% + 2px);
-      left: 0;
-      min-width: 300px;
-      max-height: 240px;
-      overflow-y: auto;
-      z-index: 50;
-      background: var(--bg-primary);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-md);
-      box-shadow: var(--shadow-md);
-    }
-    .entity-picker-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 12px;
-      cursor: pointer;
-      font-size: 12px;
-      border-bottom: 1px solid var(--border-muted);
-    }
-    .entity-picker-item:last-child { border-bottom: none; }
-    .entity-picker-item:hover { background: var(--bg-surface); }
-    .entity-picker-name { font-weight: 500; color: var(--text-primary); white-space: nowrap; }
-    .entity-picker-desc {
-      font-size: 11px; color: var(--text-muted); flex: 1;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    }
-    .entity-picker-id {
-      font-size: 10px; color: var(--text-muted);
-      font-family: var(--font-mono, monospace); margin-left: auto; flex-shrink: 0;
-    }
     .tab-spacer { flex: 1; }
 
-    .link-btn {
-      background: none; border: none; cursor: pointer; color: var(--accent);
-      text-decoration: underline; padding: 0; font-size: inherit; text-align: left;
-    }
-    .link-btn:hover { color: var(--accent-light, var(--accent)); }
-    .icon-btn-danger { color: var(--error); }
-    .icon-btn-danger:hover { color: var(--error); }
-    .flyout-result:hover { background: var(--bg-secondary); }
-    .pill-group { display:flex; border:1px solid var(--border); border-radius:var(--radius-sm); overflow:hidden; flex-shrink:0; }
-    .pill-group button { padding:5px 10px; font-size:11px; background:transparent; border:none; border-right:1px solid var(--border); color:var(--text-secondary); cursor:pointer; white-space:nowrap; }
-    .pill-group button:last-child { border-right:none; }
-    .pill-group button.active { background:var(--accent-dim); color:var(--accent); }
-    .pill-group button:hover:not(.active) { background:var(--bg-surface); }
   `],
   template: `
     @if (loadingSpaces()) {

@@ -11,17 +11,18 @@
  * components; everything below is behaviour that move could plausibly break:
  *
  *  - `sortedSpaces` — the sort/filter pipeline, including the order of the two steps
- *  - `openSettings` -> `buildMeta` — the round-trip that keeps a library-linked ($ref) type schema
- *    intact. This is the subtle one: `$ref: "library:x"` becomes a `_libRef` sentinel on the way in
- *    and must become `$ref` again on the way out, or saving a space silently unlinks its schemas.
- *  - `buildMeta` field-by-field emission (what is omitted vs always sent)
  *  - `storageInfo` / `fmtGiB` thresholds
  *  - proxy-target selection rules
  *  - the tab panes actually rendering
+ *
+ * A17.8b moved the settings-dialog state (`openSettings`/`buildMeta`, the type-schema helpers and
+ * the duplicate rules) into `SpaceSettingsState`. Those assertions moved with them, unchanged, to
+ * space-settings-state.service.spec.ts — including the library `$ref` round-trip. What stayed here
+ * is what the component still owns: the list, and rendering.
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { of, throwError } from 'rxjs';
+import { of } from 'rxjs';
 import { NetworksApi } from '../../core/networks-api.service';
 import { SchemaApi } from '../../core/schema-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -153,201 +154,6 @@ describe('SpacesComponent — storageInfo / fmtGiB', () => {
   });
 });
 
-describe('SpacesComponent — openSettings populates every tab', () => {
-  const rich = space({
-    id: 'work', label: 'Work', maxGiB: 7,
-    dupeRules: [{ minScore: 0.9, action: 'flag' }],
-    dupeMergeSurvivor: 'newer',
-    dupeRulesOnInsert: true,
-    meta: {
-      purpose: 'p', usageNotes: 'u', validationMode: 'strict', strictLinkage: true,
-      tagSuggestions: ['a', 'b'],
-      typeSchemas: { entity: { person: { namingPattern: '^[A-Z]', tagSuggestions: ['t'], propertySchemas: { age: { type: 'number', minimum: 0 } } } } },
-    },
-  } as Partial<Space>);
-
-  it('resets to the settings tab and the entity schema sub-tab', () => {
-    const c = create([rich]).componentInstance;
-    c.settingsTab.set('danger');
-    c.schemaCollTab.set('edge');
-    c.openSettings(rich);
-    expect(c.settingsTab()).toBe('settings');
-    expect(c.schemaCollTab()).toBe('entity');
-  });
-
-  it('copies the space into the settings form', () => {
-    const c = create([rich]).componentInstance;
-    c.openSettings(rich);
-    expect(c.stForm).toEqual({ label: 'Work', purpose: 'p', usageNotes: 'u', maxGiB: 7 });
-  });
-
-  it('copies duplicate rules by VALUE — editing the form must not mutate the space object', () => {
-    const c = create([rich]).componentInstance;
-    c.openSettings(rich);
-    expect(c.dupeRulesState).toEqual([{ minScore: 0.9, action: 'flag' }]);
-    expect(c.dupeSurvivor).toBe('newer');
-    expect(c.dupeOnInsert).toBe(true);
-
-    c.dupeRulesState[0]!.minScore = 0.1;
-    expect(rich.dupeRules![0]!.minScore).toBe(0.9); // original untouched
-  });
-
-  it('copies schema state, including tag suggestions by value', () => {
-    const c = create([rich]).componentInstance;
-    c.openSettings(rich);
-    expect(c.schValidation).toBe('strict');
-    expect(c.schStrictLinkage).toBe(true);
-    expect(c.schTagSuggestions).toEqual(['a', 'b']);
-
-    c.schTagSuggestions.push('c');
-    expect(rich.meta!.tagSuggestions).toEqual(['a', 'b']); // original untouched
-  });
-
-  it('flattens a type schema into editable state (propertySchemas becomes a keyed list)', () => {
-    const c = create([rich]).componentInstance;
-    c.openSettings(rich);
-    expect(c.typeNames('entity')).toEqual(['person']);
-    expect(c.typeCount('entity')).toBe(1);
-    const st = c.typeState('entity', 'person');
-    expect(st.namingPattern).toBe('^[A-Z]');
-    expect(st.tagSuggestions).toEqual(['t']);
-    expect(st.propertySchemas).toEqual([{ key: 'age', s: { type: 'number', minimum: 0 }, _enumInput: '' }]);
-  });
-
-  it('defaults everything when the space has no meta at all', () => {
-    const bare = space({ id: 'bare', label: 'Bare' });
-    const c = create([bare]).componentInstance;
-    c.openSettings(bare);
-    expect(c.stForm).toEqual({ label: 'Bare', purpose: '', usageNotes: '', maxGiB: null });
-    expect(c.schValidation).toBe('off');
-    expect(c.schStrictLinkage).toBe(false);
-    expect(c.schTagSuggestions).toEqual([]);
-    expect(c.typeNames('entity')).toEqual([]);
-    expect(c.dupeRulesState).toEqual([]);
-    expect(c.dupeSurvivor).toBe('older');
-    expect(c.dupeOnInsert).toBe(false);
-  });
-
-  it('loads wipe stats for the danger tab, clearing the loading flag', () => {
-    const c = create([rich]).componentInstance;
-    c.openSettings(rich);
-    expect(c.dangerWipeStats()).toEqual(STATS);
-    expect(c.dangerWipeLoading()).toBe(false);
-    expect(c.dangerRenameId).toBe('work');
-  });
-
-  it('a failing stats call still clears the loading flag', () => {
-    TestBed.resetTestingModule();
-    const api = { ...makeApi([]), getSpaceStats: () => throwError(() => new Error('boom')) };
-    TestBed.configureTestingModule({
-      imports: [SpacesComponent, getTranslocoModule()],
-      providers: [
-        { provide: SpacesApi, useValue: api },
-        { provide: NetworksApi, useValue: makeApi() },
-        { provide: SchemaApi, useValue: makeApi() },
-        { provide: ToastService, useValue: { show: () => {}, error: () => {}, success: () => {} } },
-        { provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(true) } },
-      ],
-    });
-    const c = TestBed.createComponent(SpacesComponent).componentInstance;
-    c.openSettings(space());
-    expect(c.dangerWipeLoading()).toBe(false);
-    expect(c.dangerWipeStats()).toBeNull();
-  });
-});
-
-describe('SpacesComponent — buildMeta (what actually gets saved)', () => {
-  it('always emits validationMode, and omits blank purpose/usageNotes', () => {
-    const c = create().componentInstance;
-    c.openSettings(space());
-    expect(c.buildMeta()).toEqual({ validationMode: 'off' });
-  });
-
-  it('trims purpose and usageNotes', () => {
-    const c = create().componentInstance;
-    c.openSettings(space());
-    c.stForm.purpose = '  p  ';
-    c.stForm.usageNotes = '  u  ';
-    expect(c.buildMeta()).toMatchObject({ purpose: 'p', usageNotes: 'u' });
-  });
-
-  it('emits strictLinkage only when true, and tagSuggestions only when non-empty', () => {
-    const c = create().componentInstance;
-    c.openSettings(space());
-    expect(c.buildMeta().strictLinkage).toBeUndefined();
-    expect(c.buildMeta().tagSuggestions).toBeUndefined();
-    c.schStrictLinkage = true;
-    c.schTagSuggestions = ['x'];
-    expect(c.buildMeta()).toMatchObject({ strictLinkage: true, tagSuggestions: ['x'] });
-  });
-
-  it('namingPattern is entity-only — the same state on a memory type is dropped', () => {
-    const c = create().componentInstance;
-    c.openSettings(space());
-    c.schTypeSchemas.entity = { person: { namingPattern: '^A', tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '' } as any };
-    c.schTypeSchemas.memory = { note: { namingPattern: '^A', tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '' } as any };
-    const meta = c.buildMeta();
-    expect(meta.typeSchemas!.entity!['person']).toEqual({ namingPattern: '^A' });
-    expect(meta.typeSchemas!.memory!['note']).toEqual({});
-  });
-
-  it('maps a property schema field-by-field, omitting empty ones', () => {
-    const c = create().componentInstance;
-    c.openSettings(space());
-    c.schTypeSchemas.entity = { person: {
-      namingPattern: '', tagSuggestions: [], _newPropInput: '', _newTagInput: '',
-      propertySchemas: [{ key: 'age', s: { type: 'number', minimum: 0, maximum: 5, pattern: '  ', enum: [], required: true }, _enumInput: '' }],
-    } as any };
-    const ps = c.buildMeta().typeSchemas!.entity!['person']!.propertySchemas!['age']!;
-    expect(ps).toEqual({ type: 'number', minimum: 0, maximum: 5, required: true });
-    expect(ps.pattern).toBeUndefined(); // whitespace-only pattern dropped
-    expect(ps.enum).toBeUndefined();    // empty enum dropped
-  });
-
-  it('omits typeSchemas entirely when no type is defined', () => {
-    const c = create().componentInstance;
-    c.openSettings(space());
-    expect(c.buildMeta().typeSchemas).toBeUndefined();
-  });
-});
-
-describe('SpacesComponent — library $ref round-trip (openSettings -> buildMeta)', () => {
-  // The one that matters most: a library-linked type schema arrives as `$ref: "library:<name>"`,
-  // is held as a private `_libRef` sentinel while editing, and must be emitted as `$ref` again.
-  // Lose the sentinel and saving a space silently converts a linked schema into an empty inline one.
-  const linked = space({
-    id: 'work', label: 'Work',
-    meta: { typeSchemas: { entity: { person: { $ref: 'library:people-v1' } } } },
-  } as Partial<Space>);
-
-  it('a $ref type survives open -> save unchanged', () => {
-    const c = create([linked]).componentInstance;
-    c.openSettings(linked);
-    expect(c.buildMeta().typeSchemas!.entity!['person']).toEqual({ $ref: 'library:people-v1' });
-  });
-
-  it('the $ref type is exposed to the UI as a named type carrying its library ref', () => {
-    const c = create([linked]).componentInstance;
-    c.openSettings(linked);
-    expect(c.typeNames('entity')).toEqual(['person']);
-    expect(c.typeLibRef('entity', 'person')).toBe('people-v1');
-  });
-
-  it('a $ref type emits ONLY $ref — never the empty inline fields it is stored with', () => {
-    const c = create([linked]).componentInstance;
-    c.openSettings(linked);
-    const out = c.buildMeta().typeSchemas!.entity!['person']!;
-    expect(Object.keys(out)).toEqual(['$ref']);
-  });
-
-  it('a non-library $ref is NOT treated as a library link', () => {
-    const other = space({ id: 'w', label: 'W', meta: { typeSchemas: { entity: { person: { $ref: 'elsewhere:x' } } } } } as Partial<Space>);
-    const c = create([other]).componentInstance;
-    c.openSettings(other);
-    expect(c.typeLibRef('entity', 'person')).toBeNull();
-  });
-});
-
 describe('SpacesComponent — proxy target selection (create dialog)', () => {
   it('toggleProxyFor adds then removes an id', () => {
     const c = create().componentInstance;
@@ -372,29 +178,6 @@ describe('SpacesComponent — proxy target selection (create dialog)', () => {
   });
 });
 
-describe('SpacesComponent — duplicate rules', () => {
-  it('addDupeRule appends and removeDupeRule deletes by index', () => {
-    const c = create().componentInstance;
-    c.openSettings(space());
-    c.addDupeRule();
-    c.addDupeRule();
-    expect(c.dupeRulesState).toHaveLength(2);
-    c.dupeRulesState[0]!.action = 'automerge';
-    c.removeDupeRule(1);
-    expect(c.dupeRulesState).toHaveLength(1);
-    expect(c.dupeRulesState[0]!.action).toBe('automerge');
-  });
-
-  it('hasAutomergeRule reflects whether any rule is an automerge', () => {
-    const c = create().componentInstance;
-    c.openSettings(space());
-    c.addDupeRule();
-    expect(c.hasAutomergeRule()).toBe(false);
-    c.dupeRulesState[0]!.action = 'automerge';
-    expect(c.hasAutomergeRule()).toBe(true);
-  });
-});
-
 describe('SpacesComponent — settings dialog rendering', () => {
   const s = space({ id: 'work', label: 'Work' });
   const text = (f: { nativeElement: HTMLElement }) => f.nativeElement.textContent ?? '';
@@ -402,26 +185,26 @@ describe('SpacesComponent — settings dialog rendering', () => {
   it('no dialog until openSettings, and closeSettings tears it down', () => {
     const fixture = create([s]);
     const c = fixture.componentInstance;
-    expect(c.settingsSpace()).toBeNull();
-    c.openSettings(s);
+    expect(c.state.settingsSpace()).toBeNull();
+    c.state.openSettings(s);
     fixture.detectChanges();
-    expect(c.settingsSpace()).not.toBeNull();
-    c.closeSettings();
+    expect(c.state.settingsSpace()).not.toBeNull();
+    c.state.closeSettings();
     fixture.detectChanges();
-    expect(c.settingsSpace()).toBeNull();
+    expect(c.state.settingsSpace()).toBeNull();
   });
 
   it('each tab renders its own pane', () => {
     const fixture = create([s]);
     const c = fixture.componentInstance;
-    c.openSettings(s);
+    c.state.openSettings(s);
     fixture.detectChanges();
 
     // every tab is reachable and swapping panes does not throw
     for (const tab of ['settings', 'schema', 'duplicates', 'danger'] as const) {
-      c.settingsTab.set(tab);
+      c.state.settingsTab.set(tab);
       fixture.detectChanges();
-      expect(c.settingsTab()).toBe(tab);
+      expect(c.state.settingsTab()).toBe(tab);
       expect(text(fixture).length).toBeGreaterThan(0);
     }
   });

@@ -661,6 +661,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Extracted the space-settings dialog state out of `SpacesComponent` into `SpaceSettingsState`
+  (internal, no behavior change).** First half of A17.8: the settings state (`openSettings`,
+  `buildMeta`, the type-schema helpers, the duplicate-rule helpers, and the four tabs' fields) now
+  lives in a service provided by the component, so the tabs can become child components in the
+  second half without any of them reaching into another. It is a service rather than dialog-local
+  state because `openSettings` populates all four tabs atomically and `buildMeta` reads across two of
+  them. Member names are deliberately unchanged: this is a move, not a rewrite, and keeping the names
+  let every moved method body be diffed against the original — 20 of 23 came out byte-identical, and
+  the other three differ only by dropping `as TypeSchemaState & { _libRef?: string }` casts made
+  redundant by declaring `_libRef` on the interface. `spaces.component.ts` drops 1893 → 1616.
+  The 36 characterization tests from the previous PR moved with the code they cover — same
+  assertions, new owner (`space-settings-state.service.spec.ts`), none rewritten to make the refactor
+  pass. **That diff-against-the-original caught three transcription defects my own hand-copy
+  introduced and the tests did not**: `addDupeRule` defaulting to `minScore: 0.95` (not `0.92`), the
+  `dupeSaved.set(false)` reset dropped from both `addDupeRule` and `removeDupeRule`, and
+  `wipeStatCols` hardcoding English labels where `transloco.translate('spaces.stats.*')` belongs —
+  an i18n regression that would have shipped silently. Two new tests pin the dupe-rule defaults the
+  characterization suite had not asserted. Client suite: 107 → 109 tests.
+
 - **Finished the `spaces/spaces.ts` split — `lifecycle.ts`, `rename.ts`, `_shared.ts` (internal, no
   behavior change).** With the vector-index lift, `spaces.ts` goes **1204 → 102 lines** and now holds
   only space settings (`updateSpace`, `reorderSpaces`). Alongside it: `lifecycle.ts` (init, create,

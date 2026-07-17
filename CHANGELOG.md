@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Characterization tests for `BrainComponent`'s derived list state (18 tests), landed before the
+  A17.9 split.** The flagship 3701-line component has only 9 tests, and they cover rendering (OnPush,
+  the record drawer, the network indicator) — none touch the pure derived state, which is exactly
+  what the split relocates when the eight tab-views become child components. These pin the four
+  `filtered*` computeds, the `*TagSuggestions` union (space schema suggestions ∪ tags present on
+  loaded records, deduped), and `*TypeOptions` (schema names ∪ values present, deduped and sorted).
+  Two behaviours worth naming, because both are the kind a split quietly "tidies away": searching in
+  **semantic mode bypasses the client-side filter entirely** (the server already ranked those
+  results), and **files have no such bypass** — there is no `fileMetaSearchMode` at all, so file
+  search always filters. That asymmetry is now asserted rather than folded into one shape by
+  accident. Verified green against the unmodified component *and* verified to fail when the semantic
+  bypass is deliberately removed — a characterization test that cannot fail is worthless. Client
+  suite: 127 → 145.
+
 - **Characterization tests for the settings `SpacesComponent` (36 tests), landed before it is split.**
   The 1893-line component had **no test coverage at all**, and the client suite as a whole (71 tests)
   is far thinner than the server's — the AOT build proves a component compiles, not that it still

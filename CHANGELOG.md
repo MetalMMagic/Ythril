@@ -702,6 +702,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Replaced the CommonJS `qrcode` dependency with the pure-ESM `uqr` for the MFA-enrolment QR.** The
+  old `qrcode` package (and its transitive `dijkstrajs`/`pngjs` stack) forced an Angular AOT
+  optimization bailout on every build; `uqr` is zero-dependency, MIT-licensed, and tree-shakes cleanly,
+  so that build warning is gone and the client bundle is smaller. The QR is still generated entirely
+  client-side — the TOTP secret never leaves the browser — and now renders as an inline SVG data-URL
+  instead of a PNG data-URL (the `<img>` and scan behaviour are unchanged). Added a characterization
+  test pinning that enrolment yields a renderable `data:image/…` QR URL, proven green against the
+  original `qrcode` implementation before the swap.
+
 - **Bumped the `unstructured-api` document-conversion sidecar `0.0.75` → `0.1.2`** in
   `docker-compose.yml` and `kubernetes/manifests/ythril-deployment.yaml`. The pin's license gate holds:
   the 0.1.2 release is Apache-2.0 (verified against the upstream repo). The converter's contract points

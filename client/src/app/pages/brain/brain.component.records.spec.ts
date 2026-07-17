@@ -132,13 +132,13 @@ describe('BrainComponent — inline edit', () => {
   it('saveEditMemory sends the full shape, clears editingId, and patches the store list in place', () => {
     const c = make();
     c.store.memories.set([{ _id: 'm1', fact: 'old' } as Memory]);
-    c.editingId.set('m1');
+    c.recordList.editingId.set('m1');
     c.editMemory = { fact: ' new ', tags: ['t'], entityIds: 'e1', description: ' d ', properties: {} };
     c.saveEditMemory('m1');
     expect(api.updateMemory).toHaveBeenCalledWith('work', 'm1', {
       fact: 'new', tags: ['t'], entityIds: ['e1'], description: 'd',
     });
-    expect(c.editingId()).toBe('');
+    expect(c.recordList.editingId()).toBe('');
     expect(c.store.memories()[0].fact).toBe('UPDATED');
   });
 
@@ -156,12 +156,12 @@ describe('BrainComponent — delete', () => {
   it('deleteMemory removes from the store, clears confirmDeleteId, and refreshes stats', () => {
     const c = make();
     c.store.memories.set([{ _id: 'm1' } as Memory, { _id: 'm2' } as Memory]);
-    c.confirmDeleteId.set('m1');
+    c.recordList.confirmDeleteId.set('m1');
     api.getSpaceStats.mockClear();
     c.deleteMemory('m1');
     expect(api.deleteMemory).toHaveBeenCalledWith('work', 'm1');
     expect(c.store.memories().map(m => m._id)).toEqual(['m2']);
-    expect(c.confirmDeleteId()).toBe('');
+    expect(c.recordList.confirmDeleteId()).toBe('');
     expect(api.getSpaceStats).toHaveBeenCalled(); // stats refresh
   });
 
@@ -178,11 +178,11 @@ describe('BrainComponent — delete', () => {
   it('deleteFileMeta deletes by PATH via the files API and removes the metadata record', () => {
     const c = make();
     c.store.fileMetas.set([{ _id: 'f1', path: '/docs/a.md' } as FileMeta]);
-    c.confirmDeleteId.set('f1');
+    c.recordList.confirmDeleteId.set('f1');
     c.deleteFileMeta('f1');
     expect(filesApi.deleteFileMeta).toHaveBeenCalledWith('work', '/docs/a.md');
     expect(c.store.fileMetas()).toEqual([]);
-    expect(c.confirmDeleteId()).toBe('');
+    expect(c.recordList.confirmDeleteId()).toBe('');
   });
 });
 

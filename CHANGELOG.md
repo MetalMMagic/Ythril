@@ -702,6 +702,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The record tabs' shared interaction state moved into a `RecordListState` service — the keystone
+  before the five record tabs become their own components.** `loading`, `loadError`, `editingId`,
+  `editSaving`, `editError`, and `confirmDeleteId` are singleton by nature (only one record is loading,
+  inline-edited, or delete-confirmed at a time), so a single shared instance is faithful to today's
+  behaviour and lets the shell's unified loading overlay and each future tab component read the same
+  state without duplication — the same shared-service shape as `BrainStore`/`EntityRefPicker`/
+  `RecordDrawerState`. The per-tab filters and pagination stay put (they are genuinely per-tab and move
+  with each tab). Pure relocation, behaviour unchanged. This unblocks extracting the record tabs one at
+  a time (A17.9b-6d..g) without either duplicating the interaction state or breaking the overlay.
+
 - **The brain page's Query tab is now its own OnPush component (`query-tab.component`), the first of
   the six tabs to leave the shell.** It is the read-only one — advanced (MongoDB-style) query + semantic
   recall, no create/edit forms — so it proves the "tab → component over a `spaceId` input" pattern

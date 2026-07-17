@@ -1,7 +1,7 @@
 import { Injectable, signal, computed } from '@angular/core';
 import {
   Memory, Entity, Edge, ChronoEntry, FileMeta, SpaceMetaResponse, PropertySchema,
-  KnowledgeType, ChronoType,
+  KnowledgeType, ChronoType, ChronoStatus,
 } from '../../core/api.types';
 
 /**
@@ -155,6 +155,9 @@ export class BrainStore {
 
   /** The predefined chrono kinds offered before "custom". */
   readonly chronoKinds: ChronoType[] = ['event', 'deadline', 'plan', 'prediction', 'milestone'];
+
+  /** The chrono lifecycle statuses. */
+  readonly chronoStatusOptions: ChronoStatus[] = ['upcoming', 'active', 'completed', 'overdue', 'cancelled'];
 
   /** Seed a properties object from a type's schema: fill missing keys with a typed default
    *  (enum → first option, number → 0, boolean → false, else ''), preserving existing values. */

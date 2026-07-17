@@ -101,64 +101,8 @@ describe('BrainComponent (OnPush)', () => {
     expect(body()).not.toContain('first fact');
   });
 
-  it('opens the detail drawer AND renders its plain (non-signal) form model', async () => {
-    // The load-bearing case. `openDrawer` writes the `drawerRecord` SIGNAL (which marks the OnPush
-    // view dirty) and the plain `drawerEditMemory` field in the same turn. The drawer title binds
-    // that plain field — so this asserts the plain-field write is actually picked up by the CD pass
-    // the signal write scheduled. Drop the sibling signal write and this goes blank.
-    const fixture = create();
-    const c = fixture.componentInstance;
-    expect(fixture.nativeElement.querySelector('.drawer')).toBeNull();
-
-    c.openDrawer('memory', { _id: 'm1', fact: 'a load-bearing fact', tags: [], entityIds: [], properties: {} });
-    fixture.detectChanges();
-
-    const drawer = fixture.nativeElement.querySelector('.drawer');
-    expect(drawer, 'the drawer should be open').toBeTruthy();
-    const title = fixture.nativeElement.querySelector('.drawer-title') as HTMLElement;
-    expect(title.textContent).toContain('a load-bearing fact');
-
-    // And the ngModel-bound textarea reflects the same plain field. ngModel writes its DOM value in
-    // a microtask, so let that settle before reading it.
-    await fixture.whenStable();
-    const textarea = drawer.querySelector('textarea') as HTMLTextAreaElement;
-    expect(textarea.value).toBe('a load-bearing fact');
-  });
-
-  it('edits the description in a multiline <textarea> (F7), preserving newlines', async () => {
-    // F7 swapped the single-line description <input> for a <textarea rows=3>. A record whose
-    // description spans several lines must round-trip those newlines into the editor.
-    const fixture = create();
-    const c = fixture.componentInstance;
-    const multiline = 'line one\nline two\nline three';
-
-    c.openDrawer('memory', {
-      _id: 'm1', fact: 'f', description: multiline, tags: [], entityIds: [], properties: {},
-    });
-    fixture.detectChanges();
-    await fixture.whenStable();
-
-    const descField = fixture.nativeElement.querySelector(
-      '.drawer textarea[name="drwMemDesc"]',
-    ) as HTMLTextAreaElement | null;
-    // It must be a textarea (not the old input), and it must keep the newlines.
-    expect(descField, 'description should be a <textarea>').toBeTruthy();
-    expect(descField!.tagName).toBe('TEXTAREA');
-    expect(descField!.value).toBe(multiline);
-  });
-
-  it('clamps the memories description cell with the multiline-friendly .desc-cell class (F7)', () => {
-    const fixture = create();
-    const c = fixture.componentInstance;
-    c.activeTab.set('memories');
-    c.store.memories.set([{ ...memory('a fact'), description: 'x\ny' } as Memory]);
-    fixture.detectChanges();
-
-    const cell = fixture.nativeElement.querySelector('table tbody .desc-cell') as HTMLElement | null;
-    expect(cell, 'the description cell should use .desc-cell').toBeTruthy();
-    // pre-wrap (via the class) is what lets the newline render instead of collapsing.
-    expect(getComputedStyle(cell!).whiteSpace).toBe('pre-wrap');
-  });
+  // The detail-drawer rendering tests (open + plain-model, multiline description) moved to
+  // record-drawer.component.spec.ts when the drawer became its own component (A17.9b-5).
 
   // ── F8: network-membership indicator on space chips ────────────────────────
   const setSpaces = (fixture: ReturnType<typeof create>, spaceView: Record<string, unknown>) => {

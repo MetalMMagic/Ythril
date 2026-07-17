@@ -113,7 +113,7 @@ spec:
         - name: unstructured
           # Pin to a specific tag and verify the LICENSE before upgrading.
           # Run `docker run --rm --entrypoint cat <image> /app/LICENSE` to confirm Apache-2.0.
-          image: downloads.unstructured.io/unstructured-io/unstructured-api:0.0.75
+          image: downloads.unstructured.io/unstructured-io/unstructured-api:0.1.2
           # Lighter hardening than the main container: the OCR pipeline writes
           # scratch files across its own filesystem, so readOnlyRootFilesystem is
           # left off, but privilege escalation and added capabilities are still denied.

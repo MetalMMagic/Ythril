@@ -711,6 +711,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BRAIN_CHIP_STYLES` const. `brain.component.ts` 637 → 412 — the shell is now purely navigation
   (space chips, the tab bar, the loading/empty states, and `<app-*-tab>` + `<app-record-drawer/>`).
   Pure CSS/dead-code removal, no behaviour change; all 215 tests green.
+- **Bumped the `unstructured-api` document-conversion sidecar `0.0.75` → `0.1.2`** in
+  `docker-compose.yml` and `kubernetes/manifests/ythril-deployment.yaml`. The pin's license gate holds:
+  the 0.1.2 release is Apache-2.0 (verified against the upstream repo). The converter's contract points
+  are unchanged — it still POSTs to `/general/v0/general` and the health probes hit `/healthcheck`, both
+  long-stable unstructured-api endpoints. Per the repo's own per-bump discipline, the image's bundled
+  `/app/LICENSE` and a PDF/DOCX/EPUB conversion round-trip should be confirmed against 0.1.2 in the
+  Docker test stack before release.
 
 - **The record tabs' search bars are unified in one `RecordSearchBar` component, resolving the
   four-different-shapes inconsistency.** memories/edges/chrono had byte-identical inline markup (a search

@@ -702,6 +702,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Chrono and File Meta tabs are now their own OnPush components, completing the record-tab split —
+  and `BrainComponent` is now a thin nav shell (3701 → 637 lines across A17.9b).** With the last two
+  tabs out, the shell's `loadCurrentTab` dispatcher is gone (every tab self-loads on its `spaceId`
+  effect), and with it the dead per-tab `skip`/filter state and the `onFilterChange`/`applyFilter`/
+  `clearFilter`/`retryCurrentTab` helpers; `setTab`/`selectSpace` shrink to just resetting the shell's
+  own nav + the store's cross-tab search state. The shell now owns only navigation: the space chips,
+  `activeTab`/`activeSpaceId`, the tab bar with count badges, and it renders `<app-*-tab>` +
+  `<app-record-drawer/>`. `chrono-tab.component` follows the memories/edges pattern (semantic pill), with
+  its pinned quirks preserved: create resolves a `__custom__` kind while inline-edit sends the kind
+  verbatim, and neither create nor delete refreshes stats (so it has no `mutated` output).
+  `filemeta-tab.component` is the odd one — no create form (records come from ingested files), the files
+  API for save/delete (delete by path, which DOES refresh stats), the shared `fm` memory/chrono pickers,
+  `retryFileEmbedding`, and no semantic mode (client-side filter). Navigating to the Files tab is shell
+  nav, so it is an `openInManager` output the shell handles. The 6b chrono/filemeta characterization
+  cases moved into the two component specs (the now-empty `brain.component.records.spec.ts` deleted);
+  `PropertiesView`/`EntitySearch`/`TagInput`/`ErrorState`/`RecordFilterBar` and several APIs
+  (`BrainApi`/`FilesApi`/`ToastService`) are no longer referenced by the shell and were dropped from it.
+  `brain.component.ts` 1402 → 637. Client suite: 200 → 208.
+
 - **The Edges tab is now its own self-loading OnPush component (`edges-tab.component`), the third record
   tab out of the shell.** Same pattern; edges have a text/semantic search-mode pill (via
   `store.edgeSearch`/`edgeSearchMode`, like memories). Two edge-specific behaviours preserved and pinned:

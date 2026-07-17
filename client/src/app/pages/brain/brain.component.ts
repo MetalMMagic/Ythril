@@ -9,24 +9,16 @@ import { RecordListState } from './record-list-state.service';
 import { MemoriesTabComponent } from './memories-tab.component';
 import { EntitiesTabComponent } from './entities-tab.component';
 import { EdgesTabComponent } from './edges-tab.component';
+import { ChronoTabComponent } from './chrono-tab.component';
+import { FilemetaTabComponent } from './filemeta-tab.component';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
-import { toLocalDatetime, fmtApiError } from './brain-format';
 import { FormsModule } from '@angular/forms';
-import { Space, SpaceStats, ChronoEntry, ChronoType, ChronoStatus, FileMeta } from '../../core/api.types';
+import { Space, SpaceStats } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
-import { BrainApi } from '../../core/brain-api.service';
-import { FilesApi } from '../../core/files-api.service';
 import { GraphComponent } from '../graph/graph.component';
 import { FileManagerComponent } from '../files/file-manager.component';
-import { EntitySearchComponent } from '../../shared/entity-search.component';
-import { TagInputComponent } from '../../shared/tag-input.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
-import { ErrorStateComponent } from '../../shared/error-state.component';
-import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
-import { catchError, of } from 'rxjs';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
-import { ToastService } from '../../core/toast.service';
-import { httpErrorReason } from '../../core/http-error';
 
 type BrainTab = 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono' | 'filemeta';
 
@@ -47,7 +39,7 @@ interface SpaceView {
   // or happens in a template event handler, both of which mark the view dirty. That coupling is
   // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, EntitySearchComponent, TagInputComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, FilemetaTabComponent, TranslocoPipe],
   providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
   styles: [BRAIN_CHIP_STYLES, `
     .space-tabs {
@@ -473,444 +465,10 @@ interface SpaceView {
         @if (activeTab() === 'edges') { <app-edges-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" /> }
 
         <!-- Chrono -->
-        @if (activeTab() === 'chrono') {
-
-          <div class="content-header">
-            <input type="search" [placeholder]="'brain.chrono.searchPlaceholder' | transloco"
-              [value]="store.chronoSearch()"
-              (input)="onChronoSearch($any($event.target).value)"
-              [attr.aria-label]="'brain.chrono.searchPlaceholder' | transloco" />
-            <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
-              <button [class.active]="store.chronoSearchMode() === 'text'" (click)="setChronoSearchMode('text')">{{ 'common.sortAZ' | transloco }}</button>
-              <button [class.active]="store.chronoSearchMode() === 'semantic'" (click)="setChronoSearchMode('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
-            </div>
-            <button class="btn-primary btn btn-sm" (click)="openChronoForm()" [disabled]="showChronoForm()">{{ 'brain.chrono.addButton' | transloco }}</button>
-          </div>
-          <div class="list-filter-row">
-            <app-record-filter-bar
-              [typeOptions]="store.chronoKinds"
-              [tagSuggestions]="store.chronoTagSuggestions()"
-              typeLabel="common.form.kind"
-              typeAllLabel="brain.filter.allKinds"
-              [value]="recordFilter()"
-              (filterChange)="onFilterChange($event)"
-            />
-          </div>
-
-          @if (showChronoForm()) {
-            <form class="create-form" (ngSubmit)="createChrono()">
-              <div class="field" style="flex:2; min-width:200px;">
-                <label>{{ 'common.form.title' | transloco }}</label>
-                <input type="text" [(ngModel)]="chronoForm.title" name="title" required />
-              </div>
-              <div class="field" style="width:160px;">
-                <label>{{ 'brain.chrono.form.kind' | transloco }}</label>
-                @if (chronoForm.kind !== '__custom__') {
-                  <select [(ngModel)]="chronoForm.kind" name="kind">
-                    @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
-                    <option value="__custom__">{{ 'brain.chrono.form.customKind' | transloco }}</option>
-                  </select>
-                } @else {
-                  <div style="display:flex; gap:4px;">
-                    <input type="text" [(ngModel)]="chronoForm.customKind" name="customKind" style="flex:1;" />
-                    <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="chronoForm.kind = 'event'; chronoForm.customKind = ''" [attr.title]="'brain.chrono.form.backToPresets' | transloco"><ph-icon name="x" [size]="14"/></button>
-                  </div>
-                }
-              </div>
-              <div class="field" style="width:200px;">
-                <label>{{ 'brain.chrono.form.startsAt' | transloco }}</label>
-                <input type="datetime-local" [(ngModel)]="chronoForm.startsAt" name="startsAt" required />
-              </div>
-              <div class="field" style="width:200px;">
-                <label>{{ 'brain.chrono.form.endsAt' | transloco }}</label>
-                <input type="datetime-local" [(ngModel)]="chronoForm.endsAt" name="endsAt" />
-              </div>
-              <div class="field" style="flex:1; min-width:200px;">
-                <label>{{ 'brain.chrono.table.description' | transloco }}</label>
-                <textarea [(ngModel)]="chronoForm.description" name="description" rows="3" style="resize:vertical;"></textarea>
-              </div>
-              <div class="field" style="flex:1; min-width:180px;">
-                <label>{{ 'brain.chrono.table.tags' | transloco }}</label>
-                <app-tag-input [(value)]="chronoForm.tags" [suggestions]="store.chronoTagSuggestions()" inputName="chronoFormTags" />
-              </div>
-              <div class="field" style="flex:1; min-width:140px;">
-                <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
-                <div class="flyout-wrap">
-                  <div class="entity-multi">
-                    @for (chip of picker.entityChips(chronoForm.entityIds); track chip.id) {
-                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(chronoForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                    }
-                    <button type="button" class="chip-add" (click)="picker.openFlyout('create-chrono-entityIds', chronoForm)">{{ 'common.addMore' | transloco }}</button>
-                  </div>
-                  @if (picker.flyoutField() === 'create-chrono-entityIds') {
-                    <div class="flyout-panel">
-                      <app-entity-search
-                        mode="picker"
-                        [spaceId]="activeSpaceId()"
-                        placeholder="common.searchEntitiesPlaceholder"
-
-                        (selected)="picker.pickEntity($event, chronoForm)"
-                      />
-                      <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                        <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                      </div>
-                    </div>
-                  }
-                </div>
-              </div>
-              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingChrono() || !chronoForm.title.trim() || !chronoForm.startsAt || (chronoForm.kind === '__custom__' && !chronoForm.customKind.trim())">
-                @if (creatingChrono()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-                {{ 'common.save' | transloco }}
-              </button>
-              <button class="btn-secondary btn btn-sm" type="button" (click)="showChronoForm.set(false)">{{ 'common.cancel' | transloco }}</button>
-            </form>
-          }
-
-          @if (createChronoError()) {
-            <div class="alert alert-error" style="margin-bottom:12px;">{{ createChronoError() }}</div>
-          }
-
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>{{ 'brain.chrono.table.title' | transloco }}</th><th>{{ 'brain.chrono.table.description' | transloco }}</th><th>{{ 'brain.chrono.table.kind' | transloco }}</th><th>{{ 'brain.chrono.table.status' | transloco }}</th><th>{{ 'brain.chrono.table.starts' | transloco }}</th><th>{{ 'brain.chrono.table.ends' | transloco }}</th><th>{{ 'brain.chrono.table.tags' | transloco }}</th><th>{{ 'brain.chrono.table.entities' | transloco }}</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (entry of store.filteredChrono(); track entry._id) {
-                  @if (recordList.editingId() === entry._id) {
-                    <tr>
-                      <td colspan="9">
-                        <div class="create-form" style="border:none; padding:8px 0;">
-                          <div class="field" style="flex:2; min-width:180px; margin-bottom:0;">
-                            <label>{{ 'common.form.title' | transloco }}</label>
-                            <input type="text" [(ngModel)]="editChrono.title" name="editChronoTitle" />
-                          </div>
-                          <div class="field" style="width:130px; margin-bottom:0;">
-                            <label>{{ 'brain.chrono.form.kind' | transloco }}</label>
-                            <select [(ngModel)]="editChrono.kind" name="editChronoKind">
-                              @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
-                            </select>
-                          </div>
-                          <div class="field" style="width:130px; margin-bottom:0;">
-                            <label>{{ 'brain.chrono.table.status' | transloco }}</label>
-                            <select [(ngModel)]="editChrono.status" name="editChronoStatus">
-                              @for (s of store.chronoStatusOptions; track s) { <option [value]="s">{{ s }}</option> }
-                            </select>
-                          </div>
-                          <div class="field" style="width:190px; margin-bottom:0;">
-                            <label>{{ 'brain.chrono.form.startsAt' | transloco }}</label>
-                            <input type="datetime-local" [(ngModel)]="editChrono.startsAt" name="editChronoStarts" />
-                          </div>
-                          <div class="field" style="width:190px; margin-bottom:0;">
-                            <label>{{ 'common.form.endsAt' | transloco }}</label>
-                            <input type="datetime-local" [(ngModel)]="editChrono.endsAt" name="editChronoEnds" />
-                          </div>
-                          <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
-                            <label>{{ 'brain.chrono.table.description' | transloco }}</label>
-                            <textarea [(ngModel)]="editChrono.description" name="editChronoDesc" rows="2" style="resize:vertical;"></textarea>
-                          </div>
-                          <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
-                            <label>{{ 'brain.chrono.table.tags' | transloco }}</label>
-                            <app-tag-input [(value)]="editChrono.tags" [suggestions]="store.chronoTagSuggestions()" inputName="chronoEditTags" />
-                          </div>
-                          <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-                            <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
-                            <div class="flyout-wrap">
-                              <div class="entity-multi">
-                                @for (chip of picker.entityChips(editChrono.entityIds); track chip.id) {
-                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(editChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                                }
-                                <button type="button" class="chip-add" (click)="picker.openFlyout('edit-chrono-entityIds', editChrono)">{{ 'common.addMore' | transloco }}</button>
-                              </div>
-                              @if (picker.flyoutField() === 'edit-chrono-entityIds') {
-                                <div class="flyout-panel">
-                                  <app-entity-search
-                                    mode="picker"
-                                    [spaceId]="activeSpaceId()"
-                                    placeholder="common.searchEntitiesPlaceholder"
-
-                                    (selected)="picker.pickEntity($event, editChrono)"
-                                  />
-                                  <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                    <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                                  </div>
-                                </div>
-                              }
-                            </div>
-                          </div>
-                          <div style="display:flex; gap:6px; align-items:flex-end;">
-                            <button class="btn btn-sm btn-primary" [disabled]="recordList.editSaving()" (click)="saveEditChrono(entry._id)">
-                              @if (recordList.editSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } {{ 'common.save' | transloco }}
-                            </button>
-                            <button class="btn btn-sm btn-secondary" (click)="recordList.cancelEdit()">{{ 'common.cancel' | transloco }}</button>
-                          </div>
-                          @if (recordList.editError()) { <div style="font-size:12px; color:var(--error);">{{ recordList.editError() }}</div> }
-                        </div>
-                      </td>
-                    </tr>
-                  } @else {
-                    <tr>
-                      <td>{{ entry.title }}</td>
-                      <td class="desc-cell" style="max-width:160px;" [title]="entry.description ?? ''">
-                        {{ entry.description || '—' }}
-                      </td>
-                      <td><span class="badge badge-blue">{{ entry.type }}</span></td>
-                      <td><span class="badge" [class.badge-purple]="entry.status === 'upcoming'" [class.badge-blue]="entry.status === 'active'" style="font-size:11px">{{ entry.status }}</span></td>
-                      <td style="color:var(--text-muted); font-size:12px">{{ entry.startsAt | date:'dd.MM.yyyy HH:mm' }}</td>
-                      <td style="color:var(--text-muted); font-size:12px">{{ entry.endsAt ? (entry.endsAt | date:'dd.MM.yyyy HH:mm') : '—' }}</td>
-                      <td>
-                        @for (tag of entry.tags; track tag) { <span class="tag">{{ tag }}</span> }
-                      </td>
-                      <td style="font-size:11px;">
-                        @if (entry.entityIds.length) {
-                          <div class="chip-list">
-                            @for (id of entry.entityIds; track id) {
-                              <span class="chip" [title]="id">{{ picker.entityNameCache()[id] || id.slice(0,8) + '…' }}</span>
-                            }
-                          </div>
-                        } @else { <span style="color:var(--text-muted)">—</span> }
-                      </td>
-                      <td style="white-space:nowrap;">
-                        <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('chrono', entry)"><ph-icon name="eye" [size]="16"/></button>
-                        @if (recordList.confirmDeleteId() === entry._id) {
-                          <span class="inline-confirm">
-                            {{ 'common.deleteConfirm' | transloco }}
-                            <button class="btn btn-sm btn-danger" (click)="deleteChrono(entry._id)">{{ 'common.yes' | transloco }}</button>
-                            <button class="btn btn-sm btn-secondary" (click)="cancelDelete()">{{ 'common.no' | transloco }}</button>
-                          </span>
-                        } @else {
-                          <button class="icon-btn danger" [attr.aria-label]="'brain.chrono.deleteAriaLabel' | transloco" (click)="requestDelete(entry._id)"><ph-icon name="x" [size]="16"/></button>
-                        }
-                      </td>
-                    </tr>
-                  }
-                } @empty {
-                  <tr><td colspan="9">
-                    @if (recordList.loadError() !== null) {
-                      <app-error-state [message]="'brain.error.loadChrono' | transloco" [reason]="recordList.loadError() ?? ''" (retry)="retryCurrentTab()" />
-                    } @else {
-                    <div class="empty-state" style="padding:32px">
-                      <div class="empty-state-icon"><ph-icon name="timer" [size]="48"/></div>
-                      @if (store.chronoSearch()) {
-                        <h3>{{ 'common.noMatches' | transloco }}</h3>
-                        <p>{{ 'brain.chrono.empty.noMatchQuery' | transloco }}</p>
-                      } @else {
-                        <h3>{{ 'brain.chrono.empty.title' | transloco }}</h3>
-                      }
-                    </div>
-                    }
-                  </td></tr>
-                }
-              </tbody>
-            </table>
-          </div>
-          @if (store.chronoSearchMode() !== 'semantic') {
-            <div class="pagination">
-              <button class="btn btn-sm btn-secondary" [disabled]="chronoSkip() === 0" (click)="prevChronoPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ store.chrono().length ? (chronoSkip() + 1) + '–' + (chronoSkip() + store.chrono().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="store.chrono().length < pageSize" (click)="nextChronoPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
-            </div>
-          }
-        }
+        @if (activeTab() === 'chrono') { <app-chrono-tab [spaceId]="activeSpaceId()" /> }
 
         <!-- File Meta -->
-        @if (activeTab() === 'filemeta') {
-          <div class="content-header">
-            <input type="search" [value]="store.fileMetaSearch()" (input)="onFileMetaSearch($any($event.target).value)" [placeholder]="'brain.fileMeta.filterPlaceholder' | transloco" [attr.aria-label]="'brain.fileMeta.filterAriaLabel' | transloco" />
-          </div>
-          @if (recordList.loading()) {
-            <div class="empty-state"><span class="spinner"></span></div>
-          } @else if (recordList.loadError() !== null) {
-            <app-error-state [message]="'brain.error.loadFileMeta' | transloco" [reason]="recordList.loadError() ?? ''" (retry)="retryCurrentTab()" />
-          } @else if (!store.fileMetas().length) {
-            <div class="empty-state">{{ 'brain.fileMeta.empty' | transloco }}</div>
-          } @else {
-            <div class="table-wrapper">
-              <table>
-                <thead>
-                  <tr>
-                    <th>{{ 'brain.fileMeta.table.path' | transloco }}</th>
-                    <th>{{ 'brain.fileMeta.table.description' | transloco }}</th>
-                    <th>{{ 'brain.fileMeta.table.tags' | transloco }}</th>
-                    <th>{{ 'brain.fileMeta.table.entities' | transloco }}</th>
-                    <th>{{ 'brain.fileMeta.table.memories' | transloco }}</th>
-                    <th>{{ 'brain.fileMeta.table.chrono' | transloco }}</th>
-                    <th>{{ 'brain.fileMeta.table.size' | transloco }}</th>
-                    <th>{{ 'brain.fileMeta.table.updated' | transloco }}</th>
-                    <th>{{ 'brain.fileMeta.table.actions' | transloco }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (fm of store.filteredFileMetas(); track fm._id) {
-                    @if (recordList.editingId() === fm._id) {
-                      <tr class="edit-row"><td colspan="9">
-                        <form class="edit-form" (ngSubmit)="saveEditFileMeta(fm._id)" #fmEditForm="ngForm">
-                          <div class="edit-form-fields">
-                            <div class="field" style="flex:2; min-width:180px; margin-bottom:0;">
-                              <label>{{ 'brain.fileMeta.table.description' | transloco }}</label>
-                              <textarea [(ngModel)]="editFileMeta.description" name="fmEditDesc" rows="2" style="resize:vertical;"></textarea>
-                            </div>
-                            <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-                              <label>{{ 'brain.fileMeta.table.tags' | transloco }}</label>
-                              <app-tag-input [(value)]="editFileMeta.tags" inputName="fmEditTags" />
-                            </div>
-                            <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-                              <label>{{ 'brain.fileMeta.table.entities' | transloco }}</label>
-                              <div class="flyout-wrap">
-                                <div class="entity-multi">
-                                  @for (chip of picker.entityChips(editFileMeta.entityIds); track chip.id) {
-                                    <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(editFileMeta, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                                  }
-                                  <button type="button" class="chip-add" (click)="picker.openFlyout('edit-filemeta-entityIds', editFileMeta)">{{ 'common.addMore' | transloco }}</button>
-                                </div>
-                                @if (picker.flyoutField() === 'edit-filemeta-entityIds') {
-                                  <div class="flyout-panel">
-                                    <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, editFileMeta)" />
-                                    <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                      <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                                    </div>
-                                  </div>
-                                }
-                              </div>
-                            </div>
-                            <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-                              <label>{{ 'brain.fileMeta.table.memories' | transloco }}</label>
-                              <div class="flyout-wrap">
-                                <div class="entity-multi">
-                                  @for (id of editFileMeta.memoryIds; track id) {
-                                    <span class="chip" [title]="id"><span class="chip-name">{{ picker.fmMemoryTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeFmMemoryId(editFileMeta, id)"><ph-icon name="x" [size]="12"/></button></span>
-                                  }
-                                  <button type="button" class="chip-add" (click)="picker.openFlyout('edit-filemeta-memoryIds')">{{ 'common.addMore' | transloco }}</button>
-                                </div>
-                                @if (picker.flyoutField() === 'edit-filemeta-memoryIds') {
-                                  <div class="flyout-panel">
-                                    <input type="text" [value]="picker.fmMemPickerQuery()" (input)="picker.onFmMemPickerInput($any($event.target).value)" [placeholder]="'brain.fileMeta.picker.searchMemories' | transloco" style="width:100%; margin-bottom:6px;" />
-                                    @for (mem of picker.fmMemPickerResults(); track mem._id) {
-                                      <div class="flyout-result" (click)="picker.addFmMemoryId(editFileMeta, mem._id); picker.closeFlyout()" style="cursor:pointer; padding:4px 6px; border-radius:4px;">
-                                        {{ mem.fact.slice(0, 60) }}{{ mem.fact.length > 60 ? '…' : '' }}
-                                      </div>
-                                    }
-                                    <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                      <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                                    </div>
-                                  </div>
-                                }
-                              </div>
-                            </div>
-                            <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
-                              <label>{{ 'brain.fileMeta.table.chrono' | transloco }}</label>
-                              <div class="flyout-wrap">
-                                <div class="entity-multi">
-                                  @for (id of editFileMeta.chronoIds; track id) {
-                                    <span class="chip" [title]="id"><span class="chip-name">{{ picker.fmChronoTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeFmChronoId(editFileMeta, id)"><ph-icon name="x" [size]="12"/></button></span>
-                                  }
-                                  <button type="button" class="chip-add" (click)="picker.openFlyout('edit-filemeta-chronoIds')">{{ 'common.addMore' | transloco }}</button>
-                                </div>
-                                @if (picker.flyoutField() === 'edit-filemeta-chronoIds') {
-                                  <div class="flyout-panel">
-                                    <input type="text" [value]="picker.fmChronoPickerQuery()" (input)="picker.onFmChronoPickerInput($any($event.target).value)" [placeholder]="'brain.fileMeta.picker.searchChrono' | transloco" style="width:100%; margin-bottom:6px;" />
-                                    @for (c of picker.fmChronoPickerResults(); track c._id) {
-                                      <div class="flyout-result" (click)="picker.addFmChronoId(editFileMeta, c._id); picker.closeFlyout()" style="cursor:pointer; padding:4px 6px; border-radius:4px;">
-                                        {{ c.title.slice(0, 60) }}{{ c.title.length > 60 ? '…' : '' }}
-                                      </div>
-                                    }
-                                    <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                      <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                                    </div>
-                                  </div>
-                                }
-                              </div>
-                            </div>
-                          </div>
-                          @if (recordList.editError()) {
-                            <div class="error-msg">{{ recordList.editError() }}</div>
-                          }
-                          <div class="edit-form-actions">
-                            <button class="btn btn-sm btn-primary" type="submit" [disabled]="recordList.editSaving()">
-                              @if (recordList.editSaving()) { <span class="spinner" style="width:10px;height:10px;border-width:2px;"></span> }
-                              {{ 'common.save' | transloco }}
-                            </button>
-                            <button class="btn btn-sm btn-secondary" type="button" (click)="recordList.cancelEdit()">{{ 'common.cancel' | transloco }}</button>
-                          </div>
-                        </form>
-                      </td></tr>
-                    } @else {
-                      <tr>
-                        <td>
-                          <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-                            <button class="link-btn" [attr.title]="'brain.fileMeta.openInFilesTabTitle' | transloco" (click)="openFileInManager(fm.path)">{{ fm.path }}</button>
-                            @if (fm.deletedAt) {
-                              <span class="badge badge-red" style="font-size:10px;" [title]="'Deleted ' + (fm.deletedAt | date:'dd.MM.yyyy HH:mm')">{{ 'brain.fileMeta.deleted' | transloco }}</span>
-                            }
-                            @if (fm.embeddingStatus === 'pending' || fm.embeddingStatus === 'processing') {
-                              <span class="badge badge-blue" style="font-size:10px;" title="Embedding in progress…"><span class="spinner" style="width:8px;height:8px;border-width:1.5px;display:inline-block;vertical-align:middle;margin-right:3px;"></span>{{ 'brain.fileMeta.embedding' | transloco }}</span>
-                            } @else if (fm.embeddingStatus === 'failed') {
-                              <span class="badge badge-red" style="font-size:10px;" [title]="fm.mediaJobError || 'Embedding failed'">{{ 'brain.fileMeta.embeddingFailed' | transloco }}</span>
-                            } @else if (fm.embeddingStatus === 'partial') {
-                              <span class="badge badge-yellow" style="font-size:10px;" title="Some chunks could not be embedded — retry to complete">{{ 'brain.fileMeta.embeddingPartial' | transloco }}</span>
-                            }
-                            @if (fm.embeddingStatus === 'failed' || fm.embeddingStatus === 'partial') {
-                              <button class="link-btn" style="font-size:10px;" [disabled]="retryingEmbedding().has(fm.path)" (click)="retryFileEmbedding(fm)">{{ 'brain.fileMeta.retryEmbedding' | transloco }}</button>
-                            }
-                          </div>
-                        </td>
-                        <td class="desc-cell" style="max-width:200px;" [title]="fm.description ?? ''">{{ fm.description || '–' }}</td>
-                        <td>
-                          <div class="chip-list">
-                            @for (tag of fm.tags; track tag) {
-                              <span class="chip chip-tag">{{ tag }}</span>
-                            }
-                          </div>
-                        </td>
-                        <td>
-                          <div class="chip-list">
-                            @for (id of (fm.entityIds ?? []); track id) {
-                              <span class="chip" [title]="id">{{ picker.entityNameCache()[id] || id.slice(0,8) + '…' }}</span>
-                            }
-                          </div>
-                        </td>
-                        <td>
-                          <div class="chip-list">
-                            @for (id of (fm.memoryIds ?? []); track id) {
-                              <span class="chip" [title]="id">{{ picker.fmMemoryTitle(id) }}</span>
-                            }
-                          </div>
-                        </td>
-                        <td>
-                          <div class="chip-list">
-                            @for (id of (fm.chronoIds ?? []); track id) {
-                              <span class="chip" [title]="id">{{ picker.fmChronoTitle(id) }}</span>
-                            }
-                          </div>
-                        </td>
-                        <td class="text-muted" style="white-space:nowrap;">{{ (fm.sizeBytes / 1024).toFixed(1) }} KB</td>
-                        <td class="text-muted" style="white-space:nowrap;">{{ fm.updatedAt | date:'dd.MM.yyyy HH:mm' }}</td>
-                        <td class="actions-cell">
-                          @if (recordList.confirmDeleteId() === fm._id) {
-                            <span class="delete-confirm">
-                              <button class="btn btn-xs btn-danger" (click)="deleteFileMeta(fm._id)">{{ 'common.confirm' | transloco }}</button>
-                              <button class="btn btn-xs btn-secondary" (click)="cancelDelete()">{{ 'common.cancel' | transloco }}</button>
-                            </span>
-                          } @else {
-                            <button class="icon-btn" [attr.title]="'brain.fileMeta.editTitle' | transloco" [attr.aria-label]="'brain.fileMeta.editAriaLabel' | transloco" (click)="startEditFileMeta(fm)"><ph-icon name="pencil-simple" [size]="16"/></button>
-                            <button class="icon-btn icon-btn-danger" [attr.title]="'brain.fileMeta.removeTitle' | transloco" [attr.aria-label]="'brain.fileMeta.removeAriaLabel' | transloco" (click)="requestDelete(fm._id)"><ph-icon name="trash" [size]="16"/></button>
-                          }
-                        </td>
-                      </tr>
-                    }
-                  }
-                </tbody>
-              </table>
-            </div>
-            <div class="pagination">
-              <button class="btn btn-sm btn-secondary" [disabled]="fileMetaSkip() === 0" (click)="prevFileMetaPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ store.fileMetas().length ? (fileMetaSkip() + 1) + '–' + (fileMetaSkip() + store.fileMetas().length) : '–' }}</span>
-              <button class="btn btn-sm btn-secondary" [disabled]="store.fileMetas().length < pageSize" (click)="nextFileMetaPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
-            </div>
-          }
-        }
+        @if (activeTab() === 'filemeta') { <app-filemeta-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" (openInManager)="openFileInManager($event)" /> }
 
         <!-- Query -->
         @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }
@@ -928,10 +486,7 @@ export class BrainComponent implements OnInit {
   readonly drawerState = inject(RecordDrawerState);
   readonly recordList = inject(RecordListState);
   private spacesApi = inject(SpacesApi);
-  private brainApi = inject(BrainApi);
-  private filesApi = inject(FilesApi);
   private transloco = inject(TranslocoService);
-  private toast = inject(ToastService);
 
   collectionTabs: { key: BrainTab; label: string; statsKey?: keyof SpaceStats }[] = [
     { key: 'entities', label: 'Entities', statsKey: 'entities' },
@@ -948,49 +503,12 @@ export class BrainComponent implements OnInit {
   activeTab = signal<BrainTab>('query');
   loadingSpaces = signal(true);
 
-  fileMetaSkip = signal(0);
-  /** Paths whose embedding retry is currently in flight (disables the Retry button). */
-  retryingEmbedding = signal<Set<string>>(new Set());
   fileManagerNavPath = signal('');
-
-  editFileMeta = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };
-
-  // ── Shared list filter (F6): type + tag, reused across the list tabs ────────
-  /** The active list tab's type+tag filter, driven by <app-record-filter-bar>. */
-  recordFilter = signal<RecordFilter>({ type: '', tag: '' });
-
-  /** The filter bar changed — reset the active tab's paging and reload. */
-  onFilterChange(f: RecordFilter): void {
-    this.recordFilter.set(f);
-    switch (this.activeTab()) {
-      case 'memories': this.skip.set(0); break;
-      case 'chrono': this.chronoSkip.set(0); break;
-      default: break;
-    }
-    this.loadCurrentTab(this.activeSpaceId());
-  }
-
-  // Memories pagination + filter (tag/type live in `recordFilter`; entity is separate)
-  skip = signal(0);
-  filterEntity = signal('');
-
-  private _chronoSemTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // Chrono pagination
-  chronoSkip = signal(0);
 
   // Reindex
   needsReindex = signal(false);
   reindexing = signal(false);
   reindexResult = signal('');
-
-  editChrono = { title: '', kind: '' as string, status: '' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '' };
-
-  // Create chrono form
-  showChronoForm = signal(false);
-  creatingChrono = signal(false);
-  createChronoError = signal('');
-  chronoForm = { title: '', kind: 'event' as ChronoType | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '' };
 
   // Entity picker
 
@@ -1031,10 +549,6 @@ export class BrainComponent implements OnInit {
     this.activeSpaceId.set(id);
     this.picker.spaceId.set(id);
     this.drawerState.spaceId.set(id);
-    this.skip.set(0);
-    this.chronoSkip.set(0);
-    this.recordFilter.set({ type: '', tag: '' });
-    this.filterEntity.set('');
     this.store.memorySearch.set('');
     this.store.edgeSearch.set('');
     this.store.chronoSearch.set('');
@@ -1045,16 +559,10 @@ export class BrainComponent implements OnInit {
     this.reindexResult.set('');
     this.loadStats(id);
     this.loadSpaceMeta(id);
-    this.loadCurrentTab(id);
   }
 
   setTab(tab: BrainTab): void {
     this.activeTab.set(tab);
-    this.skip.set(0);
-    this.chronoSkip.set(0);
-    this.fileMetaSkip.set(0);
-    this.recordFilter.set({ type: '', tag: '' });
-    this.filterEntity.set('');
     this.store.memorySearch.set('');
     this.store.edgeSearch.set('');
     this.store.chronoSearch.set('');
@@ -1063,65 +571,7 @@ export class BrainComponent implements OnInit {
     this.store.edgeSearchMode.set('text');
     this.store.chronoSearchMode.set('text');
     this.recordList.confirmDeleteId.set('');
-    this.loadCurrentTab(this.activeSpaceId());
   }
-
-  prevChronoPage(): void { this.chronoSkip.update(s => Math.max(0, s - this.pageSize)); this.loadCurrentTab(this.activeSpaceId()); }
-  nextChronoPage(): void { this.chronoSkip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
-
-  prevFileMetaPage(): void { this.fileMetaSkip.update(s => Math.max(0, s - this.pageSize)); this.loadCurrentTab(this.activeSpaceId()); }
-  nextFileMetaPage(): void { this.fileMetaSkip.update(s => s + this.pageSize); this.loadCurrentTab(this.activeSpaceId()); }
-
-  onFileMetaSearch(q: string): void {
-    this.store.fileMetaSearch.set(q);
-    // client-side filter via filteredFileMetas computed() — no API call per keystroke
-  }
-
-  onChronoSearch(q: string): void {
-    this.store.chronoSearch.set(q);
-    if (this.store.chronoSearchMode() === 'semantic') {
-      if (this._chronoSemTimer) clearTimeout(this._chronoSemTimer);
-      if (!q.trim()) { this.store.chrono.set([]); return; }
-      this._chronoSemTimer = setTimeout(() => this.runSemanticChronoSearch(), 300);
-    }
-    // text mode: filteredChrono computed() handles filtering automatically
-  }
-  setChronoSearchMode(m: 'text' | 'semantic'): void {
-    this.store.chronoSearchMode.set(m);
-    const q = this.store.chronoSearch().trim();
-    if (!q) return;
-    if (m === 'semantic') this.runSemanticChronoSearch();
-    // text mode: filteredChrono computed() handles filtering automatically
-  }
-  runSemanticChronoSearch(): void {
-    const q = this.store.chronoSearch().trim();
-    const spaceId = this.activeSpaceId();
-    if (!q || !spaceId) { this.store.chrono.set([]); return; }
-    this.brainApi.recallBrain(spaceId, { query: q, types: ['chrono'], topK: 20 }).pipe(
-      catchError(() => of({ results: [], count: 0 })),
-    ).subscribe(res => {
-      this.store.chrono.set(res.results.filter(r => r.type === 'chrono').map(r => ({
-        _id: r['_id'] as string,
-        spaceId: (r['spaceId'] as string) ?? spaceId,
-        title: (r['title'] as string) ?? '',
-        description: r['description'] as string | undefined,
-        type: ((r['type'] as string) ?? 'event') as ChronoType,
-        startsAt: (r['startsAt'] as string) ?? '',
-        endsAt: r['endsAt'] as string | undefined,
-        status: 'upcoming' as ChronoStatus,
-        confidence: r['confidence'] as number | undefined,
-        tags: (r['tags'] as string[]) ?? [],
-        entityIds: (r['entityIds'] as string[]) ?? [],
-        memoryIds: [],
-        author: (r['author'] as { instanceId: string; instanceLabel: string }) ?? { instanceId: '', instanceLabel: '' },
-        createdAt: (r['createdAt'] as string) ?? '',
-        updatedAt: (r['createdAt'] as string) ?? '',
-        seq: (r['seq'] as number) ?? 0,
-      } as ChronoEntry)));
-    });
-  }
-
-  applyChronoSearch(): void { this.chronoSkip.set(0); this.loadCurrentTab(this.activeSpaceId()); }
 
   loadStats(spaceId: string): void {
     this.spacesApi.getSpaceStats(spaceId).subscribe({
@@ -1138,186 +588,15 @@ export class BrainComponent implements OnInit {
     });
   }
 
-  /** Re-run the current tab's load — bound to the error state's Retry button. */
-  retryCurrentTab(): void {
-    const spaceId = this.activeSpaceId();
-    if (spaceId) this.loadCurrentTab(spaceId);
-  }
-
-  private loadCurrentTab(spaceId: string): void {
-    if (!spaceId) return;
-    if (this.activeTab() === 'memories') return; // self-loading component
-    if (this.activeTab() === 'entities') return; // self-loading component
-    if (this.activeTab() === 'edges') return; // self-loading component
-    this.recordList.loading.set(true);
-    this.recordList.loadError.set(null);
-
-    switch (this.activeTab()) {
-      case 'chrono': {
-        const cf: { search?: string; type?: string; tag?: string } = {};
-        if (this.store.chronoSearch()) cf.search = this.store.chronoSearch();
-        if (this.recordFilter().type) cf.type = this.recordFilter().type;
-        if (this.recordFilter().tag) cf.tag = this.recordFilter().tag;
-        this.brainApi.listChrono(spaceId, this.pageSize, this.chronoSkip(), cf).subscribe({
-          next: ({ chrono }) => {
-            this.store.chrono.set(chrono);
-            const ids = [...new Set(chrono.flatMap(e => e.entityIds ?? []))];
-            if (ids.length) this.picker.resolveEntityNames(ids);
-            this.recordList.loading.set(false);
-          },
-          error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
-        });
-        break;
-      }
-      case 'query':
-        // Query tab manages its own loading state; just clear the global overlay
-        this.recordList.loading.set(false);
-        break;
-      case 'graph':
-        // Graph tab is self-contained; no data pre-fetch needed
-        this.recordList.loading.set(false);
-        break;
-      case 'files':
-        // File manager handles its own loading
-        this.recordList.loading.set(false);
-        break;
-      case 'filemeta':
-        this.filesApi.listFileMeta(spaceId, this.pageSize, this.fileMetaSkip(), this.store.fileMetaSearch() || undefined).subscribe({
-          next: ({ files }) => { this.store.fileMetas.set(files); this.recordList.loading.set(false); },
-          error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
-        });
-        break;
-    }
-  }
-
-  /** Re-queue embedding for a file whose embedding failed or is only partial,
-   *  then refresh the file-meta list so the badge updates. */
-  retryFileEmbedding(fm: FileMeta): void {
-    const spaceId = this.activeSpaceId();
-    if (!spaceId || this.retryingEmbedding().has(fm.path)) return;
-    this.retryingEmbedding.update(s => new Set(s).add(fm.path));
-    const done = () => {
-      this.retryingEmbedding.update(s => { const n = new Set(s); n.delete(fm.path); return n; });
-      this.loadCurrentTab(spaceId);
-    };
-    this.filesApi.retryEmbedding(spaceId, fm.path).subscribe({ next: done, error: done });
-  }
-
-  applyFilter(type: 'tag' | 'entity', value: string): void {
-    // A tag-click in the table feeds the shared filter bar (single source of truth).
-    if (type === 'tag') this.recordFilter.set({ ...this.recordFilter(), tag: value });
-    else this.filterEntity.set(value);
-    this.skip.set(0);
-    this.loadCurrentTab(this.activeSpaceId());
-  }
-
-  clearFilter(which: 'tag' | 'entity' | 'all'): void {
-    if (which === 'tag' || which === 'all') this.recordFilter.set({ ...this.recordFilter(), tag: '' });
-    if (which === 'entity' || which === 'all') this.filterEntity.set('');
-    this.skip.set(0);
-    this.loadCurrentTab(this.activeSpaceId());
-  }
-
   requestDelete(id: string): void { this.recordList.confirmDeleteId.set(id); }
   cancelDelete(): void { this.recordList.confirmDeleteId.set(''); }
 
-  startEditChrono(entry: ChronoEntry): void {
-    this.recordList.editingId.set(entry._id);
-    this.recordList.editError.set('');
-    this.editChrono = {
-      title: entry.title,
-      kind: entry.type,
-      status: entry.status,
-      startsAt: entry.startsAt ? toLocalDatetime(entry.startsAt) : '',
-      endsAt: entry.endsAt ? toLocalDatetime(entry.endsAt) : '',
-      description: entry.description ?? '',
-      tags: entry.tags ?? [],
-      entityIds: (entry.entityIds ?? []).join(', '),
-    };
-  }
-
-  saveEditChrono(id: string): void {
-    this.recordList.editSaving.set(true);
-    this.recordList.editError.set('');
-    this.brainApi.updateChrono(this.activeSpaceId(), id, {
-      title: this.editChrono.title.trim(),
-      type: this.editChrono.kind as ChronoType,
-      status: this.editChrono.status as ChronoStatus,
-      ...(this.editChrono.startsAt ? { startsAt: new Date(this.editChrono.startsAt).toISOString() } : {}),
-      ...(this.editChrono.endsAt ? { endsAt: new Date(this.editChrono.endsAt).toISOString() } : {}),
-      description: this.editChrono.description.trim(),
-      tags: this.editChrono.tags,
-      entityIds: this.editChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean),
-    }).subscribe({
-      next: (updated) => {
-        this.recordList.editSaving.set(false);
-        this.recordList.editingId.set('');
-        this.store.chrono.update(list => list.map(c => c._id === id ? updated : c));
-      },
-      error: (err) => { this.recordList.editSaving.set(false); this.recordList.editError.set(fmtApiError(err, 'Failed to save')); },
-    });
-  }
-
   // ── File Meta inline edit ─────────────────────────────────────────────────
-
-  startEditFileMeta(entry: FileMeta): void {
-    this.recordList.editingId.set(entry._id);
-    this.recordList.editError.set('');
-    this.editFileMeta = {
-      description: entry.description ?? '',
-      tags: entry.tags ?? [],
-      entityIds: (entry.entityIds ?? []).join(', '),
-      memoryIds: [...(entry.memoryIds ?? [])],
-      chronoIds: [...(entry.chronoIds ?? [])],
-    };
-    // Resolve entity names for chips display
-    this.picker.resolveEntityNamesFor(this.editFileMeta.entityIds);
-  }
-
-  saveEditFileMeta(id: string): void {
-    this.recordList.editSaving.set(true);
-    this.recordList.editError.set('');
-    this.filesApi.updateFileMeta(this.activeSpaceId(), id, {
-      description: this.editFileMeta.description.trim(),
-      tags: this.editFileMeta.tags,
-      entityIds: this.editFileMeta.entityIds.split(',').map(s => s.trim()).filter(Boolean),
-      memoryIds: this.editFileMeta.memoryIds,
-      chronoIds: this.editFileMeta.chronoIds,
-    }).subscribe({
-      next: (updated) => {
-        this.recordList.editSaving.set(false);
-        this.recordList.editingId.set('');
-        this.store.fileMetas.update(list => list.map(f => f._id === id ? updated : f));
-      },
-      error: (err) => { this.recordList.editSaving.set(false); this.recordList.editError.set(fmtApiError(err, 'Failed to save')); },
-    });
-  }
-
-  deleteFileMeta(id: string): void {
-    // Deleting just removes the metadata record, not the file itself.
-    const fm = this.store.fileMetas().find(f => f._id === id);
-    if (!fm) { this.recordList.confirmDeleteId.set(''); return; }
-    this.filesApi.deleteFileMeta(this.activeSpaceId(), fm.path).subscribe({
-      next: () => {
-        this.recordList.confirmDeleteId.set('');
-        this.store.fileMetas.update(list => list.filter(f => f._id !== id));
-        this.loadStats(this.activeSpaceId());
-      },
-      error: () => {
-        this.recordList.confirmDeleteId.set('');
-        this.toast.error(this.transloco.translate('brain.error.deleteFileMetaFailed'));
-      },
-    });
-  }
-
-  // ── File Meta navigation helpers ─────────────────────────────────────────
 
   /** Called from Files tab file preview: switch to Filemeta tab filtered by path. */
   openFileMetaEntry(path: string): void {
     this.store.fileMetaSearch.set(path.replace(/^\/+/, ''));
-    this.fileMetaSkip.set(0);
     this.activeTab.set('filemeta');
-    this.loadCurrentTab(this.activeSpaceId());
   }
 
   /** Called from Filemeta tab: switch to Files tab and navigate to the file's directory. */
@@ -1325,44 +604,6 @@ export class BrainComponent implements OnInit {
     const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) || '/' : '/';
     this.fileManagerNavPath.set(dir === '/' ? '' : dir);
     this.setTab('files');
-  }
-
-  createChrono(): void {
-    if (!this.chronoForm.title.trim() || !this.chronoForm.startsAt) return;
-    const resolvedKind = this.chronoForm.kind === '__custom__'
-      // Custom kind: the server accepts free-text values beyond the predefined enum.
-      ? (this.chronoForm.customKind.trim() as ChronoType)
-      : this.chronoForm.kind as ChronoType;
-    if (!resolvedKind) return;
-    this.creatingChrono.set(true);
-    this.createChronoError.set('');
-    const entityIds = this.chronoForm.entityIds.split(',').map(s => s.trim()).filter(Boolean);
-    const body: Parameters<BrainApi['createChrono']>[1] = {
-      title: this.chronoForm.title.trim(),
-      type: resolvedKind,
-      startsAt: new Date(this.chronoForm.startsAt).toISOString(),
-    };
-    if (this.chronoForm.endsAt) body.endsAt = new Date(this.chronoForm.endsAt).toISOString();
-    if (this.chronoForm.description.trim()) body.description = this.chronoForm.description.trim();
-    if (this.chronoForm.tags.length) body.tags = this.chronoForm.tags;
-    if (entityIds.length) body.entityIds = entityIds;
-    this.brainApi.createChrono(this.activeSpaceId(), body).subscribe({
-      next: () => {
-        this.creatingChrono.set(false);
-        this.showChronoForm.set(false);
-        this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '' };
-        this.loadCurrentTab(this.activeSpaceId());
-      },
-      error: (err) => { this.creatingChrono.set(false); this.createChronoError.set(fmtApiError(err, 'Failed to create chrono entry')); },
-    });
-  }
-
-  deleteChrono(id: string): void {
-    this.recordList.confirmDeleteId.set('');
-    this.brainApi.deleteChrono(this.activeSpaceId(), id).subscribe({
-      next: () => this.store.chrono.update(list => list.filter(c => c._id !== id)),
-      error: () => {},
-    });
   }
 
   runReindex(): void {
@@ -1391,12 +632,6 @@ export class BrainComponent implements OnInit {
   }
 
   // ── Form openers with schema prefill ────────────────────────────────────
-
-  openChronoForm(): void {
-    this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '' };
-    this.showChronoForm.set(true);
-  }
-
 
 }
 

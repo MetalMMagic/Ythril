@@ -702,6 +702,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Bumped the `unstructured-api` document-conversion sidecar `0.0.75` → `0.1.2`** in
+  `docker-compose.yml` and `kubernetes/manifests/ythril-deployment.yaml`. The pin's license gate holds:
+  the 0.1.2 release is Apache-2.0 (verified against the upstream repo). The converter's contract points
+  are unchanged — it still POSTs to `/general/v0/general` and the health probes hit `/healthcheck`, both
+  long-stable unstructured-api endpoints. Per the repo's own per-bump discipline, the image's bundled
+  `/app/LICENSE` and a PDF/DOCX/EPUB conversion round-trip should be confirmed against 0.1.2 in the
+  Docker test stack before release.
+
 - **The five record-tab components now share a `RecordTabBase`, removing ~140 lines of duplicated
   boilerplate.** After all five landed, each carried a byte-identical copy of the same machinery — the
   `store`/`picker`/`recordList` injects, the `spaceId` input, `pageSize`, the paging cursor, the

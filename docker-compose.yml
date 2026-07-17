@@ -171,7 +171,7 @@
     # The public `unstructured-api` image is the same release minus extra Tesseract
     # language packs / LibreOffice, and fully supports the hi_res OCR + image-extraction
     # path Ythril uses. Upstream's README points self-hosters at this image too.
-    image: downloads.unstructured.io/unstructured-io/unstructured-api:0.0.75
+    image: downloads.unstructured.io/unstructured-io/unstructured-api:0.1.2
     container_name: ythril-unstructured
     restart: unless-stopped
     healthcheck:

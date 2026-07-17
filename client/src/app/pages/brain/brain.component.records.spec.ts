@@ -79,27 +79,6 @@ function make() {
 beforeEach(() => { for (const fn of [...Object.values(api), ...Object.values(filesApi)]) (fn as any).mockClear(); });
 
 describe('BrainComponent — create payloads', () => {
-  it('createMemory sends fact + only the non-empty optional fields (properties raw, not stripped)', () => {
-    const c = make();
-    c.memoryForm = { fact: '  a fact  ', tags: ['t'], entityIds: 'e1, , e2', description: ' d ', properties: { k: 'v' } };
-    c.createMemory();
-    expect(api.createMemory).toHaveBeenCalledWith('work', {
-      fact: 'a fact', tags: ['t'], entityIds: ['e1', 'e2'], description: 'd', properties: { k: 'v' },
-    });
-  });
-
-  it('createMemory omits empty optionals and is a no-op when fact is blank', () => {
-    const c = make();
-    c.memoryForm = { fact: 'x', tags: [], entityIds: '', description: '', properties: {} };
-    c.createMemory();
-    expect(api.createMemory).toHaveBeenCalledWith('work', { fact: 'x' });
-
-    api.createMemory.mockClear();
-    c.memoryForm = { fact: '   ', tags: [], entityIds: '', description: '', properties: {} };
-    c.createMemory();
-    expect(api.createMemory).not.toHaveBeenCalled();
-  });
-
   it('createEntity strips empty optional props via the schema (unlike memory)', () => {
     const c = make();
     c.store.spaceMeta.set({ typeSchemas: { entity: { Person: { propertySchemas: { note: { required: false } } } } } } as any);
@@ -129,19 +108,6 @@ describe('BrainComponent — create payloads', () => {
 });
 
 describe('BrainComponent — inline edit', () => {
-  it('saveEditMemory sends the full shape, clears editingId, and patches the store list in place', () => {
-    const c = make();
-    c.store.memories.set([{ _id: 'm1', fact: 'old' } as Memory]);
-    c.recordList.editingId.set('m1');
-    c.editMemory = { fact: ' new ', tags: ['t'], entityIds: 'e1', description: ' d ', properties: {} };
-    c.saveEditMemory('m1');
-    expect(api.updateMemory).toHaveBeenCalledWith('work', 'm1', {
-      fact: 'new', tags: ['t'], entityIds: ['e1'], description: 'd',
-    });
-    expect(c.recordList.editingId()).toBe('');
-    expect(c.store.memories()[0].fact).toBe('UPDATED');
-  });
-
   it('saveEditChrono uses editChrono.kind directly as type (NO __custom__ resolution)', () => {
     const c = make();
     c.store.chrono.set([{ _id: 'c1' } as ChronoEntry]);
@@ -153,18 +119,6 @@ describe('BrainComponent — inline edit', () => {
 });
 
 describe('BrainComponent — delete', () => {
-  it('deleteMemory removes from the store, clears confirmDeleteId, and refreshes stats', () => {
-    const c = make();
-    c.store.memories.set([{ _id: 'm1' } as Memory, { _id: 'm2' } as Memory]);
-    c.recordList.confirmDeleteId.set('m1');
-    api.getSpaceStats.mockClear();
-    c.deleteMemory('m1');
-    expect(api.deleteMemory).toHaveBeenCalledWith('work', 'm1');
-    expect(c.store.memories().map(m => m._id)).toEqual(['m2']);
-    expect(c.recordList.confirmDeleteId()).toBe('');
-    expect(api.getSpaceStats).toHaveBeenCalled(); // stats refresh
-  });
-
   it('deleteEdge removes from the store but does NOT refresh stats (asymmetry with memory/entity)', () => {
     const c = make();
     c.store.edges.set([{ _id: 'x1' } as Edge]);
@@ -183,31 +137,5 @@ describe('BrainComponent — delete', () => {
     expect(filesApi.deleteFileMeta).toHaveBeenCalledWith('work', '/docs/a.md');
     expect(c.store.fileMetas()).toEqual([]);
     expect(c.recordList.confirmDeleteId()).toBe('');
-  });
-});
-
-describe('BrainComponent — load, filter, pagination (memories tab)', () => {
-  it('the memories load sends page size + skip + the active tag/type/entity filter', () => {
-    const c = make();
-    c.activeTab.set('memories');
-    c.recordFilter.set({ type: 'note', tag: 'urgent' });
-    c.filterEntity.set('e9');
-    api.listMemories.mockClear();
-    c.prevPage(); // skip is already 0 → Math.max(0, -pageSize) === 0, reloads
-    expect(api.listMemories).toHaveBeenCalledWith('work', c.pageSize, 0, { tag: 'urgent', entity: 'e9', type: 'note' });
-  });
-
-  it('nextPage advances skip by pageSize and reloads; prevPage clamps at 0', () => {
-    const c = make();
-    c.activeTab.set('memories');
-    c.nextPage();
-    expect(c.skip()).toBe(c.pageSize);
-    c.nextPage();
-    expect(c.skip()).toBe(2 * c.pageSize);
-    c.prevPage();
-    expect(c.skip()).toBe(c.pageSize);
-    // clamp: from 0 it never goes negative
-    c.prevPage(); c.prevPage();
-    expect(c.skip()).toBe(0);
   });
 });

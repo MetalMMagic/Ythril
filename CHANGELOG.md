@@ -702,6 +702,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Memories tab is now its own self-loading OnPush component (`memories-tab.component`), the first
+  record tab out of the shell.** It owns the memory create form, the inline edit, delete, and its own
+  search / type-tag filter / pagination + list loader; it reads records and derived views from
+  `BrainStore`, shares the singleton load/edit/delete interaction with the shell via `RecordListState`,
+  uses `EntityRefPicker` for entity chips and `RecordDrawerState` to open the detail drawer. The shell
+  renders it behind `@if (activeTab() === 'memories')`, so it is created on activation and destroyed on
+  switch; an `effect` on its `spaceId` input loads on creation and reloads on a space switch while
+  mounted (replacing the shell's `loadCurrentTab` dispatch for this tab, which now early-returns for it).
+  Create/delete emit a `mutated` output so the shell refreshes the tab-count stats — the one legitimate
+  output, since tab counts are parent view-state. The brain-scoped record-table CSS (search header,
+  create form, filter chips, inline confirm, description cell) moved to a shared `brain-table.styles.ts`
+  the tab components import (the table/pagination/empty-state styles are global). The A17.9b-6b memories
+  characterization cases + the two memories-table rendering tests relocated to
+  `memories-tab.component.spec.ts`, plus new self-load and `mutated` assertions. `brain.component.ts`
+  2416 → 2070. Client suite: 188 → 190.
+
 - **The record tabs' shared interaction state moved into a `RecordListState` service — the keystone
   before the five record tabs become their own components.** `loading`, `loadError`, `editingId`,
   `editSaving`, `editError`, and `confirmDeleteId` are singleton by nature (only one record is loading,

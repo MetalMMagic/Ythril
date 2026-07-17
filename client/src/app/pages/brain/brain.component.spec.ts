@@ -17,7 +17,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { of } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
-import { type Memory, type Entity } from '../../core/api.types';
+import { type Entity } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { FilesApi } from '../../core/files-api.service';
@@ -25,17 +25,6 @@ import { AuthService } from '../../core/auth.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { BrainComponent } from './brain.component';
 
-function memory(fact: string, id = fact): Memory {
-  return {
-    _id: id,
-    fact,
-    tags: [],
-    entityIds: [],
-    properties: {},
-    createdAt: '2026-07-14T10:00:00.000Z',
-    seq: 1,
-  } as unknown as Memory;
-}
 
 /** Read-only stub: brain's init cascade is listSpaces → getSpaceStats/getReindexStatus/getSpaceMeta. */
 function makeApi() {
@@ -72,34 +61,8 @@ describe('BrainComponent (OnPush)', () => {
     expect(BrainComponent.ɵcmp?.onPush).toBe(true);
   });
 
-  it('renders a row per memory on the memories tab (signal-driven view updates under OnPush)', () => {
-    const fixture = create();
-    const c = fixture.componentInstance;
-
-    c.activeTab.set('memories');
-    c.store.memories.set([memory('the sky is blue'), memory('water is wet')]);
-    fixture.detectChanges();
-
-    const body = (fixture.nativeElement.querySelector('table tbody') as HTMLElement).textContent ?? '';
-    expect(body).toContain('the sky is blue');
-    expect(body).toContain('water is wet');
-  });
-
-  it('re-renders the list when the memories signal is replaced', () => {
-    const fixture = create();
-    const c = fixture.componentInstance;
-    const body = () => (fixture.nativeElement.querySelector('table tbody') as HTMLElement).textContent ?? '';
-
-    c.activeTab.set('memories');
-    c.store.memories.set([memory('first fact')]);
-    fixture.detectChanges();
-    expect(body()).toContain('first fact');
-
-    c.store.memories.set([memory('second fact')]);
-    fixture.detectChanges();
-    expect(body()).toContain('second fact');
-    expect(body()).not.toContain('first fact');
-  });
+  // The memories table rendering (row-per-memory, signal re-render) moved to
+  // memories-tab.component.spec.ts when that tab became its own component (A17.9b-6d).
 
   // The detail-drawer rendering tests (open + plain-model, multiline description) moved to
   // record-drawer.component.spec.ts when the drawer became its own component (A17.9b-5).

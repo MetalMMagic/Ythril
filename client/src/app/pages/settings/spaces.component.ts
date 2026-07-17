@@ -17,6 +17,7 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state.service';
+import { SpacesStore } from './spaces-store.service';
 
 @Component({
   selector: 'app-spaces',
@@ -24,7 +25,7 @@ import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state
   imports: [CommonModule, FormsModule, TranslocoPipe, DragDropModule, PhIconComponent],
   // Provided here (not root) so each mount gets its own settings state, with a lifetime tied to
   // this component rather than the app.
-  providers: [SpaceSettingsState],
+  providers: [SpacesStore, SpaceSettingsState],
   styles: [`
     /* chip inputs */
     .chip-wrap {
@@ -147,7 +148,7 @@ import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state
               </div>
               <div class="field" style="flex:1;margin-bottom:0;">
                 <label>{{ 'spaces.create.proxyFor' | transloco }}</label>
-                @if (spaces().length > 0) {
+                @if (store.spaces().length > 0) {
                   <div class="table-wrapper" style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">
                     <table style="margin:0;">
                       <thead><tr><th style="width:40px;"></th><th>{{ 'spaces.table.column.label' | transloco }}</th><th>{{ 'spaces.table.column.id' | transloco }}</th></tr></thead>
@@ -156,7 +157,7 @@ import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state
                           <td style="text-align:center;"><input type="checkbox" [checked]="proxyForAll" (click)="$event.stopPropagation()" (change)="toggleProxyForAll()" /></td>
                           <td colspan="2" style="font-style:italic;color:var(--text-muted);">{{ 'spaces.create.proxyForAll' | transloco }}</td>
                         </tr>
-                        @for (s of spaces(); track s.id) {
+                        @for (s of store.spaces(); track s.id) {
                           <tr style="cursor:pointer;" [class.text-muted]="proxyForAll" (click)="!proxyForAll && toggleProxyFor(s.id)">
                             <td style="text-align:center;"><input type="checkbox" [checked]="proxyForAll || isProxyForSelected(s.id)" [disabled]="proxyForAll" (click)="$event.stopPropagation()" (change)="!proxyForAll && toggleProxyFor(s.id)" /></td>
                             <td>{{ s.label }}</td>
@@ -663,7 +664,7 @@ import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state
                 </button>
               </div>
 
-              @let spaceNets = networksForSpace(state.settingsSpace()!.id);
+              @let spaceNets = store.networksForSpace(state.settingsSpace()!.id);
               @if (spaceNets.length > 0) {
                 <div class="dz-section">
                   <div class="dz-section-title">{{ 'spaces.dangerZone.leaveNetworksTitle' | transloco }}</div>
@@ -776,10 +777,10 @@ import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state
             <button class="sort-btn" [class.active]="sortMode()==='usage-asc'" (click)="sortMode.set('usage-asc')" [attr.title]="'spaces.table.sort.usageAsc' | transloco">↑ GiB</button>
           </div>
           <button class="btn-primary btn btn-sm" (click)="showCreateDialog.set(true)">{{ 'spaces.table.createButton' | transloco }}</button>
-          <button class="btn-secondary btn btn-sm" (click)="load()">{{ 'spaces.table.refreshButton' | transloco }}</button>
+          <button class="btn-secondary btn btn-sm" (click)="store.load()">{{ 'spaces.table.refreshButton' | transloco }}</button>
         </div>
       </div>
-      @if (loading()) {
+      @if (store.loading()) {
         <div class="loading-overlay"><span class="spinner"></span></div>
       } @else {
         <div class="table-wrapper">
@@ -787,7 +788,7 @@ import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state
             <thead>
               <tr><th style="width:32px;"></th><th>{{ 'spaces.table.column.label' | transloco }}</th><th>{{ 'spaces.table.column.id' | transloco }}</th><th>{{ 'spaces.table.column.storage' | transloco }}</th><th>{{ 'spaces.table.column.networks' | transloco }}</th><th>{{ 'spaces.table.column.proxy' | transloco }}</th><th></th></tr>
             </thead>
-            <tbody cdkDropList (cdkDropListDropped)="onSpaceDrop($event)">
+            <tbody cdkDropList (cdkDropListDropped)="store.reorder($event.previousIndex, $event.currentIndex)">
               @for (s of sortedSpaces(); track s.id) {
                 @let bar = storageInfo(s);
                 <tr cdkDrag cdkDragLockAxis="y" [cdkDragDisabled]="sortMode() !== 'custom'">
@@ -809,8 +810,9 @@ import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state
                     }
                   </td>
                   <td>
-                    @if (networksForSpace(s.id).length) {
-                      @for (n of networksForSpace(s.id); track n.id) {
+                    @let nets = store.networksForSpace(s.id);
+                    @if (nets.length) {
+                      @for (n of nets; track n.id) {
                         <span class="badge badge-gray" style="margin-right:4px;">{{ n.label }}</span>
                       }
                     } @else { <span style="color:var(--text-muted)">—</span> }
@@ -845,15 +847,14 @@ export class SpacesComponent implements OnInit {
   private confirmDialog = inject(ConfirmDialogService);
   /** Settings-dialog state, shared with the tabs. Public: the template binds to it. */
   readonly state = inject(SpaceSettingsState);
+  /** Server data for the page (space list + networks). Public: the template binds to it. */
+  readonly store = inject(SpacesStore);
 
-  spaces   = signal<Space[]>([]);
-  networks = signal<Network[]>([]);
-  loading  = signal(true);
 
   spaceSearch = signal('');
   sortMode = signal<'custom' | 'az' | 'za' | 'usage-desc' | 'usage-asc'>('custom');
   sortedSpaces = computed(() => {
-    const list = this.spaces();
+    const list = this.store.spaces();
     const sorted = (() => {
       switch (this.sortMode()) {
         case 'az':         return [...list].sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
@@ -945,34 +946,10 @@ export class SpacesComponent implements OnInit {
   /** Tracks the kt/typeName target for per-type import. */
   private _typeImportTarget: { kt: KnowledgeType; name: string } | null = null;
 
-  ngOnInit(): void { this.load(); }
+  ngOnInit(): void { this.store.load(); }
 
-  load(): void {
-    this.loading.set(true);
-    this.spacesApi.listSpaces().subscribe({
-      next: ({ spaces }) => { this.spaces.set(spaces); this.loading.set(false); },
-      error: () => this.loading.set(false),
-    });
-    this.networksApi.listNetworks().subscribe({
-      next: ({ networks }) => this.networks.set(networks),
-      error: () => {},
-    });
-  }
 
-  onSpaceDrop(event: CdkDragDrop<Space[]>): void {
-    if (event.previousIndex === event.currentIndex) return;
-    const list = [...this.spaces()];
-    moveItemInArray(list, event.previousIndex, event.currentIndex);
-    this.spaces.set(list);
-    this.spacesApi.reorderSpaces(list.map(s => s.id)).subscribe({
-      next: ({ spaces }) => { this.spaces.set(spaces); },
-      error: () => this.load(),
-    });
-  }
 
-  networksForSpace(spaceId: string): Network[] {
-    return this.networks().filter(n => n.spaces.includes(spaceId));
-  }
 
   storageInfo(s: Space): { pct: number; label: string; cls: string } {
     const used = s.usageGiB ?? 0;
@@ -1022,21 +999,21 @@ export class SpacesComponent implements OnInit {
     ).subscribe({
       next: ({ space }) => {
         this.showCreateDialog.set(false);
-        this.spaces.update(list => [...list, space]);
+        this.store.spaces.update(list => [...list, space]);
         this.form = { label: '', id: '', maxGiB: null, purpose: SpacesComponent.DEFAULT_PURPOSE, validationMode: 'off', strictLinkage: false };
         this.proxyForSelected = [];
         this.proxyForAll = false;
         // Vector indexes finish building server-side (B1); poll so the "preparing
         // indexes" badge clears on its own when the space is ready.
-        if (space.indexStatus === 'building') this.pollIndexStatus();
+        if (space.indexStatus === 'building') this.store.pollIndexStatus();
       },
       error: (err) => {
         if (err instanceof TimeoutError) {
           // The server persists the space even if the response was slow — refetch so
           // it appears instead of silently vanishing, and show a soft note.
           this.createError.set(this.transloco.translate('spaces.error.createTimeout'));
-          this.load();
-          this.pollIndexStatus();
+          this.store.load();
+          this.store.pollIndexStatus();
         } else {
           this.createError.set(err.error?.error ?? this.transloco.translate('spaces.error.createFailed'));
         }
@@ -1044,21 +1021,6 @@ export class SpacesComponent implements OnInit {
     });
   }
 
-  /** Refetch the space list every few seconds while any space is still building its
-   *  vector indexes, so the "preparing indexes" badge clears without a manual reload.
-   *  Bounded so it always stops. */
-  private pollIndexStatus(attempt = 0): void {
-    if (attempt > 40) return; // ~2 min cap
-    setTimeout(() => {
-      this.spacesApi.listSpaces().subscribe({
-        next: ({ spaces }) => {
-          this.spaces.set(spaces);
-          if (spaces.some(s => s.indexStatus === 'building')) this.pollIndexStatus(attempt + 1);
-        },
-        error: () => {},
-      });
-    }, 3000);
-  }
 
   async saveDupeRules(): Promise<void> {
     const target = this.state.settingsSpace();
@@ -1095,7 +1057,7 @@ export class SpacesComponent implements OnInit {
         this.state.dupeSaved.set(true);
         // Reflect saved state back onto the space object.
         this.state.settingsSpace.set(space);
-        this.spaces.update(list => list.map(x => x.id === space.id ? space : x));
+        this.store.spaces.update(list => list.map(x => x.id === space.id ? space : x));
       },
       error: (e) => { this.state.dupeSaving.set(false); this.state.dupeError.set(e?.error?.error || this.transloco.translate('spaces.dupe.saveError')); },
     });
@@ -1113,7 +1075,7 @@ export class SpacesComponent implements OnInit {
     }).subscribe({
       next: ({ space }) => {
         this.state.settingsSaving.set(false);
-        this.spaces.update(list => list.map(s => s.id === space.id ? { ...s, ...space } : s));
+        this.store.applySpace(space);
         this.state.closeSettings();
       },
       error: (err) => { this.state.settingsSaving.set(false); this.state.settingsError.set(err.error?.error ?? this.transloco.translate('spaces.error.saveFailed')); },
@@ -1390,10 +1352,10 @@ export class SpacesComponent implements OnInit {
     this.spacesApi.renameSpace(target.id, newId).subscribe({
       next: ({ space }) => {
         this.state.dangerRenaming.set(false);
-        this.spaces.update(list => list.map(s => s.id === target.id ? space : s));
+        this.store.spaces.update(list => list.map(s => s.id === target.id ? space : s));
         this.state.settingsSpace.set(space);
         this.state.dangerRenameId = space.id;
-        this.networksApi.listNetworks().subscribe({ next: ({ networks }) => this.networks.set(networks), error: () => {} });
+        this.networksApi.listNetworks().subscribe({ next: ({ networks }) => this.store.networks.set(networks), error: () => {} });
       },
       error: (err) => { this.state.dangerRenaming.set(false); this.state.dangerRenameError.set(err.error?.error ?? this.transloco.translate('spaces.error.renameFailed')); },
     });
@@ -1446,7 +1408,7 @@ export class SpacesComponent implements OnInit {
     this.spacesApi.deleteSpace(target.id).subscribe({
       next: () => {
         this.state.dangerDeleting.set(false);
-        this.spaces.update(list => list.filter(s => s.id !== target.id));
+        this.store.spaces.update(list => list.filter(s => s.id !== target.id));
         this.state.closeSettings();
       },
       error: (err) => { this.state.dangerDeleting.set(false); this.state.dangerDeleteError.set(err.error?.error ?? this.transloco.translate('spaces.error.deleteFailed')); },
@@ -1462,7 +1424,7 @@ export class SpacesComponent implements OnInit {
     });
     if (!ok) return;
     this.networksApi.leaveNetwork(networkId).subscribe({
-      next: () => this.networksApi.listNetworks().subscribe({ next: ({ networks }) => this.networks.set(networks), error: () => {} }),
+      next: () => this.store.refreshNetworks(),
       error: () => this.toast.error(this.transloco.translate('spaces.error.leaveNetworkFailed')),
     });
   }

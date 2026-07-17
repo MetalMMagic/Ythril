@@ -24,7 +24,7 @@ import { buildFileManifest } from '../files/manifest.js';
 import { log } from '../util/log.js';
 import { bumpSeq, isSeqImplausible } from '../util/seq.js';
 import { peerSafeFetch, isPeerUrlAllowed } from './peer-fetch.js';
-import { concludeRoundIfReady, sendMemberRemovedNotify } from '../api/sync.js';
+import { concludeRoundIfReady, sendMemberRemovedNotify } from './governance.js';
 import { enqueueMediaJob } from '../files/media/job-queue.js';
 import { resolveInputFormat } from '../files/converters/pipeline.js';
 import { schedule as cronSchedule, type ScheduledTask } from 'node-cron';

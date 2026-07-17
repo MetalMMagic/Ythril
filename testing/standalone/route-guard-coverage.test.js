@@ -56,9 +56,19 @@ const WRITE_GUARDS = [
  * without one is how a guard table rots (see the audit route table, which had drifted so far
  * that file uploads and the entire governance surface were unlogged).
  */
+const PEER_AUTH_REASON = 'peer-to-peer sync — authenticated as a PEER via peer tokens, not user tokens';
 const EXEMPT = new Map([
   ['setupRouter', 'first-run setup — runs BEFORE any token exists; guarded by configExists()'],
-  ['syncRouter', 'peer-to-peer sync — authenticated as a PEER via peer tokens, not user tokens'],
+  // The /api/sync surface was one `syncRouter` until A17.6 split it into per-concern sub-routers.
+  // The exemption is about HOW the surface authenticates (peer tokens), so it follows every
+  // sub-router — otherwise the split would silently re-flag the whole peer protocol.
+  ['syncRouter', PEER_AUTH_REASON],
+  ['syncDocsRouter', PEER_AUTH_REASON],
+  ['syncTombstonesRouter', PEER_AUTH_REASON],
+  ['syncManifestRouter', PEER_AUTH_REASON],
+  ['syncMembersRouter', PEER_AUTH_REASON],
+  ['syncVotesRouter', PEER_AUTH_REASON],
+  ['syncWarmRouter', PEER_AUTH_REASON],
   ['inviteRouter', 'network invite handshake — authenticated by the invite key itself'],
   ['oidcRouter', 'OIDC login/callback — this is how you GET a token'],
   ['themeRouter', 'public unauthenticated theme endpoint (read-only, no user data)'],
@@ -150,6 +160,33 @@ describe('Route guards — every mutating route must be protected', () => {
         routes.push({ router, method, routePath, chain, file });
       }
     }
+  });
+
+  it('router variable names are unique across the api tree (name-keyed analysis must be sound)', () => {
+    // Both this guard and audit-route-coverage map `xRouter` -> mount prefix BY NAME. Two modules
+    // exporting the same name silently give one of them the other's prefix, so its routes get
+    // checked against the wrong rules — or vanish from the check entirely.
+    //
+    // This has bitten twice for real. A17.3: api/brain's file-metadata router was a second
+    // `filesRouter` (api/files.ts already had one), so its routes resolved to /api/files. A17.6:
+    // api/sync's `membersRouter`/`votesRouter` collided with api/networks', so the peer routes
+    // resolved to /api/networks and reported as unaudited. Both compiled and ran fine — only this
+    // analysis noticed. Assert uniqueness so the next split can't reintroduce it.
+    const owners = new Map();
+    for (const filePath of apiFiles()) {
+      const src = fs.readFileSync(filePath, 'utf8');
+      const re = /^export const (\w+Router)\s*=/gm;
+      let m;
+      while ((m = re.exec(src)) !== null) {
+        const rel = path.relative(API_DIR, filePath).replace(/\\/g, '/');
+        if (!owners.has(m[1])) owners.set(m[1], []);
+        owners.get(m[1]).push(rel);
+      }
+    }
+    const dupes = [...owners.entries()]
+      .filter(([, files]) => files.length > 1)
+      .map(([name, files]) => `${name} declared in: ${files.join(', ')}`);
+    assert.deepEqual(dupes, [], `router names must be unique across server/src/api:\n  ${dupes.join('\n  ')}`);
   });
 
   it('the parser found the routes (guard the guard — it must not pass vacuously)', () => {

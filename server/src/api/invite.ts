@@ -47,7 +47,7 @@ import { requireAdmin } from '../auth/middleware.js';
 import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets, saveSecrets } from '../config/loader.js';
 import { createToken } from '../auth/tokens.js';
-import { concludeRoundIfReady } from './sync.js';
+import { concludeRoundIfReady } from '../sync/governance.js';
 import { buildBraintreeAncestors } from '../util/braintree.js';
 import { makeSignedOwnCast } from '../util/signing.js';
 import { log } from '../util/log.js';

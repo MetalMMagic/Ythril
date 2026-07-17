@@ -11,7 +11,7 @@ import { requireAdmin } from '../../auth/middleware.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets, saveSecrets } from '../../config/loader.js';
 import { revokePeerCredentialsIfOrphaned } from '../../auth/tokens.js';
-import { concludeRoundIfReady, sendMemberRemovedNotify } from '../sync.js';
+import { concludeRoundIfReady, sendMemberRemovedNotify } from '../../sync/governance.js';
 import { buildBraintreeAncestors } from '../../util/braintree.js';
 import { makeSignedOwnCast, forceSetMemberSigningKey } from '../../util/signing.js';
 import { log } from '../../util/log.js';

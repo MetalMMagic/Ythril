@@ -1978,6 +1978,16 @@ Conversion input is size-bounded: documents over `maxDocumentConversionBytes` in
 
 To disable the conversion pipeline entirely, set `CONVERSION_SIDECAR_URL=""` in Ythril's environment — all uploads fall back to the `"text"` bypass regardless of `inputFormat`.
 
+#### Page-render sidecar (`doc-render`)
+
+The bundled `doc-render` sidecar is a tiny PyMuPDF service that renders PDF pages to images. It is
+infrastructure for the forthcoming **VLM document-extraction** path (`mediaEmbedding.documentProcessing.mode`
+of `vlm` / `auto` / `max`) and is **not used by the default `ocr` mode** — you can leave it running (it is
+lightweight and carries no model weights) or stop it with no effect on today's OCR conversion. Like the
+`unstructured` sidecar it parses untrusted documents, so it runs isolated on the internal-only
+`ythril-convert` network (no database, no internet egress), non-root and resource-limited. Ythril reaches
+it via `RENDER_SIDECAR_URL` (default `http://doc-render:8100`).
+
 #### Document Processing Configuration
 
 The unstructured sidecar strategy and image extraction behaviour can be tuned under `mediaEmbedding.documentProcessing` in `config.json`. All settings are optional — the defaults are designed for maximum data extraction out of the box.

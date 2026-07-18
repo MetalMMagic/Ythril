@@ -343,6 +343,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Test isolation: the bulk-memory-wipe tests no longer wipe the shared `general` space.**
+  `brain.test.js`'s wipe block used `WIPE_SPACE = 'general'` and issued a `confirm:true` bulk delete —
+  deleting **every** memory in the shared `general` space, other tests' data included. Serial ordering
+  hid it, but it would corrupt a concurrent test the moment the suite runs in parallel. Moved to a
+  dedicated `wipe-${RUN}` space (created/torn down per run). An audit of all 14 `general`-touching test
+  files found this was the *only* genuine cross-file bleed — the rest assert on their own unique-id/tag
+  data, not on a clean space. Internal test-harness only; unblocks parallelization (Q4).
+
 - **Chrono entries now go `overdue` automatically (C5).** `overdue` is a valid chrono status, but
   nothing ever set it — a passed deadline kept its `upcoming`/`active` status, so
   `list_chrono({status: "overdue"})` returned nothing. It is now **derived on read**: an entry whose due

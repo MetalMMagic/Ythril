@@ -85,7 +85,7 @@ Now Ythril is reachable at `http://localhost:3210` while the container still lis
 
 Enter an instance label and complete setup:
 
-```
+```http
 POST http://localhost:3200/api/setup/json
 { "label": "My Ythril" }
 ```
@@ -94,7 +94,7 @@ This returns your admin token. Store it — it is shown once.
 
 ### Health Check
 
-```
+```http
 GET http://localhost:3200/health
 → { "status": "ok", "ts": "2026-03-26T10:00:00.000Z" }
 ```
@@ -147,13 +147,13 @@ environment:
 
 On startup, Ythril probes for `$vectorSearch` support and logs the result:
 
-```
+```text
   ✓ $vectorSearch available (MongoDB 8.2.1)
 ```
 
 or, if unavailable:
 
-```
+```text
   ✗ $vectorSearch not available (MongoDB 7.0.0) — semantic search (recall) will be disabled
     Upgrade to MongoDB 8.2+, use Atlas Local, or connect to managed Atlas
 ```
@@ -164,7 +164,7 @@ If `$vectorSearch` is unavailable, all non-search operations (storing memories, 
 
 **First run:**
 
-```
+```text
   ythril  ·  first-run setup required
 
   Open http://localhost:3200 to get started
@@ -172,7 +172,7 @@ If `$vectorSearch` is unavailable, all non-search operations (storing memories, 
 
 **Configured:**
 
-```
+```text
   ythril  ✓ ready  ·  http://localhost:3200
 ```
 
@@ -215,7 +215,7 @@ The `config/` directory is a host bind mount — `config.json`, `secrets.json`, 
 
 On startup, Ythril checks that `config.json` and `secrets.json` are owner-read/write only (`0600`). If the files have looser permissions (e.g. `0644`, `0666`), the server automatically tightens them to `0600` and logs a `SECURITY:` warning:
 
-```
+```text
 SECURITY: config.json had mode 0644 — auto-fixed to 0600
 ```
 
@@ -349,7 +349,7 @@ Ythril sets the following headers on every response:
 
 Ythril listens on plain HTTP. Place a reverse proxy in front to terminate TLS.
 
-**Nginx**
+#### Nginx
 
 ```nginx
 server {
@@ -378,7 +378,7 @@ server {
 }
 ```
 
-**Caddy**
+#### Caddy
 
 ```caddyfile
 brain.example.com {
@@ -389,7 +389,7 @@ brain.example.com {
 
 Caddy provisions TLS certificates automatically via Let's Encrypt/ZeroSSL.
 
-**Traefik (Docker labels)**
+#### Traefik (Docker labels)
 
 ```yaml
 labels:
@@ -419,12 +419,14 @@ For multi-brain networks, each brain runs its own full stack. Scale vertically (
 ### Upgrading
 
 1. Pull the latest image:
+
    ```bash
    docker compose pull        # if using a registry
    docker compose build       # if building from source
    ```
 
 2. Restart the stack:
+
    ```bash
    docker compose up -d
    ```
@@ -458,7 +460,7 @@ docker compose start
 
 Every API request requires a Bearer token, except a handful of public routes: `/health`, `/ready`, `/api/theme`, `/api/setup/status`, `/setup`, `/api/invite/apply`, and `/api/auth/oidc-info`:
 
-```
+```http
 Authorization: Bearer ythril_<base62-encoded-token>
 ```
 
@@ -530,7 +532,7 @@ Extended errors may include:
 
 Rate limit headers follow the IETF draft-7 format: a single combined `RateLimit` header plus a `RateLimit-Policy` header (the legacy draft-6 `RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset` headers are not emitted):
 
-```
+```text
 RateLimit: limit=300, remaining=297, reset=42
 RateLimit-Policy: 300;w=60
 Retry-After: 42
@@ -550,7 +552,7 @@ Base path: `/api/brain`
 
 Every memory endpoint lives under the `/spaces/:spaceId/` prefix — the same prefix used by all other brain resource types (entities, edges, chrono, stats). For example:
 
-```
+```http
 GET /api/brain/spaces/general/memories
 ```
 
@@ -558,7 +560,7 @@ GET /api/brain/spaces/general/memories
 
 ### Write a Memory
 
-```
+```http
 POST /api/brain/spaces/:spaceId/memories
 ```
 
@@ -598,7 +600,7 @@ POST /api/brain/spaces/:spaceId/memories
 
 ### Get a Memory by ID
 
-```
+```http
 GET /api/brain/spaces/:spaceId/memories/:id
 ```
 
@@ -608,7 +610,7 @@ GET /api/brain/spaces/:spaceId/memories/:id
 
 ### List Memories
 
-```
+```http
 GET /api/brain/spaces/:spaceId/memories?limit=100&skip=0
 ```
 
@@ -639,7 +641,7 @@ Default limit: 100, max: 500. Use `skip` for offset pagination.
 
 ### Delete a Memory
 
-```
+```http
 DELETE /api/brain/spaces/:spaceId/memories/:id
 ```
 
@@ -649,7 +651,7 @@ DELETE /api/brain/spaces/:spaceId/memories/:id
 
 ### Wipe All Memories
 
-```
+```http
 DELETE /api/brain/spaces/:spaceId/memories
 Content-Type: application/json
 
@@ -665,6 +667,7 @@ Entities, edges, and chrono entries have the same bulk-wipe endpoint shape — `
 ### Semantic Search (Recall)
 
 Available as both:
+
 - REST: `POST /api/brain/spaces/:spaceId/recall`
 - MCP tool: `recall`
 
@@ -839,7 +842,7 @@ Multiple operators on the same key are AND-ed (range queries):
 
 ### Find Similar (Vector Similarity by Entry ID)
 
-```
+```http
 POST /api/brain/spaces/:spaceId/find-similar
 ```
 
@@ -898,7 +901,7 @@ Given an existing entry's `_id`, find other entries with high vector similarity.
 
 ### Upsert an Entity
 
-```
+```http
 POST /api/brain/spaces/:spaceId/entities
 ```
 
@@ -936,7 +939,7 @@ Tags are merged (deduplicated union), properties are shallow-merged (new keys ad
 
 ### Find Entities by Name
 
-```
+```http
 GET /api/brain/spaces/:spaceId/entities/by-name?name=Kubernetes
 ```
 
@@ -954,7 +957,7 @@ Returns all entities with the exact name, regardless of type. Multiple entities 
 
 ### Get Entities by IDs
 
-```
+```http
 GET /api/brain/spaces/:spaceId/entities/by-ids?ids=id1,id2,id3
 ```
 
@@ -964,7 +967,7 @@ Batch-fetch entities by ID. `ids` is a comma-separated list (required — `400` 
 
 ### Get an Entity by ID
 
-```
+```http
 GET /api/brain/spaces/:spaceId/entities/:id
 ```
 
@@ -974,7 +977,7 @@ Returns the single entity, or `404` if no entity with that ID exists in the spac
 
 ### List Entities
 
-```
+```http
 GET /api/brain/spaces/:spaceId/entities?limit=50&skip=0
 ```
 
@@ -994,7 +997,7 @@ Default limit: 50, max: 500.
 
 ### Delete an Entity
 
-```
+```http
 DELETE /api/brain/spaces/:spaceId/entities/:id
 ```
 
@@ -1017,7 +1020,7 @@ DELETE /api/brain/spaces/:spaceId/entities/:id
 
 ### Merge Two Entities
 
-```
+```http
 POST /api/brain/spaces/:spaceId/entities/:survivorId/merge/:absorbedId
 Content-Type: application/json
 ```
@@ -1105,7 +1108,7 @@ Merge two entities into one. The **survivor** keeps its identity (ID, name, type
 
 ### Upsert an Edge
 
-```
+```http
 POST /api/brain/spaces/:spaceId/edges
 ```
 
@@ -1140,7 +1143,7 @@ Upserts on `(spaceId, from, to, label)`.
 
 ### List Edges
 
-```
+```http
 GET /api/brain/spaces/:spaceId/edges?limit=50&skip=0
 ```
 
@@ -1158,7 +1161,7 @@ GET /api/brain/spaces/:spaceId/edges?limit=50&skip=0
 
 ### Delete an Edge
 
-```
+```http
 DELETE /api/brain/spaces/:spaceId/edges/:id
 ```
 
@@ -1170,7 +1173,7 @@ DELETE /api/brain/spaces/:spaceId/edges/:id
 
 BFS traversal from a starting entity, following edges up to `maxDepth` hops.
 
-```
+```http
 POST /api/brain/spaces/:spaceId/traverse
 ```
 
@@ -1219,7 +1222,7 @@ Server-side cycle detection ensures each entity is visited at most once, so cycl
 
 ### Create a Chrono Entry
 
-```
+```http
 POST /api/brain/spaces/:spaceId/chrono
 ```
 
@@ -1251,7 +1254,7 @@ POST /api/brain/spaces/:spaceId/chrono
 
 ### Update a Chrono Entry
 
-```
+```http
 POST /api/brain/spaces/:spaceId/chrono/:id
 ```
 
@@ -1263,11 +1266,11 @@ POST /api/brain/spaces/:spaceId/chrono/:id
 
 ### List Chrono Entries
 
-```
+```http
 GET /api/brain/spaces/:spaceId/chrono?limit=50&skip=0
 ```
 
-**Query parameters**
+#### Query parameters
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -1281,9 +1284,9 @@ GET /api/brain/spaces/:spaceId/chrono?limit=50&skip=0
 | `limit` | number | Max entries to return (default 50, max 500) |
 | `skip` | number | Pagination offset (default 0) |
 
-**Example queries**
+#### Example queries
 
-```
+```http
 GET /api/brain/spaces/:id/chrono?after=2026-04-04T00:00:00Z
 GET /api/brain/spaces/:id/chrono?after=2026-01-01T00:00:00Z&before=2026-04-01T00:00:00Z&tags=incident
 GET /api/brain/spaces/:id/chrono?tagsAny=deploy,auth-service
@@ -1304,7 +1307,7 @@ GET /api/brain/spaces/:id/chrono?search=migration
 
 ### Delete a Chrono Entry
 
-```
+```http
 DELETE /api/brain/spaces/:spaceId/chrono/:id
 ```
 
@@ -1314,7 +1317,7 @@ DELETE /api/brain/spaces/:spaceId/chrono/:id
 
 ### Space Stats
 
-```
+```http
 GET /api/brain/spaces/:spaceId/stats
 ```
 
@@ -1335,7 +1338,7 @@ GET /api/brain/spaces/:spaceId/stats
 
 ### Check Reindex Status
 
-```
+```http
 GET /api/brain/spaces/:spaceId/reindex-status
 ```
 
@@ -1351,7 +1354,7 @@ Returns `true` when the embedding model has changed and memories need re-embeddi
 
 ### Reindex Space
 
-```
+```http
 POST /api/brain/spaces/:spaceId/reindex
 ```
 
@@ -1367,7 +1370,7 @@ Re-computes all embeddings with the current model. Long-running — may take min
 
 ### Bulk Write
 
-```
+```http
 POST /api/brain/spaces/:spaceId/bulk
 Content-Type: application/json
 ```
@@ -1415,7 +1418,7 @@ Entity items in the `entities` array accept an optional `id` field (UUID v4). If
 
 ### Structured Query (Read-Only)
 
-```
+```http
 POST /api/brain/spaces/:spaceId/query
 ```
 
@@ -1453,7 +1456,7 @@ Run a constrained Mongo-style read query against one logical collection. Intende
 
 ### List File Metadata Records
 
-```
+```http
 GET /api/brain/spaces/:spaceId/files?limit=50&skip=0&tag=design&path=docs/architecture.md
 ```
 
@@ -1482,7 +1485,7 @@ Returns metadata rows stored in the brain collection for files (`path`, tags, de
 
 All `PATCH` update endpoints — entities, edges, and memories — accept an optional `deleteFields` array of dot-notation paths. This allows callers to remove specific fields from a document in the same atomic operation as normal property/tag updates.
 
-```
+```http
 PATCH /api/brain/spaces/:spaceId/entities/:id
 PATCH /api/brain/spaces/:spaceId/edges/:id
 PATCH /api/brain/spaces/:spaceId/memories/:id
@@ -1547,7 +1550,7 @@ Base path: `/api/files`
 
 ### Upload a File (raw bytes)
 
-```
+```http
 POST /api/files/:spaceId?path=reports/q1.pdf
 Content-Type: application/octet-stream
 
@@ -1564,7 +1567,7 @@ Any file type is supported — documents, images, binaries, archives, etc. The `
 
 ### Upload a File (JSON / base64)
 
-```
+```http
 POST /api/files/:spaceId?path=assets/diagram.svg
 Content-Type: application/json
 
@@ -1580,7 +1583,7 @@ Content-Type: application/json
 
 For files larger than 10 MB, split into chunks and send with `Content-Range`:
 
-```
+```http
 POST /api/files/:spaceId?path=large-file.zip
 Content-Type: application/octet-stream
 Content-Range: bytes 0-5242879/15728640
@@ -1605,7 +1608,7 @@ Duplicate ranges are silently accepted (idempotent). The `maxUploadBodyBytes` co
 
 ### Check Upload Progress
 
-```
+```http
 GET /api/files/:spaceId/upload-status?path=large-file.zip&total=15728640
 ```
 
@@ -1621,7 +1624,7 @@ Resume by sending the next chunk from the `received` offset. Stale chunk directo
 
 ### Download a File
 
-```
+```http
 GET /api/files/:spaceId?path=reports/q1.pdf
 ```
 
@@ -1633,7 +1636,7 @@ Active-content types that can execute script when rendered in the browser (`.htm
 
 ### List Directory
 
-```
+```http
 GET /api/files/:spaceId?path=reports/
 ```
 
@@ -1655,7 +1658,7 @@ GET /api/files/:spaceId?path=reports/
 
 ### Create Directory
 
-```
+```http
 POST /api/files/:spaceId/mkdir?path=reports/charts
 ```
 
@@ -1669,7 +1672,7 @@ POST /api/files/:spaceId/mkdir?path=reports/charts
 
 ### Move / Rename
 
-```
+```http
 PATCH /api/files/:spaceId?path=reports/draft.docx
 Content-Type: application/json
 
@@ -1686,7 +1689,7 @@ Content-Type: application/json
 
 ### Delete a File
 
-```
+```http
 DELETE /api/files/:spaceId?path=reports/q1.pdf
 ```
 
@@ -1764,7 +1767,7 @@ Pass `inputFormat` in the JSON body (or as a query parameter in raw uploads) to 
 
 Example — upload and convert a PDF:
 
-```
+```http
 POST /api/files/:spaceId?path=reports/q1.pdf
 Content-Type: application/json
 
@@ -1862,6 +1865,7 @@ When `strategy: "hi_res"` and `extractImages: true`, Ythril creates one extra st
   - Immediately enqueued for the media embedding pipeline — the image will be captioned and face-searched automatically.
 
 This means a PDF containing five embedded photographs will produce:
+
 - The original PDF file record
 - A `_converted/{id}.md` Markdown record
 - One chunk record per heading/paragraph section
@@ -1888,6 +1892,7 @@ All media ultimately produces text that passes through the same `nomic-embed-tex
 Use **Settings → Models** in the web UI, or `PATCH /api/admin/media-config`, or set `MEDIA_EMBEDDING_ENABLED=false` in Ythril's environment to turn the pipeline off.
 
 Required services (bundled by default; override only when you point at external providers):
+
 - **Ollama** (image captioning): `OLLAMA_URL=http://ollama:11434` — deploy any vision-capable model (default: `moondream`).
 - **faster-whisper-server** (audio/video STT): `WHISPER_URL=http://whisper:8000` — set model via `WHISPER_MODEL` (default: `base`).
 
@@ -1936,7 +1941,7 @@ Recall queries (`recall`, `find_similar`) include embedded media chunks. Each me
 
 To re-queue a failed job:
 
-```
+```http
 POST /api/files/:spaceId/retry_embedding?path=uploads/photo.jpg
 Authorization: Bearer ythril_…
 ```
@@ -2082,7 +2087,7 @@ Base path: `/api/spaces`
 
 ### List Spaces
 
-```
+```http
 GET /api/spaces
 GET /api/spaces?counts=true
 ```
@@ -2120,7 +2125,7 @@ worth querying.
 
 ### Create a Space
 
-```
+```http
 POST /api/spaces
 ```
 
@@ -2156,7 +2161,7 @@ POST /api/spaces
 
 A proxy space is a virtual space that groups multiple real spaces into a single endpoint. Reads aggregate across all member spaces; writes require a `targetSpace` parameter to specify the destination.
 
-```
+```http
 POST /api/spaces
 ```
 
@@ -2170,6 +2175,7 @@ POST /api/spaces
 ```
 
 **Rules:**
+
 - All `proxyFor` members must be existing real spaces (not proxies — nesting is not allowed).
 - Proxy spaces are virtual: no DB collections or file directories are created.
 - The calling token must have access to **all** member spaces.
@@ -2179,7 +2185,7 @@ POST /api/spaces
 
 **Write operations** (POST memories, write_file, upsert_entity, etc.) require a `targetSpace` query parameter:
 
-```
+```http
 POST /api/brain/spaces/all-research/memories?targetSpace=bio-research
 ```
 
@@ -2195,7 +2201,7 @@ The `targetSpace` must be one of the proxy's `proxyFor` members. Omitting it on 
 
 ### Rename a Space
 
-```
+```http
 PATCH /api/spaces/:id/rename
 Content-Type: application/json
 Authorization: Bearer <admin-token>
@@ -2206,6 +2212,7 @@ Authorization: Bearer <admin-token>
 `newId` must be lowercase alphanumeric + hyphens, 1-40 chars (`/^[a-z0-9-]+$/`).
 
 The rename atomically:
+
 - Moves all MongoDB collections (memories, entities, edges, chrono, tombstones, files, etc.) to the new prefix.
 - Moves the file directory from `/data/files/{old}` to `/data/files/{new}`.
 - Updates all network `spaces[]` arrays and adds a `spaceMap` entry so peers continue syncing.
@@ -2228,7 +2235,7 @@ The rename atomically:
 
 ### Update a Space
 
-```
+```http
 PATCH /api/spaces/:id
 ```
 
@@ -2294,7 +2301,7 @@ If the space participates in a network and `meta` is included, the update trigge
 
 ### Get Space Meta
 
-```
+```http
 GET /api/spaces/:id/meta
 Authorization: Bearer <token>
 ```
@@ -2337,7 +2344,7 @@ Returns the full schema definition for a space along with derived stats.
 
 ### Get Single Type Definition
 
-```
+```http
 GET /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName
 Authorization: Bearer <token>
 ```
@@ -2366,7 +2373,7 @@ Returns `404` when the space or the requested type name does not exist. Returns 
 
 ### Replace Full Schema (Bulk Overwrite)
 
-```
+```http
 PUT /api/spaces/:id/schema
 Content-Type: application/json
 Authorization: Bearer <admin-token>
@@ -2397,6 +2404,7 @@ Before the new schema is written, the previous `typeSchemas` is automatically ba
 **Response** `200` — the updated space document.
 
 **Errors:**
+
 - `400` — body fails `TypeSchemas` Zod validation.
 - `404` — space not found.
 - `422` — one or more `$ref` values point at non-existent schema-library entries.
@@ -2405,7 +2413,7 @@ Before the new schema is written, the previous `typeSchemas` is automatically ba
 
 ### Upsert Single Type Definition
 
-```
+```http
 PUT /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName
 Content-Type: application/json
 Authorization: Bearer <admin-token>
@@ -2438,6 +2446,7 @@ An empty object `{}` is valid and registers the type name as allowed (no extra c
 ```
 
 **Constraints:**
+
 - `:knowledgeType` must be one of `entity`, `memory`, `edge`, `chrono`.
 - The body is validated with the same `TypeSchema` Zod rules as the full `PATCH /api/spaces/:id` endpoint (property schema `mergeFn`/`type` compatibility, field max lengths, etc.).
 - At most 200 type definitions per knowledge type. Adding a 201st type returns `400`.
@@ -2447,7 +2456,7 @@ An empty object `{}` is valid and registers the type name as allowed (no extra c
 
 ### Delete Single Type Definition
 
-```
+```http
 DELETE /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName
 Authorization: Bearer <admin-token>
 ```
@@ -2462,7 +2471,7 @@ Returns `404` when the space or type name does not exist. Returns `400` for an i
 
 ### Validate Schema (Dry Run)
 
-```
+```http
 POST /api/spaces/:id/validate-schema
 Content-Type: application/json
 Authorization: Bearer <admin-token>
@@ -2575,6 +2584,7 @@ interface PropertySchema {
 ```
 
 What the schema enforces:
+
 - **Entity type allowlist** — the keys of `typeSchemas.entity` (e.g. `"service"`, `"team"`) define the allowed entity `type` values (max 200 per knowledge type).
 - **Edge label allowlist** — the keys of `typeSchemas.edge` define the allowed edge `label` values.
 - **Chrono type allowlist** — the keys of `typeSchemas.chrono` define the allowed `type` values.
@@ -2594,6 +2604,7 @@ What the schema enforces:
 | `usageNotes` | Extended Markdown-formatted guidance for LLM clients (max 50 000 chars). Returned by `get_space_meta`. |
 
 Schema validation runs on:
+
 - Individual writes: `POST /entities`, `POST /edges`, `POST /memories`, `POST /chrono`
 - Bulk writes: `POST /bulk` (per-item; strict skips violating items, warn records warnings)
 - MCP tools: `remember`, `upsert_entity`, `upsert_edge`, `create_chrono`, `bulk_write`
@@ -2643,19 +2654,20 @@ Library entries are stored in `schema-library.json` (sibling to `config.json`). 
 
 #### List all entries
 
-```
+```http
 GET /api/schema-library
 Authorization: Bearer <token>
 ```
 
 **Response** `200`:
+
 ```json
 { "entries": [ { "name": "...", ... } ] }
 ```
 
 #### Get a single entry
 
-```
+```http
 GET /api/schema-library/:name
 Authorization: Bearer <token>
 ```
@@ -2666,12 +2678,13 @@ Authorization: Bearer <token>
 
 Returns every space type definition that references this library entry via `$ref`.
 
-```
+```http
 GET /api/schema-library/:name/usages
 Authorization: Bearer <token>
 ```
 
 **Response** `200`:
+
 ```json
 {
   "usages": [
@@ -2689,7 +2702,7 @@ Returns an empty `usages` array if no space references the entry (including for 
 
 #### Create an entry
 
-```
+```http
 POST /api/schema-library
 Authorization: Bearer <token>
 Content-Type: application/json
@@ -2707,7 +2720,7 @@ Content-Type: application/json
 
 #### Create or replace an entry
 
-```
+```http
 PUT /api/schema-library/:name
 Authorization: Bearer <token>
 Content-Type: application/json
@@ -2724,7 +2737,7 @@ Content-Type: application/json
 
 #### Delete an entry
 
-```
+```http
 DELETE /api/schema-library/:name
 Authorization: Bearer <token>
 ```
@@ -2739,14 +2752,14 @@ Authorization: Bearer <token>
 
 Library entries can carry a `schemaGroup` tag, letting a related set of type schemas be exported from and applied to spaces as a unit.
 
-```
+```http
 GET /api/schema-library/groups
 Authorization: Bearer <token>
 ```
 
 **Response** `200 { "groups": [ { "name", "count" } ] }` — every distinct `schemaGroup` with the number of entries in it, sorted by name.
 
-```
+```http
 POST /api/schema-library/export-space
 Authorization: Bearer <admin-token>
 Content-Type: application/json
@@ -2756,7 +2769,7 @@ Content-Type: application/json
 
 Creates or updates one library entry per **inline** type schema in the space's `meta.typeSchemas`, tagging them all with `groupName` (`$ref` entries are skipped — they are already library-backed). Entry names are derived as `<namePrefix|groupName>-<knowledgeType>-<typeName>`. **Response** `200 { "created", "updated", "entries": [ ... ] }`. Requires an admin token (and MFA when enabled).
 
-```
+```http
 POST /api/schema-library/groups/:group/apply
 Authorization: Bearer <admin-token>
 Content-Type: application/json
@@ -2791,7 +2804,7 @@ A space type definition can reference a library entry instead of embedding the s
 
 An entry can be published so that unauthenticated callers on the open internet can fetch it and import it into their own instance.
 
-```
+```http
 PATCH /api/schema-library/:name/publish
 Authorization: Bearer <admin-token>
 Content-Type: application/json
@@ -2809,19 +2822,20 @@ To unpublish, send `{ "published": false }`.
 
 Returns all published entries. Rate-limited at 60 requests/minute per IP.
 
-```
+```http
 GET /api/schema-library/public
 ```
 
 No `Authorization` header is required for open instances. When the remote instance is behind an auth proxy (e.g. Cloudflare Access), pass a **library access token** as a Bearer credential:
 
-```
+```http
 Authorization: Bearer <schemaLibrary-token>
 ```
 
 An invalid or wrong-scope token returns `401`/`403`. A missing token on an open instance is accepted.
 
 **Response** `200`:
+
 ```json
 {
   "entries": [
@@ -2840,7 +2854,7 @@ The listing exposes only metadata — the `schema` object is omitted. Fetch the 
 
 #### Public single entry (unauthenticated)
 
-```
+```http
 GET /api/schema-library/public/:name
 ```
 
@@ -2856,7 +2870,7 @@ Catalog links are stored in `schema-catalogs.json` (sibling to `config.json`). M
 
 ##### List catalogs
 
-```
+```http
 GET /api/schema-library/catalogs
 Authorization: Bearer <token>
 ```
@@ -2867,7 +2881,7 @@ Authorization: Bearer <token>
 
 ##### Add a catalog link
 
-```
+```http
 POST /api/schema-library/catalogs
 Authorization: Bearer <admin-token>
 Content-Type: application/json
@@ -2895,7 +2909,7 @@ Content-Type: application/json
 
 ##### Remove a catalog link
 
-```
+```http
 DELETE /api/schema-library/catalogs/:name
 Authorization: Bearer <admin-token>
 ```
@@ -2906,7 +2920,7 @@ Authorization: Bearer <admin-token>
 
 Proxies a request to the remote catalog's public listing endpoint. Requires authentication on the local instance (the remote endpoint is public).
 
-```
+```http
 GET /api/schema-library/catalogs/:name/entries
 Authorization: Bearer <token>
 ```
@@ -2917,7 +2931,7 @@ Returns `404` if the catalog link is unknown. Returns `502` if the remote endpoi
 
 ##### Fetch a single entry from a foreign catalog
 
-```
+```http
 GET /api/schema-library/catalogs/:name/entries/:entryName
 Authorization: Bearer <token>
 ```
@@ -2938,7 +2952,7 @@ Use this endpoint to obtain the full schema before importing. To import, call `P
 
 ---
 
-```
+```http
 DELETE /api/spaces/:id
 Content-Type: application/json
 
@@ -2964,7 +2978,7 @@ Base path: `/api/tokens`.
 
 ### Current Token Context
 
-```
+```http
 GET /api/tokens/me
 ```
 
@@ -2987,7 +3001,7 @@ Returns the effective identity and permissions of the caller token.
 
 ### List Tokens
 
-```
+```http
 GET /api/tokens
 ```
 
@@ -3016,7 +3030,7 @@ Note: `hash` is never exposed.
 
 ### Create a Token
 
-```
+```http
 POST /api/tokens
 ```
 
@@ -3062,6 +3076,7 @@ A **library access token** (`schemaLibrary: true`) grants read-only access to th
 ```
 
 Use cases:
+
 - The remote instance's `/public` endpoint is behind an auth proxy (Cloudflare Access, nginx auth, etc.) that requires a Bearer token.
 - A consumer instance adds a foreign catalog and stores this token as the catalog's `accessToken`. It is forwarded as `Authorization: Bearer` on every catalog browse request.
 
@@ -3071,7 +3086,7 @@ Constraints: `admin` must be `false`/omitted; `spaces` must be empty/omitted. Th
 
 ### Regenerate a Token
 
-```
+```http
 POST /api/tokens/:id/regenerate
 ```
 
@@ -3087,7 +3102,7 @@ Issues a new plaintext credential for an existing token record. The old value is
 
 ### Revoke a Token
 
-```
+```http
 DELETE /api/tokens/:id
 ```
 
@@ -3101,7 +3116,7 @@ Base path: `/api/networks` — requires `admin` token.
 
 ### List Networks
 
-```
+```http
 GET /api/networks
 ```
 
@@ -3132,7 +3147,7 @@ GET /api/networks
 
 ### Get Network
 
-```
+```http
 GET /api/networks/:id
 ```
 
@@ -3144,7 +3159,7 @@ Returns one network object (same shape as entries in `GET /api/networks`).
 
 ### Create a Network
 
-```
+```http
 POST /api/networks
 ```
 
@@ -3171,7 +3186,7 @@ POST /api/networks
 
 ### Delete a Network
 
-```
+```http
 DELETE /api/networks/:id
 ```
 
@@ -3181,7 +3196,7 @@ Broadcasts `member_departed` to all peers. **Response** `204` on success, or `20
 
 ### Update a Network
 
-```
+```http
 PATCH /api/networks/:id
 ```
 
@@ -3193,7 +3208,7 @@ PATCH /api/networks/:id
 
 ### Add a Member (Manual)
 
-```
+```http
 POST /api/networks/:id/members
 ```
 
@@ -3216,7 +3231,7 @@ In `pubsub` networks the subscriber is added immediately with `direction` forced
 
 ### Join via Invite Key
 
-```
+```http
 POST /api/networks/:id/join
 ```
 
@@ -3248,7 +3263,7 @@ list once admitted, `403` if the round was vetoed or expired.
 
 ### Cast a Vote
 
-```
+```http
 POST /api/networks/:id/votes/:roundId
 ```
 
@@ -3262,7 +3277,7 @@ Accepted values: `yes`, `veto`.
 
 ### List Open Vote Rounds
 
-```
+```http
 GET /api/networks/:id/votes
 ```
 
@@ -3288,7 +3303,7 @@ Only non-concluded rounds are returned.
 
 ### Generate an Invite Key
 
-```
+```http
 POST /api/networks/:id/invite
 ```
 
@@ -3311,7 +3326,7 @@ To rotate/revoke the current key, call this endpoint again — the newly generat
 
 ### Join Remote (RSA Handshake)
 
-```
+```http
 POST /api/networks/join-remote
 ```
 
@@ -3377,7 +3392,7 @@ Notes:
 
 ### Sync History
 
-```
+```http
 GET /api/networks/:id/sync-history?limit=20
 ```
 
@@ -3406,7 +3421,7 @@ GET /api/networks/:id/sync-history?limit=20
 
 ### Fork a Network
 
-```
+```http
 POST /api/networks/:id/fork
 ```
 
@@ -3440,7 +3455,7 @@ The fork gets a fresh UUID, no members, no pending rounds. You become the root.
 
 ### Remove a Member
 
-```
+```http
 DELETE /api/networks/:id/members/:instanceId
 ```
 
@@ -3456,7 +3471,7 @@ In `closed`/`democratic` networks this opens a removal voting round (**202**). I
 
 ### Rotate the Instance Signing Key
 
-```
+```http
 POST /api/admin/rotate-signing-key
 ```
 
@@ -3466,7 +3481,7 @@ Generates a new Ed25519 governance vote-signing keypair and a continuity proof s
 
 ### Force-Pin a Member's Signing Key (break-glass)
 
-```
+```http
 PUT /api/networks/:id/members/:instanceId/signing-key
 ```
 
@@ -3482,7 +3497,7 @@ Force-sets a member's pinned signing key **without** a rotation proof — recove
 
 Called by a braintree child node on itself after completing an RSA handshake with a grandparent. Records a temporary reparent so the node syncs through the grandparent while its original parent is offline.
 
-```
+```http
 POST /api/networks/:id/reparent-self
 ```
 
@@ -3514,7 +3529,7 @@ Only valid for `braintree` networks. Returns `400` for other types.
 
 Called on the grandparent to make a temporary reparent permanent. The member's parent is officially changed.
 
-```
+```http
 POST /api/networks/:id/members/:instanceId/adopt
 ```
 
@@ -3538,7 +3553,7 @@ Returns `409` if the member is not in a temporary reparent state.
 
 Called on the grandparent when the original parent comes back online. Restores the member to its original parent and removes the direct grandparent link.
 
-```
+```http
 POST /api/networks/:id/members/:instanceId/revert-parent
 ```
 
@@ -3564,7 +3579,7 @@ Base path: `/api/invite` — unauthenticated endpoints (rate-limited).
 
 ### Generate Invite
 
-```
+```http
 POST /api/invite/generate
 Authorization: Bearer <admin-token>
 ```
@@ -3596,7 +3611,7 @@ Optional fields:
 
 ### Apply (Unauthenticated — called by joining brain)
 
-```
+```http
 POST /api/invite/apply
 ```
 
@@ -3632,7 +3647,7 @@ All tokens are RSA-OAEP-SHA256 encrypted — never plaintext over the wire.
 
 ### Finalize
 
-```
+```http
 POST /api/invite/finalize
 ```
 
@@ -3661,7 +3676,7 @@ the vote passes. If the round is vetoed or expires, the provisioned credentials 
 
 ### Check Invite Status
 
-```
+```http
 GET /api/invite/status/:handshakeId
 ```
 
@@ -3679,7 +3694,7 @@ Base path: `/api/notify`
 
 ### Send Event (peer-to-peer)
 
-```
+```http
 POST /api/notify
 ```
 
@@ -3699,7 +3714,7 @@ Events: `vote_pending`, `member_departed`, `member_removed`, `space_deletion_pen
 
 ### List Events
 
-```
+```http
 GET /api/notify?networkId=net-uuid&limit=50
 ```
 
@@ -3707,7 +3722,7 @@ GET /api/notify?networkId=net-uuid&limit=50
 
 ### Trigger Sync
 
-```
+```http
 POST /api/notify/trigger
 ```
 
@@ -3771,7 +3786,7 @@ Base path: `/api/sync` — used by the sync engine between peers. All endpoints 
 
 ### Incremental Collection Pull Example
 
-```
+```http
 GET /api/sync/memories?spaceId=general&sinceSeq=0&limit=200&full=true
 ```
 
@@ -3779,7 +3794,7 @@ Returns `{ items, nextCursor }`. Use `nextCursor` as `cursor` on the next reques
 
 ### Single-Document Pull Example
 
-```
+```http
 GET /api/sync/entities/:id?spaceId=general
 ```
 
@@ -3787,7 +3802,7 @@ Returns `404` when missing.
 
 ### Bulk Push Example
 
-```
+```http
 POST /api/sync/batch-upsert?spaceId=general&networkId=net-uuid
 ```
 
@@ -3815,7 +3830,7 @@ Each array is capped at 500 items. Response includes per-type counters.
 
 ### Merkle Consistency Check
 
-```
+```http
 GET /api/sync/merkle?spaceId=general&networkId=net-uuid
 ```
 
@@ -3844,7 +3859,7 @@ If this instance has been ejected from a network, `/api/sync/networks/:networkId
 
 ### Warm-Up Endpoint
 
-```
+```http
 POST /api/sync/warm
 ```
 
@@ -3868,7 +3883,7 @@ Base path: `/api/mfa` — requires admin token.
 
 ### Check MFA Status
 
-```
+```http
 GET /api/mfa/status
 ```
 
@@ -3882,7 +3897,7 @@ GET /api/mfa/status
 
 ### Setup MFA
 
-```
+```http
 POST /api/mfa/setup
 ```
 
@@ -3911,7 +3926,7 @@ Scan the `otpauth` URI as a QR code in any TOTP app. The issuer is always `Ythri
 
 ### Verify OTP Code
 
-```
+```http
 POST /api/mfa/verify
 ```
 
@@ -3929,7 +3944,7 @@ POST /api/mfa/verify
 
 ### Disable MFA
 
-```
+```http
 DELETE /api/mfa
 ```
 
@@ -3943,7 +3958,7 @@ Base path: `/api/conflicts`
 
 ### List Conflicts
 
-```
+```http
 GET /api/conflicts?spaceId=general
 ```
 
@@ -3951,7 +3966,7 @@ GET /api/conflicts?spaceId=general
 
 ### Get Conflict
 
-```
+```http
 GET /api/conflicts/:id
 ```
 
@@ -3959,7 +3974,7 @@ GET /api/conflicts/:id
 
 ### Resolve a Conflict
 
-```
+```http
 POST /api/conflicts/:id/resolve
 ```
 
@@ -3994,7 +4009,7 @@ POST /api/conflicts/:id/resolve
 
 ### Bulk Resolve Conflicts
 
-```
+```http
 POST /api/conflicts/bulk-resolve
 ```
 
@@ -4020,7 +4035,7 @@ Accepts the same `action`, `rename`, and `targetSpaceId` fields as single resolv
 
 ### Dismiss a Conflict
 
-```
+```http
 DELETE /api/conflicts/:id
 ```
 
@@ -4032,7 +4047,7 @@ Removes the conflict record without touching any files.
 
 ### List Link Violations
 
-```
+```http
 GET /api/conflicts/link-violations
 ```
 
@@ -4061,7 +4076,7 @@ Returns sync-ingested documents that violate strict linkage rules.
 
 ### Dismiss a Link Violation
 
-```
+```http
 DELETE /api/conflicts/link-violations/:id
 ```
 
@@ -4071,7 +4086,7 @@ DELETE /api/conflicts/link-violations/:id
 
 ### Dismiss All Link Violations
 
-```
+```http
 DELETE /api/conflicts/link-violations
 ```
 
@@ -4085,7 +4100,7 @@ DELETE /api/conflicts/link-violations
 
 ### Seed a Conflict (Testing Utility)
 
-```
+```http
 POST /api/conflicts/seed
 ```
 
@@ -4117,7 +4132,7 @@ If the authenticated token has no access to `spaceId`, response is `403`.
 
 ### Health Check (unauthenticated)
 
-```
+```http
 GET /health
 ```
 
@@ -4131,7 +4146,7 @@ GET /health
 
 ### Readiness Check (unauthenticated)
 
-```
+```http
 GET /ready
 ```
 
@@ -4155,7 +4170,7 @@ Example:
 
 ### Prometheus Metrics
 
-```
+```http
 GET /metrics
 ```
 
@@ -4165,7 +4180,7 @@ Exposes a [Prometheus-compatible](https://prometheus.io/docs/instrumenting/expos
 
 **Response** `200` — `text/plain; version=0.0.4; charset=utf-8`:
 
-```
+```text
 # HELP ythril_http_requests_total Total HTTP requests by method, route pattern, and status code
 # TYPE ythril_http_requests_total counter
 ythril_http_requests_total{method="GET",route="/health",status_code="200"} 42
@@ -4226,7 +4241,7 @@ spec:
 
 ### Check Setup Status (unauthenticated)
 
-```
+```http
 GET /api/setup/status
 ```
 
@@ -4242,19 +4257,20 @@ GET /api/setup/status
 
 These routes are primarily for non-SPA/manual first-run flows.
 
-```
+```http
 GET /setup
 POST /setup
 ```
 
 Equivalent paths also exist under the API mount:
 
-```
+```http
 GET /api/setup
 POST /api/setup
 ```
 
 Behaviour:
+
 - `GET` returns an HTML setup form when instance configuration does not exist.
 - `POST` accepts form data (`label`) and returns an HTML page containing the one-time initial admin token.
 - If already configured, both return `404`.
@@ -4265,7 +4281,7 @@ For programmatic setup, prefer `POST /api/setup/json`.
 
 ### Complete Setup (JSON)
 
-```
+```http
 POST /api/setup/json
 ```
 
@@ -4292,7 +4308,7 @@ The `label` names this brain instance.
 
 ### Reload Config
 
-```
+```http
 POST /api/admin/reload-config
 Authorization: Bearer <admin-token>
 X-TOTP-Code: <code>   # required when MFA is enabled
@@ -4312,7 +4328,7 @@ Reloading also flushes the token and OIDC caches, so a token revoked by a manual
 
 ### Export Space
 
-```
+```http
 GET /api/admin/spaces/:spaceId/export
 Authorization: Bearer <admin-token>
 ```
@@ -4343,7 +4359,7 @@ Dumps the entire knowledge base of a space as a single JSON document. Requires a
 
 ### Import Space
 
-```
+```http
 POST /api/admin/spaces/:spaceId/import
 Content-Type: application/json
 Authorization: Bearer <admin-token>
@@ -4387,7 +4403,7 @@ Clear all data — or a specific subset of collection types — from a space, wh
 preserving the space itself (label, description, config, OIDC mappings, and quota
 settings).
 
-```
+```http
 POST /api/admin/spaces/:spaceId/wipe
 Authorization: Bearer <admin-token>
 X-TOTP-Code: <code>   # required when MFA is enabled
@@ -4463,7 +4479,7 @@ In **Settings → Spaces**, every space row has a ⊘ **Wipe space** button.  Cl
 
 #### MCP tool
 
-```
+```text
 wipe_space(types?: string[])
 ```
 
@@ -4481,7 +4497,7 @@ Base path: `/api/admin/data` — **requires admin token** on all endpoints. Most
 
 Returns how the MongoDB URI is configured and a redacted version of the URI (credentials replaced with `[credentials]`).
 
-```
+```http
 GET /api/admin/data/config
 Authorization: Bearer <admin-token>
 ```
@@ -4509,7 +4525,7 @@ Authorization: Bearer <admin-token>
 
 Test whether a MongoDB URI is reachable before committing to a migration or config change.
 
-```
+```http
 POST /api/admin/data/config/test
 Authorization: Bearer <admin-token>
 X-TOTP-Code: <code>   # required when MFA is enabled
@@ -4532,7 +4548,7 @@ Returns `400` for an invalid URI, `400` for URIs targeting private/loopback/clou
 
 Return current maintenance mode state.
 
-```
+```http
 GET /api/admin/data/maintenance
 Authorization: Bearer <admin-token>
 ```
@@ -4545,7 +4561,7 @@ Authorization: Bearer <admin-token>
 
 Enable or disable maintenance mode. While active, all write operations across the instance return `503`; reads continue normally.
 
-```
+```http
 POST /api/admin/data/maintenance
 Authorization: Bearer <admin-token>
 X-TOTP-Code: <code>   # required when MFA is enabled
@@ -4563,11 +4579,12 @@ Content-Type: application/json
 Trigger an immediate point-in-time dump of the entire MongoDB database. The backup is written to `<data-root>/backups/<ISO-timestamp>/` and contains a `manifest.json` plus one NDJSON file per collection.
 
 When `YTHRIL_DB_MIGRATION_ENABLED=true` and a `backup.json` config file is present, this endpoint also:
+
 - Copies the backup (plus `<data-root>/files/`) to the configured `offsite.destPath`
 - Applies local retention (`retention.keepLocal`) — deletes oldest local backups over the limit
 - Applies offsite retention (`offsite.retention.keepCount`) — deletes oldest offsite sets over the limit
 
-```
+```http
 POST /api/admin/data/backup
 Authorization: Bearer <admin-token>
 X-TOTP-Code: <code>   # required when MFA is enabled
@@ -4611,7 +4628,7 @@ X-TOTP-Code: <code>   # required when MFA is enabled
 
 List all available backups, sorted newest first.
 
-```
+```http
 GET /api/admin/data/backups
 Authorization: Bearer <admin-token>
 ```
@@ -4637,7 +4654,7 @@ Authorization: Bearer <admin-token>
 
 Restore the database from a previously created backup. The instance automatically enters maintenance mode for the duration of the restore, then returns to whatever state it was in before.
 
-```
+```http
 POST /api/admin/data/restore
 Authorization: Bearer <admin-token>
 X-TOTP-Code: <code>   # required when MFA is enabled
@@ -4666,7 +4683,7 @@ Content-Type: application/json
 
 Returns the current contents of `backup.json` — the file that configures scheduled and offsite backups. Can also be written via [PUT /api/admin/data/backup-config](#put-apiadmindatabackup-config) (also flag-gated).
 
-```
+```http
 GET /api/admin/data/backup-config
 Authorization: Bearer <admin-token>
 ```
@@ -4741,12 +4758,12 @@ services:
 ### PUT /api/admin/data/backup-config
 
 > **Feature flag required.** Returns `403` unless the instance was started with `YTHRIL_DB_MIGRATION_ENABLED=true`.
-
+>
 > **Requires admin MFA** (same as other write operations).
 
 Writes (replaces) `backup.json`. Use this to configure the backup schedule and offsite destination from the UI or programmatically. The backup settings UI in **Settings → Database** calls this endpoint.
 
-```
+```http
 PUT /api/admin/data/backup-config
 Authorization: Bearer <admin-token>
 Content-Type: application/json
@@ -4784,7 +4801,7 @@ Content-Type: application/json
 ### POST /api/admin/data/migrate
 
 > **Feature flag required.** This endpoint returns `403` unless the instance was started with `YTHRIL_DB_MIGRATION_ENABLED=true`. The flag is off by default so that a compromised admin token cannot be used to exfiltrate the entire database to an attacker-controlled server.
-
+>
 > **Not available when `MONGO_URI` is set.** If the database connection is managed via the `MONGO_URI` environment variable, this endpoint returns `409 INFRA_MANAGED`. Update the environment variable in your deployment configuration instead.
 
 Migrates the entire database to a new MongoDB server. The sequence is:
@@ -4799,7 +4816,7 @@ Migrates the entire database to a new MongoDB server. The sequence is:
 
 On restart, the server detects the marker and calls `restoreDatabase()` against the new URI before establishing the normal MongoDB connection.
 
-```
+```http
 POST /api/admin/data/migrate
 Authorization: Bearer <admin-token>
 X-TOTP-Code: <code>   # required when MFA is enabled
@@ -4883,7 +4900,7 @@ Audit entries are recorded for all write operations and (when `logReads` is enab
 
 ### Query audit log
 
-```
+```http
 GET /api/admin/audit-log
 Authorization: Bearer <admin-token>
 ```
@@ -4956,6 +4973,7 @@ Entries expire automatically after `retentionDays` (default 90). MongoDB's TTL d
 ### Admin UI
 
 **Settings → Audit Log** provides a searchable, filterable view of the audit trail with:
+
 - Date range, operation, space, status, and IP filters
 - Paginated table with colour-coded status badges
 - Click-to-detail modal for full entry JSON
@@ -5065,7 +5083,7 @@ Webhooks allow external systems to receive real-time HTTP POST notifications whe
 
 ### Create Subscription
 
-```
+```http
 POST /api/admin/webhooks
 Authorization: Bearer <admin-token>
 Content-Type: application/json
@@ -5109,7 +5127,7 @@ Content-Type: application/json
 
 ### List Subscriptions
 
-```
+```http
 GET /api/admin/webhooks
 Authorization: Bearer <admin-token>
 ```
@@ -5136,14 +5154,14 @@ Authorization: Bearer <admin-token>
 
 ### Get Subscription
 
-```
+```http
 GET /api/admin/webhooks/:id
 Authorization: Bearer <admin-token>
 ```
 
 ### Update Subscription
 
-```
+```http
 PATCH /api/admin/webhooks/:id
 Authorization: Bearer <admin-token>
 Content-Type: application/json
@@ -5160,7 +5178,7 @@ All fields are optional. Only provided fields are updated.
 
 ### Delete Subscription
 
-```
+```http
 DELETE /api/admin/webhooks/:id
 Authorization: Bearer <admin-token>
 ```
@@ -5169,7 +5187,7 @@ Authorization: Bearer <admin-token>
 
 ### Test Delivery
 
-```
+```http
 POST /api/admin/webhooks/:id/test
 Authorization: Bearer <admin-token>
 ```
@@ -5178,7 +5196,7 @@ Sends a synthetic `test.ping` event to the subscription's URL. Useful for verify
 
 ### Delivery Log
 
-```
+```http
 GET /api/admin/webhooks/:id/deliveries
 Authorization: Bearer <admin-token>
 ```
@@ -5206,7 +5224,7 @@ Returns the last 100 deliveries for the subscription:
 
 When an event fires, Ythril sends an HTTP POST to the webhook URL:
 
-```
+```http
 POST https://your-endpoint.example.com/hook
 Content-Type: application/json
 X-Ythril-Signature: sha256=<HMAC-SHA256 hex digest>
@@ -5257,7 +5275,7 @@ Base path: `/api/about` — requires a valid Bearer token.
 
 ### Instance Info
 
-```
+```http
 GET /api/about
 Authorization: Bearer <token>   # any valid token
 ```
@@ -5277,7 +5295,7 @@ Authorization: Bearer <token>   # any valid token
 
 ### Server Logs
 
-```
+```http
 GET /api/about/logs?lines=200
 Authorization: Bearer <admin-token>   # admin required
 ```
@@ -5303,7 +5321,7 @@ Returns recent log lines from the in-memory ring buffer. **Requires an admin tok
 
 ### Server Log Stream (SSE)
 
-```
+```http
 GET /api/about/logs/stream
 Authorization: Bearer <admin-token>
 Accept: text/event-stream
@@ -5327,7 +5345,7 @@ The theme endpoint supports portal-style embedding where an outer shell injects 
 
 ### Get Theme
 
-```
+```http
 GET /api/theme
 ```
 
@@ -5443,26 +5461,30 @@ When connecting with a `readOnly` token, mutating tools (`remember`, `update_mem
 
 Ythril accepts MCP over two transports, and two ways to authenticate.
 
-**Transports**
+#### Transports
 
 - **Streamable HTTP** (recommended) — a single stateless endpoint:
-  ```
+
+  ```http
   POST /mcp
   Authorization: Bearer <token>
   Content-Type: application/json
   Accept: application/json, text/event-stream
   ```
+
   Each request is self-contained; no persistent connection or `sessionId` is needed. Works through standard HTTP proxies.
 
 - **SSE** (legacy) — open a stream, then post messages to it:
-  ```
+
+  ```http
   GET /mcp
   Authorization: Bearer <token>
   Accept: text/event-stream
   ```
+
   Returns an SSE stream with a `sessionId`. Send tool calls to `POST /mcp/messages?sessionId=<sessionId>`.
 
-**Authentication**
+#### Authentication
 
 - **Static bearer token** — clients that let you set an `Authorization` header (Claude Desktop, Cursor, VS Code, custom scripts) simply send a Ythril PAT: `Authorization: Bearer ythril_…`. Nothing else is required.
 
@@ -5508,7 +5530,7 @@ No refresh-token flow is used: when a connector token expires (see above), the c
 
 For the SSE transport:
 
-```
+```http
 POST /mcp/messages?sessionId=<sessionId>
 Authorization: Bearer <token>
 Content-Type: application/json
@@ -5855,7 +5877,7 @@ Configured in `config.json` under `storage`:
 
 All list endpoints accept `limit` and `skip`:
 
-```
+```http
 GET /api/brain/spaces/general/memories?limit=100&skip=200
 ```
 
@@ -5863,7 +5885,7 @@ GET /api/brain/spaces/general/memories?limit=100&skip=200
 
 Sync endpoints return a `nextCursor` for efficient sequential reads:
 
-```
+```http
 GET /api/sync/memories?spaceId=general&sinceSeq=0&limit=200
 → { "items": [...], "nextCursor": "eyJzZXEiOjIwMH0" }
 
@@ -5872,7 +5894,6 @@ GET /api/sync/memories?spaceId=general&cursor=eyJzZXEiOjIwMH0&limit=200
 ```
 
 When `nextCursor` is `null`, all data has been consumed.
-
 
 ---
 
@@ -5924,6 +5945,7 @@ Add an `oidc` block to `config.json`:
 | `spaces` | The claim value is used as the list of allowed space IDs (must be a JSON string array). |
 
 Each rule has:
+
 - `claim` — dot-notation path inside the JWT payload (e.g. `"realm_access.roles"`).
 - `value` (optional) — the claim must equal this value, or be an array containing it. When omitted, the claim simply needs to be truthy.
 
@@ -5945,7 +5967,7 @@ PATs continue to work without any changes when OIDC is enabled.
 
 ### OIDC Discovery Endpoint
 
-```
+```http
 GET /api/auth/oidc-info
 ```
 

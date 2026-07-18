@@ -38,7 +38,7 @@ MongoDB is not installed locally — it runs inside Docker via `mongodb/mongodb-
 
 ## Repository Layout
 
-```
+```text
 ythril/
 ├── client/          Angular 21 SPA (workspace: @ythril/client)
 ├── server/          Express 5 + TypeScript API (workspace: @ythril/server)
@@ -304,7 +304,7 @@ GHCR authentication uses the built-in `GITHUB_TOKEN` — no extra secret needed.
 
 After the first image push to GHCR, set the package to **Public** at:
 
-```
+```text
 https://github.com/orgs/ythril-network/packages/container/ythril/settings
 ```
 

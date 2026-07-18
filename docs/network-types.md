@@ -293,7 +293,7 @@ Every outbound call has its own bounded timeout (10 s for small requests, 60 s f
 
 Each failed sync attempt increments `consecutiveFailures` on the member record. After **10 consecutive failures** a prominent warning is written to the log:
 
-```
+```text
 PEER UNREACHABLE: 'laptop' in network 'Personal Devices' has failed 10 consecutive
 sync cycles. Last success: 2026-02-12T09:14:00Z. Member has NOT been removed —
 manual action required.
@@ -313,7 +313,7 @@ In a braintree, data flows strictly along tree edges. If an intermediate node (o
 
 The partition warning in the log identifies this explicitly:
 
-```
+```text
 PEER UNREACHABLE: 'Node A' ... NOTE: this node has 2 child(ren) in a braintree
 network — its entire subtree is now partitioned from this brain until it comes
 back online.
@@ -355,7 +355,7 @@ After finalize, Root's engine includes A1 in its regular push cycle. A1 resumes 
 
 **When A comes back online**, the engine logs:
 
-```
+```text
 REPARENT_REVERT_AVAILABLE: original parent 'Node A' is back online.
 'Leaf A1' was temporarily re-parented during the outage.
 To restore:       POST /api/networks/:id/members/A1/revert-parent
@@ -370,6 +370,7 @@ Two options from the Root (grandparent) side:
 | **Permanent adoption** | `POST /api/networks/:id/members/:instanceId/adopt` | Clears `originalParentInstanceId` — Root is now A1's permanent parent |
 
 A1's admin should also update A1's local config:  
+
 - After revert: remove Root from `peerTokens`, clear `temporaryReparent`  
 - After adopt: just clear `temporaryReparent`  
 
@@ -462,20 +463,18 @@ The **aggregator** pattern: a single brain joins multiple separate networks as a
 One brain can join several networks at once, each scoped to different spaces.
 
 1. Personal + Team split
-- `research` in a Closed network with your own devices
-- `team-alpha` in a Democratic network with coworkers
-- Result: personal research stays private to your devices while team knowledge stays team-governed
-
+   - `research` in a Closed network with your own devices
+   - `team-alpha` in a Democratic network with coworkers
+   - Result: personal research stays private to your devices while team knowledge stays team-governed
 2. Team + Publisher overlay
-- `team-alpha` in a Democratic network
-- `broadcast` in a Braintree network where your brain is a leaf
-- Result: team collaboration continues while your brain also receives one-way parent updates
-
+   - `team-alpha` in a Democratic network
+   - `broadcast` in a Braintree network where your brain is a leaf
+   - Result: team collaboration continues while your brain also receives one-way parent updates
 3. Three-network aggregator
-- `research` from network A
-- `project-x` from network B
-- `archive` from network C
-- Result: one local brain can run global recall across all locally synced spaces without introducing a central broker
+   - `research` from network A
+   - `project-x` from network B
+   - `archive` from network C
+   - Result: one local brain can run global recall across all locally synced spaces without introducing a central broker
 
 ```mermaid
 flowchart TD

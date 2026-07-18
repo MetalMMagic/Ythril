@@ -292,30 +292,31 @@ Why: pulls latest images and recreates containers while keeping volumes (data).
 ## Quick troubleshooting
 
 1. Port 3200 already in use
+
 - Symptom: compose fails to bind `0.0.0.0:3200`.
 - Fix: stop the conflicting process, or set `YTHRIL_PORT` in `.env` to a free host port (e.g. `YTHRIL_PORT=3201`) and use `http://localhost:3201`. Do **not** add a second `ports:` entry via `docker-compose.override.yml` — Compose concatenates `ports` lists, so the base `3200` mapping still binds and startup fails.
 
-2. UI opens but setup/auth fails
-- Check logs:
+1. UI opens but setup/auth fails
+   - Check logs:
 
-```bash
-docker compose logs -f ythril
-```
+     ```bash
+     docker compose logs -f ythril
+     ```
 
-3. Ready check stays non-ready
-- Wait for MongoDB initialization.
-- Check mongo container status:
+2. Ready check stays non-ready
+   - Wait for MongoDB initialization.
+   - Check mongo container status:
 
-```bash
-docker compose logs -f ythril-mongo
-```
+     ```bash
+     docker compose logs -f ythril-mongo
+     ```
 
-4. Docker Desktop still shows stale resources
-- Refresh UI and run a clean down:
+3. Docker Desktop still shows stale resources
+   - Refresh UI and run a clean down:
 
-```bash
-docker compose down -v --remove-orphans
-```
+     ```bash
+     docker compose down -v --remove-orphans
+     ```
 
 ---
 
@@ -479,10 +480,10 @@ Manual path (Cloudflare dashboard):
 2. Select your tunnel.
 3. Open **Public Hostnames** and click **Add a public hostname**.
 4. Set values:
-  - **Subdomain**: e.g. `ythril`
-  - **Domain**: your zone
-  - **Service type**: `HTTP`
-  - **URL**: `http://localhost:3200` (or the host port you set with `YTHRIL_PORT`)
+   - **Subdomain**: e.g. `ythril`
+   - **Domain**: your zone
+   - **Service type**: `HTTP`
+   - **URL**: `http://localhost:3200` (or the host port you set with `YTHRIL_PORT`)
 5. Save.
 
 This usually creates the DNS record for you.
@@ -523,37 +524,34 @@ With this setup, internet traffic reaches only what the tunnel hostname maps to.
 
 1. Local health works:
 
-```bash
-curl http://localhost:3200/health
-```
+   ```bash
+   curl http://localhost:3200/health
+   ```
 
 2. Public health works (replace hostname):
 
-```bash
-curl https://ythril.example.com/health
-```
+   ```bash
+   curl https://ythril.example.com/health
+   ```
 
 3. Authenticated API works through public URL:
 
-```bash
-curl -H "Authorization: Bearer YOUR_TOKEN" https://ythril.example.com/api/about
-```
+   ```bash
+   curl -H "Authorization: Bearer YOUR_TOKEN" https://ythril.example.com/api/about
+   ```
 
 ### Troubleshooting (Cloudflare-specific)
 
 1. Error: "Cloudflare login did not complete (cert.pem still missing)"
-- Cause: browser window was closed before authorizing, or the 5-minute wizard timeout expired before you clicked Authorize.
-- Fix: ensure zone is **Active**, run `cloudflared tunnel login` in a terminal to authorize manually, then click Run automatically again.
-
+   - Cause: browser window was closed before authorizing, or the 5-minute wizard timeout expired before you clicked Authorize.
+   - Fix: ensure zone is **Active**, run `cloudflared tunnel login` in a terminal to authorize manually, then click Run automatically again.
 2. Browser did not open during wizard
-- Cause: on headless or remote systems, `cloudflared tunnel login` cannot open a browser.
-- Fix: run `cloudflared tunnel login` in a terminal on the same machine — copy and visit the URL it prints — then click Run automatically again.
-
+   - Cause: on headless or remote systems, `cloudflared tunnel login` cannot open a browser.
+   - Fix: run `cloudflared tunnel login` in a terminal on the same machine — copy and visit the URL it prints — then click Run automatically again.
 3. Public hostname resolves but app does not load
-- Check tunnel public hostname maps to `http://localhost:3200` (or your actual port).
-- Verify Ythril container is healthy with `docker compose ps`.
-
+   - Check tunnel public hostname maps to `http://localhost:3200` (or your actual port).
+   - Verify Ythril container is healthy with `docker compose ps`.
 4. Connection works on localhost but not public hostname
-- Verify DNS record is proxied.
-- Verify tunnel is connected in Cloudflare dashboard.
-- Verify local firewall is not blocking local process binding unexpectedly.
+   - Verify DNS record is proxied.
+   - Verify tunnel is connected in Cloudflare dashboard.
+   - Verify local firewall is not blocking local process binding unexpectedly.

@@ -89,7 +89,7 @@ Spaces without an entry in `spaceMap` pass through unchanged (identity mapping).
 
 ## Pull phase
 
-```
+```http
 GET /api/sync/tombstones?spaceId=&networkId=&sinceSeq={lastSeqReceived}     (1 request)
 GET /api/sync/memories?spaceId=&...&full=true&limit=200                     (ceil(N/200) requests)
 GET /api/sync/entities?...                                                  (ceil(N/200) requests)
@@ -140,7 +140,7 @@ Docs that originate from a third instance but were relayed through the peer (e.g
 
 ## Push phase
 
-```
+```http
 POST /api/sync/tombstones?spaceId=&networkId=                               (paged: 500/request, looped until drained)
 POST /api/sync/batch-upsert?spaceId=&networkId=                             (ceil(changed/200) requests)
 ```
@@ -182,7 +182,7 @@ Relayed docs (received from a third peer and stored locally) are pushed to other
 
 Memories are the primary content type. If two brains independently edit the same document (same `_id`) and their changes produce the same `seq` counter:
 
-```
+```text
 Brain A:  { _id: "abc", seq: 5, fact: "The sky is blue" }
 Brain B:  { _id: "abc", seq: 5, fact: "The sky is cerulean" }   ← concurrent edit
 ```
@@ -402,6 +402,7 @@ When an instance removes itself from a network, it broadcasts a `member_departed
 2. The local network entry is then spliced from `cfg.networks` and config is saved.
 
 On the **receiving** end of a `member_departed` event:
+
 - The sender is removed from `net.members` for all network types.
 - The event is **idempotent** — if the sender is no longer in the member list (already processed), the call returns `204` rather than `403`. This handles duplicate delivery and race conditions gracefully.
 - N-7 braintree auto-adopt logic runs as before (orphaned children are re-parented to the closest surviving ancestor).
@@ -418,6 +419,7 @@ A `remove` vote round passes when the network's conclusion rule is satisfied. On
 - The ejected instance receives `POST /api/notify { networkId, instanceId, event: "member_removed" }`.
 
 On the **receiving** end of a `member_removed` event:
+
 1. `networkId` is added to `cfg.ejectedFromNetworks` (deduplicated).
 2. The network entry is removed from `cfg.networks`.
 3. Config is saved.
@@ -431,5 +433,3 @@ Subsequently, any sync request scoped to an ejected network ID returns `401 { "e
 > happens once the peer no longer shares **any** network with this instance; membership in another
 > common network (or a pending join round) preserves the credentials
 > (`revokePeerCredentialsIfOrphaned` in `auth/tokens.ts`).
-
-

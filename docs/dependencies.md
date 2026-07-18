@@ -111,7 +111,7 @@ building.
 **Already using managed Atlas or your own cluster?** Nothing to do — set `MONGO_URI` and it
 wins over everything above; those deployments are already authenticated.
 
-```
+```text
 [ythril container] --TCP:27017--> [ythril-mongo container]
                                    ├── mongod (SSPL)
                                    └── mongot (proprietary)

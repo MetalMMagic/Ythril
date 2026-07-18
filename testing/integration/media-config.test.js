@@ -85,3 +85,41 @@ describe('Media config hot-reload (A6)', () => {
     assert.equal(reread.body?.vision?.model, probeModel, 'patched vision.model must round-trip through GET');
   });
 });
+
+// ── F11 — documentProcessing extraction config ───────────────────────────────
+
+describe('Media config — documentProcessing (F11)', () => {
+  let originalDp;
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    const cur = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
+    originalDp = cur.body?.documentProcessing;
+  });
+  after(async () => {
+    // Restore to OCR so the (inert in this PR) mode doesn't leak into other suites.
+    await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
+      { documentProcessing: originalDp ?? { mode: 'ocr' } }).catch(() => {});
+  });
+
+  it('accepts and round-trips a documentProcessing.mode change', async () => {
+    const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
+      { documentProcessing: { mode: 'vlm', maxPages: 10, renderDpi: 200 } });
+    assert.equal(r.status, 200, `PATCH failed: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body?.config?.documentProcessing?.mode, 'vlm');
+    const reread = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
+    assert.equal(reread.body?.documentProcessing?.mode, 'vlm');
+    assert.equal(reread.body?.documentProcessing?.maxPages, 10);
+  });
+
+  it('rejects an invalid mode', async () => {
+    const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
+      { documentProcessing: { mode: 'magic' } });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  });
+
+  it('rejects out-of-range knobs', async () => {
+    const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
+      { documentProcessing: { renderDpi: 5000 } });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  });
+});

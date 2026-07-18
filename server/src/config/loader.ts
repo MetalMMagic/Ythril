@@ -603,6 +603,9 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
     fallbackToExternal: pick('MEDIA_EMBEDDING_FALLBACK_TO_EXTERNAL', 'fallbackToExternal', base.fallbackToExternal, MEDIA_EMBEDDING_DEFAULTS.fallbackToExternal),
     maxFileSizeBytes: pick('MAX_FILE_SIZE_BYTES', 'maxFileSizeBytes', base.maxFileSizeBytes, MEDIA_EMBEDDING_DEFAULTS.maxFileSizeBytes),
     stalledJobTimeoutMs: pick('STALLED_JOB_TIMEOUT_MS', 'stalledJobTimeoutMs', base.stalledJobTimeoutMs, MEDIA_EMBEDDING_DEFAULTS.stalledJobTimeoutMs),
+    // Surface the resolved document-processing/extraction settings (F11) so the admin API GET and the
+    // Models UI can read them back (the worker ignores this block).
+    documentProcessing: getDocumentProcessingConfig(),
     lockedByInfra: locked,
   };
 }
@@ -612,6 +615,12 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
 const DOCUMENT_PROCESSING_DEFAULTS: Required<DocumentProcessingConfig> = {
   strategy: 'hi_res',
   extractImages: true,
+  // F11 — default `ocr` keeps today's OCR-only behaviour; the VLM pipeline is strictly opt-in.
+  mode: 'ocr',
+  renderDpi: 150,
+  maxPages: 50,
+  pageTimeoutMs: 60_000,
+  concurrency: 2,
 };
 
 /**
@@ -622,9 +631,15 @@ const DOCUMENT_PROCESSING_DEFAULTS: Required<DocumentProcessingConfig> = {
 export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig> {
   const mediaCfg = getConfig().mediaEmbedding;
   const base: DocumentProcessingConfig = mediaCfg?.documentProcessing ?? {};
+  const d = DOCUMENT_PROCESSING_DEFAULTS;
   return {
-    strategy: base.strategy ?? DOCUMENT_PROCESSING_DEFAULTS.strategy,
-    extractImages: base.extractImages ?? DOCUMENT_PROCESSING_DEFAULTS.extractImages,
+    strategy: base.strategy ?? d.strategy,
+    extractImages: base.extractImages ?? d.extractImages,
+    mode: base.mode ?? d.mode,
+    renderDpi: base.renderDpi ?? d.renderDpi,
+    maxPages: base.maxPages ?? d.maxPages,
+    pageTimeoutMs: base.pageTimeoutMs ?? d.pageTimeoutMs,
+    concurrency: base.concurrency ?? d.concurrency,
   };
 }
 

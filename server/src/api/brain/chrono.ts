@@ -12,7 +12,7 @@ import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
 import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import type { ChronoStatus } from '../../config/types.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation } from './_shared.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
 
 export const chronoRouter = Router();
 
@@ -99,10 +99,13 @@ chronoRouter.post('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, 
     return;
   }
 
+  const ttlErr = ttlDaysError(req.body);
+  if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+
   const entry = await createChrono(wt.target, {
     title: title.trim(), type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
-  }, webhookToken(req));
+  }, webhookToken(req), ttlDaysFromBody(req.body));
   const result: Record<string, unknown> = { ...entry };
   if (validation.warnings.length > 0) result['warnings'] = validation.warnings;
   res.status(201).json(result);
@@ -156,10 +159,13 @@ chronoRouter.post('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceAu
       ? (properties as Record<string, string | number | boolean>)
       : undefined;
 
+  const ttlErr = ttlDaysError(req.body);
+  if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+
   const updated = await updateChrono(wt.target, id, {
     title, type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
-  }, webhookToken(req));
+  }, webhookToken(req), ttlDaysFromBody(req.body));
   if (!updated) { res.status(404).json({ error: 'Chrono entry not found' }); return; }
   res.json(updated);
 });
@@ -212,10 +218,13 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
       ? (properties as Record<string, string | number | boolean>)
       : undefined;
 
+  const ttlErr = ttlDaysError(req.body);
+  if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+
   const updated = await findFirstAcrossMembers(wt.target, mid => updateChrono(mid, id, {
     title, type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
-  }, webhookToken(req)));
+  }, webhookToken(req), ttlDaysFromBody(req.body)));
   if (updated) { res.json(updated); return; }
   res.status(404).json({ error: 'Chrono entry not found' });
 });

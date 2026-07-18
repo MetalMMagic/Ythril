@@ -13,7 +13,7 @@ import { col, asFilter } from '../../db/mongo.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEdge } from '../../spaces/schema-validation.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation } from './_shared.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
 
 export const edgesRouter = Router();
 
@@ -79,11 +79,13 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
     res.status(400).json({ error: 'schema_violation', violations: validation.warnings });
     return;
   }
+  const ttlErr = ttlDaysError(req.body);
+  if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
 
   const edge = await upsertEdge(
     wt.target, from.trim(), to.trim(), label.trim(), weight, type?.trim(),
     typeof description === 'string' ? description : undefined, safeProps, safeTags,
-    webhookToken(req),
+    webhookToken(req), ttlDaysFromBody(req.body),
   );
   const result: Record<string, unknown> = { ...edge };
   if (validation.warnings.length > 0) result['warnings'] = validation.warnings;
@@ -158,6 +160,9 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
   // Validate deleteFields
   const dfResult = validateDeleteFields(deleteFields);
   if (!dfResult.ok) { res.status(400).json({ error: dfResult.error }); return; }
+  const ttlErr = ttlDaysError(req.body);
+  if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
   const updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string } = {};
   if (label !== undefined) {
@@ -184,7 +189,7 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
     if (typeof type !== 'string') { res.status(400).json({ error: '`type` must be a string' }); return; }
     updates.type = type.trim();
   }
-  if (Object.keys(updates).length === 0 && !dfPaths) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
+  if (Object.keys(updates).length === 0 && !dfPaths && !ttlDaysProvided) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
   const memberIds = resolveMemberSpaces(wt.target);
   for (const mid of memberIds) {
     // Schema validation after deleteFields + merge
@@ -205,7 +210,7 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
         return;
       }
     }
-    const updated = await updateEdgeById(mid, id, updates, dfPaths, webhookToken(req));
+    const updated = await updateEdgeById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
     if (updated) {
       res.json(updated);
       return;

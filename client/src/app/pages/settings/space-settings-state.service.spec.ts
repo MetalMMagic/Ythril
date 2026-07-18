@@ -38,7 +38,7 @@ function make(statsFails = false) {
 
 describe('SpaceSettingsState — openSettings populates every tab', () => {
   const rich = space({
-    id: 'work', label: 'Work', maxGiB: 7,
+    id: 'work', label: 'Work', maxGiB: 7, recordTtlDays: 90,
     dupeRules: [{ minScore: 0.9, action: 'flag' }],
     dupeMergeSurvivor: 'newer',
     dupeRulesOnInsert: true,
@@ -61,7 +61,7 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
   it('copies the space into the settings form', () => {
     const c = make();
     c.openSettings(rich);
-    expect(c.stForm).toEqual({ label: 'Work', purpose: 'p', usageNotes: 'u', maxGiB: 7 });
+    expect(c.stForm).toEqual({ label: 'Work', purpose: 'p', usageNotes: 'u', maxGiB: 7, recordTtlDays: 90 });
   });
 
   it('copies duplicate rules by VALUE — editing the form must not mutate the space object', () => {
@@ -101,7 +101,7 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
     const bare = space({ id: 'bare', label: 'Bare' });
     const c = make();
     c.openSettings(bare);
-    expect(c.stForm).toEqual({ label: 'Bare', purpose: '', usageNotes: '', maxGiB: null });
+    expect(c.stForm).toEqual({ label: 'Bare', purpose: '', usageNotes: '', maxGiB: null, recordTtlDays: null });
     expect(c.schValidation).toBe('off');
     expect(c.schStrictLinkage).toBe(false);
     expect(c.schTagSuggestions).toEqual([]);

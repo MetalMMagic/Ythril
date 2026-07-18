@@ -14,7 +14,7 @@ import { getConfig } from '../../config/loader.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEntity } from '../../spaces/schema-validation.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation } from './_shared.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
 
 export const entitiesRouter = Router();
 
@@ -69,9 +69,11 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
     res.status(400).json({ error: 'schema_violation', violations: validation.warnings });
     return;
   }
+  const ttlErr = ttlDaysError(req.body);
+  if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
 
   try {
-    const { entity, warning } = await upsertEntity(wt.target, name.trim(), type.trim(), tags, properties, safeDesc, safeId, undefined, webhookToken(req));
+    const { entity, warning } = await upsertEntity(wt.target, name.trim(), type.trim(), tags, properties, safeDesc, safeId, undefined, webhookToken(req), ttlDaysFromBody(req.body));
     const result: Record<string, unknown> = { ...entity };
     if (warning) result['warning'] = warning;
     if (validation.warnings.length > 0) result['warnings'] = validation.warnings;
@@ -191,6 +193,9 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
   // Validate deleteFields
   const dfResult = validateDeleteFields(deleteFields);
   if (!dfResult.ok) { res.status(400).json({ error: dfResult.error }); return; }
+  const ttlErr = ttlDaysError(req.body);
+  if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
   const updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> } = {};
   if (name !== undefined) {
@@ -213,7 +218,7 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
     if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) { res.status(400).json({ error: '`properties` must be a plain object' }); return; }
     updates.properties = properties as Record<string, string | number | boolean>;
   }
-  if (Object.keys(updates).length === 0 && !dfPaths) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
+  if (Object.keys(updates).length === 0 && !dfPaths && !ttlDaysProvided) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
   const memberIds = resolveMemberSpaces(wt.target);
   for (const mid of memberIds) {
     // Fetch existing entity to validate schema after deleteFields + merge
@@ -242,7 +247,7 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
         return;
       }
     }
-    const updated = await updateEntityById(mid, id, updates, dfPaths, webhookToken(req));
+    const updated = await updateEntityById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
     if (updated) {
       res.json(updated);
       return;

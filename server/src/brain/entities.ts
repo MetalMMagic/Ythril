@@ -6,6 +6,7 @@ import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
 import { entityEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
+import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
@@ -48,6 +49,7 @@ export async function upsertEntity(
   id?: string,
   opts?: DupeCheckOpts,
   actor?: WebhookActor,
+  ttlDays?: number | null,
 ): Promise<UpsertResult> {
   const collection = col<EntityDoc>(`${spaceId}_entities`);
 
@@ -75,11 +77,17 @@ export async function upsertEntity(
     const mergedProps = { ...(existing.properties ?? {}), ...properties };
     const $set: Record<string, unknown> = { name, type, tags: updatedTags, properties: mergedProps, updatedAt: now, seq, ...embeddingFields };
     if (description !== undefined) $set['description'] = description;
+    const $unset: Record<string, unknown> = {};
+    applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset); // F10
+    const updateOp: Record<string, unknown> = { $set };
+    if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
     await collection.updateOne(
       asFilter<EntityDoc>({ _id: existing._id }),
-      asUpdate<EntityDoc>({ $set }),
+      asUpdate<EntityDoc>(updateOp),
     );
     const entity: EntityDoc = { ...existing, name, type, tags: updatedTags, properties: mergedProps, updatedAt: now, seq, ...embeddingFields, ...(description !== undefined ? { description } : {}) };
+    if ('_expireAt' in $set) entity._expireAt = $set['_expireAt'] as Date;
+    else if ('_expireAt' in $unset) delete (entity as { _expireAt?: unknown })._expireAt;
     if (actor) emitWebhookEvent({ event: 'entity.updated', spaceId, entry: { ...entity, embedding: undefined }, ...actor });
     return { entity };
   }
@@ -115,6 +123,7 @@ export async function upsertEntity(
     ...embeddingFields,
   };
   if (description !== undefined) doc.description = description;
+  stampExpiryOnCreate(spaceId, doc, ttlDays);
   await collection.insertOne(asDoc<EntityDoc>(doc));
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
@@ -148,6 +157,7 @@ export async function updateEntityById(
   updates: { name?: string; type?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> },
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
+  ttlDays?: number | null,
 ): Promise<EntityDoc | null> {
   const collection = col<EntityDoc>(`${spaceId}_entities`);
   const existing = await collection.findOne(asFilter<EntityDoc>({ _id: id, spaceId })) as EntityDoc | null;
@@ -210,6 +220,7 @@ export async function updateEntityById(
     $set['matchedText'] = embedText;
   } catch { /* embedding unavailable — keep existing embedding */ }
 
+  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset); // F10
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   await collection.updateOne(asFilter<EntityDoc>({ _id: id }), asUpdate<EntityDoc>(updateOp));
@@ -225,6 +236,8 @@ export async function updateEntityById(
     ...(updates.description !== undefined ? { description: newDesc } : {}),
     ...('embedding' in $set ? { embedding: $set['embedding'] as number[], embeddingModel: $set['embeddingModel'] as string } : {}),
   } as EntityDoc;
+  if ('_expireAt' in $set) result._expireAt = $set['_expireAt'] as Date;
+  else if ('_expireAt' in $unset) delete (result as { _expireAt?: unknown })._expireAt;
 
   // Apply deleteFields to the returned doc for consistency
   if (deleteFieldsPaths && deleteFieldsPaths.length > 0) {

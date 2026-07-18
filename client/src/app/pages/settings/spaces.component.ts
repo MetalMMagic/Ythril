@@ -239,6 +239,7 @@ export class SpacesComponent implements OnInit {
     this.spacesApi.updateSpace(target.id, {
       label:  this.state.stForm.label.trim() || target.label,
       maxGiB: this.state.stForm.maxGiB,
+      recordTtlDays: this.state.stForm.recordTtlDays, // F10 (null clears; 0/undefined = no auto-TTL)
       meta:   this.state.buildMeta(),
     }).subscribe({
       next: ({ space }) => {

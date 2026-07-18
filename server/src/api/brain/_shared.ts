@@ -26,6 +26,33 @@ export function webhookToken(req: express.Request): { tokenId?: string; tokenLab
   };
 }
 
+/**
+ * Per-record TTL (F10) from a write body: a non-negative integer number of days to set an expiry,
+ * `null` to explicitly clear it, or `undefined` (absent) to fall back to the space default.
+ * Call `ttlDaysError` first — a present-but-invalid `ttlDays` is rejected there (fail-loud), so a typo
+ * never silently degrades to "no expiry".
+ */
+export function ttlDaysFromBody(body: unknown): number | null | undefined {
+  const v = (body as { ttlDays?: unknown })?.ttlDays;
+  if (v === null) return null;
+  if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 36500) return v;
+  return undefined;
+}
+
+/**
+ * Validate a write body's `ttlDays`: returns an error message when it is present but not `null` and not
+ * an integer in `[0, 36500]`, else `null`. Absent (`undefined`) and `null` (clear) are both valid.
+ * Mirrors the zod bound the space-wide `recordTtlDays` setting enforces, so the two TTL surfaces agree.
+ */
+export function ttlDaysError(body: unknown): string | null {
+  const v = (body as { ttlDays?: unknown })?.ttlDays;
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 36500) {
+    return '`ttlDays` must be an integer number of days between 0 and 36500, or null to clear the expiry';
+  }
+  return null;
+}
+
 // ── Schema validation helpers ─────────────────────────────────────────────
 
 /** Look up the meta block for a space from config, with library refs resolved. Returns undefined if none. */

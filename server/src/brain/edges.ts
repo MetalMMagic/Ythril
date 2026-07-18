@@ -6,6 +6,7 @@ import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
 import { edgeEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
+import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { getEntityById } from './entities.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
@@ -56,6 +57,7 @@ export async function upsertEdge(
   properties?: Record<string, string | number | boolean>,
   tags?: string[],
   actor?: WebhookActor,
+  ttlDays?: number | null,
 ): Promise<EdgeDoc> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
   const existing = await collection.findOne(asFilter<EdgeDoc>({ spaceId, from, to, label }));
@@ -92,9 +94,13 @@ export async function upsertEdge(
       const mergedProps = { ...((existing as EdgeDoc).properties ?? {}), ...properties };
       $set['properties'] = mergedProps;
     }
+    const $unset: Record<string, unknown> = {};
+    applyExpiryToUpdate(spaceId, ttlDays, (existing as EdgeDoc)._expireAt != null, $set, $unset); // F10
+    const updateOp: Record<string, unknown> = { $set };
+    if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
     await collection.updateOne(
       asFilter<EdgeDoc>({ _id: (existing as EdgeDoc)._id }),
-      asUpdate<EdgeDoc>({ $set }),
+      asUpdate<EdgeDoc>(updateOp),
     );
     const updatedEdge: EdgeDoc = {
       ...(existing as EdgeDoc),
@@ -107,6 +113,8 @@ export async function upsertEdge(
       ...(properties !== undefined ? { properties: { ...((existing as EdgeDoc).properties ?? {}), ...properties } } : {}),
       ...embeddingFields,
     };
+    if ('_expireAt' in $set) updatedEdge._expireAt = $set['_expireAt'] as Date;
+    else if ('_expireAt' in $unset) delete (updatedEdge as { _expireAt?: unknown })._expireAt;
     if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...updatedEdge, embedding: undefined }, ...actor });
     return updatedEdge;
   }
@@ -128,6 +136,7 @@ export async function upsertEdge(
     seq,
     ...embeddingFields,
   };
+  stampExpiryOnCreate(spaceId, doc, ttlDays);
   await collection.insertOne(asDoc<EdgeDoc>(doc));
   if (actor) emitWebhookEvent({ event: 'edge.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   return doc;
@@ -196,6 +205,7 @@ export async function updateEdgeById(
   updates: { label?: string; description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; weight?: number; type?: string },
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
+  ttlDays?: number | null,
 ): Promise<EdgeDoc | null> {
   const collection = col<EdgeDoc>(`${spaceId}_edges`);
   const existing = await collection.findOne(asFilter<EdgeDoc>({ _id: id, spaceId })) as EdgeDoc | null;
@@ -270,6 +280,7 @@ export async function updateEdgeById(
     $set['matchedText'] = embedText;
   } catch { /* embedding unavailable — keep existing embedding */ }
 
+  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset); // F10
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   await collection.updateOne(asFilter<EdgeDoc>({ _id: id }), asUpdate<EdgeDoc>(updateOp));
@@ -286,6 +297,8 @@ export async function updateEdgeById(
     ...(updates.weight !== undefined ? { weight: newWeight } : {}),
     ...('embedding' in $set ? { embedding: $set['embedding'] as number[], embeddingModel: $set['embeddingModel'] as string } : {}),
   } as EdgeDoc;
+  if ('_expireAt' in $set) result._expireAt = $set['_expireAt'] as Date;
+  else if ('_expireAt' in $unset) delete (result as { _expireAt?: unknown })._expireAt;
 
   // Apply deleteFields to the returned doc for consistency
   if (deleteFieldsPaths && deleteFieldsPaths.length > 0) {

@@ -37,6 +37,11 @@ import { SpaceSettingsState } from './space-settings-state.service';
     <input type="number" [(ngModel)]="state.stForm.maxGiB" min="0" step="0.1" [placeholder]="'spaces.settings.unlimitedPlaceholder' | transloco" />
     <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.maxStorageHint' | transloco }}</div>
   </div>
+  <div class="field" style="max-width:220px;">
+    <label>{{ 'spaces.settings.recordTtl' | transloco }}</label>
+    <input type="number" [(ngModel)]="state.stForm.recordTtlDays" min="0" step="1" [placeholder]="'spaces.settings.recordTtlPlaceholder' | transloco" />
+    <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.recordTtlHint' | transloco }}</div>
+  </div>
   <div style="display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;">
     <div class="field" style="margin:0;">
       <label>{{ 'spaces.settings.validationMode' | transloco }}</label>

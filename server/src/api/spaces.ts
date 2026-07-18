@@ -7,6 +7,7 @@ import { slugify } from '../spaces/_shared.js';
 import { createSpace, removeSpace } from '../spaces/lifecycle.js';
 import { renameSpace } from '../spaces/rename.js';
 import { updateSpace, reorderSpaces } from '../spaces/spaces.js';
+import { ensureTtlIndex } from '../brain/ttl.js';
 import { measureUsage, dirSizeBytes } from '../quota/quota.js';
 import { col } from '../db/mongo.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
@@ -136,8 +137,10 @@ const UpdateSpaceBody = z.object({
   dupeRules: z.array(DupeActionRuleBody).max(20).optional(),
   dupeMergeSurvivor: z.enum(['older', 'newer']).optional(),
   dupeRulesOnInsert: z.boolean().optional(),
-}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined, {
-  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, or dupeRulesOnInsert must be provided',
+  // F10: auto-TTL in days. 0/null clears it; a positive value stamps every new/updated record.
+  recordTtlDays: z.number().int().nonnegative().max(36500).nullable().optional(),
+}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined, {
+  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, or recordTtlDays must be provided',
 });
 
 const ReorderSpacesBody = z.object({
@@ -283,7 +286,7 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     }
   }
 
-  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, indexStatus }, idx) => ({
+  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, indexStatus }, idx) => ({
     id, label, builtIn, folders, maxGiB, flex, description,
     usageGiB: usageGiBByIdx[idx],
     ...(indexStatus ? { indexStatus } : {}),
@@ -294,6 +297,7 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     ...(dupeRules ? { dupeRules } : {}),
     ...(dupeMergeSurvivor ? { dupeMergeSurvivor } : {}),
     ...(dupeRulesOnInsert ? { dupeRulesOnInsert } : {}),
+    ...(recordTtlDays ? { recordTtlDays } : {}),
     ...(includeCounts && countsBySpaceId[id] ? { counts: countsBySpaceId[id] } : {}),
   }));
   // Include storage usage summary when quota is configured
@@ -380,6 +384,14 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
   // network vote and returns 202 below.
   if (parsed.data.dupeRules !== undefined || parsed.data.dupeMergeSurvivor !== undefined || parsed.data.dupeRulesOnInsert !== undefined) {
     updateSpace(id, { dupeRules: parsed.data.dupeRules, dupeMergeSurvivor: parsed.data.dupeMergeSurvivor, dupeRulesOnInsert: parsed.data.dupeRulesOnInsert });
+  }
+
+  // Record TTL (F10) is a local operational setting (like dupe rules) — apply immediately, never voted.
+  // 0/null clears it. When enabled, ensure the sweep's `_expireAt` index (best-effort).
+  if (parsed.data.recordTtlDays !== undefined) {
+    const ttl = parsed.data.recordTtlDays && parsed.data.recordTtlDays > 0 ? parsed.data.recordTtlDays : undefined;
+    updateSpace(id, { recordTtlDays: ttl });
+    if (ttl) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
   }
 
   // Merge the incoming meta with the existing meta so that PATCH has true

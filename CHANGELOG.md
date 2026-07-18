@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Record TTL / auto-expiry (F10).** Records can now expire and be deleted automatically. Every write
+  endpoint (memory, entity, edge, chrono — create and update) accepts an optional per-record `ttlDays`:
+  a positive integer sets an expiry that many days out, `0`/`null` clears it (opting the record out of
+  any space default), and omitting it applies the space default only when the record has no expiry yet
+  (an existing expiry is never silently re-slid). An invalid `ttlDays` is rejected with `400`. Spaces
+  gain a `recordTtlDays` setting — a space-wide auto-TTL applied to every record that doesn't specify its
+  own — configurable from the Spaces settings tab and via `PATCH /api/spaces/:id`. Enforcement is an
+  app-side sweep that deletes lapsed records **through the normal delete path**, so each deletion writes
+  a tombstone and propagates over sync: an expired record cannot resurrect from a peer, which a raw
+  MongoDB TTL index (deleting below the application) would allow. The expiry surfaces as `_expireAt` on
+  the record; a sparse index keeps the sweep query cheap.
+
 - **`POST /api/notify/trigger?wait=true` — optional synchronous sync (C6).** The trigger endpoint is
   fire-and-forget by default (`{status:'triggered'}`); passing `?wait=true` now runs the cycle and
   returns its outcome (`{status:'completed', synced, errors}`), bounded by `?timeoutMs` (default 30s,

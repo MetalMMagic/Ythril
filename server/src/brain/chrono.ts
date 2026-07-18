@@ -6,6 +6,7 @@ import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
 import { chronoEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
+import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
 
@@ -78,6 +79,7 @@ export async function createChrono(
     recurrence?: ChronoEntry['recurrence'];
   },
   actor?: WebhookActor,
+  ttlDays?: number | null,
 ): Promise<ChronoEntry> {
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();
@@ -114,6 +116,7 @@ export async function createChrono(
   if (fields.properties !== undefined) doc.properties = fields.properties;
   if (fields.recurrence !== undefined) doc.recurrence = fields.recurrence;
 
+  stampExpiryOnCreate(spaceId, doc, ttlDays);
   await col<ChronoEntry>(`${spaceId}_chrono`).insertOne(asDoc<ChronoEntry>(doc));
   if (actor) emitWebhookEvent({ event: 'chrono.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
   return doc;
@@ -124,6 +127,7 @@ export async function updateChrono(
   id: string,
   updates: Partial<Pick<ChronoEntry, 'title' | 'description' | 'type' | 'startsAt' | 'endsAt' | 'status' | 'confidence' | 'tags' | 'entityIds' | 'memoryIds' | 'properties' | 'recurrence'>>,
   actor?: WebhookActor,
+  ttlDays?: number | null,
 ): Promise<ChronoEntry | null> {
   const existing = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: id, spaceId })) as ChronoEntry | null;
   if (!existing) return null;
@@ -131,6 +135,7 @@ export async function updateChrono(
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();
   const $set: Record<string, unknown> = { updatedAt: now, seq };
+  const $unset: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(updates)) {
     if (v !== undefined) $set[k] = v;
   }
@@ -159,11 +164,15 @@ export async function updateChrono(
     } catch { /* embedding unavailable — keep existing embedding */ }
   }
 
+  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset); // F10
+  const updateOp: Record<string, unknown> = { $set };
+  if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   await col<ChronoEntry>(`${spaceId}_chrono`).updateOne(
     asFilter<ChronoEntry>({ _id: id }),
-    asUpdate<ChronoEntry>({ $set }),
+    asUpdate<ChronoEntry>(updateOp),
   );
   const updatedChrono = { ...existing, ...($set as Partial<ChronoEntry>) } as ChronoEntry;
+  if ('_expireAt' in $unset) delete (updatedChrono as { _expireAt?: unknown })._expireAt;
   if (actor) emitWebhookEvent({ event: 'chrono.updated', spaceId, entry: { ...updatedChrono, embedding: undefined }, ...actor });
   return updatedChrono;
 }

@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`POST /api/notify/trigger?wait=true` — optional synchronous sync (C6).** The trigger endpoint is
+  fire-and-forget by default (`{status:'triggered'}`); passing `?wait=true` now runs the cycle and
+  returns its outcome (`{status:'completed', synced, errors}`), bounded by `?timeoutMs` (default 30s,
+  clamped 1–120s) so a slow or stuck cycle can't hang the request (`504 {status:'timeout'}`; the cycle
+  keeps running in the background). Backward-compatible — the default behaviour is unchanged. (Also
+  corrected the documented default response, which said `status:'ok'` but has always been `'triggered'`.)
+
 - **Webhooks management UI — Settings → Webhooks (C1).** Webhooks were previously configurable only
   through the admin API; there's now a full page to list, create, edit, test, and delete them, and to
   view recent delivery attempts (event, HTTP status, latency, error). Each webhook shows a status badge

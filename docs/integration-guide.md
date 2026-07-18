@@ -3732,13 +3732,26 @@ POST /api/notify/trigger
 { "networkId": "net-uuid" }
 ```
 
-Triggers an immediate sync cycle for the given network.
+Triggers an immediate sync cycle for the given network. **Fire-and-forget by default** — it returns as
+soon as the cycle is scheduled:
 
 **Response** `200`:
 
 ```json
-{ "status": "ok", "networkId": "net-uuid" }
+{ "status": "triggered", "networkId": "net-uuid" }
 ```
+
+**Synchronous mode** — add `?wait=true` to run the cycle and get its outcome in the response. Bounded by
+`?timeoutMs` (default `30000`, clamped to `1000`–`120000`) so a slow or stuck cycle can't hang the
+request; on timeout the cycle keeps running in the background.
+
+```http
+POST /api/notify/trigger?wait=true&timeoutMs=15000
+```
+
+**Response** `200` (completed): `{ "status": "completed", "networkId": "…", "synced": 12, "errors": 0 }`
+· `504` (timed out, still running): `{ "status": "timeout", "networkId": "…", "timeoutMs": 15000 }`
+· `500` (the cycle failed): `{ "status": "error", "networkId": "…", "error": "…" }`
 
 ---
 

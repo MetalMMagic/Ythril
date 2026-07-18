@@ -42,6 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Document-extraction mode config + routing/validation engine (F11 foundation).** Groundwork for the
+  upcoming VLM document-extraction pipeline: `mediaEmbedding.documentProcessing` is now editable via the
+  admin media-config API (`PATCH /api/admin/media-config`), gaining a `mode` field (`ocr` | `vlm` | `auto`
+  | `max`) plus `renderDpi` / `maxPages` / `pageTimeoutMs` / `concurrency` knobs, and a pure, unit-tested
+  routing + validation policy (capability-availability routing with OCR fallback; OCR-evidence-coverage
+  validation). **No behavior change yet** — the default `ocr` mode is today's OCR-only path and the VLM
+  modes are inert until the extractor lands in follow-up PRs. See `todo/F11-PLAN.md`.
+
 - **Live brain updates via Server-Sent Events (F12).** The Brain page now refreshes its record lists and
   count badges in real time instead of needing a manual reload — most visibly when an MCP agent (or
   another session) mutates the space. A new scoped stream `GET /api/brain/spaces/:spaceId/events` emits

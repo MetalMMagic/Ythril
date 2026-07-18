@@ -350,7 +350,26 @@ export interface DocumentProcessingConfig {
    * Has no effect when strategy is not `hi_res`.
    */
   extractImages?: boolean;
+  /**
+   * F11 — document-extraction mode. `ocr` (default) uses only the unstructured sidecar (today's
+   * behaviour, unchanged). `vlm`/`auto`/`max` opt into the VLM precision pipeline
+   * (render → OCR-grounded VLM → validate → repair/consensus). Requires the render sidecar + a VLM to be
+   * wired in; the router falls back to OCR when a needed capability is absent, so it is never worse than
+   * plain OCR. See `todo/F11-PLAN.md`.
+   */
+  mode?: DocExtractionMode;
+  /** F11 — DPI for page rasterization in VLM modes. Default 150. */
+  renderDpi?: number;
+  /** F11 — max pages rasterized + sent to the VLM per document (cost/latency bound). Default 50. */
+  maxPages?: number;
+  /** F11 — per-page model-call timeout in ms (VLM/repair). Default 60000. */
+  pageTimeoutMs?: number;
+  /** F11 — max concurrent per-page model calls within one document. Default 2. */
+  concurrency?: number;
 }
+
+/** F11 — document-extraction mode: OCR-only (default) vs the VLM precision pipeline. */
+export type DocExtractionMode = 'ocr' | 'vlm' | 'auto' | 'max';
 
 /**
  * Configuration for the face recognition pipeline.

@@ -47,12 +47,25 @@ const ProviderPatchSchema = z.object({
   label: z.string().max(128).optional(),
 }).strict();
 
+// F11 — document-processing / extraction settings. Shallow-merged like `vision`/`stt`: the client sends
+// the full block. `ocr` mode = today's behaviour; `vlm`/`auto`/`max` opt into the VLM pipeline.
+const DocumentProcessingPatchSchema = z.object({
+  strategy: z.enum(['hi_res', 'auto', 'fast', 'ocr_only']).optional(),
+  extractImages: z.boolean().optional(),
+  mode: z.enum(['ocr', 'vlm', 'auto', 'max']).optional(),
+  renderDpi: z.number().int().min(72).max(600).optional(),
+  maxPages: z.number().int().min(1).max(2_000).optional(),
+  pageTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
+  concurrency: z.number().int().min(1).max(8).optional(),
+}).strict();
+
 const MediaConfigPatchSchema = z.object({
   enabled: z.boolean().optional(),
   visionProvider: z.enum(['local', 'external']).optional(),
   sttProvider: z.enum(['local', 'external']).optional(),
   vision: ProviderPatchSchema.optional(),
   stt: ProviderPatchSchema.optional(),
+  documentProcessing: DocumentProcessingPatchSchema.optional(),
   workerConcurrency: z.number().int().min(1).max(16).optional(),
   workerPollIntervalMs: z.number().int().min(100).max(60_000).optional(),
   workerMaxPollIntervalMs: z.number().int().min(1_000).max(600_000).optional(),

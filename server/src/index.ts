@@ -1,5 +1,4 @@
 ﻿import { createServer } from 'http';
-import os from 'os';
 import { configExists, loadConfig, loadSecrets, loadSchemaLibrary, getMongoUri, flushConfig, migrateStateFilesAtRest, requireEncryptedAtRest, atRestEncryptionActive } from './config/loader.js';
 import { connectMongo, closeMongo, checkVectorSearchAvailability } from './db/mongo.js';
 import { createApp } from './app.js';
@@ -58,29 +57,23 @@ async function main(): Promise<void> {
       ensureInstanceKeypair();
     }
 
-    // TLS warning: if non-loopback binding and plaintext allowed
-    const { getConfig } = await import('./config/loader.js');
-    const cfg = getConfig();
-    if (cfg.allowInsecurePlaintext) {
-      const ifaces = Object.values(os.networkInterfaces()).flat();
-      const hasExternal = ifaces.some(
-        iface => iface && !iface.internal && iface.family === 'IPv4',
-      );
-      if (hasExternal) {
-        console.warn(
-          `\n${YELLOW}  ⚠  WARNING${RESET}  allowInsecurePlaintext is true and this host has external\n` +
-          `     network interfaces. All traffic (including tokens) is unencrypted.\n` +
-          `     Deploy behind TLS termination (Nginx/Caddy/ingress) in production.\n`,
-        );
+    // Aggregate security-posture report (PR-S3): one PASS/WARN/FAIL view over transport (S1), at-rest
+    // (S2), and MongoDB auth. Advisory by default; `security.strict` aborts boot on any FAIL.
+    {
+      const { computeSecurityPosture, formatPostureLines, securityStrict } = await import('./config/security-posture.js');
+      const posture = computeSecurityPosture();
+      const issues = posture.checks.filter(c => c.level !== 'pass');
+      if (issues.length === 0) {
+        console.log(`  ${GREEN}✓${RESET} security posture: all checks passed`);
+      } else {
+        console.warn(`\n${YELLOW}  security posture — review the following:${RESET}`);
+        for (const line of formatPostureLines({ checks: issues, worst: posture.worst })) console.warn(line);
+        console.warn('');
       }
-    }
-    // Sync transport: warn when plaintext peers are permitted (data + tokens unencrypted on the wire).
-    if (cfg.allowInsecurePeers && !cfg.requireEncryptedTransport) {
-      console.warn(
-        `\n${YELLOW}  ⚠  WARNING${RESET}  allowInsecurePeers is true — sync may connect to plaintext\n` +
-        `     http:// peers, so record data and bearer tokens are unencrypted in transit.\n` +
-        `     Use https:// peer URLs, or set requireEncryptedTransport to enforce TLS everywhere.\n`,
-      );
+      if (securityStrict() && posture.worst === 'fail') {
+        console.error(`  ${YELLOW}✗ FATAL${RESET}  security.strict is on and the posture has FAIL findings above. Refusing to start.\n`);
+        process.exit(1);
+      }
     }
   }
 

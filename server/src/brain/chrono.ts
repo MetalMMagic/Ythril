@@ -168,8 +168,38 @@ export async function updateChrono(
   return updatedChrono;
 }
 
+/**
+ * C5 — derive `overdue` on read.
+ *
+ * An entry is overdue when its due moment (its `endsAt`, or `startsAt` when it has no end) has passed
+ * and it is not yet `completed`/`cancelled`. Nothing writes the `overdue` status — it is computed at
+ * read time so there is no write churn, no scheduled sweep, and no sync traffic, and it is always
+ * accurate to the second. Because the STORED status stays `upcoming`/`active`, this must be applied at
+ * every chrono read path (see `getChronoById` and `listChrono`), and the `listChrono` status filter is
+ * translated to match (below).
+ *
+ * Known limitation: the entry's embedding is built from the stored status, so a derived-`overdue` entry
+ * still embeds as `upcoming` — semantic search for "overdue" won't rank it. That is the trade-off for
+ * not re-embedding on a clock tick.
+ */
+export function deriveChronoStatus(
+  entry: Pick<ChronoEntry, 'status' | 'startsAt' | 'endsAt'>,
+  now: Date = new Date(),
+): ChronoStatus {
+  if (entry.status !== 'upcoming' && entry.status !== 'active') return entry.status;
+  const due = entry.endsAt ?? entry.startsAt;
+  return due && new Date(due).getTime() < now.getTime() ? 'overdue' : entry.status;
+}
+
+/** Return the entry with its derived status applied (a shallow copy only when the status changes). */
+function withDerivedStatus(entry: ChronoEntry, now: Date = new Date()): ChronoEntry {
+  const status = deriveChronoStatus(entry, now);
+  return status === entry.status ? entry : { ...entry, status };
+}
+
 export async function getChronoById(spaceId: string, id: string): Promise<ChronoEntry | null> {
-  return col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: id, spaceId })) as Promise<ChronoEntry | null>;
+  const entry = await col<ChronoEntry>(`${spaceId}_chrono`).findOne(asFilter<ChronoEntry>({ _id: id, spaceId })) as ChronoEntry | null;
+  return entry ? withDerivedStatus(entry) : null;
 }
 
 export interface ChronoFilter {
@@ -193,9 +223,25 @@ export async function listChrono(
   limit = 50,
   skip = 0,
 ): Promise<ChronoEntry[]> {
+  const now = new Date();
   const query: Record<string, unknown> = { spaceId };
 
-  if (filter.status !== undefined) query['status'] = filter.status;
+  // Status filter is `overdue`-aware (C5): `overdue` is derived from the due moment, never stored.
+  if (filter.status !== undefined) {
+    // The due moment: endsAt, or startsAt when there is no end. `$toDate` so mixed-offset ISO strings
+    // compare chronologically, not lexically.
+    const refDate = { $toDate: { $ifNull: ['$endsAt', '$startsAt'] } };
+    if (filter.status === 'overdue') {
+      query['status'] = { $in: ['upcoming', 'active'] };
+      query['$expr'] = { $lt: [refDate, now] };
+    } else if (filter.status === 'upcoming' || filter.status === 'active') {
+      // Exclude entries that are now derived-overdue so they don't surface under their stored status.
+      query['status'] = filter.status;
+      query['$expr'] = { $gte: [refDate, now] };
+    } else {
+      query['status'] = filter.status; // completed / cancelled — no derivation
+    }
+  }
   if (filter.type !== undefined) query['type'] = filter.type;
 
   // tags ALL (AND): every tag in the array must be present
@@ -232,12 +278,14 @@ export async function listChrono(
     query['$or'] = [{ title: regex }, { description: regex }];
   }
 
-  return col<ChronoEntry>(`${spaceId}_chrono`)
+  const entries = await col<ChronoEntry>(`${spaceId}_chrono`)
     .find(asFilter<ChronoEntry>(query))
     .sort({ createdAt: -1 })
     .skip(parseSkip(skip))
     .limit(parseLimit(limit, 20, 1000))
-    .toArray() as Promise<ChronoEntry[]>;
+    .toArray() as ChronoEntry[];
+  // Present the derived status (same `now` as the filter, so the returned status agrees with it).
+  return entries.map(e => withDerivedStatus(e, now));
 }
 
 export async function deleteChrono(

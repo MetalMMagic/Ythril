@@ -343,6 +343,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Chrono entries now go `overdue` automatically (C5).** `overdue` is a valid chrono status, but
+  nothing ever set it — a passed deadline kept its `upcoming`/`active` status, so
+  `list_chrono({status: "overdue"})` returned nothing. It is now **derived on read**: an entry whose due
+  moment (its `endsAt`, or `startsAt` when it has none) has passed and that isn't `completed`/`cancelled`
+  is returned as `overdue` across the REST list/detail endpoints, MCP `list_chrono`, and `recall`.
+  Filtering by `overdue` returns exactly those entries, and filtering by `upcoming`/`active` excludes
+  the ones that are now overdue. No writes and no scheduled sweep — the status is computed at read time,
+  so it's always current. (Embeddings still reflect the stored status, so semantic search for "overdue"
+  won't rank a derived-overdue entry.)
+
 - **Brain space/tab record counts now refresh right after an upload, not only after a delete.** The
   embedded file manager already told the Brain page to reload its counts when a file was deleted, but
   an upload completing emitted nothing, so the Files / File Meta counters stayed stale until you left

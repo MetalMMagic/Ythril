@@ -781,5 +781,3 @@ preserved here as required.
 
 The full texts of the MIT, Apache-2.0, BSD-3-Clause, HPND, and PSF licenses are the standard, unmodified
 texts published by their stewards (MIT and Apache-2.0 also appear above for other bundled packages).
-
-Note: PyMuPDF is deliberately NOT used — it is AGPL-3.0, incompatible with Ythril's permissive licensing.

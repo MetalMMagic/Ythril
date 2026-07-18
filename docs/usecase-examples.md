@@ -339,7 +339,7 @@ graph TD
 
 **Wow factor:**
 
-- `list_chrono({status: "overdue"})` — lists every obligation **explicitly marked** `overdue`. (Status lives on the entry; a passed `startsAt` does not auto-flag it — mark deadlines overdue as you triage them.)
+- `list_chrono({status: "overdue"})` — lists every obligation whose due moment (its `endsAt`, or `startsAt` when it has none) has passed and that isn't `completed`/`cancelled`. `overdue` is **derived on read**, so a passed deadline surfaces automatically — you don't have to mark it.
 - `create_chrono({type: "deadline", title: "DORA ICT risk assessment due", startsAt: "2026-06-30", entityIds: ["DORA", "ICT-risk"]})` → departments' LLMs can ask "What compliance deadlines do we have this quarter?" and get structured answers, not just documents.
 - Braintree pushes mean the legal team publishes once and all departments receive. Departments **cannot** alter the authoritative deadline — temporal integrity by architecture.
 - `query(chrono, {type: "prediction", confidence: {$gte: 0.5}})` → the legal team can even log risk predictions ("60% chance of regulatory change in Q3") and track them.

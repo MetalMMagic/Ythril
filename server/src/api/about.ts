@@ -7,6 +7,7 @@ import { requireAuth, requireAdmin } from '../auth/middleware.js';
 import { getConfig } from '../config/loader.js';
 import { getMongo } from '../db/mongo.js';
 import { getLogLines, subscribeLogLines } from '../util/log.js';
+import { computeSecurityPosture, securityStrict } from '../config/security-posture.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkgPath = path.resolve(__dirname, '..', '..', 'package.json');
@@ -69,6 +70,12 @@ aboutRouter.get('/', async (_req, res) => {
 aboutRouter.get('/logs', requireAdmin, (_req, res) => {
   const lines = Math.min(Math.max(1, Number(_req.query['lines']) || 200), 1000);
   res.json({ lines: getLogLines(lines) });
+});
+
+// Security posture report (PR-S3). Admin-only — reveals the instance's security configuration.
+aboutRouter.get('/security', requireAdmin, (_req, res) => {
+  const posture = computeSecurityPosture();
+  res.json({ ...posture, strict: securityStrict() });
 });
 
 // SSE stream for real-time log tailing. Admin-only.

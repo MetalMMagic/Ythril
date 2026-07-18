@@ -700,6 +700,13 @@ export interface Config {
    */
   requireEncryptedAtRest?: boolean;
   /**
+   * Security posture: when `strict` is true (or env `YTHRIL_SECURITY_STRICT`), any FAIL-level finding in
+   * the startup posture check aborts boot (WARN findings stay advisory). Default false — the individual
+   * `require*` flags remain the authoritative enforcement; this is the aggregate "don't start if
+   * misconfigured" switch.
+   */
+  security?: { strict?: boolean };
+  /**
    * Express `trust proxy` setting. Default `false` — the out-of-the-box compose
    * deployment is exposed directly, so `req.ip` must come from the socket, not a
    * client-supplied X-Forwarded-For (which would let an attacker spoof the IP

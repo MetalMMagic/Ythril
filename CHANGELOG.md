@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Startup security-posture check + `GET /api/about/security`.** Ythril now prints an aggregated
+  `✓`/`⚠`/`✗` report at boot across transport (TLS enforcement, peer scheme, `trustProxy`), encryption at
+  rest, and MongoDB auth, so a weak or broken setting is visible instead of silently accepted — e.g.
+  `requireEncryptedTransport` on without `trustProxy` (which would 403 every proxied request) is a `fail`.
+  Admins can fetch the same report live at `GET /api/about/security`. New `security.strict`
+  (`YTHRIL_SECURITY_STRICT`) makes any `fail` finding abort boot — the aggregate "don't start if
+  misconfigured" switch on top of the individual `require*` flags. Docs also add a multi-tenant
+  shared-hardware isolation guide (per-instance `mongod` + encrypted volume; why app-level field
+  encryption in a shared `mongod` is intentionally not offered).
+
 - **Encryption at rest for the state files (config / secrets / schema-library / schema-catalogs).**
   Provide a master secret in the environment — `YTHRIL_MASTER_KEY` (32 bytes, base64/hex) or
   `YTHRIL_MASTER_PASSPHRASE` (scrypt, per-file salt) — and Ythril transparently encrypts those files with

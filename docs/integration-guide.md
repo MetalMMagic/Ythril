@@ -260,6 +260,22 @@ services:
       YTHRIL_REQUIRE_ENCRYPTED_AT_REST: "true"
 ```
 
+### Security Posture Check
+
+At boot Ythril prints an aggregated **security posture** — one `✓`/`⚠`/`✗` line per check across transport
+(TLS enforcement, peer scheme, `trustProxy`), encryption at rest, and MongoDB auth — so a weak setting is
+visible in the logs instead of silently accepted. Admins can also fetch it live:
+
+```http
+GET /api/about/security      # admin token
+→ { "checks": [ { "id": "transport.tls", "level": "warn", "message": "…" }, … ], "worst": "warn", "strict": false }
+```
+
+Levels are `pass` / `warn` / `fail` (`fail` = actively broken, e.g. `requireEncryptedTransport` on without
+`trustProxy`, so requests would 403). Set **`security.strict`** (config) or **`YTHRIL_SECURITY_STRICT=true`**
+to make any `fail` finding abort boot — the aggregate "don't start if misconfigured" switch, on top of the
+individual `require*` flags.
+
 ### Running Multiple Brains on One Host
 
 You can run any number of Ythril instances on a single server. Each is a fully
@@ -279,6 +295,18 @@ comes entirely from pointing each instance at distinct storage:
 | **Data root** | `DATA_ROOT` | File **bytes** live on the filesystem under `<DATA_ROOT>/files/<spaceId>/` (plus upload chunks and media/face-model files) — **not** in MongoDB. Sharing this directory collides the file stores the same way a shared database collides collections. |
 
 Plus a distinct published **port** per instance.
+
+**Multi-tenant on shared hardware — isolate cryptographically, not just logically.** If the tenants on
+one host don't trust each other (e.g. you resell Ythril), give **each instance its own `mongod` on its
+own encrypted volume with its own key** (LUKS/dm-crypt, a cloud encrypted disk, or MongoDB Enterprise
+at-rest encryption) — do **not** share one `mongod` across tenants. Then one tenant cannot decrypt
+another's data even with full disk access, because it's a different key and a different process, and
+semantic search stays fully intact (each instance queries its own plaintext-in-memory data). Combine
+with [Encryption at Rest](#encryption-at-rest) for the app's own state files and
+[`requireEncryptedTransport`](#transport-security-encryption-in-transit) for the wire. "Same host" is
+not a trust boundary; a co-tenant on loopback is still untrusted. Application-level field encryption in
+a *shared* `mongod` is deliberately **not** offered — it would break vector/text recall (you can't
+cosine-compare or regex encrypted values), so isolation lives at the storage boundary instead.
 
 > **Common pitfall — the silent `ythril` fallback.** Ythril takes the database name
 > from the *path* of `MONGO_URI`. If the path is empty (e.g.

@@ -693,6 +693,13 @@ export interface Config {
   maxDocumentConversionBytes?: number;
   allowInsecurePlaintext?: boolean;
   /**
+   * Require the on-disk state files (config/secrets/schema-library/schema-catalogs) to be encrypted
+   * at rest. Default false. When true, the instance refuses to boot unless a master secret is
+   * configured (`YTHRIL_MASTER_KEY` or `YTHRIL_MASTER_PASSPHRASE`). Also settable via the
+   * YTHRIL_REQUIRE_ENCRYPTED_AT_REST env var (checkable before config is even read).
+   */
+  requireEncryptedAtRest?: boolean;
+  /**
    * Express `trust proxy` setting. Default `false` — the out-of-the-box compose
    * deployment is exposed directly, so `req.ip` must come from the socket, not a
    * client-supplied X-Forwarded-For (which would let an attacker spoof the IP

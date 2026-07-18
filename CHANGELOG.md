@@ -726,6 +726,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Schema Library page's modal overlays are now accessible dialogs (U5, part 2).** The remaining
+  hand-rolled, inline-styled overlays on the Schema Library page — add-catalog, browse-catalog, create
+  library-access-token, the token one-time reveal, export-space, apply-group-to-space, the create/edit
+  entry dialog, and the delete dialog — now carry the same `[appModal]` treatment (role, aria-modal,
+  focus trap, Escape-to-close), and their close buttons that were missing an `aria-label` got one. With
+  part 1, every hand-rolled overlay in the app is now an accessible modal.
+
 - **The settings-area modal overlays are now accessible dialogs (U5, part 1).** The hand-rolled
   overlays for creating a space, creating a token, the network create/join/enable-wizard, and the
   schema-library create/edit + delete dialogs were plain `div`s with no `role`, `aria-modal`, focus

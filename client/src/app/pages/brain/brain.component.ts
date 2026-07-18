@@ -227,7 +227,7 @@ interface SpaceView {
 
         <!-- Files tab -->
         @if (activeTab() === 'files') {
-          <app-file-manager [embeddedSpaceId]="activeSpaceId()" [navigatePath]="fileManagerNavPath()" (viewFileMeta)="openFileMetaEntry($event)" (fileDeleted)="loadStats(activeSpaceId())" />
+          <app-file-manager [embeddedSpaceId]="activeSpaceId()" [navigatePath]="fileManagerNavPath()" (viewFileMeta)="openFileMetaEntry($event)" (filesChanged)="loadStats(activeSpaceId())" />
         }
 
         <!-- Memories -->

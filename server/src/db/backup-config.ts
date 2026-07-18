@@ -2,12 +2,15 @@
  * Backup configuration loader.
  *
  * Reads backup.json from the same directory as config.json (typically
- * /config/backup.json).  This file is NEVER written by the API — it is
- * managed exclusively by the infrastructure admin via the filesystem.
+ * /config/backup.json).  It can also be written by the API via
+ * `PUT /api/admin/data/backup-config`, but only behind `requireAdminMfa` AND
+ * the `YTHRIL_DB_MIGRATION_ENABLED` feature flag (off by default); otherwise
+ * it is managed by the infrastructure admin on the filesystem.
  *
- * Design rationale: keeping backup config out of config.json (which IS
- * API-writable) prevents a compromised admin token from redirecting backups
- * to an attacker-controlled path.
+ * Design rationale: keeping backup config out of config.json (which is freely
+ * API-writable) means redirecting backups to an attacker-controlled path takes
+ * MFA plus an explicitly-enabled feature flag, not just an admin token — and
+ * `offsite.destPath` is additionally required to be absolute.
  *
  * Example backup.json — see config/backup.example.json for the full schema.
  *

@@ -620,7 +620,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   /** Emits the file path when user clicks "View Brain Metadata" in the preview pane. */
   @Output() viewFileMeta = new EventEmitter<string>();
-  @Output() fileDeleted = new EventEmitter<void>();
+  /** Fires whenever the file set in this space changes (delete or upload complete) so the host can refresh counts. */
+  @Output() filesChanged = new EventEmitter<void>();
 
   /** Navigate to the given directory when changed from parent (used by Brain filemeta→Files link). */
   @Input() set navigatePath(p: string) {
@@ -817,8 +818,9 @@ export class FileManagerComponent implements OnInit, OnDestroy {
           this.uploadSubs.delete(item.id);
           this.patchUpload(item.id, { status: 'done', percent: 100 });
           this.processing = false;
-          // Show the freshly uploaded file straight away.
+          // Show the freshly uploaded file straight away, and let the host refresh its record counts.
           this.loadDir(this.currentPath());
+          this.filesChanged.emit();
           this.processQueue();
         },
       });
@@ -916,7 +918,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     if (!ok) return;
     const path = this.join(this.currentPath(), entry.name);
     this.filesApi.deleteFile(this.activeSpaceId(), path).subscribe({
-      next: () => { this.loadDir(this.currentPath()); this.fileDeleted.emit(); },
+      next: () => { this.loadDir(this.currentPath()); this.filesChanged.emit(); },
       error: () => this.toast.error(this.transloco.translate('files.error.deleteFailed')),
     });
   }

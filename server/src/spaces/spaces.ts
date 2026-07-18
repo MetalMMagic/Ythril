@@ -16,7 +16,7 @@ import { syncSchemaFiles, META_VERSION_CAP } from './_shared.js';
  *  Returns the updated SpaceConfig, or null if the space was not found. */
 export function updateSpace(
   spaceId: string,
-  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean },
+  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | null },
 ): SpaceConfig | null {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
@@ -36,6 +36,10 @@ export function updateSpace(
   }
   if (updates.dupeRulesOnInsert !== undefined) {
     space.dupeRulesOnInsert = updates.dupeRulesOnInsert || undefined;
+  }
+  // F10 auto-TTL — local operational setting; `in` so an explicit clear (undefined) removes it.
+  if ('recordTtlDays' in updates) {
+    space.recordTtlDays = updates.recordTtlDays && updates.recordTtlDays > 0 ? updates.recordTtlDays : undefined;
   }
 
   if (updates.meta !== undefined) {

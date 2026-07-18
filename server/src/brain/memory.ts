@@ -13,6 +13,7 @@ import { parseLimit, parseSkip } from '../util/pagination.js';
 import { embed } from './embedding.js';
 import { memoryEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
+import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { MemoryDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
@@ -39,6 +40,7 @@ export async function remember(
   type?: string,
   opts?: DupeCheckOpts,
   actor?: WebhookActor,
+  ttlDays?: number | null,
 ): Promise<MemoryDoc & { similar?: SimilarMatch[] }> {
   const names = entityNames ?? await resolveEntityNames(spaceId, entityIds);
   const embedText = memoryEmbedText(fact, tags, names, description, properties);
@@ -71,6 +73,7 @@ export async function remember(
   if (type !== undefined) doc.type = type;
   if (description !== undefined) doc.description = description;
   if (properties !== undefined) doc.properties = properties;
+  stampExpiryOnCreate(spaceId, doc, ttlDays);
   await col<MemoryDoc>(`${spaceId}_memories`).insertOne(asDoc<MemoryDoc>(doc));
   // Real-time duplicate-rule evaluation (opt-in per space). Fire-and-forget; the
   // dynamic import avoids a static cycle with dupe-scanner.js.
@@ -88,6 +91,7 @@ export async function updateMemory(
   updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean>; type?: string },
   deleteFieldsPaths?: string[],
   actor?: WebhookActor,
+  ttlDays?: number | null,
 ): Promise<MemoryDoc | null> {
   const existing = await col<MemoryDoc>(`${spaceId}_memories`).findOne(asFilter<MemoryDoc>({ _id: memoryId, spaceId })) as MemoryDoc | null;
   if (!existing) return null;
@@ -151,6 +155,7 @@ export async function updateMemory(
     } catch { /* embedding unavailable — keep existing embedding */ }
   }
 
+  applyExpiryToUpdate(spaceId, ttlDays, existing._expireAt != null, $set, $unset); // F10
   const updateOp: Record<string, unknown> = { $set };
   if (Object.keys($unset).length > 0) updateOp['$unset'] = $unset;
   await col<MemoryDoc>(`${spaceId}_memories`).updateOne(
@@ -159,6 +164,7 @@ export async function updateMemory(
   );
 
   const result = { ...existing, ...($set as Partial<MemoryDoc>) } as MemoryDoc;
+  if ('_expireAt' in $unset) delete (result as { _expireAt?: unknown })._expireAt;
 
   // Apply deleteFields to the returned doc for consistency
   if (deleteFieldsPaths && deleteFieldsPaths.length > 0) {

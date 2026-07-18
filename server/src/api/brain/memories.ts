@@ -15,7 +15,7 @@ import { checkQuota, QuotaError } from '../../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateMemory } from '../../spaces/schema-validation.js';
 import type { MemoryDoc } from '../../config/types.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFilter } from './_shared.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFilter, ttlDaysFromBody, ttlDaysError } from './_shared.js';
 
 export const memoriesRouter = Router();
 
@@ -86,9 +86,12 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
   // resolved consistently), the `matchedText` source string, the author, insert-time duplicate-
   // rule evaluation, and the memory.created webhook. Previously inlined here, which had drifted
   // into three bugs: values-only property embedding, no `matchedText`, and no dupe-rule firing.
+  const ttlErr = ttlDaysError(req.body);
+  if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+
   const doc = await remember(
     targetSpace, fact, safeEntityIds, safeTags, safeDesc, safeProps,
-    undefined, safeMemoryType, undefined, webhookToken(req),
+    undefined, safeMemoryType, undefined, webhookToken(req), ttlDaysFromBody(req.body),
   );
   const body: Record<string, unknown> = { ...doc };
   if (quotaResult?.softBreached) body['storageWarning'] = true;
@@ -154,6 +157,9 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   // Validate deleteFields
   const dfResult = validateDeleteFields(deleteFields);
   if (!dfResult.ok) { res.status(400).json({ error: dfResult.error }); return; }
+  const ttlErr = ttlDaysError(req.body);
+  if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
+  const ttlDaysProvided = !!req.body && typeof req.body === 'object' && 'ttlDays' in req.body;
   const dfPaths: string[] | undefined = Array.isArray(deleteFields) && deleteFields.length > 0 ? deleteFields : undefined;
   const updates: { fact?: string; tags?: string[]; entityIds?: string[]; description?: string; properties?: Record<string, string | number | boolean> } = {};
   if (fact !== undefined) {
@@ -180,7 +186,7 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
     if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) { res.status(400).json({ error: '`properties` must be a plain object' }); return; }
     updates.properties = properties as Record<string, string | number | boolean>;
   }
-  if (Object.keys(updates).length === 0 && !dfPaths) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
+  if (Object.keys(updates).length === 0 && !dfPaths && !ttlDaysProvided) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
   const memberIds = resolveMemberSpaces(wt.target);
   for (const mid of memberIds) {
     // Schema validation after deleteFields + merge for memories
@@ -200,7 +206,7 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
         return;
       }
     }
-    const updated = await updateMemory(mid, id, updates, dfPaths, webhookToken(req));
+    const updated = await updateMemory(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
     if (updated) {
       res.json(updated);
       return;

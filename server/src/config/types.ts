@@ -194,6 +194,10 @@ export interface SpaceConfig {
    *  the scheduled scan. Default false (scan-time only). Applies to all inserts,
    *  including bulk. */
   dupeRulesOnInsert?: boolean;
+  /** Auto-TTL (F10): when set (> 0), every new/updated record in this space is stamped with an expiry
+   *  `now + recordTtlDays` and deleted by the TTL sweep once it lapses (through the normal delete path,
+   *  so it tombstones + syncs). A per-record `ttlDays` on a write overrides this. Absent = no auto-TTL. */
+  recordTtlDays?: number;
   /** Vector-search index lifecycle for a newly created space (B1). Creation now
    *  returns immediately with 'building' and the (slow, up-to-minutes) Atlas index
    *  builds finish asynchronously — flipping this to 'ready', or 'failed' if a build
@@ -829,6 +833,9 @@ export interface MemoryDoc {
   seq: number;
   embeddingModel: string;
   forkOf?: string;
+  /** Absolute expiry (F10). Set when a per-record `ttlDays` or the space's `recordTtlDays` applies;
+   *  the TTL sweep deletes the record (through the normal delete path) once it passes. */
+  _expireAt?: Date;
 }
 
 export interface EntityDoc {
@@ -847,6 +854,8 @@ export interface EntityDoc {
   seq: number;
   embedding?: number[];
   embeddingModel?: string;
+  /** Absolute expiry (F10) — see MemoryDoc._expireAt. */
+  _expireAt?: Date;
 }
 
 export interface EdgeDoc {
@@ -868,6 +877,8 @@ export interface EdgeDoc {
   seq: number;
   embedding?: number[];
   embeddingModel?: string;
+  /** Absolute expiry (F10) — see MemoryDoc._expireAt. */
+  _expireAt?: Date;
 }
 
 export type ChronoType = 'event' | 'deadline' | 'plan' | 'prediction' | 'milestone';
@@ -902,6 +913,8 @@ export interface ChronoEntry {
   seq: number;
   embedding?: number[];
   embeddingModel?: string;
+  /** Absolute expiry (F10) — see MemoryDoc._expireAt. */
+  _expireAt?: Date;
 }
 
 export interface TombstoneDoc {

@@ -364,7 +364,9 @@ Click **+ Create space**. Fill in:
 
 Click the gear icon on any space row to open its settings panel. Changes save and close automatically.
 
-**General tab:** Update the display name, purpose, usage notes for AI assistants, and storage quota.
+**General tab:** Update the display name, purpose, usage notes for AI assistants, storage quota, and auto-delete window.
+
+- **Auto-delete records after (days)** — an optional space-wide expiry. Every record (memory, entity, edge, chrono entry) created or updated in the space is deleted automatically this many days later. Leave it blank or `0` to keep records forever. Individual writes can override the default (or opt out) with their own per-record TTL via the API. Deletion propagates over sync, so an expired record won't come back from a connected peer.
 
 **Schema tab:** Define what data this space accepts.
 

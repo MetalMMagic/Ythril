@@ -594,7 +594,36 @@ POST /api/brain/spaces/:spaceId/memories
 }
 ```
 
-**Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object where each value must be a string, number, or boolean. When the space has `strictLinkage` enabled, `entityIds` must contain valid UUID v4 values (entity IDs); passing names instead of IDs returns `400`.
+**Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object where each value must be a string, number, or boolean. When the space has `strictLinkage` enabled, `entityIds` must contain valid UUID v4 values (entity IDs); passing names instead of IDs returns `400`. `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl).
+
+---
+
+### Record Expiry (TTL)
+
+Any record — memory, entity, edge, or chrono entry — can be given an expiry after which it is
+**deleted automatically**. Deletion runs through the normal delete path, so it writes a tombstone that
+propagates over sync: an expired record cannot resurrect from a peer (which a raw MongoDB TTL index,
+deleting below the application, would allow).
+
+Two ways to set it, both usable together:
+
+- **Per-record** — send `ttlDays` on any write (create or update):
+  - `ttlDays > 0` → the record expires that many days after the write (integer, max `36500` ≈ 100 years).
+  - `ttlDays: 0` or `ttlDays: null` → the record **never** expires, overriding any space default.
+  - `ttlDays` omitted → the space's auto-TTL default is applied **only if the record has no expiry yet**
+    (an existing expiry is never silently re-slid by an unrelated edit).
+  - A present-but-invalid `ttlDays` (negative, non-integer, out of range) is rejected with `400`.
+- **Space-wide default** — set `recordTtlDays` on the space (`PATCH /api/spaces/:id`, or the Spaces
+  settings tab). Every new or updated record in that space that doesn't specify its own `ttlDays` expires
+  after that many days.
+
+```json
+{ "fact": "Temporary scratch note", "ttlDays": 7 }
+```
+
+The expiry surfaces as `_expireAt` (an ISO timestamp) on the record. The sweep runs periodically on every
+instance; expiry is eventual (granularity is days), not to-the-second. A `ttlDays`-only update (no other
+fields) is a valid write — use it to set, extend, or clear an existing record's expiry.
 
 ---
 

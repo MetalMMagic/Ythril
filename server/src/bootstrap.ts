@@ -57,6 +57,8 @@ export async function startConfiguredInstanceServices(): Promise<void> {
   startBackupScheduler();
   const { startDupeScanner } = await import('./brain/dupe-scanner.js');
   startDupeScanner();
+  const { startTtlSweep } = await import('./brain/ttl-sweep.js');
+  startTtlSweep();
 
   const { cleanupStaleChunks } = await import('./files/chunks.js');
   cleanupStaleChunks().catch(err => log.error(`Stale chunk cleanup failed: ${err}`));

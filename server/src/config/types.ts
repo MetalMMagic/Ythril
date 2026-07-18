@@ -748,6 +748,26 @@ export interface Config {
    * unspecified) stay blocked. Overridable via SYNC_ALLOW_PRIVATE_PEERS.
    */
   allowPrivatePeers?: boolean;
+  /**
+   * Allow sync peers to be reached over plaintext `http://`. Default false —
+   * peer URLs must use `https://`, so sync traffic (which carries record data and
+   * bearer tokens) is encrypted in transit. Set true only to permit `http://`
+   * peers on a trusted private network you fully control. Overridable via
+   * SYNC_ALLOW_INSECURE_PEERS. Ignored (forced false) when
+   * `requireEncryptedTransport` is set. See [[transport-security]].
+   */
+  allowInsecurePeers?: boolean;
+  /**
+   * Instance-wide "encrypted transport only" switch. Default false. When true:
+   *  - every inbound request must arrive over HTTPS (`req.secure`) — plaintext
+   *    requests are rejected 403 (loopback is exempted for health checks);
+   *  - `http://` sync peers are hard-blocked at admission AND connection time,
+   *    overriding `allowInsecurePeers`.
+   * Requires `trustProxy` to be set correctly when a reverse proxy terminates TLS
+   * (otherwise `req.secure` is always false behind the proxy). Overridable via
+   * REQUIRE_ENCRYPTED_TRANSPORT.
+   */
+  requireEncryptedTransport?: boolean;
   /** Dynamically-registered OAuth clients (RFC 7591) for the MCP browser
    *  authorization flow. Populated automatically when a client registers; not
    *  meant to be hand-edited. See mcp/oauth.ts. */

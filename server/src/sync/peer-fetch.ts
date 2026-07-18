@@ -18,6 +18,8 @@
 
 import { ssrfSafeFetch, isPeerUrlSafe } from '../util/ssrf.js';
 import { getConfig } from '../config/loader.js';
+import { log } from '../util/log.js';
+import { requireEncryptedTransport, allowInsecurePeersRaw, isPeerSchemeAllowed } from '../config/transport-security.js';
 
 /** Whether sync peers may use private/reserved (non-crown-jewel) addresses. */
 export function allowPrivatePeers(): boolean {
@@ -25,16 +27,34 @@ export function allowPrivatePeers(): boolean {
   try { return getConfig().allowPrivatePeers === true; } catch { return false; }
 }
 
-/** True if a peer-supplied URL may be stored/connected to under the current policy. */
+/** True if a peer-supplied URL may be stored/connected to under the current policy (address + scheme). */
 export function isPeerUrlAllowed(url: string): boolean {
-  return isPeerUrlSafe(url, allowPrivatePeers());
+  return isPeerSchemeAllowed(url) && isPeerUrlSafe(url, allowPrivatePeers());
 }
 
+// Warn at most once per plaintext peer host, so a pre-existing `http://` peer (added before the
+// https-default, without opting in) nags rather than spams every sync cycle.
+const _warnedPlaintextHosts = new Set<string>();
+
 /**
- * SSRF-safe drop-in for `fetch()` used by the sync engine. Resolves + pins + and
- * re-validates redirects against the peer policy. Throws `SsrfBlockedError` when
- * the target (or a redirect hop) resolves to a blocked address.
+ * SSRF-safe drop-in for `fetch()` used by the sync engine. Resolves + pins + re-validates redirects
+ * against the peer policy. Also enforces the transport policy: in `requireEncryptedTransport` mode a
+ * plaintext `http://` peer is refused outright; otherwise a plaintext peer that wasn't explicitly
+ * opted into is allowed (back-compat for peers added before the https default) but warned once.
+ * Throws `SsrfBlockedError` when the target (or a redirect hop) resolves to a blocked address.
  */
 export function peerSafeFetch(rawUrl: string, init: RequestInit = {}): Promise<Response> {
+  let scheme = '';
+  let host = rawUrl;
+  try { const u = new URL(rawUrl); scheme = u.protocol; host = u.host; } catch { /* ssrfSafeFetch will reject */ }
+  if (scheme === 'http:') {
+    if (requireEncryptedTransport()) {
+      return Promise.reject(new Error(`Refusing plaintext sync to ${host}: requireEncryptedTransport is enabled`));
+    }
+    if (!allowInsecurePeersRaw() && !_warnedPlaintextHosts.has(host)) {
+      _warnedPlaintextHosts.add(host);
+      log.warn(`Syncing to plaintext peer ${host} over http:// — data and tokens are unencrypted in transit. Use https:// or set allowInsecurePeers to acknowledge.`);
+    }
+  }
   return ssrfSafeFetch(rawUrl, init, { allowPrivate: allowPrivatePeers() });
 }

@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import type { NetworkConfig } from '../../config/types.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../../util/ssrf.js';
+import { isPeerSchemeAllowed, PEER_SCHEME_MESSAGE } from '../../config/transport-security.js';
 
 export const BCRYPT_ROUNDS = 12;
 
@@ -20,7 +21,8 @@ export const BCRYPT_ROUNDS = 12;
 export const SSRF_SAFE_URL = z
   .string()
   .url()
-  .refine(isSsrfSafeUrl, { message: SSRF_SAFE_MESSAGE });
+  .refine(isSsrfSafeUrl, { message: SSRF_SAFE_MESSAGE })
+  .refine(isPeerSchemeAllowed, { message: PEER_SCHEME_MESSAGE });
 
 /** Member list a joiner receives once admitted (credential fields stripped). */
 export function safeMemberList(net: NetworkConfig, excludeInstanceId: string) {

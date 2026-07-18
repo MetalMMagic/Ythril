@@ -61,6 +61,14 @@ async function main(): Promise<void> {
         );
       }
     }
+    // Sync transport: warn when plaintext peers are permitted (data + tokens unencrypted on the wire).
+    if (cfg.allowInsecurePeers && !cfg.requireEncryptedTransport) {
+      console.warn(
+        `\n${YELLOW}  ⚠  WARNING${RESET}  allowInsecurePeers is true — sync may connect to plaintext\n` +
+        `     http:// peers, so record data and bearer tokens are unencrypted in transit.\n` +
+        `     Use https:// peer URLs, or set requireEncryptedTransport to enforce TLS everywhere.\n`,
+      );
+    }
   }
 
   // Always connect to MongoDB — needed on first run so the setup route can

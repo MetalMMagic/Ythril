@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Sync peers are HTTPS-only by default, with an instance-wide "encrypted transport" switch.** A network
+  member / invite URL is now rejected unless it is `https://`, so sync traffic (record data + bearer
+  tokens) is encrypted in transit. This is independent of address — a loopback or private-range peer must
+  still be HTTPS, because on shared hardware "same host" is not a trust boundary. Plaintext `http://`
+  peers require an explicit opt-out (`allowInsecurePeers` / `SYNC_ALLOW_INSECURE_PEERS`); a pre-existing
+  `http://` peer keeps syncing but warns once per boot. New `requireEncryptedTransport`
+  (`REQUIRE_ENCRYPTED_TRANSPORT`) enforces TLS instance-wide: every inbound request must be HTTPS
+  (plaintext → `403`, except the `/health` `/ready` `/metrics` probes) and `http://` peers are hard-blocked,
+  overriding the opt-out. Requires `trustProxy` to be set when a reverse proxy terminates TLS. Also
+  corrected an inaccurate "stored encrypted at rest" note in the schema-library docs (the access token is
+  write-only + `0600`, not encrypted — encryption at rest is tracked separately).
+
 ### Added
 
 - **Record TTL / auto-expiry (F10).** Records can now expire and be deleted automatically. Every write

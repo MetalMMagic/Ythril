@@ -19,6 +19,7 @@ import { oidcRouter } from './api/oidc.js';
 import { metricsRouter } from './api/metrics.js';
 import { themeRouter } from './api/theme.js';
 import { frameAncestorsDirective } from './config/embed.js';
+import { requireEncryptedTransport } from './config/transport-security.js';
 import { auditRouter } from './api/audit.js';
 import { setupRouter } from './setup/routes.js';
 import { mcpRouter } from './mcp/router.js';
@@ -153,6 +154,17 @@ export function createApp() {
   // ── Prometheus metrics ───────────────────────────────────────────────────
   // Requires auth: Bearer METRICS_TOKEN (if configured) or a valid admin PAT.
   app.use('/metrics', metricsRouter);
+
+  // ── Encrypted-transport enforcement (opt-in, instance-wide) ──────────────
+  // When `requireEncryptedTransport` is set, every request past this point must have arrived over
+  // TLS. `req.secure` reflects X-Forwarded-Proto only once `trust proxy` is configured (set above), so
+  // a reverse proxy that terminates TLS MUST have trustProxy set or every request looks plaintext.
+  // `/health`, `/ready`, and `/metrics` are registered ABOVE this gate, so orchestration probes remain
+  // reachable over plaintext. Read live (not captured) so a config reload takes effect.
+  app.use((req, res, next) => {
+    if (!requireEncryptedTransport() || req.secure) { next(); return; }
+    res.status(403).json({ error: 'This instance accepts encrypted (HTTPS) connections only (requireEncryptedTransport).' });
+  });
 
   // ── HTTP request instrumentation ─────────────────────────────────────────
   // Runs after /health and /metrics so those internal endpoints aren't tracked.

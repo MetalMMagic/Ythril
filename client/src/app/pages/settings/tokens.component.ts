@@ -9,11 +9,12 @@ import { TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { ModalDirective } from '../../shared/modal.directive';
 
 @Component({
   selector: 'app-tokens',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective],
   styles: [`
     .new-token-banner {
       background: var(--success-dim);
@@ -275,7 +276,7 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
     <!-- Create token form (dialog) -->
     @if (showCreateDialog()) {
       <div class="dialog-backdrop" (click)="showCreateDialog.set(false)">
-        <div class="dialog" (click)="$event.stopPropagation()">
+        <div class="dialog" [appModal]="'tokens.create.title' | transloco" (dismiss)="showCreateDialog.set(false)" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'tokens.create.title' | transloco }}</div>
             <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showCreateDialog.set(false)"><ph-icon name="x" [size]="14"/></button>

@@ -456,3 +456,64 @@ export interface BackupConfigData {
   retention?: { keepLocal?: number };
   offsite?: { destPath: string; retention?: { keepCount?: number } };
 }
+
+// ── Webhooks (C1) ─────────────────────────────────────────────────────────────
+
+export type WebhookEventType =
+  | 'memory.created' | 'memory.updated' | 'memory.deleted'
+  | 'entity.created' | 'entity.updated' | 'entity.deleted' | 'entity.merged'
+  | 'edge.created' | 'edge.updated' | 'edge.deleted'
+  | 'chrono.created' | 'chrono.updated' | 'chrono.deleted'
+  | 'file.created' | 'file.updated' | 'file.deleted'
+  | 'bulk.write'
+  | 'link_violation.created'
+  | 'duplicate.detected';
+
+/**
+ * Selectable webhook events, grouped by domain for the picker. `test.ping` is deliberately excluded —
+ * it is the test-button's internal event, not a real domain event a user would subscribe to.
+ */
+export const WEBHOOK_EVENT_GROUPS: { group: string; events: WebhookEventType[] }[] = [
+  { group: 'memory', events: ['memory.created', 'memory.updated', 'memory.deleted'] },
+  { group: 'entity', events: ['entity.created', 'entity.updated', 'entity.deleted', 'entity.merged'] },
+  { group: 'edge', events: ['edge.created', 'edge.updated', 'edge.deleted'] },
+  { group: 'chrono', events: ['chrono.created', 'chrono.updated', 'chrono.deleted'] },
+  { group: 'file', events: ['file.created', 'file.updated', 'file.deleted'] },
+  { group: 'other', events: ['bulk.write', 'link_violation.created', 'duplicate.detected'] },
+];
+
+/** A webhook subscription as returned by the API — the shared HMAC secret is never included. */
+export interface WebhookSubscription {
+  id: string;
+  url: string;
+  /** Space ID filter; empty = all spaces. */
+  spaces: string[];
+  /** Event type filter; empty = all events. */
+  events: WebhookEventType[];
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  status: 'active' | 'failing' | 'disabled';
+  consecutiveFailures: number;
+}
+
+/** Create/update payload. `secret` is write-only; omit on update to keep the existing one. */
+export interface WebhookUpsert {
+  url?: string;
+  secret?: string;
+  spaces?: string[];
+  events?: WebhookEventType[];
+  enabled?: boolean;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  webhookId: string;
+  event: WebhookEventType;
+  spaceId: string;
+  timestamp: string;
+  responseStatus: number;
+  latencyMs: number;
+  success: boolean;
+  error?: string;
+}

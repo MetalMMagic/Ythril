@@ -104,6 +104,12 @@ export const routes: Routes = [
               import('./pages/settings/data.component').then(m => m.DataComponent),
           },
           {
+            path: 'webhooks',
+            title: 'nav.webhooks',
+            loadComponent: () =>
+              import('./pages/settings/webhooks.component').then(m => m.WebhooksComponent),
+          },
+          {
             path: 'about',
             title: 'nav.about',
             loadComponent: () =>

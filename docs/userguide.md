@@ -768,7 +768,16 @@ A status filter (**open / dismissed / all**) and a **Scan now** button sit at th
 
 ## Settings — Webhooks
 
-Webhooks send signed HTTP notifications to external systems when events occur. **There is no Settings → Webhooks page yet** — a management UI is planned, but today webhooks are configured through the admin API at `/api/admin/webhooks` (admin token + MFA required). All endpoints must be HTTPS and are SSRF-checked.
+Webhooks send signed HTTP notifications to external systems when events occur. Manage them from **Settings → Webhooks** (admin token + MFA required).
+
+The page lists every webhook with its endpoint, event/space filters, and a status badge (**active**, **failing**, or auto-**disabled** after repeated failures). From there you can:
+
+- **Add / Edit** — set the HTTPS endpoint URL and a signing secret (at least 8 characters), choose which events and spaces to subscribe to (leave "all" selected for everything), and enable or disable it. The secret is write-only: it is never shown again, so on edit you leave the field blank to keep the current one.
+- **Test** — send a `test.ping` event to confirm the endpoint is reachable.
+- **Deliveries** — view recent delivery attempts with their HTTP status, latency, and any error.
+- **Delete** — stop and remove a webhook.
+
+All endpoints must be HTTPS and are SSRF-checked (private/reserved addresses are rejected). Everything the page does is also available directly through the admin API at `/api/admin/webhooks`:
 
 ### Listing and creating
 

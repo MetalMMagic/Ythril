@@ -52,6 +52,7 @@ import { buildBraintreeAncestors } from '../util/braintree.js';
 import { makeSignedOwnCast } from '../util/signing.js';
 import { log } from '../util/log.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
+import { isPeerSchemeAllowed, PEER_SCHEME_MESSAGE } from '../config/transport-security.js';
 import type { NetworkMember, VoteRound } from '../config/types.js';
 
 export const inviteRouter = Router();
@@ -113,7 +114,9 @@ const GenerateBody = z.object({
   expectedInstanceId: z.string().uuid().optional(),
 });
 
-const INVITE_SSRF_SAFE_URL = z.string().url().refine(isSsrfSafeUrl, { message: SSRF_SAFE_MESSAGE });
+const INVITE_SSRF_SAFE_URL = z.string().url()
+  .refine(isSsrfSafeUrl, { message: SSRF_SAFE_MESSAGE })
+  .refine(isPeerSchemeAllowed, { message: PEER_SCHEME_MESSAGE });
 
 const ApplyBody = z.object({
   handshakeId: z.string().uuid(),

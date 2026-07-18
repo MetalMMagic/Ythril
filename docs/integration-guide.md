@@ -436,6 +436,38 @@ labels:
   - "traefik.http.routers.ythril.middlewares=ythril-hsts"
 ```
 
+### Transport Security (encryption in transit)
+
+Ythril is secure-by-default on the wire, and adds an instance-wide switch to make TLS mandatory.
+
+**Sync peers must use HTTPS.** A network member / invite URL is rejected unless it is `https://`. This
+is deliberately independent of address: a peer on loopback or a private range is still required to be
+HTTPS, because on shared hardware "same host" is **not** a trust boundary — a co-tenant reachable over
+loopback is still untrusted. (Address reachability is governed separately by `allowPrivatePeers`.)
+
+- To permit plaintext `http://` peers on a network where every peer *and* co-tenant is trusted, set
+  `allowInsecurePeers: true` (or env `SYNC_ALLOW_INSECURE_PEERS=true`). This is a clear, explicit opt-out;
+  new peers are HTTPS-only without it. A peer added before this default that is still `http://` continues
+  to sync but logs a one-time warning each boot until you fix its URL or opt in.
+
+**`requireEncryptedTransport` — instance-wide "encrypted only".** Set `requireEncryptedTransport: true`
+(or env `REQUIRE_ENCRYPTED_TRANSPORT=true`) to enforce TLS everywhere:
+
+- every inbound request must have arrived over HTTPS — plaintext requests get `403` (the `/health`,
+  `/ready`, and `/metrics` probes stay reachable so orchestration isn't broken);
+- `http://` sync peers are hard-blocked at admission **and** connection time, overriding
+  `allowInsecurePeers`.
+
+> **Requires `trustProxy`.** When a reverse proxy terminates TLS, Ythril only knows a request was
+> encrypted from the `X-Forwarded-Proto` header, which it trusts **only** once `trustProxy` is set to your
+> proxy hop count. Enable `requireEncryptedTransport` together with a correct `trustProxy`, or every
+> proxied request will look plaintext and be rejected.
+
+**Multi-tenant on shared hardware.** Run each tenant as its own Ythril instance with its **own MongoDB on
+its own encrypted volume/key** — do not share one `mongod` across tenants. That keeps cross-tenant data
+cryptographically isolated (different key + process) while leaving semantic search fully intact, and it
+pairs with `requireEncryptedTransport` for encryption in transit.
+
 ### Resource Requirements
 
 | Component | Minimum | Recommended |
@@ -2969,7 +3001,7 @@ Content-Type: application/json
 | `name` | ✓ | Unique catalog ID: `^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$` |
 | `url` | ✓ | Base URL of the remote schema library. Must be HTTPS; private/loopback addresses are rejected (SSRF protection). |
 | `description` | — | Free text, up to 500 characters. |
-| `accessToken` | — | A library access token issued by the remote instance. Required only when the remote's `/public` endpoint is behind an auth proxy (e.g. Cloudflare Access). Stored encrypted at rest; never returned in list or get responses — only `hasAccessToken: true/false` is exposed. |
+| `accessToken` | — | A library access token issued by the remote instance. Required only when the remote's `/public` endpoint is behind an auth proxy (e.g. Cloudflare Access). Write-only: it is never returned in list or get responses — only `hasAccessToken: true/false` is exposed. It is held in the instance config directory, which is created with owner-only (`0600`) permissions. |
 
 **Responses:** `201 { "catalog": { ..., "hasAccessToken": true } }`, `400` (invalid URL/name), `409` (name already exists), `400` (SSRF-blocked URL).
 

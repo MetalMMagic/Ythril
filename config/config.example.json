@@ -18,6 +18,8 @@
   "ejectedFromNetworks": [],
   "maxUploadBodyBytes": 5368709120,
   "allowInsecurePlaintext": false,
+  "allowInsecurePeers": false,
+  "requireEncryptedTransport": false,
   "mediaEmbedding": {
     "enabled": true,
     "faceRecognition": {

@@ -13,6 +13,7 @@ import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateMemory } from '../../spaces/schema-validation.js';
+import { TTL_DAYS_SCHEMA, ttlDaysFromArgs } from './shared.js';
 
 export const rememberTool: ToolHandler = {
   name: 'remember',
@@ -44,6 +45,7 @@ export const rememberTool: ToolHandler = {
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             checkDuplicates: { type: 'boolean', description: 'Run a semantic near-duplicate check before storing (default true). When a highly similar memory already exists, the response flags it (id + summary + score) so you can update it instead of creating a redundant one. The memory is still stored regardless. Set false to skip the check.' },
             dupeThreshold: { type: 'number', description: 'Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.' },
+            ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'fact'],
         }),
@@ -100,8 +102,9 @@ export const rememberTool: ToolHandler = {
     // Insert-time duplicate check defaults ON for the interactive remember tool.
     const remDupeCheck = a['checkDuplicates'] !== false;
     const remDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
+    const remTtlDays = ttlDaysFromArgs(a);
     const mem = await remember(ts, fact, entityIds, tags, description, props, resolvedNames, memType,
-      { checkDuplicates: remDupeCheck, dupeThreshold: remDupeThreshold }, ctx.actor);
+      { checkDuplicates: remDupeCheck, dupeThreshold: remDupeThreshold }, ctx.actor, remTtlDays);
     const warnings: string[] = [];
     if (mem.similar && mem.similar.length > 0) {
       warnings.push(`⚠️ Possible duplicate — ${mem.similar.length} existing memor${mem.similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${mem.similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. This memory was still stored; pass checkDuplicates:false to skip this check, or update the existing one instead.`);
@@ -144,6 +147,7 @@ export const update_memoryTool: ToolHandler = {
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             deleteFields: { type: 'array', items: { type: 'string' }, description: 'Dot-notation paths to delete from the memory (e.g. ["properties.oldKey", "description"]). System fields (id, name, type, spaceId, createdAt, updatedAt) cannot be deleted. Deletions are permanent.' },
+            ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'id'],
         }),
@@ -172,10 +176,11 @@ export const update_memoryTool: ToolHandler = {
       updates.properties = a['properties'] as Record<string, string | number | boolean>;
     }
 
-    if (Object.keys(updates).length === 0 && !dfPaths) throw new Error('At least one of fact, tags, entityIds, description, properties, or deleteFields must be provided');
+    const ttlDays = ttlDaysFromArgs(a);
+    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of fact, tags, entityIds, description, properties, deleteFields, or ttlDays must be provided');
 
     // Search member spaces sequentially — consistent with REST endpoint behaviour.
-    const updated = await findFirstAcrossMembers(wt.target, mid => updateMemory(mid, id, updates, dfPaths, ctx.actor));
+    const updated = await findFirstAcrossMembers(wt.target, mid => updateMemory(mid, id, updates, dfPaths, ctx.actor, ttlDays));
     if (!updated) throw new Error(`Memory '${id}' not found`);
     return {
       content: [{ type: 'text' as const, text: `Memory updated (ID ${updated._id}, seq ${updated.seq}).` }],

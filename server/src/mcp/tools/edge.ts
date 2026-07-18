@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs } from './shared.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
 import { traverseGraph, updateEdgeById, upsertEdge } from '../../brain/edges.js';
 import { getConfig } from '../../config/loader.js';
@@ -28,6 +28,7 @@ export const upsert_edgeTool: ToolHandler = {
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+            ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'from', 'to', 'label'],
         }),
@@ -61,7 +62,8 @@ export const upsert_edgeTool: ToolHandler = {
       return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(edgeSchemaViolations, null, 2)}` }], isError: true };
     }
 
-    const edge = await upsertEdge(wt.target, from, to, label, weight, edgeType, description, edgeProps, edgeTags, ctx.actor);
+    const edgeTtlDays = ttlDaysFromArgs(a);
+    const edge = await upsertEdge(wt.target, from, to, label, weight, edgeType, description, edgeProps, edgeTags, ctx.actor, edgeTtlDays);
     let edgeMsg = `Edge '${label}' (${from} → ${to}) upserted (ID ${edge._id}).`;
     if (edgeMeta?.validationMode === 'warn') {
       for (const v of edgeSchemaViolations) edgeMsg += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
@@ -94,6 +96,7 @@ export const update_edgeTool: ToolHandler = {
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             deleteFields: { type: 'array', items: { type: 'string' }, description: 'Dot-notation paths to delete from the edge (e.g. ["properties.oldKey", "description"]). System fields (id, name, type, spaceId, createdAt, updatedAt) cannot be deleted. Deletions are permanent.' },
+            ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'id'],
         }),
@@ -116,8 +119,9 @@ export const update_edgeTool: ToolHandler = {
     }
     if (typeof a['weight'] === 'number') updates.weight = a['weight'] as number;
     if (typeof a['type'] === 'string') updates.type = (a['type'] as string).trim();
-    if (Object.keys(updates).length === 0 && !dfPaths) throw new Error('At least one of label, description, tags, properties, weight, type, or deleteFields must be provided');
-    const updatedEdge = await findFirstAcrossMembers(wt.target, mid => updateEdgeById(mid, id, updates, dfPaths, ctx.actor));
+    const ttlDays = ttlDaysFromArgs(a);
+    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of label, description, tags, properties, weight, type, deleteFields, or ttlDays must be provided');
+    const updatedEdge = await findFirstAcrossMembers(wt.target, mid => updateEdgeById(mid, id, updates, dfPaths, ctx.actor, ttlDays));
     if (!updatedEdge) throw new Error(`Edge '${id}' not found`);
     return {
       content: [{ type: 'text' as const, text: `Edge '${updatedEdge.label}' updated (ID ${updatedEdge._id}, seq ${updatedEdge.seq}).` }],

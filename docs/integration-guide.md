@@ -625,6 +625,10 @@ The expiry surfaces as `_expireAt` (an ISO timestamp) on the record. The sweep r
 instance; expiry is eventual (granularity is days), not to-the-second. A `ttlDays`-only update (no other
 fields) is a valid write — use it to set, extend, or clear an existing record's expiry.
 
+`ttlDays` is accepted on the **MCP** write tools as well (`remember`, `update_memory`, `upsert_entity`,
+`update_entity`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`) and per item in
+`bulk_write` / `POST /bulk`, with the same semantics — so agents can set an expiry directly.
+
 ---
 
 ### Get a Memory by ID

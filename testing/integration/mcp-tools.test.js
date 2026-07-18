@@ -1755,3 +1755,83 @@ describe('MCP schema validation — strict mode must actually block (parity with
     );
   });
 });
+
+// ── F10: per-record ttlDays through the MCP write tools ──────────────────────
+
+describe('MCP brain tools — per-record TTL (F10)', () => {
+  let session;
+  const RUN = Date.now();
+  const DAY_MS = 86_400_000;
+
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    session = await openMcpSession(tokenA);
+  });
+  after(() => session?.close());
+
+  const idFrom = (result) => (result?.content?.[0]?.text ?? '').match(/ID ([a-f0-9-]{36})/i)?.[1];
+  function assertAboutDaysFromNow(iso, days) {
+    assert.ok(iso, `expected an _expireAt, got ${iso}`);
+    assert.ok(Math.abs(new Date(iso).getTime() - (Date.now() + days * DAY_MS)) < DAY_MS, `expected ~${days}d out, got ${iso}`);
+  }
+
+  it('upsert_entity with ttlDays stamps _expireAt (visible over REST)', async () => {
+    const r = await session.callTool('upsert_entity', { space: 'general', name: `McpTtlEnt-${RUN}`, type: 'concept', ttlDays: 10 });
+    assert.ok(!r?.isError, `upsert_entity error: ${JSON.stringify(r)}`);
+    const id = idFrom(r);
+    const g = await get(INSTANCES.a, tokenA, `/api/brain/spaces/general/entities/${id}`);
+    assertAboutDaysFromNow((g.body.entity ?? g.body)._expireAt, 10);
+    await del(INSTANCES.a, tokenA, `/api/brain/spaces/general/entities/${id}`).catch(() => {});
+  });
+
+  it('upsert_entity with ttlDays 0 gets no _expireAt', async () => {
+    const r = await session.callTool('upsert_entity', { space: 'general', name: `McpTtlZero-${RUN}`, type: 'concept', ttlDays: 0 });
+    const id = idFrom(r);
+    const g = await get(INSTANCES.a, tokenA, `/api/brain/spaces/general/entities/${id}`);
+    assert.equal((g.body.entity ?? g.body)._expireAt, undefined);
+    await del(INSTANCES.a, tokenA, `/api/brain/spaces/general/entities/${id}`).catch(() => {});
+  });
+
+  it('update_entity can set a TTL-only change, then clear it', async () => {
+    const created = await session.callTool('upsert_entity', { space: 'general', name: `McpTtlUpd-${RUN}`, type: 'concept' });
+    const id = idFrom(created);
+
+    const set = await session.callTool('update_entity', { space: 'general', id, ttlDays: 5 });
+    assert.ok(!set?.isError, `update_entity ttl-only error: ${JSON.stringify(set)}`);
+    let g = await get(INSTANCES.a, tokenA, `/api/brain/spaces/general/entities/${id}`);
+    assertAboutDaysFromNow((g.body.entity ?? g.body)._expireAt, 5);
+
+    const clear = await session.callTool('update_entity', { space: 'general', id, ttlDays: 0 });
+    assert.ok(!clear?.isError, `update_entity clear error: ${JSON.stringify(clear)}`);
+    g = await get(INSTANCES.a, tokenA, `/api/brain/spaces/general/entities/${id}`);
+    assert.equal((g.body.entity ?? g.body)._expireAt, undefined);
+    await del(INSTANCES.a, tokenA, `/api/brain/spaces/general/entities/${id}`).catch(() => {});
+  });
+
+  it('invalid ttlDays is rejected with a tool error', async () => {
+    const r = await session.callTool('upsert_entity', { space: 'general', name: `McpTtlBad-${RUN}`, type: 'concept', ttlDays: -3 });
+    assert.ok(r?.isError, `expected isError for ttlDays:-3, got ${JSON.stringify(r)}`);
+    assert.match(r?.content?.[0]?.text ?? '', /ttlDays/, 'error should name ttlDays');
+  });
+
+  it('bulk_write threads per-item ttlDays and reports invalid ones', async () => {
+    const good = `McpBulkTtl-${RUN}`;
+    const r = await session.callTool('bulk_write', {
+      space: 'general',
+      entities: [
+        { name: good, type: 'concept', ttlDays: 7 },   // valid → stamped
+        { name: `McpBulkTtlBad-${RUN}`, type: 'concept', ttlDays: 999999 }, // invalid → error, not aborting
+      ],
+    });
+    assert.ok(!r?.isError, `bulk_write error: ${JSON.stringify(r)}`);
+    const text = r?.content?.[0]?.text ?? '';
+    assert.ok(text.includes('errors: ') && !text.includes('errors: 0'), `expected the invalid item reported: ${text}`);
+
+    // The valid entity should exist with an expiry.
+    const q = await get(INSTANCES.a, tokenA, `/api/brain/spaces/general/entities?limit=1000`);
+    const found = (q.body.entities ?? q.body ?? []).find(e => e.name === good);
+    assert.ok(found, 'the valid bulk entity should have been created');
+    assertAboutDaysFromNow(found._expireAt, 7);
+    await del(INSTANCES.a, tokenA, `/api/brain/spaces/general/entities/${found._id}`).catch(() => {});
+  });
+});

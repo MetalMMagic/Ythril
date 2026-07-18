@@ -4,6 +4,29 @@ import type { RecallResult } from '../../brain/recall.js';
 
 export const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** JSON-schema fragment for the per-record TTL arg (F10), shared by every MCP write tool. */
+export const TTL_DAYS_SCHEMA = {
+  type: ['integer', 'null'],
+  minimum: 0,
+  maximum: 36500,
+  description: 'Auto-delete this record after N days. A positive integer sets the expiry; 0 or null means never expire (overriding any space-wide default); omit to inherit the space default.',
+} as const;
+
+/**
+ * Parse + validate `ttlDays` from MCP tool args (F10): a non-negative integer ≤ 36500 sets an expiry,
+ * `null` clears it, and absent → `undefined` (inherit the space default). Throws on a present-but-invalid
+ * value so the MCP surface fails loud like REST rather than silently dropping the intent.
+ */
+export function ttlDaysFromArgs(args: Record<string, unknown>): number | null | undefined {
+  const v = args['ttlDays'];
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 36500) {
+    throw new Error('ttlDays must be an integer number of days between 0 and 36500, or null to clear the expiry');
+  }
+  return v;
+}
+
 /** Format a RecallResult as a single human-readable summary line. */
 export function formatRecallSummary(r: RecallResult): string {
   switch (r.type) {

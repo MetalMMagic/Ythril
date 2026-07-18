@@ -42,6 +42,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Live brain updates via Server-Sent Events (F12).** The Brain page now refreshes its record lists and
+  count badges in real time instead of needing a manual reload — most visibly when an MCP agent (or
+  another session) mutates the space. A new scoped stream `GET /api/brain/spaces/:spaceId/events` emits
+  one `data:` event per REST/MCP write (`memory.created`, `entity.updated`, `bulk.write`, …); an
+  in-process bus tapped at the single `emitWebhookEvent` choke point feeds it, so every write surface is
+  covered. Space-scoped auth (read-only tokens may subscribe) with a `?token=` query fallback since
+  `EventSource` can't set headers. The Angular client subscribes per active space and debounces a
+  `loadStats` + active-tab reload. Sync-applied changes aren't streamed (they appear on the next load).
+
 - **Record TTL / auto-expiry (F10).** Records can now expire and be deleted automatically. Every write
   surface — the REST endpoints, the MCP write tools (`remember` / `update_memory` / `upsert_entity` /
   `update_entity` / `upsert_edge` / `update_edge` / `create_chrono` / `update_chrono`), and per-item in

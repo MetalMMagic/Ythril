@@ -16,6 +16,7 @@ import { col } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
+import { publishBrainChange } from '../brain/brain-events.js';
 import type { WebhookEventType, WebhookEventPayload, WebhookDelivery, WebhookSubscription } from './types.js';
 
 /** Retry schedule in milliseconds: 10s, 30s, 1m, 5m, 30m, 1h */
@@ -144,6 +145,10 @@ export interface EmitWebhookEventOptions {
  * dispatched asynchronously. Failures are retried via the MongoDB retry queue.
  */
 export function emitWebhookEvent(opts: EmitWebhookEventOptions): void {
+  // F12: mirror every brain mutation onto the in-process bus that drives live SSE updates. Done here,
+  // the single choke point every write already funnels through, so it fires regardless of whether any
+  // webhook subscription matches.
+  publishBrainChange({ event: opts.event, spaceId: opts.spaceId, entry: opts.entry });
   _emitAsync(opts).catch(err => {
     log.warn(`Webhook emit error: ${err}`);
   });

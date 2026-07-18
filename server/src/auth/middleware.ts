@@ -77,10 +77,17 @@ const QUERY_TOKEN_PATHS = new Set([
   '/mcp',                    // MCP SSE transport (EventSource)
 ]);
 
+// Parameterised SSE paths that can't be listed literally. Kept deliberately narrow (anchored, single
+// path segment for the id) so the query-token fallback stays confined to these GET streams.
+const QUERY_TOKEN_PATH_PATTERNS: RegExp[] = [
+  /^\/api\/brain\/spaces\/[^/]+\/events$/, // live brain-change stream (F12, EventSource)
+];
+
 function allowsQueryToken(req: Request): boolean {
   if (req.method !== 'GET') return false;
   const pathOnly = (req.originalUrl.split('?')[0] ?? '').replace(/\/+$/, '');
-  return QUERY_TOKEN_PATHS.has(pathOnly || '/');
+  const p = pathOnly || '/';
+  return QUERY_TOKEN_PATHS.has(p) || QUERY_TOKEN_PATH_PATTERNS.some(re => re.test(p));
 }
 
 function extractBearer(req: Request): string | null {

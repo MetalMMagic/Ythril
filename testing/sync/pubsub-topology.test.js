@@ -141,7 +141,8 @@ describe('Pub/Sub topology (A -> B subscriber)', () => {
     // A syncs — A pushes to B, never pulls from B
     await triggerSync(INSTANCES.a, tokenA, networkId);
 
-    // Wait and verify the subscriber-local fact is NOT on A
+    // Wait and verify the subscriber-local fact is NOT on A.
+    // Negative assertion — fixed wait is correct; do NOT convert to waitFor (Q3).
     await new Promise(r => setTimeout(r, 3_000));
     const r = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories/${subMemId}`);
     assert.equal(r.status, 404, 'Subscriber fact should NOT appear on publisher');

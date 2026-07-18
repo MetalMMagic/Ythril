@@ -139,7 +139,9 @@ describe('Braintree topology (A -> B -> C)', () => {
     // Trigger sync on B (B syncs from A, not from C)
     await triggerSync(INSTANCES.b, tokenB, networkId);
 
-    // Wait a short time and verify this specific memory is NOT on B
+    // Wait a short time and verify this specific memory is NOT on B.
+    // Negative assertion — a fixed wait is correct here; do NOT convert to waitFor (Q3), which would
+    // return instantly on the absent record and prove nothing.
     await new Promise(r => setTimeout(r, 3000));
     const r = await get(INSTANCES.b, tokenB, `/api/brain/spaces/${testSpaceId}/memories/${leafMemId}`);
     assert.equal(r.status, 404, 'Leaf fact should NOT have propagated to B');
@@ -157,6 +159,7 @@ describe('Braintree topology (A -> B -> C)', () => {
     // Trigger sync on A — A only receives from its own parent (none) and pushes to B
     await triggerSync(INSTANCES.a, tokenA, networkId);
 
+    // Negative assertion (see above) — fixed wait is correct; do NOT convert to waitFor (Q3).
     await new Promise(r => setTimeout(r, 3000));
     const r = await get(INSTANCES.a, tokenA, `/api/brain/spaces/${testSpaceId}/memories/${nodeMemId}`);
     assert.equal(r.status, 404, 'Node fact should NOT have propagated to A');

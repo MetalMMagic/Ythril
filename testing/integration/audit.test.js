@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, patch } from '../sync/helpers.js';
+import { INSTANCES, post, get, del, patch, waitFor } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -116,11 +116,12 @@ describe('Audit Log', () => {
     // Attempt to access with bad token
     await get(INSTANCES.a, 'ythril_totally-invalid-token', '/api/tokens/me');
 
-    await new Promise(r => setTimeout(r, 500));
-
-    const r = await get(INSTANCES.a, tokenA, '/api/admin/audit-log?operation=auth.failed&limit=5');
-    assert.equal(r.status, 200);
-    assert.ok(r.body.entries.length > 0, 'Should have auth.failed entries');
+    // Audit writes are fire-and-forget — poll for the entry instead of a fixed sleep (Q3).
+    let r;
+    await waitFor(async () => {
+      r = await get(INSTANCES.a, tokenA, '/api/admin/audit-log?operation=auth.failed&limit=5');
+      return r.status === 200 && r.body.entries.length > 0;
+    }, 15_000, 250, () => 'auth.failed audit entry never appeared');
     const entry = r.body.entries[0];
     assert.equal(entry.operation, 'auth.failed');
     assert.equal(entry.status, 401);
@@ -158,15 +159,15 @@ describe('Audit Log', () => {
 
     await del(INSTANCES.a, tokenA, `/api/tokens/${tokenId}`);
 
-    await new Promise(r => setTimeout(r, 500));
-
-    // Check for token.create
-    const createLog = await get(INSTANCES.a, tokenA, '/api/admin/audit-log?operation=token.create&limit=5');
+    // Audit writes are fire-and-forget — poll until both entries land instead of a fixed sleep (Q3).
+    let createLog, deleteLog;
+    await waitFor(async () => {
+      createLog = await get(INSTANCES.a, tokenA, '/api/admin/audit-log?operation=token.create&limit=5');
+      deleteLog = await get(INSTANCES.a, tokenA, '/api/admin/audit-log?operation=token.delete&limit=5');
+      return createLog.body?.entries?.length > 0 && deleteLog.body?.entries?.length > 0;
+    }, 15_000, 250, () => 'token.create/token.delete audit entries never appeared');
     assert.equal(createLog.status, 200);
     assert.ok(createLog.body.entries.length > 0, 'Should have token.create entries');
-
-    // Check for token.delete
-    const deleteLog = await get(INSTANCES.a, tokenA, '/api/admin/audit-log?operation=token.delete&limit=5');
     assert.equal(deleteLog.status, 200);
     assert.ok(deleteLog.body.entries.length > 0, 'Should have token.delete entries');
   });

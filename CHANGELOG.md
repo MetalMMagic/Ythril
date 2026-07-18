@@ -745,6 +745,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Test suite: the two genuinely fixed audit-log waits now poll instead of sleeping (Q3).**
+  `audit.test.js` slept a fixed 500 ms twice waiting for a fire-and-forget audit write, then asserted;
+  both are now bounded `waitFor` polls that return as soon as the entry lands (the file went ~4.4 s →
+  ~1.1 s and is stable across repeated runs). An audit of the rest of the suite's `setTimeout` calls
+  found they are already correct bounded-poll intervals or deliberate negative/timing waits (the latter
+  now guard-commented so they aren't mistakenly converted) — so nothing else needed changing. Internal
+  test-harness only.
+
 - **The Schema Library page's modal overlays are now accessible dialogs (U5, part 2).** The remaining
   hand-rolled, inline-styled overlays on the Schema Library page — add-catalog, browse-catalog, create
   library-access-token, the token one-time reveal, export-space, apply-group-to-space, the create/edit

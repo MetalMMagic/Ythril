@@ -155,7 +155,8 @@ describe('Peer credential revocation (H7)', () => {
     const rm1 = await del(INSTANCES.a, tokenA, `/api/networks/${nid1}/members/${instanceIdB}`);
     assert.equal(rm1.status, 204);
 
-    // Give the async revocation a moment, then confirm the PAT survived
+    // Give the async revocation a moment, then confirm the PAT survived.
+    // Negative assertion — fixed wait is correct; do NOT convert to waitFor (Q3).
     await new Promise(r => setTimeout(r, 1500));
     assert.ok(
       tokensWithPeerId('ythril-a', instanceIdB).length >= 1,

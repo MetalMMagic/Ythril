@@ -194,7 +194,8 @@ describe('Governed space deletion', () => {
     assert.equal(voteR.status, 200);
     assert.ok(voteR.body?.concluded === true, 'Veto must conclude the round immediately');
 
-    // Brief wait to confirm no async side-effect fires
+    // Brief wait to confirm no async side-effect fires.
+    // Negative assertion — fixed wait is correct; do NOT convert to waitFor (Q3).
     await new Promise(r => setTimeout(r, 500));
 
     const listR = await get(INSTANCES.a, tokenA, '/api/spaces');

@@ -729,6 +729,36 @@ Entities, edges, and chrono entries have the same bulk-wipe endpoint shape — `
 
 ---
 
+### Live Change Stream (Server-Sent Events)
+
+```http
+GET /api/brain/spaces/:spaceId/events
+```
+
+A [Server-Sent Events](https://developer.mozilla.org/docs/Web/API/Server-sent_events) stream that emits
+one message per brain mutation in the space, so a UI can refresh live instead of polling. Each message:
+
+```text
+data: {"event":"memory.created","id":"a1b2c3d4-..."}
+```
+
+`event` is the change type (`memory.created` / `entity.updated` / `edge.deleted` / `chrono.created` / …,
+or `bulk.write` for a batch); `id` is the affected record's ID when applicable. Comments (`:\n\n`) are
+sent on connect and every 30 s as a keep-alive.
+
+- **Auth:** space-scoped; read-only tokens may subscribe. A browser `EventSource` cannot set an
+  `Authorization` header, so this endpoint accepts the token as a `?token=` query parameter (like the
+  MCP and log-stream SSE endpoints). Prefer the header form for non-browser clients.
+- **Scope:** events fire for writes made through the REST and MCP APIs on this instance. Changes applied
+  by the **sync engine** (pulled from a peer) are not emitted here — they appear on the next load.
+
+```js
+const es = new EventSource(`/api/brain/spaces/${space}/events?token=${token}`);
+es.onmessage = (e) => { const { event, id } = JSON.parse(e.data); /* refresh the affected view */ };
+```
+
+---
+
 ### Semantic Search (Recall)
 
 Available as both:

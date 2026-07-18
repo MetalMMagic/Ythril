@@ -8,6 +8,7 @@
  */
 
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
+import { TTL_DAYS_SCHEMA } from './shared.js';
 import { bulkWrite, bulkWriteTotal } from '../../brain/bulk.js';
 import { resolveWriteTarget } from '../../spaces/proxy.js';
 import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
@@ -33,6 +34,7 @@ export const bulk_writeTool: ToolHandler = {
                   description: { type: 'string', description: 'Optional prose context.' },
                   type:        { type: 'string', description: 'Optional memory type — selects the per-type schema used to validate `properties`.' },
                   properties:  { type: 'object', additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] } },
+                  ttlDays:     TTL_DAYS_SCHEMA,
                 },
                 required: ['fact'],
               },
@@ -49,6 +51,7 @@ export const bulk_writeTool: ToolHandler = {
                   tags:        { type: 'array', items: { type: 'string' } },
                   description: { type: 'string' },
                   properties:  { type: 'object', additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] } },
+                  ttlDays:     TTL_DAYS_SCHEMA,
                 },
                 required: ['name', 'type'],
               },
@@ -67,6 +70,7 @@ export const bulk_writeTool: ToolHandler = {
                   description: { type: 'string' },
                   tags:        { type: 'array', items: { type: 'string' } },
                   properties:  { type: 'object', additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] } },
+                  ttlDays:     TTL_DAYS_SCHEMA,
                 },
                 required: ['from', 'to', 'label'],
               },
@@ -88,6 +92,7 @@ export const bulk_writeTool: ToolHandler = {
                   entityIds:   { type: 'array', items: { type: 'string' } },
                   memoryIds:   { type: 'array', items: { type: 'string' } },
                   properties:  { type: 'object', additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] } },
+                  ttlDays:     TTL_DAYS_SCHEMA,
                 },
                 required: ['title', 'type', 'startsAt'],
               },

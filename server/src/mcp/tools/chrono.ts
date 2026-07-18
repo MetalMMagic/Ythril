@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs } from './shared.js';
 import { ChronoFilter, createChrono, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
@@ -41,6 +41,7 @@ export const create_chronoTool: ToolHandler = {
               required: ['freq'],
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+            ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'title', 'type', 'startsAt'],
         }),
@@ -106,7 +107,7 @@ export const create_chronoTool: ToolHandler = {
       memoryIds: chronoMemoryIds,
       properties: chronoProps,
       ...(rec.value ? { recurrence: rec.value } : {}),
-    }, ctx.actor);
+    }, ctx.actor, ttlDaysFromArgs(a));
     let text = `Chrono entry '${entry.title}' (${entry.type}) created (ID ${entry._id}, seq ${entry.seq}).`
       + (remQuota.softBreached ? `\n⚠️ Storage warning: ${remQuota.warning}` : '');
     if (chronoMeta?.validationMode === 'warn') {
@@ -152,6 +153,7 @@ export const update_chronoTool: ToolHandler = {
               required: ['freq'],
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+            ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'id'],
         }),
@@ -196,7 +198,7 @@ export const update_chronoTool: ToolHandler = {
       updates['recurrence'] = rec.value;
     }
 
-    const entry = await updateChrono(wt.target, id, updates as Parameters<typeof updateChrono>[2], ctx.actor);
+    const entry = await updateChrono(wt.target, id, updates as Parameters<typeof updateChrono>[2], ctx.actor, ttlDaysFromArgs(a));
     if (!entry) throw new Error(`Chrono entry '${id}' not found`);
     return { content: [{ type: 'text' as const, text: `Chrono entry '${entry.title}' updated (seq ${entry.seq}).` }] };
   },

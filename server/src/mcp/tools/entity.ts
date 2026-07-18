@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs } from './shared.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
 import { findEntitiesByName, updateEntityById, upsertEntity } from '../../brain/entities.js';
 import { type PropertyResolution, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
@@ -29,6 +29,7 @@ export const upsert_entityTool: ToolHandler = {
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             checkDuplicates: { type: 'boolean', description: 'On a NEW entity insert (no id / unknown id), run a semantic near-duplicate check first (default true). Flags highly similar existing entities (id + summary + score) so you can merge or update instead of creating a duplicate. Does not fire on updates. Set false to skip.' },
             dupeThreshold: { type: 'number', description: 'Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.' },
+            ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'name', 'type'],
         }),
@@ -60,8 +61,9 @@ export const upsert_entityTool: ToolHandler = {
     // (only fires on inserts, not updates — see upsertEntity).
     const entDupeCheck = a['checkDuplicates'] !== false;
     const entDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
+    const entTtlDays = ttlDaysFromArgs(a);
     const { entity, warning, similar } = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId,
-      { checkDuplicates: entDupeCheck, dupeThreshold: entDupeThreshold }, ctx.actor);
+      { checkDuplicates: entDupeCheck, dupeThreshold: entDupeThreshold }, ctx.actor, entTtlDays);
     let msg = `Entity '${entity.name}' (${entity.type}) upserted (ID ${entity._id}).${warning ? `\n⚠️ ${warning}` : ''}`;
     if (similar && similar.length > 0) {
       msg += `\n⚠️ Possible duplicate — ${similar.length} existing entit${similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. Pass checkDuplicates:false to skip, or provide the existing id to update it instead.`;
@@ -97,6 +99,7 @@ export const update_entityTool: ToolHandler = {
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             deleteFields: { type: 'array', items: { type: 'string' }, description: 'Dot-notation paths to delete from the entity (e.g. ["properties.oldKey", "description"]). System fields (id, name, type, spaceId, createdAt, updatedAt) cannot be deleted. Deletions are permanent.' },
+            ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'id'],
         }),
@@ -118,8 +121,9 @@ export const update_entityTool: ToolHandler = {
     if (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties'])) {
       updates.properties = a['properties'] as Record<string, string | number | boolean>;
     }
-    if (Object.keys(updates).length === 0 && !dfPaths) throw new Error('At least one of name, type, description, tags, properties, or deleteFields must be provided');
-    const updatedEnt = await findFirstAcrossMembers(wt.target, mid => updateEntityById(mid, id, updates, dfPaths, ctx.actor));
+    const ttlDays = ttlDaysFromArgs(a);
+    if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of name, type, description, tags, properties, deleteFields, or ttlDays must be provided');
+    const updatedEnt = await findFirstAcrossMembers(wt.target, mid => updateEntityById(mid, id, updates, dfPaths, ctx.actor, ttlDays));
     if (!updatedEnt) throw new Error(`Entity '${id}' not found`);
     return {
       content: [{ type: 'text' as const, text: `Entity '${updatedEnt.name}' (${updatedEnt.type}) updated (ID ${updatedEnt._id}, seq ${updatedEnt.seq}).` }],

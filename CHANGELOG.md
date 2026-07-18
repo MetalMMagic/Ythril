@@ -9,10 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Record TTL / auto-expiry (F10).** Records can now expire and be deleted automatically. Every write
-  endpoint (memory, entity, edge, chrono — create and update) accepts an optional per-record `ttlDays`:
-  a positive integer sets an expiry that many days out, `0`/`null` clears it (opting the record out of
-  any space default), and omitting it applies the space default only when the record has no expiry yet
-  (an existing expiry is never silently re-slid). An invalid `ttlDays` is rejected with `400`. Spaces
+  surface — the REST endpoints, the MCP write tools (`remember` / `update_memory` / `upsert_entity` /
+  `update_entity` / `upsert_edge` / `update_edge` / `create_chrono` / `update_chrono`), and per-item in
+  `bulk_write` / `POST /bulk` — accepts an optional per-record `ttlDays`: a positive integer sets an
+  expiry that many days out, `0`/`null` clears it (opting the record out of any space default), and
+  omitting it applies the space default only when the record has no expiry yet (an existing expiry is
+  never silently re-slid). An invalid `ttlDays` is rejected (`400` on REST, a tool error on MCP, a
+  per-item error in bulk). Spaces
   gain a `recordTtlDays` setting — a space-wide auto-TTL applied to every record that doesn't specify its
   own — configurable from the Spaces settings tab and via `PATCH /api/spaces/:id`. Enforcement is an
   app-side sweep that deletes lapsed records **through the normal delete path**, so each deletion writes

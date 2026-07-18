@@ -1,4 +1,4 @@
-﻿import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit } from '@angular/core';
+﻿import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
@@ -255,7 +255,7 @@ interface SpaceView {
     }
   `,
 })
-export class BrainComponent implements OnInit {
+export class BrainComponent implements OnInit, OnDestroy {
   readonly store = inject(BrainStore);
   readonly picker = inject(EntityRefPicker);
   readonly drawerState = inject(RecordDrawerState);
@@ -320,10 +320,60 @@ export class BrainComponent implements OnInit {
     });
   }
 
+  ngOnDestroy(): void {
+    this.closeLiveStream();
+    clearTimeout(this.liveRefreshTimer);
+  }
+
+  // ── Live updates (F12) ──────────────────────────────────────────────────────
+  private liveStream?: EventSource;
+  private liveRefreshTimer?: ReturnType<typeof setTimeout>;
+  private static readonly TAB_FOR_COLLECTION: Record<string, BrainTab> = {
+    memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'filemeta',
+  };
+
+  /** (Re)open the SSE stream for a space. EventSource can't send an Authorization header, so the token
+   *  goes in the query string (the server allowlists this GET path for query-token auth). */
+  private openLiveStream(spaceId: string): void {
+    this.closeLiveStream();
+    if (typeof EventSource === 'undefined') return; // non-browser (SSR/test) environment
+    const token = localStorage.getItem('ythril_token') ?? '';
+    if (!spaceId || !token) return;
+    const url = `/api/brain/spaces/${encodeURIComponent(spaceId)}/events?token=${encodeURIComponent(token)}`;
+    const es = new EventSource(url);
+    es.onmessage = (e) => {
+      let payload: { event?: string };
+      try { payload = JSON.parse(e.data); } catch { return; }
+      this.onLiveEvent(spaceId, payload.event ?? '');
+    };
+    // On error the browser auto-reconnects with backoff; nothing to do.
+    this.liveStream = es;
+  }
+
+  private closeLiveStream(): void {
+    this.liveStream?.close();
+    this.liveStream = undefined;
+  }
+
+  /** Debounced refresh: any change updates the count badges; a change to the ACTIVE tab's collection
+   *  (or any bulk write) also reloads its current page via the store tick. */
+  private onLiveEvent(spaceId: string, event: string): void {
+    if (spaceId !== this.activeSpaceId()) return;
+    clearTimeout(this.liveRefreshTimer);
+    this.liveRefreshTimer = setTimeout(() => {
+      this.loadStats(spaceId);
+      const collection = event.split('.')[0] ?? '';
+      if (event.startsWith('bulk') || BrainComponent.TAB_FOR_COLLECTION[collection] === this.activeTab()) {
+        this.store.liveRefreshTick.update(t => t + 1);
+      }
+    }, 250);
+  }
+
   selectSpace(id: string): void {
     this.activeSpaceId.set(id);
     this.picker.spaceId.set(id);
     this.drawerState.spaceId.set(id);
+    this.openLiveStream(id);
     this.store.memorySearch.set('');
     this.store.edgeSearch.set('');
     this.store.chronoSearch.set('');

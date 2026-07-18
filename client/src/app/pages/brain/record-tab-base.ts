@@ -1,4 +1,4 @@
-import { Directive, effect, inject, input, signal } from '@angular/core';
+import { Directive, effect, inject, input, signal, untracked } from '@angular/core';
 import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordListState } from './record-list-state.service';
@@ -38,6 +38,17 @@ export abstract class RecordTabBase {
       this.skip.set(0);
       this.resetOnSpaceChange();
       if (id) this.load();
+    });
+
+    // Live refresh (F12): when the shell signals a change for this space+collection, reload the CURRENT
+    // page (no skip/search reset — keep the user's position). Only the mounted tab has a live effect, so
+    // only the active list reloads. `untracked` keeps this effect off the spaceId dependency so a space
+    // switch doesn't double-load via both effects.
+    let firstTick = true;
+    effect(() => {
+      this.store.liveRefreshTick();
+      if (firstTick) { firstTick = false; return; }
+      if (untracked(() => this.spaceId())) this.load();
     });
   }
 

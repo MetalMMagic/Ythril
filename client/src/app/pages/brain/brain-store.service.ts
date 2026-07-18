@@ -32,6 +32,9 @@ export class BrainStore {
   fileMetas = signal<FileMeta[]>([]);
   // Settings tab (schema only — UI lives in Admin → Spaces)
   spaceMeta = signal<SpaceMetaResponse | null>(null);
+  /** Live-update tick (F12): the shell bumps this when a brain-change SSE event lands for the active
+   *  space+collection, and the mounted record tab reloads its current page in response. */
+  liveRefreshTick = signal(0);
   memorySearch = signal('');
   edgeSearch = signal('');
   chronoSearch = signal('');

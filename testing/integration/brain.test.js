@@ -629,12 +629,16 @@ describe('Brain â€” memory fact validation', () => {
 
 describe('Brain — bulk memory wipe', () => {
   const RUN = Date.now();
-  const WIPE_SPACE = 'general';
+  // Dedicated space (not `general`): these tests WIPE the whole space, so pointing them at the shared
+  // `general` would delete other files' data — a real cross-file bleed and a hard blocker for running
+  // the suite in parallel (Q4). Namespaced per run and torn down in `after`.
+  const WIPE_SPACE = `wipe-${RUN}`;
   let seededIds;
   let seqBefore;
 
   before(async () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    await post(INSTANCES.a, tokenA, '/api/spaces', { id: WIPE_SPACE, label: 'Bulk Wipe Test' });
 
     // Seed 10 memories for the wipe test
     seededIds = [];
@@ -642,7 +646,7 @@ describe('Brain — bulk memory wipe', () => {
     for (let i = 0; i < 10; i++) {
       const id = `wipe-${RUN}-${i}`;
       seededIds.push(id);
-      const r = await post(INSTANCES.a, tokenA, '/api/sync/memories?spaceId=general', {
+      const r = await post(INSTANCES.a, tokenA, `/api/sync/memories?spaceId=${WIPE_SPACE}`, {
         _id: id, spaceId: WIPE_SPACE, fact: `Wipe test memory ${i}`,
         tags: ['wipe-test'], entityIds: [], embedding: [],
         seq: seqBase++, author: { instanceId: 'test', instanceLabel: 'Test' },
@@ -720,7 +724,7 @@ describe('Brain — bulk memory wipe', () => {
     // Seed a couple of memories first
     let seqBase = Date.now();
     for (let i = 0; i < 3; i++) {
-      await post(INSTANCES.a, tokenA, '/api/sync/memories?spaceId=general', {
+      await post(INSTANCES.a, tokenA, `/api/sync/memories?spaceId=${WIPE_SPACE}`, {
         _id: `wipe-long-${RUN}-${i}`, spaceId: WIPE_SPACE, fact: `Long-form wipe ${i}`,
         tags: ['wipe-long'], entityIds: [], embedding: [],
         seq: seqBase++, author: { instanceId: 'test', instanceLabel: 'Test' },
@@ -737,6 +741,10 @@ describe('Brain — bulk memory wipe', () => {
   it('Wipe on unknown space returns 404', async () => {
     const r = await delWithBody(INSTANCES.a, tokenA, '/api/brain/spaces/no-such-space/memories', { confirm: true });
     assert.equal(r.status, 404, `expected 404, got ${r.status}`);
+  });
+
+  after(async () => {
+    await delWithBody(INSTANCES.a, tokenA, `/api/spaces/${WIPE_SPACE}`, { confirm: true }).catch(() => {});
   });
 });
 

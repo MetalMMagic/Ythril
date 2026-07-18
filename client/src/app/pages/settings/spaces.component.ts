@@ -1,4 +1,4 @@
-﻿import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit, ElementRef, ViewChild } from '@angular/core';
+﻿import { ChangeDetectionStrategy, Component, HostListener, inject, signal, computed, OnInit, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { finalize, timeout, TimeoutError } from 'rxjs';
@@ -44,14 +44,14 @@ import { SpaceCreateDialogComponent } from './space-create-dialog.component';
 
     <!-- SETTINGS POPUP -->
     @if (state.settingsSpace()) {
-      <div class="sp-backdrop" (click)="state.closeSettings()">
+      <div class="sp-backdrop" (click)="attemptClose()">
         <div class="sp-panel" (click)="$event.stopPropagation()">
           <div class="sp-header">
             <div style="flex:1;min-width:0;">
               <div style="font-weight:600;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ state.settingsSpace()!.label }}</div>
               <div style="font-size:12px;color:var(--text-muted);font-family:var(--font-mono);">{{ state.settingsSpace()!.id }}</div>
             </div>
-            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="state.closeSettings()"><ph-icon name="x" [size]="14"/></button>
+            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="attemptClose()"><ph-icon name="x" [size]="14"/></button>
           </div>
           <div class="sp-tabs">
             <button class="sp-tab" [class.active]="state.settingsTab()==='settings'" (click)="state.settingsTab.set('settings')">{{ 'spaces.popup.tab.settings' | transloco }}</button>
@@ -248,6 +248,35 @@ export class SpacesComponent implements OnInit {
       },
       error: (err) => { this.state.settingsSaving.set(false); this.state.settingsError.set(err.error?.error ?? this.transloco.translate('spaces.error.saveFailed')); },
     });
+  }
+
+  // ── Unsaved-changes guard (U4) ─────────────────────────────────────────────
+
+  /** Close the settings dialog, prompting first if the editor has unsaved edits. */
+  async attemptClose(): Promise<void> {
+    if (this.state.isDirty() && !(await this.confirmDiscard())) return;
+    this.state.closeSettings();
+  }
+
+  /** CanDeactivate hook: block leaving the Spaces route while the editor has unsaved edits. */
+  canLeave(): boolean | Promise<boolean> {
+    return this.state.isDirty() ? this.confirmDiscard() : true;
+  }
+
+  private confirmDiscard(): Promise<boolean> {
+    return this.confirmDialog.confirm({
+      title:   this.transloco.translate('spaces.unsaved.title'),
+      message: this.transloco.translate('spaces.unsaved.message'),
+      confirmLabel: this.transloco.translate('spaces.unsaved.confirm'),
+      cancelLabel:  this.transloco.translate('spaces.unsaved.cancel'),
+      danger: true,
+    });
+  }
+
+  /** Native prompt on reload/tab-close while dirty — EventSource-style dialogs aren't allowed here. */
+  @HostListener('window:beforeunload', ['$event'])
+  onBeforeUnload(e: BeforeUnloadEvent): void {
+    if (this.state.isDirty()) { e.preventDefault(); e.returnValue = ''; }
   }
 
   // ── Schema export / import ─────────────────────────────────────────────────

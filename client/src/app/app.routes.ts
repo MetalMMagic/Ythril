@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { authGuard } from './core/auth.guard';
 import { setupGuard } from './core/setup.guard';
 import { oidcCallbackGuard } from './core/oidc-callback.guard';
+import { spacesCanDeactivate } from './pages/settings/spaces-can-deactivate.guard';
 
 export const routes: Routes = [
   // Public routes
@@ -76,6 +77,7 @@ export const routes: Routes = [
             title: 'nav.spaces',
             loadComponent: () =>
               import('./pages/settings/spaces.component').then(m => m.SpacesComponent),
+            canDeactivate: [spacesCanDeactivate],
           },
           {
             path: 'storage',

@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Unsaved-changes protection on the space settings/schema editor (U4).** Editing a space's settings
+  or type schemas can represent real work, and until now a stray click or reload discarded it silently.
+  The editor now tracks whether its edits differ from what a save would persist (label + limits +
+  `buildMeta()`, so transient inputs and the active tab don't count as changes) and prompts to confirm
+  before it's lost — on closing the dialog (backdrop / ✕), on navigating away from the Spaces page (a
+  `CanDeactivate` guard), and on a browser reload/tab-close (native `beforeunload`). The prompt uses the
+  existing confirm dialog and is translated in all three locales.
+
 - **Characterization tests for the five record tabs' CRUD (12 tests), landed before those tabs are
   split into their own components.** The memories/entities/edges/chrono/filemeta create/edit/delete/load
   payload shaping had no coverage, and it is riddled with asymmetries that a per-tab split could quietly

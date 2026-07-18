@@ -161,9 +161,36 @@ export class SpaceSettingsState {
       next: (stats) => { this.dangerWipeStats.set(stats); this.dangerWipeLoading.set(false); },
       error: () => this.dangerWipeLoading.set(false),
     });
+    // Baseline the dirty snapshot now that every editable field is populated.
+    this.markPristine();
   }
 
   closeSettings(): void { this.settingsSpace.set(null); }
+
+  // ── unsaved-changes tracking (U4) ────────────────────────────────────────────
+  private initialSnapshot = '';
+
+  /**
+   * Serializes exactly what a save persists — label + maxGiB + `buildMeta()` — so it ignores
+   * transient input buffers and UI state (the active tab, expanded rows, half-typed new-property
+   * inputs) automatically. The duplicates tab has its own save/saved affordance and is intentionally
+   * excluded.
+   */
+  snapshot(): string {
+    return JSON.stringify({
+      label: this.stForm.label.trim(),
+      maxGiB: this.stForm.maxGiB,
+      meta: this.buildMeta(),
+    });
+  }
+
+  /** Re-baseline the dirty snapshot — called after opening a space (and safe to call after a save). */
+  markPristine(): void { this.initialSnapshot = this.snapshot(); }
+
+  /** True when the settings/schema editor has unsaved edits that a save would persist. */
+  isDirty(): boolean {
+    return this.settingsSpace() !== null && this.snapshot() !== this.initialSnapshot;
+  }
 
   /** Build the meta payload sent on save. Reads the settings tab AND the schema tab. */
   buildMeta(): Partial<SpaceMeta> {

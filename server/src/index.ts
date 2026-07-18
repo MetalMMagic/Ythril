@@ -1,6 +1,6 @@
 ﻿import { createServer } from 'http';
 import os from 'os';
-import { configExists, loadConfig, loadSecrets, loadSchemaLibrary, getMongoUri, flushConfig } from './config/loader.js';
+import { configExists, loadConfig, loadSecrets, loadSchemaLibrary, getMongoUri, flushConfig, migrateStateFilesAtRest, requireEncryptedAtRest, atRestEncryptionActive } from './config/loader.js';
 import { connectMongo, closeMongo, checkVectorSearchAvailability } from './db/mongo.js';
 import { createApp } from './app.js';
 import { startConfiguredInstanceServices } from './bootstrap.js';
@@ -29,9 +29,22 @@ async function main(): Promise<void> {
   const isFirstRun = !configExists();
 
   if (!isFirstRun) {
+    // At-rest encryption (PR-S2): if a master secret is configured, transparently encrypt any
+    // still-plaintext state file in place BEFORE loading (round-trip verified; no plaintext left).
+    migrateStateFilesAtRest();
     loadConfig();
     loadSecrets();
     loadSchemaLibrary();
+
+    // Strict mode: refuse to boot if encryption-at-rest is required but no master secret is set.
+    if (requireEncryptedAtRest() && !atRestEncryptionActive()) {
+      console.error(
+        `\n${YELLOW}  ✗ FATAL${RESET}  requireEncryptedAtRest is set but no master secret is configured.\n` +
+        `     Set YTHRIL_MASTER_KEY (32 bytes, base64/hex) or YTHRIL_MASTER_PASSPHRASE, or disable\n` +
+        `     requireEncryptedAtRest. Refusing to start with unencrypted state files.\n`,
+      );
+      process.exit(1);
+    }
 
     // NOTE: tokens created before the `prefix` field existed are NOT deleted.
     // findMatchingToken() verifies them via a fallback bcrypt scan and backfills

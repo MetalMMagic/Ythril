@@ -326,6 +326,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Brain space/tab record counts now refresh right after an upload, not only after a delete.** The
+  embedded file manager already told the Brain page to reload its counts when a file was deleted, but
+  an upload completing emitted nothing, so the Files / File Meta counters stayed stale until you left
+  the space and came back. The file manager's output was generalized (`fileDeleted` → `filesChanged`,
+  fired on both delete and upload completion) and the Brain host refreshes stats on it.
+
 - **`mcp-tools` integration suite: embedding-availability gate is no longer racy during ollama
   warm-up.** Each embedding-dependent `describe` block probed availability once (a single `remember`)
   and cached the result, so a mid-warm-up model could pass the probe and then flake a later `recall`
@@ -711,6 +717,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the migration. Covered by `testing/integration/auth.test.js`.
 
 ### Changed
+
+- **The `SpacesComponent` page shell is now OnPush.** The A17.8 spaces-component split left the shell
+  on default change-detection while all its extracted children were OnPush; now that the shell is fully
+  signal-driven, it's flipped to `OnPush` for consistency and to skip re-checking it on unrelated ticks.
+  Added to the change-detection spec so a future non-signal mutation trips the assertion.
 
 - **`docs/` is now markdownlint-clean and gated in CI so it can't rot again.** The docs had never
   passed `markdownlint-cli2` (~318 violations). Fixed all of them — added a language to every fenced

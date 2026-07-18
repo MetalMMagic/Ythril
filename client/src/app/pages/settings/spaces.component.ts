@@ -1,4 +1,4 @@
-﻿import { Component, inject, signal, computed, OnInit, ElementRef, ViewChild } from '@angular/core';
+﻿import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { finalize, timeout, TimeoutError } from 'rxjs';
@@ -34,6 +34,7 @@ import { SpaceCreateDialogComponent } from './space-create-dialog.component';
   // Provided here (not root) so each mount gets its own settings state, with a lifetime tied to
   // this component rather than the app.
   providers: [SpacesStore, SpaceSettingsState],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [SPACE_DIALOG_STYLES],
   template: `
     <!-- CREATE DIALOG -->

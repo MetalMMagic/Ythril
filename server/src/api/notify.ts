@@ -207,14 +207,47 @@ notifyRouter.get('/', notifyRateLimit, requireAuth, (req, res) => {
 });
 
 // ── POST /api/notify/trigger — manually trigger a sync (admin) ────────────
+//
+// Fire-and-forget by default (`{ status: 'triggered' }`). Pass `?wait=true` (C6) to run the cycle
+// synchronously and get its outcome — bounded by `?timeoutMs` (default 30s, clamped 1s–120s) so a
+// slow or stuck sync can never hang the request; on timeout the cycle keeps running in the background.
 
-notifyRouter.post('/trigger', notifyRateLimit, requireAuth, (req, res) => {
+const TIMEOUT_SENTINEL = Symbol('sync-trigger-timeout');
+
+notifyRouter.post('/trigger', notifyRateLimit, requireAuth, async (req, res) => {
   const { networkId } = req.body as { networkId?: string };
   if (!networkId) { res.status(400).json({ error: 'networkId required' }); return; }
+  const wait = req.query['wait'] === 'true' || req.query['wait'] === '1';
 
-  import('../sync/engine.js').then(({ runSyncForNetwork }) => {
-    void runSyncForNetwork(networkId);
-  }).catch(err => log.error(`trigger import: ${err}`));
+  let runSyncForNetwork: (id: string) => Promise<{ synced: number; errors: number }>;
+  try {
+    ({ runSyncForNetwork } = await import('../sync/engine.js'));
+  } catch (err) {
+    log.error(`trigger import: ${err}`);
+    res.status(500).json({ error: 'Sync engine unavailable' });
+    return;
+  }
 
-  res.json({ status: 'triggered', networkId });
+  if (!wait) {
+    void runSyncForNetwork(networkId).catch(err => log.error(`Triggered sync for ${networkId} failed: ${err}`));
+    res.json({ status: 'triggered', networkId });
+    return;
+  }
+
+  const timeoutMs = Math.min(Math.max(parseInt(String(req.query['timeoutMs'] ?? ''), 10) || 30_000, 1_000), 120_000);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(TIMEOUT_SENTINEL), timeoutMs); });
+  try {
+    const result = await Promise.race([runSyncForNetwork(networkId), timeout]);
+    res.json({ status: 'completed', networkId, synced: result.synced, errors: result.errors });
+  } catch (err) {
+    if (err === TIMEOUT_SENTINEL) {
+      res.status(504).json({ status: 'timeout', networkId, timeoutMs });
+    } else {
+      log.error(`Synchronous trigger for ${networkId} failed: ${err}`);
+      res.status(500).json({ status: 'error', networkId, error: err instanceof Error ? err.message : String(err) });
+    }
+  } finally {
+    clearTimeout(timer);
+  }
 });

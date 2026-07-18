@@ -1,7 +1,10 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import type { AboutInfo, AuditLogParams, AuditLogResponse, BackupConfigData } from './api.types';
+import type {
+  AboutInfo, AuditLogParams, AuditLogResponse, BackupConfigData,
+  WebhookSubscription, WebhookUpsert, WebhookDelivery,
+} from './api.types';
 
 /** Instance administration — about/logs, audit log, and data/backup/migration/maintenance. */
 @Injectable({ providedIn: 'root' })
@@ -81,5 +84,32 @@ export class AdminApi {
     return this.http.get<{ path: string; dirs: string[] }>('/api/admin/data/browse-dirs', {
       params: { path: dirPath },
     });
+  }
+
+  // ── Webhooks (C1) ─────────────────────────────────────────────────────────
+  // All routes require admin + MFA server-side; the mfa.interceptor handles the challenge/retry.
+
+  listWebhooks(): Observable<{ webhooks: WebhookSubscription[] }> {
+    return this.http.get<{ webhooks: WebhookSubscription[] }>('/api/admin/webhooks');
+  }
+
+  createWebhook(body: WebhookUpsert): Observable<WebhookSubscription> {
+    return this.http.post<WebhookSubscription>('/api/admin/webhooks', body);
+  }
+
+  updateWebhook(id: string, patch: WebhookUpsert): Observable<WebhookSubscription> {
+    return this.http.patch<WebhookSubscription>(`/api/admin/webhooks/${encodeURIComponent(id)}`, patch);
+  }
+
+  deleteWebhook(id: string): Observable<void> {
+    return this.http.delete<void>(`/api/admin/webhooks/${encodeURIComponent(id)}`);
+  }
+
+  testWebhook(id: string): Observable<{ ok: boolean; message: string }> {
+    return this.http.post<{ ok: boolean; message: string }>(`/api/admin/webhooks/${encodeURIComponent(id)}/test`, {});
+  }
+
+  getWebhookDeliveries(id: string): Observable<{ deliveries: WebhookDelivery[] }> {
+    return this.http.get<{ deliveries: WebhookDelivery[] }>(`/api/admin/webhooks/${encodeURIComponent(id)}/deliveries`);
   }
 }

@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Webhooks management UI — Settings → Webhooks (C1).** Webhooks were previously configurable only
+  through the admin API; there's now a full page to list, create, edit, test, and delete them, and to
+  view recent delivery attempts (event, HTTP status, latency, error). Each webhook shows a status badge
+  (active / failing / auto-disabled) and its consecutive-failure count. The signing secret stays
+  write-only — the server never returns it, so the UI never displays it and only sends it when you
+  type a new one (blank on edit keeps the existing secret). All calls are admin + MFA gated (handled
+  transparently by the MFA interceptor), and the endpoint URL is validated HTTPS + SSRF-safe
+  server-side. Reuses the toast/confirm (U1) and `[appModal]` (U5) primitives.
+
 - **Unsaved-changes protection on the space settings/schema editor (U4).** Editing a space's settings
   or type schemas can represent real work, and until now a stray click or reload discarded it silently.
   The editor now tracks whether its edits differ from what a save would persist (label + limits +

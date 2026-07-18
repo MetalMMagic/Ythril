@@ -10,10 +10,11 @@ import { TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { ModalDirective } from '../../shared/modal.directive';
 @Component({
   selector: 'app-networks',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective],
   styles: [`
     .network-card {
       background: var(--bg-surface);
@@ -332,7 +333,7 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
     <!-- Create Network dialog -->
     @if (showCreateDialog()) {
       <div class="dialog-backdrop" (click)="showCreateDialog.set(false)">
-        <div class="dialog" (click)="$event.stopPropagation()">
+        <div class="dialog" [appModal]="'networks.dialog.create.title' | transloco" (dismiss)="showCreateDialog.set(false)" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'networks.dialog.create.title' | transloco }}</div>
             <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showCreateDialog.set(false)"><ph-icon name="x" [size]="14"/></button>
@@ -410,7 +411,7 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
     <!-- Join Network dialog -->
     @if (showJoinDialog()) {
       <div class="dialog-backdrop" (click)="showJoinDialog.set(false)">
-        <div class="dialog" (click)="$event.stopPropagation()">
+        <div class="dialog" [appModal]="'networks.dialog.join.title' | transloco" (dismiss)="showJoinDialog.set(false)" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'networks.dialog.join.title' | transloco }}</div>
             <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showJoinDialog.set(false)"><ph-icon name="x" [size]="14"/></button>
@@ -484,7 +485,7 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
     <!-- Enable Networks wizard -->
     @if (showEnableNetworksWizard()) {
       <div class="dialog-backdrop" (click)="showEnableNetworksWizard.set(false)">
-        <div class="dialog" (click)="$event.stopPropagation()">
+        <div class="dialog" [appModal]="'networks.wizard.title' | transloco" (dismiss)="showEnableNetworksWizard.set(false)" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'networks.wizard.title' | transloco }}</div>
             <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showEnableNetworksWizard.set(false)"><ph-icon name="x" [size]="14"/></button>

@@ -11,6 +11,7 @@ import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { finalize, timeout, TimeoutError } from 'rxjs';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { ModalDirective } from '../../shared/modal.directive';
 import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
 import { SpacesStore } from './spaces-store.service';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -19,12 +20,12 @@ import { SpaceMeta, ValidationMode } from '../../core/api.types';
 @Component({
   selector: 'app-space-create-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [SPACE_DIALOG_STYLES],
   template: `
 <div class="dialog-backdrop" (click)="closed.emit()">
-  <div class="dialog" (click)="$event.stopPropagation()">
+  <div class="dialog" [appModal]="'spaces.create.title' | transloco" (dismiss)="closed.emit()" (click)="$event.stopPropagation()">
     <div class="dialog-header">
       <div class="card-title">{{ 'spaces.create.title' | transloco }}</div>
       <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="closed.emit()"><ph-icon name="x" [size]="14"/></button>

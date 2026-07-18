@@ -5,11 +5,12 @@ import { SchemaLibraryEntry, KnowledgeType } from '../../core/api.types';
 import { SchemaApi } from '../../core/schema-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { ModalDirective } from '../../shared/modal.directive';
 
 @Component({
   selector: 'app-schema-library',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective],
   styles: [`
     .header-row {
       display: flex;
@@ -240,7 +241,7 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
     <!-- Create / Edit dialog -->
     @if (showDialog()) {
       <div class="dialog-backdrop" (click)="closeDialog()">
-        <div class="dialog" (click)="$event.stopPropagation()">
+        <div class="dialog" [appModal]="editingEntry() ? ('schemaLib.dialog.editTitle' | transloco) : ('schemaLib.dialog.createTitle' | transloco)" (dismiss)="closeDialog()" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">
               {{ editingEntry() ? ('schemaLib.dialog.editTitle' | transloco) : ('schemaLib.dialog.createTitle' | transloco) }}
@@ -308,7 +309,7 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
     <!-- Delete confirmation dialog -->
     @if (deletingEntry()) {
       <div class="dialog-backdrop" (click)="deletingEntry.set(null)">
-        <div class="dialog" style="max-width:400px;" (click)="$event.stopPropagation()">
+        <div class="dialog" style="max-width:400px;" [appModal]="'schemaLib.delete.title' | transloco" (dismiss)="deletingEntry.set(null)" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'schemaLib.delete.title' | transloco }}</div>
             <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="deletingEntry.set(null)"><ph-icon name="x" [size]="14"/></button>

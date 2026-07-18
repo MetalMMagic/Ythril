@@ -726,6 +726,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The settings-area modal overlays are now accessible dialogs (U5, part 1).** The hand-rolled
+  overlays for creating a space, creating a token, the network create/join/enable-wizard, and the
+  schema-library create/edit + delete dialogs were plain `div`s with no `role`, `aria-modal`, focus
+  trap, or Escape-to-close — keyboard users couldn't reliably close them and focus leaked to the page
+  behind. A new shared `[appModal]` directive gives any overlay panel `role="dialog"`, `aria-modal`,
+  an `aria-label`, a CDK focus trap that captures focus on open and restores it to the opener on close,
+  and Escape-to-dismiss, in one attribute — the content-dialog counterpart to the U1 confirm-dialog
+  wrapper. (The Schema Library page's own dialogs follow in a separate change.)
+
 - **The `SpacesComponent` page shell is now OnPush.** The A17.8 spaces-component split left the shell
   on default change-detection while all its extracted children were OnPush; now that the shell is fully
   signal-driven, it's flipped to `OnPush` for consistency and to skip re-checking it on unrelated ticks.

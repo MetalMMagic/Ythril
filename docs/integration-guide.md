@@ -227,6 +227,39 @@ docker compose up -d       # reattaches volumes — picks up where it left off
 docker compose down -v     # ⚠ permanently deletes all named volumes
 ```
 
+### Encryption at Rest
+
+Ythril's state files — `config.json`, `secrets.json`, `schema-library.json`, `schema-catalogs.json` —
+can be **encrypted at rest** so that a stolen file, or a co-tenant reading the volume on shared hardware,
+is useless without the key. (This covers the app's own files; brain data in MongoDB is isolated per tenant
+by running each instance against its own encrypted `mongod` — see [Running Multiple Brains on One Host](#running-multiple-brains-on-one-host).)
+
+Provide a **master secret via the environment** (never written to disk) and encryption turns on
+transparently:
+
+| Variable | Meaning |
+|---|---|
+| `YTHRIL_MASTER_KEY` | 32 raw bytes as base64 or 64 hex chars — used directly. Generate: `openssl rand -base64 32`. |
+| `YTHRIL_MASTER_PASSPHRASE` | Any passphrase; a per-file scrypt salt is stored in the encrypted file. Used only if `YTHRIL_MASTER_KEY` is unset. |
+| `YTHRIL_REQUIRE_ENCRYPTED_AT_REST` (or config `requireEncryptedAtRest`) | Refuse to boot unless a master secret is configured. |
+
+- Files use **AES-256-GCM** (authenticated); a wrong key or a tampered file fails to decrypt and the
+  instance refuses to start rather than silently continue.
+- **Automatic migration:** if a key is configured and a file is still plaintext (e.g. after upgrading),
+  it is encrypted **in place** at the next boot — round-trip verified first, with no plaintext copy left
+  behind. New installs write encrypted from the first save.
+- **Back up the master secret.** Losing it makes the encrypted files unrecoverable — that is the point.
+  Deliver it as a Docker/Kubernetes/systemd secret, not baked into an image.
+
+```yaml
+# docker compose — master key from a secret/env, kept out of the image
+services:
+  ythril:
+    environment:
+      YTHRIL_MASTER_KEY: "${YTHRIL_MASTER_KEY:?set a 32-byte base64 key}"
+      YTHRIL_REQUIRE_ENCRYPTED_AT_REST: "true"
+```
+
 ### Running Multiple Brains on One Host
 
 You can run any number of Ythril instances on a single server. Each is a fully

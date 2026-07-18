@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { log } from '../util/log.js';
 import type { Config, SecretsFile, SchemaLibraryEntry, SchemaCatalog } from './types.js';
+import { resolveMasterSecret, isEnvelope, encryptEnvelope, decryptEnvelope } from './secretbox.js';
 
 const CONFIG_PATH = process.env['CONFIG_PATH'] ?? '/config/config.json';
 const SECRETS_PATH = path.join(path.dirname(CONFIG_PATH), 'secrets.json');
@@ -91,6 +92,75 @@ function validateOidcBlock(cfg: Config): void {
   }
 }
 
+// ── At-rest encryption (PR-S2) ─────────────────────────────────────────────
+// The state files are transparently encrypted when a master secret is configured
+// (YTHRIL_MASTER_KEY / YTHRIL_MASTER_PASSPHRASE). Detection is by envelope marker, so plaintext files
+// keep working (back-compat) and are migrated in place by migrateStateFilesAtRest() at boot.
+
+const STATE_FILES = [CONFIG_PATH, SECRETS_PATH, SCHEMA_LIB_PATH, SCHEMA_CATALOGS_PATH];
+
+/** Decrypt if the raw file is an envelope; pass through if plaintext. Throws (never returns ciphertext)
+ *  when a file is encrypted but the master secret is missing or wrong — the caller turns that into a
+ *  hard boot failure rather than silently starting with unreadable/empty state. */
+function decodeStateFile(raw: string, label: string): string {
+  if (!isEnvelope(raw)) return raw;
+  const secret = resolveMasterSecret();
+  if (!secret) {
+    throw new Error(`${label} is encrypted at rest but no master secret is configured — set YTHRIL_MASTER_KEY or YTHRIL_MASTER_PASSPHRASE`);
+  }
+  try {
+    return decryptEnvelope(raw, secret);
+  } catch (err) {
+    throw new Error(`Failed to decrypt ${label} (wrong master secret or corrupt file): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** Encrypt for writing when a master secret is configured; otherwise write plaintext. */
+function encodeStateFile(serialized: string): string {
+  const secret = resolveMasterSecret();
+  return secret ? encryptEnvelope(serialized, secret) : serialized;
+}
+
+/** True when at-rest encryption is currently active (a master secret is configured). */
+export function atRestEncryptionActive(): boolean {
+  return resolveMasterSecret() !== null;
+}
+
+/** Whether the operator requires state files to be encrypted at rest (env → config → default false). */
+export function requireEncryptedAtRest(): boolean {
+  if (process.env['YTHRIL_REQUIRE_ENCRYPTED_AT_REST'] === 'true') return true;
+  try { return getConfig().requireEncryptedAtRest === true; } catch { return false; }
+}
+
+/**
+ * Encrypt any still-plaintext state file in place when a master secret is configured (upgrade path).
+ * Each migration is round-trip verified before the atomic replace, and no plaintext copy is left behind.
+ * Idempotent: already-encrypted files are skipped. Call once at boot BEFORE loadConfig().
+ */
+export function migrateStateFilesAtRest(): void {
+  const secret = resolveMasterSecret();
+  if (!secret) return;
+  for (const p of STATE_FILES) {
+    let raw: string;
+    try {
+      if (!fs.existsSync(p)) continue;
+      raw = fs.readFileSync(p, 'utf8');
+    } catch (err) {
+      throw new Error(`At-rest migration: cannot read ${path.basename(p)}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!raw.trim() || isEnvelope(raw)) continue; // empty or already encrypted
+    const enc = encryptEnvelope(raw, secret);
+    if (decryptEnvelope(enc, secret) !== raw) {
+      throw new Error(`At-rest migration: round-trip verification failed for ${path.basename(p)} — leaving it unchanged`);
+    }
+    const tmp = p + '.enc.tmp';
+    fs.writeFileSync(tmp, enc, { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tmp, p);
+    try { fs.chmodSync(p, 0o600); } catch { /* non-POSIX host */ }
+    log.info(`Encrypted ${path.basename(p)} at rest`);
+  }
+}
+
 export function configExists(): boolean {
   if (!fs.existsSync(CONFIG_PATH)) return false;
   try {
@@ -104,7 +174,7 @@ export function configExists(): boolean {
 export function loadConfig(): Config {
   checkPermissions(CONFIG_PATH);
   const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
-  const parsed = JSON.parse(raw) as Config;
+  const parsed = JSON.parse(decodeStateFile(raw, 'config.json')) as Config;
   // Normalise arrays that may be absent in partial config files written before
   // first-run setup completes (e.g. a config pre-seeded with only storage quotas).
   parsed.spaces ??= [];
@@ -134,7 +204,7 @@ export function reloadConfig(): Config {
   const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
   let parsed: Config;
   try {
-    parsed = JSON.parse(raw) as Config;
+    parsed = JSON.parse(decodeStateFile(raw, 'config.json')) as Config;
   } catch (err) {
     log.error(`reloadConfig: config.json has invalid JSON — keeping current config: ${err}`);
     throw new Error('config.json contains invalid JSON; current configuration unchanged');
@@ -191,7 +261,7 @@ export function saveConfig(config: Config): void {
   fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
   // Atomic write: write to temp file then rename
   const tmp = CONFIG_PATH + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(config, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(tmp, encodeStateFile(JSON.stringify(config, null, 2)), { encoding: 'utf8', mode: 0o600 });
   fs.renameSync(tmp, CONFIG_PATH);
   // Ensure permissions after write
   fs.chmodSync(CONFIG_PATH, 0o600);
@@ -225,7 +295,7 @@ async function writeConfigAsync(): Promise<void> {
   const gen = _writeGeneration;
   const config = _config;
   if (!config || gen <= _flushedGeneration) return; // nothing new to persist
-  const snapshot = JSON.stringify(config, null, 2);
+  const snapshot = encodeStateFile(JSON.stringify(config, null, 2));
   fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
   const tmp = CONFIG_PATH + '.async.tmp';
   await fs.promises.writeFile(tmp, snapshot, { encoding: 'utf8', mode: 0o600 });
@@ -263,7 +333,7 @@ export function loadSecrets(): SecretsFile {
     return _secrets;
   }
   const raw = fs.readFileSync(SECRETS_PATH, 'utf8');
-  _secrets = JSON.parse(raw) as SecretsFile;
+  _secrets = JSON.parse(decodeStateFile(raw, 'secrets.json')) as SecretsFile;
   return _secrets;
 }
 
@@ -276,7 +346,7 @@ export function saveSecrets(secrets: SecretsFile): void {
   _secrets = secrets;
   fs.mkdirSync(path.dirname(SECRETS_PATH), { recursive: true });
   const tmp = SECRETS_PATH + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(secrets, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(tmp, encodeStateFile(JSON.stringify(secrets, null, 2)), { encoding: 'utf8', mode: 0o600 });
   fs.renameSync(tmp, SECRETS_PATH);
   fs.chmodSync(SECRETS_PATH, 0o600);
 }
@@ -297,7 +367,7 @@ export function loadSchemaLibrary(): SchemaLibraryEntry[] {
   try {
     checkPermissions(SCHEMA_LIB_PATH);
     const raw = fs.readFileSync(SCHEMA_LIB_PATH, 'utf8');
-    _schemaLibrary = JSON.parse(raw) as SchemaLibraryEntry[];
+    _schemaLibrary = JSON.parse(decodeStateFile(raw, 'schema-library.json')) as SchemaLibraryEntry[];
   } catch (err) {
     log.warn(`schema-library.json could not be loaded — treating as empty: ${err}`);
     _schemaLibrary = [];
@@ -316,7 +386,7 @@ export function saveSchemaLibrary(entries: SchemaLibraryEntry[]): void {
   _schemaLibrary = entries;
   fs.mkdirSync(path.dirname(SCHEMA_LIB_PATH), { recursive: true });
   const tmp = SCHEMA_LIB_PATH + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(entries, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(tmp, encodeStateFile(JSON.stringify(entries, null, 2)), { encoding: 'utf8', mode: 0o600 });
   fs.renameSync(tmp, SCHEMA_LIB_PATH);
   try { fs.chmodSync(SCHEMA_LIB_PATH, 0o600); } catch { /* non-POSIX — ignore */ }
 }
@@ -334,7 +404,7 @@ export function loadSchemaCatalogs(): SchemaCatalog[] {
   try {
     checkPermissions(SCHEMA_CATALOGS_PATH);
     const raw = fs.readFileSync(SCHEMA_CATALOGS_PATH, 'utf8');
-    _schemaCatalogs = JSON.parse(raw) as SchemaCatalog[];
+    _schemaCatalogs = JSON.parse(decodeStateFile(raw, 'schema-catalogs.json')) as SchemaCatalog[];
   } catch (err) {
     log.warn(`schema-catalogs.json could not be loaded — treating as empty: ${err}`);
     _schemaCatalogs = [];
@@ -353,7 +423,7 @@ export function saveSchemaCatalogs(catalogs: SchemaCatalog[]): void {
   _schemaCatalogs = catalogs;
   fs.mkdirSync(path.dirname(SCHEMA_CATALOGS_PATH), { recursive: true });
   const tmp = SCHEMA_CATALOGS_PATH + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(catalogs, null, 2), { encoding: 'utf8', mode: 0o600 });
+  fs.writeFileSync(tmp, encodeStateFile(JSON.stringify(catalogs, null, 2)), { encoding: 'utf8', mode: 0o600 });
   fs.renameSync(tmp, SCHEMA_CATALOGS_PATH);
   try { fs.chmodSync(SCHEMA_CATALOGS_PATH, 0o600); } catch { /* non-POSIX — ignore */ }
 }

@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Encryption at rest for the state files (config / secrets / schema-library / schema-catalogs).**
+  Provide a master secret in the environment — `YTHRIL_MASTER_KEY` (32 bytes, base64/hex) or
+  `YTHRIL_MASTER_PASSPHRASE` (scrypt, per-file salt) — and Ythril transparently encrypts those files with
+  **AES-256-GCM**, so a stolen file or a co-tenant reading the volume on shared hardware is useless
+  without the key. Detection is by envelope marker, so plaintext files keep working and are **migrated in
+  place at boot** (round-trip verified, no plaintext left behind); new installs write encrypted from the
+  first save. A wrong key or tampered file fails the auth tag and the instance refuses to start rather
+  than continue silently. `requireEncryptedAtRest` (`YTHRIL_REQUIRE_ENCRYPTED_AT_REST`) refuses to boot
+  unless a master secret is configured. The master secret is never written to disk; losing it makes the
+  files unrecoverable by design (back it up).
+
 ### Added
 
 - **Record TTL / auto-expiry (F10).** Records can now expire and be deleted automatically. Every write

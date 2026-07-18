@@ -1,10 +1,14 @@
 """
 Ythril document-render sidecar (F11).
 
-Renders PDF pages to PNG images (via PyMuPDF/fitz) so the VLM document-extraction path can read page
-images. Deliberately tiny and single-purpose: it parses UNTRUSTED user documents, so it is designed to run
-isolated — non-root, on an internal-only network with no database and no internet egress (see
-docker-compose.yml `ythril-convert`), resource-limited, with defensive input caps here as a second layer.
+Renders PDF pages to PNG images (via PDFium, through pypdfium2) so the VLM document-extraction path can
+read page images. Deliberately tiny and single-purpose: it parses UNTRUSTED user documents, so it is
+designed to run isolated — non-root, on an internal-only network with no database and no internet egress
+(see docker-compose.yml `ythril-convert`), resource-limited, with defensive input caps here as a second
+layer.
+
+Licensing: PDFium (via pypdfium2) is Apache-2.0 / BSD-3-Clause and Pillow is HPND — all permissive, no
+copyleft. (We deliberately do NOT use PyMuPDF, which is AGPL-3.0.) See LICENSES.md.
 
 Endpoints:
   GET  /health                      -> {"status": "ok"}
@@ -12,9 +16,10 @@ Endpoints:
     query: dpi (72..600), maxPages (1..RENDER_MAX_PAGES)
 """
 import base64
+import io
 import os
 
-import fitz  # PyMuPDF
+import pypdfium2 as pdfium
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 
 # Defensive caps (second layer — the Node caller already size/page-caps). Overridable via env.
@@ -42,23 +47,27 @@ async def render(
         raise HTTPException(status_code=413, detail=f"file exceeds {MAX_BYTES} bytes")
 
     try:
-        doc = fitz.open(stream=data, filetype="pdf")
+        pdf = pdfium.PdfDocument(data)
     except Exception as exc:  # malformed / non-PDF input
         raise HTTPException(status_code=400, detail=f"cannot open document: {exc}") from exc
 
     try:
-        total = doc.page_count
+        total = len(pdf)
         n = min(total, maxPages)
-        zoom = dpi / 72.0
-        matrix = fitz.Matrix(zoom, zoom)
+        scale = dpi / 72.0  # pypdfium2 render scale is relative to 72 DPI
         pages = []
-        # Render page-by-page and drop each pixmap promptly — bound memory to ~one page in flight.
+        # Render page-by-page and release each bitmap/page promptly — bound memory to ~one page in flight.
         for i in range(n):
-            pix = doc.load_page(i).get_pixmap(matrix=matrix, alpha=False)
-            pages.append(base64.b64encode(pix.tobytes("png")).decode("ascii"))
-            del pix
+            page = pdf[i]
+            bitmap = page.render(scale=scale)
+            pil = bitmap.to_pil()
+            buf = io.BytesIO()
+            pil.save(buf, format="PNG")
+            pages.append(base64.b64encode(buf.getvalue()).decode("ascii"))
+            bitmap.close()
+            page.close()
     finally:
-        doc.close()
+        pdf.close()
 
     return {
         "pages": pages,

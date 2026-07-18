@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Document page-render sidecar (F11).** A tiny, isolated PyMuPDF service (`sidecars/doc-render`) that
+- **Document page-render sidecar (F11).** A tiny, isolated PDFium (pypdfium2) service (`sidecars/doc-render`) that
   renders PDF pages to PNG images — the one new capability the upcoming VLM document-extraction path needs
   (nothing rasterized pages before). It parses untrusted documents, so it runs non-root on the same
   internal-only `ythril-convert` network as the OCR sidecar (no database, no internet egress), with

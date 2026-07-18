@@ -1980,7 +1980,7 @@ To disable the conversion pipeline entirely, set `CONVERSION_SIDECAR_URL=""` in 
 
 #### Page-render sidecar (`doc-render`)
 
-The bundled `doc-render` sidecar is a tiny PyMuPDF service that renders PDF pages to images. It is
+The bundled `doc-render` sidecar is a tiny PDFium (pypdfium2) service that renders PDF pages to images. It is
 infrastructure for the forthcoming **VLM document-extraction** path (`mediaEmbedding.documentProcessing.mode`
 of `vlm` / `auto` / `max`) and is **not used by the default `ocr` mode** — you can leave it running (it is
 lightweight and carries no model weights) or stop it with no effect on today's OCR conversion. Like the

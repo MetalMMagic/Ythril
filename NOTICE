@@ -756,3 +756,30 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+## Document-render sidecar (sidecars/doc-render)
+
+The optional `doc-render` container (F11 — renders PDF pages to images) bundles the following
+open-source components, all under permissive licenses. Their copyright notices and license terms are
+preserved here as required.
+
+- **PDFium** — License: BSD-3-Clause. Copyright The PDFium Authors. <https://pdfium.googlesource.com/pdfium/>
+- **pypdfium2** — License: Apache-2.0 OR BSD-3-Clause. Copyright pypdfium2-team.
+  <https://github.com/pypdfium2-team/pypdfium2>
+- **Pillow** — License: HPND (Historical Permission Notice and Disclaimer). Copyright Jeffrey A. Clark
+  and contributors; original PIL Copyright Secret Labs AB and Fredrik Lundh. <https://python-pillow.org/>
+- **FastAPI** — License: MIT. Copyright Sebastián Ramírez. <https://github.com/fastapi/fastapi>
+- **Starlette** — License: BSD-3-Clause. Copyright Encode OSS Ltd. <https://github.com/encode/starlette>
+- **Pydantic** — License: MIT. Copyright Pydantic Services Inc. and contributors.
+  <https://github.com/pydantic/pydantic>
+- **Uvicorn** — License: BSD-3-Clause. Copyright Encode OSS Ltd. <https://github.com/encode/uvicorn>
+- **python-multipart** — License: Apache-2.0. Copyright Andrew Dunham. <https://github.com/Kludex/python-multipart>
+- **Python** (base image `python:3.13-slim`) — License: PSF License Agreement, plus Debian base-image
+  components under their respective (permissive) licenses. <https://docs.python.org/3/license.html>
+
+The full texts of the MIT, Apache-2.0, BSD-3-Clause, HPND, and PSF licenses are the standard, unmodified
+texts published by their stewards (MIT and Apache-2.0 also appear above for other bundled packages).
+
+Note: PyMuPDF is deliberately NOT used — it is AGPL-3.0, incompatible with Ythril's permissive licensing.

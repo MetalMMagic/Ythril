@@ -251,7 +251,7 @@ services:
   # Light PyMuPDF service; lets the render-sidecar integration test exercise real PDF rasterization in CI.
   doc-render:
     build: ../sidecars/doc-render
-    image: ythril-doc-render:latest
+    image: ythril-doc-render:0.1.0
     container_name: ythril-doc-render-test
     restart: unless-stopped
     # Published to the host in the TEST stack only, so the render-sidecar integration test (which runs on

@@ -196,7 +196,7 @@
   # light (~python-slim + PyMuPDF, no model weights), so leaving it running is cheap.
   doc-render:
     build: ./sidecars/doc-render
-    image: ythril-doc-render:latest
+    image: ythril-doc-render:0.1.0
     container_name: ythril-doc-render
     restart: unless-stopped
     # Defence in depth on top of the internal network + non-root user.

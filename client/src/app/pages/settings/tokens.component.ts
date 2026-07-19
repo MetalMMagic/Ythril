@@ -8,13 +8,18 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
+import { computed } from '@angular/core';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ModalDirective } from '../../shared/modal.directive';
+import { SummaryStripComponent, SummaryItem } from '../../shared/summary-strip.component';
+import { StatusPillComponent } from '../../shared/status-pill.component';
+import { RelativeTimeComponent } from '../../shared/relative-time.component';
 
 @Component({
   selector: 'app-tokens',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective,
+            SummaryStripComponent, StatusPillComponent, RelativeTimeComponent],
   styles: [`
     .new-token-banner {
       background: var(--success-dim);
@@ -70,36 +75,6 @@ import { ModalDirective } from '../../shared/modal.directive';
       font-size: 11px;
       color: var(--text-muted);
       margin-top: 3px;
-    }
-    .badge-admin {
-      background: var(--success-bg);
-      color: var(--success);
-      border: 1px solid var(--success-border);
-      border-radius: 4px;
-      padding: 1px 7px;
-      font-size: 0.73rem;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-    }
-    .badge-readonly {
-      background: var(--warning-bg);
-      color: var(--warning);
-      border: 1px solid var(--warning-border);
-      border-radius: 4px;
-      padding: 1px 7px;
-      font-size: 0.73rem;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-    }
-    .badge-schema-lib {
-      background: rgba(14,165,233,.12);
-      color: #0ea5e9;
-      border: 1px solid rgba(14,165,233,.3);
-      border-radius: 4px;
-      padding: 1px 7px;
-      font-size: 0.73rem;
-      font-weight: 600;
-      letter-spacing: 0.02em;
     }
     .form-grid {
       display: grid;
@@ -365,6 +340,11 @@ import { ModalDirective } from '../../shared/modal.directive';
       </div>
     }
 
+    <!-- Operator summary -->
+    @if (!loading() && tokens().length) {
+      <app-summary-strip [heading]="'tokens.list.title' | transloco" [items]="summary()" style="display:block;margin-bottom:16px;"/>
+    }
+
     <!-- Token list -->
     <div class="card">
       <div class="card-header">
@@ -394,26 +374,28 @@ import { ModalDirective } from '../../shared/modal.directive';
                     @if (t.id === selfToken()?.id) { <span style="margin-left:6px;font-size:0.75rem;color:var(--text-muted);">{{ 'tokens.table.currentSession' | transloco }}</span> }
                   </td>
                   <td>
-                    @if (t.admin) { <span class="badge-admin">{{ 'tokens.badge.admin' | transloco }}</span> }
-                    @else if (t.schemaLibrary) { <span class="badge-schema-lib">{{ 'tokens.badge.schemaLibrary' | transloco }}</span> }
-                    @else if (t.readOnly) { <span class="badge-readonly">{{ 'tokens.badge.readOnly' | transloco }}</span> }
-                    @else { <span class="badge badge-gray">{{ 'tokens.badge.standard' | transloco }}</span> }
+                    @if (t.admin) { <app-status-pill variant="ok">{{ 'tokens.badge.admin' | transloco }}</app-status-pill> }
+                    @else if (t.schemaLibrary) { <app-status-pill variant="pending">{{ 'tokens.badge.schemaLibrary' | transloco }}</app-status-pill> }
+                    @else if (t.readOnly) { <app-status-pill variant="warn">{{ 'tokens.badge.readOnly' | transloco }}</app-status-pill> }
+                    @else { <app-status-pill variant="off">{{ 'tokens.badge.standard' | transloco }}</app-status-pill> }
                   </td>
-                  <td style="color:var(--text-muted)">{{ t.createdAt | date:'dd.MM.yyyy' }}</td>
-                  <td style="color:var(--text-muted)">
+                  <td><app-relative-time [value]="t.createdAt"/></td>
+                  <td>
                     @if (t.lastUsed) {
-                      {{ t.lastUsed | date:'dd.MM.yyyy' }}
+                      <app-relative-time [value]="t.lastUsed"/>
                     } @else {
-                      <span style="font-style:italic;">{{ 'tokens.table.neverUsed' | transloco }}</span>
+                      <span style="font-style:italic;color:var(--text-muted);">{{ 'tokens.table.neverUsed' | transloco }}</span>
                     }
                   </td>
                   <td>
                     @if (t.expiresAt) {
-                      <span class="badge" [class.badge-red]="isExpired(t)" [class.badge-gray]="!isExpired(t)">
-                        {{ isExpired(t) ? ('tokens.table.expired' | transloco) : '' }} {{ t.expiresAt | date:'dd.MM.yyyy' }}
+                      <span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                        @if (isExpired(t)) { <app-status-pill variant="error">{{ 'tokens.table.expired' | transloco }}</app-status-pill> }
+                        @else if (isExpiringSoon(t)) { <app-status-pill variant="warn" [dot]="true">{{ 'tokens.table.expiringSoon' | transloco }}</app-status-pill> }
+                        <app-relative-time [value]="t.expiresAt"/>
                       </span>
                     } @else {
-                      <span class="badge badge-green">{{ 'tokens.table.noExpiry' | transloco }}</span>
+                      <app-status-pill variant="ok">{{ 'tokens.table.noExpiry' | transloco }}</app-status-pill>
                     }
                   </td>
                   <td>
@@ -426,7 +408,7 @@ import { ModalDirective } from '../../shared/modal.directive';
                     }
                   </td>
                   <td style="white-space:nowrap; display:flex; gap:6px; align-items:center;">
-                    <button class="icon-btn" [attr.title]="'tokens.action.rotateTitle' | transloco" [attr.aria-label]="'tokens.action.rotateAriaLabel' | transloco" (click)="regenerate(t)" style="font-size:14px;">↺</button>
+                    <button class="icon-btn" [attr.title]="'tokens.action.rotateTitle' | transloco" [attr.aria-label]="'tokens.action.rotateAriaLabel' | transloco" (click)="regenerate(t)"><ph-icon name="arrows-clockwise" [size]="14"/></button>
                     <button class="icon-btn danger" [attr.title]="'tokens.action.revokeTitle' | transloco" [attr.aria-label]="'tokens.action.revokeAriaLabel' | transloco" (click)="revoke(t)"><ph-icon name="x" [size]="14"/></button>
                   </td>
                 </tr>
@@ -434,6 +416,8 @@ import { ModalDirective } from '../../shared/modal.directive';
                 <tr><td colspan="7">
                   <div class="empty-state" style="padding:24px;">
                     <h3>{{ 'tokens.empty.title' | transloco }}</h3>
+                    <p style="color:var(--text-secondary);font-size:13px;margin:6px 0 14px;">{{ 'tokens.empty.body' | transloco }}</p>
+                    <button class="btn-primary btn btn-sm" (click)="showCreateDialog.set(true)">{{ 'tokens.list.createButton' | transloco }}</button>
                   </div>
                 </td></tr>
               }
@@ -588,4 +572,24 @@ export class TokensComponent implements OnInit {
   isExpired(t: TokenRecord): boolean {
     return !!(t.expiresAt && new Date(t.expiresAt) < new Date());
   }
+
+  /** Not yet expired, but expiring within 7 days — the at-risk state that was invisible before. */
+  isExpiringSoon(t: TokenRecord): boolean {
+    if (!t.expiresAt) return false;
+    const exp = new Date(t.expiresAt).getTime();
+    const now = Date.now();
+    return exp > now && exp - now <= 7 * 24 * 60 * 60 * 1000;
+  }
+
+  /** Operator-first rollup: active / expiring-soon / expired counts (warn/error only shown when > 0). */
+  summary = computed<SummaryItem[]>(() => {
+    const ts = this.tokens();
+    const expired = ts.filter(t => this.isExpired(t)).length;
+    const expiring = ts.filter(t => this.isExpiringSoon(t)).length;
+    const tr = (k: string) => this.transloco.translate(k);
+    const items: SummaryItem[] = [{ label: tr('tokens.summary.active'), value: ts.length - expired }];
+    if (expiring) items.push({ label: tr('tokens.summary.expiring'), value: expiring, variant: 'warn' });
+    if (expired) items.push({ label: tr('tokens.summary.expired'), value: expired, variant: 'error' });
+    return items;
+  });
 }

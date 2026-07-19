@@ -924,6 +924,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Networks: rows stop overflowing on a narrow (iframe) width.** The member row (peer id /
+  label / direction / **endpoint URL** / remove) now wraps and truncates the long endpoint with an
+  ellipsis instead of pushing the card wider than its container, and the sync-history row collapses from a
+  fixed grid to a wrapping layout below 680px. The sync-history expand caret is now a `ph-icon` rather than
+  a raw `▲▼`.
+
 - **Internal: the Networks Create and Join dialogs are now their own components.** Extracted
   `NetworkCreateDialogComponent` and `NetworkJoinDialogComponent` out of the 1261-line `NetworksComponent`
   — the create form (label/type/space-selection + fallback and voting deadline) and the join flow (invite-

@@ -65,6 +65,13 @@ jobs:
             --load -t ythril-test:latest \
             -f Dockerfile .
 
+      - name: Build doc-render sidecar image (F11)
+        # First-party, built in-repo (sidecars/doc-render) — not in any registry, so pre-build it with an
+        # explicit context and tag. This makes it present locally, so `docker compose up` below reuses it
+        # instead of attempting a (denied) registry pull, and avoids relying on compose's relative
+        # build-context resolution.
+        run: docker build -t ythril-doc-render:0.1.0 sidecars/doc-render
+
       - name: Start test containers
         run: |
           # Ensure config bind-mount dirs are writable by the node user (uid 1000) inside the container

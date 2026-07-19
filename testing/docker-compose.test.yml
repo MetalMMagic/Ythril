@@ -44,6 +44,7 @@ services:
       NODE_ENV: test
       SYNC_ALLOW_PRIVATE_PEERS: "true"
       SYNC_ALLOW_INSECURE_PEERS: "true"
+      RENDER_SIDECAR_URL: http://doc-render:8100
       SKIP_AUTH_RATE_LIMIT: "true"
       SKIP_GLOBAL_RATE_LIMIT: "true"
       SKIP_SYNC_RATE_LIMIT: "true"
@@ -101,6 +102,7 @@ services:
       NODE_ENV: test
       SYNC_ALLOW_PRIVATE_PEERS: "true"
       SYNC_ALLOW_INSECURE_PEERS: "true"
+      RENDER_SIDECAR_URL: http://doc-render:8100
       SKIP_AUTH_RATE_LIMIT: "true"
       SKIP_GLOBAL_RATE_LIMIT: "true"
       SKIP_SYNC_RATE_LIMIT: "true"
@@ -154,6 +156,7 @@ services:
       NODE_ENV: test
       SYNC_ALLOW_PRIVATE_PEERS: "true"
       SYNC_ALLOW_INSECURE_PEERS: "true"
+      RENDER_SIDECAR_URL: http://doc-render:8100
     depends_on:
       ythril-mongo-c:
         condition: service_healthy
@@ -206,6 +209,7 @@ services:
       NODE_ENV: test
       SYNC_ALLOW_PRIVATE_PEERS: "true"
       SYNC_ALLOW_INSECURE_PEERS: "true"
+      RENDER_SIDECAR_URL: http://doc-render:8100
       SKIP_AUTH_RATE_LIMIT: "true"
       SKIP_GLOBAL_RATE_LIMIT: "true"
       SKIP_SYNC_RATE_LIMIT: "true"
@@ -240,6 +244,26 @@ services:
       timeout: 10s
       retries: 18
       start_period: 40s
+    networks:
+      - ythril-test
+
+  # F11 page-render sidecar — shared by all four instances (RENDER_SIDECAR_URL=http://doc-render:8100).
+  # Light PyMuPDF service; lets the render-sidecar integration test exercise real PDF rasterization in CI.
+  doc-render:
+    build: ../sidecars/doc-render
+    image: ythril-doc-render:0.1.0
+    container_name: ythril-doc-render-test
+    restart: unless-stopped
+    # Published to the host in the TEST stack only, so the render-sidecar integration test (which runs on
+    # the host, not through ythril) can hit it directly. The workstation compose keeps it internal-only.
+    ports:
+      - "8100:8100"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8100/health',timeout=3).read() or sys.exit(1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     networks:
       - ythril-test
 

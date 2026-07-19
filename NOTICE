@@ -350,3 +350,21 @@ Copyright (c) 2010 Elijah Insua
 
 License: MIT
 Copyright (c) Dom Christie
+
+### Runtime Dependency: doc-render sidecar (sidecars/doc-render, Docker image)
+
+The optional `doc-render` container (F11) renders PDF pages to images. Built in-repo; it bundles the
+following components, all under permissive licenses. Their copyright notices and licenses:
+
+- PDFium — BSD-3-Clause (see License Texts). Copyright The PDFium Authors.
+- pypdfium2 — Apache License 2.0 (see License Texts). Copyright pypdfium2-team.
+- Pillow — HPND. Copyright Jeffrey A. Clark and contributors; original PIL Copyright Secret Labs AB and Fredrik Lundh.
+- FastAPI — MIT (see License Texts). Copyright Sebastián Ramírez.
+- Starlette — BSD-3-Clause (see License Texts). Copyright Encode OSS Ltd.
+- Pydantic — MIT (see License Texts). Copyright Pydantic Services Inc. and contributors.
+- Uvicorn — BSD-3-Clause (see License Texts). Copyright Encode OSS Ltd.
+- python-multipart — Apache License 2.0 (see License Texts). Copyright Andrew Dunham.
+- Python (base image `python:3.13-slim`) — PSF License Agreement, plus Debian base-image components under their respective (permissive) licenses.
+
+The HPND and PSF license texts are the standard, unmodified texts published by their stewards; their full
+texts ship inside the image. See `sidecars/doc-render/LICENSES.md`.

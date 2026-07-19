@@ -28,6 +28,9 @@
       # Document-conversion sidecar (PDF / DOCX / EPUB → Markdown). Defaults to the bundled
       # `unstructured` service defined below; override to use an external converter (C2).
       CONVERSION_SIDECAR_URL: ${CONVERSION_SIDECAR_URL:-http://unstructured:8000}
+      # Page-render sidecar (PDF → page images) for the F11 VLM extraction path. Defaults to the bundled
+      # `doc-render` service below; only used when documentProcessing.mode is vlm/auto/max.
+      RENDER_SIDECAR_URL: ${RENDER_SIDECAR_URL:-http://doc-render:8100}
       YTHRIL_LOCAL_AGENT_ENABLED: ${YTHRIL_LOCAL_AGENT_ENABLED:-}
       YTHRIL_LOCAL_AGENT_URL: ${YTHRIL_LOCAL_AGENT_URL:-http://localhost:38123}
       YTHRIL_LOCAL_AGENT_TOKEN: ${YTHRIL_LOCAL_AGENT_TOKEN:-}
@@ -182,6 +185,33 @@
       timeout: 5s
       retries: 5
       start_period: 120s
+    networks:
+      - ythril-convert   # isolated: no DB, no internet
+
+  # ── Page-render sidecar (PDF → page PNGs) for the F11 VLM extraction path ──────
+  # A tiny PyMuPDF service. Like `unstructured`, it parses UNTRUSTED user documents, so it sits on the
+  # same isolated internal `ythril-convert` network — no database access and no internet egress — and
+  # runs non-root (see sidecars/doc-render/Dockerfile). Only used when documentProcessing.mode is
+  # vlm/auto/max; NOT a startup dependency (VLM extraction degrades to OCR when it is absent). It is
+  # light (~python-slim + PyMuPDF, no model weights), so leaving it running is cheap.
+  doc-render:
+    build: ./sidecars/doc-render
+    image: ythril-doc-render:0.1.0
+    container_name: ythril-doc-render
+    restart: unless-stopped
+    # Defence in depth on top of the internal network + non-root user.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8100/health',timeout=3).read() or sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - ythril-convert   # isolated: no DB, no internet
 

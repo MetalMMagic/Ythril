@@ -42,6 +42,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Document page-render sidecar (F11).** A tiny, isolated PDFium (pypdfium2) service (`sidecars/doc-render`) that
+  renders PDF pages to PNG images — the one new capability the upcoming VLM document-extraction path needs
+  (nothing rasterized pages before). It parses untrusted documents, so it runs non-root on the same
+  internal-only `ythril-convert` network as the OCR sidecar (no database, no internet egress), with
+  `read_only` / `cap_drop: ALL` / `no-new-privileges` / a memory limit, and enforces its own size/page
+  caps. Bundled in the workstation compose (light — no model weights); reached via `RENDER_SIDECAR_URL`.
+  Not yet wired into the conversion pipeline — the VLM extractor that consumes it lands in a follow-up.
+
 - **Document-extraction mode config + routing/validation engine (F11 foundation).** Groundwork for the
   upcoming VLM document-extraction pipeline: `mediaEmbedding.documentProcessing` is now editable via the
   admin media-config API (`PATCH /api/admin/media-config`), gaining a `mode` field (`ocr` | `vlm` | `auto`

@@ -54,6 +54,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`max`-mode repair pass for VLM extraction (F11).** When a document's VLM transcription fails the
+  OCR-evidence coverage check, `max` mode now runs **one bounded repair pass** before falling back to OCR:
+  a single text-only reconciliation call hands the model its own draft plus the OCR text and asks it to
+  restore any dropped content, then re-validates. Repair can only turn a fallback into an acceptance — it
+  never degrades a result that already passed, and if it errors or still doesn't validate the extractor
+  falls back to OCR exactly as before (still never worse than plain OCR). By default the repair pass reuses
+  the configured `vlmModel`; set `documentProcessing.repairModel` (`DOC_REPAIR_MODEL`, with optional
+  `repairBaseUrl` / `DOC_REPAIR_URL`) to wire in a stronger model you host yourself. Like `vlmModel`, these
+  are env/config-file only — deliberately not settable through the admin API. `vlm` / `auto` modes are
+  unchanged (single pass, no repair). Consensus (`verify`) remains a later phase.
+
 - **VLM document extractor — the pipeline wiring (F11).** The `vlm` / `auto` / `max` modes are now live in
   the conversion pipeline (they were inert config until now). For a PDF/DOCX/EPUB, the extractor runs OCR
   for *evidence*, rasterizes the pages via the render sidecar, transcribes each page with a local Ollama

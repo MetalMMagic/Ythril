@@ -377,6 +377,18 @@ export interface DocumentProcessingConfig {
    * (the bundled local path, no egress). Env: `DOC_VLM_URL`.
    */
   vlmBaseUrl?: string;
+  /**
+   * F11 — optional heavyweight "review/repair" model tag used **only in `max` mode** when a page's VLM
+   * output fails OCR-evidence validation: it reconciles the draft against the OCR text in one extra pass.
+   * Empty (default) reuses `vlmModel` for the repair pass (self-contained). Set this to wire in a stronger
+   * model you host yourself. Env: `DOC_REPAIR_MODEL`.
+   */
+  repairModel?: string;
+  /**
+   * F11 — base URL for the repair model. Empty (default) reuses `vlmBaseUrl` (then the vision URL).
+   * Env: `DOC_REPAIR_URL`.
+   */
+  repairBaseUrl?: string;
 }
 
 /** F11 — document-extraction mode: OCR-only (default) vs the VLM precision pipeline. */

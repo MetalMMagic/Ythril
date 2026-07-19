@@ -1996,9 +1996,11 @@ The unstructured sidecar strategy and image extraction behaviour can be tuned un
 |---|---|---|
 | `strategy` | `"hi_res"` | Unstructured partition strategy. `"hi_res"`: full Tesseract OCR + layout detection — accurate on scanned PDFs, extracts embedded images and structured tables. `"auto"`: sidecar picks the fastest viable strategy. `"fast"`: pdfminer text-layer only — fastest but no OCR, no image extraction. `"ocr_only"`: force OCR on every page regardless of whether a text layer exists. |
 | `extractImages` | `true` | When `true` and `strategy` is `"hi_res"`, embedded images found in document partitions are decoded and saved as `_extracted/{originalId}/image-{N}.{ext}` subfiles. Each is automatically enqueued for the full media pipeline (caption + face recognition). Has no effect when strategy is not `"hi_res"`. |
-| `mode` | `"ocr"` | Extraction path. `"ocr"` (default) is today's unstructured-sidecar OCR — unchanged. `"vlm"` renders each page and transcribes it with a vision model, using OCR as grounding evidence and falling back to OCR if the result doesn't validate (so it is **never worse than OCR**). `"auto"` uses the VLM only when it is configured and available, else OCR. `"max"` adds validation-driven repair + consensus (later PRs; behaves like `"vlm"` until then). |
+| `mode` | `"ocr"` | Extraction path. `"ocr"` (default) is today's unstructured-sidecar OCR — unchanged. `"vlm"` renders each page and transcribes it with a vision model, using OCR as grounding evidence and falling back to OCR if the result doesn't validate (so it is **never worse than OCR**). `"auto"` uses the VLM only when it is configured and available, else OCR. `"max"` adds a validation-driven **repair** pass (below) on top of `"vlm"`; consensus is a later phase. |
 | `vlmModel` | `""` | Ollama vision model used for `vlm` / `auto` / `max` (e.g. a bundled `moondream`, or a larger model you wire in). Empty ⇒ the VLM path is unavailable and extraction stays on OCR. Env override: `DOC_VLM_MODEL`. |
 | `vlmBaseUrl` | `""` | Endpoint for the VLM. Empty ⇒ falls back to the media vision provider's `baseUrl`, then `http://ollama:11434`. Env override: `DOC_VLM_URL`. |
+| `repairModel` | `""` | **`max` mode only.** Model used for the repair pass when a page's VLM output fails OCR-evidence validation — it reconciles the draft against the OCR text in one extra text-only call. Empty ⇒ reuses `vlmModel`. Set this to wire in a stronger model you host. Env override: `DOC_REPAIR_MODEL`. |
+| `repairBaseUrl` | `""` | Endpoint for the repair model. Empty ⇒ reuses `vlmBaseUrl`. Env override: `DOC_REPAIR_URL`. |
 | `renderDpi` | `150` | Page rasterization DPI for the render sidecar (VLM modes only). |
 | `maxPages` | `50` | Cap on pages rendered/transcribed per document (VLM modes only). |
 | `pageTimeoutMs` | `60000` | Per-page VLM transcription timeout (VLM modes only). |
@@ -2006,6 +2008,13 @@ The unstructured sidecar strategy and image extraction behaviour can be tuned un
 
 The VLM modes require both a running `doc-render` sidecar and a configured `vlmModel`. If either is missing,
 Ythril transparently uses OCR — no upload fails because a model isn't wired in yet.
+
+**Repair pass (`max` mode).** When a document's VLM transcription fails the OCR-evidence coverage check,
+`max` mode runs one bounded repair pass before falling back to OCR: it sends the draft transcription and the
+OCR text to `repairModel` (or `vlmModel` if unset) in a single text-only call, asks it to restore any dropped
+content, and re-validates. If the repaired output passes it is accepted; if it errors or still doesn't pass,
+the extractor falls back to OCR — so the result is still never worse than plain OCR. Exactly one repair pass
+runs per document (bounded cost); consensus/verification is a later phase.
 
 **Example `config.json` excerpt:**
 

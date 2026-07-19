@@ -7,13 +7,16 @@
  * result is never worse than plain OCR. If a capability is missing it degrades: no render/VLM → OCR; OCR
  * down but VLM up → ungrounded VLM; nothing available → the usual ConversionUnavailableError propagates.
  *
- * Repair/consensus (`max`) and the external hosted-VLM path (with ssrfSafeFetch egress) are later phases.
+ * `max` mode adds one bounded **repair** pass: when the VLM output fails OCR-evidence validation, a single
+ * text-only reconciliation call (reusing the VLM, or a wired-in `repairModel`) tries to restore the dropped
+ * content before falling back to OCR. Consensus (`verify`) and the external hosted-VLM egress path
+ * (with ssrfSafeFetch) are later phases.
  */
 import { log } from '../../util/log.js';
 import { getDocumentProcessingConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
 import { UnstructuredConverter, type UnstructuredResult } from './unstructured.js';
 import { renderPdfPages, isRenderAvailable } from './renderer.js';
-import { transcribePageImage } from './vlm-client.js';
+import { transcribePageImage, repairMarkdown } from './vlm-client.js';
 import { decideRoute, validateExtraction } from './extraction-policy.js';
 
 const TRANSCRIBE_PROMPT =
@@ -31,7 +34,9 @@ export interface VlmExtractResult extends UnstructuredResult {
 export async function vlmExtractDocument(fileBytes: Buffer, fileName: string): Promise<VlmExtractResult> {
   const cfg = getDocumentProcessingConfig();
   const render = await isRenderAvailable();
-  const route = decideRoute(cfg.mode, { ocr: true, render, vlm: !!cfg.vlmModel, repair: false, verify: false });
+  // `repair` reuses the VLM (or a wired-in repairModel), so it's available whenever the VLM is; decideRoute
+  // only actually schedules the repair stage for `max` mode.
+  const route = decideRoute(cfg.mode, { ocr: true, render, vlm: !!cfg.vlmModel, repair: !!cfg.vlmModel, verify: false });
 
   // OCR is evidence + fallback. Tolerate it being down IF the VLM path can still run (ungrounded).
   let ocr: UnstructuredResult | null = null;
@@ -68,15 +73,40 @@ export async function vlmExtractDocument(fileBytes: Buffer, fileName: string): P
 
     // Validate against OCR evidence when we have it; otherwise just require non-empty output.
     const evidence = ocr?.markdown ?? '';
+    const ranLabel = ocr ? 'ocr+vlm' : 'vlm';   // audit label for what the VLM path actually produced
     const v = validateExtraction(markdown, evidence);
     if (v.ok) {
-      log.debug(`VLM extract: accepted ${route.label} (${pages.length} pages, coverage ${(v.coverage * 100).toFixed(0)}%)`);
-      return { markdown, extractedImages: ocr?.extractedImages ?? [], extractionPath: route.label };
+      log.debug(`VLM extract: accepted ${ranLabel} (${pages.length} pages, coverage ${(v.coverage * 100).toFixed(0)}%)`);
+      return { markdown, extractedImages: ocr?.extractedImages ?? [], extractionPath: ranLabel };
+    }
+
+    // ── max-mode repair: ONE bounded reconciliation pass against the OCR evidence before giving up ──
+    // Only for `max` (route has the repair stage) and only when we have OCR evidence to reconcile against.
+    // Repair can only turn a fallback into an acceptance — it never degrades a result that already passed.
+    if (route.stages.includes('repair') && ocr && evidence.trim()) {
+      const repairModel = cfg.repairModel || cfg.vlmModel;
+      const repairBase = cfg.repairBaseUrl || baseUrl;
+      try {
+        log.info(`VLM extract: validation failed (${v.issues.join('; ')}) — repairing with ${repairModel}`);
+        const r = await repairMarkdown({
+          baseUrl: repairBase, model: repairModel, draft: markdown, evidence, issues: v.issues,
+          timeoutMs: cfg.pageTimeoutMs,
+        });
+        const repaired = r.text.trim();
+        const rv = validateExtraction(repaired, evidence, { finishReason: r.truncated ? 'length' : undefined });
+        if (rv.ok) {
+          log.debug(`VLM extract: accepted ${ranLabel}+repair (coverage ${(rv.coverage * 100).toFixed(0)}%)`);
+          return { markdown: repaired, extractedImages: ocr.extractedImages ?? [], extractionPath: `${ranLabel}+repair` };
+        }
+        log.info(`VLM extract: repair still below threshold (${rv.issues.join('; ')}) — falling back to OCR`);
+      } catch (err) {
+        log.warn(`VLM extract: repair errored (${err instanceof Error ? err.message : err}) — falling back to OCR`);
+      }
     }
 
     if (ocr) {
-      log.info(`VLM extract: validation failed (${v.issues.join('; ')}) — falling back to OCR`);
-      return { ...ocr, extractionPath: `${route.label}→ocr` };
+      if (!route.stages.includes('repair')) log.info(`VLM extract: validation failed (${v.issues.join('; ')}) — falling back to OCR`);
+      return { ...ocr, extractionPath: `${ranLabel}→ocr` };
     }
     throw new Error(`VLM output rejected and no OCR evidence to fall back to: ${v.issues.join('; ')}`);
   } catch (err) {

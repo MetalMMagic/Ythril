@@ -52,4 +52,17 @@ describe('VLM extraction mode wiring (F11)', () => {
     assert.ok(r.body?.sha256);
     assert.equal(r.body?.embeddingStatus, 'pending');
   });
+
+  it('a PDF uploaded under mode:max (repair tier) also degrades gracefully (202)', async () => {
+    // `max` adds the repair pass on top of `vlm`. With no VLM/render/OCR sidecar in CI the route still
+    // collapses to OCR — the repair tier must never make an upload fail where `vlm`/`ocr` would succeed.
+    const set = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: { mode: 'max' } });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    assert.equal(set.body?.config?.documentProcessing?.mode, 'max');
+
+    const r = await upload(tokenA, `max-mode-${Date.now()}.pdf`, Buffer.from('%PDF-1.4 test').toString('base64'));
+    assert.equal(r.status, 202, `expected 202 (graceful async), got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(r.body?.sha256);
+    assert.equal(r.body?.embeddingStatus, 'pending');
+  });
 });

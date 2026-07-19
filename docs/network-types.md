@@ -413,7 +413,7 @@ sequenceDiagram
 - **Private keys** are held in memory only and discarded immediately after `finalize`.
 - **Single-use sessions**: replaying `apply` on the same `handshakeId` returns 409.
 - **`handshakeId`** is stored as a bcrypt hash — lookup uses constant-time comparison.
-- Sessions expire after 1 hour; any attempt on an expired or unknown session returns 401.
+- Sessions expire after 1 hour. A mutating attempt (`apply`/`finalize`) on an expired or unknown session returns 401; the read-only invite-**status** lookup returns 404 `{ status: 'not_found' }` for an expired, completed, or never-existed session (it deliberately does not distinguish the three).
 - Rate-limited at the auth tier (10 req/min per IP on `apply` and `finalize`).
 
 ### Endpoints

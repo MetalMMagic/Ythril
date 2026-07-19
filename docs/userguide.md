@@ -314,7 +314,7 @@ This tab lists all schema definitions on this instance.
 
 **Creating an entry:** Click **+ New entry**. Fill in:
 
-- **Default Type Name** — the display name (e.g. `Service`). A unique identifier is derived from it automatically.
+- **Name** — the display name (e.g. `Service`). A unique identifier is derived from it automatically.
 - **Knowledge Type** — which kind of data this schema applies to.
 - **Description** — optional, surfaced to AI assistants.
 - **Naming pattern** — an optional regular expression that entity names must match.
@@ -325,9 +325,9 @@ Click anywhere on a card to open and edit it. Changes save and close automatical
 
 **Publishing:** Click the globe icon on a card to make the entry visible to other Ythril instances. The icon turns accented when published. Click again to unpublish. No space data is ever exposed — only the schema definition.
 
-**Sharing your library:** On the My Library tab, the search bar row also shows your instance's public library URL. Click **Copy** to copy it. Other instances can paste this URL when adding a catalog link.
+**Sharing your library:** The **Share This Library** panel shows your instance's **Public endpoint** URL. Click **Copy URL** to copy it. Other instances can paste this URL when adding a catalog link.
 
-To protect your library endpoint with a token (e.g. when your instance sits behind Cloudflare Access), click **Create token**. Give the token a name and click **Create** — the value is shown once. Paste it into the **Library Access Token** field when the consuming instance adds a catalog link pointing to you.
+To protect your library endpoint with a token (e.g. when your instance sits behind Cloudflare Access), click **Create access token**. Give the token a name and click **Create** — the value is shown once. Paste it into the **Library Access Token** field when the consuming instance adds a catalog link pointing to you.
 
 **Deleting:** Click the trash icon. If spaces currently reference the entry, a dialog shows which ones and offers to unlink them automatically before deleting.
 
@@ -469,9 +469,13 @@ Networks sync selected spaces between multiple Ythril instances over the interne
 | **Braintree** | All parent nodes up to the root must agree |
 | **Pub/Sub** | No approval — any compatible brain can subscribe |
 
+### Enabling networks
+
+The first time you open **Settings → Networks**, networking is off. Click **Enable Networks** to run a short 3-step wizard (Step *N* of 3) that walks you through exposing your brain's connector and confirming the risk model before the Create / Join controls appear.
+
 ### Creating a network
 
-Click **+ Create network**. Enter a label, choose a type, enter the space IDs to include, and optionally set a sync schedule (cron expression).
+Click **Create Network**. Enter a label, choose a type, enter the space IDs to include, and optionally set a sync schedule (cron expression).
 
 ### Inviting another brain
 
@@ -483,7 +487,7 @@ The invite expires after 1 hour.
 
 ### Joining a network
 
-1. Click **Join an existing network**.
+1. Click **Join Network**.
 2. Paste the invite bundle.
 3. Enter your brain's publicly reachable URL (e.g. `https://brain.example.com`).
 4. If any space IDs overlap with existing local spaces, a dialog lets you choose to merge into the existing space or map the remote space to a new local ID.
@@ -499,7 +503,7 @@ Expand a network card and click **Sync History** to see a log of every sync cycl
 
 ### Voting
 
-When a vote is open (e.g. a member wants to leave), expand the network card and scroll to **Open votes**. Click **✓ Yes** or **✗ No** to cast your vote.
+When a vote is open (e.g. a member wants to leave), expand the network card and scroll to **Open votes**. Each open vote shows its **Deadline** and a running tally (`N yes · M veto`). Click **✓ Yes** to approve, or **✗ Veto** to block the round — a veto asks you to confirm ("A veto blocks this pending round for the whole network. This cannot be undone.") before it is cast.
 
 **Signed votes:** a network can set `requireSignedVotes` so every vote cast must carry a valid Ed25519 signature from the voting member (verified against its pinned signing key). Enable it once all members have published a signing key; if a member rotates its signing key, the new key is accepted with a rotation proof that references the previous one.
 
@@ -511,14 +515,14 @@ Click **Leave network** at the bottom of the network card. Your local data in th
 
 ## Settings — Models
 
-**Settings → Models** (admin only, MFA-protected) controls how Ythril turns image, audio, video, and document uploads into searchable content.
+**Settings → Models** (the page is titled **Models & Media**; admin only, MFA-protected) controls how Ythril turns image, audio, video, and document uploads into searchable content.
 
 By default, Ythril ships with a bundled vision service (Ollama running `moondream`) and a bundled speech-to-text service (faster-whisper-server). When you upload a picture, Ythril writes a short caption of what's in it; when you upload audio or video, it transcribes the words. The result is added to the same search index as your memories, so you can find an attachment by what's *inside* it, not just its filename.
 
 ### When to change this
 
 - **Disable it.** Untick **Enable media embedding** if you don't upload media or your machine is tight on memory. Existing files keep their captions; new uploads are stored as-is.
-- **Use an external provider.** Switch **Vision provider** or **STT provider** to *External* if you'd rather call OpenAI, Azure, or any other OpenAI-compatible service. Fill in the **Base URL**, **Model**, and **API key** for that provider. API keys are stored in the encrypted secrets file, never alongside the rest of the configuration.
+- **Use an external provider.** Switch the **Provider** on the **Vision** or **Speech** card to *External* if you'd rather call OpenAI, Azure, or any other OpenAI-compatible service. Fill in the **Endpoint**, **Model**, and **API key (external only)** for that provider. API keys are stored in the encrypted secrets file, never alongside the rest of the configuration.
 - **Use a different local model.** Keep the provider on *Local* but change the **Model** field — for example, switch the vision model from `moondream` to `llava` if you've pulled it into Ollama.
 
 ### Locked fields
@@ -746,15 +750,15 @@ Migration is a one-way operation. Keep your old database available until you hav
 
 ## Settings — Audit Log
 
-**Settings → Audit Log** (admin only) shows a searchable log of every API operation on this instance.
+**Settings → Audit Log** (admin only) shows a searchable log of every API operation on this instance. The page has two sub-tabs, toggled at the top: **Audit Log** (the operation table below) and **Server Log** (the live server log described at the end).
 
 **Filtering:** Filter by date range, operation type, space, HTTP status, or client IP.
 
-**Table:** Each row shows the timestamp, which token or user made the request, the operation, the space, the HTTP status, and the response time. Click a row to see the full details.
+**Table:** Each row shows the timestamp, which token or user made the request, the operation, the space, the HTTP status, and the response time. Click the **Detail** button on a row to open a structured panel with every field (timestamp, token/user, operation, method + path, status, IP, duration, space, entry ID) plus the full raw entry in a collapsible **Raw JSON** section.
 
 **Exporting:** Download the current filtered view as JSON or CSV.
 
-**Live server log:** the Audit Log page also carries the instance's **live server log**, streamed in real time over Server-Sent Events (SSE). It loads the recent lines and then appends new ones as they happen, colour-coded by level.
+**Live server log:** the **Server Log** sub-tab streams the instance's log in real time over Server-Sent Events (SSE). It loads the recent lines and then appends new ones as they happen, colour-coded by level.
 
 ---
 

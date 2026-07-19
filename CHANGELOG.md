@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Docker hardening: pinned base images + privilege-escalation lockdown on the parser sidecars.** The
+  floating `:latest` base images (`ollama`, `faster-whisper-server`, `mongodb-atlas-local`, and `node:22-slim`
+  in the app `Dockerfile`) are now pinned to explicit multi-arch manifest **digests**, so a re-pull can't
+  silently substitute a different image (supply-chain reproducibility; the already-pinned
+  `unstructured:0.1.2` and first-party images are unchanged). The untrusted-input parser sidecars
+  (`unstructured`, `ollama`, `whisper`) gain `security_opt: no-new-privileges:true`, and the `doc-render`
+  sidecar gains `cpus` / `pids_limit` ceilings (bounding a malformed-PDF CPU-spin or fork attempt) on top of
+  its existing non-root / `read_only` / `cap_drop: ALL` / memory cap. (Memory/PID/cap-drop/read-only limits
+  for the heavier model servers need live-stack sizing so a cap doesn't OOM inference — tracked as a
+  follow-up.) Also corrected a stale `doc-render` comment that described it as a PyMuPDF service — it is
+  PDFium (pypdfium2), deliberately not AGPL PyMuPDF.
+
 - **Closed SSRF gaps in the schema-catalog proxy and network control-plane calls.** Several outbound
   requests used a bare `fetch()` and relied only on a create-time URL string check (`isSsrfSafeUrl`),
   which does not resolve DNS and does not re-validate redirect targets — so a catalog/peer host could

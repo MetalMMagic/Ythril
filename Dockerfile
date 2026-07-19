@@ -1,6 +1,6 @@
 ﻿# syntax=docker/dockerfile:1
 # ── Stage 1: Build Angular SPA ───────────────────────────────────────────────
-FROM node:22-slim AS client-builder
+FROM node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS client-builder
 
 WORKDIR /build
 
@@ -17,7 +17,7 @@ RUN npm run build:prod --workspace=client
 # Angular output: client/dist/browser/
 
 # ── Stage 2: Build server ────────────────────────────────────────────────────
-FROM node:22-slim AS builder
+FROM node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS builder
 
 # Build tools required for bcrypt native C++ addon
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
@@ -39,7 +39,7 @@ COPY server/ ./server/
 RUN npm run build --workspace=server
 
 # ── Stage 2: Production ──────────────────────────────────────────────────────
-FROM node:22-slim AS production
+FROM node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS production
 
 LABEL org.opencontainers.image.source="https://github.com/ythril-network/Ythril"
 LABEL org.opencontainers.image.description="Ythril — self-hosted brain & knowledge management platform"

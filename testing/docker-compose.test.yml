@@ -65,7 +65,7 @@ services:
       - ythril-test
 
   ythril-mongo-a:
-    image: mongodb/mongodb-atlas-local:latest
+    image: mongodb/mongodb-atlas-local:latest@sha256:1cd040bb201bb7f910c7c6ab7f6cb8ab9dd79331f6a213f37025adc6804e96aa
     container_name: ythril-mongo-a
     volumes:
       - ythril-mongo-a-data:/data/db
@@ -119,7 +119,7 @@ services:
       - ythril-test
 
   ythril-mongo-b:
-    image: mongodb/mongodb-atlas-local:latest
+    image: mongodb/mongodb-atlas-local:latest@sha256:1cd040bb201bb7f910c7c6ab7f6cb8ab9dd79331f6a213f37025adc6804e96aa
     container_name: ythril-mongo-b
     volumes:
       - ythril-mongo-b-data:/data/db
@@ -170,7 +170,7 @@ services:
       - ythril-test
 
   ythril-mongo-c:
-    image: mongodb/mongodb-atlas-local:latest
+    image: mongodb/mongodb-atlas-local:latest@sha256:1cd040bb201bb7f910c7c6ab7f6cb8ab9dd79331f6a213f37025adc6804e96aa
     container_name: ythril-mongo-c
     volumes:
       - ythril-mongo-c-data:/data/db
@@ -228,7 +228,7 @@ services:
       - ythril-test
 
   ythril-mongo-d:
-    image: mongodb/mongodb-atlas-local:latest
+    image: mongodb/mongodb-atlas-local:latest@sha256:1cd040bb201bb7f910c7c6ab7f6cb8ab9dd79331f6a213f37025adc6804e96aa
     container_name: ythril-mongo-d
     volumes:
       - ythril-mongo-d-data:/data/db

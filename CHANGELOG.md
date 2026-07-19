@@ -891,6 +891,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Webhooks: delivery health at a glance.** The page opens with a summary strip (endpoints /
+  failing / disabled counts), **failing hooks sort to the top** so an operational problem reads first, the
+  **Test** button shows an in-flight state instead of firing silently, delivery timestamps in the history
+  dialog are now relative ("2 minutes ago"), the status badges fold into the shared status-pill vocabulary,
+  and the destructive Delete action is visually distinguished. (Part of the settings design-system rollout.)
+
 - **Settings → Tokens: at-a-glance health and an expiry warning.** The page now opens with an operator
   summary strip (active / expiring-within-7-days / expired counts) so a token about to lapse is visible
   without reading every row, and expiring tokens get an amber "Expiring" pill. Timestamps (created / last

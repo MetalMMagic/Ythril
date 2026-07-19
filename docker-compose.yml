@@ -55,8 +55,10 @@
       - ythril-convert   # document-conversion sidecar (isolated: no DB, no internet)
 
   ythril-mongo:
-    # mongodb/mongodb-atlas-local includes mongot — required for $vectorSearch
-    image: mongodb/mongodb-atlas-local:latest
+    # mongodb/mongodb-atlas-local includes mongot — required for $vectorSearch.
+    # Pinned to the current manifest-list digest. Refresh:
+    #   docker buildx imagetools inspect mongodb/mongodb-atlas-local:latest
+    image: mongodb/mongodb-atlas-local:latest@sha256:1cd040bb201bb7f910c7c6ab7f6cb8ab9dd79331f6a213f37025adc6804e96aa
     container_name: ythril-mongo
     # Pin hostname so the replica-set config remains valid across container restarts.
     # Without this, each `docker compose down && up` gets a new random hostname,
@@ -104,9 +106,15 @@
   #      `docker compose up --scale ollama=0 --scale whisper=0` thereafter,
   #      or assigning a non-default profile in docker-compose.override.yml.
   ollama:
-    image: ollama/ollama:latest
+    # Pinned to the current multi-arch manifest-list digest (reproducible; a re-pull can't silently
+    # substitute a different image). Refresh: docker buildx imagetools inspect ollama/ollama:latest.
+    image: ollama/ollama:latest@sha256:6345fbc18bd73a1e16404be681dbc6fd291a027cab43ed541abe78c4c81051b0
     container_name: ythril-ollama
     restart: unless-stopped
+    # Parses untrusted user media — block privilege escalation. (Memory/pid/cap limits for the heavy
+    # model servers are tracked separately: they need live-stack sizing so a cap doesn't OOM inference.)
+    security_opt:
+      - no-new-privileges:true
     # Auto-pull the default vision model on first start so the first upload
     # does not fail with "model not found". Subsequent restarts no-op.
     entrypoint: ["/bin/sh", "-c"]
@@ -131,9 +139,14 @@
       - ythril-media     # deliberately NOT on ythril-db
 
   whisper:
-    image: fedirz/faster-whisper-server:latest-cpu
+    # Pinned to the current multi-arch manifest-list digest. Refresh:
+    #   docker buildx imagetools inspect fedirz/faster-whisper-server:latest-cpu
+    image: fedirz/faster-whisper-server:latest-cpu@sha256:760e5e43d427dc6cfbbc4731934b908b7de9c7e6d5309c6a1f0c8c923a5b6030
     container_name: ythril-whisper
     restart: unless-stopped
+    # Parses untrusted user media — block privilege escalation (see the ollama note re: heavier limits).
+    security_opt:
+      - no-new-privileges:true
     environment:
       WHISPER_MODEL: "base"  # ~140 MB; auto-downloads on first request
     volumes:
@@ -177,6 +190,9 @@
     image: downloads.unstructured.io/unstructured-io/unstructured-api:0.1.2
     container_name: ythril-unstructured
     restart: unless-stopped
+    # Parses untrusted user documents (OCR) — block privilege escalation (see the ollama note re: heavier limits).
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       # The image is a Python/uvicorn service; probe /healthcheck with the bundled
       # interpreter rather than assuming curl/wget is present.
@@ -189,7 +205,8 @@
       - ythril-convert   # isolated: no DB, no internet
 
   # ── Page-render sidecar (PDF → page PNGs) for the F11 VLM extraction path ──────
-  # A tiny PyMuPDF service. Like `unstructured`, it parses UNTRUSTED user documents, so it sits on the
+  # A tiny PDFium (pypdfium2) service — Apache-2.0/BSD, deliberately NOT AGPL PyMuPDF. Like `unstructured`,
+  # it parses UNTRUSTED user documents, so it sits on the
   # same isolated internal `ythril-convert` network — no database access and no internet egress — and
   # runs non-root (see sidecars/doc-render/Dockerfile). Only used when documentProcessing.mode is
   # vlm/auto/max; NOT a startup dependency (VLM extraction degrades to OCR when it is absent). It is
@@ -206,6 +223,10 @@
     cap_drop:
       - ALL
     mem_limit: 1g
+    # This is our own tiny single-process (uvicorn --workers 1) service, so CPU/PID ceilings are safe to
+    # set here — they bound a malformed-PDF CPU-spin or a fork attempt without risking normal operation.
+    cpus: "1.0"
+    pids_limit: 128
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8100/health',timeout=3).read() or sys.exit(1)"]
       interval: 30s

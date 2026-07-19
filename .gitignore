@@ -63,6 +63,8 @@ npm-debug.log*
 
 # Build / test output
 *.txt
+# ...but never ignore dependency manifests (e.g. Python sidecars' requirements.txt) — they're source.
+!**/requirements.txt
 
 # TypeScript build info
 *.tsbuildinfo

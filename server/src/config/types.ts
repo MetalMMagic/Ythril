@@ -351,11 +351,11 @@ export interface DocumentProcessingConfig {
    */
   extractImages?: boolean;
   /**
-   * F11 — document-extraction mode. `ocr` (default) uses only the unstructured sidecar (today's
-   * behaviour, unchanged). `vlm`/`auto`/`max` opt into the VLM precision pipeline
-   * (render → OCR-grounded VLM → validate → repair/consensus). Requires the render sidecar + a VLM to be
-   * wired in; the router falls back to OCR when a needed capability is absent, so it is never worse than
-   * plain OCR. See `todo/F11-PLAN.md`.
+   * F11 — document-extraction mode. `auto` (default) uses the VLM when one is configured and reachable,
+   * otherwise falls back to OCR — so with no `vlmModel` set it is byte-for-byte the OCR-only path. `ocr`
+   * forces OCR-only; `vlm`/`max` opt further into the VLM precision pipeline
+   * (render → OCR-grounded VLM → validate → repair/consensus). The router falls back to OCR whenever a
+   * needed capability is absent, so it is never worse than plain OCR. See `todo/F11-PLAN.md`.
    */
   mode?: DocExtractionMode;
   /** F11 — DPI for page rasterization in VLM modes. Default 150. */

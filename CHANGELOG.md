@@ -891,6 +891,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Document extraction now defaults to `auto`.** `mediaEmbedding.documentProcessing.mode` defaults to `auto`
+  (was `ocr`): use the VLM when one is configured and reachable, otherwise fall back to OCR. With no
+  `vlmModel` set this is byte-for-byte the old OCR-only path, so installs without a vision model are
+  unaffected — wiring one in now takes effect without also flipping the mode.
+
+- **Settings → Models: layout + copy polish.** The capability cards use a responsive grid (filling the width
+  instead of one narrow column; the Document Extraction card spans full-width for its pipeline), and the
+  extraction-mode descriptions now say what each path *does* rather than referencing "today's behaviour".
+
 - **Settings → Webhooks: delivery health at a glance.** The page opens with a summary strip (endpoints /
   failing / disabled counts), **failing hooks sort to the top** so an operational problem reads first, the
   **Test** button shows an in-flight state instead of firing silently, delivery timestamps in the history

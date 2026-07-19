@@ -31,7 +31,7 @@ interface MediaCfg {
 }
 
 const MODE_DESC: Record<DocMode, string> = {
-  ocr:  'Today’s behaviour — the unstructured sidecar reads the text. Fast, no vision model.',
+  ocr:  'The OCR sidecar (Tesseract) reads text and tables from each page. Fast, fully local, no vision model needed.',
   vlm:  'Render each page and transcribe it with the vision model, grounded on the OCR text.',
   auto: 'Use the vision model when it’s available, otherwise fall back to OCR automatically.',
   max:  'VLM plus a repair pass that reconciles the draft against the OCR text before accepting.',
@@ -58,7 +58,9 @@ const STAGES = [
   styles: [`
     :host { display: block; }
     .page-header { margin-bottom: 18px; }
-    .cards { display: flex; flex-direction: column; gap: 16px; }
+    /* Responsive card grid — fills horizontal space instead of one narrow column. */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; align-items: start; }
+    .cards > .span-all { grid-column: 1 / -1; }
     .field { margin-bottom: 14px; }
     .field:last-child { margin-bottom: 0; }
     .field > label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px; font-weight: 500; }
@@ -208,7 +210,7 @@ const STAGES = [
         </app-settings-card>
 
         <!-- Document extraction (F11) -->
-        <app-settings-card icon="file" heading="Document Extraction" purpose="How PDFs, Word docs, and EPUBs are turned into text for the brain.">
+        <app-settings-card class="span-all" icon="file" heading="Document Extraction" purpose="How PDFs, Word docs, and EPUBs are turned into text for the brain.">
           <div class="field" style="margin-bottom:0;">
             <label>Extraction mode</label>
             <div class="modeseg" role="group" aria-label="Extraction mode">
@@ -295,7 +297,7 @@ export class ModelsComponent implements OnInit {
     this.http.get<MediaCfg>('/api/admin/media-config').subscribe({
       next: cfg => {
         this.lockedByInfra = cfg.lockedByInfra ?? [];
-        const dp: DocProcCfg = { mode: 'ocr', renderDpi: 150, maxPages: 50, pageTimeoutMs: 60000, concurrency: 2, ...cfg.documentProcessing };
+        const dp: DocProcCfg = { mode: 'auto', renderDpi: 150, maxPages: 50, pageTimeoutMs: 60000, concurrency: 2, ...cfg.documentProcessing };
         this.form = { vision: {}, stt: {}, ...cfg, documentProcessing: dp };
         this.form.vision = { ...cfg.vision, apiKey: undefined };
         this.form.stt = { ...cfg.stt, apiKey: undefined };
@@ -322,7 +324,7 @@ export class ModelsComponent implements OnInit {
   runLine(): string {
     if (this.vlmNeededButMissing()) return 'No vision model configured (DOC_VLM_MODEL is empty) — this mode falls back to OCR until you set one.';
     return this.docMode() === 'ocr'
-      ? 'Straight OCR — the same text extraction Ythril has always used.'
+      ? 'OCR only — text and tables are read by the OCR sidecar. No page rendering or vision model.'
       : 'Never worse than OCR — the VLM output is only kept if it covers the OCR text.';
   }
   docSummary(): string {

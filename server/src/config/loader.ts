@@ -615,8 +615,9 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
 const DOCUMENT_PROCESSING_DEFAULTS: Required<DocumentProcessingConfig> = {
   strategy: 'hi_res',
   extractImages: true,
-  // F11 — default `ocr` keeps today's OCR-only behaviour; the VLM pipeline is strictly opt-in.
-  mode: 'ocr',
+  // F11 — default `auto`: use the VLM when one is configured and reachable, else fall back to OCR. With no
+  // vlmModel set this is byte-for-byte the old OCR path, so it's a safe default (never worse than OCR).
+  mode: 'auto',
   renderDpi: 150,
   maxPages: 50,
   pageTimeoutMs: 60_000,

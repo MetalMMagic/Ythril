@@ -927,6 +927,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Storage on the design system.** The usage bar is now the shared `UsageBar` (retiring the
+  page-local `usage-bar-*` dialect), with a health **status pill** (Healthy / Warning / Full) next to the
+  percentage, and **Refresh keeps the current figures on screen with an inline spinner** instead of blanking
+  the panel to a full-page loader. (The page's empty-vs-error handling — a successful empty load must not
+  look like a failure — was already correct; it's now pinned by a new spec.)
+
 - **Settings → Networks: the Enable-Networks wizard shows a "Step N of 3" progress indicator.** The 3-step
   enable flow now has a segmented progress bar + a "Step N of 3" label in its header, so you can see where
   you are in the (otherwise easy-to-lose-track-of) setup.

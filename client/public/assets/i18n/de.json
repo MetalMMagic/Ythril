@@ -1149,5 +1149,6 @@
   "networks.network.votes.deadline": "Frist",
   "networks.network.votes.tally": "{{ yes }} Ja · {{ veto }} Veto",
   "networks.confirm.vetoTitle": "Diese Runde ablehnen?",
-  "networks.confirm.veto": "Ein Veto blockiert diese ausstehende Runde für das gesamte Netzwerk. Dies kann nicht rückgängig gemacht werden."
+  "networks.confirm.veto": "Ein Veto blockiert diese ausstehende Runde für das gesamte Netzwerk. Dies kann nicht rückgängig gemacht werden.",
+  "networks.wizard.stepLabel": "Schritt {{ current }} von {{ total }}"
 }

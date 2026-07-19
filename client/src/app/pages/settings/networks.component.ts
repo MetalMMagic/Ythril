@@ -185,6 +185,21 @@ import { NetworkJoinDialogComponent } from './network-join-dialog.component';
       font-size: 12px;
       color: var(--text-secondary);
     }
+    /* "Step N of 3" progress indicator at the top of the enable-networks wizard. */
+    .wizard-steps { display: flex; align-items: center; gap: 6px; margin: 0 0 14px; }
+    .wizard-step-dot {
+      width: 24px; height: 4px; border-radius: 2px;
+      background: var(--border);
+      transition: background var(--transition);
+    }
+    .wizard-step-dot.done { background: var(--accent-dim); }
+    .wizard-step-dot.active { background: var(--accent); }
+    .wizard-step-label {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
+    }
   `],
   template: `
     <!-- Network list (shown first) -->
@@ -397,6 +412,13 @@ import { NetworkJoinDialogComponent } from './network-join-dialog.component';
           <div class="dialog-header">
             <div class="card-title">{{ 'networks.wizard.title' | transloco }}</div>
             <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showEnableNetworksWizard.set(false)"><ph-icon name="x" [size]="14"/></button>
+          </div>
+
+          <div class="wizard-steps">
+            @for (n of [1, 2, 3]; track n) {
+              <span class="wizard-step-dot" [class.active]="enableWizardStep() === n" [class.done]="enableWizardStep() > n"></span>
+            }
+            <span class="wizard-step-label">{{ 'networks.wizard.stepLabel' | transloco: { current: enableWizardStep(), total: 3 } }}</span>
           </div>
 
           @if (enableWizardError()) { <div class="alert alert-error">{{ enableWizardError() }}</div> }

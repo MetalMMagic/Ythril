@@ -279,112 +279,13 @@ describe('NetworksComponent (characterization)', () => {
     expect(t).toEqual({ yes: 2, veto: 1 });
   });
 
-  // ── Enable-Networks wizard (characterization, before extracting it into its own component) ──
-  it('openEnableNetworksWizard() resets wizard state and opens at step 1', () => {
+  // Enable-Networks wizard behavior moved to network-enable-wizard.component.spec.ts when the wizard
+  // became its own child component. The parent only adopts the URL the wizard reports:
+  it('onEnabled() adopts the reported URL and clears the enable prompt', () => {
     const c = make();
-    c.enableWizardStep.set(3);
-    c.enableWizardError.set('boom');
-    c.localAgentCanExecute.set(true);
-    c.openEnableNetworksWizard();
-    expect(c.showEnableNetworksWizard()).toBe(true);
-    expect(c.enableWizardStep()).toBe(1);
-    expect(c.enableWizardError()).toBe('');
-    expect(c.localAgentCanExecute()).toBe(false);
-  });
-
-  it('prepareEnableWizardCommands() rejects an invalid hostname and stays put', () => {
-    const c = make();
-    c.enableWizardStep.set(2);
-    c.enableHostname = 'not a hostname';
-    c.prepareEnableWizardCommands();
-    expect(c.enableWizardError()).toBeTruthy();
-    expect(c.enableWizardStep()).toBe(2);
-    expect(api.getLocalAgentStatus).not.toHaveBeenCalled();
-  });
-
-  it('prepareEnableWizardCommands() builds OS commands (reflecting the flags), advances to step 3, probes the connector', () => {
-    const c = make();
-    c.enableHostname = 'brain.example.com';
-    c.enableOverwriteDns = true;
-    c.prepareEnableWizardCommands();
-    expect(c.enableWindowsCommand()).toContain('brain.example.com');
-    expect(c.enableWindowsCommand()).toContain('--overwrite-dns');
-    expect(c.enableLinuxCommand()).toContain('brain.example.com');
-    expect(c.enableWizardStep()).toBe(3);
-    expect(api.getLocalAgentStatus).toHaveBeenCalled();
-  });
-
-  it('prepareEnableWizardCommands(): connector already running → no bootstrap needed', () => {
-    const c = make();
-    api.getLocalAgentStatus.mockReturnValue(of({ canExecute: true, message: 'ready' }));
-    c.enableHostname = 'brain.example.com';
-    c.prepareEnableWizardCommands();
-    expect(c.localAgentCanExecute()).toBe(true);
-    expect(api.bootstrapLocalAgent).not.toHaveBeenCalled();
-  });
-
-  it('prepareEnableWizardCommands(): connector not running → bootstrap is attempted', () => {
-    const c = make();
-    api.getLocalAgentStatus.mockReturnValue(of({ canExecute: false }));
-    c.enableHostname = 'brain.example.com';
-    c.prepareEnableWizardCommands();
-    expect(api.bootstrapLocalAgent).toHaveBeenCalled();
-  });
-
-  it('completeEnableWizard() confirms, then adopts the URL and clears the enable prompt', async () => {
-    const c = make();
-    c.enableHostname = 'brain.example.com';
-    confirmResult = true;
-    await c.completeEnableWizard();
+    c.needsNetworkEnable.set(true);
+    c.onEnabled('https://brain.example.com');
     expect(c.joinMyUrl).toBe('https://brain.example.com');
     expect(c.needsNetworkEnable()).toBe(false);
-    expect(c.showEnableNetworksWizard()).toBe(false);
-  });
-
-  it('completeEnableWizard() declined → no change', async () => {
-    const c = make();
-    c.enableHostname = 'brain.example.com';
-    c.needsNetworkEnable.set(true);
-    c.showEnableNetworksWizard.set(true);
-    confirmResult = false;
-    await c.completeEnableWizard();
-    expect(c.needsNetworkEnable()).toBe(true);
-    expect(c.showEnableNetworksWizard()).toBe(true); // still open — decline is a no-op
-  });
-
-  it('runEnableNetworksAutomatically() guards on hostname and the critical-change acknowledgement', () => {
-    const c = make();
-    c.enableHostname = '';
-    c.runEnableNetworksAutomatically();
-    expect(c.enableWizardError()).toBeTruthy();
-    expect(api.executeEnableNetworksViaLocalAgent).not.toHaveBeenCalled();
-
-    c.enableHostname = 'brain.example.com';
-    c.enableAcknowledgeCritical = false;
-    c.runEnableNetworksAutomatically();
-    expect(c.enableWizardError()).toBeTruthy();
-    expect(api.executeEnableNetworksViaLocalAgent).not.toHaveBeenCalled();
-  });
-
-  it('runEnableNetworksAutomatically(): bootstraps when the connector can\'t execute, then runs setup and clears the prompt', () => {
-    const c = make();
-    c.enableHostname = 'brain.example.com';
-    c.enableAcknowledgeCritical = true;
-    c.localAgentCanExecute.set(false);
-    c.needsNetworkEnable.set(true);
-    c.runEnableNetworksAutomatically();
-    expect(api.bootstrapLocalAgent).toHaveBeenCalled();
-    expect(api.executeEnableNetworksViaLocalAgent).toHaveBeenCalledWith(expect.objectContaining({ hostname: 'brain.example.com' }));
-    expect(c.needsNetworkEnable()).toBe(false); // execute success set it
-  });
-
-  it('runEnableNetworksAutomatically(): connector ready → runs setup directly, no bootstrap', () => {
-    const c = make();
-    c.enableHostname = 'brain.example.com';
-    c.enableAcknowledgeCritical = true;
-    c.localAgentCanExecute.set(true);
-    c.runEnableNetworksAutomatically();
-    expect(api.bootstrapLocalAgent).not.toHaveBeenCalled();
-    expect(api.executeEnableNetworksViaLocalAgent).toHaveBeenCalled();
   });
 });

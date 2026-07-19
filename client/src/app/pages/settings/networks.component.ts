@@ -59,6 +59,17 @@ import { NetworkJoinDialogComponent } from './network-join-dialog.component';
       padding: 8px 0;
       border-bottom: 1px solid var(--border-muted);
       font-size: 13px;
+      flex-wrap: wrap; /* narrow iframe: the endpoint URL + delete wrap to the next line, never overflow */
+    }
+    /* The peer endpoint can be a long URL — let it shrink and ellipsize instead of pushing the row wide. */
+    .member-endpoint {
+      flex: 1 1 160px;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 11px;
+      color: var(--text-muted);
     }
 
     .member-row:last-child { border-bottom: none; }
@@ -82,6 +93,11 @@ import { NetworkJoinDialogComponent } from './network-join-dialog.component';
       padding: 6px 0;
       border-bottom: 1px solid var(--border-muted);
       font-size: 12px;
+    }
+    .history-row > span:nth-child(3) { min-width: 0; } /* let the counts cell shrink instead of overflowing */
+    /* Narrow iframe: drop the fixed grid and let the cells wrap. */
+    @media (max-width: 680px) {
+      .history-row { display: flex; flex-wrap: wrap; }
     }
 
     .history-row:last-child { border-bottom: none; }
@@ -264,8 +280,8 @@ import { NetworkJoinDialogComponent } from './network-join-dialog.component';
 
               <!-- Sync History -->
               <div style="margin-bottom:16px;">
-                <div class="section-title" style="cursor:pointer;" (click)="toggleHistory(net.id)">
-                  {{ 'networks.network.syncHistory.title' | transloco }} {{ historyExpanded() === net.id ? '▲' : '▼' }}
+                <div class="section-title" style="cursor:pointer; display:inline-flex; align-items:center; gap:4px;" (click)="toggleHistory(net.id)">
+                  {{ 'networks.network.syncHistory.title' | transloco }} <ph-icon [name]="historyExpanded() === net.id ? 'caret-up' : 'caret-down'" [size]="12" />
                 </div>
                 @if (historyExpanded() === net.id) {
                   @if (historyLoading()) {
@@ -309,9 +325,7 @@ import { NetworkJoinDialogComponent } from './network-join-dialog.component';
                   <span class="mono badge badge-gray" style="font-size:11px;">{{ m.instanceId.slice(0, 8) }}</span>
                   <span style="font-weight:500; flex:1;">{{ m.label }}</span>
                   <span class="badge badge-gray" style="font-size:11px;">{{ m.syncDirection ?? 'both' }}</span>
-                  <a [href]="m.endpoint" target="_blank" rel="noopener" style="font-size:11px; color:var(--text-muted);">
-                    {{ m.endpoint }}
-                  </a>
+                  <a class="member-endpoint" [href]="m.endpoint" target="_blank" rel="noopener" [attr.title]="m.endpoint">{{ m.endpoint }}</a>
                   <button
                     class="btn-danger btn btn-sm"
                     style="padding:2px 8px;"

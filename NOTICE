@@ -1,14 +1,17 @@
-﻿# Ythril â€” Third-Party Notices
+# Ythril — Third-Party Notices
 
-Ythril includes the following open-source packages. Their license terms and
-copyright notices are reproduced below as required by each license.
+Ythril includes the open-source packages listed below. To avoid repeating
+identical license bodies, the full text of each distinct license is reproduced
+exactly once under **License Texts**. The **Bundled Components** section then
+lists every package, its copyright notice(s), and the license it is distributed
+under (referencing the corresponding entry in License Texts). Every license term
+and copyright notice required by these licenses is reproduced in this file.
 
 ---
 
-## @angular/animations, @angular/cdk, @angular/common, @angular/compiler, @angular/core, @angular/forms, @angular/platform-browser, @angular/platform-browser-dynamic, @angular/router
+## License Texts
 
-License: MIT
-Copyright (c) 2010-2026 Google LLC. https://angular.dev/license
+### MIT
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -28,12 +31,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----
-
-## @huggingface/transformers
-
-License: Apache License 2.0
-Copyright (c) Hugging Face
+### Apache License 2.0
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -47,253 +45,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
----
-
-## @modelcontextprotocol/sdk
-
-License: MIT
-Copyright (c) 2024 Anthropic, PBC
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## bcrypt
-
-License: MIT
-Copyright (c) 2010 Nicholas Campbell
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## Express
-
-License: MIT
-Copyright (c) 2009-2014 TJ Holowaychuk <tj@vision-media.ca>
-Copyright (c) 2013-2014 Roman Shtylman <shtylman+expressjs@gmail.com>
-Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## express-rate-limit
-
-License: MIT
-Copyright (c) Anand Chowdhary, Nathan Friedly, and contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## mongodb (Node.js Driver)
-
-License: Apache License 2.0
-Copyright (c) 2009-present MongoDB, Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    https://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
----
-
-## undici
-
-License: MIT
-Copyright (c) Matteo Collina and Undici contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## multer
-
-License: MIT
-Copyright (c) 2014 Hage Yaapa
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## node-cron
-
-License: ISC
-Copyright (c) 2016 Lucas Merencia
-
-Permission to use, copy, modify, and/or distribute this software for any
-purpose with or without fee is hereby granted, provided that the above
-copyright notice and this permission notice appear in all copies.
-
-THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
-REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
-FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
-INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
-LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
-OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
-PERFORMANCE OF THIS SOFTWARE.
-
----
-
-## uuid
-
-License: MIT
-Copyright (c) 2010-2020 Robert Kieffer and other contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## zod
-
-License: MIT
-Copyright (c) 2020 Colin McDonnell
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## highlight.js
-
-License: BSD-3-Clause
-Copyright (c) 2006, Ivan Sagalaev.
-All rights reserved.
+### BSD-3-Clause
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -320,81 +72,21 @@ CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----
+### ISC
 
-## otplib
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
 
-License: MIT
-Copyright (c) 2026 Gerald Yeo
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR
+OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## qrcode
-
-License: MIT
-Copyright (c) 2012 Ryan Day
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## rxjs
-
-License: Apache License 2.0
-Copyright (c) 2015-2026 Google LLC, Ben Lesh, and other contributors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    https://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
----
-
-## tslib
-
-License: 0BSD
-Copyright (c) Microsoft Corp.
+### 0BSD
 
 Permission to use, copy, modify, and/or distribute this software for any
 purpose with or without fee is hereby granted.
@@ -409,96 +101,132 @@ PERFORMANCE OF THIS SOFTWARE.
 
 ---
 
-## cytoscape
+## Bundled Components
+
+### @angular/animations, @angular/cdk, @angular/common, @angular/compiler, @angular/core, @angular/forms, @angular/platform-browser, @angular/platform-browser-dynamic, @angular/router
+
+License: MIT
+Copyright (c) 2010-2026 Google LLC. https://angular.dev/license
+
+### @huggingface/transformers
+
+License: Apache License 2.0
+Copyright (c) Hugging Face
+
+### @modelcontextprotocol/sdk
+
+License: MIT
+Copyright (c) 2024 Anthropic, PBC
+
+### bcrypt
+
+License: MIT
+Copyright (c) 2010 Nicholas Campbell
+
+### Express
+
+License: MIT
+Copyright (c) 2009-2014 TJ Holowaychuk <tj@vision-media.ca>
+Copyright (c) 2013-2014 Roman Shtylman <shtylman+expressjs@gmail.com>
+Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+
+### express-rate-limit
+
+License: MIT
+Copyright (c) Anand Chowdhary, Nathan Friedly, and contributors
+
+### mongodb (Node.js Driver)
+
+License: Apache License 2.0
+Copyright (c) 2009-present MongoDB, Inc.
+
+### undici
+
+License: MIT
+Copyright (c) Matteo Collina and Undici contributors
+
+### multer
+
+License: MIT
+Copyright (c) 2014 Hage Yaapa
+
+### node-cron
+
+License: ISC
+Copyright (c) 2016 Lucas Merencia
+
+### uuid
+
+License: MIT
+Copyright (c) 2010-2020 Robert Kieffer and other contributors
+
+### zod
+
+License: MIT
+Copyright (c) 2020 Colin McDonnell
+
+### highlight.js
+
+License: BSD-3-Clause
+Copyright (c) 2006, Ivan Sagalaev.
+All rights reserved.
+
+### otplib
+
+License: MIT
+Copyright (c) 2026 Gerald Yeo
+
+### qrcode
+
+License: MIT
+Copyright (c) 2012 Ryan Day
+
+### rxjs
+
+License: Apache License 2.0
+Copyright (c) 2015-2026 Google LLC, Ben Lesh, and other contributors
+
+### tslib
+
+License: 0BSD
+Copyright (c) Microsoft Corp.
+
+### cytoscape
 
 License: MIT
 Copyright (c) 2016-2026 The Cytoscape Consortium
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## jose
+### jose
 
 License: MIT
 Copyright (c) 2018 Filip Skokan
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## prom-client
+### prom-client
 
 License: Apache License 2.0
 Copyright (c) 2015 Simon Nyberg
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    https://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
----
-
-## Runtime Dependency: mongodb/mongodb-atlas-local (Docker image)
+### Runtime Dependency: mongodb/mongodb-atlas-local (Docker image)
 
 Ythril's `docker-compose.yml` references the `mongodb/mongodb-atlas-local` container
 image published by MongoDB, Inc. This image is **not bundled with or distributed by
-Ythril** â€” it is pulled independently by Docker from Docker Hub at deployment time.
+Ythril** — it is pulled independently by Docker from Docker Hub at deployment time.
 
-### What the image contains
+#### What the image contains
 
 The image packages two components:
 
-- **MongoDB Community Edition** â€” the `mongod` server process.
+- **MongoDB Community Edition** — the `mongod` server process.
   License: Server Side Public License v1 (SSPL).
   Source: https://github.com/mongodb/mongo
 
-- **mongot** â€” a proprietary search-and-vector-index sidecar process developed
+- **mongot** — a proprietary search-and-vector-index sidecar process developed
   by MongoDB, Inc. `mongot` is required by Ythril to execute `$vectorSearch`
   aggregation stages (semantic recall). Its source code is not publicly available.
   MongoDB, Inc. distributes `mongot` free of charge for use with MongoDB Community
   and Atlas Local deployments under their terms of service.
 
-### Relationship to Ythril's PolyForm license
+#### Relationship to Ythril's PolyForm license
 
 Ythril communicates with `mongod`/`mongot` exclusively over a TCP network socket
 on the private `ythril-db` Docker bridge network. No MongoDB or `mongot`
@@ -515,7 +243,7 @@ Provision" clause targets entities providing the covered software itself as a
 service; using MongoDB as a backing store for an unrelated application is outside
 that clause's scope.
 
-### Practical consequence for users
+#### Practical consequence for users
 
 Users who deploy Ythril accept the `mongodb/mongodb-atlas-local` image terms
 separately and independently of Ythril's PolyForm license. Ythril's source
@@ -527,9 +255,7 @@ provided by a fully open-source stack. This is acknowledged as a known constrain
 A future version of Ythril may introduce an optional vector-search backend allowing
 deployment without `mongot`.
 
----
-
-## Runtime Dependency: unstructured-io/unstructured-api (Docker image)
+### Runtime Dependency: unstructured-io/unstructured-api (Docker image)
 
 Ythril's `docker-compose.yml` and `kubernetes/manifests/ythril-deployment.yaml` reference the
 `downloads.unstructured.io/unstructured-io/unstructured-api` container image published by
@@ -559,9 +285,7 @@ commercial-use restriction) before every version bump - the procedure is documen
 HTTP socket on an isolated internal network with no database access and no internet egress; no
 unstructured-api code is linked into or incorporated into the Ythril application binary or source tree.
 
----
-
-## Runtime Dependency: ollama/ollama (Docker image)
+### Runtime Dependency: ollama/ollama (Docker image)
 
 Ythril's `docker-compose.yml` and `kubernetes/manifests/ollama-deploy.yaml` reference the
 `ollama/ollama` container image published by the Ollama project. This image is **not bundled with or
@@ -577,9 +301,7 @@ runtime under their own licenses - the default `moondream` is Apache 2.0.
 Ythril communicates with Ollama only over an HTTP socket on an isolated internal media network; no
 Ollama code is linked into or incorporated into the Ythril application.
 
----
-
-## Runtime Dependency: fedirz/faster-whisper-server (Docker image)
+### Runtime Dependency: fedirz/faster-whisper-server (Docker image)
 
 Ythril's `docker-compose.yml` and `kubernetes/manifests/whisper-deploy.yaml` reference the
 `fedirz/faster-whisper-server` container image. This image is **not bundled with or distributed by
@@ -594,190 +316,55 @@ are Apache 2.0 licensed.
 Ythril communicates with the sidecar only over an HTTP socket on an isolated internal media network; no
 faster-whisper-server code is linked into or incorporated into the Ythril application.
 
----
-
-## @phosphor-icons/core
+### @phosphor-icons/core
 
 License: MIT
 Copyright (c) 2021 Phosphor Icons contributors
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## @vladmandic/human
+### @vladmandic/human
 
 License: MIT
 Copyright (c) 2020 Vladimir Mandic
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## sharp
+### sharp
 
 License: Apache License 2.0
 Copyright (c) 2013 Lovell Fuller and contributors
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    https://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
----
-
-## @jsverse/transloco
+### @jsverse/transloco
 
 License: MIT
 Copyright (c) Shahar Kazaz
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## @mozilla/readability
+### @mozilla/readability
 
 License: Apache License 2.0
 Copyright (c) Mozilla Foundation and contributors
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    https://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
----
-
-## jsdom
+### jsdom
 
 License: MIT
 Copyright (c) 2010 Elijah Insua
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-## turndown
+### turndown
 
 License: MIT
 Copyright (c) Dom Christie
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+### Runtime Dependency: doc-render sidecar (sidecars/doc-render, Docker image)
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+The optional `doc-render` container (F11) renders PDF pages to images. Built in-repo; it bundles the
+following components, all under permissive licenses. Their copyright notices and licenses:
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+- PDFium — BSD-3-Clause (see License Texts). Copyright The PDFium Authors.
+- pypdfium2 — Apache License 2.0 (see License Texts). Copyright pypdfium2-team.
+- Pillow — HPND. Copyright Jeffrey A. Clark and contributors; original PIL Copyright Secret Labs AB and Fredrik Lundh.
+- FastAPI — MIT (see License Texts). Copyright Sebastián Ramírez.
+- Starlette — BSD-3-Clause (see License Texts). Copyright Encode OSS Ltd.
+- Pydantic — MIT (see License Texts). Copyright Pydantic Services Inc. and contributors.
+- Uvicorn — BSD-3-Clause (see License Texts). Copyright Encode OSS Ltd.
+- python-multipart — Apache License 2.0 (see License Texts). Copyright Andrew Dunham.
+- Python (base image `python:3.13-slim`) — PSF License Agreement, plus Debian base-image components under their respective (permissive) licenses.
 
----
-
-## Document-render sidecar (sidecars/doc-render)
-
-The optional `doc-render` container (F11 — renders PDF pages to images) bundles the following
-open-source components, all under permissive licenses. Their copyright notices and license terms are
-preserved here as required.
-
-- **PDFium** — License: BSD-3-Clause. Copyright The PDFium Authors. <https://pdfium.googlesource.com/pdfium/>
-- **pypdfium2** — License: Apache-2.0 OR BSD-3-Clause. Copyright pypdfium2-team.
-  <https://github.com/pypdfium2-team/pypdfium2>
-- **Pillow** — License: HPND (Historical Permission Notice and Disclaimer). Copyright Jeffrey A. Clark
-  and contributors; original PIL Copyright Secret Labs AB and Fredrik Lundh. <https://python-pillow.org/>
-- **FastAPI** — License: MIT. Copyright Sebastián Ramírez. <https://github.com/fastapi/fastapi>
-- **Starlette** — License: BSD-3-Clause. Copyright Encode OSS Ltd. <https://github.com/encode/starlette>
-- **Pydantic** — License: MIT. Copyright Pydantic Services Inc. and contributors.
-  <https://github.com/pydantic/pydantic>
-- **Uvicorn** — License: BSD-3-Clause. Copyright Encode OSS Ltd. <https://github.com/encode/uvicorn>
-- **python-multipart** — License: Apache-2.0. Copyright Andrew Dunham. <https://github.com/Kludex/python-multipart>
-- **Python** (base image `python:3.13-slim`) — License: PSF License Agreement, plus Debian base-image
-  components under their respective (permissive) licenses. <https://docs.python.org/3/license.html>
-
-The full texts of the MIT, Apache-2.0, BSD-3-Clause, HPND, and PSF licenses are the standard, unmodified
-texts published by their stewards (MIT and Apache-2.0 also appear above for other bundled packages).
+The HPND and PSF license texts are the standard, unmodified texts published by their stewards; their full
+texts ship inside the image. See `sidecars/doc-render/LICENSES.md`.

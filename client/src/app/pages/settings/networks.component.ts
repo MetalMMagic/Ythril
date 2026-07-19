@@ -14,10 +14,11 @@ import { ModalDirective } from '../../shared/modal.directive';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
+import { NetworkCreateDialogComponent } from './network-create-dialog.component';
 @Component({
   selector: 'app-networks',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, NetworkCreateDialogComponent],
   styles: [`
     .network-card {
       background: var(--bg-surface);
@@ -356,80 +357,12 @@ import { RelativeTimeComponent } from '../../shared/relative-time.component';
 
     <!-- Create Network dialog -->
     @if (showCreateDialog()) {
-      <div class="dialog-backdrop" (click)="showCreateDialog.set(false)">
-        <div class="dialog" [appModal]="'networks.dialog.create.title' | transloco" (dismiss)="showCreateDialog.set(false)" (click)="$event.stopPropagation()">
-          <div class="dialog-header">
-            <div class="card-title">{{ 'networks.dialog.create.title' | transloco }}</div>
-            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showCreateDialog.set(false)"><ph-icon name="x" [size]="14"/></button>
-          </div>
-
-          @if (createError()) { <div class="alert alert-error">{{ createError() }}</div> }
-
-          <form (ngSubmit)="createNetwork()" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:end;">
-            <div class="field" style="margin-bottom:0;">
-              <label>{{ 'networks.dialog.create.label' | transloco }}</label>
-              <input type="text" [(ngModel)]="form.label" name="label" [placeholder]="'networks.dialog.create.labelPlaceholder' | transloco" required />
-            </div>
-            <div class="field" style="margin-bottom:0;">
-              <label>{{ 'networks.dialog.create.type' | transloco }}</label>
-              <select [(ngModel)]="form.type" name="type">
-                <option value="closed">{{ 'networks.type.closed' | transloco }}</option>
-                <option value="democratic">{{ 'networks.type.democratic' | transloco }}</option>
-                <option value="club">{{ 'networks.type.club' | transloco }}</option>
-                <option value="braintree">{{ 'networks.type.braintree' | transloco }}</option>
-                <option value="pubsub">{{ 'networks.type.pubsub' | transloco }}</option>
-              </select>
-            </div>
-            <div class="field" style="margin-bottom:0; grid-column:span 2;">
-              <label>{{ 'networks.dialog.create.spaces' | transloco }}</label>
-              @if (spacesLoadFailed()) {
-                <div class="alert alert-error" style="margin-bottom:6px; font-size:12px;">{{ 'networks.dialog.create.spacesLoadFailed' | transloco }}</div>
-                <input type="text" [(ngModel)]="networkSpacesFallback" name="spaces" [placeholder]="'networks.dialog.create.spacesFallbackPlaceholder' | transloco" />
-              } @else if (availableSpaces().length === 0) {
-                <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">{{ 'networks.dialog.create.loadingSpaces' | transloco }}</div>
-              } @else {
-                <div class="table-wrapper" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
-                  <table style="margin:0;">
-                    <thead>
-                      <tr>
-                        <th style="width:40px; text-align:center;">
-                          <input type="checkbox" [checked]="networkSelectAll" (change)="toggleNetworkSelectAll()" [attr.title]="'networks.dialog.create.allSpacesTitle' | transloco" />
-                        </th>
-                        <th>{{ 'spaces.table.column.label' | transloco }}</th>
-                        <th>{{ 'spaces.table.column.id' | transloco }}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      @for (s of availableSpaces(); track s.id) {
-                        <tr style="cursor:pointer;" (click)="toggleNetworkSpace(s.id)">
-                          <td style="text-align:center;">
-                            <input type="checkbox" [checked]="isNetworkSpaceSelected(s.id)" (click)="$event.stopPropagation()" (change)="toggleNetworkSpace(s.id)" />
-                          </td>
-                          <td>{{ s.label }}</td>
-                          <td><span class="badge badge-gray mono" style="font-size:11px;">{{ s.id }}</span></td>
-                        </tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
-              }
-            </div>
-            @if (form.type !== 'pubsub') {
-              <div class="field" style="margin-bottom:0; grid-column:span 2;">
-                <label>{{ 'networks.dialog.create.votingDeadline' | transloco }}</label>
-                <input type="number" [(ngModel)]="form.votingDeadlineHours" name="deadline" min="1" max="72" />
-              </div>
-            }
-            <div style="grid-column:span 2; display:flex; gap:8px; justify-content:flex-end;">
-              <button class="btn-secondary btn" type="button" (click)="showCreateDialog.set(false)">{{ 'common.cancel' | transloco }}</button>
-              <button class="btn-primary btn" type="submit" [disabled]="creating() || !form.label.trim()">
-                @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-                {{ 'networks.dialog.create.submitButton' | transloco }}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
+      <app-network-create-dialog
+        [availableSpaces]="availableSpaces()"
+        [spacesLoadFailed]="spacesLoadFailed()"
+        (created)="onNetworkCreated($event)"
+        (close)="showCreateDialog.set(false)"
+      />
     }
 
     <!-- Join Network dialog -->
@@ -629,20 +562,14 @@ export class NetworksComponent implements OnInit {
 
   networks = signal<Network[]>([]);
   loading = signal(true);
-  creating = signal(false);
-  createError = signal('');
   showCreateDialog = signal(false);
   showJoinDialog = signal(false);
   expanded = signal('');
 
-  form = { label: '', type: 'closed', votingDeadlineHours: 48 };
   netSchedule: Record<string, string> = {};
 
   availableSpaces = signal<Space[]>([]);
   spacesLoadFailed = signal(false);
-  networkSelectedSpaces: string[] = [];
-  networkSpacesFallback = '';
-  networkSelectAll = false;
 
   private inviteBundles: Record<string, InviteBundle> = {};
   private syncResults: Record<string, { ok: boolean }> = {};
@@ -977,59 +904,10 @@ export class NetworksComponent implements OnInit {
     this.expanded.update(v => v === id ? '' : id);
   }
 
-  createNetwork(): void {
-    if (!this.form.label.trim()) return;
-    this.creating.set(true);
-    this.createError.set('');
-
-    let spaces: string[];
-    if (this.spacesLoadFailed()) {
-      spaces = this.networkSpacesFallback.split(',').map(s => s.trim()).filter(Boolean);
-    } else {
-      spaces = [...this.networkSelectedSpaces];
-    }
-
-    this.networksApi.createNetwork({
-      label: this.form.label.trim(),
-      type: this.form.type,
-      spaces,
-      votingDeadlineHours: this.form.votingDeadlineHours,
-    }).subscribe({
-      next: (net) => {
-        this.creating.set(false);
-        this.showCreateDialog.set(false);
-        this.networks.update(list => [...list, net]);
-        this.form = { label: '', type: 'closed', votingDeadlineHours: 48 };
-        this.networkSelectedSpaces = [];
-        this.networkSpacesFallback = '';
-      },
-      error: (err) => {
-        this.creating.set(false);
-        this.createError.set(err.error?.error ?? this.transloco.translate('networks.error.createFailed'));
-      },
-    });
-  }
-
-  isNetworkSpaceSelected(id: string): boolean {
-    return this.networkSelectedSpaces.includes(id);
-  }
-
-  toggleNetworkSpace(id: string): void {
-    if (this.networkSelectedSpaces.includes(id)) {
-      this.networkSelectedSpaces = this.networkSelectedSpaces.filter(s => s !== id);
-    } else {
-      this.networkSelectedSpaces = [...this.networkSelectedSpaces, id];
-    }
-    this.networkSelectAll = this.networkSelectedSpaces.length === this.availableSpaces().length;
-  }
-
-  toggleNetworkSelectAll(): void {
-    this.networkSelectAll = !this.networkSelectAll;
-    if (this.networkSelectAll) {
-      this.networkSelectedSpaces = this.availableSpaces().map(s => s.id);
-    } else {
-      this.networkSelectedSpaces = [];
-    }
+  /** The create dialog (child component) emits the new network; append it and close. */
+  onNetworkCreated(net: Network): void {
+    this.networks.update(list => [...list, net]);
+    this.showCreateDialog.set(false);
   }
 
   async leaveNetwork(net: Network): Promise<void> {

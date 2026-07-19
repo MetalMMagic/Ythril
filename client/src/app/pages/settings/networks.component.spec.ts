@@ -87,42 +87,17 @@ describe('NetworksComponent (characterization)', () => {
     expect(c.openVotes('n1').map(r => r.id)).toEqual(['open1']); // closed round filtered out
   });
 
-  it('createNetwork() is a no-op when the label is blank', () => {
-    const c = make();
-    c.form = { label: '   ', type: 'closed', votingDeadlineHours: 48 };
-    c.createNetwork();
-    expect(api.createNetwork).not.toHaveBeenCalled();
-  });
+  // Create-dialog behavior (blank-label guard, space payload, CSV fallback, error) moved to
+  // network-create-dialog.component.spec.ts when the Create dialog became its own child component.
+  // The parent only appends the emitted network and closes — pinned by the onNetworkCreated test below.
 
-  it('createNetwork() posts the selected spaces, appends the result, resets the form and closes the dialog', () => {
+  it('onNetworkCreated() appends the created network and closes the dialog', () => {
     const c = make();
-    c.form = { label: ' Team ', type: 'club', votingDeadlineHours: 24 };
-    c.networkSelectedSpaces = ['a', 'b'];
+    c.networks.set([net({ id: 'n1' })]);
     c.showCreateDialog.set(true);
-    c.createNetwork();
-    expect(api.createNetwork).toHaveBeenCalledWith({ label: 'Team', type: 'club', spaces: ['a', 'b'], votingDeadlineHours: 24 });
-    expect(c.networks().some(n => n.label === 'Team')).toBe(true);
+    c.onNetworkCreated(net({ id: 'new', label: 'Fresh' }));
+    expect(c.networks().map(n => n.id)).toEqual(['n1', 'new']);
     expect(c.showCreateDialog()).toBe(false);
-    expect(c.form.label).toBe('');
-    expect(c.networkSelectedSpaces).toEqual([]);
-  });
-
-  it('createNetwork() falls back to the comma-separated spaces field when the spaces list failed to load', () => {
-    const c = make();
-    c.spacesLoadFailed.set(true);
-    c.form = { label: 'X', type: 'closed', votingDeadlineHours: 48 };
-    c.networkSpacesFallback = 'general, personal ,';
-    c.createNetwork();
-    expect(api.createNetwork).toHaveBeenCalledWith(expect.objectContaining({ spaces: ['general', 'personal'] }));
-  });
-
-  it('createNetwork() surfaces the server error into createError', () => {
-    const c = make();
-    api.createNetwork.mockReturnValue(throwError(() => ({ error: { error: 'nope' } })));
-    c.form = { label: 'X', type: 'closed', votingDeadlineHours: 48 };
-    c.createNetwork();
-    expect(c.createError()).toBe('nope');
-    expect(c.creating()).toBe(false);
   });
 
   it('leaveNetwork() removes the network only after the confirm dialog is accepted', async () => {

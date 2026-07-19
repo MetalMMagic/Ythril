@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { InviteBundle, Network, Space, SyncHistoryRecord, VoteRound } from '../../core/api.types';
@@ -11,10 +11,13 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ModalDirective } from '../../shared/modal.directive';
+import { StatusPillComponent } from '../../shared/status-pill.component';
+import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
+import { RelativeTimeComponent } from '../../shared/relative-time.component';
 @Component({
   selector: 'app-networks',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent],
   styles: [`
     .network-card {
       background: var(--bg-surface);
@@ -188,12 +191,17 @@ import { ModalDirective } from '../../shared/modal.directive';
         <p>{{ 'networks.empty.body' | transloco }}</p>
       </div>
     } @else {
+      <app-summary-strip [items]="summaryItems()" style="display:block; margin-bottom:16px;" />
       @for (net of networks(); track net.id) {
         <div class="network-card">
           <div class="network-card-header" (click)="toggleNetwork(net.id)">
             <span class="network-name">{{ net.label }}</span>
             <span class="badge" [ngClass]="typeBadge(net.type)">{{ net.type }}</span>
             <span class="badge badge-gray">{{ net.members.length }} {{ net.members.length === 1 ? ('networks.memberBadge.singular' | transloco) : ('networks.memberBadge.plural' | transloco) }}</span>
+            @if (openVotes(net.id).length > 0) {
+              <app-status-pill variant="warn" [dot]="true">{{ openVotes(net.id).length }} {{ 'networks.header.pendingVote' | transloco }}</app-status-pill>
+            }
+            <span style="flex:1;"></span>
             <span style="color:var(--text-muted); display:inline-flex;"><ph-icon [name]="expanded() === net.id ? 'caret-up' : 'caret-down'" [size]="14" /></span>
           </div>
 
@@ -320,6 +328,12 @@ import { ModalDirective } from '../../shared/modal.directive';
                   @for (round of openVotes(net.id); track round.id) {
                     <div class="vote-row">
                       <span style="flex:1;">{{ round.type }}: {{ round.subject }}</span>
+                      <span style="font-size:11px; color:var(--text-muted); white-space:nowrap;">
+                        {{ 'networks.network.votes.deadline' | transloco }} <app-relative-time [value]="round.deadline" />
+                      </span>
+                      <span class="num" style="font-size:11px; color:var(--text-muted); white-space:nowrap;">
+                        {{ 'networks.network.votes.tally' | transloco: { yes: voteTally(round).yes, veto: voteTally(round).veto } }}
+                      </span>
                       <button class="btn-primary btn btn-sm" [disabled]="votingRound[round.id]" (click)="castVote(net.id, round.id, 'yes')">
                         @if (votingRound[round.id]) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
                         {{ 'networks.network.votes.yes' | transloco }}
@@ -678,6 +692,28 @@ export class NetworksComponent implements OnInit {
   inviteBundle(id: string): InviteBundle | undefined { return this.inviteBundles[id]; }
   bundleJson(bundle: InviteBundle): string { return JSON.stringify(bundle, null, 2); }
   syncResult(id: string): { ok: boolean } | undefined { return this.syncResults[id]; }
+
+  /** At-a-glance rollup atop the page. Recomputes when `networks` changes — and `loadVotes` always
+   *  bumps `networks` after updating the vote cache, so the "need your vote" count stays live. */
+  readonly summaryItems = computed<SummaryItem[]>(() => {
+    const tr = (k: string) => this.transloco.translate(k);
+    const nets = this.networks();
+    const needVote = nets.filter(n => this.openVotes(n.id).length > 0).length;
+    const members = nets.reduce((sum, n) => sum + (n.members?.length ?? 0), 0);
+    return [
+      { label: tr('networks.summary.networks'), value: nets.length },
+      { label: tr('networks.summary.needVote'), value: needVote, variant: needVote ? 'warn' : undefined },
+      { label: tr('networks.summary.members'), value: members },
+    ];
+  });
+
+  /** Yes/veto counts for an open vote round (for the row tally). */
+  voteTally(round: VoteRound): { yes: number; veto: number } {
+    return {
+      yes: round.votes.filter(v => v.vote === 'yes').length,
+      veto: round.votes.filter(v => v.vote === 'veto').length,
+    };
+  }
 
   ngOnInit(): void {
     this.enableOs = this.detectLocalOs();

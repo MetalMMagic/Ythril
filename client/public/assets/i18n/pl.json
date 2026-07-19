@@ -1141,5 +1141,11 @@
   "auditLog.summary.authFailures": "Błędy uwierzytelniania",
   "auditLog.detail.request": "Żądanie",
   "auditLog.detail.entryId": "ID wpisu",
-  "auditLog.detail.rawJson": "Surowy JSON"
+  "auditLog.detail.rawJson": "Surowy JSON",
+  "networks.summary.networks": "Sieci",
+  "networks.summary.needVote": "Wymaga Twojego głosu",
+  "networks.summary.members": "Członkowie",
+  "networks.header.pendingVote": "oczekujące",
+  "networks.network.votes.deadline": "Termin",
+  "networks.network.votes.tally": "{{ yes }} tak · {{ veto }} weto"
 }

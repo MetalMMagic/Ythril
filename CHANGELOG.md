@@ -924,6 +924,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Networks: status at a glance.** A summary strip tops the page (networks · need-your-vote ·
+  members), each network card header shows an amber **"N pending"** vote pill when a governance round is open
+  (using the shared status-pill vocabulary), and each open vote row now shows its **deadline** as a relative
+  time plus a **yes/veto tally**. (Second design-system slice for Networks; still behavior-preserving —
+  covered by the characterization tests.)
+
 - **Settings → Networks: in-flight feedback on every async action.** Generate-invite, Save-schedule,
   Sync-now, and the vote Yes/Veto buttons now show a spinner and disable themselves while the request is in
   flight, so a slow network op reads as *working* (and can't be double-fired) instead of looking dead. The

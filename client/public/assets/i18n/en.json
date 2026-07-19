@@ -1140,5 +1140,11 @@
   "auditLog.summary.authFailures": "Auth failures",
   "auditLog.detail.request": "Request",
   "auditLog.detail.entryId": "Entry ID",
-  "auditLog.detail.rawJson": "Raw JSON"
+  "auditLog.detail.rawJson": "Raw JSON",
+  "networks.summary.networks": "Networks",
+  "networks.summary.needVote": "Need your vote",
+  "networks.summary.members": "Members",
+  "networks.header.pendingVote": "pending",
+  "networks.network.votes.deadline": "Deadline",
+  "networks.network.votes.tally": "{{ yes }} yes · {{ veto }} veto"
 }

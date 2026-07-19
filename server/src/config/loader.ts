@@ -623,6 +623,8 @@ const DOCUMENT_PROCESSING_DEFAULTS: Required<DocumentProcessingConfig> = {
   concurrency: 2,
   vlmModel: '',    // empty = no VLM configured → vlm/auto/max fall back to OCR
   vlmBaseUrl: '',  // empty = reuse the media vision provider's (Ollama) URL
+  repairModel: '',   // empty = reuse vlmModel for the max-mode repair pass
+  repairBaseUrl: '', // empty = reuse vlmBaseUrl (then the vision URL)
 };
 
 /**
@@ -644,6 +646,8 @@ export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig
     concurrency: base.concurrency ?? d.concurrency,
     vlmModel: process.env['DOC_VLM_MODEL'] ?? base.vlmModel ?? d.vlmModel,
     vlmBaseUrl: process.env['DOC_VLM_URL'] ?? base.vlmBaseUrl ?? d.vlmBaseUrl,
+    repairModel: process.env['DOC_REPAIR_MODEL'] ?? base.repairModel ?? d.repairModel,
+    repairBaseUrl: process.env['DOC_REPAIR_URL'] ?? base.repairBaseUrl ?? d.repairBaseUrl,
   };
 }
 

@@ -25,7 +25,7 @@ const server = http.createServer((req, res) => {
 });
 const base = await new Promise((r) => server.listen(0, '127.0.0.1', () => r(`http://127.0.0.1:${server.address().port}`)));
 
-const { transcribePageImage } = await import('../../server/dist/files/converters/vlm-client.js');
+const { transcribePageImage, repairMarkdown } = await import('../../server/dist/files/converters/vlm-client.js');
 
 describe('VLM client', () => {
   it('sends the image (base64) + prompt + model to /api/chat and returns the content', async () => {
@@ -41,6 +41,27 @@ describe('VLM client', () => {
     assert.equal(req.messages[0].images[0], Buffer.from('PNGDATA').toString('base64'));
     assert.equal(req.options.temperature, 0);
     assert.ok(req.options.num_predict > 0, 'output is bounded');
+  });
+
+  it('repairMarkdown reconciles a draft against OCR evidence in one text-only call', async () => {
+    state.status = 200;
+    state.body = JSON.stringify({ message: { content: '# Fixed\n\nfull content' }, done_reason: 'stop' });
+    const r = await repairMarkdown({
+      baseUrl: base, model: 'repair-model',
+      draft: '# Draft', evidence: 'the full OCR text', issues: ['low OCR-evidence coverage 40%'],
+    });
+    assert.equal(r.text, '# Fixed\n\nfull content');
+    assert.equal(r.truncated, false);
+    const req = state.lastRequest;
+    assert.equal(req.model, 'repair-model');
+    assert.equal(req.stream, false);
+    assert.equal(req.options.temperature, 0);
+    // Text-only: no page image, and the prompt carries both the draft and the OCR evidence + the issues.
+    assert.equal(req.messages[0].images, undefined, 'repair is a text-only turn (no image)');
+    assert.match(req.messages[0].content, /# Draft/);
+    assert.match(req.messages[0].content, /the full OCR text/);
+    assert.match(req.messages[0].content, /low OCR-evidence coverage 40%/);
+    state.body = null;
   });
 
   it('flags truncation when done_reason is length', async () => {

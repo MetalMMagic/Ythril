@@ -924,6 +924,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Networks: in-flight feedback on every async action.** Generate-invite, Save-schedule,
+  Sync-now, and the vote Yes/Veto buttons now show a spinner and disable themselves while the request is in
+  flight, so a slow network op reads as *working* (and can't be double-fired) instead of looking dead. The
+  network-card expand/collapse caret is now a `ph-icon` (`caret-up`/`caret-down`) instead of a raw `▲▼`
+  glyph. (First slice of the Networks page's move onto the design system; behavior is pinned by the
+  characterization tests added in the previous release.)
+
 - **Settings → Audit Log on the design system.** The status column now uses the shared status-pill
   vocabulary (ok / warn / error) instead of a page-local badge dialect, and rows worth noticing get a
   leading severity stripe (5xx → error, 4xx / `auth.failed` → warn) so problems read at a glance. A

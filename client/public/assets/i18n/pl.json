@@ -1134,5 +1134,12 @@
   "brain.error.loadFileMeta": "Nie udało się załadować rekordów plików.",
   "files.error.loadFiles": "Nie udało się załadować plików.",
   "schemaLib.error.load": "Nie udało się załadować biblioteki schematów.",
-  "graph.error.load": "Nie udało się załadować grafu."
+  "graph.error.load": "Nie udało się załadować grafu.",
+  "auditLog.summary.shown": "Wyświetlone",
+  "auditLog.summary.clientErrors": "Błędy klienta",
+  "auditLog.summary.serverErrors": "Błędy serwera",
+  "auditLog.summary.authFailures": "Błędy uwierzytelniania",
+  "auditLog.detail.request": "Żądanie",
+  "auditLog.detail.entryId": "ID wpisu",
+  "auditLog.detail.rawJson": "Surowy JSON"
 }

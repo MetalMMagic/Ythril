@@ -1,10 +1,13 @@
-import { ChangeDetectionStrategy, Component, inject, signal, OnInit, OnDestroy, effect } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit, OnDestroy, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { type AuditLogEntry, type AuditLogParams, type Space } from '../../core/api.types';
 import { AdminApi } from '../../core/admin-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
-import { TranslocoPipe } from '@jsverse/transloco';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
+import { StatusPillComponent, type StatusVariant } from '../../shared/status-pill.component';
+import { RelativeTimeComponent } from '../../shared/relative-time.component';
+import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
 
 @Component({
   selector: 'app-audit-log',
@@ -15,7 +18,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
   // when state changes and skips the whole-tree sweep otherwise — this page renders up to a
   // 100-row table plus a live-streaming server log, both in the CD hot path.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe],
+  imports: [CommonModule, FormsModule, TranslocoPipe, StatusPillComponent, RelativeTimeComponent, SummaryStripComponent],
   styles: [`
     .audit-toolbar {
       display: flex;
@@ -76,18 +79,33 @@ import { TranslocoPipe } from '@jsverse/transloco';
     }
     .audit-table tr:hover { background: var(--bg-elevated); }
 
-    .badge-status {
-      display: inline-block;
-      padding: 1px 6px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-    }
-    .badge-2xx { background: var(--success-bg);  color: var(--success); }
-    .badge-4xx { background: var(--warning-bg);  color: var(--warning); }
-    .badge-5xx { background: var(--error-bg);    color: var(--error); }
-
     .mono { font-family: var(--font-mono, monospace); font-size: 12px; }
+    .num { font-variant-numeric: tabular-nums; }
+
+    /* Rows worth noticing get a leading severity stripe (semantic colour, not the accent) so an auth
+       failure or a 5xx reads at a glance without relying on the status pill alone. */
+    .audit-table tr.row-warn td:first-child { box-shadow: inset 3px 0 0 var(--warning); }
+    .audit-table tr.row-error td:first-child { box-shadow: inset 3px 0 0 var(--error); }
+    .audit-table tr.row-error td:nth-child(3) { color: var(--error); font-weight: 600; }
+
+    /* Structured detail panel — a labelled field grid + a collapsible raw-JSON block. */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 6px 16px;
+      align-items: baseline;
+      margin: 4px 0 14px;
+      font-size: 13px;
+    }
+    .detail-grid dt {
+      color: var(--text-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .detail-grid dd { margin: 0; color: var(--text-primary); word-break: break-word; }
+    .detail-raw { margin-top: 8px; }
+    .detail-raw summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
 
     .pagination {
       display: flex;
@@ -225,14 +243,9 @@ import { TranslocoPipe } from '@jsverse/transloco';
         {{ 'auditLog.filter.status' | transloco }}
         <select [(ngModel)]="filterStatus">
           <option value="">{{ 'common.all' | transloco }}</option>
-          <option value="200">200</option>
-          <option value="201">201</option>
-          <option value="204">204</option>
-          <option value="400">400</option>
-          <option value="401">401</option>
-          <option value="403">403</option>
-          <option value="404">404</option>
-          <option value="500">500</option>
+          @for (s of statusOptions(); track s) {
+            <option [value]="s">{{ s }}</option>
+          }
         </select>
       </label>
       <label>
@@ -258,6 +271,10 @@ import { TranslocoPipe } from '@jsverse/transloco';
       <p class="error-msg">{{ error() }}</p>
     }
 
+    @if (!loading() && entries().length > 0) {
+      <app-summary-strip [items]="summaryItems()" />
+    }
+
     @if (loading()) {
       <p>{{ 'common.loading' | transloco }}</p>
     } @else if (entries().length === 0) {
@@ -278,19 +295,14 @@ import { TranslocoPipe } from '@jsverse/transloco';
         </thead>
         <tbody>
           @for (e of entries(); track e._id) {
-            <tr>
-              <td class="mono">{{ formatTs(e.timestamp) }}</td>
+            <tr [class]="rowClass(e)">
+              <td><app-relative-time [value]="e.timestamp" /></td>
               <td>{{ e.tokenLabel ?? e.oidcSubject ?? '—' }}</td>
               <td class="mono">{{ e.operation }}</td>
               <td>{{ e.spaceId ?? '—' }}</td>
-              <td>
-                <span class="badge-status"
-                      [class.badge-2xx]="e.status >= 200 && e.status < 300"
-                      [class.badge-4xx]="e.status >= 400 && e.status < 500"
-                      [class.badge-5xx]="e.status >= 500">{{ e.status }}</span>
-              </td>
+              <td><app-status-pill [variant]="statusVariant(e.status)">{{ e.status }}</app-status-pill></td>
               <td class="mono">{{ e.ip }}</td>
-              <td>{{ e.durationMs }}ms</td>
+              <td class="num">{{ e.durationMs }}ms</td>
               <td><button class="detail-close" style="padding:2px 8px;font-size:11px" (click)="showDetail(e)">{{ 'auditLog.table.detailButton' | transloco }}</button></td>
             </tr>
           }
@@ -307,11 +319,36 @@ import { TranslocoPipe } from '@jsverse/transloco';
     }
 
     <!-- Detail panel -->
-    @if (selectedEntry()) {
+    @if (selectedEntry(); as e) {
       <div class="detail-overlay" (click)="selectedEntry.set(null)">
         <div class="detail-panel" (click)="$event.stopPropagation()">
           <h3>{{ 'auditLog.detail.title' | transloco }}</h3>
-          <pre>{{ selectedEntry() | json }}</pre>
+          <dl class="detail-grid">
+            <dt>{{ 'auditLog.table.timestamp' | transloco }}</dt>
+            <dd><app-relative-time [value]="e.timestamp" /></dd>
+            <dt>{{ 'auditLog.table.tokenUser' | transloco }}</dt>
+            <dd>{{ e.tokenLabel ?? e.oidcSubject ?? '—' }}<span class="mono" style="color:var(--text-muted)">@if (e.authMethod) { &nbsp;· {{ e.authMethod }} }</span></dd>
+            <dt>{{ 'auditLog.table.operation' | transloco }}</dt>
+            <dd class="mono">{{ e.operation }}</dd>
+            <dt>{{ 'auditLog.detail.request' | transloco }}</dt>
+            <dd class="mono">{{ e.method }} {{ e.path }}</dd>
+            <dt>{{ 'auditLog.table.status' | transloco }}</dt>
+            <dd><app-status-pill [variant]="statusVariant(e.status)">{{ e.status }}</app-status-pill></dd>
+            <dt>{{ 'auditLog.table.space' | transloco }}</dt>
+            <dd>{{ e.spaceId ?? '—' }}</dd>
+            <dt>{{ 'auditLog.table.ip' | transloco }}</dt>
+            <dd class="mono">{{ e.ip }}</dd>
+            <dt>{{ 'auditLog.table.duration' | transloco }}</dt>
+            <dd class="num">{{ e.durationMs }}ms</dd>
+            @if (e.entryId) {
+              <dt>{{ 'auditLog.detail.entryId' | transloco }}</dt>
+              <dd class="mono">{{ e.entryId }}</dd>
+            }
+          </dl>
+          <details class="detail-raw">
+            <summary>{{ 'auditLog.detail.rawJson' | transloco }}</summary>
+            <pre>{{ e | json }}</pre>
+          </details>
           <button class="detail-close" (click)="selectedEntry.set(null)">{{ 'auditLog.detail.closeButton' | transloco }}</button>
         </div>
       </div>
@@ -323,6 +360,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 export class AuditLogComponent implements OnInit, OnDestroy {
   private adminApi = inject(AdminApi);
   private spacesApi = inject(SpacesApi);
+  private transloco = inject(TranslocoService);
 
   activeLogTab = signal<'audit' | 'server'>('audit');
   loading = signal(true);
@@ -334,6 +372,25 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   spaces = signal<Space[]>([]);
   selectedEntry = signal<AuditLogEntry | null>(null);
   retentionDays = signal(90);
+
+  /** Status codes present in the current result set — the filter offers only what's actually there
+   *  instead of a fixed guess-list. */
+  statusOptions = computed(() => [...new Set(this.entries().map(e => e.status))].sort((a, b) => a - b));
+
+  /** At-a-glance rollup of what's currently in view, with warn/error emphasis when non-zero. */
+  summaryItems = computed<SummaryItem[]>(() => {
+    const tr = (k: string) => this.transloco.translate(k);
+    const es = this.entries();
+    const c4 = es.filter(e => e.status >= 400 && e.status < 500).length;
+    const c5 = es.filter(e => e.status >= 500).length;
+    const authFailed = es.filter(e => e.operation === 'auth.failed').length;
+    return [
+      { label: tr('auditLog.summary.shown'), value: es.length },
+      { label: tr('auditLog.summary.clientErrors'), value: c4, variant: c4 ? 'warn' : undefined },
+      { label: tr('auditLog.summary.serverErrors'), value: c5, variant: c5 ? 'error' : undefined },
+      { label: tr('auditLog.summary.authFailures'), value: authFailed, variant: authFailed ? 'error' : undefined },
+    ];
+  });
 
   filterAfter = '';
   filterBefore = '';
@@ -445,9 +502,19 @@ export class AuditLogComponent implements OnInit, OnDestroy {
     });
   }
 
-  formatTs(iso: string): string {
-    const d = new Date(iso);
-    return d.toLocaleString();
+  /** Map an HTTP status to the shared status-pill vocabulary. */
+  statusVariant(status: number): StatusVariant {
+    if (status >= 500) return 'error';
+    if (status >= 400) return 'warn';
+    if (status >= 300) return 'off';
+    return 'ok';
+  }
+
+  /** Leading severity stripe for rows worth noticing: 5xx → error, 4xx / auth failure → warn. */
+  rowClass(e: AuditLogEntry): string {
+    if (e.status >= 500) return 'row-error';
+    if (e.status >= 400 || e.operation === 'auth.failed') return 'row-warn';
+    return '';
   }
 
   exportJson(): void {

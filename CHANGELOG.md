@@ -891,6 +891,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Models page redesigned, and document-extraction is now configurable in the UI.** The page is
+  rebuilt on a shared settings design system (capability cards + one status-pill vocabulary) with an
+  operator-first "what happens when someone uploads a file" summary. A new **Document Extraction** card
+  surfaces the F11 pipeline: pick the extraction `mode` (OCR / VLM / Auto / Max) — with a live diagram of
+  which stages run and a clear "falls back to OCR" state when no vision model is set — plus the render
+  DPI / max-pages / timeout / concurrency knobs. The `vlmModel` / `repairModel` values are shown read-only
+  (they're env/config-file only by design — egress targets kept out of the web API). Previously the
+  extraction mode could only be set via `config.json`.
+
 - **Test suite: the two genuinely fixed audit-log waits now poll instead of sleeping (Q3).**
   `audit.test.js` slept a fixed 500 ms twice waiting for a fire-and-forget audit write, then asserted;
   both are now bounded `waitFor` polls that return as soon as the entry lands (the file went ~4.4 s →

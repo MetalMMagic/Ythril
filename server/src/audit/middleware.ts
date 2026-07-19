@@ -182,6 +182,11 @@ const ROUTE_RULES: RouteRule[] = [
 
   // ── Traverse ─────────────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/traverse$/,   operation: 'brain.traverse', spaceGroup: 1, read: true },
+
+  // ── SSE ticket mints (read-shaped: they mint a single-use ticket to WATCH a stream, no state
+  //    change worth auditing; the streams themselves are reads) ──────────────
+  { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/events\/ticket$/, operation: 'brain.events.ticket', spaceGroup: 1, read: true },
+  { method: 'POST',   pattern: /^\/api\/about\/logs\/ticket$/,                      operation: 'about.logs.ticket', read: true },
 ];
 
 // Pre-group rules by HTTP method for O(1) method lookup instead of linear scan.

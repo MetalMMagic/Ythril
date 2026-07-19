@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { findMatchingToken, touchToken } from './tokens.js';
+import { consumeSseTicket } from './sse-ticket.js';
 import { isMfaEnabled, verifyMfaCode } from './totp.js';
 import { validateOidcJwt, getOidcConfig } from './oidc.js';
 import type { TokenRecord } from '../config/types.js';
@@ -17,6 +18,10 @@ declare global {
       authToken?: Omit<TokenRecord, 'hash'> | OidcTokenRecord;
       resolvedSpaceId?: string;
       requestId?: string;
+      /** Bearer exchanged from a single-use SSE ticket, cached so multiple auth middlewares in the same
+       *  request (e.g. a router-level requireAuth + a route-level requireAdmin) don't each try to consume
+       *  it. `null` means the ticket was invalid; `undefined` means not yet exchanged. */
+      sseTicketBearer?: string | null;
     }
   }
 }
@@ -64,36 +69,60 @@ export function denyReadOnly(req: Request, res: Response, next: NextFunction): v
 }
 
 /**
- * Endpoints where a `?token=` query parameter is accepted in place of the
- * Authorization header. Only the SSE streams qualify: the browser `EventSource`
- * API cannot set headers, so there is no alternative there.
- *
- * A token in a query string leaks into access logs, proxy logs, browser history
- * and `Referer` headers, so the fallback must NOT be available instance-wide —
- * it previously was, on every route and every method.
+ * Query-string auth for streams the browser `EventSource` API opens (it cannot set an `Authorization`
+ * header). A token in a URL leaks into access logs, proxy logs, browser history and `Referer`, so the
+ * two BROWSER streams no longer take the raw token — they take a single-use `?ticket=` (minted by an
+ * authenticated `POST …/ticket`, exchanged back to the bearer here; see auth/sse-ticket.ts). Only the
+ * `/mcp` transport still accepts a raw `?token=`: it's an external-agent protocol with a different threat
+ * model (the agent already holds the token and may not be able to set headers). All lists stay anchored
+ * and GET-only so the fallbacks can't widen to other routes.
  */
 const QUERY_TOKEN_PATHS = new Set([
-  '/api/about/logs/stream',  // audit-log live tail (EventSource)
-  '/mcp',                    // MCP SSE transport (EventSource)
+  '/mcp', // MCP SSE transport (external agents) — raw ?token= retained by design
 ]);
 
-// Parameterised SSE paths that can't be listed literally. Kept deliberately narrow (anchored, single
-// path segment for the id) so the query-token fallback stays confined to these GET streams.
-const QUERY_TOKEN_PATH_PATTERNS: RegExp[] = [
+// Browser SSE streams authenticated via a single-use ?ticket= (never the raw token).
+const TICKET_PATHS = new Set([
+  '/api/about/logs/stream', // admin audit-log live tail (EventSource)
+]);
+const TICKET_PATH_PATTERNS: RegExp[] = [
   /^\/api\/brain\/spaces\/[^/]+\/events$/, // live brain-change stream (F12, EventSource)
 ];
 
-function allowsQueryToken(req: Request): boolean {
-  if (req.method !== 'GET') return false;
+/** Request path without query string or trailing slash (`/` when empty). */
+function pathOf(req: Request): string {
   const pathOnly = (req.originalUrl.split('?')[0] ?? '').replace(/\/+$/, '');
-  const p = pathOnly || '/';
-  return QUERY_TOKEN_PATHS.has(p) || QUERY_TOKEN_PATH_PATTERNS.some(re => re.test(p));
+  return pathOnly || '/';
+}
+
+function allowsQueryToken(req: Request): boolean {
+  return req.method === 'GET' && QUERY_TOKEN_PATHS.has(pathOf(req));
+}
+
+function allowsTicket(req: Request): boolean {
+  if (req.method !== 'GET') return false;
+  const p = pathOf(req);
+  return TICKET_PATHS.has(p) || TICKET_PATH_PATTERNS.some(re => re.test(p));
 }
 
 function extractBearer(req: Request): string | null {
   const auth = req.headers.authorization;
   if (auth && auth.startsWith('Bearer ')) return auth.slice('Bearer '.length).trim();
-  // Fallback: query parameter — SSE endpoints only (EventSource cannot set headers)
+  // Browser SSE: exchange the single-use ticket back to its bearer (keeps the token out of the URL).
+  // Bound to this exact path, so a ticket can't cross to another space's stream or the log stream. A
+  // request can pass through more than one auth middleware (a router-level requireAuth + a route-level
+  // requireAdmin), so exchange the ticket ONCE and cache it on the request — single-use is enforced
+  // across requests (each gets a fresh req), but stays consistent within one.
+  if (allowsTicket(req)) {
+    if (req.sseTicketBearer !== undefined) return req.sseTicketBearer;
+    const ticket = req.query['ticket'];
+    const bearer = (typeof ticket === 'string' && ticket.trim())
+      ? consumeSseTicket(ticket.trim(), pathOf(req))
+      : null;
+    req.sseTicketBearer = bearer;
+    return bearer;
+  }
+  // MCP SSE transport only: legacy raw-token fallback (see note above).
   if (allowsQueryToken(req)) {
     const queryToken = req.query['token'];
     if (typeof queryToken === 'string' && queryToken.trim()) return queryToken.trim();

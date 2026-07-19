@@ -86,6 +86,9 @@ const READ_SHAPED_POSTS = [
   '/spaces/:spaceId/recall',
   '/spaces/:spaceId/find-similar',
   '/spaces/:spaceId/traverse',
+  // Minting a single-use ticket to WATCH the live-events stream is a read (the stream itself allows
+  // read-only tokens — "watching is a read"), so it must not be blocked for a read-only token.
+  '/spaces/:spaceId/events/ticket',
   '/recall',
   '/:id/validate-schema',
   '/export-space',

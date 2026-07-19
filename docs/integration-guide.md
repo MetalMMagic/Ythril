@@ -687,7 +687,7 @@ POST /api/brain/spaces/:spaceId/memories
 }
 ```
 
-**Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object where each value must be a string, number, or boolean. When the space has `strictLinkage` enabled, `entityIds` must contain valid UUID v4 values (entity IDs); passing names instead of IDs returns `400`. `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl).
+**Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). When the space has `strictLinkage` enabled, `entityIds` must contain valid UUID v4 values (entity IDs); passing names instead of IDs returns `400`. `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl).
 
 ---
 
@@ -1115,7 +1115,7 @@ GET /api/brain/spaces/:spaceId/entities/by-name?name=Kubernetes
 }
 ```
 
-Returns all entities with the exact name, regardless of type. Multiple entities may share a name (name is not a unique key).
+Returns entities whose name matches the query as a **case-insensitive substring** (not an exact match), regardless of type, **capped at 20 results**. Multiple entities may share a name (name is not a unique key).
 
 ---
 
@@ -1524,13 +1524,15 @@ Returns `true` when the embedding model has changed and memories need re-embeddi
 POST /api/brain/spaces/:spaceId/reindex
 ```
 
-Re-computes all embeddings with the current model. Long-running — may take minutes for large spaces.
+Re-computes all embeddings with the current model. **Runs asynchronously** — the call returns immediately and the job proceeds in the background (it may take minutes for large spaces). Poll `GET /api/brain/spaces/:spaceId/reindex-status` for progress.
 
-**Response** `200`:
+**Response** `200` — the job was *accepted*; `reindexed`/`errors` are always `0` here (the real counts land on the status endpoint), and `status` is `"started"`:
 
 ```json
-{ "spaceId": "general", "reindexed": 1042, "errors": 0 }
+{ "spaceId": "general", "reindexed": 0, "errors": 0, "status": "started" }
 ```
+
+Returns `409 { "error": "Reindex already in progress" }` if one is already running for the space.
 
 ---
 
@@ -1556,7 +1558,7 @@ Each array is capped at 500 entries. Per-item validation failures are recorded i
 }
 ```
 
-Each item accepts the same fields as its corresponding individual endpoint (`POST /memories`, `POST /entities`, `POST /edges`, `POST /chrono`).
+Each item accepts the same fields as its corresponding individual endpoint (`POST /memories`, `POST /entities`, `POST /edges`, `POST /chrono`), with one exception: **an entity's `type` is required in bulk** (an item missing it is skipped with `"missing required field: type"`), whereas the single `POST /entities` defaults `type` to empty.
 
 **Response** `207`:
 
@@ -1576,7 +1578,7 @@ Each item accepts the same fields as its corresponding individual endpoint (`POS
 
 Entity items in the `entities` array accept an optional `id` field (UUID v4). If `id` is supplied, the entity with that ID is updated (or created with that ID). If `id` is omitted, a new entity is always inserted. See [Upsert an Entity](#upsert-an-entity) for full identity semantics.
 
-**Schema validation:** When the target space has `validationMode` set to `strict` or `warn`, each item is validated against the space schema before writing. In strict mode, violating items are skipped and recorded in `errors` (e.g. `"schema_violation: type 'unknown' is not in typeSchemas.entity"`). In warn mode, violations are recorded as warnings but the item is written. See [Schema Validation](#schema-validation) for the full schema specification.
+**Schema validation:** When the target space has `validationMode` set to `strict` or `warn`, each item is validated against the space schema before writing. In strict mode, violating items are skipped and recorded in `errors` (e.g. `"schema_violation: not in entityTypes allowlist: Person, Service"`). In warn mode, violations are recorded as warnings but the item is written. See [Schema Validation](#schema-validation) for the full schema specification.
 
 **Proxy spaces:** add `?targetSpace=<member>` to route all writes to a specific member space.
 
@@ -1655,7 +1657,6 @@ All `PATCH` update endpoints — entities, edges, and memories — accept an opt
 PATCH /api/brain/spaces/:spaceId/entities/:id
 PATCH /api/brain/spaces/:spaceId/edges/:id
 PATCH /api/brain/spaces/:spaceId/memories/:id
-PATCH /api/brain/spaces/:spaceId/memories/:id
 ```
 
 **Example — delete a property key while adding a new one:**
@@ -1725,10 +1726,10 @@ Content-Type: application/octet-stream
 
 Any file type is supported — documents, images, binaries, archives, etc. The `Content-Type` header is informational; Ythril stores the raw bytes as-is.
 
-**Response** `201`:
+**Response** `201` for opaque/non-document files (`{ path, sha256 }`). For a **document or media** format that triggers async conversion/embedding (PDF, DOCX, images, audio, …) the response is **`202 Accepted`** with an `embeddingStatus: "pending"` — the file is stored immediately and its searchable content is produced in the background (poll File Meta or retry-embedding for status):
 
 ```json
-{ "path": "reports/q1.pdf", "sha256": "a1b2c3..." }
+{ "path": "reports/q1.pdf", "sha256": "a1b2c3...", "embeddingStatus": "pending" }
 ```
 
 ### Upload a File (JSON / base64)
@@ -1984,7 +1985,7 @@ If the unstructured sidecar is unavailable, `write_file` still succeeds. The ori
 
 Conversion input is size-bounded: documents over `maxDocumentConversionBytes` in `config.json` (default 100 MiB; HTML additionally capped at 25 MiB because jsdom parses it in-process) are stored as-is with `embeddingStatus: "skipped"` — the conversion job fails permanently rather than retrying. Images extracted during hi-res conversion are capped at 50 per document / 100 MiB aggregate.
 
-To disable the conversion pipeline entirely, set `CONVERSION_SIDECAR_URL=""` in Ythril's environment — all uploads fall back to the `"text"` bypass regardless of `inputFormat`.
+Setting `CONVERSION_SIDECAR_URL=""` only disables the **sidecar-backed** formats: in-process formats (HTML/Markdown/plain text) still convert, but PDF/DOCX/EPUB uploads then fail with `conversionError: sidecar_down` (`embeddingStatus: failed`). There is no global "text bypass" — to skip conversion for a specific upload, send it with `inputFormat=text`.
 
 #### Page-render sidecar (`doc-render`)
 
@@ -1994,7 +1995,7 @@ the rasterization step the **VLM document-extraction** path (`mediaEmbedding.doc
 lightweight and carries no model weights) or stop it with no effect on today's OCR conversion. Like the
 `unstructured` sidecar it parses untrusted documents, so it runs isolated on the internal-only
 `ythril-convert` network (no database, no internet egress), non-root and resource-limited. Ythril reaches
-it via `RENDER_SIDECAR_URL` (default `http://doc-render:8100`).
+it via `RENDER_SIDECAR_URL` (default `http://localhost:8100`).
 
 #### Document Processing Configuration
 
@@ -2305,23 +2306,28 @@ worth querying.
       "label": "General",
       "builtIn": true,
       "description": "Default workspace space.",
-      "counts": { "memories": 42, "entities": 10, "edges": 5, "chrono": 3 }
+      "counts": { "memories": 42, "entities": 10, "edges": 5, "chrono": 3 },
+      "usageGiB": 0.05
     }
   ],
   "storage": {
-    "total": { "usedBytes": 52428800, "softLimitGiB": 150, "hardLimitGiB": 200 }
+    "usageGiB": { "files": 0.02, "brain": 0.03, "total": 0.05 },
+    "limits": { "totalLimitGiB": 200, "warnAtPercent": 80 }
   }
 }
 ```
 
-> **Note:** `counts` fields are only present when `?counts=true` is passed.
+> **Note:** `counts` fields are only present when `?counts=true` is passed. `storage.usageGiB` is the instance total (files + brain), and `storage.limits` echoes the configured quota (`totalLimitGiB`, `warnAtPercent`); each space object also carries its own `usageGiB` number.
 
 ---
 
 ### Create a Space
 
+**Admin only** — `POST /api/spaces` requires an admin token (and a valid `X-TOTP-Code` when MFA is enabled); it is `requireAdminMfa`-gated. A non-admin token gets `403`.
+
 ```http
 POST /api/spaces
+Authorization: Bearer <admin-token>
 ```
 
 ```json
@@ -2373,7 +2379,7 @@ POST /api/spaces
 
 - All `proxyFor` members must be existing real spaces (not proxies — nesting is not allowed).
 - Proxy spaces are virtual: no DB collections or file directories are created.
-- The calling token must have access to **all** member spaces.
+- Creating the proxy is admin-gated (like any space creation); the create call validates only that each member exists and is not itself a proxy — it does **not** separately check the caller's space allowlist. (Per-space access is enforced at read/write time on the proxy's member spaces.)
 - The single-element wildcard `"proxyFor": ["*"]` creates an **all-spaces** proxy: it aggregates over every real space the caller can access (resolved dynamically), skipping per-member validation. The wildcard cannot be mixed with explicit member IDs.
 
 **Read operations** (GET memories, entities, edges, files, recall, query) aggregate results across all member spaces transparently.
@@ -2421,7 +2427,7 @@ The rename atomically:
 
 | Status | Meaning |
 |--------|---------|
-| `400`  | Invalid `newId` format or trying to rename the `general` space |
+| `400`  | Invalid `newId` format, or trying to rename a built-in space (e.g. `general`) |
 | `404`  | Source space does not exist |
 | `409`  | `newId` already exists |
 | `500`  | Partial rename failure (collections may be in an inconsistent state) |
@@ -2487,7 +2493,7 @@ Update space properties. Requires an admin token (+ TOTP if MFA is enabled). At 
 If the space participates in a network and `meta` is included, the update triggers a governance vote and returns `202`:
 
 ```json
-{ "status": "vote_pending", "rounds": [...], "message": "Meta change requires peer approval." }
+{ "status": "vote_pending", "rounds": [...], "message": "Meta change requires network vote" }
 ```
 
 > **MCP tool:** `update_space` — accepts `label` and `description`. Requires `admin: true`.
@@ -2699,7 +2705,7 @@ Scans existing data against the current (or proposed) schema definition without 
       "collection": "entities",
       "_id": "550e8400-e29b-41d4-a716-446655440000",
       "violations": [
-        { "field": "type", "value": "concept", "reason": "type 'concept' is not in typeSchemas.entity" }
+        { "field": "type", "value": "concept", "reason": "not in entityTypes allowlist: Person, Service" }
       ]
     }
   ]
@@ -2895,11 +2901,13 @@ Authorization: Bearer <token>
 
 Returns an empty `usages` array if no space references the entry (including for names that do not exist in the library). Use this endpoint before deleting an entry to identify which spaces would lose their schema reference.
 
+> **Library mutations require an admin token** — `POST`, `PUT`, and `DELETE` below are all admin-gated and MFA-protected (`requireAdminMfa`): send `Authorization: Bearer <admin-token>` and, when MFA is enabled, an `X-TOTP-Code: <code>` header, or the call returns `403`. The read endpoints (list, get, `…/usages`) accept any valid token.
+
 #### Create an entry
 
 ```http
 POST /api/schema-library
-Authorization: Bearer <token>
+Authorization: Bearer <admin-token>
 Content-Type: application/json
 
 {
@@ -2917,7 +2925,7 @@ Content-Type: application/json
 
 ```http
 PUT /api/schema-library/:name
-Authorization: Bearer <token>
+Authorization: Bearer <admin-token>
 Content-Type: application/json
 
 {
@@ -2934,7 +2942,7 @@ Content-Type: application/json
 
 ```http
 DELETE /api/schema-library/:name
-Authorization: Bearer <token>
+Authorization: Bearer <admin-token>
 ```
 
 **Response** `204`. Returns `404` if not found.
@@ -3122,7 +3130,7 @@ Authorization: Bearer <token>
 
 **Response** `200 { "catalog": "acme-schemas", "entries": [ { name, knowledgeType, typeName, description, updatedAt } ] }`.
 
-Returns `404` if the catalog link is unknown. Returns `502` if the remote endpoint returns a non-200 response. Returns `504` if the request times out (8 s).
+Returns `404` if the catalog link is unknown. Returns `502` if the remote endpoint returns a non-200 response **or the request times out** (8 s). (A `504` is only produced when the remote itself responds with `504`.)
 
 ##### Fetch a single entry from a foreign catalog
 
@@ -3169,7 +3177,8 @@ If cleanup partially fails (e.g. a collection drop or file deletion errors), the
 Base path: `/api/tokens`.
 
 - `GET /api/tokens/me` requires any valid token.
-- All other token management routes require admin scope (and MFA where enabled).
+- The read-only list `GET /api/tokens` requires an **admin** token (but not MFA).
+- All **mutating** token routes (create/delete/regenerate) require admin scope **and** MFA where enabled.
 
 ### Current Token Context
 
@@ -3185,12 +3194,17 @@ Returns the effective identity and permissions of the caller token.
 {
   "id": "tok_abc123",
   "name": "MCP Agent",
+  "prefix": "abc123",
   "admin": false,
   "readOnly": false,
   "spaces": ["general", "research"],
+  "createdAt": "2026-01-15T10:00:00.000Z",
+  "lastUsed": "2026-07-20T09:30:00.000Z",
   "expiresAt": null
 }
 ```
+
+Returns the full stored token record minus its `hash`. Besides the fields above it also includes `peerInstanceId`, `schemaLibrary`, and `oauthClientId` when those apply to the token.
 
 ---
 
@@ -4310,9 +4324,10 @@ DELETE /api/conflicts/link-violations
 
 ```http
 POST /api/conflicts/seed
+Authorization: Bearer <admin-token>
 ```
 
-Creates a synthetic conflict record for test scenarios.
+Creates a synthetic conflict record for test scenarios. **Admin only** (`requireAdmin`) — a non-admin token, even one with access to the space, gets `403 "Admin token required"`.
 
 ```json
 {
@@ -5101,7 +5116,7 @@ Audit entries are recorded for all write operations and (when `logReads` is enab
 | File | `file.create`, `file.update`, `file.delete`, `file.read`, `file.list` |
 | Space | `space.create`, `space.update`, `space.delete`, `space.wipe`, `space.list` |
 | Token | `token.create`, `token.delete` |
-| Webhook | `webhook.create`, `webhook.update`, `webhook.delete` |
+| Webhook | `webhook.create`, `webhook.update`, `webhook.delete`, `webhook.test` |
 | Brain | `brain.recall`, `brain.recall_global`, `brain.query`, `brain.find_similar`, `brain.stats`, `brain.bulk_write`, `brain.traverse` |
 | Config | `config.reload` |
 | Auth | `auth.failed` (invalid or expired tokens on any endpoint) |
@@ -5245,7 +5260,7 @@ Base path: `/api/duplicates`.
 | `GET` | `/api/duplicates?status=open&space=<id>` | any token (space-scoped) | List candidates. `status` = `open` (default), `dismissed`, or `all`. |
 | `POST` | `/api/duplicates/:id/dismiss` | non-read-only | Mark a pair reviewed / not-a-duplicate. |
 | `POST` | `/api/duplicates/:id/merge` | non-read-only | Merge an entity candidate losslessly. `409` with the merge plan if there is a value conflict. |
-| `POST` | `/api/duplicates/scan?space=<id>` | admin | Trigger an on-demand full re-scan (all accessible spaces, or one). |
+| `POST` | `/api/duplicates/scan?space=<id>` | admin + MFA | Trigger an on-demand full re-scan (all accessible spaces, or one). Requires `X-TOTP-Code` when MFA is enabled. |
 
 A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, score, status, resolution?, detectedAt, updatedAt }`. The web UI (**Settings → Duplicates**) lists candidates with dismiss / merge actions and a "Scan now" button.
 
@@ -5255,7 +5270,7 @@ A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, score, status
 
 ## Webhooks API
 
-Base path: `/api/admin/webhooks` — **requires admin token** on all endpoints.
+Base path: `/api/admin/webhooks` — **requires an admin token on all endpoints** (`requireAdminMfa`), including the read-only `GET`s (`/`, `/:id`, `/:id/deliveries`). When MFA is enabled, every request must also carry an `X-TOTP-Code: <code>` header, or it returns `403 MFA_REQUIRED`.
 
 Webhooks allow external systems to receive real-time HTTP POST notifications when write events occur on Ythril spaces. This replaces the need to poll for changes.
 
@@ -5271,6 +5286,7 @@ Webhooks allow external systems to receive real-time HTTP POST notifications whe
 | `entity.created` | A new entity is created |
 | `entity.updated` | An existing entity is updated (including upsert of existing) |
 | `entity.deleted` | An entity is deleted |
+| `entity.merged` | Two entities are merged (the survivor keeps its id). Payload `entry` = `{ survivor: {record}, absorbedId }` |
 | `edge.created` | A new edge is created |
 | `edge.updated` | An existing edge is updated |
 | `edge.deleted` | An edge is deleted |

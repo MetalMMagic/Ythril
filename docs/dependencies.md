@@ -205,12 +205,14 @@ Legal principle that runtime infrastructure must be listed with its licensing im
 | `ollama/ollama` | Vision model host — captions uploaded images (default `moondream`) for the media pipeline. | MIT (the Ollama runtime). Models are pulled separately; the default `moondream` is Apache 2.0. |
 | `fedirz/faster-whisper-server` | Speech-to-text — transcribes uploaded/segmented audio via an OpenAI-compatible endpoint. | MIT (the server). Whisper models are pulled separately and are Apache 2.0. |
 | `unstructured-io/unstructured-api` | Server-side PDF / DOCX / EPUB conversion (`hi_res` OCR + layout detection, table and embedded-image extraction). | Apache 2.0. |
+| `ythril-doc-render` (first-party, built from `sidecars/doc-render`) | Renders PDF pages to PNG images for the F11 VLM document-extraction path (`documentProcessing.mode` `vlm`/`auto`/`max`). | Apache-2.0. Wraps **PDFium** via `pypdfium2` (Apache-2.0 / BSD-3-Clause) + Pillow (HPND) — all permissive. Deliberately **not** PyMuPDF (AGPL-3.0). See [`sidecars/doc-render/LICENSES.md`](../sidecars/doc-render/LICENSES.md). |
 
-**Where they are referenced.** `ollama`, `whisper`, and `unstructured` are all services in
-[`docker-compose.yml`](../docker-compose.yml) and have matching Kubernetes manifests
-(`kubernetes/manifests/{ollama,whisper}-deploy.yaml`; the `unstructured-api` sidecar is
-in `kubernetes/manifests/ythril-deployment.yaml`, pod-local). `ollama`/`whisper` form the
-media-embedding stack; `unstructured` is the bundled document-conversion sidecar.
+**Where they are referenced.** `ollama`, `whisper`, `unstructured`, and `doc-render` are all services in
+[`docker-compose.yml`](../docker-compose.yml). `ollama`/`whisper` also have matching Kubernetes manifests
+(`kubernetes/manifests/{ollama,whisper}-deploy.yaml`); the `unstructured-api` sidecar is
+in `kubernetes/manifests/ythril-deployment.yaml`, pod-local. `ollama`/`whisper` form the
+media-embedding stack; `unstructured` is the bundled document-conversion sidecar, and `doc-render`
+is the first-party page-render sidecar built locally from `sidecars/doc-render` (not pulled).
 
 > **Why not `unstructured-api-full`?** The `-full` variant (extra Tesseract language packs +
 > LibreOffice) was made private on quay.io and now returns `401 UNAUTHORIZED` on an anonymous

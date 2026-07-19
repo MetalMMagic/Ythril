@@ -30,7 +30,7 @@ Which phases run for a given member depends on the `member.direction` field:
 |-----------|------|------|---------|
 | `both`    | ✓    | ✓    | Closed, Democratic, Club (default) |
 | `push`    | ✗    | ✓    | Braintree parent → child, Pub/Sub publisher → subscriber |
-| `pull`    | ✓    | ✗    | Pub/Sub subscriber → publisher |
+| `pull`    | ✓    | ✗    | Pub/Sub subscriber's record of its publisher; Braintree child's record of its parent |
 
 For non-directional networks (`closed`, `democratic`, `club`), pull and push always run regardless of the direction field.
 
@@ -230,7 +230,7 @@ In a braintree network, `member.direction` controls which phases run:
 | `both` | yes | yes |
 | `push` | no | yes |
 
-A leaf node has `direction='push'` toward its parent — meaning the engine pushes down to children and only the parent pulls from its own source. Data does not travel upward.
+In a braintree, a child stores its **parent** with `direction='pull'` (the child pulls its parent's data downward), and a parent stores each **child** with `direction='push'` (the parent pushes down to that child). Both records describe the *same* downward flow, root → leaves — so a leaf never pushes up to its parent, and data does not travel upward. (This is set in `join.ts`: an applying child records the inviting parent as `pull`; a parent records an accepted child as `push`.)
 
 ---
 
@@ -321,7 +321,7 @@ There is no dedicated identity endpoint — a peer that needs the instance's ide
 
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
-| `POST` | `/api/sync/memories` | `MemoryDoc` | `200 { status: 'inserted'\|'updated'\|'forked'\|'skipped'\|'tombstoned' }` |
+| `POST` | `/api/sync/memories` | `MemoryDoc` | `200 { status: 'inserted'\|'updated'\|'forked'\|'skipped'\|'tombstoned' }` — the `'forked'` case also returns `forkId` (the new fork document's `_id`) |
 | `POST` | `/api/sync/entities` | `EntityDoc` | `200 { status:'ok' }` (or `'tombstoned'`) |
 | `POST` | `/api/sync/edges` | `EdgeDoc` | `200 { status:'ok' }` (or `'tombstoned'`) |
 | `POST` | `/api/sync/chrono` | `ChronoEntry` | `200 { status:'ok' }` (or `'tombstoned'`) |
@@ -339,7 +339,7 @@ All incoming documents are validated against Zod schemas before any database wri
 Two additional ingest safety caps protect the local seq counter and fork chains from a malicious or corrupted peer:
 
 - **Implausible seq** — the schema bound on `seq` is 2^50, but ingest applies a stricter ceiling of `2^50 − 2^40` (`rejectImplausibleSeq`); a document above it is refused so a poisoned seq can never exhaust the counter's headroom.
-- **Fork limits** — fork chain depth and per-document fork fan-out are both capped at 10. Exceeding either returns `400` on the single endpoints and is silently skipped in `batch-upsert`.
+- **Fork limits** — fork chain depth is capped at 10 on both paths: exceeding it returns `400` on the single `POST /memories` endpoint and is silently skipped in `batch-upsert`. The additional per-document **fan-out** cap (no more than 10 forks pointing at the same parent) is enforced **only on the single endpoint** — `batch-upsert` checks chain depth alone, not sibling fan-out.
 
 ### Gossip endpoints
 

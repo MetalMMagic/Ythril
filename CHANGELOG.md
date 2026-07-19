@@ -77,6 +77,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   corrected an inaccurate "stored encrypted at rest" note in the schema-library docs (the access token is
   write-only + `0600`, not encrypted — encryption at rest is tracked separately).
 
+### Documentation
+
+- **Full `docs/`-vs-code audit — 49 discrepancies corrected across 8 documents.** An 8-reviewer sweep of
+  every file in `docs/` against the current codebase surfaced 49 drifted or missing statements; all are now
+  fixed in one pass. Highlights: the **integration guide** now documents the real auth tier on every write
+  endpoint — `POST/PUT/DELETE /api/schema-library` and `POST /api/spaces` are `requireAdminMfa` (admin +
+  `X-TOTP-Code`), the entire webhooks router is MFA-gated, and duplicate-scan/seed-conflict/token routes are
+  labelled correctly — and corrects several response shapes (List-Spaces `storage` is
+  `{ usageGiB, limits }`; reindex is async with a `409`; PDF upload returns `202`; bulk-entity `type` is
+  required; `by-name` is a capped case-insensitive substring match; the `entity.merged` event and
+  `POST /sync/memories` `forkId` field were undocumented). The **user guide** catches up to the shipped UI
+  (audit-log **Detail** button + structured panel and the separate **Server Log** sub-tab; **Yes/Veto**
+  voting with confirm, deadline and tally; the Enable-Networks wizard; corrected Models, schema-library and
+  network button labels). The **stack/build docs** (workstation-mode, dependencies, contribution,
+  docker-build) now include the first-party **`doc-render`** (PDFium/`pypdfium2`) and **`unstructured`**
+  sidecars — both start on `up -d` with no profile gate — and fix the disk estimate, the `test:all`
+  no-`test:up` gotcha, the published-vs-local image note, and the second buildable service. The
+  **sync-protocol / network-types** docs correct the braintree direction model (a child records its parent
+  as `pull`, not `push`), the fork fan-out cap scope, and the invite-status `404`-vs-`401` codes. Also fixed
+  a misleading licensing comment in `docker-compose.yml` (the `doc-render` sidecar uses `pypdfium2`, **not**
+  AGPL PyMuPDF).
+
 ### Added
 
 - **Characterization tests for `NetworksComponent` (16 tests), landed before its redesign.** The largest

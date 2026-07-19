@@ -42,12 +42,13 @@ MongoDB is not installed locally — it runs inside Docker via `mongodb/mongodb-
 ythril/
 ├── client/          Angular 21 SPA (workspace: @ythril/client)
 ├── server/          Express 5 + TypeScript API (workspace: @ythril/server)
+├── sidecars/        First-party sidecars (doc-render: PDF → page PNGs for the F11 VLM extraction path)
 ├── testing/
 │   ├── _init/       Test bootstrap (config reset, sync-token provisioning)
 │   ├── integration/ API scenario tests
 │   ├── red-team-tests/ Security attack simulations
 │   ├── standalone/  Unit-level tests (no Docker)
-│   └── sync/        Multi-instance sync tests (4 containers)
+│   └── sync/        Multi-instance sync tests (4 Ythril instances; the test stack is 9 containers total — 4 Ythril + 4 Mongo + doc-render)
 ├── kubernetes/      K8s manifests (Ythril + ollama/whisper/unstructured sidecars, NetworkPolicies)
 ├── scripts/         Build, setup, and maintenance scripts
 ├── config/          Runtime config (bind-mounted into container)
@@ -156,7 +157,11 @@ Covers: config reload, config loader normalisation, config file permissions, log
 ### Integration tests (single Docker instance)
 
 ```bash
-# Start the primary instance
+# Start the primary instance. NOTE: the `ythril` service in docker-compose.yml has no
+# `build:` stanza — a bare `docker compose up -d` runs the PUBLISHED image
+# (ghcr.io/ythril-network/ythril:latest), NOT your local working tree. To test local code,
+# build the image yourself and point compose at it (e.g. an override with a `build: .` on the
+# `ythril` service, or `docker build -t ghcr.io/ythril-network/ythril:latest .` first).
 docker compose up -d
 
 # Run tests against localhost:3200
@@ -191,10 +196,18 @@ Attack simulations: auth bypass, path traversal, MongoDB injection ($options inj
 ### Run everything
 
 ```bash
+# Start the test stack FIRST — test:all does NOT bring it up.
+npm run test:up
+
 npm run test:all
 ```
 
-`test:all` now enforces cleanup automatically (`test:down:clean`) even if a suite fails. If you need containers and volumes left intact for debugging, use:
+> **`test:all` does not start the Docker stack.** It runs `test:all:core`
+> (integration → sync → red-team → standalone) and then `test:down:clean`, but there is
+> no `test:up` inside it. On a fresh checkout the integration and sync suites fail
+> (nothing is listening on `localhost:3200`) unless you run `npm run test:up` first.
+
+`test:all` enforces cleanup automatically (`test:down:clean`) even if a suite fails. If you need containers and volumes left intact for debugging, use:
 
 ```bash
 npm run test:all:keep

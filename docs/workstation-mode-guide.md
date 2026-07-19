@@ -14,13 +14,13 @@ For UI usage details see [userguide.md](userguide.md).
 1. Docker Engine or Docker Desktop installed and running.
 2. Docker Compose v2 available (`docker compose version`).
 3. Port `3200` free on your host (or choose an alternate host port like `3201`).
-4. Internet access for first image pull (`ghcr.io/ythril-network/ythril:latest`, `mongodb/mongodb-atlas-local:latest`, `ollama/ollama:latest`, `fedirz/faster-whisper-server:latest-cpu`).
+4. Internet access for first image pull (`ghcr.io/ythril-network/ythril:latest`, `mongodb/mongodb-atlas-local:latest`, `ollama/ollama:latest`, `fedirz/faster-whisper-server:latest-cpu`, and `downloads.unstructured.io/unstructured-io/unstructured-api:0.1.2`). The `doc-render` sidecar is **built locally** from `./sidecars/doc-render` on first `up` rather than pulled.
 
 Recommended host minimums:
 
 - CPU: 2 cores
 - RAM: 6 GB (4 GB for Ythril + Mongo, ~2 GB for the bundled media-embedding stack)
-- Disk: at least 12 GB free (includes ~2 GB for the `moondream` vision model and the Whisper `base` model)
+- Disk: at least 20 GB free — ~2 GB for the `moondream` vision model and the Whisper `base` model, plus ~6–8 GB for the `unstructured` document-parsing image (the `doc-render` image is small, a few hundred MB)
 
 > **Slimmer install:** Ythril ships with bundled image and audio/video understanding
 > services so attachments become searchable automatically. If your machine is tight
@@ -65,8 +65,10 @@ Default stack from `docker-compose.yml`:
 - `ythril-mongo` (MongoDB Atlas Local with vector search support)
 - `ythril-ollama` (vision model for image embedding — media stack)
 - `ythril-whisper` (speech-to-text for audio/video — media stack)
+- `ythril-unstructured` (document parsing for PDF/DOCX/EPUB uploads)
+- `ythril-doc-render` (PDF → page-image rendering for the VLM document-extraction path)
 
-The media containers (`ollama`, `whisper`) start by default; disable them with `docker compose up --scale ollama=0 --scale whisper=0`, or set `mediaEmbedding.enabled: false` in `config.json`.
+All six containers start on `docker compose up -d` — none is behind a Compose profile. To run a lean stack, scale the ones you don't need to zero, e.g. `docker compose up --scale ollama=0 --scale whisper=0 --scale unstructured=0 --scale doc-render=0`. Unticking **Enable media embedding** in **Settings → Models** (or `mediaEmbedding.enabled: false` in `config.json`) stops Ythril *calling* the vision/STT sidecars, but does not stop the `unstructured`/`doc-render` document-processing containers — scale those to zero if you don't upload documents.
 
 Option A: keep defaults (port 3200 + bundled MongoDB)
 
@@ -155,7 +157,7 @@ curl http://localhost:3200/ready
 
 What `docker compose ps` does:
 
-- Lists containers in this compose project (`ythril`, `ythril-mongo`, and — unless disabled — `ythril-ollama`, `ythril-whisper`).
+- Lists containers in this compose project (`ythril`, `ythril-mongo`, `ythril-unstructured`, `ythril-doc-render`, and — unless disabled — `ythril-ollama`, `ythril-whisper`).
 - Shows whether each container is running.
 - Shows health status when a healthcheck exists (`healthy`, `starting`, `unhealthy`).
 - Shows port bindings (for example host `3200` to container `3200`).

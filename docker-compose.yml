@@ -210,7 +210,7 @@
   # same isolated internal `ythril-convert` network — no database access and no internet egress — and
   # runs non-root (see sidecars/doc-render/Dockerfile). Only used when documentProcessing.mode is
   # vlm/auto/max; NOT a startup dependency (VLM extraction degrades to OCR when it is absent). It is
-  # light (~python-slim + PyMuPDF, no model weights), so leaving it running is cheap.
+  # light (~python-slim + pypdfium2, no model weights), so leaving it running is cheap.
   doc-render:
     build: ./sidecars/doc-render
     image: ythril-doc-render:0.1.0

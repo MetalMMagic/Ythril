@@ -194,7 +194,7 @@ import { ModalDirective } from '../../shared/modal.directive';
             <span class="network-name">{{ net.label }}</span>
             <span class="badge" [ngClass]="typeBadge(net.type)">{{ net.type }}</span>
             <span class="badge badge-gray">{{ net.members.length }} {{ net.members.length === 1 ? ('networks.memberBadge.singular' | transloco) : ('networks.memberBadge.plural' | transloco) }}</span>
-            <span style="color:var(--text-muted); font-size:12px;">{{ expanded() === net.id ? '▲' : '▼' }}</span>
+            <span style="color:var(--text-muted); display:inline-flex;"><ph-icon [name]="expanded() === net.id ? 'caret-up' : 'caret-down'" [size]="14" /></span>
           </div>
 
           @if (expanded() === net.id) {
@@ -216,7 +216,8 @@ import { ModalDirective } from '../../shared/modal.directive';
                     {{ copiedInvite() === net.id ? ('common.copied' | transloco) : ('networks.network.invite.copyBundle' | transloco) }}
                   </button>
                 } @else {
-                  <button class="btn-secondary btn btn-sm" (click)="generateInvite(net.id)">
+                  <button class="btn-secondary btn btn-sm" [disabled]="generatingInvite[net.id]" (click)="generateInvite(net.id)">
+                    @if (generatingInvite[net.id]) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
                     {{ 'networks.network.invite.generateButton' | transloco }}
                   </button>
                 }
@@ -235,8 +236,14 @@ import { ModalDirective } from '../../shared/modal.directive';
                     [attr.aria-label]="'networks.network.sync.scheduleAriaLabel' | transloco"
                     style="flex:1; min-width:220px;"
                   />
-                  <button class="btn-secondary btn btn-sm" (click)="saveSchedule(net)">{{ 'networks.network.sync.saveScheduleButton' | transloco }}</button>
-                  <button class="btn-secondary btn btn-sm" (click)="sync(net.id)">{{ 'networks.network.sync.syncNowButton' | transloco }}</button>
+                  <button class="btn-secondary btn btn-sm" [disabled]="savingSchedule[net.id]" (click)="saveSchedule(net)">
+                    @if (savingSchedule[net.id]) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                    {{ 'networks.network.sync.saveScheduleButton' | transloco }}
+                  </button>
+                  <button class="btn-secondary btn btn-sm" [disabled]="syncingNet[net.id]" (click)="sync(net.id)">
+                    @if (syncingNet[net.id]) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                    {{ 'networks.network.sync.syncNowButton' | transloco }}
+                  </button>
                 </div>
                 @if (syncResult(net.id); as r) {
                   <div class="alert" [class.alert-success]="r.ok" [class.alert-error]="!r.ok" style="margin-top:8px;">
@@ -313,8 +320,11 @@ import { ModalDirective } from '../../shared/modal.directive';
                   @for (round of openVotes(net.id); track round.id) {
                     <div class="vote-row">
                       <span style="flex:1;">{{ round.type }}: {{ round.subject }}</span>
-                      <button class="btn-primary btn btn-sm" (click)="castVote(net.id, round.id, 'yes')">{{ 'networks.network.votes.yes' | transloco }}</button>
-                      <button class="btn-danger btn btn-sm" (click)="castVote(net.id, round.id, 'veto')">{{ 'networks.network.votes.veto' | transloco }}</button>
+                      <button class="btn-primary btn btn-sm" [disabled]="votingRound[round.id]" (click)="castVote(net.id, round.id, 'yes')">
+                        @if (votingRound[round.id]) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                        {{ 'networks.network.votes.yes' | transloco }}
+                      </button>
+                      <button class="btn-danger btn btn-sm" [disabled]="votingRound[round.id]" (click)="castVote(net.id, round.id, 'veto')">{{ 'networks.network.votes.veto' | transloco }}</button>
                     </div>
                   }
                 </div>
@@ -636,6 +646,12 @@ export class NetworksComponent implements OnInit {
   joinSpaceAliases: Record<string, string> = {};
   private joinParsedBundle: any = null;
   removingMember: Record<string, boolean> = {};
+  // Per-network / per-round in-flight flags so each async action shows a spinner and disables its button
+  // (default change detection re-renders on the settling HTTP response).
+  generatingInvite: Record<string, boolean> = {};
+  savingSchedule: Record<string, boolean> = {};
+  syncingNet: Record<string, boolean> = {};
+  votingRound: Record<string, boolean> = {};
 
   // Sync history state
   historyExpanded = signal('');
@@ -995,12 +1011,17 @@ export class NetworksComponent implements OnInit {
   }
 
   generateInvite(networkId: string): void {
+    this.generatingInvite[networkId] = true;
     this.networksApi.generateInvite(networkId).subscribe({
       next: (bundle) => {
+        delete this.generatingInvite[networkId];
         this.inviteBundles[networkId] = bundle;
         this.networks.update(n => [...n]);
       },
-      error: (err) => this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.generateInviteFailed')),
+      error: (err) => {
+        delete this.generatingInvite[networkId];
+        this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.generateInviteFailed'));
+      },
     });
   }
 
@@ -1015,13 +1036,18 @@ export class NetworksComponent implements OnInit {
 
   saveSchedule(net: Network): void {
     const schedule = this.netSchedule[net.id] ?? net.syncSchedule ?? '';
+    this.savingSchedule[net.id] = true;
     this.networksApi.updateNetworkSchedule(net.id, schedule).subscribe({
       next: () => {
+        delete this.savingSchedule[net.id];
         this.networks.update(list =>
           list.map(n => n.id === net.id ? { ...n, syncSchedule: schedule || undefined } : n)
         );
       },
-      error: (err) => this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.saveScheduleFailed')),
+      error: (err) => {
+        delete this.savingSchedule[net.id];
+        this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.saveScheduleFailed'));
+      },
     });
   }
 
@@ -1181,8 +1207,10 @@ export class NetworksComponent implements OnInit {
   }
 
   sync(networkId: string): void {
+    this.syncingNet[networkId] = true;
     this.networksApi.triggerSync(networkId).subscribe({
       next: (r) => {
+        delete this.syncingNet[networkId];
         this.syncResults[networkId] = r;
         this.networks.update(n => [...n]);
         setTimeout(() => { delete this.syncResults[networkId]; this.networks.update(n => [...n]); }, 4000);
@@ -1192,6 +1220,7 @@ export class NetworksComponent implements OnInit {
         }
       },
       error: () => {
+        delete this.syncingNet[networkId];
         this.syncResults[networkId] = { ok: false };
         this.networks.update(n => [...n]);
       },
@@ -1242,9 +1271,13 @@ export class NetworksComponent implements OnInit {
   }
 
   castVote(networkId: string, roundId: string, vote: 'yes' | 'veto'): void {
+    this.votingRound[roundId] = true;
     this.networksApi.castVote(networkId, roundId, vote).subscribe({
-      next: () => this.loadVotes(networkId),
-      error: (err) => this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.castVoteFailed')),
+      next: () => { delete this.votingRound[roundId]; this.loadVotes(networkId); },
+      error: (err) => {
+        delete this.votingRound[roundId];
+        this.toast.error(err.error?.error ?? this.transloco.translate('networks.error.castVoteFailed'));
+      },
     });
   }
 

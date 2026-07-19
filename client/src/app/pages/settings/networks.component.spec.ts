@@ -14,7 +14,7 @@
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { of, throwError } from 'rxjs';
+import { of, throwError, Subject } from 'rxjs';
 import type { Network, VoteRound } from '../../core/api.types';
 import { NetworksApi } from '../../core/networks-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -242,5 +242,45 @@ describe('NetworksComponent (characterization)', () => {
     expect(c.expanded()).toBe('n1');
     c.toggleNetwork('n1');
     expect(c.expanded()).toBe('');
+  });
+
+  it('each async action flags in-flight while pending and clears it on completion', () => {
+    const c = make();
+    const gi = new Subject<any>(), ss = new Subject<any>(), sy = new Subject<any>(), cv = new Subject<any>();
+    api.generateInvite.mockReturnValue(gi);
+    api.updateNetworkSchedule.mockReturnValue(ss);
+    api.triggerSync.mockReturnValue(sy);
+    api.castVote.mockReturnValue(cv);
+    c.networks.set([net({ id: 'n1' })]);
+
+    c.generateInvite('n1');
+    expect(c.generatingInvite['n1']).toBe(true);
+    gi.next({ handshakeId: 'h', inviteUrl: 'u', networkId: 'n1' }); gi.complete();
+    expect(c.generatingInvite['n1']).toBeUndefined();
+
+    c.saveSchedule(net({ id: 'n1' }));
+    expect(c.savingSchedule['n1']).toBe(true);
+    ss.next({}); ss.complete();
+    expect(c.savingSchedule['n1']).toBeUndefined();
+
+    c.sync('n1');
+    expect(c.syncingNet['n1']).toBe(true);
+    sy.next({ ok: true }); sy.complete();
+    expect(c.syncingNet['n1']).toBeUndefined();
+
+    c.castVote('n1', 'r1', 'yes');
+    expect(c.votingRound['r1']).toBe(true);
+    cv.next({}); cv.complete();
+    expect(c.votingRound['r1']).toBeUndefined();
+  });
+
+  it('an async action clears its in-flight flag on error too', () => {
+    const c = make();
+    const sy = new Subject<any>();
+    api.triggerSync.mockReturnValue(sy);
+    c.sync('n1');
+    expect(c.syncingNet['n1']).toBe(true);
+    sy.error({});
+    expect(c.syncingNet['n1']).toBeUndefined();
   });
 });

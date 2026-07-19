@@ -212,8 +212,27 @@ describe('NetworksComponent (characterization)', () => {
     expect(api.listVotes).toHaveBeenCalledWith('n1'); // reload
 
     api.castVote.mockReturnValue(throwError(() => ({ error: { error: 'boom' } })));
-    c.castVote('n1', 'r1', 'veto');
+    c.castVote('n1', 'r1', 'yes');
     expect(toastError).toHaveBeenCalled();
+  });
+
+  it('castVote "veto" confirms first and only proceeds when accepted', async () => {
+    const c = make();
+    confirmResult = false;
+    await c.castVote('n1', 'r1', 'veto');
+    expect(confirm).toHaveBeenCalled();
+    expect(api.castVote).not.toHaveBeenCalled();
+
+    confirmResult = true;
+    await c.castVote('n1', 'r1', 'veto');
+    expect(api.castVote).toHaveBeenCalledWith('n1', 'r1', 'veto');
+  });
+
+  it('castVote "yes" does NOT ask for confirmation', () => {
+    const c = make();
+    c.castVote('n1', 'r1', 'yes');
+    expect(confirm).not.toHaveBeenCalled();
+    expect(api.castVote).toHaveBeenCalledWith('n1', 'r1', 'yes');
   });
 
   it('removeMember() is confirm-guarded and reloads on success', async () => {

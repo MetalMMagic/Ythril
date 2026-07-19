@@ -1146,5 +1146,7 @@
   "networks.summary.members": "Members",
   "networks.header.pendingVote": "pending",
   "networks.network.votes.deadline": "Deadline",
-  "networks.network.votes.tally": "{{ yes }} yes · {{ veto }} veto"
+  "networks.network.votes.tally": "{{ yes }} yes · {{ veto }} veto",
+  "networks.confirm.vetoTitle": "Veto this round?",
+  "networks.confirm.veto": "A veto blocks this pending round for the whole network. This cannot be undone."
 }

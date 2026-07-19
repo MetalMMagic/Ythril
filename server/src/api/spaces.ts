@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { log } from '../util/log.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
+import { peerSafeFetch } from '../sync/peer-fetch.js';
 import type { SpaceMeta, KnowledgeType, TypeSchema } from '../config/types.js';
 import { writeFile as writeSpaceFile } from '../files/files.js';
 
@@ -446,7 +447,7 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
         for (const member of net.members) {
           const peerToken = secrets.peerTokens[member.instanceId];
           if (!peerToken) continue;
-          fetch(`${member.url}/api/notify`, {
+          peerSafeFetch(`${member.url}/api/notify`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${peerToken}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -852,7 +853,7 @@ spacesRouter.delete('/:id', globalRateLimit, requireAdminMfaScoped('id'), async 
     for (const member of net.members) {
       const peerToken = secrets.peerTokens[member.instanceId];
       if (!peerToken) continue;
-      fetch(`${member.url}/api/notify`, {
+      peerSafeFetch(`${member.url}/api/notify`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${peerToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -1147,5 +1147,7 @@
   "networks.summary.members": "Członkowie",
   "networks.header.pendingVote": "oczekujące",
   "networks.network.votes.deadline": "Termin",
-  "networks.network.votes.tally": "{{ yes }} tak · {{ veto }} weto"
+  "networks.network.votes.tally": "{{ yes }} tak · {{ veto }} weto",
+  "networks.confirm.vetoTitle": "Zawetować tę rundę?",
+  "networks.confirm.veto": "Weto blokuje tę oczekującą rundę dla całej sieci. Nie można tego cofnąć."
 }

@@ -924,6 +924,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Networks: casting a Veto now asks for confirmation.** A veto blocks a pending governance
+  round for the whole network and can't be undone, so it now goes through a danger-styled confirm dialog;
+  a "Yes" vote stays one click. (Pinned by the characterization tests.)
+
 - **Settings → Networks: status at a glance.** A summary strip tops the page (networks · need-your-vote ·
   members), each network card header shows an amber **"N pending"** vote pill when a governance round is open
   (using the shared status-pill vocabulary), and each open vote row now shows its **deadline** as a relative

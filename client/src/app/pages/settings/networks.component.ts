@@ -1306,7 +1306,18 @@ export class NetworksComponent implements OnInit {
     return this.votesByNetwork[networkId] ?? [];
   }
 
-  castVote(networkId: string, roundId: string, vote: 'yes' | 'veto'): void {
+  async castVote(networkId: string, roundId: string, vote: 'yes' | 'veto'): Promise<void> {
+    // A veto is destructive — it blocks a pending join/governance round — so confirm it first. A "yes"
+    // is safe and stays one click.
+    if (vote === 'veto') {
+      const ok = await this.confirmDialog.confirm({
+        title: this.transloco.translate('networks.confirm.vetoTitle'),
+        message: this.transloco.translate('networks.confirm.veto'),
+        confirmLabel: this.transloco.translate('networks.network.votes.veto'),
+        danger: true,
+      });
+      if (!ok) return;
+    }
     this.votingRound[roundId] = true;
     this.networksApi.castVote(networkId, roundId, vote).subscribe({
       next: () => { delete this.votingRound[roundId]; this.loadVotes(networkId); },

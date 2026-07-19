@@ -576,9 +576,9 @@ These settings live in `config.json` under `mediaEmbedding.documentProcessing`:
 
 ## Settings — Storage
 
-**Settings → Storage** shows how much disk space each space is using and the configured quota limits.
+**Settings → Storage** shows how much disk space your Brain data and files are using against the configured quota. A usage bar with a **Healthy / Warning / Full** indicator shows how close total usage is to the limit; **Refresh** re-checks the current figures.
 
-When a space approaches its quota limit, writes will first return warnings and eventually be rejected. Contact your administrator to raise the quota.
+When usage approaches the quota limit, writes will first return warnings and eventually be rejected. Contact your administrator to raise the quota.
 
 ---
 

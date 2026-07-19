@@ -2,6 +2,8 @@ import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
+import { UsageBarComponent, usageLevel } from '../../shared/usage-bar.component';
+import { StatusPillComponent, type StatusVariant } from '../../shared/status-pill.component';
 
 interface StorageData {
   usageGiB: { files: number; brain: number; total: number };
@@ -11,25 +13,8 @@ interface StorageData {
 @Component({
   selector: 'app-storage',
   standalone: true,
-  imports: [CommonModule, TranslocoPipe],
+  imports: [CommonModule, TranslocoPipe, UsageBarComponent, StatusPillComponent],
   styles: [`
-    .usage-bar-track {
-      height: 8px;
-      background: var(--bg-elevated);
-      border-radius: 4px;
-      overflow: hidden;
-      margin-top: 6px;
-    }
-
-    .usage-bar-fill {
-      height: 100%;
-      background: var(--accent);
-      border-radius: 4px;
-      transition: width 0.4s ease;
-    }
-
-    .usage-bar-fill.warn { background: var(--warning); }
-    .usage-bar-fill.danger { background: var(--error); }
 
     .row {
       display: flex;
@@ -47,14 +32,19 @@ interface StorageData {
       <div class="card-title">{{ 'metrics.title' | transloco }}</div>
     </div>
 
-    <button class="btn-secondary btn btn-sm" style="margin-bottom:20px;" (click)="load()">{{ 'metrics.refreshButton' | transloco }}</button>
+    <button class="btn-secondary btn btn-sm" style="margin-bottom:20px;" [disabled]="loading()" (click)="load()">
+      @if (loading()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+      {{ 'metrics.refreshButton' | transloco }}
+    </button>
 
-    @if (loading()) {
-      <div class="loading-overlay"><span class="spinner"></span></div>
-    } @else if (error()) {
+    @if (error()) {
       <div class="alert alert-error">{{ 'metrics.error.load' | transloco }}</div>
     } @else if (!data()) {
-      <div class="alert alert-info">{{ 'metrics.empty' | transloco }}</div>
+      @if (loading()) {
+        <div class="loading-overlay"><span class="spinner"></span></div>
+      } @else {
+        <div class="alert alert-info">{{ 'metrics.empty' | transloco }}</div>
+      }
     } @else {
       @let pct = usagePct();
       <div class="stat-grid">
@@ -85,18 +75,19 @@ interface StorageData {
       @if (data()!.limits?.totalLimitGiB) {
         <div class="card" style="margin-bottom:20px;">
           <div class="row">
-            <span class="label">{{ 'metrics.bar.usage' | transloco }}</span>
+            <span class="label" style="display:inline-flex; align-items:center; gap:8px;">
+              {{ 'metrics.bar.usage' | transloco }}
+              @if (healthPill(); as h) { <app-status-pill [variant]="h.variant">{{ h.key | transloco }}</app-status-pill> }
+            </span>
             <span class="value">{{ pct.toFixed(1) }}%</span>
           </div>
-          <div class="usage-bar-track">
-            <div
-              class="usage-bar-fill"
-              [class.warn]="pct >= (data()!.limits?.warnAtPercent ?? 80)"
-              [class.danger]="pct >= 95"
-              [style.width.%]="Math.min(pct, 100)"
-            ></div>
-          </div>
-          <div style="font-size:11px; color:var(--text-muted); margin-top:6px;">
+          <app-usage-bar
+            [used]="data()!.usageGiB.total"
+            [total]="data()!.limits!.totalLimitGiB!"
+            [warnAtPercent]="data()!.limits?.warnAtPercent ?? 80"
+            style="display:block; margin:8px 0 6px;"
+          />
+          <div style="font-size:11px; color:var(--text-muted);">
             {{ fmt(data()!.usageGiB.total) }} of {{ data()!.limits!.totalLimitGiB }} GiB
           </div>
         </div>
@@ -130,6 +121,18 @@ export class StorageComponent implements OnInit {
     const d = this.data();
     const limit = d?.limits?.totalLimitGiB;
     return limit ? (d!.usageGiB.total / limit) * 100 : 0;
+  });
+
+  /** Storage health as a status pill — only meaningful when a limit is configured. */
+  healthPill = computed<{ variant: StatusVariant; key: string } | null>(() => {
+    const d = this.data();
+    if (!d?.limits?.totalLimitGiB) return null;
+    const level = usageLevel(this.usagePct(), d.limits.warnAtPercent ?? 80);
+    return {
+      ok:     { variant: 'ok' as StatusVariant,    key: 'metrics.health.ok' },
+      warn:   { variant: 'warn' as StatusVariant,  key: 'metrics.health.warn' },
+      danger: { variant: 'error' as StatusVariant, key: 'metrics.health.full' },
+    }[level];
   });
 
   ngOnInit(): void { this.load(); }

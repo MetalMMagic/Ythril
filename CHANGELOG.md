@@ -924,6 +924,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Networks: the Enable-Networks wizard shows a "Step N of 3" progress indicator.** The 3-step
+  enable flow now has a segmented progress bar + a "Step N of 3" label in its header, so you can see where
+  you are in the (otherwise easy-to-lose-track-of) setup.
+
 - **Settings → Networks: rows stop overflowing on a narrow (iframe) width.** The member row (peer id /
   label / direction / **endpoint URL** / remove) now wraps and truncates the long endpoint with an
   ellipsis instead of pushing the card wider than its container, and the sync-history row collapses from a

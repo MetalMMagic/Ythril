@@ -1148,5 +1148,6 @@
   "networks.network.votes.deadline": "Deadline",
   "networks.network.votes.tally": "{{ yes }} yes · {{ veto }} veto",
   "networks.confirm.vetoTitle": "Veto this round?",
-  "networks.confirm.veto": "A veto blocks this pending round for the whole network. This cannot be undone."
+  "networks.confirm.veto": "A veto blocks this pending round for the whole network. This cannot be undone.",
+  "networks.wizard.stepLabel": "Step {{ current }} of {{ total }}"
 }

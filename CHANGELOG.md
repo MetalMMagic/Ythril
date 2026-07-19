@@ -937,12 +937,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fixed grid to a wrapping layout below 680px. The sync-history expand caret is now a `ph-icon` rather than
   a raw `▲▼`.
 
-- **Internal: the Networks Create and Join dialogs are now their own components.** Extracted
-  `NetworkCreateDialogComponent` and `NetworkJoinDialogComponent` out of the 1261-line `NetworksComponent`
-  — the create form (label/type/space-selection + fallback and voting deadline) and the join flow (invite-
-  bundle validation + space-id collision resolution) now live in focused children that emit results to the
-  host. No behavior change (the create and join characterization tests moved with them); the parent has
-  shed ~250 lines. Next: the Enable-Networks wizard.
+- **Internal: the Networks page's three dialogs are now their own components.** Extracted
+  `NetworkCreateDialogComponent`, `NetworkJoinDialogComponent`, and `NetworkEnableWizardComponent` out of
+  `NetworksComponent` — the create form, the join flow (invite-bundle validation + space-id collision
+  resolution), and the 3-step enable-networks wizard (Cloudflare-tunnel commands + local-agent connector)
+  now live in focused children that emit their results to the host. **No behavior change** (the
+  characterization tests moved with each), and `NetworksComponent` dropped from **1261 to 692 lines** (−45%)
+  — the settings-UX audit's "worst offender" is now maintainable.
 
 - **Settings → Networks: casting a Veto now asks for confirmation.** A veto blocks a pending governance
   round for the whole network and can't be undone, so it now goes through a danger-styled confirm dialog;

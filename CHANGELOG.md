@@ -79,6 +79,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Characterization tests for `NetworksComponent` (16 tests), landed before its redesign.** The largest
+  settings page shipped with no coverage; these pin its current behavior — create/join validation (blank
+  label, invalid/incomplete bundle, missing URL, space-id collision hold), the confirm-guarded destructive
+  actions (leave, remove member), and the API-call shapes for invite/schedule/sync/vote — so the upcoming
+  modal-extraction refactor and design-system pass can't change behavior silently.
+
 - **`max`-mode repair pass for VLM extraction (F11).** When a document's VLM transcription fails the
   OCR-evidence coverage check, `max` mode now runs **one bounded repair pass** before falling back to OCR:
   a single text-only reconciliation call hands the model its own draft plus the OCR text and asks it to

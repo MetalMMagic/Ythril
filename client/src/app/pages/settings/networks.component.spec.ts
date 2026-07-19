@@ -283,4 +283,33 @@ describe('NetworksComponent (characterization)', () => {
     sy.error({});
     expect(c.syncingNet['n1']).toBeUndefined();
   });
+
+  it('summaryItems() counts networks and total members', () => {
+    const c = make();
+    c.networks.set([
+      net({ id: 'n1', members: [{}, {}, {}] as never }),
+      net({ id: 'n2', members: [{}] as never }),
+    ]);
+    const items = c.summaryItems();
+    const val = (frag: string) => items.find(i => i.label.includes(frag))?.value;
+    expect(val('networks')).toBe(2);
+    expect(val('members')).toBe(4);
+    expect(val('needVote')).toBe(0);
+  });
+
+  it('summaryItems() needs-vote count reflects networks with open rounds after load', () => {
+    const c = make();
+    api.listNetworks.mockReturnValue(of({ networks: [net({ id: 'n1' }), net({ id: 'n2' })] }));
+    api.listVotes.mockImplementation((id: string) => of({ rounds: id === 'n1' ? [round({ status: 'open' })] : [] }));
+    c.load();
+    expect(c.summaryItems().find(i => i.label.includes('needVote'))?.value).toBe(1);
+  });
+
+  it('voteTally() counts yes and veto votes', () => {
+    const c = make();
+    const t = c.voteTally(round({ votes: [
+      { instanceId: 'a', vote: 'yes' }, { instanceId: 'b', vote: 'veto' }, { instanceId: 'c', vote: 'yes' },
+    ] }));
+    expect(t).toEqual({ yes: 2, veto: 1 });
+  });
 });

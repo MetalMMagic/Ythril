@@ -1141,5 +1141,11 @@
   "auditLog.summary.authFailures": "Auth-Fehler",
   "auditLog.detail.request": "Anfrage",
   "auditLog.detail.entryId": "Eintrags-ID",
-  "auditLog.detail.rawJson": "Roh-JSON"
+  "auditLog.detail.rawJson": "Roh-JSON",
+  "networks.summary.networks": "Netzwerke",
+  "networks.summary.needVote": "Ihre Stimme nötig",
+  "networks.summary.members": "Mitglieder",
+  "networks.header.pendingVote": "ausstehend",
+  "networks.network.votes.deadline": "Frist",
+  "networks.network.votes.tally": "{{ yes }} Ja · {{ veto }} Veto"
 }

@@ -12,6 +12,7 @@ import { getConfig, getSecrets } from '../config/loader.js';
 import { revokePeerCredentialsIfOrphaned } from '../auth/tokens.js';
 import { log } from '../util/log.js';
 import { updateSpace } from '../spaces/spaces.js';
+import { peerSafeFetch } from './peer-fetch.js';
 import { buildBraintreeAncestors } from '../util/braintree.js';
 
 /**
@@ -166,7 +167,7 @@ export function sendMemberRemovedNotify(
     log.warn(`member_removed: no outbound token for ${subjectInstanceId} â€” cannot notify`);
     return;
   }
-  fetch(`${subjectUrl}/api/notify`, {
+  peerSafeFetch(`${subjectUrl}/api/notify`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${peerToken}`,

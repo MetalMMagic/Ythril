@@ -410,7 +410,12 @@ export async function ssrfSafeFetch(
       // agent so no socket lingers past return. Webhook callers read only status.
       const buf = await resp.arrayBuffer().catch(() => new ArrayBuffer(0));
       await agent.close().catch(() => { /* best-effort */ });
-      return new Response(buf, { status: resp.status, statusText: resp.statusText, headers: resp.headers as unknown as HeadersInit });
+      // 204/205/304 are null-body statuses — the Response constructor throws if given ANY body
+      // (even an empty buffer). A peer's `/api/notify` returns 204, so reconstruct with a null body
+      // for those statuses. (The injected-fetchImpl test path returns `resp` directly above, which is
+      // why unit tests never exercised this branch.)
+      const nullBody = resp.status === 204 || resp.status === 205 || resp.status === 304;
+      return new Response(nullBody ? null : buf, { status: resp.status, statusText: resp.statusText, headers: resp.headers as unknown as HeadersInit });
     }
     // Redirect: drain the body, close this hop's agent, then follow + re-validate.
     if (agent) {

@@ -18,6 +18,7 @@ import { makeSignedOwnCast } from '../../util/signing.js';
 import { log } from '../../util/log.js';
 import type { NetworkConfig, NetworkMember, VoteRound } from '../../config/types.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../../util/ssrf.js';
+import { peerSafeFetch } from '../../sync/peer-fetch.js';
 import { BCRYPT_ROUNDS, SSRF_SAFE_URL, safeMemberList } from './_shared.js';
 
 export const joinRouter = Router();
@@ -77,7 +78,7 @@ joinRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, res) 
 
     let applyRes: Response;
     try {
-      applyRes = await fetch(inviteUrl, {
+      applyRes = await peerSafeFetch(inviteUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -179,7 +180,7 @@ joinRouter.post('/join-remote', globalRateLimit, requireAdmin, async (req, res) 
     const finalizeUrl = inviteUrl.replace(/\/apply$/, '/finalize');
     let finalizeRes: Response;
     try {
-      finalizeRes = await fetch(finalizeUrl, {
+      finalizeRes = await peerSafeFetch(finalizeUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ handshakeId, encryptedTokenForA }),

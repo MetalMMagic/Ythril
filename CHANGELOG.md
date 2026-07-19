@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Closed SSRF gaps in the schema-catalog proxy and network control-plane calls.** Several outbound
+  requests used a bare `fetch()` and relied only on a create-time URL string check (`isSsrfSafeUrl`),
+  which does not resolve DNS and does not re-validate redirect targets — so a catalog/peer host could
+  DNS-rebind to an internal address, or 3xx-redirect to one (cloud metadata / internal services), and be
+  followed. The schema-catalog browse proxy (`GET /catalogs/:name/entries…`, reachable by **any**
+  authenticated token) now uses `ssrfSafeFetch` (DNS-resolve + IP-pin + per-hop redirect re-validation,
+  private space blocked), and the network join/finalize and peer `notify` calls
+  (`networks/join`, `networks/crud`, `spaces`, `sync/governance`) now use `peerSafeFetch` — matching the
+  SSRF-safe path the sync engine and webhook dispatcher already used. Legitimate public catalogs and peers
+  are unaffected; only rebind/redirect-to-internal targets are now blocked, as the security model already
+  documented.
+
 - **Startup security-posture check + `GET /api/about/security`.** Ythril now prints an aggregated
   `✓`/`⚠`/`✗` report at boot across transport (TLS enforcement, peer scheme, `trustProxy`), encryption at
   rest, and MongoDB auth, so a weak or broken setting is visible instead of silently accepted — e.g.

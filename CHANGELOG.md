@@ -471,6 +471,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Settings: unsaved duplicate-detection rules no longer vanish silently.** In a space's settings dialog,
+  the Duplicates tab is saved by its own button, but its edits were excluded from the dialog's
+  unsaved-changes tracking — so editing dupe rules and then switching tabs or closing discarded them with no
+  warning. The dirty check now tracks the duplicates form too (re-baselined after its own save), so the
+  close/leave guard warns as it does for every other tab.
+- **Settings → Storage: an empty result is no longer shown as a load error, and a stale "storage full"
+  alert can't appear.** A successful response with no storage data rendered the red "could not load" error
+  (now a neutral "nothing to report" state), and the usage percentage was a mutable field that could render
+  a false over-limit alert against absent data — it's now derived directly from the loaded data.
+
 - **Test isolation: the bulk-memory-wipe tests no longer wipe the shared `general` space.**
   `brain.test.js`'s wipe block used `WIPE_SPACE = 'general'` and issued a `confirm:true` bulk delete —
   deleting **every** memory in the shared `general` space, other tests' data included. Serial ordering

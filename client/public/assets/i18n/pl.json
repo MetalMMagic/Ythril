@@ -725,6 +725,7 @@
   "metrics.title": "Metryka",
   "metrics.refreshButton": "Odświeżać",
   "metrics.error.load": "Nie udało się wczytać danych pamięci. Upewnij się, że serwer jest osiągalny.",
+  "metrics.empty": "Brak danych o użyciu pamięci.",
   "metrics.stat.totalUsed": "Łącznie wykorzystano",
   "metrics.stat.brain": "Mózg (MongoDB)",
   "metrics.stat.files": "Akta",

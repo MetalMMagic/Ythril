@@ -32,7 +32,17 @@
       # `doc-render` service below; only used when documentProcessing.mode is vlm/auto/max.
       RENDER_SIDECAR_URL: ${RENDER_SIDECAR_URL:-http://doc-render:8100}
       YTHRIL_LOCAL_AGENT_ENABLED: ${YTHRIL_LOCAL_AGENT_ENABLED:-}
-      YTHRIL_LOCAL_AGENT_URL: ${YTHRIL_LOCAL_AGENT_URL:-http://localhost:38123}
+      # Numeric loopback on purpose: the server rejects a non-loopback (or DNS-resolved `localhost`)
+      # host unless YTHRIL_LOCAL_AGENT_ALLOW_REMOTE=true, to keep the bearer token on-box. The feature is
+      # off by default (YTHRIL_LOCAL_AGENT_ENABLED empty above), so this is just a sane accepted default.
+      #
+      # To use it in Docker, the connector runs on the HOST, not in this container, so `127.0.0.1` here
+      # can't reach it. Set these three (via `.env`, or a gitignored docker-compose.override.yml — see
+      # docs/workstation-mode-guide.md), adding an `extra_hosts: ["host-gateway:host-gateway"]` mapping:
+      #   YTHRIL_LOCAL_AGENT_URL=http://host-gateway:38123   # reach the host across the Docker bridge
+      #   YTHRIL_LOCAL_AGENT_ALLOW_REMOTE=true               # host-gateway isn't loopback from in here
+      #   YTHRIL_LOCAL_AGENT_ALLOW_INSECURE=true             # HTTP is fine: it never leaves the machine
+      YTHRIL_LOCAL_AGENT_URL: ${YTHRIL_LOCAL_AGENT_URL:-http://127.0.0.1:38123}
       YTHRIL_LOCAL_AGENT_TOKEN: ${YTHRIL_LOCAL_AGENT_TOKEN:-}
       # Pass DEBUG=1 from the host shell to enable verbose logging:
       #   DEBUG=1 docker compose up

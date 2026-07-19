@@ -515,6 +515,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Docker: the base `docker-compose.yml` local-agent default no longer contradicts the server's own
+  validator.** It shipped `YTHRIL_LOCAL_AGENT_URL=http://localhost:38123`, but the server deliberately
+  rejects a DNS-resolved `localhost` host (only numeric `127.0.0.1`/`::1` count as loopback, to keep the
+  bearer token on-box) — so enabling the feature with the compose default was silently refused unless
+  `YTHRIL_LOCAL_AGENT_ALLOW_REMOTE=true`. The base default is now `http://127.0.0.1:38123`, matching the
+  server's fallback, with a comment pointing to `docker-compose.override.yml` (which sets host-gateway plus
+  ALLOW_REMOTE and ALLOW_INSECURE) for real Docker workstation mode. The loopback check and shared default
+  are extracted to
+  a dependency-free `local-agent-url.ts` and pinned by a test that also documents why `localhost` stays
+  rejected. (Found during the docs-vs-code audit.)
+
 - **Brain: fixed an infinite reload loop that made the whole page unusable — opening any space's
   entities/edges/memories/chrono/files tab showed only a jittering spinner and never loaded.** The five
   record tabs were mounted inside the `@else` of `@if (recordList.loading())`, but each tab **writes** that

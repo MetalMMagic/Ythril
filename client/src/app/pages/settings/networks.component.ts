@@ -15,10 +15,11 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
 import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
 import { NetworkCreateDialogComponent } from './network-create-dialog.component';
+import { NetworkJoinDialogComponent } from './network-join-dialog.component';
 @Component({
   selector: 'app-networks',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, NetworkCreateDialogComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, NetworkCreateDialogComponent, NetworkJoinDialogComponent],
   styles: [`
     .network-card {
       background: var(--bg-surface);
@@ -367,76 +368,12 @@ import { NetworkCreateDialogComponent } from './network-create-dialog.component'
 
     <!-- Join Network dialog -->
     @if (showJoinDialog()) {
-      <div class="dialog-backdrop" (click)="showJoinDialog.set(false)">
-        <div class="dialog" [appModal]="'networks.dialog.join.title' | transloco" (dismiss)="showJoinDialog.set(false)" (click)="$event.stopPropagation()">
-          <div class="dialog-header">
-            <div class="card-title">{{ 'networks.dialog.join.title' | transloco }}</div>
-            <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="showJoinDialog.set(false)"><ph-icon name="x" [size]="14"/></button>
-          </div>
-
-          @if (joinError()) { <div class="alert alert-error">{{ joinError() }}</div> }
-          @if (joinSuccess()) { <div class="alert alert-success">{{ joinSuccess() }}</div> }
-
-          <div class="field">
-            <label>{{ 'networks.dialog.join.bundleLabel' | transloco }}</label>
-            <textarea
-              [(ngModel)]="joinBundle"
-              name="joinBundle"
-              rows="5"
-              [placeholder]="'networks.dialog.join.bundlePlaceholder' | transloco"
-              [attr.aria-label]="'networks.dialog.join.bundleAriaLabel' | transloco"
-              style="font-family:var(--font-mono); font-size:12px; resize:vertical;"
-            ></textarea>
-          </div>
-
-          @if (joinCollisionSpaces().length > 0) {
-            <div style="margin:0 0 12px; padding:12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--bg-elevated);">
-              <div style="font-weight:600; font-size:13px; margin-bottom:8px;">{{ 'networks.dialog.join.collisions.title' | transloco }}</div>
-              <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px;">
-                {{ 'networks.dialog.join.collisions.body' | transloco }}
-              </p>
-              @for (remoteId of joinCollisionSpaces(); track remoteId) {
-                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-                  <span class="badge badge-gray mono" style="min-width:80px;">{{ remoteId }}</span>
-                  <select
-                    [ngModel]="joinSpaceActions[remoteId]"
-                    (ngModelChange)="onCollisionActionChange(remoteId, $event)"
-                    [name]="'collision-' + remoteId"
-                    style="width:140px;"
-                  >
-                    <option value="merge">{{ 'networks.dialog.join.collision.merge' | transloco }}</option>
-                    <option value="alias">{{ 'networks.dialog.join.collision.alias' | transloco }}</option>
-                  </select>
-                  @if (joinSpaceActions[remoteId] === 'alias') {
-                    <input
-                      type="text"
-                      [(ngModel)]="joinSpaceAliases[remoteId]"
-                      [name]="'alias-' + remoteId"
-                      [placeholder]="'networks.dialog.join.aliasPlaceholder' | transloco"
-                      pattern="[a-z0-9-]+"
-                      maxlength="40"
-                      style="width:140px; padding:4px 8px; font-size:12px;"
-                      required
-                    />
-                  }
-                </div>
-              }
-            </div>
-          }
-
-          <div style="display:flex; gap:8px; justify-content:flex-end;">
-            <button class="btn-secondary btn" type="button" (click)="showJoinDialog.set(false)">{{ 'common.cancel' | transloco }}</button>
-            <button
-              class="btn-primary btn"
-              (click)="joinCollisionSpaces().length > 0 ? confirmJoin() : joinNetwork()"
-              [disabled]="joining() || !joinBundle.trim() || !joinMyUrl.trim()"
-            >
-              @if (joining()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-              {{ joinCollisionSpaces().length > 0 ? ('networks.dialog.join.confirmJoinButton' | transloco) : ('networks.dialog.join.submitButton' | transloco) }}
-            </button>
-          </div>
-        </div>
-      </div>
+      <app-network-join-dialog
+        [availableSpaces]="availableSpaces()"
+        [myUrl]="joinMyUrl"
+        (joined)="onJoined()"
+        (close)="showJoinDialog.set(false)"
+      />
     }
 
     <!-- Enable Networks wizard -->
@@ -576,16 +513,10 @@ export class NetworksComponent implements OnInit {
   private votesByNetwork: Record<string, VoteRound[]> = {};
 
   copiedInvite = signal('');
-  joinBundle = '';
+  // This brain's own URL — computed in ngOnInit (and the enable-networks flow) and passed to the join
+  // dialog as its `myUrl`; also gates whether the enable-networks wizard is offered.
   joinMyUrl = '';
   joinMyUrlAutoFilled = signal(false);
-  joining = signal(false);
-  joinError = signal('');
-  joinSuccess = signal('');
-  joinCollisionSpaces = signal<string[]>([]);
-  joinSpaceActions: Record<string, 'merge' | 'alias'> = {};
-  joinSpaceAliases: Record<string, string> = {};
-  private joinParsedBundle: any = null;
   removingMember: Record<string, boolean> = {};
   // Per-network / per-round in-flight flags so each async action shows a spinner and disables its button
   // (default change detection re-renders on the settling HTTP response).
@@ -965,136 +896,13 @@ export class NetworksComponent implements OnInit {
     });
   }
 
-  joinNetwork(): void {
-    this.joinError.set('');
-    this.joinSuccess.set('');
-    this.joinCollisionSpaces.set([]);
-    let bundle: any;
-    try {
-      bundle = JSON.parse(this.joinBundle);
-    } catch {
-      this.joinError.set(this.transloco.translate('networks.dialog.join.error.invalidJson'));
-      return;
-    }
-    if (!bundle.handshakeId || !bundle.inviteUrl || !bundle.rsaPublicKeyPem || !bundle.networkId) {
-      this.joinError.set(this.transloco.translate('networks.dialog.join.error.incompleteBundle'));
-      return;
-    }
-    if (!this.joinMyUrl.trim()) {
-      this.joinError.set(this.transloco.translate('networks.dialog.join.error.missingMyUrl'));
-      return;
-    }
-
-    // Detect space name collisions — show resolution UI if any overlap
-    if (bundle.spaces?.length) {
-      const localIds = new Set(this.availableSpaces().map(s => s.id));
-      const overlap = (bundle.spaces as string[]).filter((s: string) => localIds.has(s));
-      if (overlap.length > 0) {
-        this.joinParsedBundle = bundle;
-        this.joinSpaceActions = {};
-        this.joinSpaceAliases = {};
-        for (const id of overlap) {
-          this.joinSpaceActions[id] = 'merge';
-          this.joinSpaceAliases[id] = '';
-        }
-        this.joinCollisionSpaces.set(overlap);
-        return; // wait for user to resolve collisions
-      }
-    }
-
-    this.joinParsedBundle = bundle;
-    this.executeJoin();
-  }
-
-  onCollisionActionChange(remoteId: string, action: 'merge' | 'alias'): void {
-    this.joinSpaceActions[remoteId] = action;
-    if (action === 'alias' && !this.joinSpaceAliases[remoteId]) {
-      this.joinSpaceAliases[remoteId] = remoteId + '-local';
-    }
-  }
-
-  confirmJoin(): void {
-    // Validate alias inputs
-    for (const remoteId of this.joinCollisionSpaces()) {
-      if (this.joinSpaceActions[remoteId] === 'alias') {
-        const alias = this.joinSpaceAliases[remoteId]?.trim();
-        if (!alias) {
-          this.joinError.set(this.transloco.translate('networks.dialog.join.error.aliasRequired', { remoteId }));
-          return;
-        }
-        if (!/^[a-z0-9-]+$/.test(alias)) {
-          this.joinError.set(this.transloco.translate('networks.dialog.join.error.aliasInvalid', { alias }));
-          return;
-        }
-        const localIds = new Set(this.availableSpaces().map(s => s.id));
-        if (localIds.has(alias)) {
-          this.joinError.set(this.transloco.translate('networks.dialog.join.error.aliasExists', { alias }));
-          return;
-        }
-      }
-    }
-    this.executeJoin();
-  }
-
-  private executeJoin(): void {
-    const bundle = this.joinParsedBundle;
-    if (!bundle) return;
-
-    // Build spaceMap from collision resolutions
-    const spaceMap: Record<string, string> = {};
-    for (const remoteId of this.joinCollisionSpaces()) {
-      if (this.joinSpaceActions[remoteId] === 'alias') {
-        spaceMap[remoteId] = this.joinSpaceAliases[remoteId].trim();
-      }
-    }
-
-    this.joining.set(true);
-    this.networksApi.joinRemote({
-      handshakeId: bundle.handshakeId,
-      inviteUrl:   bundle.inviteUrl,
-      rsaPublicKeyPem: bundle.rsaPublicKeyPem,
-      networkId:   bundle.networkId,
-      myUrl:       this.joinMyUrl.trim(),
-      expiresAt:   bundle.expiresAt,
-      ...(Object.keys(spaceMap).length > 0 ? { spaceMap } : {}),
-    }).subscribe({
-      next: (result) => {
-        this.joining.set(false);
-        // Vote-governed networks hold the join in a vote round on the inviter's
-        // side; sync begins once the members/ancestors approve.
-        const successKey = result.status === 'vote_pending'
-          ? 'networks.dialog.join.success.votePending'
-          : 'networks.dialog.join.success.joined';
-        let msg = this.transloco.translate(successKey, { networkLabel: result.networkLabel });
-        if (result.createdSpaces?.length) {
-          msg += ` ${this.transloco.translate('networks.dialog.join.success.createdSpaces', { spaces: result.createdSpaces.join(', ') })}`;
-        }
-        if (result.existingSpaces?.length) {
-          msg += ` ${this.transloco.translate('networks.dialog.join.success.existingSpaces', { spaces: result.existingSpaces.join(', ') })}`;
-        }
-        if (result.spaceMap && Object.keys(result.spaceMap).length > 0) {
-          const aliases = Object.entries(result.spaceMap).map(([r, l]) => `${r} → ${l}`).join(', ');
-          msg += ` ${this.transloco.translate('networks.dialog.join.success.aliases', { aliases })}`;
-        }
-        this.joinSuccess.set(msg);
-        this.joinBundle = '';
-        this.joinMyUrl  = '';
-        this.joinMyUrlAutoFilled.set(false);
-        this.joinParsedBundle = null;
-        this.joinCollisionSpaces.set([]);
-        this.joinSpaceActions = {};
-        this.joinSpaceAliases = {};
-        this.load();
-        // Refresh spaces list to include newly created spaces
-        this.spacesApi.listSpaces().subscribe({
-          next: ({ spaces }) => this.availableSpaces.set(spaces),
-          error: () => {},
-        });
-      },
-      error: (err) => {
-        this.joining.set(false);
-        this.joinError.set(err.error?.error ?? this.transloco.translate('networks.error.joinFailed'));
-      },
+  /** The join dialog (child) emits after a successful join; reload networks and refresh the spaces list
+   *  (a join can create new local spaces). */
+  onJoined(): void {
+    this.load();
+    this.spacesApi.listSpaces().subscribe({
+      next: ({ spaces }) => this.availableSpaces.set(spaces),
+      error: () => {},
     });
   }
 

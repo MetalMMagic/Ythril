@@ -924,11 +924,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Internal: the Networks Create dialog is now its own component.** Extracted `NetworkCreateDialogComponent`
-  out of the 1261-line `NetworksComponent` — the create form (label/type/space-selection + fallback and
-  voting deadline) and its `createNetwork` call now live in a focused child that emits the new network to
-  the host. No behavior change (the create characterization tests moved with it); first step toward
-  splitting the Join and Enable-Networks dialogs out too.
+- **Internal: the Networks Create and Join dialogs are now their own components.** Extracted
+  `NetworkCreateDialogComponent` and `NetworkJoinDialogComponent` out of the 1261-line `NetworksComponent`
+  — the create form (label/type/space-selection + fallback and voting deadline) and the join flow (invite-
+  bundle validation + space-id collision resolution) now live in focused children that emit results to the
+  host. No behavior change (the create and join characterization tests moved with them); the parent has
+  shed ~250 lines. Next: the Enable-Networks wizard.
 
 - **Settings → Networks: casting a Veto now asks for confirmation.** A veto blocks a pending governance
   round for the whole network and can't be undone, so it now goes through a danger-styled confirm dialog;

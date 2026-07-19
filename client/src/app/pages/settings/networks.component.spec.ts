@@ -131,42 +131,13 @@ describe('NetworksComponent (characterization)', () => {
     expect(c.networks()[0].syncSchedule).toBe('0 * * * *');
   });
 
-  it('joinNetwork() rejects invalid JSON, an incomplete bundle, and a missing "my URL" without calling the API', () => {
+  // Join-dialog behavior (bundle validation, collision detection, immediate join) moved to
+  // network-join-dialog.component.spec.ts when the Join dialog became its own child component. The
+  // parent only reloads on the child's `joined` output — pinned here.
+  it('onJoined() reloads the network list', () => {
     const c = make();
-    c.joinBundle = 'not json';
-    c.joinNetwork();
-    expect(c.joinError()).toBeTruthy();
-    expect(api.joinRemote).not.toHaveBeenCalled();
-
-    c.joinBundle = JSON.stringify({ handshakeId: 'h' }); // missing inviteUrl/rsaPublicKeyPem/networkId
-    c.joinNetwork();
-    expect(c.joinError()).toBeTruthy();
-    expect(api.joinRemote).not.toHaveBeenCalled();
-
-    c.joinBundle = JSON.stringify({ handshakeId: 'h', inviteUrl: 'u', rsaPublicKeyPem: 'k', networkId: 'n1' });
-    c.joinMyUrl = '';
-    c.joinNetwork();
-    expect(c.joinError()).toBeTruthy();
-    expect(api.joinRemote).not.toHaveBeenCalled();
-  });
-
-  it('joinNetwork() detects space-id collisions and holds for resolution instead of joining', () => {
-    const c = make();
-    c.availableSpaces.set([{ id: 'general', label: 'General' } as never]);
-    c.joinBundle = JSON.stringify({ handshakeId: 'h', inviteUrl: 'u', rsaPublicKeyPem: 'k', networkId: 'n1', spaces: ['general', 'remote-only'] });
-    c.joinMyUrl = 'https://me.example';
-    c.joinNetwork();
-    expect(c.joinCollisionSpaces()).toEqual(['general']);
-    expect(api.joinRemote).not.toHaveBeenCalled();
-  });
-
-  it('joinNetwork() with no collisions joins immediately', () => {
-    const c = make();
-    c.availableSpaces.set([{ id: 'general', label: 'General' } as never]);
-    c.joinBundle = JSON.stringify({ handshakeId: 'h', inviteUrl: 'u', rsaPublicKeyPem: 'k', networkId: 'n1', spaces: ['remote-only'] });
-    c.joinMyUrl = 'https://me.example';
-    c.joinNetwork();
-    expect(api.joinRemote).toHaveBeenCalledWith(expect.objectContaining({ handshakeId: 'h', myUrl: 'https://me.example', networkId: 'n1' }));
+    c.onJoined();
+    expect(api.listNetworks).toHaveBeenCalled(); // load()
   });
 
   it('sync() records the result on success and an {ok:false} result on error', () => {

@@ -83,7 +83,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   settings page shipped with no coverage; these pin its current behavior — create/join validation (blank
   label, invalid/incomplete bundle, missing URL, space-id collision hold), the confirm-guarded destructive
   actions (leave, remove member), and the API-call shapes for invite/schedule/sync/vote — so the upcoming
-  modal-extraction refactor and design-system pass can't change behavior silently.
+  modal-extraction refactor and design-system pass can't change behavior silently. Extended with 10 more
+  tests covering the **Enable-Networks wizard** (hostname validation, generated Cloudflare commands, the
+  local-agent probe→bootstrap path, and automatic vs. confirm-and-adopt completion) before that wizard is
+  itself extracted into a child component.
 
 - **`max`-mode repair pass for VLM extraction (F11).** When a document's VLM transcription fails the
   OCR-evidence coverage check, `max` mode now runs **one bounded repair pass** before falling back to OCR:

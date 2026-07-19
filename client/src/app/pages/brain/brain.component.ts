@@ -138,6 +138,17 @@ interface SpaceView {
 
     .tab-spacer { flex: 1; }
 
+    /* The active tab's content region. position:relative anchors the floating load spinner so it
+       overlays the tab WITHOUT unmounting it (see the storm note in the template). */
+    .tab-body { position: relative; min-height: 80px; }
+    .loading-overlay--float {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      z-index: 5;
+      background: color-mix(in srgb, var(--bg) 72%, transparent);
+      border-radius: 8px;
+    }
+
   `],
   template: `
     @if (loadingSpaces()) {
@@ -215,10 +226,16 @@ interface SpaceView {
         }
       </div>
 
-      <!-- Content -->
-      @if (recordList.loading()) {
-        <div class="loading-overlay"><span class="spinner"></span></div>
-      } @else {
+      <!-- Content. Tabs are gated by activeTab() ONLY — NEVER wrapped in @else of
+           @if (recordList.loading()). Each record tab WRITES recordList.loading during its own
+           load(); gating the tab's existence on that signal made the tab unmount itself mid-load and
+           re-mount on the response, an infinite mount⇄reload storm (one full re-create per response,
+           ~5/s, self-sustaining even on 429). The load spinner now floats on top (position:absolute)
+           so the active tab instance is never torn down. -->
+      <div class="tab-body">
+        @if (recordList.loading()) {
+          <div class="loading-overlay loading-overlay--float"><span class="spinner"></span></div>
+        }
 
         <!-- Graph tab -->
         @if (activeTab() === 'graph') {
@@ -247,8 +264,7 @@ interface SpaceView {
 
         <!-- Query -->
         @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }
-
-      }
+      </div>
 
       <!-- Detail Drawer -->
       <app-record-drawer />

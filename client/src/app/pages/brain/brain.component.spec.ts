@@ -14,7 +14,7 @@
  * would render empty and this test would fail rather than the bug shipping silently.
  */
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { of } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -58,6 +58,48 @@ describe('BrainComponent (OnPush)', () => {
 
   it('is compiled as OnPush', () => {
     expect(BrainComponent.ɵcmp?.onPush).toBe(true);
+  });
+
+  // ── Regression: the mount⇄reload request storm (app-unusable P0) ─────────────
+  // The five record tabs each WRITE `recordList.loading` during their own `load()`. They used to be
+  // mounted inside the `@else` of `@if (recordList.loading())`, so a tab set loading=true on load,
+  // which unmounted the tab (removing the @else branch); the response set loading=false, which
+  // re-mounted it → a fresh `load()` → loading=true → … an infinite mount⇄reload loop that hammered
+  // the API (~5 req/s, self-sustaining even once rate-limited to 429s) and froze the page. The fix:
+  // tabs mount on `activeTab()` ALONE and the spinner floats on top, so the active tab instance is
+  // never torn down by its own loading state. This test drives the shared loading signal the way a
+  // real async load does and asserts the active tab is NOT re-created (its `load()` is not re-fired).
+  it('does NOT re-create the active record tab when recordList.loading toggles (storm regression)', () => {
+    const listEntities = vi.fn(() => of({ entities: [] }));
+    TestBed.configureTestingModule({
+      imports: [BrainComponent, getTranslocoModule()],
+      providers: [
+        { provide: SpacesApi, useValue: makeApi() },
+        { provide: BrainApi, useValue: { ...makeApi(), listEntities } },
+        { provide: FilesApi, useValue: makeApi() },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+      ],
+    });
+    const fixture = TestBed.createComponent(BrainComponent);
+    fixture.detectChanges(); // ngOnInit → listSpaces → selectSpace('work')
+
+    fixture.componentInstance.setTab('entities'); // mount the entities tab → it self-loads once
+    fixture.detectChanges();
+    const afterActivate = listEntities.mock.calls.length;
+    expect(afterActivate).toBeGreaterThan(0);
+
+    // Toggle the shared loading signal across change-detection cycles, exactly as an async load does.
+    // On the buggy @else structure each false→true→false cycle unmounted+re-mounted the tab, adding a
+    // fresh load() every time. On the fixed structure the tab persists, so the count must not grow.
+    const recordList = fixture.componentInstance.recordList;
+    for (let i = 0; i < 4; i++) {
+      recordList.loading.set(true);
+      fixture.detectChanges();
+      recordList.loading.set(false);
+      fixture.detectChanges();
+    }
+    expect(listEntities.mock.calls.length).toBe(afterActivate);
   });
 
   // The memories table rendering (row-per-memory, signal re-render) moved to

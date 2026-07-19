@@ -69,3 +69,6 @@ npm-debug.log*
 # TypeScript build info
 *.tsbuildinfo
 server/dist
+
+# Local one-command preview (not for commit)
+preview.sh

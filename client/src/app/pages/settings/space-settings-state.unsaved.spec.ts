@@ -2,9 +2,10 @@
  * U4 — unsaved-changes tracking in SpaceSettingsState.
  *
  * `isDirty()` drives the guard on all three editor exits (modal close, route leave, reload). It must
- * baseline clean on open, flip on any persisted edit (settings + schema), ignore transient/UI-only
- * state, and re-baseline on markPristine — otherwise the guard either nags on a pristine dialog or
- * lets real edits vanish silently.
+ * baseline clean on open, flip on any persisted edit (settings + schema + duplicates), ignore
+ * transient/UI-only state, and re-baseline on markPristine — otherwise the guard either nags on a
+ * pristine dialog or lets real edits vanish silently. The duplicates tab has its OWN save button, so
+ * it's snapshotted separately (`dupeSnapshot`/`markDupePristine`) but still feeds `isDirty()`.
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -78,6 +79,31 @@ describe('SpaceSettingsState — unsaved-changes (U4)', () => {
     state.openSettings(space());
     state.stForm.purpose = 'edited';
     state.closeSettings();
+    expect(state.isDirty()).toBe(false);
+  });
+
+  // ── duplicates tab (previously untracked → silent data loss on tab-switch/close) ──
+  it('goes dirty when a duplicate rule is added', () => {
+    state.openSettings(space());
+    state.addDupeRule();
+    expect(state.isDirty()).toBe(true);
+  });
+
+  it('goes dirty when the duplicate survivor policy or on-insert flag changes', () => {
+    state.openSettings(space());
+    state.dupeSurvivor = 'newer';
+    expect(state.isDirty()).toBe(true);
+    state.dupeSurvivor = 'older';
+    expect(state.isDirty()).toBe(false);
+    state.dupeOnInsert = true;
+    expect(state.isDirty()).toBe(true);
+  });
+
+  it('markDupePristine re-baselines the duplicates snapshot after its own save', () => {
+    state.openSettings(space());
+    state.addDupeRule();
+    expect(state.isDirty()).toBe(true);
+    state.markDupePristine();          // what saveDupeRules() calls on success
     expect(state.isDirty()).toBe(false);
   });
 });

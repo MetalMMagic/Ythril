@@ -169,12 +169,14 @@ export class SpaceSettingsState {
 
   // ── unsaved-changes tracking (U4) ────────────────────────────────────────────
   private initialSnapshot = '';
+  private dupeInitialSnapshot = '';
 
   /**
-   * Serializes exactly what a save persists — label + maxGiB + `buildMeta()` — so it ignores
-   * transient input buffers and UI state (the active tab, expanded rows, half-typed new-property
-   * inputs) automatically. The duplicates tab has its own save/saved affordance and is intentionally
-   * excluded.
+   * Serializes exactly what the footer save persists — label + maxGiB + recordTtlDays + `buildMeta()` —
+   * so it ignores transient input buffers and UI state (the active tab, expanded rows, half-typed
+   * new-property inputs) automatically. The duplicates tab persists through its OWN save button, so its
+   * edits are snapshotted separately by `dupeSnapshot()` — but BOTH feed `isDirty()`, so unsaved dupe
+   * edits still trip the close guard (previously they were silently dropped with no warning).
    */
   snapshot(): string {
     return JSON.stringify({
@@ -185,12 +187,28 @@ export class SpaceSettingsState {
     });
   }
 
-  /** Re-baseline the dirty snapshot — called after opening a space (and safe to call after a save). */
-  markPristine(): void { this.initialSnapshot = this.snapshot(); }
+  /** Serializes the duplicates-tab form. Baselined independently because that tab has its own save. */
+  dupeSnapshot(): string {
+    return JSON.stringify({
+      rules: this.dupeRulesState,
+      survivor: this.dupeSurvivor,
+      onInsert: this.dupeOnInsert,
+    });
+  }
 
-  /** True when the settings/schema editor has unsaved edits that a save would persist. */
+  /** Re-baseline both dirty snapshots — called after opening a space. */
+  markPristine(): void {
+    this.initialSnapshot = this.snapshot();
+    this.dupeInitialSnapshot = this.dupeSnapshot();
+  }
+
+  /** Re-baseline ONLY the duplicates snapshot — called after the duplicates tab's own successful save. */
+  markDupePristine(): void { this.dupeInitialSnapshot = this.dupeSnapshot(); }
+
+  /** True when the settings/schema editor OR the duplicates tab has unsaved edits. */
   isDirty(): boolean {
-    return this.settingsSpace() !== null && this.snapshot() !== this.initialSnapshot;
+    if (this.settingsSpace() === null) return false;
+    return this.snapshot() !== this.initialSnapshot || this.dupeSnapshot() !== this.dupeInitialSnapshot;
   }
 
   /** Build the meta payload sent on save. Reads the settings tab AND the schema tab. */

@@ -725,6 +725,7 @@
   "metrics.title": "Metriken",
   "metrics.refreshButton": "Aktualisieren",
   "metrics.error.load": "Speicherdaten konnten nicht geladen werden. Stellen Sie sicher, dass der Server erreichbar ist.",
+  "metrics.empty": "Noch keine Speichernutzung vorhanden.",
   "metrics.stat.totalUsed": "Insgesamt verwendet",
   "metrics.stat.brain": "Gehirn (MongoDB)",
   "metrics.stat.files": "Dateien",

@@ -137,6 +137,8 @@ export class SpaceDuplicatesTabComponent {
         // Reflect saved state back onto the space object.
         this.state.settingsSpace.set(space);
         this.store.spaces.update(list => list.map(x => x.id === space.id ? space : x));
+        // Re-baseline the dupe dirty snapshot so the close guard doesn't flag freshly-saved rules.
+        this.state.markDupePristine();
       },
       error: (e) => { this.state.dupeSaving.set(false); this.state.dupeError.set(e?.error?.error || this.transloco.translate('spaces.dupe.saveError')); },
     });

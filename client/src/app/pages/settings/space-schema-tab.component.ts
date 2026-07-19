@@ -742,29 +742,6 @@ export class SpaceSchemaTabComponent {
     this._libPickerTarget = null;
   }
 
-  /** Import the library entry's schema as an inline TypeSchemaState (merges into current). */
-  importFromLibraryInline(entry: SchemaLibraryEntry): void {
-    const target = this._libPickerTarget;
-    if (!target) return;
-    const typeName = target.name || entry.typeName;
-    if (!typeName) return;
-    const s = entry.schema;
-    const imported: TypeSchemaState = {
-      namingPattern:   s.namingPattern ?? '',
-      tagSuggestions:  [...(s.tagSuggestions ?? [])],
-      propertySchemas: Object.entries(s.propertySchemas ?? {}).map(([k, v]) => ({
-        key: k, s: { ...v }, _enumInput: '',
-      })),
-      _newPropInput: '',
-      _newTagInput:  '',
-    };
-    this.state.schTypeSchemas = {
-      ...this.state.schTypeSchemas,
-      [target.kt]: { ...(this.state.schTypeSchemas[target.kt] ?? {}), [typeName]: imported },
-    };
-    this.closeLibPicker();
-  }
-
   /** Set the space's type to use a $ref pointing at this library entry. */
   importFromLibraryRef(entry: SchemaLibraryEntry): void {
     const target = this._libPickerTarget;

@@ -206,7 +206,6 @@ import { ModalDirective } from '../../shared/modal.directive';
     }
     .dot-active { background: var(--success); }
     .dot-expired { background: var(--error); }
-    .dot-never-used { background: var(--text-muted); }
     .styled-input {
       padding: 5px 8px;
       border: 1px solid var(--border);

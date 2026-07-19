@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -51,9 +51,12 @@ interface StorageData {
 
     @if (loading()) {
       <div class="loading-overlay"><span class="spinner"></span></div>
-    } @else if (!data()) {
+    } @else if (error()) {
       <div class="alert alert-error">{{ 'metrics.error.load' | transloco }}</div>
+    } @else if (!data()) {
+      <div class="alert alert-info">{{ 'metrics.empty' | transloco }}</div>
     } @else {
+      @let pct = usagePct();
       <div class="stat-grid">
         <div class="stat-card">
           <div class="stat-label">{{ 'metrics.stat.totalUsed' | transloco }}</div>
@@ -80,7 +83,6 @@ interface StorageData {
       </div>
 
       @if (data()!.limits?.totalLimitGiB) {
-        @let pct = usagePct();
         <div class="card" style="margin-bottom:20px;">
           <div class="row">
             <span class="label">{{ 'metrics.bar.usage' | transloco }}</span>
@@ -100,14 +102,16 @@ interface StorageData {
         </div>
       }
 
-      @if (pct >= 95) {
-        <div class="alert alert-error">
-          {{ 'metrics.alert.full' | transloco }}
-        </div>
-      } @else if (pct >= (data()?.limits?.warnAtPercent ?? 80)) {
-        <div class="alert alert-warning">
-          {{ 'metrics.alert.warning' | transloco }}
-        </div>
+      @if (data()!.limits?.totalLimitGiB) {
+        @if (pct >= 95) {
+          <div class="alert alert-error">
+            {{ 'metrics.alert.full' | transloco }}
+          </div>
+        } @else if (pct >= (data()!.limits?.warnAtPercent ?? 80)) {
+          <div class="alert alert-warning">
+            {{ 'metrics.alert.warning' | transloco }}
+          </div>
+        }
       }
     }
   `,
@@ -118,26 +122,29 @@ export class StorageComponent implements OnInit {
 
   data = signal<StorageData | null>(null);
   loading = signal(true);
-  pct = 0;
+  /** Distinct from `!data()`: a load *failure*, so a successful-but-empty response isn't shown as an error. */
+  error = signal(false);
+
+  /** Derived from `data()` so it can never render a stale percentage against a prior/absent load. */
+  usagePct = computed(() => {
+    const d = this.data();
+    const limit = d?.limits?.totalLimitGiB;
+    return limit ? (d!.usageGiB.total / limit) * 100 : 0;
+  });
 
   ngOnInit(): void { this.load(); }
 
   load(): void {
     this.loading.set(true);
+    this.error.set(false);
     this.spacesApi.listSpaces().subscribe({
       next: ({ storage }) => {
-        if (storage) {
-          this.data.set(storage as StorageData);
-          const limit = storage.limits?.totalLimitGiB;
-          this.pct = limit ? (storage.usageGiB.total / limit) * 100 : 0;
-        }
+        this.data.set(storage ? (storage as StorageData) : null);
         this.loading.set(false);
       },
-      error: () => this.loading.set(false),
+      error: () => { this.error.set(true); this.loading.set(false); },
     });
   }
-
-  usagePct(): number { return this.pct; }
 
   fmt(v: number): string { return v.toFixed(2); }
 }

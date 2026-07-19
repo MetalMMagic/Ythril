@@ -724,6 +724,7 @@
   "metrics.title": "Metrics",
   "metrics.refreshButton": "Refresh",
   "metrics.error.load": "Could not load storage data. Ensure the server is reachable.",
+  "metrics.empty": "No storage usage to report yet.",
   "metrics.stat.totalUsed": "Total used",
   "metrics.stat.brain": "Brain (MongoDB)",
   "metrics.stat.files": "Files",

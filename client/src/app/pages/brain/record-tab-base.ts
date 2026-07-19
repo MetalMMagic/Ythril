@@ -32,23 +32,30 @@ export abstract class RecordTabBase {
 
   constructor() {
     // Self-load on creation (tab activation via the shell's gated @if) and on a space switch while
-    // mounted. The `if (id)` guard keeps it to a single real load until the input settles.
+    // mounted. This effect must depend on `spaceId` ONLY. The reset + load are wrapped in `untracked`
+    // so the signals they touch — critically `resetOnSpaceChange()` writing `recordFilter` to a NEW
+    // object, which `load()` then reads — are NOT registered as effect dependencies. Without this, that
+    // write→read pair self-triggers the effect forever (signals compare by reference, so each reset is a
+    // "change"), storming `load()` on every microtask. Filter/search reloads are driven imperatively by
+    // the tab's own handlers, so the effect has no business reacting to them.
     effect(() => {
       const id = this.spaceId();
-      this.skip.set(0);
-      this.resetOnSpaceChange();
-      if (id) this.load();
+      untracked(() => {
+        this.skip.set(0);
+        this.resetOnSpaceChange();
+        if (id) this.load();
+      });
     });
 
     // Live refresh (F12): when the shell signals a change for this space+collection, reload the CURRENT
     // page (no skip/search reset — keep the user's position). Only the mounted tab has a live effect, so
-    // only the active list reloads. `untracked` keeps this effect off the spaceId dependency so a space
-    // switch doesn't double-load via both effects.
+    // only the active list reloads. Depends on `liveRefreshTick` ONLY — `spaceId` and everything `load()`
+    // reads are untracked so a space switch doesn't double-load and filter reads don't re-trigger it.
     let firstTick = true;
     effect(() => {
       this.store.liveRefreshTick();
       if (firstTick) { firstTick = false; return; }
-      if (untracked(() => this.spaceId())) this.load();
+      untracked(() => { if (this.spaceId()) this.load(); });
     });
   }
 

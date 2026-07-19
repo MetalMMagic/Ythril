@@ -51,6 +51,21 @@ describe('EntitiesTabComponent', () => {
     expect(api.listEntities).toHaveBeenCalledWith('work', 20, 0, {});
   });
 
+  it('self-load effect depends on spaceId ONLY — no reload on plain change detection', () => {
+    // Scoping guard for the untracked() self-load effect: it must react to `spaceId` alone. It resets
+    // `recordFilter` to a NEW object each run and reads it via load(), so without the untracked() wrapper
+    // it would re-dirty itself. NOTE: this does NOT reproduce the app-freezing request storm — that was a
+    // structural mount⇄reload loop at the brain.component level (tabs gated by @if(recordList.loading()),
+    // which the tab itself writes); it is pinned in brain.component.spec.ts. With spaceId unchanged,
+    // further change detection must trigger no reload.
+    const fixture = make();
+    api.listEntities.mockClear();
+    fixture.detectChanges();
+    fixture.detectChanges();
+    fixture.detectChanges();
+    expect(api.listEntities).not.toHaveBeenCalled();
+  });
+
   it('renders the create form when opened', () => {
     const fixture = make();
     fixture.componentInstance.openEntityForm();

@@ -471,6 +471,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Brain: fixed an infinite reload loop that made the whole page unusable — opening any space's
+  entities/edges/memories/chrono/files tab showed only a jittering spinner and never loaded.** The five
+  record tabs were mounted inside the `@else` of `@if (recordList.loading())`, but each tab **writes** that
+  shared `recordList.loading` signal during its own `load()`. So a tab set `loading = true` on load, which
+  removed the `@else` branch and **destroyed the tab**; the response set `loading = false`, which
+  **re-created** it → a fresh `load()` → `loading = true` → … an infinite mount⇄reload loop firing the list
+  endpoint ~5×/second, self-sustaining even once the global rate limiter started returning `429`. Tabs now
+  mount on `activeTab()` **alone** and the load spinner floats on top (absolutely positioned), so the active
+  tab instance is never torn down by its own loading state. Added a `BrainComponent`-level regression test
+  that reproduces the mount⇄reload loop (it fails on the old structure). (The self-load effects were also
+  scoped to their real triggers with `untracked()` — a defensive tidy-up, not the cause. Follow-ups: migrate
+  to the reactive `rxResource`/`switchMap` data pattern for request cancellation, and key the rate limiter
+  per real client so a direct-Docker deploy behind no proxy can't share one gateway-IP bucket.)
+
 - **Settings: unsaved duplicate-detection rules no longer vanish silently.** In a space's settings dialog,
   the Duplicates tab is saved by its own button, but its edits were excluded from the dialog's
   unsaved-changes tracking — so editing dupe rules and then switching tabs or closing discarded them with no

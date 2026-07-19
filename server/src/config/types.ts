@@ -366,6 +366,17 @@ export interface DocumentProcessingConfig {
   pageTimeoutMs?: number;
   /** F11 — max concurrent per-page model calls within one document. Default 2. */
   concurrency?: number;
+  /**
+   * F11 — the document-transcription VLM model tag (e.g. a small Qwen2-VL / MiniCPM-V on the bundled
+   * Ollama). Empty (default) means no VLM is configured, so `vlm`/`auto`/`max` modes fall back to OCR.
+   * Env: `DOC_VLM_MODEL`.
+   */
+  vlmModel?: string;
+  /**
+   * F11 — base URL of the VLM endpoint. Empty (default) reuses the media `vision` provider's Ollama URL
+   * (the bundled local path, no egress). Env: `DOC_VLM_URL`.
+   */
+  vlmBaseUrl?: string;
 }
 
 /** F11 — document-extraction mode: OCR-only (default) vs the VLM precision pipeline. */

@@ -808,7 +808,7 @@ Beyond the per-collection write events (`memory.created`, `entity.updated`, `fil
 
 ## Settings — About
 
-The About page loads once (no auto-refresh) and shows instance information: instance label, instance ID, version, uptime, MongoDB version, and a disk-usage bar. It does **not** show the server log — the live server log lives on the [Audit Log](#settings--audit-log) page.
+The About page loads once (no auto-refresh) and shows instance information in two cards: an **Instance** card (instance label, instance ID, version, and public URL when set) and a **System** card (MongoDB version, uptime, and a disk-usage bar with a health pill — Healthy / High / Critical). If the info fails to load, the page shows the reason and a **Retry** button. It does **not** show the server log — the live server log lives on the [Audit Log](#settings--audit-log) page.
 
 ---
 

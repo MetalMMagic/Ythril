@@ -92,17 +92,28 @@ describe('AboutComponent', () => {
     expect(c.formatBytes(3 * 1024 * 1024 * 1024)).toBe('3.0 GB');
   });
 
-  it('disk health thresholds: <75 healthy, 75–89 warn, ≥90 critical', () => {
-    const at = (used: number) => make(() => of({ ...INFO, diskInfo: { total: 100, used, available: 100 - used } }));
-    // healthy — no warn/critical marker on the bar fill
-    let f = at(40);
-    expect(f.nativeElement.querySelector('.disk-bar-fill.warn')).toBeNull();
-    expect(f.nativeElement.querySelector('.disk-bar-fill.critical')).toBeNull();
-    // warn band
-    f = at(80);
-    expect(f.nativeElement.querySelector('.disk-bar-fill.warn')).toBeTruthy();
-    // critical band
-    f = at(95);
-    expect(f.nativeElement.querySelector('.disk-bar-fill.critical')).toBeTruthy();
+  it('disk health pill follows the shared design-system thresholds (warn ≥80, critical ≥95)', () => {
+    // The redesign unifies About's disk health onto the shared UsageBar classifier (usageLevel, warn 80 /
+    // danger 95) so the pill and bar agree and match the Storage page — replacing the old bespoke 75/90 bands.
+    const healthAt = (used: number) =>
+      make(() => of({ ...INFO, diskInfo: { total: 100, used, available: 100 - used } })).componentInstance.diskHealth();
+    expect(healthAt(40)).toMatchObject({ variant: 'ok', label: 'about.disk.healthy' });
+    expect(healthAt(79)).toMatchObject({ variant: 'ok' });
+    expect(healthAt(80)).toMatchObject({ variant: 'warn', label: 'about.disk.high' });
+    expect(healthAt(94)).toMatchObject({ variant: 'warn' });
+    expect(healthAt(95)).toMatchObject({ variant: 'error', label: 'about.disk.critical' });
+  });
+
+  it('renders the two grouped cards + shared usage bar', () => {
+    const f = make(() => of({ ...INFO }));
+    expect(el(f).querySelectorAll('app-settings-card').length).toBe(2);
+    expect(el(f).querySelector('app-usage-bar')).toBeTruthy();
+    expect(el(f).querySelectorAll('app-status-pill').length).toBe(2);
+  });
+
+  it('a load failure renders the shared error-state (with the reason), and Retry re-loads', () => {
+    const f = make(() => throwError(() => ({ error: { error: 'nope' } })));
+    expect(el(f).querySelector('app-error-state')).toBeTruthy();
+    expect(el(f).textContent).toContain('nope');
   });
 });

@@ -1,86 +1,86 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { type AboutInfo } from '../../core/api.types';
 import { AdminApi } from '../../core/admin-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
+import { SettingsCardComponent } from '../../shared/settings-card.component';
+import { StatusPillComponent, type StatusVariant } from '../../shared/status-pill.component';
+import { UsageBarComponent, usageLevel } from '../../shared/usage-bar.component';
+import { ErrorStateComponent } from '../../shared/error-state.component';
 
 @Component({
   selector: 'app-about',
   standalone: true,
-  imports: [TranslocoPipe],
+  imports: [TranslocoPipe, SettingsCardComponent, StatusPillComponent, UsageBarComponent, ErrorStateComponent],
   styles: `
-    .about-grid {
+    .grid {
       display: grid;
-      grid-template-columns: 160px 1fr;
-      gap: 8px 16px;
-      margin-bottom: 24px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+      align-items: start;
     }
-    .about-label { color: var(--text-muted); font-weight: 500; }
-    .about-value { font-weight: 400; }
+    .kv { display: grid; grid-template-columns: minmax(84px, 132px) 1fr; gap: 7px 14px; font-size: 13px; }
+    .kv .k { color: var(--text-secondary); }
+    .kv .v { color: var(--text-primary); word-break: break-word; }
     .mono { font-family: var(--font-mono, monospace); font-size: 0.9em; }
 
-    .disk-bar-container {
-      width: 100%;
-      max-width: 400px;
-      height: 20px;
-      background: var(--bg-muted);
-      border-radius: 4px;
-      overflow: hidden;
-      position: relative;
+    .disk { margin-top: 14px; }
+    .disk-fig {
+      display: flex; justify-content: space-between; align-items: baseline;
+      font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;
     }
-    .disk-bar-fill {
-      height: 100%;
-      background: var(--accent);
-      transition: width 0.3s;
-    }
-    .disk-bar-fill.warn { background: var(--warning); }
-    .disk-bar-fill.critical { background: var(--error); }
-    .disk-bar-text {
-      position: absolute;
-      top: 0; left: 8px; right: 0; bottom: 0;
-      display: flex;
-      align-items: center;
-      font-size: 0.75em;
-      font-weight: 600;
-      color: var(--text-on-accent);
-    }
-
-    .error-msg { color: var(--error); margin-top: 12px; }
+    .disk-fig .pct { font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; }
   `,
   template: `
     @if (loading()) {
       <p>{{ 'common.loading' | transloco }}</p>
     } @else if (error()) {
-      <p class="error-msg">{{ error() }}</p>
+      <app-error-state
+        [message]="'about.error.load' | transloco"
+        [reason]="error()"
+        (retry)="reload()" />
     } @else if (info(); as i) {
-      <div class="about-grid">
-        <span class="about-label">{{ 'about.instanceLabel' | transloco }}</span>
-        <span class="about-value">{{ i.instanceLabel }}</span>
+      <div class="grid">
+        <app-settings-card icon="info"
+                           [heading]="'about.card.instance' | transloco"
+                           [purpose]="'about.card.instanceDesc' | transloco">
+          <app-status-pill pill variant="active" [dot]="true">{{ 'about.status.online' | transloco }}</app-status-pill>
+          <div class="kv">
+            <span class="k">{{ 'about.instanceLabel' | transloco }}</span>
+            <span class="v">{{ i.instanceLabel }}</span>
 
-        <span class="about-label">{{ 'about.instanceId' | transloco }}</span>
-        <span class="about-value mono">{{ i.instanceId }}</span>
+            <span class="k">{{ 'about.instanceId' | transloco }}</span>
+            <span class="v mono">{{ i.instanceId }}</span>
 
-        <span class="about-label">{{ 'about.version' | transloco }}</span>
-        <span class="about-value mono">{{ i.version }}</span>
+            <span class="k">{{ 'about.version' | transloco }}</span>
+            <span class="v mono">{{ i.version }}</span>
 
-        <span class="about-label">{{ 'about.uptime' | transloco }}</span>
-        <span class="about-value">{{ i.uptime }}</span>
-
-        <span class="about-label">{{ 'about.mongoVersion' | transloco }}</span>
-        <span class="about-value mono">{{ i.mongoVersion }}</span>
-
-        <span class="about-label">{{ 'about.diskUsage' | transloco }}</span>
-        <span class="about-value">
-          <div class="disk-bar-container">
-            <div class="disk-bar-fill"
-                 [class.warn]="diskPercent() >= 75 && diskPercent() < 90"
-                 [class.critical]="diskPercent() >= 90"
-                 [style.width.%]="diskPercent()"></div>
-            <span class="disk-bar-text">
-              {{ formatBytes(i.diskInfo.used) }} / {{ formatBytes(i.diskInfo.total) }}
-              ({{ diskPercent().toFixed(1) }}%)
-            </span>
+            @if (i.publicUrl) {
+              <span class="k">{{ 'about.publicUrl' | transloco }}</span>
+              <span class="v mono">{{ i.publicUrl }}</span>
+            }
           </div>
-        </span>
+        </app-settings-card>
+
+        <app-settings-card icon="database"
+                           [heading]="'about.card.system' | transloco"
+                           [purpose]="'about.card.systemDesc' | transloco">
+          <app-status-pill pill [variant]="diskHealth().variant" [dot]="true">{{ diskHealth().label | transloco }}</app-status-pill>
+          <div class="kv">
+            <span class="k">{{ 'about.mongoVersion' | transloco }}</span>
+            <span class="v mono">{{ i.mongoVersion }}</span>
+
+            <span class="k">{{ 'about.uptime' | transloco }}</span>
+            <span class="v">{{ i.uptime }}</span>
+          </div>
+
+          <div class="disk">
+            <div class="disk-fig">
+              <span>{{ 'about.diskUsage' | transloco }}</span>
+              <span><span class="pct">{{ diskPercent().toFixed(1) }}%</span> · {{ formatBytes(i.diskInfo.used) }} / {{ formatBytes(i.diskInfo.total) }}</span>
+            </div>
+            <app-usage-bar [used]="i.diskInfo.used" [total]="i.diskInfo.total" [warnAtPercent]="80" />
+          </div>
+        </app-settings-card>
       </div>
     }
   `,
@@ -93,10 +93,26 @@ export class AboutComponent implements OnInit {
   info = signal<AboutInfo | null>(null);
   diskPercent = signal(0);
 
+  /**
+   * Disk health for the System-card pill. Derived from the SAME `usageLevel` classifier the shared
+   * UsageBar uses (warn ≥ 80%, danger ≥ 95%), so the pill and the bar can never disagree and the
+   * signal reads identically to the Storage page.
+   */
+  diskHealth = computed<{ variant: StatusVariant; label: string }>(() => {
+    switch (usageLevel(this.diskPercent(), 80)) {
+      case 'danger': return { variant: 'error', label: 'about.disk.critical' };
+      case 'warn':   return { variant: 'warn',  label: 'about.disk.high' };
+      default:       return { variant: 'ok',    label: 'about.disk.healthy' };
+    }
+  });
+
   ngOnInit(): void { this.load(); }
+
+  reload(): void { this.load(); }
 
   private load(): void {
     this.loading.set(true);
+    this.error.set('');
     this.adminApi.getAbout().subscribe({
       next: (data) => {
         this.info.set(data);

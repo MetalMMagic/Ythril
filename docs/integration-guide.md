@@ -1981,8 +1981,8 @@ To disable the conversion pipeline entirely, set `CONVERSION_SIDECAR_URL=""` in 
 #### Page-render sidecar (`doc-render`)
 
 The bundled `doc-render` sidecar is a tiny PDFium (pypdfium2) service that renders PDF pages to images. It is
-infrastructure for the forthcoming **VLM document-extraction** path (`mediaEmbedding.documentProcessing.mode`
-of `vlm` / `auto` / `max`) and is **not used by the default `ocr` mode** — you can leave it running (it is
+the rasterization step the **VLM document-extraction** path (`mediaEmbedding.documentProcessing.mode` of
+`vlm` / `auto` / `max`) needs and is **not used by the default `ocr` mode** — you can leave it running (it is
 lightweight and carries no model weights) or stop it with no effect on today's OCR conversion. Like the
 `unstructured` sidecar it parses untrusted documents, so it runs isolated on the internal-only
 `ythril-convert` network (no database, no internet egress), non-root and resource-limited. Ythril reaches
@@ -1996,6 +1996,16 @@ The unstructured sidecar strategy and image extraction behaviour can be tuned un
 |---|---|---|
 | `strategy` | `"hi_res"` | Unstructured partition strategy. `"hi_res"`: full Tesseract OCR + layout detection — accurate on scanned PDFs, extracts embedded images and structured tables. `"auto"`: sidecar picks the fastest viable strategy. `"fast"`: pdfminer text-layer only — fastest but no OCR, no image extraction. `"ocr_only"`: force OCR on every page regardless of whether a text layer exists. |
 | `extractImages` | `true` | When `true` and `strategy` is `"hi_res"`, embedded images found in document partitions are decoded and saved as `_extracted/{originalId}/image-{N}.{ext}` subfiles. Each is automatically enqueued for the full media pipeline (caption + face recognition). Has no effect when strategy is not `"hi_res"`. |
+| `mode` | `"ocr"` | Extraction path. `"ocr"` (default) is today's unstructured-sidecar OCR — unchanged. `"vlm"` renders each page and transcribes it with a vision model, using OCR as grounding evidence and falling back to OCR if the result doesn't validate (so it is **never worse than OCR**). `"auto"` uses the VLM only when it is configured and available, else OCR. `"max"` adds validation-driven repair + consensus (later PRs; behaves like `"vlm"` until then). |
+| `vlmModel` | `""` | Ollama vision model used for `vlm` / `auto` / `max` (e.g. a bundled `moondream`, or a larger model you wire in). Empty ⇒ the VLM path is unavailable and extraction stays on OCR. Env override: `DOC_VLM_MODEL`. |
+| `vlmBaseUrl` | `""` | Endpoint for the VLM. Empty ⇒ falls back to the media vision provider's `baseUrl`, then `http://ollama:11434`. Env override: `DOC_VLM_URL`. |
+| `renderDpi` | `150` | Page rasterization DPI for the render sidecar (VLM modes only). |
+| `maxPages` | `50` | Cap on pages rendered/transcribed per document (VLM modes only). |
+| `pageTimeoutMs` | `60000` | Per-page VLM transcription timeout (VLM modes only). |
+| `concurrency` | `2` | How many pages are transcribed in parallel (VLM modes only). |
+
+The VLM modes require both a running `doc-render` sidecar and a configured `vlmModel`. If either is missing,
+Ythril transparently uses OCR — no upload fails because a model isn't wired in yet.
 
 **Example `config.json` excerpt:**
 

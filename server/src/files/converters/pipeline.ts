@@ -26,7 +26,8 @@ import { writeFile, writeFileBytes } from '../files.js';
 import { resolveSafePathChecked } from '../sandbox.js';
 import { col, asFilter, asDoc } from '../../db/mongo.js';
 import { embed } from '../../brain/embedding.js';
-import { getConfig } from '../../config/loader.js';
+import { getConfig, getDocumentProcessingConfig } from '../../config/loader.js';
+import { vlmExtractDocument } from './vlm-extract.js';
 import type { FileMetaDoc, AuthorRef } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { enqueueMediaJob } from '../media/job-queue.js';
@@ -138,6 +139,7 @@ export interface ConversionResult {
   chunks: Chunk[];
   convertedMarkdown: string | null; // null for md/txt (source IS the markdown)
   extractedImages: ExtractedImage[];  // populated for pdf/docx/epub when hi_res extraction is on
+  extractionPath?: string;            // F11: which extraction path ran (ocr / ocr+vlm / ocr+vlm→ocr / …)
 }
 
 /**
@@ -206,14 +208,27 @@ export async function runConversionPipeline(
     case 'pdf':
     case 'docx':
     case 'epub': {
-      const conv = new UnstructuredConverter();
-      const result = await conv.convertRich(fileBytes, fileName);
-      markdown = result.markdown;
-      convertedMarkdown = markdown;
+      // F11: `ocr` mode (default) is the unchanged path; `vlm`/`auto`/`max` run the capability extractor,
+      // which itself falls back to OCR when render/VLM are absent or the VLM output fails validation.
+      const mode = getDocumentProcessingConfig().mode;
+      let extractionPath: string | undefined;
+      let richMarkdown: string;
+      let images = [] as ExtractedImage[];
+      if (mode === 'ocr') {
+        const result = await new UnstructuredConverter().convertRich(fileBytes, fileName);
+        richMarkdown = result.markdown;
+        images = result.extractedImages;
+      } else {
+        const result = await vlmExtractDocument(fileBytes, fileName);
+        richMarkdown = result.markdown;
+        images = result.extractedImages;
+        extractionPath = result.extractionPath;
+      }
       return {
-        chunks: sectionChunk(normaliseMarkdown(result.markdown), { minBodyLength: opts.minChunkBodyLength }),
-        convertedMarkdown,
-        extractedImages: result.extractedImages,
+        chunks: sectionChunk(normaliseMarkdown(richMarkdown), { minBodyLength: opts.minChunkBodyLength }),
+        convertedMarkdown: richMarkdown,
+        extractedImages: images,
+        ...(extractionPath ? { extractionPath } : {}),
       };
     }
   }

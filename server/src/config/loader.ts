@@ -621,6 +621,8 @@ const DOCUMENT_PROCESSING_DEFAULTS: Required<DocumentProcessingConfig> = {
   maxPages: 50,
   pageTimeoutMs: 60_000,
   concurrency: 2,
+  vlmModel: '',    // empty = no VLM configured → vlm/auto/max fall back to OCR
+  vlmBaseUrl: '',  // empty = reuse the media vision provider's (Ollama) URL
 };
 
 /**
@@ -640,6 +642,8 @@ export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig
     maxPages: base.maxPages ?? d.maxPages,
     pageTimeoutMs: base.pageTimeoutMs ?? d.pageTimeoutMs,
     concurrency: base.concurrency ?? d.concurrency,
+    vlmModel: process.env['DOC_VLM_MODEL'] ?? base.vlmModel ?? d.vlmModel,
+    vlmBaseUrl: process.env['DOC_VLM_URL'] ?? base.vlmBaseUrl ?? d.vlmBaseUrl,
   };
 }
 

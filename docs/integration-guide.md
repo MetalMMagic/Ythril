@@ -1990,7 +1990,7 @@ it via `RENDER_SIDECAR_URL` (default `http://doc-render:8100`).
 
 #### Document Processing Configuration
 
-The unstructured sidecar strategy and image extraction behaviour can be tuned under `mediaEmbedding.documentProcessing` in `config.json`. All settings are optional — the defaults are designed for maximum data extraction out of the box.
+The unstructured sidecar strategy and image extraction behaviour can be tuned under `mediaEmbedding.documentProcessing` in `config.json`. All settings are optional — the defaults are designed for maximum data extraction out of the box. The extraction `mode` and the render DPI / max-pages / timeout / concurrency knobs are also editable in the admin UI under **Settings → Models** (the `vlmModel` / `repairModel` endpoints stay environment-only and are shown read-only there).
 
 | Field | Default | Description |
 |---|---|---|

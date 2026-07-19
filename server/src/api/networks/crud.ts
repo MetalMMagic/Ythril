@@ -11,6 +11,7 @@ import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { getConfig, saveConfig, getSecrets } from '../../config/loader.js';
 import { revokePeerCredentialsIfOrphaned } from '../../auth/tokens.js';
 import { getSyncHistory } from '../../sync/history.js';
+import { peerSafeFetch } from '../../sync/peer-fetch.js';
 import { log } from '../../util/log.js';
 import type { NetworkConfig } from '../../config/types.js';
 
@@ -162,7 +163,7 @@ crudRouter.delete('/:id', globalRateLimit, requireAdmin, async (req, res) => {
     const peerToken = secrets.peerTokens[member.instanceId];
     if (!peerToken) return;
     try {
-      const r = await fetch(`${member.url}/api/notify`, {
+      const r = await peerSafeFetch(`${member.url}/api/notify`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${peerToken}`,

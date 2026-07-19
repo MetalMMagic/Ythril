@@ -32,7 +32,7 @@ import { requireAuth, requireAdminMfa, acceptSchemaLibraryToken } from '../auth/
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { getSchemaLibrary, saveSchemaLibrary, getConfig, getSchemaCatalogs, saveSchemaCatalogs } from '../config/loader.js';
 import { updateSpace } from '../spaces/spaces.js';
-import { isSsrfSafeUrl } from '../util/ssrf.js';
+import { isSsrfSafeUrl, ssrfSafeFetch } from '../util/ssrf.js';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import type { SchemaLibraryEntry, SchemaCatalog } from '../config/types.js';
@@ -626,7 +626,12 @@ async function proxyCatalogFetch(url: string, accessToken?: string): Promise<{ o
   try {
     const headers: Record<string, string> = { Accept: 'application/json', 'User-Agent': 'Ythril-CatalogProxy/1.0' };
     if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
-    const resp = await fetch(url, { headers, signal: controller.signal });
+    // ssrfSafeFetch (not bare fetch): the catalog URL passed `isSsrfSafeUrl` at creation time, but that
+    // is a static string check — it does not resolve DNS and does not re-check redirect targets. A
+    // catalog host can rebind to an internal IP, or 3xx-redirect to one (IMDS, internal services), and
+    // bare `fetch` defaults to redirect:'follow'. ssrfSafeFetch resolves + pins + re-validates every hop.
+    // External catalogs must never reach private space, so allowPrivate stays false (the default).
+    const resp = await ssrfSafeFetch(url, { headers, signal: controller.signal });
     clearTimeout(timer);
     const body = await resp.json().catch(() => null);
     return { ok: resp.ok, status: resp.status, body };

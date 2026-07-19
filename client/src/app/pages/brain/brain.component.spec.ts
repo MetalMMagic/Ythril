@@ -34,6 +34,7 @@ function makeApi() {
     getSpaceMeta: () => of({ tagSuggestions: [], typeSchemas: {} }),
     listMemories: () => of({ memories: [] }),
     getEntitiesByIds: () => of({ entities: [] }),
+    mintEventsTicket: () => of({ ticket: 't', expiresInMs: 60000 }),
   } as any;
 }
 

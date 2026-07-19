@@ -14,10 +14,31 @@
 import { Router } from 'express';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { requireSpaceAuth } from '../../auth/middleware.js';
+import { mintSseTicket } from '../../auth/sse-ticket.js';
 import { getConfig } from '../../config/loader.js';
 import { subscribeBrainChanges } from '../../brain/brain-events.js';
 
 export const brainEventsRouter = Router();
+
+/**
+ * Mint a single-use ticket for the SSE stream below. `EventSource` can't set an `Authorization` header,
+ * and a raw token in the URL would leak into logs/history/`Referer` — so the client POSTs here
+ * (authenticated normally, space-scope enforced), then opens the stream with `?ticket=`. The ticket
+ * aliases this request's bearer, is single-use, expires in ~1 min, and is bound to THIS space's stream.
+ */
+brainEventsRouter.post('/spaces/:spaceId/events/ticket', globalRateLimit, requireSpaceAuth, (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  if (!getConfig().spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  const bearer = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
+  if (!bearer) {
+    res.status(400).json({ error: 'Ticket minting requires an Authorization: Bearer header' });
+    return;
+  }
+  res.json(mintSseTicket(bearer, `/api/brain/spaces/${spaceId}/events`));
+});
 
 brainEventsRouter.get('/spaces/:spaceId/events', globalRateLimit, requireSpaceAuth, (req, res) => {
   const spaceId = req.params['spaceId'] as string;

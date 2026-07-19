@@ -21,6 +21,11 @@ export class AdminApi {
     return this.http.get<{ lines: string[] }>(`/api/about/logs?lines=${lines}`);
   }
 
+  /** Mint a single-use ticket to open the log-stream SSE (keeps the admin token out of the URL). */
+  mintLogsTicket(): Observable<{ ticket: string; expiresInMs: number }> {
+    return this.http.post<{ ticket: string; expiresInMs: number }>('/api/about/logs/ticket', {});
+  }
+
   // ── Audit Log ───────────────────────────────────────────────────────────
 
   getAuditLog(params: AuditLogParams = {}): Observable<AuditLogResponse> {

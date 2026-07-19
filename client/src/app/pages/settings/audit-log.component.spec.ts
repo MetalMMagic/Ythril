@@ -36,6 +36,7 @@ function makeApi(entries: AuditLogEntry[]) {
     listSpaces: () => of({ spaces: [] }),
     getAuditLog: () => of({ entries, total: entries.length, hasMore: false, retentionDays: 90 }),
     getAboutLogs: () => of({ lines: [] }),
+    mintLogsTicket: () => of({ ticket: 't', expiresInMs: 60000 }),
   } as any;
 }
 

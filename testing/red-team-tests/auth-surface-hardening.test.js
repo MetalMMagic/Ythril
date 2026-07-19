@@ -1,10 +1,12 @@
 /**
  * Red-team tests: auth surface hardening (M2, M8, M9, L1, L2)
  *
- * M2 — the `?token=` query-param fallback is accepted ONLY on the SSE endpoints
- *      (EventSource cannot set headers). On every other route a query token must
- *      be ignored → 401, so a token cannot be smuggled through access logs,
- *      proxy logs, or a Referer header.
+ * M2 — a raw `?token=` query param is ignored on every route except the `/mcp`
+ *      transport → 401. The browser SSE streams (brain events, audit-log tail) now
+ *      authenticate via a single-use `?ticket=` minted by an authenticated POST, so
+ *      no long-lived token is ever placed in a URL (access/proxy logs, Referer,
+ *      browser history). EventSource still can't set headers — the ticket is what
+ *      keeps the token out of the URL.
  * M8 — a TOTP code is single-use: replaying a code that is still inside its
  *      ±1-step validity window must be refused.
  * M9 — the instance-level MCP tools (`list_peers`, `sync_now`) require an admin
@@ -83,18 +85,40 @@ describe('M2 — ?token= is accepted only on the SSE endpoints', () => {
     assert.equal(r.status, 401, 'VULNERABILITY: POST accepted a token from the query string');
   });
 
-  it('still accepts a query-param token on the log-stream SSE endpoint (EventSource)', async () => {
+  it('rejects a raw ?token= on the log-stream SSE endpoint (query-token fallback removed)', async () => {
+    const r = await fetch(`${INSTANCES.a}/api/about/logs/stream?token=${encodeURIComponent(adminToken)}`);
+    assert.equal(r.status, 401, 'VULNERABILITY: raw token in the URL still authenticates the log stream');
+  });
+
+  it('rejects a raw ?token= on the brain-events SSE stream', async () => {
+    const r = await fetch(`${INSTANCES.a}/api/brain/spaces/general/events?token=${encodeURIComponent(adminToken)}`);
+    assert.equal(r.status, 401, 'VULNERABILITY: raw token in the URL still authenticates the brain stream');
+  });
+
+  it('authenticates the log-stream SSE via a single-use ticket (EventSource)', async () => {
+    const mint = await post(INSTANCES.a, adminToken, '/api/about/logs/ticket', {});
+    assert.equal(mint.status, 200, `ticket mint failed: ${JSON.stringify(mint.body)}`);
+    const ticket = mint.body.ticket;
+    assert.ok(typeof ticket === 'string' && ticket.length >= 20, 'ticket should be opaque');
     // The SSE stream never ends — abort as soon as headers arrive.
     const ac = new AbortController();
     const r = await fetch(
-      `${INSTANCES.a}/api/about/logs/stream?token=${encodeURIComponent(adminToken)}`,
+      `${INSTANCES.a}/api/about/logs/stream?ticket=${encodeURIComponent(ticket)}`,
       { signal: ac.signal },
     );
     const status = r.status;
     const ctype = r.headers.get('content-type') ?? '';
     ac.abort();
-    assert.equal(status, 200, 'the audit-log EventSource must keep working');
+    assert.equal(status, 200, 'the audit-log EventSource must authenticate via a ticket');
     assert.match(ctype, /text\/event-stream/);
+  });
+
+  it('rejects an unknown/forged ticket on the log-stream SSE endpoint', async () => {
+    const ac = new AbortController();
+    const r = await fetch(`${INSTANCES.a}/api/about/logs/stream?ticket=not-a-real-ticket`, { signal: ac.signal });
+    const status = r.status;
+    ac.abort();
+    assert.equal(status, 401, 'an unknown ticket must not authenticate');
   });
 
   it('the Authorization header still works everywhere (regression)', async () => {

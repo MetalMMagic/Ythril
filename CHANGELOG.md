@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Browser SSE streams no longer carry the auth token in the URL — closed a credential-leak vector.** The
+  live brain-change stream (`GET /api/brain/spaces/:id/events`, F12) and the admin audit-log tail
+  (`GET /api/about/logs/stream`) are opened by the browser `EventSource` API, which cannot set an
+  `Authorization` header — so they previously accepted the bearer token as a `?token=` query parameter. A
+  token in a URL leaks into server/proxy **access logs**, browser **history**, and the `Referer` header.
+  Both streams now authenticate with a **single-use, ~60s, path-bound ticket**: the client first does an
+  authenticated `POST …/ticket` (normal header), then connects with `?ticket=<opaque>`; the server
+  exchanges the ticket back to the bearer once and resolves it exactly as a header would (space-scope, MFA,
+  everything unchanged). A raw `?token=` is now **rejected** on both streams. The `/mcp` transport keeps
+  `?token=` by design — it's an external-agent protocol with a different threat model (the agent already
+  holds the token and may be unable to set headers). New/updated red-team + integration tests assert the
+  raw-token rejection, single-use, and path-binding. (Discovered while debugging the brain request-storm.)
+
 - **Docker hardening: pinned base images + privilege-escalation lockdown on the parser sidecars.** The
   floating `:latest` base images (`ollama`, `faster-whisper-server`, `mongodb-atlas-local`, and `node:22-slim`
   in the app `Dockerfile`) are now pinned to explicit multi-arch manifest **digests**, so a re-pull can't

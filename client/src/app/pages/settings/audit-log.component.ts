@@ -500,22 +500,29 @@ export class AuditLogComponent implements OnInit, OnDestroy {
   }
 
   private startServerLogStream(): void {
-    // First load existing lines, then start SSE stream
+    // First load existing lines, then start the SSE stream. EventSource can't send an Authorization
+    // header and a raw token in the URL leaks into logs/history, so mint a single-use ticket first, then
+    // open the stream with ?ticket=.
     this.loadServerLogs();
-    const token = localStorage.getItem('ythril_token') ?? '';
-    const es = new EventSource(`/api/about/logs/stream?token=${encodeURIComponent(token)}`);
-    es.onmessage = (event) => {
-      this.serverLogLines.update(lines => {
-        const updated = [...lines, event.data];
-        return updated.length > 1000 ? updated.slice(-1000) : updated;
-      });
-    };
-    es.onerror = () => {
-      // SSE connection lost — stop streaming
-      this.stopServerLogStream();
-    };
-    this.serverLogEventSource = es;
-    this.serverLogStreaming.set(true);
+    this.serverLogStreaming.set(true); // optimistic so the toggle button reflects intent immediately
+    this.adminApi.mintLogsTicket().subscribe({
+      next: ({ ticket }) => {
+        if (typeof EventSource === 'undefined' || !this.serverLogStreaming()) return; // stopped while minting
+        const es = new EventSource(`/api/about/logs/stream?ticket=${encodeURIComponent(ticket)}`);
+        es.onmessage = (event) => {
+          this.serverLogLines.update(lines => {
+            const updated = [...lines, event.data];
+            return updated.length > 1000 ? updated.slice(-1000) : updated;
+          });
+        };
+        es.onerror = () => {
+          // SSE connection lost — stop streaming (the ticket is single-use; the user can restart).
+          this.stopServerLogStream();
+        };
+        this.serverLogEventSource = es;
+      },
+      error: () => this.stopServerLogStream(), // mint failed (auth / rate limit)
+    });
   }
 
   private stopServerLogStream(): void {

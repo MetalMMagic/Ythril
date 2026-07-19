@@ -559,7 +559,7 @@ Authorization: Bearer ythril_<base62-encoded-token>
 
 Tokens are created during first-run setup or via `POST /api/tokens`. The plaintext token is shown **once** — store it securely.
 
-> **The token must travel in the header.** A `?token=…` query parameter is accepted **only** on the two SSE streams — `GET /api/about/logs/stream` and `GET /mcp` — because the browser `EventSource` API cannot set headers. On every other route a query-string token is ignored and the request returns `401`. Query strings end up in access logs, proxy logs, browser history, and `Referer` headers, which is why the fallback is not available API-wide.
+> **The token must travel in the header.** A `?token=…` query parameter is ignored on every route → `401`, with one exception: the `GET /mcp` transport (an external-agent protocol whose clients may be unable to set headers). Query strings end up in access logs, proxy logs, browser history, and `Referer` headers, so a long-lived token must never ride in a URL. The **browser** SSE streams — `GET /api/brain/spaces/:id/events` and `GET /api/about/logs/stream` — instead use a **single-use ticket**: `POST` the paired `…/ticket` endpoint with the normal `Authorization` header to get a short-lived opaque ticket, then open the stream with `?ticket=<ticket>` (see the live-events section below).
 
 ### Token Scoping
 
@@ -808,14 +808,22 @@ or `bulk.write` for a batch); `id` is the affected record's ID when applicable. 
 sent on connect and every 30 s as a keep-alive.
 
 - **Auth:** space-scoped; read-only tokens may subscribe. A browser `EventSource` cannot set an
-  `Authorization` header, so this endpoint accepts the token as a `?token=` query parameter (like the
-  MCP and log-stream SSE endpoints). Prefer the header form for non-browser clients.
+  `Authorization` header, and a raw token in the URL leaks into logs/history — so authenticate with a
+  **single-use ticket**: `POST /api/brain/spaces/:id/events/ticket` with the normal `Authorization`
+  header returns `{ ticket, expiresInMs }`; open the stream with `?ticket=<ticket>`. The ticket is
+  single-use (mint a fresh one per connect, including reconnects), expires in ~60 s, and is bound to this
+  space's stream. A non-browser client that can set headers should just use `Authorization` directly.
 - **Scope:** events fire for writes made through the REST and MCP APIs on this instance. Changes applied
   by the **sync engine** (pulled from a peer) are not emitted here — they appear on the next load.
 
 ```js
-const es = new EventSource(`/api/brain/spaces/${space}/events?token=${token}`);
+// Browser: mint a single-use ticket (token stays in the header), then open the stream with it.
+const { ticket } = await fetch(`/api/brain/spaces/${space}/events/ticket`, {
+  method: 'POST', headers: { Authorization: `Bearer ${token}` },
+}).then((r) => r.json());
+const es = new EventSource(`/api/brain/spaces/${space}/events?ticket=${encodeURIComponent(ticket)}`);
 es.onmessage = (e) => { const { event, id } = JSON.parse(e.data); /* refresh the affected view */ };
+// On es.onerror, mint a new ticket before reconnecting — the old one is already spent.
 ```
 
 ---
@@ -5532,6 +5540,9 @@ Real-time stream of log lines as Server-Sent Events.
 - Admin token required
 - Sends heartbeat comments periodically to keep the connection alive
 - Each event payload is a single escaped log line (`data: ...`)
+- **Browser clients** (which can't set headers on `EventSource`) authenticate with a single-use ticket:
+  `POST /api/about/logs/ticket` with the `Authorization` header returns `{ ticket, expiresInMs }`; open the
+  stream with `?ticket=<ticket>`. A raw `?token=` in the URL is rejected (it would leak into logs/history).
 
 Close the HTTP connection to stop streaming.
 

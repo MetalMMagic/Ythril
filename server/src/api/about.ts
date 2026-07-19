@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { requireAuth, requireAdmin } from '../auth/middleware.js';
+import { mintSseTicket } from '../auth/sse-ticket.js';
 import { getConfig } from '../config/loader.js';
 import { getMongo } from '../db/mongo.js';
 import { getLogLines, subscribeLogLines } from '../util/log.js';
@@ -76,6 +77,18 @@ aboutRouter.get('/logs', requireAdmin, (_req, res) => {
 aboutRouter.get('/security', requireAdmin, (_req, res) => {
   const posture = computeSecurityPosture();
   res.json({ ...posture, strict: securityStrict() });
+});
+
+// Mint a single-use ticket for the log-stream SSE below (EventSource can't send an Authorization header;
+// a raw token in the URL would leak into logs/history). Admin-only, single-use, ~1 min, bound to the
+// stream path only. The client POSTs here, then opens the stream with `?ticket=`.
+aboutRouter.post('/logs/ticket', requireAdmin, (req, res) => {
+  const bearer = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim();
+  if (!bearer) {
+    res.status(400).json({ error: 'Ticket minting requires an Authorization: Bearer header' });
+    return;
+  }
+  res.json(mintSseTicket(bearer, '/api/about/logs/stream'));
 });
 
 // SSE stream for real-time log tailing. Admin-only.

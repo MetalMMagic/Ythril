@@ -14,6 +14,7 @@ import { FilemetaTabComponent } from './filemeta-tab.component';
 import { FormsModule } from '@angular/forms';
 import { Space, SpaceStats } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
+import { BrainApi } from '../../core/brain-api.service';
 import { GraphComponent } from '../graph/graph.component';
 import { FileManagerComponent } from '../files/file-manager.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
@@ -277,6 +278,7 @@ export class BrainComponent implements OnInit, OnDestroy {
   readonly drawerState = inject(RecordDrawerState);
   readonly recordList = inject(RecordListState);
   private spacesApi = inject(SpacesApi);
+  private brainApi = inject(BrainApi);
   private transloco = inject(TranslocoService);
 
   collectionTabs: { key: BrainTab; label: string; statsKey?: keyof SpaceStats }[] = [
@@ -344,29 +346,54 @@ export class BrainComponent implements OnInit, OnDestroy {
   // ── Live updates (F12) ──────────────────────────────────────────────────────
   private liveStream?: EventSource;
   private liveRefreshTimer?: ReturnType<typeof setTimeout>;
+  private liveReconnectTimer?: ReturnType<typeof setTimeout>;
+  private static readonly LIVE_RECONNECT_MS = 3000;
   private static readonly TAB_FOR_COLLECTION: Record<string, BrainTab> = {
     memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'filemeta',
   };
 
-  /** (Re)open the SSE stream for a space. EventSource can't send an Authorization header, so the token
-   *  goes in the query string (the server allowlists this GET path for query-token auth). */
+  /** (Re)open the live-change SSE stream for a space. EventSource can't send an Authorization header, and
+   *  a raw token in the URL leaks into logs/history/Referer, so we mint a single-use `?ticket=` first. */
   private openLiveStream(spaceId: string): void {
     this.closeLiveStream();
     if (typeof EventSource === 'undefined') return; // non-browser (SSR/test) environment
-    const token = localStorage.getItem('ythril_token') ?? '';
-    if (!spaceId || !token) return;
-    const url = `/api/brain/spaces/${encodeURIComponent(spaceId)}/events?token=${encodeURIComponent(token)}`;
-    const es = new EventSource(url);
-    es.onmessage = (e) => {
-      let payload: { event?: string };
-      try { payload = JSON.parse(e.data); } catch { return; }
-      this.onLiveEvent(spaceId, payload.event ?? '');
-    };
-    // On error the browser auto-reconnects with backoff; nothing to do.
-    this.liveStream = es;
+    if (!spaceId) return;
+    this.connectLiveStream(spaceId);
+  }
+
+  /** Mint a ticket, then open the stream. Because the ticket is single-use, the browser's native
+   *  auto-reconnect (which would replay the now-dead ticket) is useless — so on error we close and
+   *  reconnect ourselves with a FRESH ticket after a fixed backoff, and only while this space is still
+   *  active. The backoff + active-space guard keep a persistently-failing stream to ~1 attempt / 3s
+   *  (never a request storm) and stop it entirely once the user navigates away. */
+  private connectLiveStream(spaceId: string): void {
+    if (spaceId !== this.activeSpaceId()) return; // space switched (or torn down) before we got here
+    this.brainApi.mintEventsTicket(spaceId).subscribe({
+      next: ({ ticket }) => {
+        if (spaceId !== this.activeSpaceId()) return; // switched while minting — drop this ticket
+        const url = `/api/brain/spaces/${encodeURIComponent(spaceId)}/events?ticket=${encodeURIComponent(ticket)}`;
+        const es = new EventSource(url);
+        es.onmessage = (e) => {
+          let payload: { event?: string };
+          try { payload = JSON.parse(e.data); } catch { return; }
+          this.onLiveEvent(spaceId, payload.event ?? '');
+        };
+        es.onerror = () => {
+          es.close();
+          if (this.liveStream === es) this.liveStream = undefined;
+          clearTimeout(this.liveReconnectTimer);
+          this.liveReconnectTimer = setTimeout(() => this.connectLiveStream(spaceId), BrainComponent.LIVE_RECONNECT_MS);
+        };
+        this.liveStream = es;
+      },
+      // Mint failed (auth / rate limit / offline): stay closed — the next space switch retries. Not
+      // retried on a timer here to avoid hammering the mint endpoint when auth is genuinely broken.
+      error: () => { /* no-op */ },
+    });
   }
 
   private closeLiveStream(): void {
+    clearTimeout(this.liveReconnectTimer);
     this.liveStream?.close();
     this.liveStream = undefined;
   }

@@ -42,6 +42,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **VLM document extractor — the pipeline wiring (F11).** The `vlm` / `auto` / `max` modes are now live in
+  the conversion pipeline (they were inert config until now). For a PDF/DOCX/EPUB, the extractor runs OCR
+  for *evidence*, rasterizes the pages via the render sidecar, transcribes each page with a local Ollama
+  vision model (`DOC_VLM_MODEL` / `mediaEmbedding.documentProcessing.vlmModel`, `DOC_VLM_URL` for the
+  endpoint), then lets the OCR-evidence-coverage validator decide whether to accept the VLM Markdown or
+  fall back to OCR — so a result is **never worse than plain OCR**. Every capability is optional and
+  degrades cleanly: no render/VLM configured → OCR; OCR down but VLM up → ungrounded VLM; nothing
+  available → the usual "conversion unavailable" surfaces exactly as today. Per-page output is bounded and
+  transcribed at temperature 0. The default `ocr` mode is unchanged. Validation-driven repair, the
+  external hosted-VLM egress path (via `ssrfSafeFetch`), and `max`-mode consensus are the next PRs. See
+  `todo/F11-PLAN.md`.
+
 - **Document page-render sidecar (F11).** A tiny, isolated PDFium (pypdfium2) service (`sidecars/doc-render`) that
   renders PDF pages to PNG images — the one new capability the upcoming VLM document-extraction path needs
   (nothing rasterized pages before). It parses untrusted documents, so it runs non-root on the same

@@ -891,6 +891,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Tokens: at-a-glance health and an expiry warning.** The page now opens with an operator
+  summary strip (active / expiring-within-7-days / expired counts) so a token about to lapse is visible
+  without reading every row, and expiring tokens get an amber "Expiring" pill. Timestamps (created / last
+  used / expires) are now relative ("2 days ago", with the absolute time on hover) instead of a bare date,
+  the rotate action uses a proper icon, the empty state explains what a token is for with a create button,
+  and the permission badges fold into the shared status-pill vocabulary. (Part of the settings design-system
+  rollout.)
+
 - **Settings → Models page redesigned, and document-extraction is now configurable in the UI.** The page is
   rebuilt on a shared settings design system (capability cards + one status-pill vocabulary) with an
   operator-first "what happens when someone uploads a file" summary. A new **Document Extraction** card

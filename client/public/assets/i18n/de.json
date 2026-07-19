@@ -1134,5 +1134,12 @@
   "brain.error.loadFileMeta": "Dateidatensätze konnten nicht geladen werden.",
   "files.error.loadFiles": "Dateien konnten nicht geladen werden.",
   "schemaLib.error.load": "Schema-Bibliothek konnte nicht geladen werden.",
-  "graph.error.load": "Graph konnte nicht geladen werden."
+  "graph.error.load": "Graph konnte nicht geladen werden.",
+  "auditLog.summary.shown": "Angezeigt",
+  "auditLog.summary.clientErrors": "Client-Fehler",
+  "auditLog.summary.serverErrors": "Server-Fehler",
+  "auditLog.summary.authFailures": "Auth-Fehler",
+  "auditLog.detail.request": "Anfrage",
+  "auditLog.detail.entryId": "Eintrags-ID",
+  "auditLog.detail.rawJson": "Roh-JSON"
 }

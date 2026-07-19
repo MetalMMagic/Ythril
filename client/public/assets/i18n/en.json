@@ -1133,5 +1133,12 @@
   "brain.error.loadFileMeta": "Couldn't load file records.",
   "files.error.loadFiles": "Couldn't load files.",
   "schemaLib.error.load": "Couldn't load the schema library.",
-  "graph.error.load": "Couldn't load the graph."
+  "graph.error.load": "Couldn't load the graph.",
+  "auditLog.summary.shown": "Shown",
+  "auditLog.summary.clientErrors": "Client errors",
+  "auditLog.summary.serverErrors": "Server errors",
+  "auditLog.summary.authFailures": "Auth failures",
+  "auditLog.detail.request": "Request",
+  "auditLog.detail.entryId": "Entry ID",
+  "auditLog.detail.rawJson": "Raw JSON"
 }

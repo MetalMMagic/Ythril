@@ -104,4 +104,72 @@ describe('AuditLogComponent (OnPush)', () => {
     expect(body(fixture)).toContain('token.delete');
     expect(body(fixture)).not.toContain('memory.create');
   });
+
+  // ── PR-U5: design-system redesign ───────────────────────────────────────────
+  it('renders a StatusPill per row with the variant mapped from the HTTP status', () => {
+    const fixture = create([
+      entry({ status: 200, operation: 'a' }),
+      entry({ status: 404, operation: 'b' }),
+      entry({ status: 503, operation: 'c' }),
+    ]);
+    const pills = Array.from(
+      fixture.nativeElement.querySelectorAll('table.audit-table tbody app-status-pill .pill'),
+    ) as HTMLElement[];
+    expect(pills.length).toBe(3);
+    const classes = pills.map(p => p.className);
+    expect(classes.some(c => c.includes('ok'))).toBe(true);    // 200
+    expect(classes.some(c => c.includes('warn'))).toBe(true);  // 404
+    expect(classes.some(c => c.includes('error'))).toBe(true); // 503
+  });
+
+  it('gives 5xx rows a row-error stripe and auth failures a row-warn stripe (200 gets none)', () => {
+    const fixture = create([
+      entry({ status: 500, operation: 'a' }),
+      entry({ status: 401, operation: 'auth.failed' }),
+      entry({ status: 200, operation: 'b' }),
+    ]);
+    const rows = fixture.nativeElement.querySelectorAll('table.audit-table tbody tr');
+    expect(rows[0].className).toContain('row-error');
+    expect(rows[1].className).toContain('row-warn');
+    expect(rows[2].className).not.toContain('row-');
+  });
+
+  it('summary strip counts client/server errors and auth failures in view', () => {
+    const fixture = create([
+      entry({ status: 404, operation: 'a' }),
+      entry({ status: 500, operation: 'b' }),
+      entry({ status: 401, operation: 'auth.failed' }),
+      entry({ status: 200, operation: 'c' }),
+    ]);
+    expect(fixture.nativeElement.querySelector('app-summary-strip')).toBeTruthy();
+    const items = fixture.componentInstance.summaryItems();
+    const val = (frag: string) => items.find(i => i.label.includes(frag))?.value;
+    expect(val('shown')).toBe(4);
+    expect(val('clientErrors')).toBe(2); // 404 + 401
+    expect(val('serverErrors')).toBe(1); // 500
+    expect(val('authFailures')).toBe(1); // auth.failed
+  });
+
+  it('detail panel shows structured fields (method+path) and a collapsible raw-JSON block', () => {
+    const fixture = create([entry()]);
+    fixture.componentInstance.showDetail(
+      entry({ operation: 'space.wipe', method: 'POST', path: '/api/admin/spaces/x/wipe', status: 500 }),
+    );
+    fixture.detectChanges();
+    const panel = fixture.nativeElement.querySelector('.detail-panel');
+    expect(panel.querySelector('dl.detail-grid')).toBeTruthy();
+    expect(panel.textContent).toContain('POST');
+    expect(panel.textContent).toContain('/api/admin/spaces/x/wipe');
+    expect(panel.querySelector('app-status-pill')).toBeTruthy();
+    expect(panel.querySelector('details.detail-raw')).toBeTruthy(); // raw JSON is collapsible, not the whole panel
+  });
+
+  it('status filter options are derived from the statuses present in the results', () => {
+    const fixture = create([
+      entry({ status: 200, operation: 'a' }),
+      entry({ status: 200, operation: 'b' }),
+      entry({ status: 404, operation: 'c' }),
+    ]);
+    expect(fixture.componentInstance.statusOptions()).toEqual([200, 404]);
+  });
 });

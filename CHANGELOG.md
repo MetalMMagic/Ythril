@@ -918,6 +918,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Audit Log on the design system.** The status column now uses the shared status-pill
+  vocabulary (ok / warn / error) instead of a page-local badge dialect, and rows worth noticing get a
+  leading severity stripe (5xx → error, 4xx / `auth.failed` → warn) so problems read at a glance. A
+  **summary strip** rolls up what's in view (shown · client errors · server errors · auth failures), the
+  **status filter is now derived from the statuses actually present** rather than a fixed guess-list, and
+  timestamps render as relative times (with an absolute tooltip) in `tabular-nums`. The detail view is now
+  a **structured labelled panel** (timestamp, token/user, operation, method+path, status, IP, duration,
+  space) with the full raw JSON tucked into a collapsible block instead of a wall of `{ … }`.
+
 - **Document extraction now defaults to `auto`.** `mediaEmbedding.documentProcessing.mode` defaults to `auto`
   (was `ocr`): use the VLM when one is configured and reachable, otherwise fall back to OCR. With no
   `vlmModel` set this is byte-for-byte the old OCR-only path, so installs without a vision model are

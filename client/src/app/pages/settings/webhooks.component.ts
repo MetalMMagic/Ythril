@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -9,6 +9,9 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ModalDirective } from '../../shared/modal.directive';
 import { ErrorStateComponent } from '../../shared/error-state.component';
+import { SummaryStripComponent, SummaryItem } from '../../shared/summary-strip.component';
+import { StatusPillComponent } from '../../shared/status-pill.component';
+import { RelativeTimeComponent } from '../../shared/relative-time.component';
 import {
   Space, WebhookSubscription, WebhookDelivery, WebhookEventType, WEBHOOK_EVENT_GROUPS,
 } from '../../core/api.types';
@@ -28,7 +31,8 @@ interface WebhookForm {
 @Component({
   selector: 'app-webhooks',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, ErrorStateComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, ErrorStateComponent,
+            SummaryStripComponent, StatusPillComponent, RelativeTimeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .dialog-backdrop { position:fixed; inset:0; background:var(--bg-scrim); display:flex; align-items:center; justify-content:center; z-index:100; }
@@ -36,9 +40,6 @@ interface WebhookForm {
     .dialog.wide { max-width:760px; }
     .dialog-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
     .url-cell { font-family:var(--font-mono); font-size:12px; word-break:break-all; max-width:320px; }
-    .badge-failing { background:color-mix(in srgb, var(--warning) 18%, transparent); color:var(--warning); }
-    .badge-disabled { background:var(--bg-elevated); color:var(--text-muted); }
-    .badge-active { background:color-mix(in srgb, var(--success, #16a34a) 18%, transparent); color:var(--success, #16a34a); }
     .ev-group { margin-bottom:10px; }
     .ev-group-label { font-size:11px; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted); margin-bottom:4px; }
     .ev-check { display:inline-flex; align-items:center; gap:5px; margin:2px 12px 2px 0; font-size:12px; font-family:var(--font-mono); }
@@ -153,8 +154,8 @@ interface WebhookForm {
                         {{ dl.responseStatus || '—' }}
                         @if (!dl.success && dl.error) { <span class="muted" style="font-size:11px;"> · {{ dl.error }}</span> }
                       </td>
-                      <td>{{ dl.latencyMs }} ms</td>
-                      <td class="muted" style="font-size:12px;">{{ dl.timestamp | date:'short' }}</td>
+                      <td style="font-variant-numeric:tabular-nums;">{{ dl.latencyMs }} ms</td>
+                      <td class="muted" style="font-size:12px;"><app-relative-time [value]="dl.timestamp"/></td>
                     </tr>
                   }
                 </tbody>
@@ -182,6 +183,7 @@ interface WebhookForm {
       } @else if (webhooks().length === 0) {
         <div class="empty-state" style="padding:32px;"><h3>{{ 'webhooks.empty.title' | transloco }}</h3><p>{{ 'webhooks.empty.body' | transloco }}</p></div>
       } @else {
+        <app-summary-strip [heading]="'webhooks.title' | transloco" [items]="summary()" style="display:block;margin:0 0 16px;"/>
         <div class="table-wrapper">
           <table>
             <thead><tr>
@@ -192,24 +194,30 @@ interface WebhookForm {
               <th></th>
             </tr></thead>
             <tbody>
-              @for (w of webhooks(); track w.id) {
+              <!-- failing hooks sorted to the top so an operational problem reads first -->
+              @for (w of sortedWebhooks(); track w.id) {
                 <tr>
                   <td class="url-cell">{{ w.url }}</td>
                   <td style="font-size:12px;">{{ w.events.length ? w.events.length + ' ' + ('webhooks.selected' | transloco) : ('webhooks.all' | transloco) }}</td>
                   <td style="font-size:12px;">{{ w.spaces.length ? w.spaces.length + ' ' + ('webhooks.selected' | transloco) : ('webhooks.all' | transloco) }}</td>
                   <td>
-                    <span class="badge" [class.badge-active]="w.status==='active'" [class.badge-failing]="w.status==='failing'" [class.badge-disabled]="w.status==='disabled'">
-                      {{ 'webhooks.status.' + w.status | transloco }}
+                    <span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                      <app-status-pill [variant]="statusVariant(w.status)" [dot]="true">{{ 'webhooks.status.' + w.status | transloco }}</app-status-pill>
+                      @if (w.consecutiveFailures > 0) {
+                        <span class="muted" style="font-size:11px;">{{ 'webhooks.failures' | transloco: { n: w.consecutiveFailures } }}</span>
+                      }
                     </span>
-                    @if (w.consecutiveFailures > 0) {
-                      <span class="muted" style="font-size:11px;margin-left:4px;">{{ 'webhooks.failures' | transloco: { n: w.consecutiveFailures } }}</span>
-                    }
                   </td>
-                  <td style="white-space:nowrap;text-align:right;">
-                    <button class="btn btn-secondary btn-sm" type="button" (click)="test(w)" [attr.title]="'webhooks.action.test' | transloco">{{ 'webhooks.action.test' | transloco }}</button>
-                    <button class="btn btn-secondary btn-sm" type="button" (click)="openDeliveries(w)" [attr.title]="'webhooks.action.deliveries' | transloco"><ph-icon name="list-bullets" [size]="14"/></button>
-                    <button class="btn btn-secondary btn-sm" type="button" (click)="openEdit(w)" [attr.title]="'common.edit' | transloco"><ph-icon name="pencil-simple" [size]="14"/></button>
-                    <button class="btn btn-secondary btn-sm" type="button" (click)="remove(w)" [attr.title]="'common.delete' | transloco"><ph-icon name="trash" [size]="14"/></button>
+                  <td>
+                    <div style="display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap;">
+                      <button class="btn btn-secondary btn-sm" type="button" (click)="test(w)" [disabled]="testingIds().has(w.id)" [attr.title]="'webhooks.action.test' | transloco">
+                        @if (testingIds().has(w.id)) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> }
+                        {{ 'webhooks.action.test' | transloco }}
+                      </button>
+                      <button class="btn btn-secondary btn-sm" type="button" (click)="openDeliveries(w)" [attr.title]="'webhooks.action.deliveries' | transloco"><ph-icon name="list-bullets" [size]="14"/></button>
+                      <button class="btn btn-secondary btn-sm" type="button" (click)="openEdit(w)" [attr.title]="'common.edit' | transloco"><ph-icon name="pencil-simple" [size]="14"/></button>
+                      <button class="btn btn-secondary btn-sm danger" type="button" (click)="remove(w)" [attr.title]="'common.delete' | transloco"><ph-icon name="trash" [size]="14"/></button>
+                    </div>
                   </td>
                 </tr>
               }
@@ -241,6 +249,31 @@ export class WebhooksComponent implements OnInit {
   deliveriesFor = signal<WebhookSubscription | null>(null);
   deliveries = signal<WebhookDelivery[]>([]);
   deliveriesLoading = signal(false);
+
+  /** Per-row in-flight state for the Test action (spinner + disabled while queuing). */
+  testingIds = signal<ReadonlySet<string>>(new Set());
+
+  /** Failing first, then disabled, then active — an operational problem should read at the top. */
+  sortedWebhooks = computed(() => {
+    const rank: Record<WebhookSubscription['status'], number> = { failing: 0, disabled: 1, active: 2 };
+    return [...this.webhooks()].sort((a, b) => rank[a.status] - rank[b.status]);
+  });
+
+  /** Operator health rollup: total endpoints + failing/disabled counts (shown only when > 0). */
+  summary = computed<SummaryItem[]>(() => {
+    const ws = this.webhooks();
+    const failing = ws.filter(w => w.status === 'failing').length;
+    const disabled = ws.filter(w => w.status === 'disabled').length;
+    const tr = (k: string) => this.transloco.translate(k);
+    const items: SummaryItem[] = [{ label: tr('webhooks.summary.endpoints'), value: ws.length }];
+    if (failing) items.push({ label: tr('webhooks.summary.failing'), value: failing, variant: 'error' });
+    if (disabled) items.push({ label: tr('webhooks.summary.disabled'), value: disabled, variant: 'off' });
+    return items;
+  });
+
+  statusVariant(s: WebhookSubscription['status']): 'active' | 'error' | 'off' {
+    return s === 'failing' ? 'error' : s === 'disabled' ? 'off' : 'active';
+  }
 
   ngOnInit(): void {
     this.load();
@@ -304,10 +337,15 @@ export class WebhooksComponent implements OnInit {
   }
 
   test(w: WebhookSubscription): void {
+    this.testingIds.update(s => new Set(s).add(w.id));
     this.admin.testWebhook(w.id).subscribe({
-      next: () => this.toast.success(this.transloco.translate('webhooks.toast.testQueued')),
-      error: (err) => this.toast.error(err.error?.error ?? this.transloco.translate('webhooks.toast.testFailed')),
+      next: () => { this.clearTesting(w.id); this.toast.success(this.transloco.translate('webhooks.toast.testQueued')); },
+      error: (err) => { this.clearTesting(w.id); this.toast.error(err.error?.error ?? this.transloco.translate('webhooks.toast.testFailed')); },
     });
+  }
+
+  private clearTesting(id: string): void {
+    this.testingIds.update(s => { const n = new Set(s); n.delete(id); return n; });
   }
 
   async remove(w: WebhookSubscription): Promise<void> {

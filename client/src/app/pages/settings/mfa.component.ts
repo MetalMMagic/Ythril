@@ -5,13 +5,15 @@ import { AuthApi } from '../../core/auth-api.service';
 import { renderSVG } from 'uqr';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { TranslocoService } from '@jsverse/transloco';
+import { SettingsCardComponent } from '../../shared/settings-card.component';
+import { StatusPillComponent } from '../../shared/status-pill.component';
 
 type MfaState = 'idle' | 'enrolling' | 'disabling';
 
 @Component({
   selector: 'app-mfa',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe],
+  imports: [CommonModule, FormsModule, TranslocoPipe, SettingsCardComponent, StatusPillComponent],
   styles: [`
     .qr-wrap { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
     .secret-box {
@@ -32,15 +34,10 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
     img { border-radius: 8px; background: #fff; padding: 8px; }
   `],
   template: `
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">{{ 'mfa.title' | transloco }}</div>
-          <div class="card-subtitle">
-            {{ 'mfa.subtitle' | transloco }}
-          </div>
-        </div>
-      </div>
+    <app-settings-card icon="lock" [heading]="'mfa.title' | transloco" [purpose]="'mfa.subtitle' | transloco">
+      @if (!loading() && state() === 'idle') {
+        <app-status-pill pill [variant]="enabled() ? 'ok' : 'off'" [dot]="true">{{ enabled() ? ('mfa.status.enabled' | transloco) : ('mfa.status.disabled' | transloco) }}</app-status-pill>
+      }
 
       @if (loading()) {
         <div class="loading-overlay"><span class="spinner"></span></div>
@@ -48,10 +45,8 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
 
         <div class="status-row">
           @if (enabled()) {
-            <span class="badge badge-green">{{ 'mfa.status.enabled' | transloco }}</span>
             <button class="btn btn-secondary btn-sm" (click)="startDisable()">{{ 'mfa.disableButton' | transloco }}</button>
           } @else {
-            <span class="badge badge-gray">{{ 'mfa.status.disabled' | transloco }}</span>
             <button class="btn btn-primary btn-sm" (click)="startEnroll()">{{ 'mfa.enableButton' | transloco }}</button>
           }
         </div>
@@ -107,7 +102,7 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
       @if (successMsg()) {
         <div class="alert alert-success" style="margin-top:12px;">{{ successMsg() }}</div>
       }
-    </div>
+    </app-settings-card>
   `,
 })
 export class MfaComponent implements OnInit {

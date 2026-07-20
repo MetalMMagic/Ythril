@@ -73,6 +73,7 @@
   "nav.about": "About",
   "nav.signOut": "Sign out",
   "prefs.language.title": "Language",
+  "prefs.security.title": "Security",
   "prefs.language.subtitle": "Choose the interface language.",
   "data.title": "Data Management",
   "data.time.am": "AM",

@@ -433,7 +433,7 @@ Your current session token is marked **(current session)** in the list.
 
 ## Multi-factor authentication (MFA)
 
-MFA adds a one-time code requirement for admin actions (creating tokens, managing spaces). Normal data operations are not affected. There is no separate "MFA" page — the MFA panel lives inside **Settings → Preferences**.
+MFA adds a one-time code requirement for admin actions (creating tokens, managing spaces). Normal data operations are not affected. There is no separate "MFA" page — the MFA panel lives inside **Settings → Preferences**, under the **Security** heading (the language switcher sits above it).
 
 ### Enrolling
 

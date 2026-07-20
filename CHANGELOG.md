@@ -101,6 +101,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Characterization tests for the Duplicates screens (11 tests), landed before their UX rework.** Both the
+  `DuplicatesComponent` settings page and the per-space `SpaceDuplicatesTabComponent` shipped with no coverage;
+  these pin the behavior the PR-U8 rework must preserve — load/error states, the optimistic Dismiss (removes on
+  the "open" filter, marks dismissed otherwise — the current *unguarded* behavior, so U8 adding a confirm is
+  explicit), the confirm-guarded Merge, the 403-vs-other scan messages, and the save-rules logic (notify-URL
+  validation, the auto-merge confirmation gate, and minScore clamping into `[0,1]` in the persisted payload).
+
 - **Characterization tests for the space Schema tab (11 tests), landed before its master/detail redesign.**
   The 772-line `SpaceSchemaTabComponent` shipped with no coverage; these pin its current behavior before
   the PR-U4 rework — the schema accordion's single-expand semantics on `SpaceSettingsState` (auto-expand on

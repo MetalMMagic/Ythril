@@ -107,6 +107,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Characterization tests for the Settings → Data page (16 tests), landed before its PR-U11 redesign.** The
+  Data page (backups, schedule, destination, maintenance, DB migration) is 775 lines and shipped with no
+  coverage. These pin what the design-system redesign must preserve — the cron build/parse round-trip (with
+  field clamping), `buildConfig()` assembly (schedule + retention; offsite only for a custom path), every API
+  call flow and its error fallback, and the type-to-confirm gating on the two irreversible actions (restore
+  requires the backup id, migrate requires `MIGRATE`, plus the `FEATURE_DISABLED`/`INFRA_MANAGED`/generic
+  migrate-error map) — as well as the helpers the redesign will deliberately change (`scheduleSummary()`'s
+  hardcoded English, `sourceBadgeClass()`'s badge classes), so those land as explicit diffs. Green against the
+  original code.
+
 - **Characterization tests for the space Settings tab (5 tests), landed before its PR-U9 pt3 regroup.** The
   `SpaceSettingsTabComponent` shipped with no coverage — it is pure `ngModel` bindings onto
   `SpaceSettingsState`. These pin the current *arrangement* so the pt3 rework is a reviewable diff, not a

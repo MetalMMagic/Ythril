@@ -48,9 +48,12 @@ import { TranslocoService } from '@jsverse/transloco';
 
   @for (r of state.dupeRulesState; track $index) {
     <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:10px;background:var(--bg-secondary);border-radius:8px;margin-bottom:8px;">
-      <div class="field" style="margin:0;width:120px;">
-        <label style="font-size:11px;">{{ 'spaces.dupe.minScore' | transloco }}</label>
-        <input type="number" min="0" max="1" step="0.01" [(ngModel)]="r.minScore" />
+      <div class="field" style="margin:0;width:170px;">
+        <label style="font-size:11px;display:flex;justify-content:space-between;gap:6px;">
+          <span>{{ 'spaces.dupe.minScore' | transloco }}</span>
+          <span style="color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums;">{{ pct(r.minScore) }}%</span>
+        </label>
+        <input type="range" min="0" max="1" step="0.01" [(ngModel)]="r.minScore" style="width:100%;" [attr.aria-label]="'spaces.dupe.minScore' | transloco" />
       </div>
       <div class="field" style="margin:0;width:150px;">
         <label style="font-size:11px;">{{ 'spaces.dupe.action' | transloco }}</label>
@@ -69,9 +72,13 @@ import { TranslocoService } from '@jsverse/transloco';
       <button class="btn btn-secondary btn-sm" type="button" (click)="state.removeDupeRule($index)"
               [attr.aria-label]="'spaces.dupe.removeRule' | transloco"><ph-icon name="x" [size]="14"/></button>
     </div>
+  } @empty {
+    <div style="border:1px dashed var(--border);border-radius:8px;padding:16px 18px;color:var(--text-muted);font-size:13px;line-height:1.5;">
+      {{ 'spaces.dupe.rulesEmpty' | transloco }}
+    </div>
   }
 
-  <button class="btn btn-secondary btn-sm" type="button" (click)="state.addDupeRule()" style="margin-top:4px;">
+  <button class="btn btn-secondary btn-sm" type="button" (click)="state.addDupeRule()" style="margin-top:8px;">
     <ph-icon name="plus" [size]="14"/> {{ 'spaces.dupe.addRule' | transloco }}
   </button>
 
@@ -100,6 +107,9 @@ export class SpaceDuplicatesTabComponent {
   private transloco = inject(TranslocoService);
   private confirmDialog = inject(ConfirmDialogService);
   readonly store = inject(SpacesStore);
+
+  /** Render a 0–1 minScore as a whole-number percent for the slider label. */
+  pct(v: number): number { return Math.round((Number(v) || 0) * 100); }
 
   async saveDupeRules(): Promise<void> {
     const target = this.state.settingsSpace();

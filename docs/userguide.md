@@ -766,9 +766,9 @@ Migration is a one-way operation. Keep your old database available until you hav
 
 **Settings → Duplicates** (admin only) surfaces near-duplicate records found by the background semantic-duplicate scanner.
 
-A status filter (**open / dismissed / all**) and a **Scan now** button sit at the top. The table lists each duplicate pair — space, record type, a summary of record A and record B, the similarity score, status, and when it was detected. For an entity pair you can **Merge** the two records; any pair can be **Dismiss**ed (the ✕ button).
+A summary row at the top shows how many pairs are **open**, the **average match confidence**, and how many are **shown**, alongside a status filter (**open / dismissed / all**) and a **Scan now** button. Each duplicate pair is a **comparison card**: the space and record type, a **confidence meter** (the similarity as a coloured percentage), when it was detected, and record **A** shown side-by-side with record **B**. For an entity pair you can **Merge** the two records (the older one is kept); any pair can be **Dismiss**ed — dismissing now asks for confirmation first, since it removes the pair from the open list.
 
-**Per-space rules:** how the scanner reacts is configured per space in the instance config (`dupeRules`). Each rule can `flag` a pair for review, `automerge` it, or `notify` — the notify action emits a `duplicate.detected` webhook (optionally to a rule-specific URL). The scanner is opt-in and off by default.
+**Per-space rules:** how the scanner reacts is configured per space on the **Settings → Spaces → (space) → Duplicates** tab. Each rule pairs a **minimum-confidence slider** with an action — `flag` a pair for review, `automerge` it (asks for confirmation, since it's destructive and unattended), or `notify` a webhook. With no rules, pairs are simply flagged for review. You also choose which record survives a merge (older or newer). The scanner is opt-in and off by default.
 
 ---
 

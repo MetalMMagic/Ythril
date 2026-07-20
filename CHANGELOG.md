@@ -101,6 +101,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Characterization tests for the space Schema tab (11 tests), landed before its master/detail redesign.**
+  The 772-line `SpaceSchemaTabComponent` shipped with no coverage; these pin its current behavior before
+  the PR-U4 rework — the schema accordion's single-expand semantics on `SpaceSettingsState` (auto-expand on
+  add, collapse-on-open-another, clear-on-remove — the exact behavior the redesign changes to multi-open),
+  plus the import-conflict resolution (override / add-as / colliding-name refusal / dismiss) and the
+  schema-library link flow (derived slug + posted body, conversion to a `$ref`, and the new-type collision
+  path) that must survive the redesign unchanged.
+
 - **Characterization tests for `NetworksComponent` (16 tests), landed before its redesign.** The largest
   settings page shipped with no coverage; these pin its current behavior — create/join validation (blank
   label, invalid/incomplete bundle, missing URL, space-id collision hold), the confirm-guarded destructive

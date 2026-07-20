@@ -1,15 +1,69 @@
 /**
- * Client for the document-render sidecar (F11) — turns a PDF into per-page PNG images so the VLM
- * extraction path can read pages. The sidecar is a trusted, internal-only service (its URL comes from
- * `RENDER_SIDECAR_URL`, defaulting to the compose service), so — like the OCR sidecar client — it uses a
- * plain `fetch`, not the SSRF-guarded one (that guard is for operator-supplied *external* model endpoints).
+ * Client for the document-render sidecars (F11) — turns a document into per-page PNG images so the VLM
+ * extraction path can read pages. Two trusted, internal-only sidecars, routed by format:
+ *
+ *   - **`doc-render`** (`RENDER_SIDECAR_URL`) — PDFs. Tiny, always-bundled.
+ *   - **`doc-office`** (`RENDER_OFFICE_SIDECAR_URL`) — office docs (DOCX/EPUB/…): LibreOffice converts to
+ *     PDF, then rasterizes. Heavy (LibreOffice), so it is **opt-in** (a compose profile); when it is not
+ *     running, office docs simply fall back to OCR, exactly as before F11-a.
+ *
+ * Both speak the same `/render` contract and return the same `{ pages }` shape. Their URLs come from
+ * compose, so — like the OCR sidecar client — this uses a plain `fetch`, not the SSRF-guarded one (that
+ * guard is for operator-supplied *external* model endpoints).
  */
 import { log } from '../../util/log.js';
 
 const RENDER_URL = (process.env['RENDER_SIDECAR_URL'] ?? 'http://localhost:8100').replace(/\/$/, '');
+const OFFICE_URL = (process.env['RENDER_OFFICE_SIDECAR_URL'] ?? 'http://localhost:8101').replace(/\/$/, '');
 const HEALTH_TTL_MS = 10_000; // cache the probe so per-document routing doesn't re-hit /health each time
 
-let _healthCache: { at: number; ok: boolean } | null = null;
+/** Office formats LibreOffice can convert → PDF for rasterization (the `doc-office` sidecar). */
+const OFFICE_EXTS = new Set(['docx', 'doc', 'odt', 'rtf', 'epub', 'pptx', 'ppt', 'odp', 'xlsx', 'xls', 'ods']);
+
+/** Whether a file needs the office (LibreOffice) rasterizer rather than the plain PDF one. */
+export function isOfficeDocument(fileName: string): boolean {
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+  return OFFICE_EXTS.has(ext);
+}
+
+let _renderHealth: { at: number; ok: boolean } | null = null;
+let _officeHealth: { at: number; ok: boolean } | null = null;
+
+async function probe(url: string, cache: { at: number; ok: boolean } | null): Promise<{ ok: boolean; cache: { at: number; ok: boolean } }> {
+  const now = Date.now();
+  if (cache && now - cache.at < HEALTH_TTL_MS) return { ok: cache.ok, cache };
+  let ok = false;
+  try {
+    const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(3_000) });
+    ok = res.ok;
+  } catch {
+    ok = false;
+  }
+  const next = { at: now, ok };
+  return { ok, cache: next };
+}
+
+/** Whether the PDF render sidecar is reachable. Cached for a few seconds so routing doesn't re-probe. */
+export async function isRenderAvailable(): Promise<boolean> {
+  const r = await probe(RENDER_URL, _renderHealth);
+  _renderHealth = r.cache;
+  return r.ok;
+}
+
+/** Whether the (opt-in) office render sidecar is reachable. */
+export async function isOfficeRenderAvailable(): Promise<boolean> {
+  const r = await probe(OFFICE_URL, _officeHealth);
+  _officeHealth = r.cache;
+  return r.ok;
+}
+
+/** The right rasterizer availability for a given file — the PDF sidecar, or the office one. */
+export async function isRenderAvailableFor(fileName: string): Promise<boolean> {
+  return isOfficeDocument(fileName) ? isOfficeRenderAvailable() : isRenderAvailable();
+}
+
+/** Reset the cached health probes (tests). */
+export function _resetRenderHealthCache(): void { _renderHealth = null; _officeHealth = null; }
 
 /** Rendered document pages (PNG bytes per page). */
 export interface RenderedPages {
@@ -20,50 +74,37 @@ export interface RenderedPages {
   truncated: boolean;
 }
 
-/** Whether the render sidecar is reachable. Cached for a few seconds so `auto`/`max` routing doesn't
- *  probe on every document. */
-export async function isRenderAvailable(): Promise<boolean> {
-  const now = Date.now();
-  if (_healthCache && now - _healthCache.at < HEALTH_TTL_MS) return _healthCache.ok;
-  let ok = false;
-  try {
-    const res = await fetch(`${RENDER_URL}/health`, { signal: AbortSignal.timeout(3_000) });
-    ok = res.ok;
-  } catch {
-    ok = false;
-  }
-  _healthCache = { at: now, ok };
-  return ok;
-}
-
-/** Reset the cached health probe (tests). */
-export function _resetRenderHealthCache(): void { _healthCache = null; }
-
 /**
- * Render a PDF's pages to PNG images. `dpi` and `maxPages` bound cost/latency; the sidecar enforces its
- * own hard caps as a second layer. Throws when the sidecar is unreachable or errors — the caller degrades
+ * Render a document's pages to PNG images, routing PDFs to `doc-render` and office docs to `doc-office`
+ * (by `fileName` extension). `dpi` and `maxPages` bound cost/latency; each sidecar enforces its own hard
+ * caps as a second layer. Throws when the target sidecar is unreachable or errors — the caller degrades
  * to OCR.
  */
-export async function renderPdfPages(
+export async function renderDocumentPages(
   bytes: Buffer,
-  opts: { dpi?: number; maxPages?: number; timeoutMs?: number } = {},
+  opts: { fileName: string; dpi?: number; maxPages?: number; timeoutMs?: number },
 ): Promise<RenderedPages> {
   const dpi = opts.dpi ?? 150;
   const maxPages = opts.maxPages ?? 50;
+  const office = isOfficeDocument(opts.fileName);
+  const base = office ? OFFICE_URL : RENDER_URL;
 
   const form = new FormData();
-  form.append('file', new Blob([new Uint8Array(bytes)]), 'document.pdf');
+  // Pass the real filename so LibreOffice picks the correct import filter (a hardcoded name would be
+  // treated as PDF); the PDF sidecar ignores it.
+  form.append('file', new Blob([new Uint8Array(bytes)]), opts.fileName || (office ? 'document' : 'document.pdf'));
 
-  const url = `${RENDER_URL}/render?dpi=${dpi}&maxPages=${maxPages}`;
+  const url = `${base}/render?dpi=${dpi}&maxPages=${maxPages}`;
+  const which = office ? 'doc-office' : 'doc-render';
   let res: Response;
   try {
     res = await fetch(url, { method: 'POST', body: form, signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000) });
   } catch (err) {
-    throw new Error(`render sidecar unreachable at ${RENDER_URL}: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`${which} sidecar unreachable at ${base}: ${err instanceof Error ? err.message : String(err)}`);
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    throw new Error(`render sidecar error ${res.status}: ${detail.slice(0, 200)}`);
+    throw new Error(`${which} sidecar error ${res.status}: ${detail.slice(0, 200)}`);
   }
 
   const body = await res.json() as { pages?: string[]; total?: number; truncated?: boolean };

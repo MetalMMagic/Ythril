@@ -31,6 +31,9 @@
       # Page-render sidecar (PDF → page images) for the F11 VLM extraction path. Defaults to the bundled
       # `doc-render` service below; only used when documentProcessing.mode is vlm/auto/max.
       RENDER_SIDECAR_URL: ${RENDER_SIDECAR_URL:-http://doc-render:8100}
+      # Office → page-image rendering (F11-a). Points at the opt-in `doc-office` sidecar (below, enabled
+      # with `--profile office`). When that service isn't running, office docs fall back to OCR.
+      RENDER_OFFICE_SIDECAR_URL: ${RENDER_OFFICE_SIDECAR_URL:-http://doc-office:8100}
       YTHRIL_LOCAL_AGENT_ENABLED: ${YTHRIL_LOCAL_AGENT_ENABLED:-}
       # Numeric loopback on purpose: the server rejects a non-loopback (or DNS-resolved `localhost`)
       # host unless YTHRIL_LOCAL_AGENT_ALLOW_REMOTE=true, to keep the bearer token on-box. The feature is
@@ -243,6 +246,37 @@
       timeout: 5s
       retries: 5
       start_period: 20s
+    networks:
+      - ythril-convert   # isolated: no DB, no internet
+
+  # Office → page-image rendering (F11-a) — OPTIONAL / opt-in. LibreOffice converts DOCX/EPUB/… to PDF,
+  # then rasterizes to PNGs (same contract as doc-render). It is heavy (LibreOffice ≈ +1 GB), so it is
+  # gated behind the `office` profile and only starts with `docker compose --profile office up -d`; without
+  # it, office docs in a VLM extraction mode fall back to OCR. Parses untrusted docs → same hardening as
+  # doc-render, plus a tmpfs for the per-request LibreOffice profile (the rootfs stays read-only).
+  doc-office:
+    profiles: ["office"]
+    build: ./sidecars/doc-office
+    image: ythril-doc-office:0.1.0
+    container_name: ythril-doc-office
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # LibreOffice needs more headroom than the tiny PDF renderer, and forks helper processes.
+    mem_limit: 2g
+    cpus: "2.0"
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8100/health',timeout=3).read() or sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - ythril-convert   # isolated: no DB, no internet
 

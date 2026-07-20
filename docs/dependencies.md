@@ -206,6 +206,7 @@ Legal principle that runtime infrastructure must be listed with its licensing im
 | `fedirz/faster-whisper-server` | Speech-to-text — transcribes uploaded/segmented audio via an OpenAI-compatible endpoint. | MIT (the server). Whisper models are pulled separately and are Apache 2.0. |
 | `unstructured-io/unstructured-api` | Server-side PDF / DOCX / EPUB conversion (`hi_res` OCR + layout detection, table and embedded-image extraction). | Apache 2.0. |
 | `ythril-doc-render` (first-party, built from `sidecars/doc-render`) | Renders PDF pages to PNG images for the F11 VLM document-extraction path (`documentProcessing.mode` `vlm`/`auto`/`max`). | Apache-2.0. Wraps **PDFium** via `pypdfium2` (Apache-2.0 / BSD-3-Clause) + Pillow (HPND) — all permissive. Deliberately **not** PyMuPDF (AGPL-3.0). See [`sidecars/doc-render/LICENSES.md`](../sidecars/doc-render/LICENSES.md). |
+| `ythril-doc-office` (first-party, built from `sidecars/doc-office`) — **optional** | Renders **office** docs (DOCX/EPUB/…) to PNG images for the same VLM path: LibreOffice converts to PDF, then PDFium rasterizes. Opt-in via the compose `office` profile. | LibreOffice is **MPL-2.0 / LGPL-3.0** (not AGPL), invoked as a **separate process** (not linked); PDFium/Pillow permissive. See [`sidecars/doc-office/LICENSES.md`](../sidecars/doc-office/LICENSES.md). |
 
 **Where they are referenced.** `ollama`, `whisper`, `unstructured`, and `doc-render` are all services in
 [`docker-compose.yml`](../docker-compose.yml). `ollama`/`whisper` also have matching Kubernetes manifests
@@ -229,6 +230,14 @@ is the first-party page-render sidecar built locally from `sidecars/doc-render` 
 > skip it with `docker compose stop unstructured` (or `--scale unstructured=0`); in-process
 > text/HTML conversion and every other feature keep working. It runs on an isolated, internal
 > `ythril-convert` network with no database access and no internet egress.
+
+**`doc-office` (office → page images for the VLM path) is opt-in and heavy.** Rasterizing office
+documents (DOCX/EPUB/…) needs LibreOffice to convert them to PDF first; LibreOffice adds ≈ +1 GB to the
+otherwise-tiny render image, so — like `unstructured-api` — it is **not** started by default. Enable it
+with `docker compose --profile office up -d`. Without it, office docs in a `vlm`/`auto`/`max` extraction
+mode transparently fall back to OCR (unchanged from before). Everything happens **on-box** on the isolated
+`ythril-convert` network — no page images or text leave the instance. Licensing: LibreOffice is MPL-2.0 /
+LGPL-3.0 (not AGPL) and runs as a separate process (not linked), so it carries no copyleft into Ythril.
 
 **Licensing impact — none on Ythril's PolyForm obligations.** All three are permissively
 licensed (MIT / Apache 2.0), carry no copyleft, and run as independent network services

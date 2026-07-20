@@ -368,3 +368,27 @@ following components, all under permissive licenses. Their copyright notices and
 
 The HPND and PSF license texts are the standard, unmodified texts published by their stewards; their full
 texts ship inside the image. See `sidecars/doc-render/LICENSES.md`.
+
+### Runtime Dependency: doc-office sidecar (sidecars/doc-office, Docker image)
+
+The optional `doc-office` container (F11-a) renders **office** documents (DOCX/EPUB/…) to images by first
+converting them to PDF with LibreOffice, then rasterizing (as `doc-render` does). It is built in-repo and
+is **opt-in** (compose `office` profile). Being built in-repo it bundles the following components; LibreOffice
+is copyleft-but-permissive-compatible (MPL/LGPL) and is invoked as a **separate process** (via `soffice`),
+not linked into Ythril. Their copyright notices and licenses:
+
+- LibreOffice (Debian `libreoffice-writer` / `libreoffice-impress` / `libreoffice-calc` and dependencies) — Mozilla Public License 2.0 and GNU Lesser General Public License v3.0 (see License Texts). Copyright The Document Foundation and contributors. Invoked as a separate process; not linked. Corresponding source is available from The Document Foundation (https://www.libreoffice.org/about-us/source-code/) and the Debian source packages.
+- fonts-liberation (Liberation fonts) — SIL Open Font License 1.1 (see License Texts). Copyright Red Hat, Inc.
+- PDFium — BSD-3-Clause (see License Texts). Copyright The PDFium Authors.
+- pypdfium2 — Apache License 2.0 (see License Texts). Copyright pypdfium2-team.
+- Pillow — HPND. Copyright Jeffrey A. Clark and contributors; original PIL Copyright Secret Labs AB and Fredrik Lundh.
+- FastAPI — MIT (see License Texts). Copyright Sebastián Ramírez.
+- Starlette — BSD-3-Clause (see License Texts). Copyright Encode OSS Ltd.
+- Pydantic — MIT (see License Texts). Copyright Pydantic Services Inc. and contributors.
+- Uvicorn — BSD-3-Clause (see License Texts). Copyright Encode OSS Ltd.
+- python-multipart — Apache License 2.0 (see License Texts). Copyright Andrew Dunham.
+- Python (base image `python:3.13-slim`) — PSF License Agreement, plus Debian base-image components under their respective (permissive) licenses.
+
+The MPL-2.0, LGPL-3.0, and OFL-1.1 license texts are the standard, unmodified texts published by their
+stewards and ship inside the image (Debian's `/usr/share/doc/*/copyright`). See
+`sidecars/doc-office/LICENSES.md`.

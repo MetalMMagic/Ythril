@@ -1997,6 +1997,22 @@ lightweight and carries no model weights) or stop it with no effect on today's O
 `ythril-convert` network (no database, no internet egress), non-root and resource-limited. Ythril reaches
 it via `RENDER_SIDECAR_URL` (default `http://localhost:8100`).
 
+#### Office-render sidecar (`doc-office`) — optional
+
+`doc-render` only opens PDFs, so **office** documents (DOCX, EPUB, PPTX, XLSX, ODT, RTF…) in a `vlm`/`auto`/
+`max` mode fall back to OCR unless the optional **`doc-office`** sidecar is running. It uses **LibreOffice**
+(headless) to convert the document to PDF, then rasterizes it exactly like `doc-render`. Because LibreOffice
+is heavy (≈ +1 GB), it is **opt-in**: start it with
+
+```bash
+docker compose --profile office up -d
+```
+
+Everything stays **on-box** on the isolated `ythril-convert` network — no page images or text leave the
+instance. Ythril reaches it via `RENDER_OFFICE_SIDECAR_URL` (default `http://doc-office:8100` in compose).
+When it is absent, office docs simply use OCR, unchanged. LibreOffice is MPL-2.0 / LGPL-3.0 (not AGPL) and
+runs as a separate process, so it does not affect Ythril's licensing.
+
 #### Document Processing Configuration
 
 The unstructured sidecar strategy and image extraction behaviour can be tuned under `mediaEmbedding.documentProcessing` in `config.json`. All settings are optional — the defaults are designed for maximum data extraction out of the box. The extraction `mode` and the render DPI / max-pages / timeout / concurrency knobs are also editable in the admin UI under **Settings → Models** (the `vlmModel` / `repairModel` endpoints stay environment-only and are shown read-only there).

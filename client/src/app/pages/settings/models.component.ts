@@ -22,6 +22,7 @@ interface DocProcCfg {
   renderDpi?: number; maxPages?: number; pageTimeoutMs?: number; concurrency?: number;
   // read-only (env/config-file only — never PATCHed from here)
   vlmModel?: string; vlmBaseUrl?: string; repairModel?: string; repairBaseUrl?: string;
+  verifyModel?: string; verifyBaseUrl?: string;
   assistModel?: DocAssistCfg;
 }
 
@@ -42,14 +43,14 @@ const MODE_DESC: Record<DocMode, string> = {
   ocr:  'The OCR sidecar (Tesseract) reads text and tables from each page. Fast, fully local, no vision model needed.',
   vlm:  'Render each page and transcribe it with the vision model, grounded on the OCR text.',
   auto: 'Use the vision model when it’s available, otherwise fall back to OCR automatically.',
-  max:  'VLM plus a repair pass that reconciles the draft against the OCR text before accepting.',
+  max:  'VLM, a repair pass that reconciles the draft against the OCR text, plus an optional second-model consensus pass when a verify model is set.',
 };
 // Which pipeline stages are active per mode (drives the diagram).
 const MODE_STAGES: Record<DocMode, Set<string>> = {
   ocr:  new Set(['ocr']),
   vlm:  new Set(['ocr', 'render', 'vlm', 'validate']),
   auto: new Set(['ocr', 'render', 'vlm', 'validate']),
-  max:  new Set(['ocr', 'render', 'vlm', 'validate', 'repair']),
+  max:  new Set(['ocr', 'render', 'vlm', 'validate', 'repair', 'verify']),
 };
 const STAGES = [
   { key: 'ocr', nm: 'OCR', sub: 'evidence' },
@@ -57,6 +58,7 @@ const STAGES = [
   { key: 'vlm', nm: 'VLM', sub: 'vision' },
   { key: 'validate', nm: 'Validate', sub: 'coverage' },
   { key: 'repair', nm: 'Repair', sub: 'reconcile' },
+  { key: 'verify', nm: 'Verify', sub: 'consensus' },
 ];
 
 @Component({
@@ -243,8 +245,9 @@ const STAGES = [
           <div class="envrow">
             <span class="envchip" [class.empty]="!docCfg().vlmModel"><span class="lbl">vision model</span>{{ docCfg().vlmModel || '— not set' }}</span>
             <span class="envchip" [class.empty]="!docCfg().repairModel"><span class="lbl">repair model</span>{{ docCfg().repairModel || 'reuses vision' }}</span>
+            <span class="envchip" [class.empty]="!docCfg().verifyModel"><span class="lbl">verify model</span>{{ docCfg().verifyModel || '— none (no consensus)' }}</span>
           </div>
-          <p class="hint">Model &amp; endpoint values are set via environment (<code style="font-family:var(--font-mono,monospace)">DOC_VLM_MODEL</code>, <code style="font-family:var(--font-mono,monospace)">DOC_REPAIR_MODEL</code>) and shown read-only — they're egress targets, deliberately kept out of the web API.</p>
+          <p class="hint">Model &amp; endpoint values are set via environment (<code style="font-family:var(--font-mono,monospace)">DOC_VLM_MODEL</code>, <code style="font-family:var(--font-mono,monospace)">DOC_REPAIR_MODEL</code>, <code style="font-family:var(--font-mono,monospace)">DOC_VERIFY_MODEL</code>) and shown read-only. For a bigger <em>hosted</em> model, use the External assist model below.</p>
 
           <details class="adv">
             <summary>Advanced — rendering &amp; limits</summary>

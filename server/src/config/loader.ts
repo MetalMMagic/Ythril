@@ -631,6 +631,8 @@ const DOCUMENT_PROCESSING_DEFAULTS: Required<DocumentProcessingConfig> = {
   vlmBaseUrl: '',  // empty = reuse the media vision provider's (Ollama) URL
   repairModel: '',   // empty = reuse vlmModel for the max-mode repair pass
   repairBaseUrl: '', // empty = reuse vlmBaseUrl (then the vision URL)
+  verifyModel: '',   // F11-d — empty = no max-mode consensus pass
+  verifyBaseUrl: '', // empty = reuse vlmBaseUrl (then the vision URL)
   assistModel: {},   // F11-b — no external assist model by default (resolved with env overrides above)
 };
 
@@ -655,6 +657,8 @@ export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig
     vlmBaseUrl: process.env['DOC_VLM_URL'] ?? base.vlmBaseUrl ?? d.vlmBaseUrl,
     repairModel: process.env['DOC_REPAIR_MODEL'] ?? base.repairModel ?? d.repairModel,
     repairBaseUrl: process.env['DOC_REPAIR_URL'] ?? base.repairBaseUrl ?? d.repairBaseUrl,
+    verifyModel: process.env['DOC_VERIFY_MODEL'] ?? base.verifyModel ?? d.verifyModel,
+    verifyBaseUrl: process.env['DOC_VERIFY_URL'] ?? base.verifyBaseUrl ?? d.verifyBaseUrl,
     // F11-b — external assist model. Env (DOC_ASSIST_URL/MODEL) pins baseUrl/model over config; `uses` and
     // `acknowledgedHost` are config-only (they encode operator intent + consent). apiKey lives in secrets —
     // read it via getDocAssistApiKey(). Absent baseUrl ⇒ no external assist model.

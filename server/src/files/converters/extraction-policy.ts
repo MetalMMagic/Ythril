@@ -82,6 +82,25 @@ export function evidenceCoverage(resultText: string, evidenceText: string): numb
   return hit / evidence.size;
 }
 
+/**
+ * F11-d consensus arbitration — pure. Given several candidate transcriptions of the same document (the
+ * primary VLM draft, a second-model draft, and their reconciliation) plus the OCR evidence, pick the one
+ * with the highest OCR-evidence coverage. Ties keep the EARLIER candidate, so callers list the primary
+ * first and consensus can only ever match or beat it — i.e. it is **never worse** than the primary.
+ * `evidence` empty ⇒ every candidate scores 1, so the primary (first) wins unchanged.
+ */
+export function bestByEvidence<T extends { text: string }>(
+  candidates: T[],
+  evidence: string,
+): { candidate: T; coverage: number; index: number } {
+  let best = { candidate: candidates[0]!, coverage: -1, index: 0 };
+  candidates.forEach((c, i) => {
+    const coverage = evidenceCoverage(c.text, evidence);
+    if (coverage > best.coverage) best = { candidate: c, coverage, index: i };
+  });
+  return best;
+}
+
 export interface ValidationResult {
   ok: boolean;
   issues: string[];

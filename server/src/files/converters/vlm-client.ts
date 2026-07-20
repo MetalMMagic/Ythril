@@ -87,6 +87,28 @@ export async function repairMarkdown(
   );
 }
 
+const CONSENSUS_PROMPT =
+  'You are reconciling TWO independent Markdown transcriptions (DRAFT A and DRAFT B) of the SAME document ' +
+  'page, with the OCR TEXT of that page as ground truth. Produce a single best GitHub-Flavored Markdown ' +
+  'transcription: keep content both drafts agree on; where they differ, prefer the reading supported by the ' +
+  'OCR TEXT; include content that either draft captured and the OCR confirms. Do NOT summarize, translate, ' +
+  'reorder, or invent content, and do not add commentary. Output only the reconciled Markdown.';
+
+/** Reconcile two independent transcriptions of the same document against the OCR evidence (F11-d consensus).
+ *  Text-only, temperature 0, via the local model. Throws on unreachable/HTTP error so the caller can keep the
+ *  primary draft. */
+export async function reconcileConsensus(
+  opts: { baseUrl: string; model: string; draftA: string; draftB: string; evidence: string; timeoutMs?: number },
+): Promise<VlmTranscription> {
+  const content =
+    `${CONSENSUS_PROMPT}\n\n--- DRAFT A ---\n${opts.draftA}\n\n--- DRAFT B ---\n${opts.draftB}\n\n--- OCR TEXT ---\n${opts.evidence}`;
+  return postChat(
+    opts.baseUrl, opts.model,
+    [{ role: 'user', content }], // text-only — no page image
+    opts.timeoutMs ?? 60_000,
+  );
+}
+
 /** Build the shared repair user-message content (draft + OCR evidence + flagged issues). */
 function repairContent(draft: string, evidence: string, issues?: string[]): string {
   const flagged = issues?.length ? `\n\nValidation flagged: ${issues.join('; ')}.` : '';

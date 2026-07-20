@@ -10,7 +10,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  decideRoute, validateExtraction, evidenceCoverage, coverageTokens,
+  decideRoute, validateExtraction, evidenceCoverage, coverageTokens, bestByEvidence,
 } from '../../server/dist/files/converters/extraction-policy.js';
 
 const ALL = { ocr: true, render: true, vlm: true, repair: true, verify: true };
@@ -114,5 +114,43 @@ describe('validateExtraction', () => {
   it('no evidence → passes on coverage (nothing to compare)', () => {
     const v = validateExtraction('some output', '');
     assert.equal(v.ok, true);
+  });
+});
+
+describe('bestByEvidence (F11-d consensus arbitration)', () => {
+  const evidence = 'alpha bravo charlie delta echo';
+
+  it('picks the candidate with the highest OCR-evidence coverage', () => {
+    const primary = { text: 'alpha bravo', label: 'primary' };       // 2/5
+    const verify  = { text: 'alpha bravo charlie delta', label: 'verify' }; // 4/5
+    const r = bestByEvidence([primary, verify], evidence);
+    assert.equal(r.candidate.label, 'verify');
+    assert.equal(r.index, 1);
+    assert.ok(Math.abs(r.coverage - 0.8) < 1e-9);
+  });
+
+  it('ties keep the EARLIER candidate → consensus is never worse than the primary (listed first)', () => {
+    const primary = { text: 'alpha bravo charlie', label: 'primary' };
+    const verify  = { text: 'charlie bravo alpha', label: 'verify' }; // same tokens, same coverage
+    const r = bestByEvidence([primary, verify], evidence);
+    assert.equal(r.candidate.label, 'primary');
+    assert.equal(r.index, 0);
+  });
+
+  it('empty evidence → every candidate scores 1, so the primary (first) wins unchanged', () => {
+    const primary = { text: 'anything', label: 'primary' };
+    const verify  = { text: 'longer different text', label: 'verify' };
+    const r = bestByEvidence([primary, verify], '');
+    assert.equal(r.candidate.label, 'primary');
+    assert.equal(r.coverage, 1);
+  });
+
+  it('a reconciled candidate that recovers dropped evidence wins', () => {
+    const primary   = { text: 'alpha bravo', label: 'primary' };          // 2/5
+    const verify    = { text: 'charlie delta', label: 'verify' };         // 2/5
+    const consensus = { text: 'alpha bravo charlie delta echo', label: 'consensus' }; // 5/5
+    const r = bestByEvidence([primary, verify, consensus], evidence);
+    assert.equal(r.candidate.label, 'consensus');
+    assert.equal(r.coverage, 1);
   });
 });

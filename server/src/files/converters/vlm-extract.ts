@@ -17,8 +17,8 @@ import { getDocumentProcessingConfig, getMediaEmbeddingConfig, getDocAssistApiKe
 import type { DocExtractionMode } from '../../config/types.js';
 import { UnstructuredConverter, type UnstructuredResult } from './unstructured.js';
 import { renderDocumentPages, isRenderAvailableFor } from './renderer.js';
-import { transcribePageImage, repairMarkdown, repairMarkdownExternal } from './vlm-client.js';
-import { decideRoute, validateExtraction } from './extraction-policy.js';
+import { transcribePageImage, repairMarkdown, repairMarkdownExternal, reconcileConsensus } from './vlm-client.js';
+import { decideRoute, validateExtraction, bestByEvidence } from './extraction-policy.js';
 
 const TRANSCRIBE_PROMPT =
   'Transcribe this document page to GitHub-Flavored Markdown, verbatim. Preserve headings, lists, and ' +
@@ -43,7 +43,7 @@ export async function vlmExtractDocument(
   const render = await isRenderAvailableFor(fileName);
   // `repair` reuses the VLM (or a wired-in repairModel), so it's available whenever the VLM is; decideRoute
   // only actually schedules the repair stage for `max` mode.
-  const route = decideRoute(mode, { ocr: true, render, vlm: !!cfg.vlmModel, repair: !!cfg.vlmModel, verify: false });
+  const route = decideRoute(mode, { ocr: true, render, vlm: !!cfg.vlmModel, repair: !!cfg.vlmModel, verify: !!cfg.verifyModel });
 
   // OCR is evidence + fallback. Tolerate it being down IF the VLM path can still run (ungrounded).
   let ocr: UnstructuredResult | null = null;
@@ -84,6 +84,19 @@ export async function vlmExtractDocument(
     const ranLabel = ocr ? 'ocr+vlm' : 'vlm';   // audit label for what the VLM path actually produced
     const v = validateExtraction(markdown, evidence);
     if (v.ok) {
+      // ── F11-d max-mode consensus: an independent second-VLM pass + reconcile, kept only if it covers the
+      // OCR evidence at least as well as the primary (never worse). Precision step on an ALREADY-accepted
+      // draft; failure-gated to `max` (route has the verify stage) and to a configured verify model.
+      if (route.stages.includes('verify') && cfg.verifyModel && evidence.trim()) {
+        const consensus = await runConsensus(pages, markdown, evidence, cfg, baseUrl).catch(err => {
+          log.warn(`VLM extract: consensus pass errored (${err instanceof Error ? err.message : err}) — keeping primary`);
+          return null;
+        });
+        if (consensus && consensus.text !== markdown) {
+          log.debug(`VLM extract: accepted ${ranLabel}+verify (coverage ${(consensus.coverage * 100).toFixed(0)}%)`);
+          return { markdown: consensus.text, extractedImages: ocr?.extractedImages ?? [], extractionPath: `${ranLabel}+verify` };
+        }
+      }
       log.debug(`VLM extract: accepted ${ranLabel} (${pages.length} pages, coverage ${(v.coverage * 100).toFixed(0)}%)`);
       return { markdown, extractedImages: ocr?.extractedImages ?? [], extractionPath: ranLabel };
     }
@@ -137,6 +150,49 @@ export async function vlmExtractDocument(
     }
     throw err; // nothing produced a result — let the pipeline surface the failure as today
   }
+}
+
+/**
+ * F11-d — one bounded consensus pass. A second VLM (`verifyModel`) independently transcribes the pages; its
+ * draft is reconciled with the primary against the OCR evidence; the highest-OCR-coverage of the three
+ * (primary, second draft, reconciled) is returned. The primary is listed FIRST so ties keep it — consensus
+ * can only match or beat the primary's coverage, never regress it.
+ */
+async function runConsensus(
+  pages: Buffer[],
+  primary: string,
+  evidence: string,
+  cfg: ReturnType<typeof getDocumentProcessingConfig>,
+  baseUrl: string,
+): Promise<{ text: string; coverage: number }> {
+  const verifyBase = cfg.verifyBaseUrl || baseUrl;
+  const parts = await mapLimit(pages, cfg.concurrency, async (img) => {
+    const t = await transcribePageImage(img, {
+      baseUrl: verifyBase, model: cfg.verifyModel, prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
+    });
+    return t.text.trim();
+  });
+  const second = parts.filter(Boolean).join('\n\n---\n\n').trim();
+
+  const candidates: { text: string; label: string }[] = [{ text: primary, label: 'primary' }];
+  if (second) candidates.push({ text: second, label: 'verify' });
+
+  // Reconcile the two drafts (text-only) via the repair/vlm model; add as a third candidate when non-empty.
+  if (second) {
+    try {
+      const r = await reconcileConsensus({
+        baseUrl: cfg.repairBaseUrl || baseUrl, model: cfg.repairModel || cfg.vlmModel,
+        draftA: primary, draftB: second, evidence, timeoutMs: cfg.pageTimeoutMs,
+      });
+      const reconciled = r.text.trim();
+      if (reconciled) candidates.push({ text: reconciled, label: 'consensus' });
+    } catch (err) {
+      log.warn(`VLM extract: consensus reconcile errored (${err instanceof Error ? err.message : err}) — arbitrating on the drafts`);
+    }
+  }
+
+  const best = bestByEvidence(candidates, evidence);
+  return { text: best.candidate.text, coverage: best.coverage };
 }
 
 /** Bounded-concurrency map — at most `limit` in flight, preserving order. */

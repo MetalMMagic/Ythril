@@ -107,6 +107,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`max`-mode consensus pass for document extraction (F11-d).** When a second document VLM is configured
+  (`documentProcessing.verifyModel` / `DOC_VERIFY_MODEL`), `max` mode now adds one bounded **consensus** step
+  on an already-accepted VLM draft: the verify model independently re-transcribes the pages, that draft is
+  reconciled with the primary against the OCR text, and the **highest-OCR-coverage** of the three candidates
+  (primary, second draft, reconciled) is kept. The primary is always a candidate and ties keep it, so
+  consensus **can only match or beat** the primary — never regress it; any error keeps the primary. It's
+  bounded (one extra transcription set + one reconcile call, same max-pages cap) and off by default (empty
+  `verifyModel` ⇒ unchanged behaviour). Settings → Models shows the verify stage in the pipeline diagram and a
+  read-only verify-model chip. New pure `bestByEvidence` arbitration unit tests.
+
 - **Optional external "assist model" for document extraction — opt-in, acknowledged egress (F11-b).** Until
   now every extraction path was local (the bundled Ollama VLM / OCR sidecar) and no document content ever left
   the instance. You can now point a **bigger, hosted OpenAI-compatible model** at specific tasks under

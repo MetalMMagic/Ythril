@@ -9,9 +9,10 @@
  * the change just proves the new code agrees with itself.
  *
  * They pin what the redesign MUST preserve (the cron round-trip, the config builder, the API call flows
- * and their error fallbacks, the confirm-gating on the two irreversible actions) and also the things the
- * redesign will deliberately CHANGE — `scheduleSummary()`'s hardcoded English and `sourceBadgeClass()`'s
- * badge classes — so those changes show up as explicit diffs against this spec rather than silently.
+ * and their error fallbacks, the confirm-gating on the two irreversible actions). The PR-U11 redesign has
+ * now landed, so the display-helper tests below track the CHANGED behaviour: `scheduleSummary()` and the
+ * error fallbacks resolve transloco keys (was hardcoded English), and `sourceBadgeClass()` became
+ * `sourcePillVariant()` returning a StatusPill variant (was a raw badge class).
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -124,28 +125,37 @@ describe('DataComponent — buildConfig assembly', () => {
   });
 });
 
-describe('DataComponent — display helpers (redesign will change these)', () => {
+describe('DataComponent — display helpers (U11: now routed through transloco)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('scheduleSummary returns the current hardcoded-English phrasing per frequency', () => {
+  // The testing TranslocoModule echoes the key back (no translations loaded), so we assert on the
+  // stable key each branch resolves — pinning that the phrasing is now a translation, not a literal.
+  it('scheduleSummary resolves a per-frequency translation key', () => {
     const { c } = make();
     const sum = (f: string, extra: Record<string, number> = {}) => {
       c.scheduleForm = { ...c.scheduleForm, frequency: f as never, hour: 14, minute: 0, weekday: 1, monthDay: 1, ...extra };
       return c.scheduleSummary();
     };
     expect(sum('never')).toBe('');
-    expect(sum('hourly')).toBe('Every hour, on the hour');
-    expect(sum('daily')).toBe('Every day at 2:00 PM');
-    expect(sum('weekly', { weekday: 1 })).toBe('Every Monday at 2:00 PM');
-    expect(sum('monthly', { monthDay: 3 })).toBe('On the 3rd of every month at 2:00 PM');
-    expect(sum('monthly', { monthDay: 11 })).toBe('On the 11th of every month at 2:00 PM');
+    expect(sum('hourly')).toBe('data.schedule.summary.hourly');
+    expect(sum('daily')).toBe('data.schedule.summary.daily');
+    expect(sum('weekly')).toBe('data.schedule.summary.weekly');
+    expect(sum('monthly', { monthDay: 3 })).toBe('data.schedule.summary.monthly');
   });
 
-  it('sourceBadgeClass maps the URI source to a badge class', () => {
+  it('formatHour resolves clock labels through transloco (midnight / noon / am / pm keys)', () => {
     const { c } = make();
-    c.uriSource.set('env');    expect(c.sourceBadgeClass()).toBe('badge-warning');
-    c.uriSource.set('config'); expect(c.sourceBadgeClass()).toBe('badge-info');
-    c.uriSource.set('default');expect(c.sourceBadgeClass()).toBe('badge-secondary');
+    expect(c.formatHour(0)).toBe('data.time.midnight');
+    expect(c.formatHour(12)).toBe('data.time.noon');
+    expect(c.formatHour(2)).toBe('2:00 data.time.am');   // am key echoed
+    expect(c.formatHour(15)).toBe('3:00 data.time.pm');  // pm key echoed, 12h conversion
+  });
+
+  it('sourcePillVariant maps the URI source to a StatusPill variant', () => {
+    const { c } = make();
+    c.uriSource.set('env');    expect(c.sourcePillVariant()).toBe('warn');
+    c.uriSource.set('config'); expect(c.sourcePillVariant()).toBe('active');
+    c.uriSource.set('default');expect(c.sourcePillVariant()).toBe('off');
   });
 
   it('destConfigured / scheduleConfigured reflect the forms', () => {
@@ -164,7 +174,7 @@ describe('DataComponent — display helpers (redesign will change these)', () =>
 describe('DataComponent — API flows and error fallbacks', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('takeBackup sets backupTaken on success; falls back to "Backup failed" on error', () => {
+  it('takeBackup sets backupTaken on success; falls back to the data.backup.error key on error', () => {
     const okc = make().c;
     okc.takeBackup();
     expect(okc.backupTaken()).toBe(true);
@@ -172,7 +182,7 @@ describe('DataComponent — API flows and error fallbacks', () => {
 
     const errc = make(makeAdmin({ triggerBackup: () => throwError(() => ({ error: {} })) })).c;
     errc.takeBackup();
-    expect(errc.backupError()).toBe('Backup failed');
+    expect(errc.backupError()).toBe('data.backup.error');
   });
 
   it('confirmRestore does NOT call restoreBackup when the confirm is cancelled', async () => {
@@ -200,7 +210,7 @@ describe('DataComponent — API flows and error fallbacks', () => {
 
     const errc = make(makeAdmin({ saveBackupConfig: () => throwError(() => ({ error: {} })) })).c;
     errc.saveDest();
-    expect(errc.destSaveError()).toBe('Save failed');
+    expect(errc.destSaveError()).toBe('data.dest.saveError');
   });
 
   it('toggleMaintenance flips the active flag through setMaintenance', () => {
@@ -229,17 +239,17 @@ describe('DataComponent — API flows and error fallbacks', () => {
     const disabled = mk('FEATURE_DISABLED');
     disabled.migrateUri = 'mongodb://x/y';
     await disabled.confirmMigrate();
-    expect(disabled.migrateError()).toContain('YTHRIL_DB_MIGRATION_ENABLED');
+    expect(disabled.migrateError()).toBe('data.migrate.errorFeatureDisabled');
 
     const infra = mk('INFRA_MANAGED');
     infra.migrateUri = 'mongodb://x/y';
     await infra.confirmMigrate();
-    expect(infra.migrateError()).toContain('MONGO_URI');
+    expect(infra.migrateError()).toBe('data.migrate.errorInfraManaged');
 
     const generic = mk(undefined);
     generic.migrateUri = 'mongodb://x/y';
     await generic.confirmMigrate();
-    expect(generic.migrateError()).toBe('Migration failed');
+    expect(generic.migrateError()).toBe('data.migrate.error');
   });
 
   it('confirmMigrate does NOT start a migration when the confirm is cancelled', async () => {

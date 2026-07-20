@@ -107,6 +107,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Token creation now explains each permission level (PR-U6).** Under the Read-only / Standard / Admin
+  choices in the Create-token dialog, a live help line spells out exactly what the selected level can and
+  cannot do — Read-only reads only (no create/modify/delete, no admin), Standard reads and writes data within
+  its space scope (no admin), Admin adds token/space/config management (may require MFA). The tokens list
+  already showed each token's permission and space scope at any time; this closes the "explain it at creation"
+  half. New `tokens.permission.*.desc` keys (en/de/pl); focused spec pins the permission→payload mapping and
+  the help rendering.
+
 - **A proper Ythril favicon and a matching brand mark in the header.** The app shipped with no favicon (the
   browser tab showed the generic default, and every page logged a `/favicon.ico` 404). It now has an on-brand
   mark — a black orb with a soft-glowing green **"Y"** (pointed tips) — served as a crisp scalable
@@ -1039,6 +1047,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction. Behaviour is pinned by the ModalDirective spec (default-no-dismiss, opt-in dismiss,
   ignores clicks bubbling from inside the panel) and verified end-to-end with Playwright (a filled token
   dialog survives an outside click with its input intact, and still closes via Escape).
+- **Schema tab tidied: space-wide validation moved to the top, and the typography unified.** The
+  **validation mode** and **strict linkage** controls sat in the per-collection sub-header, where they looked
+  like a setting for the active collection (entities / edges / …) rather than the whole space. They now live in
+  a dedicated **Schema validation** bar at the top of the tab, labelled "Applies to the whole space — every
+  type, in every collection." The tab's scattered inline text styling (the same muted-hint style copy-pasted
+  nine ways, ad-hoc section labels, and inline import messages) is consolidated into a small, consistent class
+  set (`.sch-hint` / `.sch-section-label` / `.sch-msg`), so guidance reads uniformly instead of a jumble of
+  font sizes. Behaviour unchanged; the schema-tab characterization tests stay green.
 
 - **Settings → Preferences rebuilt on the design system, with MFA grouped under "Security" (PR-U12).** The
   Preferences page and the MFA panel were the last hand-rolled settings screens; both now use the shared

@@ -147,6 +147,11 @@ import { RelativeTimeComponent } from '../../shared/relative-time.component';
     }
     .permission-radio-item:hover { background: var(--bg-elevated); }
     .permission-radio-item input[type=radio] { width: 14px; height: 14px; margin: 0; flex-shrink: 0; }
+    .permission-help {
+      display: flex; align-items: flex-start; gap: 7px; margin: 8px 0 0;
+      font-size: 12px; line-height: 1.45; color: var(--text-secondary);
+    }
+    .permission-help ph-icon { color: var(--text-muted); flex-shrink: 0; margin-top: 1px; }
     .capability-table {
       width: 100%;
       border-collapse: collapse;
@@ -326,6 +331,10 @@ import { RelativeTimeComponent } from '../../shared/relative-time.component';
                   </label>
                 }
               </div>
+              <p class="permission-help">
+                <ph-icon name="info" [size]="14" />
+                <span>{{ ('tokens.permission.' + newPermission + '.desc') | transloco }}</span>
+              </p>
             </div>
 
             <div class="form-grid-bottom" style="margin-top:12px;">

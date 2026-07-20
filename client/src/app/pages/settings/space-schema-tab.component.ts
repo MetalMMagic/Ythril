@@ -33,6 +33,11 @@ const SCHEMA_MD_STYLES = `
 .val-select { font:inherit; font-size:12px; text-transform:none; letter-spacing:0; padding:3px 8px; border:1px solid var(--border); border-radius:6px; background:var(--bg-elevated); color:var(--text-primary); }
 .val-check { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary); cursor:pointer; }
 .val-check input { margin:0; }
+.sch-validation-bar { display:flex; align-items:center; justify-content:space-between; gap:16px 20px; flex-wrap:wrap;
+  padding:12px 14px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; background:var(--bg-surface); }
+.sch-validation-bar .svb-label { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.sch-validation-bar .svb-title { font-size:13px; font-weight:640; color:var(--text-primary); }
+.sch-validation-bar .svb-hint { font-size:11.5px; color:var(--text-muted); }
 .sch-md { display:grid; grid-template-columns:minmax(190px,250px) 1fr; gap:18px; align-items:start; margin-top:6px; }
 @media (max-width:760px) { .sch-md { grid-template-columns:1fr; } }
 .sch-master { display:flex; flex-direction:column; gap:3px; min-width:0; }
@@ -54,6 +59,13 @@ const SCHEMA_MD_STYLES = `
 .sch-add-row { display:flex; gap:6px; align-items:center; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); flex-wrap:wrap; }
 .sch-add-row .sch-add-imports { display:flex; gap:6px; flex-wrap:wrap; }
 .prop-caret { color:var(--text-muted); flex-shrink:0; display:inline-flex; }
+/* One coherent text scale for the tab: guidance, section labels, inline messages. */
+.sch-hint { font-size:11px; font-weight:400; text-transform:none; letter-spacing:0; color:var(--text-muted); }
+.sch-section-label { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px; }
+.sch-msg { font-size:12px; margin-top:6px; }
+.sch-msg.err { color:var(--error); }
+.sch-msg.ok  { color:var(--success); }
+.sch-type-badges .badge { font-size:9px; }
 `;
 
 @Component({
@@ -63,6 +75,28 @@ const SCHEMA_MD_STYLES = `
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [SPACE_DIALOG_STYLES, SCHEMA_MD_STYLES],
   template: `
+<!-- space-wide schema validation (governs every type in this space, not one collection) -->
+<div class="sch-validation-bar">
+  <div class="svb-label">
+    <span class="svb-title">{{ 'spaces.schema.validation.sectionTitle' | transloco }}</span>
+    <span class="svb-hint">{{ 'spaces.schema.validation.appliesHint' | transloco }}</span>
+  </div>
+  <div class="val-controls">
+    <label class="val-lbl" [attr.title]="'spaces.schema.validation.hint' | transloco">
+      {{ 'spaces.schema.validation.label' | transloco }}
+      <select [(ngModel)]="state.schValidation" class="val-select">
+        <option value="off">{{ 'spaces.settings.validation.off' | transloco }}</option>
+        <option value="warn">{{ 'spaces.settings.validation.warn' | transloco }}</option>
+        <option value="strict">{{ 'spaces.settings.validation.strict' | transloco }}</option>
+      </select>
+    </label>
+    <label class="val-check" [attr.title]="'spaces.settings.strictLinkageHint' | transloco">
+      <input type="checkbox" [(ngModel)]="state.schStrictLinkage" />
+      {{ 'spaces.settings.strictLinkage' | transloco }}
+    </label>
+  </div>
+</div>
+
 <!-- export / import toolbar -->
 <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
   <button class="btn btn-secondary btn-sm" type="button" (click)="exportSchema()" [attr.title]="'spaces.schema.exportTitle' | transloco"><ph-icon name="upload" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.exportJsonButton' | transloco }}</button>
@@ -92,31 +126,17 @@ const SCHEMA_MD_STYLES = `
 </div>
 <div class="sch-coll-body">
 
-  <!-- sub-header + validation-posture pill -->
+  <!-- collection sub-header (per-type guidance for the active collection) -->
   <div class="sch-head-row">
     @if (state.schemaCollTab() === 'entity') {
-      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.entityTypeHint' | transloco }}</span></div>
+      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span class="sch-hint">{{ 'spaces.schema.entityTypeHint' | transloco }}</span></div>
     } @else if (state.schemaCollTab() === 'edge') {
-      <div class="sch-sub">{{ 'spaces.schema.subtitle.labels' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.edgeLabelHint' | transloco }}</span></div>
+      <div class="sch-sub">{{ 'spaces.schema.subtitle.labels' | transloco }} <span class="sch-hint">{{ 'spaces.schema.edgeLabelHint' | transloco }}</span></div>
     } @else if (state.schemaCollTab() === 'memory') {
-      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.memoryTypeHint' | transloco }}</span></div>
+      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span class="sch-hint">{{ 'spaces.schema.memoryTypeHint' | transloco }}</span></div>
     } @else {
-      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.chronoTypeHint' | transloco }}</span></div>
+      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span class="sch-hint">{{ 'spaces.schema.chronoTypeHint' | transloco }}</span></div>
     }
-    <div class="val-controls">
-      <label class="val-lbl" [attr.title]="'spaces.schema.validation.hint' | transloco">
-        {{ 'spaces.schema.validation.label' | transloco }}
-        <select [(ngModel)]="state.schValidation" class="val-select">
-          <option value="off">{{ 'spaces.settings.validation.off' | transloco }}</option>
-          <option value="warn">{{ 'spaces.settings.validation.warn' | transloco }}</option>
-          <option value="strict">{{ 'spaces.settings.validation.strict' | transloco }}</option>
-        </select>
-      </label>
-      <label class="val-check" [attr.title]="'spaces.settings.strictLinkageHint' | transloco">
-        <input type="checkbox" [(ngModel)]="state.schStrictLinkage" />
-        {{ 'spaces.settings.strictLinkage' | transloco }}
-      </label>
-    </div>
   </div>
 
   <!-- master / detail -->
@@ -124,7 +144,7 @@ const SCHEMA_MD_STYLES = `
 
   <!-- Global tag suggestions (entity tab) -->
   @if (state.schemaCollTab() === 'entity') {
-    <div class="sch-sub" style="margin-top:28px;">{{ 'spaces.schema.globalTagSuggestions' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.globalTagSuggestionsHint' | transloco }}</span></div>
+    <div class="sch-sub" style="margin-top:28px;">{{ 'spaces.schema.globalTagSuggestions' | transloco }} <span class="sch-hint">{{ 'spaces.schema.globalTagSuggestionsHint' | transloco }}</span></div>
     <div class="chip-wrap">
       @for (t of state.schTagSuggestions; track t) {
         <span class="chip">{{ t }}<button type="button" class="chip-rm" (click)="state.schTagSuggestions=state.schTagSuggestions.filter(x=>x!==t)"><ph-icon name="x" [size]="12"/></button></span>
@@ -147,13 +167,13 @@ const SCHEMA_MD_STYLES = `
           <span class="nm">{{ name }}</span>
           <span class="sch-type-badges">
             @if (state.typeLibRef(kt,name)) {
-              <span class="badge badge-blue" style="font-size:9px;">Library</span>
+              <span class="badge badge-blue">Library</span>
             } @else {
               @if (state.typeState(kt,name).propertySchemas.length) {
-                <span class="badge badge-gray" style="font-size:9px;">{{ state.typeState(kt,name).propertySchemas.length }}p</span>
+                <span class="badge badge-gray">{{ state.typeState(kt,name).propertySchemas.length }}p</span>
               }
               @if (kt === 'entity' && state.typeState(kt,name).namingPattern) {
-                <span class="badge badge-gray" style="font-size:9px;">pat</span>
+                <span class="badge badge-gray">pat</span>
               }
             }
           </span>
@@ -179,10 +199,10 @@ const SCHEMA_MD_STYLES = `
           [attr.title]="'spaces.schema.importFromLibraryTitle' | transloco"><ph-icon name="bookmarks" [size]="12" style="margin-right:3px;vertical-align:-2px;"/>{{ 'spaces.schema.importFromLibraryButton' | transloco }}</button>
       </div>
       @if (schImportError()) {
-        <div style="font-size:12px;color:var(--error);margin-top:6px;">{{ schImportError() }}</div>
+        <div class="sch-msg err">{{ schImportError() }}</div>
       }
       @if (schImportInfo()) {
-        <div style="font-size:12px;color:var(--success);margin-top:6px;">{{ schImportInfo() }}</div>
+        <div class="sch-msg ok">{{ schImportInfo() }}</div>
       }
     </div>
 
@@ -212,13 +232,13 @@ const SCHEMA_MD_STYLES = `
           <!-- Naming pattern (entity only) -->
           @if (kt === 'entity') {
             <div class="field" style="margin:0 0 12px;">
-              <label>{{ 'spaces.schema.namingPattern' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.namingPatternHint' | transloco }}</span></label>
+              <label>{{ 'spaces.schema.namingPattern' | transloco }} <span class="sch-hint">{{ 'spaces.schema.namingPatternHint' | transloco }}</span></label>
               <input type="text" [(ngModel)]="state.typeState(kt,name).namingPattern" [placeholder]="'spaces.schema.namingPatternPlaceholder' | transloco" style="max-width:320px;" />
             </div>
           }
           <!-- Tag suggestions per type -->
           <div class="field" style="margin:0 0 12px;">
-            <label>{{ 'spaces.schema.tagSuggestions' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.tagSuggestionsHint' | transloco }}</span></label>
+            <label>{{ 'spaces.schema.tagSuggestions' | transloco }} <span class="sch-hint">{{ 'spaces.schema.tagSuggestionsHint' | transloco }}</span></label>
             <div class="chip-wrap">
               @for (tag of state.typeState(kt,name).tagSuggestions; track tag) {
                 <span class="chip">{{ tag }}<button type="button" class="chip-rm" (click)="state.typeState(kt,name).tagSuggestions=state.typeState(kt,name).tagSuggestions.filter(x=>x!==tag)"><ph-icon name="x" [size]="12"/></button></span>
@@ -229,7 +249,7 @@ const SCHEMA_MD_STYLES = `
             </div>
           </div>
           <!-- Property schemas -->
-          <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">{{ 'spaces.schema.propertySchemas' | transloco }}</div>
+          <div class="sch-section-label">{{ 'spaces.schema.propertySchemas' | transloco }}</div>
           <div class="table-wrapper" style="margin-bottom:0;">
             <table class="prop-table" style="margin-bottom:0;">
               <thead>
@@ -299,7 +319,7 @@ const SCHEMA_MD_STYLES = `
                             </div>
                             @if (p.s.type==='string'||p.s.type===undefined) {
                               <div class="field" style="margin:0;">
-                                <label>{{ 'spaces.schema.propDetail.pattern' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.propDetail.patternHint' | transloco }}</span></label>
+                                <label>{{ 'spaces.schema.propDetail.pattern' | transloco }} <span class="sch-hint">{{ 'spaces.schema.propDetail.patternHint' | transloco }}</span></label>
                                 <input type="text" [(ngModel)]="p.s.pattern" placeholder="^[A-Z].*" />
                               </div>
                             }
@@ -317,7 +337,7 @@ const SCHEMA_MD_STYLES = `
                           @if (p.s.type !== 'boolean') {
                             <div class="pdet-full">
                               <div class="field" style="margin:0;">
-                                <label>{{ 'spaces.schema.propDetail.enumValues' | transloco }} <span style="font-size:11px;font-weight:normal;color:var(--text-muted);">{{ 'spaces.schema.propDetail.enumHint' | transloco }}</span></label>
+                                <label>{{ 'spaces.schema.propDetail.enumValues' | transloco }} <span class="sch-hint">{{ 'spaces.schema.propDetail.enumHint' | transloco }}</span></label>
                                 <div class="chip-wrap">
                                   @for (ev of (p.s.enum??[]); track ev) {
                                     <span class="chip">{{ ev }}<button type="button" class="chip-rm" (click)="state.removeEnumVal(kt,name,p.key,ev)"><ph-icon name="x" [size]="12"/></button></span>

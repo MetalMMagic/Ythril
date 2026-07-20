@@ -34,6 +34,10 @@
       # Office → page-image rendering (F11-a). Points at the opt-in `doc-office` sidecar (below, enabled
       # with `--profile office`). When that service isn't running, office docs fall back to OCR.
       RENDER_OFFICE_SIDECAR_URL: ${RENDER_OFFICE_SIDECAR_URL:-http://doc-office:8100}
+      # Managed infra: set to "true" to make the whole media/model config (vision, STT, document extraction,
+      # assist model) read-only in the admin UI/API — set the values in config.json / env instead. Mirrors
+      # YTHRIL_MONGO_INFRA_MANAGED for the database. PATCH /api/admin/media-config then returns 409.
+      YTHRIL_MEDIA_INFRA_MANAGED: ${YTHRIL_MEDIA_INFRA_MANAGED:-}
       YTHRIL_LOCAL_AGENT_ENABLED: ${YTHRIL_LOCAL_AGENT_ENABLED:-}
       # Numeric loopback on purpose: the server rejects a non-loopback (or DNS-resolved `localhost`)
       # host unless YTHRIL_LOCAL_AGENT_ALLOW_REMOTE=true, to keep the bearer token on-box. The feature is

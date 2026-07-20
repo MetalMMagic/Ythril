@@ -55,6 +55,7 @@ describe('getMediaEmbeddingConfig', () => {
     'MEDIA_EMBEDDING_FALLBACK_TO_EXTERNAL', 'MAX_FILE_SIZE_BYTES', 'STALLED_JOB_TIMEOUT_MS',
     'DOC_ASSIST_URL', 'DOC_ASSIST_MODEL', 'DOC_ASSIST_API_KEY',
     'DOC_VERIFY_MODEL', 'DOC_VERIFY_URL',
+    'YTHRIL_MEDIA_INFRA_MANAGED',
   ];
 
   function clearEnv() {
@@ -332,6 +333,25 @@ describe('getMediaEmbeddingConfig', () => {
       const dp = getDocumentProcessingConfig();
       assert.equal(dp.verifyModel, 'env-vlm');
       assert.equal(dp.verifyBaseUrl, 'http://env-ollama:11434');
+    });
+  });
+
+  // ── infra-managed lock (like YTHRIL_MONGO_INFRA_MANAGED) ──────────────────────
+  describe('infra-managed media config', () => {
+    it('defaults to not infra-managed', () => {
+      writeConfig();
+      assert.equal(getMediaEmbeddingConfig().infraManaged, false);
+    });
+
+    it('mediaEmbedding.infraManaged: true in config.json marks it managed', () => {
+      writeConfig({ mediaEmbedding: { infraManaged: true } });
+      assert.equal(getMediaEmbeddingConfig().infraManaged, true);
+    });
+
+    it('YTHRIL_MEDIA_INFRA_MANAGED=true env marks it managed even without the config flag', () => {
+      process.env['YTHRIL_MEDIA_INFRA_MANAGED'] = 'true';
+      writeConfig();
+      assert.equal(getMediaEmbeddingConfig().infraManaged, true);
     });
   });
 });

@@ -476,7 +476,7 @@ export function getDataRoot(): string {
 
 import type { MediaEmbeddingConfig, MediaProviderConfig, FaceRecognitionConfig, DocumentProcessingConfig } from './types.js';
 
-const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'faceRecognition' | 'documentProcessing'>> = {
+const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
   // Enabled by default: both K8s manifests (kubernetes/manifests/ollama-deploy.yaml,
   // whisper-deploy.yaml) and the workstation docker-compose.yml ship with bundled
   // ollama + whisper services. The default `vision.baseUrl` / `stt.baseUrl` resolve
@@ -612,6 +612,9 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
     // Models UI can read them back (the worker ignores this block).
     documentProcessing: getDocumentProcessingConfig(),
     lockedByInfra: locked,
+    // F11 — infra-managed lock (like YTHRIL_MONGO_INFRA_MANAGED): env OR config marks the whole media/model
+    // config as managed by infrastructure, so the admin API refuses edits and the UI is read-only.
+    infraManaged: process.env['YTHRIL_MEDIA_INFRA_MANAGED'] === 'true' || base.infraManaged === true,
   };
 }
 

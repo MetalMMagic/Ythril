@@ -10,6 +10,13 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
 interface ProviderCfg { label?: string; baseUrl?: string; model?: string; apiKey?: string; }
 
+/** F11-PR5b — result of probing a model endpoint (reachability + whether the model is present). */
+interface TestResult {
+  ok: boolean; reachable: boolean; status?: number; models?: string[];
+  modelPresent?: boolean; detail?: string; latencyMs: number;
+}
+type TestTarget = 'vision' | 'stt' | 'assist';
+
 type DocMode = 'ocr' | 'vlm' | 'auto' | 'max';
 type DocAssistUse = 'repair';
 /** F11-b — external "assist model": a bigger, hosted LLM (own endpoint) assigned to specific tasks. The
@@ -37,6 +44,7 @@ interface MediaCfg {
   fallbackToExternal?: boolean;
   maxFileSizeBytes?: number;
   lockedByInfra?: string[];
+  infraManaged?: boolean;
 }
 
 const MODE_DESC: Record<DocMode, string> = {
@@ -134,6 +142,14 @@ const STAGES = [
     details.adv > summary { cursor: pointer; list-style: none; color: var(--text-secondary); font-size: 12.5px; font-weight: 550; padding: 8px 0 4px; }
     details.adv > summary::-webkit-details-marker { display: none; }
 
+    .managed-banner { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; padding: 11px 14px;
+      border-radius: 10px; background: rgba(88,166,255,.1); border: 1px solid rgba(88,166,255,.35);
+      font-size: 13px; color: var(--text-secondary); }
+    .managed-banner code { font-family: var(--font-mono, monospace); }
+    .managed-banner b { color: var(--text-primary); }
+    .managed-banner ph-icon { flex: none; }
+    .testrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+    .testrow .hint { margin: 0; }
     .actions { display: flex; gap: 10px; align-items: center; margin-top: 20px; }
     .save-error { color: var(--error); font-size: 13px; }
     .save-ok { color: var(--success); font-size: 13px; }
@@ -158,6 +174,12 @@ const STAGES = [
     } @else if (loadError()) {
       <div class="alert alert-error">{{ loadError() }}</div>
     } @else {
+      @if (managed) {
+        <div class="managed-banner">
+          <ph-icon name="lock" [size]="16"/>
+          <span>These models are <b>managed by infrastructure</b> on this instance — settings are read-only. Change them in <code>config.json</code> or the environment. You can still <b>Test connection</b> below.</span>
+        </div>
+      }
       <!-- What runs on upload -->
       <section class="runs" aria-label="What runs on upload">
         <div class="runs-h">What happens when someone uploads a file</div>
@@ -197,6 +219,15 @@ const STAGES = [
             <summary>Advanced</summary>
             <div class="field"><label>API key (external only)</label><input type="password" [(ngModel)]="visionApiKeyInput" [disabled]="isLocked('vision.apiKey')" placeholder="Leave blank to keep current" /></div>
           </details>
+          <div class="testrow">
+            <button class="btn btn-sm btn-secondary" type="button" (click)="testConnection('vision')" [disabled]="testOf('vision')?.loading">
+              {{ testOf('vision')?.loading ? 'Testing…' : 'Test connection' }}
+            </button>
+            @if (testOf('vision')?.res; as r) {
+              <app-status-pill [variant]="testPillVariant(r)" [dot]="true">{{ testPillLabel(r) }}</app-status-pill>
+              <span class="hint">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            }
+          </div>
         </app-settings-card>
 
         <!-- STT -->
@@ -217,6 +248,15 @@ const STAGES = [
             <summary>Advanced</summary>
             <div class="field"><label>API key (external only)</label><input type="password" [(ngModel)]="sttApiKeyInput" [disabled]="isLocked('stt.apiKey')" placeholder="Leave blank to keep current" /></div>
           </details>
+          <div class="testrow">
+            <button class="btn btn-sm btn-secondary" type="button" (click)="testConnection('stt')" [disabled]="testOf('stt')?.loading">
+              {{ testOf('stt')?.loading ? 'Testing…' : 'Test connection' }}
+            </button>
+            @if (testOf('stt')?.res; as r) {
+              <app-status-pill [variant]="testPillVariant(r)" [dot]="true">{{ testPillLabel(r) }}</app-status-pill>
+              <span class="hint">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            }
+          </div>
         </app-settings-card>
 
         <!-- Document extraction (F11) -->
@@ -225,7 +265,7 @@ const STAGES = [
             <label>Extraction mode</label>
             <div class="modeseg" role="group" aria-label="Extraction mode">
               @for (m of MODES; track m) {
-                <button type="button" [class.on]="docMode() === m" (click)="setMode(m)">{{ m.toUpperCase() }}</button>
+                <button type="button" [class.on]="docMode() === m" (click)="setMode(m)" [disabled]="managed">{{ m.toUpperCase() }}</button>
               }
             </div>
             <p class="modedesc" [innerHTML]="modeDescHtml()"></p>
@@ -252,10 +292,10 @@ const STAGES = [
           <details class="adv">
             <summary>Advanced — rendering &amp; limits</summary>
             <div class="grid2">
-              <div class="field"><label>Render DPI</label><input type="number" min="72" max="600" [(ngModel)]="form.documentProcessing!.renderDpi" /></div>
-              <div class="field"><label>Max pages per document</label><input type="number" min="1" max="2000" [(ngModel)]="form.documentProcessing!.maxPages" /></div>
-              <div class="field"><label>Per-page timeout (ms)</label><input type="number" min="1000" max="600000" [(ngModel)]="form.documentProcessing!.pageTimeoutMs" /></div>
-              <div class="field"><label>Page concurrency</label><input type="number" min="1" max="8" [(ngModel)]="form.documentProcessing!.concurrency" /></div>
+              <div class="field"><label>Render DPI</label><input type="number" min="72" max="600" [(ngModel)]="form.documentProcessing!.renderDpi" [disabled]="managed" /></div>
+              <div class="field"><label>Max pages per document</label><input type="number" min="1" max="2000" [(ngModel)]="form.documentProcessing!.maxPages" [disabled]="managed" /></div>
+              <div class="field"><label>Per-page timeout (ms)</label><input type="number" min="1000" max="600000" [(ngModel)]="form.documentProcessing!.pageTimeoutMs" [disabled]="managed" /></div>
+              <div class="field"><label>Page concurrency</label><input type="number" min="1" max="8" [(ngModel)]="form.documentProcessing!.concurrency" [disabled]="managed" /></div>
             </div>
           </details>
         </app-settings-card>
@@ -292,6 +332,15 @@ const STAGES = [
               @else if (assist.acknowledgedHost) { Egress to <code>{{ assist.acknowledgedHost }}</code> is acknowledged. }
             </span>
           </div>
+          <div class="testrow">
+            <button class="btn btn-sm btn-secondary" type="button" (click)="testConnection('assist')" [disabled]="testOf('assist')?.loading || !assist.baseUrl">
+              {{ testOf('assist')?.loading ? 'Testing…' : 'Test connection' }}
+            </button>
+            @if (testOf('assist')?.res; as r) {
+              <app-status-pill [variant]="testPillVariant(r)" [dot]="true">{{ testPillLabel(r) }}</app-status-pill>
+              <span class="hint">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            }
+          </div>
         </app-settings-card>
 
         <!-- Advanced worker -->
@@ -307,7 +356,7 @@ const STAGES = [
       </div>
 
       <div class="actions">
-        <button class="btn btn-primary" (click)="save()" [disabled]="saving()">
+        <button class="btn btn-primary" (click)="save()" [disabled]="saving() || managed">
           {{ saving() ? ('common.saving' | transloco) : ('common.save' | transloco) }}
         </button>
         <span class="save-error">{{ saveError() }}</span>
@@ -335,6 +384,26 @@ export class ModelsComponent implements OnInit {
   visionApiKeyInput = '';
   sttApiKeyInput = '';
   assistApiKeyInput = '';
+
+  // ── F11-PR5b: test connection ──
+  testState = signal<Partial<Record<TestTarget, { loading?: boolean; res?: TestResult }>>>({});
+  testOf(t: TestTarget): { loading?: boolean; res?: TestResult } | undefined { return this.testState()[t]; }
+  testConnection(t: TestTarget): void {
+    this.testState.update(s => ({ ...s, [t]: { loading: true } }));
+    this.http.post<TestResult>('/api/admin/media-config/test-connection', { target: t }).subscribe({
+      next: res => this.testState.update(s => ({ ...s, [t]: { res } })),
+      error: err => this.testState.update(s => ({ ...s, [t]: { res: {
+        ok: false, reachable: false, detail: err?.error?.error ?? err?.message ?? 'Test failed', latencyMs: 0,
+      } } })),
+    });
+  }
+  testPillVariant(r: TestResult): StatusVariant { return !r.reachable ? 'error' : (r.modelPresent === false ? 'warn' : 'ok'); }
+  testPillLabel(r: TestResult): string {
+    if (!r.reachable) return 'Unreachable';
+    if (r.modelPresent === false) return 'Reachable · model not found';
+    if (r.modelPresent === true) return 'Reachable · model found';
+    return 'Reachable';
+  }
 
   // ── F11-b: external assist model ──
   /** Live handle to the editable assist-model block (lazily initialised so the template can bind fields). */
@@ -379,7 +448,10 @@ export class ModelsComponent implements OnInit {
     });
   }
 
-  isLocked(field: string): boolean { return this.lockedByInfra.includes(field); }
+  /** True when the whole media config is infra-managed (read-only, edits refused by the API). */
+  get managed(): boolean { return !!this.form.infraManaged; }
+  // When infra-managed, EVERY field is locked (the API refuses edits) — so isLocked() short-circuits true.
+  isLocked(field: string): boolean { return this.managed || this.lockedByInfra.includes(field); }
 
   // ── document extraction helpers ──
   setMode(m: DocMode): void { this.docMode.set(m); if (this.form.documentProcessing) this.form.documentProcessing.mode = m; }
@@ -412,6 +484,7 @@ export class ModelsComponent implements OnInit {
   capLabel(model?: string): string { return !this.form.enabled ? 'Off' : (model ? 'Active' : 'No model'); }
 
   async save(): Promise<void> {
+    if (this.managed) return; // infra-managed: the API would reject it anyway
     const dp = this.form.documentProcessing ?? {};
     const assist = dp.assistModel ?? {};
     const uses = assist.uses ?? [];

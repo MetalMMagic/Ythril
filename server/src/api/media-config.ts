@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey } from '../config/loader.js';
 import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
-import { isSsrfSafeUrl } from '../util/ssrf.js';
+import { isSsrfSafeUrl, ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
 import { providerSignature, getActiveProviderSignature } from '../files/media/worker.js';
 
@@ -93,6 +93,17 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
   }
 
   const activeCfg = getMediaEmbeddingConfig();
+
+  // F11 — whole-config infra lock (like YTHRIL_MONGO_INFRA_MANAGED for the database). When the media/model
+  // configuration is managed by infrastructure, the admin API refuses all edits — change config.json / env.
+  if (activeCfg.infraManaged) {
+    res.status(409).json({
+      error: 'Media & model configuration is infra-managed on this instance (YTHRIL_MEDIA_INFRA_MANAGED=true or mediaEmbedding.infraManaged). Update it in your infrastructure config (config.json / environment) instead.',
+      code: 'INFRA_MANAGED',
+    });
+    return;
+  }
+
   const locked = new Set(activeCfg.lockedByInfra ?? []);
 
   // Reject attempts to overwrite locked fields
@@ -233,7 +244,108 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
   }
 });
 
+// ── POST /api/admin/media-config/test-connection (F11-PR5b) ───────────────────
+// Probe a configured model endpoint for reachability + whether its model is present. Read-only: it only
+// LISTS models (no inference, no document content) so it's safe to run before acknowledging egress. External
+// endpoints go through `ssrfSafeFetch`; local (trusted cluster) endpoints use a plain fetch, mirroring how
+// the media worker reaches them.
+
+const TestConnectionSchema = z.object({
+  target: z.enum(['vision', 'stt', 'assist']),
+}).strict();
+
+mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => {
+  const parsed = TestConnectionSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid request body', details: parsed.error.issues });
+    return;
+  }
+  const cfg = getMediaEmbeddingConfig();
+  const target = parsed.data.target;
+
+  let baseUrl: string | undefined;
+  let model: string | undefined;
+  let apiKey: string | undefined;
+  let external: boolean;
+  if (target === 'vision') {
+    baseUrl = cfg.vision?.baseUrl; model = cfg.vision?.model; apiKey = cfg.vision?.apiKey;
+    external = cfg.visionProvider === 'external';
+  } else if (target === 'stt') {
+    baseUrl = cfg.stt?.baseUrl; model = cfg.stt?.model; apiKey = cfg.stt?.apiKey;
+    external = cfg.sttProvider === 'external';
+  } else {
+    const a = cfg.documentProcessing?.assistModel;
+    baseUrl = a?.baseUrl; model = a?.model; apiKey = getDocAssistApiKey();
+    external = true; // the assist model is always external
+  }
+
+  if (!baseUrl) {
+    res.status(400).json({ error: `No endpoint is configured for ${target}. Save one first, then test.` });
+    return;
+  }
+  // External endpoints must be public — refuse to probe private/loopback/metadata addresses.
+  if (external && !isSsrfSafeUrl(baseUrl)) {
+    res.status(400).json({ error: `The ${target} endpoint is not a public http(s) URL (SSRF-blocked).` });
+    return;
+  }
+
+  const result = await probeModelEndpoint({ baseUrl, model, apiKey, external })
+    .catch(err => ({ ok: false, reachable: false, detail: err instanceof Error ? err.message : String(err), latencyMs: 0 }));
+  res.json({ target, external, model: model ?? null, ...result });
+});
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+interface ProbeResult {
+  ok: boolean;
+  reachable: boolean;
+  status?: number;
+  endpoint?: string;
+  models?: string[];
+  /** Whether the configured model appears in the endpoint's model list (undefined when no model/list). */
+  modelPresent?: boolean;
+  detail?: string;
+  latencyMs: number;
+}
+
+/** Probe a model endpoint by LISTING its models — OpenAI-compatible `/v1/models` first, then Ollama
+ *  `/api/tags`. Bounded 5s. No inference call, so it's cheap and sends no document content.
+ *  Exported for unit testing. */
+export async function probeModelEndpoint(
+  opts: { baseUrl: string; model?: string; apiKey?: string; external: boolean },
+): Promise<ProbeResult> {
+  const started = Date.now();
+  const base = opts.baseUrl.replace(/\/$/, '');
+  const headers: Record<string, string> = opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : {};
+  const doFetch = opts.external
+    ? (url: string, init: RequestInit) => ssrfSafeFetch(url, init)
+    : (url: string, init: RequestInit) => fetch(url, init);
+
+  const attempts: Array<{ url: string; parse: (j: unknown) => string[] }> = [
+    { url: `${base}/v1/models`, parse: (j) => ((j as { data?: Array<{ id?: string }> })?.data ?? []).map(m => m?.id).filter((x): x is string => !!x) },
+    { url: `${base}/api/tags`, parse: (j) => ((j as { models?: Array<{ name?: string }> })?.models ?? []).map(m => m?.name).filter((x): x is string => !!x) },
+  ];
+
+  let lastErr = '';
+  for (const a of attempts) {
+    try {
+      const res = await doFetch(a.url, { method: 'GET', headers, signal: AbortSignal.timeout(5_000) });
+      if (res.ok) {
+        const json = await res.json().catch(() => ({}));
+        const models = a.parse(json);
+        // Ollama tags carry a `:tag` suffix (e.g. `moondream:latest`); match exact or `<model>:*`.
+        const modelPresent = opts.model
+          ? models.some(m => m === opts.model || m.startsWith(`${opts.model}:`))
+          : undefined;
+        return { ok: true, reachable: true, status: res.status, endpoint: a.url, models: models.slice(0, 50), modelPresent, latencyMs: Date.now() - started };
+      }
+      lastErr = `HTTP ${res.status} at ${a.url}`;
+    } catch (err) {
+      lastErr = err instanceof Error ? err.message : String(err);
+    }
+  }
+  return { ok: false, reachable: false, detail: lastErr || 'no compatible model-list endpoint responded', latencyMs: Date.now() - started };
+}
 
 function maskSecrets(cfg: ReturnType<typeof getMediaEmbeddingConfig>): unknown {
   const mask = (v: string | undefined) => v ? '••••••••' : undefined;

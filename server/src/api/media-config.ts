@@ -67,6 +67,7 @@ const DocumentProcessingPatchSchema = z.object({
   maxPages: z.number().int().min(1).max(2_000).optional(),
   pageTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
   concurrency: z.number().int().min(1).max(8).optional(),
+  ocrTimeoutMs: z.number().int().min(10_000).max(1_800_000).optional(),
   assistModel: AssistModelPatchSchema.optional(),
 }).strict();
 

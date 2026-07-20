@@ -107,6 +107,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The OCR-sidecar timeout is now configurable (F11).** It was a hardcoded 2-minute ceiling; it's now
+  `documentProcessing.ocrTimeoutMs` (env `DOC_OCR_TIMEOUT_MS`, editable under Settings → Models → Advanced),
+  default `120000`. It applies to **all** extraction modes — OCR is the sole engine in `ocr` mode and the
+  grounding evidence + fallback floor in the VLM modes — so a large or complex scanned document that needs
+  longer than two minutes can now finish instead of silently failing to OCR, which matters most under `max`.
+
 - **`max`-mode consensus pass for document extraction (F11-d).** When a second document VLM is configured
   (`documentProcessing.verifyModel` / `DOC_VERIFY_MODEL`), `max` mode now adds one bounded **consensus** step
   on an already-accepted VLM draft: the verify model independently re-transcribes the pages, that draft is

@@ -142,7 +142,7 @@ export class UnstructuredConverter implements FileConverter {
       response = await fetch(`${SIDECAR_URL}/general/v0/general`, {
         method: 'POST',
         body: form,
-        signal: AbortSignal.timeout(120_000), // 2 min max for OCR
+        signal: AbortSignal.timeout(docCfg.ocrTimeoutMs), // configurable OCR-sidecar timeout (default 2 min)
       });
     } catch (err) {
       throw new ConversionUnavailableError(

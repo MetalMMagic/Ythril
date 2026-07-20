@@ -2038,6 +2038,7 @@ The unstructured sidecar strategy and image extraction behaviour can be tuned un
 | `maxPages` | `50` | Cap on pages rendered/transcribed per document (VLM modes only). |
 | `pageTimeoutMs` | `60000` | Per-page VLM transcription timeout (VLM modes only). |
 | `concurrency` | `2` | How many pages are transcribed in parallel (VLM modes only). |
+| `ocrTimeoutMs` | `120000` | Timeout (ms) for a single OCR-sidecar call. Applies to **all** modes — OCR is the engine in `ocr` mode and the grounding evidence + fallback floor in the VLM modes — so raise it when large/complex scanned documents need longer than the 2-min default (especially under `max`). Env override: `DOC_OCR_TIMEOUT_MS`. |
 
 The VLM modes require both a running `doc-render` sidecar and a configured `vlmModel`. If either is missing,
 Ythril transparently uses OCR — no upload fails because a model isn't wired in yet.

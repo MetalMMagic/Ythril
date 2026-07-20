@@ -26,7 +26,7 @@ interface DocAssistCfg {
 }
 interface DocProcCfg {
   mode?: DocMode;
-  renderDpi?: number; maxPages?: number; pageTimeoutMs?: number; concurrency?: number;
+  renderDpi?: number; maxPages?: number; pageTimeoutMs?: number; concurrency?: number; ocrTimeoutMs?: number;
   // read-only (env/config-file only — never PATCHed from here)
   vlmModel?: string; vlmBaseUrl?: string; repairModel?: string; repairBaseUrl?: string;
   verifyModel?: string; verifyBaseUrl?: string;
@@ -296,6 +296,7 @@ const STAGES = [
               <div class="field"><label>Max pages per document</label><input type="number" min="1" max="2000" [(ngModel)]="form.documentProcessing!.maxPages" [disabled]="managed" /></div>
               <div class="field"><label>Per-page timeout (ms)</label><input type="number" min="1000" max="600000" [(ngModel)]="form.documentProcessing!.pageTimeoutMs" [disabled]="managed" /></div>
               <div class="field"><label>Page concurrency</label><input type="number" min="1" max="8" [(ngModel)]="form.documentProcessing!.concurrency" [disabled]="managed" /></div>
+              <div class="field"><label>OCR timeout (ms)</label><input type="number" min="10000" max="1800000" [(ngModel)]="form.documentProcessing!.ocrTimeoutMs" [disabled]="managed" /></div>
             </div>
           </details>
         </app-settings-card>
@@ -432,7 +433,7 @@ export class ModelsComponent implements OnInit {
     this.http.get<MediaCfg>('/api/admin/media-config').subscribe({
       next: cfg => {
         this.lockedByInfra = cfg.lockedByInfra ?? [];
-        const dp: DocProcCfg = { mode: 'auto', renderDpi: 150, maxPages: 50, pageTimeoutMs: 60000, concurrency: 2, ...cfg.documentProcessing };
+        const dp: DocProcCfg = { mode: 'auto', renderDpi: 150, maxPages: 50, pageTimeoutMs: 60000, concurrency: 2, ocrTimeoutMs: 120000, ...cfg.documentProcessing };
         // F11-b — keep a copy of the assist model with `uses` always an array; the masked apiKey stays only
         // so the template can show "key set" — it is never sent back (assistApiKeyInput carries changes).
         dp.assistModel = { uses: [], ...cfg.documentProcessing?.assistModel };
@@ -524,7 +525,7 @@ export class ModelsComponent implements OnInit {
       stt: { baseUrl: this.form.stt?.baseUrl, model: this.form.stt?.model, ...(this.sttApiKeyInput ? { apiKey: this.sttApiKeyInput } : {}) },
       // Only the PATCH-writable doc fields (vlmModel/repairModel/URLs are env-only, never sent).
       documentProcessing: {
-        mode: dp.mode, renderDpi: dp.renderDpi, maxPages: dp.maxPages, pageTimeoutMs: dp.pageTimeoutMs, concurrency: dp.concurrency,
+        mode: dp.mode, renderDpi: dp.renderDpi, maxPages: dp.maxPages, pageTimeoutMs: dp.pageTimeoutMs, concurrency: dp.concurrency, ocrTimeoutMs: dp.ocrTimeoutMs,
         ...(assistPayload ? { assistModel: assistPayload } : {}),
       },
       fallbackToExternal: this.form.fallbackToExternal,

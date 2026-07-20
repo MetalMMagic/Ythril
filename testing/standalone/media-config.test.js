@@ -56,6 +56,7 @@ describe('getMediaEmbeddingConfig', () => {
     'DOC_ASSIST_URL', 'DOC_ASSIST_MODEL', 'DOC_ASSIST_API_KEY',
     'DOC_VERIFY_MODEL', 'DOC_VERIFY_URL',
     'YTHRIL_MEDIA_INFRA_MANAGED',
+    'DOC_OCR_TIMEOUT_MS',
   ];
 
   function clearEnv() {
@@ -333,6 +334,25 @@ describe('getMediaEmbeddingConfig', () => {
       const dp = getDocumentProcessingConfig();
       assert.equal(dp.verifyModel, 'env-vlm');
       assert.equal(dp.verifyBaseUrl, 'http://env-ollama:11434');
+    });
+  });
+
+  // ── configurable OCR-sidecar timeout ─────────────────────────────────────────
+  describe('OCR timeout', () => {
+    it('defaults to 120000 (2 min)', () => {
+      writeConfig();
+      assert.equal(getDocumentProcessingConfig().ocrTimeoutMs, 120_000);
+    });
+
+    it('resolves ocrTimeoutMs from config.json', () => {
+      writeConfig({ mediaEmbedding: { documentProcessing: { ocrTimeoutMs: 300_000 } } });
+      assert.equal(getDocumentProcessingConfig().ocrTimeoutMs, 300_000);
+    });
+
+    it('DOC_OCR_TIMEOUT_MS env overrides config', () => {
+      process.env['DOC_OCR_TIMEOUT_MS'] = '450000';
+      writeConfig({ mediaEmbedding: { documentProcessing: { ocrTimeoutMs: 300_000 } } });
+      assert.equal(getDocumentProcessingConfig().ocrTimeoutMs, 450_000);
     });
   });
 

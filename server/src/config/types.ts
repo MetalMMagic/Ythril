@@ -378,6 +378,13 @@ export interface DocumentProcessingConfig {
   /** F11 — max concurrent per-page model calls within one document. Default 2. */
   concurrency?: number;
   /**
+   * F11 — timeout (ms) for a single OCR-sidecar (unstructured) call. Default 120000 (2 min). Applies to ALL
+   * modes: OCR is both the sole engine in `ocr` mode and the grounding-evidence + fallback floor in the VLM
+   * modes, so a large/complex scanned document can exceed a fixed ceiling — raise this to let it finish
+   * (trading latency for completeness) especially under `max`. Env: `DOC_OCR_TIMEOUT_MS`.
+   */
+  ocrTimeoutMs?: number;
+  /**
    * F11 — the document-transcription VLM model tag (e.g. a small Qwen2-VL / MiniCPM-V on the bundled
    * Ollama). Empty (default) means no VLM is configured, so `vlm`/`auto`/`max` modes fall back to OCR.
    * Env: `DOC_VLM_MODEL`.

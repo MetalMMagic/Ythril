@@ -117,6 +117,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `verifyModel` ⇒ unchanged behaviour). Settings → Models shows the verify stage in the pipeline diagram and a
   read-only verify-model chip. New pure `bestByEvidence` arbitration unit tests.
 
+- **Settings → Models: "Test connection" + an infra-managed lock (F11).** Two admin controls for the
+  media/model configuration:
+  - **Test connection** — `POST /api/admin/media-config/test-connection` (admin + MFA) probes a configured
+    endpoint (vision / STT / assist model) by *listing* its models (OpenAI-compatible `/v1/models`, falling
+    back to Ollama `/api/tags`). No inference, no document content leaves the box, so it's safe to run before
+    acknowledging egress; external endpoints go through `ssrfSafeFetch`. Each provider card gets a **Test
+    connection** button that reports reachability, whether the model is present, and latency.
+  - **Infra-managed lock** — set `mediaEmbedding.infraManaged: true` (or `YTHRIL_MEDIA_INFRA_MANAGED=true`),
+    mirroring `YTHRIL_MONGO_INFRA_MANAGED` for the database: the whole media/model config is then owned by
+    infrastructure. `PATCH /api/admin/media-config` returns **409 `INFRA_MANAGED`**, and Settings → Models
+    renders read-only with a "managed by infrastructure" banner (Test connection still works). Individual
+    fields can still be pinned one-at-a-time via their env vars (`VISION_MODEL`, `DOC_ASSIST_URL`, …).
+
 - **Optional external "assist model" for document extraction — opt-in, acknowledged egress (F11-b).** Until
   now every extraction path was local (the bundled Ollama VLM / OCR sidecar) and no document content ever left
   the instance. You can now point a **bigger, hosted OpenAI-compatible model** at specific tasks under

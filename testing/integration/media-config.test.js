@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { INSTANCES, get, patch } from '../sync/helpers.js';
+import { INSTANCES, get, patch, post } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -120,6 +120,26 @@ describe('Media config — documentProcessing (F11)', () => {
   it('rejects out-of-range knobs', async () => {
     const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
       { documentProcessing: { renderDpi: 5000 } });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  });
+});
+
+// ── F11-PR5b — test connection ────────────────────────────────────────────────
+
+describe('Media config — test connection (F11-PR5b)', () => {
+  before(async () => { tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim(); });
+
+  it('probes the vision endpoint and returns a structured result (up or down)', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/admin/media-config/test-connection', { target: 'vision' });
+    // The probe target may be up or down in CI; either way the endpoint answers 200 with the result envelope.
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body?.target, 'vision');
+    assert.equal(typeof r.body?.reachable, 'boolean');
+    assert.equal(typeof r.body?.latencyMs, 'number');
+  });
+
+  it('rejects an unknown target', async () => {
+    const r = await post(INSTANCES.a, tokenA, '/api/admin/media-config/test-connection', { target: 'bogus' });
     assert.equal(r.status, 400, JSON.stringify(r.body));
   });
 });

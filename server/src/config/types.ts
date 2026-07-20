@@ -321,6 +321,13 @@ export interface MediaEmbeddingConfig {
    * Examples: `["enabled", "vision.apiKey", "stt.baseUrl"]`.
    */
   lockedByInfra?: string[];
+  /**
+   * F11 — when true, the entire media/model configuration is **infra-managed**: it is set through
+   * `config.json` / environment and the admin API refuses to mutate it (like `YTHRIL_MONGO_INFRA_MANAGED`
+   * for the database). The Settings → Models page renders read-only. Also settable via the
+   * `YTHRIL_MEDIA_INFRA_MANAGED=true` env var. Default false. Surfaced (read-only) in the admin GET.
+   */
+  infraManaged?: boolean;
   /** Face recognition settings — requires @vladmandic/human WASM backend. */
   faceRecognition?: FaceRecognitionConfig;
   /** Document processing settings — controls the unstructured sidecar behaviour. */

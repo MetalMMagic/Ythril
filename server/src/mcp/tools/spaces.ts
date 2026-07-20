@@ -102,7 +102,11 @@ export const get_space_metaTool: ToolHandler = {
     const { callSpace } = ctx;
     const metaCfg = getConfig();
     const metaSpace = metaCfg.spaces.find(s => s.id === callSpace);
-    const metaBlock = metaSpace?.meta ?? {};
+    // Always resolve library `$ref` types so the agent sees the effective schema (propertySchemas from
+    // the linked library entry), not a bare `{ $ref }` — this is a read-for-use surface, like
+    // GET /api/spaces/:id/meta?resolve=1.
+    const { resolveMetaRefs } = await import('../../spaces/schema-validation.js');
+    const metaBlock = resolveMetaRefs(metaSpace?.meta ?? {});
     const metaMemberIds = resolveMemberSpaces(callSpace);
     const metaCounts = await Promise.all(metaMemberIds.map(async mid => ({
       memories: await col(`${mid}_memories`).countDocuments(),

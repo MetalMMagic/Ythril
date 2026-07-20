@@ -530,6 +530,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Entry forms now pre-fill properties for types linked to a schema-library entry.** When adding an
+  entity/memory/etc. and selecting a type whose schema is a library reference (`$ref`), the properties
+  section came up empty — `GET /api/spaces/:id/meta` returned the bare `{ $ref }` without the linked
+  entry's `propertySchemas`, so the UI had nothing to pre-fill. The meta endpoint now accepts `?resolve=1`
+  to expand `$ref` types to their effective schema (the brain forms request it); the default response stays
+  raw for the edit/round-trip view. The MCP `get_space_meta` tool now always returns the resolved schema so
+  agents see the real fields too. (Reported: schema-selected entry form missing its properties.)
+
 - **Docker: the base `docker-compose.yml` local-agent default no longer contradicts the server's own
   validator.** It shipped `YTHRIL_LOCAL_AGENT_URL=http://localhost:38123`, but the server deliberately
   rejects a DNS-resolved `localhost` host (only numeric `127.0.0.1`/`::1` count as loopback, to keep the

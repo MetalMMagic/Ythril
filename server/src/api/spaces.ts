@@ -537,7 +537,15 @@ spacesRouter.get('/:id/meta', globalRateLimit, requireAuth, async (req, res) => 
     return;
   }
 
-  const meta = space.meta ?? {};
+  // With `?resolve=1`, expand library `$ref` types to their effective schema (propertySchemas from the
+  // linked library entry) so consumers like the brain entry forms — which pre-fill properties from the
+  // selected type — see the real fields, not a bare `{ $ref }`. Default (raw) is preserved for the
+  // edit/round-trip view and existing callers that verify the stored `$ref`.
+  const resolveRefs = req.query['resolve'] === '1' || req.query['resolve'] === 'true';
+  const rawMeta = space.meta ?? {};
+  const meta = resolveRefs
+    ? (await import('../spaces/schema-validation.js')).resolveMetaRefs(rawMeta)
+    : rawMeta;
   const memberIds = resolveMemberSpaces(id);
   const counts = await Promise.all(memberIds.map(async mid => ({
     memories: await col(`${mid}_memories`).countDocuments(),

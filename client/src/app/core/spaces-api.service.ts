@@ -28,7 +28,9 @@ export class SpacesApi {
   }
 
   getSpaceMeta(id: string): Observable<SpaceMetaResponse> {
-    return this.http.get<SpaceMetaResponse>(`/api/spaces/${id}/meta`);
+    // `resolve=1`: expand library `$ref` types so the brain entry forms can pre-fill a selected type's
+    // properties (a bare `{ $ref }` carries no propertySchemas). Edit/round-trip views use the raw meta.
+    return this.http.get<SpaceMetaResponse>(`/api/spaces/${id}/meta?resolve=1`);
   }
 
   /** GET a single type definition from the space's typeSchemas. */

@@ -79,6 +79,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **User guide: worked example for connecting Ythril to Claude over MCP.** A step-by-step walkthrough in the
+  "Connecting an AI assistant (MCP)" section — public HTTPS URL (via the Networks local connector / Cloudflare
+  tunnel), creating a **scoped token first** (the connector inherits its permissions), adding the custom
+  connector in Claude, the OAuth consent step, enabling it per-conversation, and how to change or revoke its
+  access — so operators can scope exactly what Claude can see and do.
+
 - **Full `docs/`-vs-code audit — 49 discrepancies corrected across 8 documents.** An 8-reviewer sweep of
   every file in `docs/` against the current codebase surfaced 49 drifted or missing statements; all are now
   fixed in one pass. Highlights: the **integration guide** now documents the real auth tier on every write

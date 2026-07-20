@@ -28,7 +28,7 @@ import { col, asFilter, asDoc } from '../../db/mongo.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig, getDocumentProcessingConfig } from '../../config/loader.js';
 import { vlmExtractDocument } from './vlm-extract.js';
-import type { FileMetaDoc, AuthorRef } from '../../config/types.js';
+import type { FileMetaDoc, AuthorRef, DocExtractionMode } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { enqueueMediaJob } from '../media/job-queue.js';
 
@@ -133,6 +133,9 @@ export function resolveInputFormat(
 export interface ConversionPipelineOptions {
   minChunkBodyLength?: number;
   maxParagraphChunkLength?: number;
+  /** F11-c: per-space document-extraction mode override. When set, it wins over the instance-wide
+   *  `documentProcessing.mode`; when absent, the instance default applies. */
+  mode?: DocExtractionMode;
 }
 
 export interface ConversionResult {
@@ -210,7 +213,8 @@ export async function runConversionPipeline(
     case 'epub': {
       // F11: `ocr` mode (default) is the unchanged path; `vlm`/`auto`/`max` run the capability extractor,
       // which itself falls back to OCR when render/VLM are absent or the VLM output fails validation.
-      const mode = getDocumentProcessingConfig().mode;
+      // F11-c: a per-space override (opts.mode) wins over the instance-wide default.
+      const mode = opts.mode ?? getDocumentProcessingConfig().mode;
       let extractionPath: string | undefined;
       let richMarkdown: string;
       let images = [] as ExtractedImage[];
@@ -219,7 +223,7 @@ export async function runConversionPipeline(
         richMarkdown = result.markdown;
         images = result.extractedImages;
       } else {
-        const result = await vlmExtractDocument(fileBytes, fileName);
+        const result = await vlmExtractDocument(fileBytes, fileName, mode);
         richMarkdown = result.markdown;
         images = result.extractedImages;
         extractionPath = result.extractionPath;

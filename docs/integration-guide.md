@@ -2017,6 +2017,8 @@ runs as a separate process, so it does not affect Ythril's licensing.
 
 The unstructured sidecar strategy and image extraction behaviour can be tuned under `mediaEmbedding.documentProcessing` in `config.json`. All settings are optional — the defaults are designed for maximum data extraction out of the box. The extraction `mode` and the render DPI / max-pages / timeout / concurrency knobs are also editable in the admin UI under **Settings → Models** (the `vlmModel` / `repairModel` endpoints stay environment-only and are shown read-only there).
 
+**Per-space override (F11-c).** The `mode` above is the instance-wide default. A single space can override it — for example to run one archive of scanned PDFs under `max` while the rest of the instance stays on `ocr` — from the space's **Settings → Document extraction** picker, or via `PATCH /api/spaces/:id` with `{ "documentExtraction": "ocr" | "vlm" | "auto" | "max" }` (send `null` to clear the override and inherit the instance default again). Like dupe rules and record-TTL, this is a **local, per-instance** operational setting: it is never governed or synced across a network. When a space has no override, uploads to it use the instance-wide `mode` unchanged.
+
 | Field | Default | Description |
 |---|---|---|
 | `strategy` | `"hi_res"` | Unstructured partition strategy. `"hi_res"`: full Tesseract OCR + layout detection — accurate on scanned PDFs, extracts embedded images and structured tables. `"auto"`: sidecar picks the fastest viable strategy. `"fast"`: pdfminer text-layer only — fastest but no OCR, no image extraction. `"ocr_only"`: force OCR on every page regardless of whether a text layer exists. |

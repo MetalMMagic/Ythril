@@ -140,8 +140,10 @@ const UpdateSpaceBody = z.object({
   dupeRulesOnInsert: z.boolean().optional(),
   // F10: auto-TTL in days. 0/null clears it; a positive value stamps every new/updated record.
   recordTtlDays: z.number().int().nonnegative().max(36500).nullable().optional(),
-}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined, {
-  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, or recordTtlDays must be provided',
+  // F11-c: per-space document-extraction mode override. null clears it (inherit the instance default).
+  documentExtraction: z.enum(['ocr', 'vlm', 'auto', 'max']).nullable().optional(),
+}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined, {
+  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, or documentExtraction must be provided',
 });
 
 const ReorderSpacesBody = z.object({
@@ -287,7 +289,7 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     }
   }
 
-  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, indexStatus }, idx) => ({
+  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, indexStatus }, idx) => ({
     id, label, builtIn, folders, maxGiB, flex, description,
     usageGiB: usageGiBByIdx[idx],
     ...(indexStatus ? { indexStatus } : {}),
@@ -299,6 +301,7 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     ...(dupeMergeSurvivor ? { dupeMergeSurvivor } : {}),
     ...(dupeRulesOnInsert ? { dupeRulesOnInsert } : {}),
     ...(recordTtlDays ? { recordTtlDays } : {}),
+    ...(documentExtraction ? { documentExtraction } : {}),
     ...(includeCounts && countsBySpaceId[id] ? { counts: countsBySpaceId[id] } : {}),
   }));
   // Include storage usage summary when quota is configured
@@ -393,6 +396,12 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     const ttl = parsed.data.recordTtlDays && parsed.data.recordTtlDays > 0 ? parsed.data.recordTtlDays : undefined;
     updateSpace(id, { recordTtlDays: ttl });
     if (ttl) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
+  }
+
+  // Per-space extraction-mode override (F11-c) is local/operational (like dupe rules) — apply
+  // immediately, never voted. null clears the override so the space inherits the instance default.
+  if (parsed.data.documentExtraction !== undefined) {
+    updateSpace(id, { documentExtraction: parsed.data.documentExtraction ?? undefined });
   }
 
   // Merge the incoming meta with the existing meta so that PATCH has true

@@ -393,7 +393,30 @@ export interface DocumentProcessingConfig {
    * Env: `DOC_REPAIR_URL`.
    */
   repairBaseUrl?: string;
+  /**
+   * F11-b — an **external** "assist model" (a bigger, hosted LLM the operator points Ythril at) and what
+   * it is used for. Distinct from the bundled local VLM: this is the only place document content is sent
+   * OFF the instance, so it is opt-in and gated by an explicit acknowledgment. `apiKey` is NOT stored here
+   * — it lives in `secrets.json` (`mediaEmbedding.docAssistApiKey`). Absent = no external assist model.
+   */
+  assistModel?: DocAssistModelConfig;
 }
+
+/** F11-b — external assist-model configuration. OpenAI-compatible endpoint reached via `ssrfSafeFetch`. */
+export interface DocAssistModelConfig {
+  /** External OpenAI-compatible base URL (e.g. `https://api.example.com`). SSRF-validated on save. */
+  baseUrl?: string;
+  /** Model tag to request (e.g. `gpt-4o`, a hosted Llama, …). */
+  model?: string;
+  /** What the external model powers. `repair` (the max-mode reconciliation pass) today; more TBD. */
+  uses?: DocAssistUse[];
+  /** The host (`new URL(baseUrl).host`) the operator acknowledged document egress to. Must match `baseUrl`'s
+   *  host while `uses` is non-empty — re-acknowledged when the endpoint host changes. Records consent. */
+  acknowledgedHost?: string;
+}
+
+/** F11-b — tasks an external assist model can be assigned to. Extensible (transcribe / verify are later). */
+export type DocAssistUse = 'repair';
 
 /** F11 — document-extraction mode: OCR-only (default) vs the VLM precision pipeline. */
 export type DocExtractionMode = 'ocr' | 'vlm' | 'auto' | 'max';

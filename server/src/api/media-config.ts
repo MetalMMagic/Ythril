@@ -10,7 +10,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets } from '../config/loader.js';
+import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey } from '../config/loader.js';
 import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl } from '../util/ssrf.js';
@@ -49,6 +49,16 @@ const ProviderPatchSchema = z.object({
 
 // F11 — document-processing / extraction settings. Shallow-merged like `vision`/`stt`: the client sends
 // the full block. `ocr` mode = today's behaviour; `vlm`/`auto`/`max` opt into the VLM pipeline.
+// F11-b — external assist model. `apiKey` is split into secrets.json (like vision/stt). `acknowledgedHost`
+// records the operator's egress consent; the handler requires it to match `baseUrl`'s host when `uses` is set.
+const AssistModelPatchSchema = z.object({
+  baseUrl: z.string().url().optional(),
+  model: z.string().max(128).optional(),
+  apiKey: z.string().max(512).optional().nullable(),
+  uses: z.array(z.enum(['repair'])).max(8).optional(),
+  acknowledgedHost: z.string().max(255).optional(),
+}).strict();
+
 const DocumentProcessingPatchSchema = z.object({
   strategy: z.enum(['hi_res', 'auto', 'fast', 'ocr_only']).optional(),
   extractImages: z.boolean().optional(),
@@ -57,6 +67,7 @@ const DocumentProcessingPatchSchema = z.object({
   maxPages: z.number().int().min(1).max(2_000).optional(),
   pageTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
   concurrency: z.number().int().min(1).max(8).optional(),
+  assistModel: AssistModelPatchSchema.optional(),
 }).strict();
 
 const MediaConfigPatchSchema = z.object({
@@ -112,6 +123,40 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     return;
   }
 
+  // ── F11-b: external assist model — locked check + SSRF + egress-acknowledgment enforcement ──
+  // This is the only path that sends document content OFF the instance, so a `uses`-active endpoint must be
+  // (a) SSRF-safe and (b) acknowledged: `acknowledgedHost` must match the endpoint host. The client's
+  // acknowledgment modal sets that field; enforcing it here makes the consent auditable, not just UI.
+  const assistPatch = parsed.data.documentProcessing?.assistModel;
+  if (assistPatch !== undefined && locked.has('documentProcessing.assistModel')) {
+    res.status(403).json({
+      error: 'The external assist model is locked by infrastructure env vars and cannot be changed via the UI',
+      locked: ['documentProcessing.assistModel'],
+    });
+    return;
+  }
+  if (assistPatch) {
+    const existingAssist = activeCfg.documentProcessing?.assistModel ?? {};
+    const effBaseUrl = assistPatch.baseUrl ?? existingAssist.baseUrl;
+    const effUses = assistPatch.uses ?? existingAssist.uses ?? [];
+    const effAck = assistPatch.acknowledgedHost ?? existingAssist.acknowledgedHost;
+    if (effUses.length > 0 && effBaseUrl) {
+      if (!isSsrfSafeUrl(effBaseUrl)) {
+        res.status(400).json({ error: 'assistModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' });
+        return;
+      }
+      let host: string;
+      try { host = new URL(effBaseUrl).host; } catch { res.status(400).json({ error: 'assistModel.baseUrl is not a valid URL' }); return; }
+      if (effAck !== host) {
+        res.status(400).json({
+          error: `Egress to ${host} must be acknowledged before the external assist model can be used: document content (OCR text, and page images for image-based uses) would be sent there.`,
+          needsAcknowledgment: host,
+        });
+        return;
+      }
+    }
+  }
+
   try {
     // ── Split sensitive fields into secrets.json ─────────────────────────────
     // API keys are credentials and live alongside peerTokens / TOTP secret in
@@ -122,8 +167,12 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const sttApiKeyChange = (parsed.data.stt && 'apiKey' in parsed.data.stt)
       ? parsed.data.stt.apiKey ?? null
       : undefined;
+    // F11-b — the external assist model's key lives in secrets too (mediaEmbedding.docAssistApiKey).
+    const assistApiKeyChange = (assistPatch && 'apiKey' in assistPatch)
+      ? assistPatch.apiKey ?? null
+      : undefined;
 
-    if (visionApiKeyChange !== undefined || sttApiKeyChange !== undefined) {
+    if (visionApiKeyChange !== undefined || sttApiKeyChange !== undefined || assistApiKeyChange !== undefined) {
       const secrets = getSecrets();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sAny = secrets as any;
@@ -135,6 +184,10 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
       if (sttApiKeyChange !== undefined) {
         if (sttApiKeyChange === null || sttApiKeyChange === '') delete sAny.mediaEmbedding.sttApiKey;
         else sAny.mediaEmbedding.sttApiKey = sttApiKeyChange;
+      }
+      if (assistApiKeyChange !== undefined) {
+        if (assistApiKeyChange === null || assistApiKeyChange === '') delete sAny.mediaEmbedding.docAssistApiKey;
+        else sAny.mediaEmbedding.docAssistApiKey = assistApiKeyChange;
       }
       saveSecrets(secrets);
     }
@@ -155,6 +208,20 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
       delete s['apiKey'];
       merged['stt'] = s;
     }
+    // F11-b — DEEP-merge documentProcessing so a patch that omits `assistModel` (e.g. just changing `mode`)
+    // does NOT wipe the stored external-assist config, and strip its apiKey out to secrets.json.
+    if (parsed.data.documentProcessing) {
+      const dpMerged: Record<string, unknown> = {
+        ...(existing.documentProcessing as Record<string, unknown> ?? {}),
+        ...parsed.data.documentProcessing,
+      };
+      if (assistPatch) {
+        const a = { ...assistPatch } as Record<string, unknown>;
+        delete a['apiKey']; // never in config.json
+        dpMerged['assistModel'] = a;
+      }
+      merged['documentProcessing'] = dpMerged;
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     cfg.mediaEmbedding = merged as any;
     saveConfig(cfg);
@@ -170,9 +237,15 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
 
 function maskSecrets(cfg: ReturnType<typeof getMediaEmbeddingConfig>): unknown {
   const mask = (v: string | undefined) => v ? '••••••••' : undefined;
+  // F11-b — the assist model's key lives in secrets, not in the resolved documentProcessing block; surface a
+  // masked indicator so the UI can show "key set" without ever returning the secret.
+  const dp = cfg.documentProcessing;
   return {
     ...cfg,
     vision: cfg.vision ? { ...cfg.vision, apiKey: mask(cfg.vision.apiKey) } : cfg.vision,
     stt: cfg.stt ? { ...cfg.stt, apiKey: mask(cfg.stt.apiKey) } : cfg.stt,
+    documentProcessing: dp?.assistModel
+      ? { ...dp, assistModel: { ...dp.assistModel, apiKey: mask(getDocAssistApiKey()) } }
+      : dp,
   };
 }

@@ -107,6 +107,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Optional external "assist model" for document extraction — opt-in, acknowledged egress (F11-b).** Until
+  now every extraction path was local (the bundled Ollama VLM / OCR sidecar) and no document content ever left
+  the instance. You can now point a **bigger, hosted OpenAI-compatible model** at specific tasks under
+  Settings → Models → **External assist model** (or `documentProcessing.assistModel` in config). It's assigned
+  per task — `repair` (the `max`-mode reconciliation pass) today, more planned — so it's off unless you both
+  configure an endpoint **and** assign it a use. Because this is the one path that sends document content
+  off-box, it is gated: the endpoint is **SSRF-validated** and reached only through the SSRF-guarded fetch;
+  the API key lives in `secrets.json` (masked, never returned); and assigning a task pops an **acknowledgment
+  dialog** naming exactly what egresses (OCR text + draft transcriptions, page images for image tasks) to
+  which host. That consent is recorded as `acknowledgedHost` and **enforced server-side and re-checked at
+  runtime** — content never leaves the box to an unacknowledged host, even if `config.json` is hand-edited.
+  Pinning `DOC_ASSIST_URL`/`DOC_ASSIST_MODEL`/`DOC_ASSIST_API_KEY` locks the block read-only. With nothing
+  configured, the repair pass stays entirely local, exactly as before.
+
 - **Per-space document-extraction mode override (F11-c).** A single space can now override the
   instance-wide extraction `mode` — run one archive of scanned PDFs under `max` (VLM + repair) while the
   rest of the instance stays on fast `ocr`, or vice versa. Set it from the space's **Settings → Document

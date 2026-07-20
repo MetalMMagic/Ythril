@@ -44,6 +44,8 @@ function writeConfig(extra = {}) {
 
 describe('getMediaEmbeddingConfig', () => {
   let getMediaEmbeddingConfig;
+  let getDocumentProcessingConfig;
+  let getDocAssistApiKey;
 
   const ENV_KEYS = [
     'MEDIA_EMBEDDING_ENABLED', 'VISION_PROVIDER', 'STT_PROVIDER',
@@ -51,6 +53,7 @@ describe('getMediaEmbeddingConfig', () => {
     'WHISPER_URL', 'WHISPER_MODEL', 'STT_API_KEY',
     'WORKER_CONCURRENCY', 'WORKER_POLL_INTERVAL_MS', 'WORKER_MAX_POLL_INTERVAL_MS',
     'MEDIA_EMBEDDING_FALLBACK_TO_EXTERNAL', 'MAX_FILE_SIZE_BYTES', 'STALLED_JOB_TIMEOUT_MS',
+    'DOC_ASSIST_URL', 'DOC_ASSIST_MODEL', 'DOC_ASSIST_API_KEY',
   ];
 
   function clearEnv() {
@@ -64,6 +67,8 @@ describe('getMediaEmbeddingConfig', () => {
     // Dynamic import AFTER env is set so CONFIG_PATH is read at correct time.
     const mod = await import('../../server/dist/config/loader.js');
     getMediaEmbeddingConfig = mod.getMediaEmbeddingConfig;
+    getDocumentProcessingConfig = mod.getDocumentProcessingConfig;
+    getDocAssistApiKey = mod.getDocAssistApiKey;
     _reloadConfig = mod.reloadConfig;
     // Must call loadConfig() once to initialise _config before any test runs.
     mod.loadConfig();
@@ -260,6 +265,46 @@ describe('getMediaEmbeddingConfig', () => {
       assert.ok(cfg.lockedByInfra?.includes('vision.baseUrl'));
       assert.ok(cfg.lockedByInfra?.includes('vision.model'));
       assert.ok(cfg.lockedByInfra?.includes('stt.baseUrl'));
+    });
+  });
+
+  // ── F11-b: external assist model ──────────────────────────────────────────────
+  describe('assist model (F11-b)', () => {
+    it('absent by default → empty block, no key, no lock', () => {
+      writeConfig();
+      const dp = getDocumentProcessingConfig();
+      assert.equal(dp.assistModel.baseUrl, undefined);
+      assert.deepEqual(dp.assistModel.uses, []);
+      assert.equal(getDocAssistApiKey(), undefined);
+      assert.equal(getMediaEmbeddingConfig().lockedByInfra?.includes('documentProcessing.assistModel'), false);
+    });
+
+    it('resolves baseUrl/model/uses/acknowledgedHost from config.json', () => {
+      writeConfig({ mediaEmbedding: { documentProcessing: { assistModel: {
+        baseUrl: 'https://api.example.com', model: 'big-llm', uses: ['repair'], acknowledgedHost: 'api.example.com',
+      } } } });
+      const dp = getDocumentProcessingConfig();
+      assert.equal(dp.assistModel.baseUrl, 'https://api.example.com');
+      assert.equal(dp.assistModel.model, 'big-llm');
+      assert.deepEqual(dp.assistModel.uses, ['repair']);
+      assert.equal(dp.assistModel.acknowledgedHost, 'api.example.com');
+    });
+
+    it('DOC_ASSIST_URL / DOC_ASSIST_MODEL env override config and lock the block', () => {
+      process.env['DOC_ASSIST_URL'] = 'https://env.example.com';
+      process.env['DOC_ASSIST_MODEL'] = 'env-model';
+      writeConfig({ mediaEmbedding: { documentProcessing: { assistModel: { baseUrl: 'https://cfg.example.com', model: 'cfg-model' } } } });
+      const dp = getDocumentProcessingConfig();
+      assert.equal(dp.assistModel.baseUrl, 'https://env.example.com', 'env baseUrl wins');
+      assert.equal(dp.assistModel.model, 'env-model', 'env model wins');
+      assert.ok(getMediaEmbeddingConfig().lockedByInfra?.includes('documentProcessing.assistModel'));
+    });
+
+    it('getDocAssistApiKey reads DOC_ASSIST_API_KEY from env', () => {
+      process.env['DOC_ASSIST_API_KEY'] = 'sk-env-123';
+      writeConfig();
+      assert.equal(getDocAssistApiKey(), 'sk-env-123');
+      assert.ok(getMediaEmbeddingConfig().lockedByInfra?.includes('documentProcessing.assistModel'));
     });
   });
 });

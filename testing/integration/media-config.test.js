@@ -123,3 +123,56 @@ describe('Media config — documentProcessing (F11)', () => {
     assert.equal(r.status, 400, JSON.stringify(r.body));
   });
 });
+
+// ── F11-b — external assist model (hosted egress) ─────────────────────────────
+
+describe('Media config — external assist model (F11-b)', () => {
+  before(async () => {
+    tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+  });
+  after(async () => {
+    // Disable egress (uses: []) so no external routing leaks into other suites.
+    await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
+      { documentProcessing: { assistModel: { uses: [] } } }).catch(() => {});
+  });
+
+  it('assigning a use to an endpoint WITHOUT acknowledgment is rejected (egress gate)', async () => {
+    const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', {
+      documentProcessing: { assistModel: { baseUrl: 'https://assist.example.com', model: 'big', uses: ['repair'] } },
+    });
+    // Rejected either as unacknowledged egress or (if DNS unavailable) as SSRF-unsafe — both are 400.
+    assert.equal(r.status, 400, `expected rejection, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('configuring the endpoint with NO uses is allowed (no egress yet) and round-trips', async () => {
+    const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', {
+      documentProcessing: { assistModel: { baseUrl: 'https://assist.example.com', model: 'big', uses: [] } },
+    });
+    assert.equal(r.status, 200, `expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
+    const reread = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
+    assert.equal(reread.body?.documentProcessing?.assistModel?.baseUrl, 'https://assist.example.com');
+    assert.deepEqual(reread.body?.documentProcessing?.assistModel?.uses, []);
+  });
+
+  it('a mode-only documentProcessing PATCH does not wipe the assist config (deep-merge)', async () => {
+    // (endpoint set by the previous test) — change only the mode.
+    const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: { mode: 'ocr' } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const reread = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
+    assert.equal(reread.body?.documentProcessing?.assistModel?.baseUrl, 'https://assist.example.com',
+      'assist config must survive a mode-only patch');
+  });
+
+  it('the assist API key is never returned in plaintext (masked in GET)', async () => {
+    const set = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', {
+      documentProcessing: { assistModel: { baseUrl: 'https://assist.example.com', model: 'big', uses: [], apiKey: 'sk-secret-xyz' } },
+    });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    const reread = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
+    const key = reread.body?.documentProcessing?.assistModel?.apiKey;
+    assert.ok(key && !key.includes('sk-secret-xyz'), `key must be masked, got: ${key}`);
+    // Clear the stored key.
+    await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
+      { documentProcessing: { assistModel: { uses: [], apiKey: null } } }).catch(() => {});
+  });
+});

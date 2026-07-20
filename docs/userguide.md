@@ -347,11 +347,11 @@ This tab lets you link to other Ythril instances' public schema libraries and im
 
 ## Settings — Spaces
 
-Open **Settings → Spaces** to manage all spaces on this instance.
+Open **Settings → Spaces** to manage all spaces on this instance. A summary above the list shows the total number of spaces, the storage in use across all of them, and how many are still building (or have failed to build) their search index. If a space's index is still preparing, its row is flagged so you know recall may be incomplete for it.
 
 ### Creating a space
 
-Click **+ Create space**. Fill in:
+Click **Create New Space**. Fill in:
 
 - **Display Name** — the human-readable label shown everywhere in the UI.
 - **ID** — optional. Short lowercase identifier (auto-generated from the name if left blank).

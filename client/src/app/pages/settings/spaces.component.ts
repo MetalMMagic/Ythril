@@ -16,6 +16,7 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
 import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state.service';
 import { SpacesStore } from './spaces-store.service';
 import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
@@ -28,7 +29,7 @@ import { SpaceCreateDialogComponent } from './space-create-dialog.component';
 @Component({
   selector: 'app-spaces',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, DragDropModule, PhIconComponent,
+  imports: [CommonModule, FormsModule, TranslocoPipe, DragDropModule, PhIconComponent, SummaryStripComponent,
     SpaceSettingsTabComponent, SpaceDuplicatesTabComponent, SpaceDangerTabComponent, SpaceSchemaTabComponent,
     SpaceCreateDialogComponent],
   // Provided here (not root) so each mount gets its own settings state, with a lifetime tied to
@@ -101,6 +102,10 @@ import { SpaceCreateDialogComponent } from './space-create-dialog.component';
     <!-- Library picker dialog -->
 
     <!-- SPACES TABLE -->
+    @if (!store.loading() && !store.error()) {
+      <app-summary-strip [items]="spacesSummary()" style="display:block;margin-bottom:16px;"/>
+    }
+
     <div class="card">
       <div class="card-header">
         <div class="card-title">{{ 'spaces.table.title' | transloco }}</div>
@@ -121,6 +126,11 @@ import { SpaceCreateDialogComponent } from './space-create-dialog.component';
       </div>
       @if (store.loading()) {
         <div class="loading-overlay"><span class="spinner"></span></div>
+      } @else if (store.error()) {
+        <div class="alert alert-error" style="margin:16px;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+          <span>{{ 'spaces.table.loadError' | transloco }}</span>
+          <button class="btn btn-secondary btn-sm" (click)="store.load()">{{ 'spaces.table.refreshButton' | transloco }}</button>
+        </div>
       } @else {
         <div class="table-wrapper">
           <table>
@@ -131,7 +141,7 @@ import { SpaceCreateDialogComponent } from './space-create-dialog.component';
               @for (s of sortedSpaces(); track s.id) {
                 @let bar = storageInfo(s);
                 <tr cdkDrag cdkDragLockAxis="y" [cdkDragDisabled]="sortMode() !== 'custom'">
-                  <td><span class="drag-handle" cdkDragHandle [class.drag-handle-disabled]="sortMode() !== 'custom'" [attr.title]="'spaces.table.dragHandleTitle' | transloco">⠿</span></td>
+                  <td><span class="drag-handle" cdkDragHandle [class.drag-handle-disabled]="sortMode() !== 'custom'" [attr.title]="'spaces.table.dragHandleTitle' | transloco"><ph-icon name="dots-three-vertical" [size]="16"/></span></td>
                   <td style="font-weight:500;">{{ s.label }}
                     @if (s.indexStatus === 'building') {
                       <span class="badge badge-blue" style="font-size:10px;margin-left:6px;font-weight:normal;" [attr.title]="'spaces.indexBuildingTitle' | transloco"><span class="spinner" style="width:8px;height:8px;border-width:1.5px;display:inline-block;vertical-align:middle;margin-right:3px;"></span>{{ 'spaces.indexBuilding' | transloco }}</span>
@@ -165,10 +175,15 @@ import { SpaceCreateDialogComponent } from './space-create-dialog.component';
                       }
                     } @else { <span style="color:var(--text-muted)">—</span> }
                   </td>
-                  <td><button class="icon-btn" [attr.title]="'spaces.table.configureTitle' | transloco" (click)="state.openSettings(s)">⚙</button></td>
+                  <td><button class="icon-btn" [attr.title]="'spaces.table.configureTitle' | transloco" (click)="state.openSettings(s)"><ph-icon name="gear" [size]="16"/></button></td>
                 </tr>
               } @empty {
-                <tr><td colspan="7"><div class="empty-state" style="padding:24px;"><h3>{{ 'spaces.table.empty' | transloco }}</h3></div></td></tr>
+                <tr><td colspan="7"><div class="empty-state" style="padding:28px 24px;">
+                  <div class="empty-state-icon"><ph-icon name="package" [size]="40"/></div>
+                  <h3>{{ 'spaces.table.empty' | transloco }}</h3>
+                  <p>{{ 'spaces.table.emptyBody' | transloco }}</p>
+                  <button class="btn btn-primary btn-sm" style="margin-top:10px;" (click)="showCreateDialog.set(true)">{{ 'spaces.table.createButton' | transloco }}</button>
+                </div></td></tr>
               }
             </tbody>
           </table>
@@ -188,6 +203,18 @@ export class SpacesComponent implements OnInit {
   readonly state = inject(SpaceSettingsState);
   /** Server data for the page (space list + networks). Public: the template binds to it. */
   readonly store = inject(SpacesStore);
+
+  /** Operator-first rollup atop the list: how many spaces, total storage in use, and how many need attention. */
+  spacesSummary = computed<SummaryItem[]>(() => {
+    const list = this.store.spaces();
+    const totalUsed = list.reduce((n, s) => n + (s.usageGiB ?? 0), 0);
+    const attention = list.filter(s => s.indexStatus === 'building' || s.indexStatus === 'failed').length;
+    return [
+      { label: this.transloco.translate('spaces.summary.count'), value: String(list.length) },
+      { label: this.transloco.translate('spaces.summary.storage'), value: `${totalUsed.toFixed(totalUsed < 10 ? 2 : 1)} GiB` },
+      { label: this.transloco.translate('spaces.summary.indexing'), value: String(attention), variant: attention ? 'warn' : 'ok' },
+    ];
+  });
 
   spaceSearch = signal('');
   sortMode = signal<'custom' | 'az' | 'za' | 'usage-desc' | 'usage-asc'>('custom');

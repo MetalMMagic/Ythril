@@ -27,6 +27,8 @@ export class SpacesStore {
   readonly spaces   = signal<Space[]>([]);
   readonly networks = signal<Network[]>([]);
   readonly loading  = signal(true);
+  /** Set when the spaces list fails to load, so the page can show an error state rather than a bare empty list. */
+  readonly error    = signal(false);
 
   /**
    * spaceId -> the networks that space belongs to.
@@ -57,9 +59,10 @@ export class SpacesStore {
 
   load(): void {
     this.loading.set(true);
+    this.error.set(false);
     this.spacesApi.listSpaces().subscribe({
       next: ({ spaces }) => { this.spaces.set(spaces); this.loading.set(false); },
-      error: () => this.loading.set(false),
+      error: () => { this.error.set(true); this.loading.set(false); },
     });
     this.networksApi.listNetworks().subscribe({
       next: ({ networks }) => this.networks.set(networks),

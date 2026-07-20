@@ -1001,6 +1001,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Spaces list gains an operator summary, a load-error state, and a first-run empty state (PR-U9,
+  part 2).** A **SummaryStrip** above the table rolls up the whole workspace at a glance: total **space count**,
+  **aggregate storage in use** (summed across every space, 2 decimals under 10 GiB), and an **Indexing**
+  attention count that turns **warn**-amber whenever any space is still building or has a failed vector index.
+  A failed list load now shows a proper **error state** with a Retry button instead of a bare empty table
+  (the store gained an `error` signal wired into `load()`), and the genuine **no-spaces** case shows an
+  illustrated empty state with a Create-space call to action rather than a lone heading. The row drag-handle
+  and the per-row Configure control move from raw glyphs (`⠿`, `⚙`) to registry **`ph-icon`**s for crisp
+  rendering. The list's sort/filter behaviour is unchanged and still pinned by the component's characterization
+  tests, which are extended to cover the new summary rollup and error state; verified end-to-end with
+  Playwright.
+
 - **Space Danger tab: Rename now requires type-to-confirm, and Wipe is a red-tier action (PR-U9, part 1).**
   Renaming a space changes its ID — which breaks existing token and MCP references — so **Rename** now uses
   the same type-the-current-ID confirmation as Wipe and Delete (previously a plain confirm). The **Wipe**

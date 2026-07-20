@@ -12,6 +12,7 @@ import { FormsModule } from '@angular/forms';
 import { throwError } from 'rxjs';
 import { BrainApi } from '../core/brain-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
+import { ModalDirective } from './modal.directive';
 
 type RecordType = 'entity' | 'edge' | 'memory' | 'chrono';
 
@@ -24,7 +25,7 @@ interface FieldEntry {
 @Component({
   selector: 'app-entry-popup',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe],
+  imports: [CommonModule, FormsModule, TranslocoPipe, ModalDirective],
   styles: [
     `
       .popup-backdrop {
@@ -217,8 +218,8 @@ interface FieldEntry {
   ],
   template: `
     @if (record) {
-      <div class="popup-backdrop" (click)="onBackdropClick($event)">
-        <div class="popup-modal" (click)="$event.stopPropagation()">
+      <div class="popup-backdrop">
+        <div class="popup-modal" [appModal]="recordId() || ('entryPopup.defaultTitle' | transloco)" (dismiss)="closed.emit()" (click)="$event.stopPropagation()">
           <!-- Header -->
           <div class="popup-header">
             <h2>
@@ -543,12 +544,6 @@ export class EntryPopupComponent {
         this.statusType.set('error');
       },
     });
-  }
-
-  onBackdropClick(e: MouseEvent): void {
-    if (e.target === e.currentTarget) {
-      this.closed.emit();
-    }
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────

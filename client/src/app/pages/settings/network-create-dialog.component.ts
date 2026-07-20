@@ -50,7 +50,7 @@ import { ModalDirective } from '../../shared/modal.directive';
     }
   `],
   template: `
-    <div class="dialog-backdrop" (click)="close.emit()">
+    <div class="dialog-backdrop">
       <div class="dialog" [appModal]="'networks.dialog.create.title' | transloco" (dismiss)="close.emit()" (click)="$event.stopPropagation()">
         <div class="dialog-header">
           <div class="card-title">{{ 'networks.dialog.create.title' | transloco }}</div>

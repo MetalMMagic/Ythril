@@ -19,6 +19,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { ModalDirective } from '../../shared/modal.directive';
 import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
 import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state.service';
 import { SchemaApi } from '../../core/schema-api.service';
@@ -58,7 +59,7 @@ const SCHEMA_MD_STYLES = `
 @Component({
   selector: 'app-space-schema-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [SPACE_DIALOG_STYLES, SCHEMA_MD_STYLES],
   template: `
@@ -358,8 +359,8 @@ const SCHEMA_MD_STYLES = `
 </ng-template>
 
 @if (importConflict(); as conflict) {
-  <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:320;" (click)="dismissImportConflict()">
-    <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:440px;max-width:96vw;" (click)="$event.stopPropagation()">
+  <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:320;">
+    <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:440px;max-width:96vw;" [appModal]="'spaces.schema.conflict.title' | transloco" (dismiss)="dismissImportConflict()" (click)="$event.stopPropagation()">
       <div style="font-weight:700;font-size:15px;margin-bottom:8px;">{{ 'spaces.schema.conflict.title' | transloco }}</div>
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;" [innerHTML]="'spaces.schema.conflict.body' | transloco: { name: conflict.name, kt: conflict.kt }"></p>
       <div style="display:flex;flex-direction:column;gap:10px;">
@@ -378,8 +379,8 @@ const SCHEMA_MD_STYLES = `
 }
 
 @if (showLibPickerDialog()) {
-  <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:310;" (click)="closeLibPicker()">
-    <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:560px;max-width:96vw;max-height:80vh;overflow-y:auto;" (click)="$event.stopPropagation()">
+  <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:310;">
+    <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:560px;max-width:96vw;max-height:80vh;overflow-y:auto;" [appModal]="'spaces.schema.libPicker.title' | transloco" appModalCloseOnBackdrop (dismiss)="closeLibPicker()" (click)="$event.stopPropagation()">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
         <strong>{{ 'spaces.schema.libPicker.title' | transloco }}</strong>
         <button class="icon-btn" type="button" [attr.aria-label]="'common.close' | transloco" (click)="closeLibPicker()"><ph-icon name="x" [size]="14"/></button>

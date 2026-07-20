@@ -40,7 +40,7 @@ import { TranslocoService } from '@jsverse/transloco';
   @if (state.dangerRenameError()) { <div class="alert alert-error" style="margin-top:8px;">{{ state.dangerRenameError() }}</div> }
 </div>
 
-<div class="dz-section">
+<div class="dz-section dz-red">
   <div class="dz-section-title">{{ 'spaces.dangerZone.wipeTitle' | transloco }}</div>
   <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">{{ 'spaces.dangerZone.wipeDescription' | transloco }}</p>
   @if (state.dangerWipeLoading()) {
@@ -48,7 +48,7 @@ import { TranslocoService } from '@jsverse/transloco';
       <span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> {{ 'spaces.dangerZone.loadingCounts' | transloco }}
     </div>
   } @else if (state.dangerWipeStats()) {
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:8px;margin-bottom:16px;">
       @for (col of state.wipeStatCols(); track col.label) {
         <div style="text-align:center;padding:10px 6px;background:var(--bg-elevated);border-radius:var(--radius-sm);">
           <div style="font-size:20px;font-weight:700;font-family:var(--font-mono);">{{ col.value }}</div>
@@ -105,10 +105,15 @@ export class SpaceDangerTabComponent {
     const target = this.state.settingsSpace();
     const newId  = this.state.dangerRenameId.trim();
     if (!target || !newId || newId === target.id) return;
+    // Renaming changes the space id, which breaks existing MCP/token references to it — so require the
+    // operator to type the CURRENT id to confirm (same type-to-confirm ritual as wipe/delete).
     const ok = await this.confirmDialog.confirm({
       title: this.transloco.translate('spaces.dangerZone.confirmRenameTitle'),
       message: this.transloco.translate('spaces.dangerZone.confirmRename', { label: target.label, id: target.id, newId }),
       confirmLabel: this.transloco.translate('spaces.dangerZone.renameButton'),
+      danger: true,
+      requireText: target.id,
+      requireTextLabel: this.transloco.translate('spaces.dangerZone.typeIdToConfirm', { id: target.id }),
     });
     if (!ok) return;
     this.state.dangerRenaming.set(true);

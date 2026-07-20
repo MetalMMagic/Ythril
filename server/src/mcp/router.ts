@@ -12,6 +12,7 @@ import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { resolveMemberSpaces } from '../spaces/proxy.js';
 import { ALL_TOOLS, TOOLS_BY_NAME, type ToolSchemas } from './tools/index.js';
+import { makeArgsValidator } from './validate-args.js';
 
 // Session map: sessionId → transport
 const transports = new Map<string, SSEServerTransport>();
@@ -55,7 +56,7 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
   const spacesLine = accessibleSpaces.length > 0
     ? accessibleSpaces.map(s => s.id + (s.label ? ` ("${s.label.replace(/[\x00-\x1f]/g, '').slice(0, 200)}")` : '')).join(', ')
     : '(none accessible)';
-  const instructions = `Ythril knowledge graph — global mode.\nAvailable spaces: ${spacesLine}.\nEach tool requires a "space" parameter (except recall and list_chrono, where it is optional and enables cross-space results when omitted; and list_peers/sync_now which are global). Call list_spaces for details.`;
+  const instructions = `Ythril knowledge graph — global mode.\nAvailable spaces: ${spacesLine}.\nEach tool requires a "space" parameter (except recall, list_chrono, and find_similar, where it is optional and enables cross-space results when omitted; and list_peers/sync_now which are global). Call list_spaces for details. Tool arguments are validated against each tool's inputSchema (from tools/list) — read it before calling.`;
 
   const server = new Server(
     { name: 'ythril', version: '0.1.0' },
@@ -70,6 +71,11 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
     requiredSpace: { type: 'string' as const, ...spaceEnumBase, description: 'Space ID to operate on. Use list_spaces to discover available spaces.' },
     optionalSpace: { type: 'string' as const, ...spaceEnumBase, description: 'Optional space ID. Omit to search across all accessible spaces.' },
   };
+
+  // Enforce each tool's advertised inputSchema on incoming args (not just the JSON-RPC envelope), so the
+  // schema tools/list publishes is the real contract. Built per connection because the `space` enum is
+  // token-scoped; handlers keep their semantic checks on top.
+  const argsValidator = makeArgsValidator(schemas);
 
   // Tools this token may see: read-only tokens lose mutating tools, non-admin
   // tokens lose instance-level tools. Both gates are re-enforced on dispatch.
@@ -145,6 +151,14 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
           content: [{ type: 'text' as const, text: `Unknown tool: ${name}` }],
           isError: true,
         };
+      }
+      // Enforce the advertised inputSchema before the handler runs — except partial-success tools
+      // (bulk_write), which report per-item errors in the result rather than rejecting the whole call.
+      if (!tool.skipSchemaValidation) {
+        const argErr = argsValidator.validate(tool, a);
+        if (argErr) {
+          return { content: [{ type: 'text' as const, text: `Error: ${argErr}` }], isError: true };
+        }
       }
       return await tool.handle({
         args: a,

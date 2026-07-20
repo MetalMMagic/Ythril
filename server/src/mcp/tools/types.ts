@@ -56,6 +56,14 @@ export interface ToolHandler {
   admin?: boolean;
   /** Requires a non-empty `space` argument. */
   spaceRequired?: boolean;
+  /**
+   * Skip the dispatcher's inputSchema arg-validation for this tool (it still appears in tools/list with
+   * its full schema for discovery). For partial-success tools like `bulk_write`, whose contract is to
+   * process the valid items and report per-item errors in the RESULT rather than reject the whole call —
+   * enforcing the item schemas up front would wrongly abort the batch. Such tools validate each item in
+   * their handler.
+   */
+  skipSchemaValidation?: boolean;
   inputSchema(s: ToolSchemas): Record<string, unknown>;
   handle(ctx: ToolContext): Promise<ToolResult>;
 }

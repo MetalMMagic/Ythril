@@ -1199,15 +1199,15 @@ describe('MCP recall � types filter restricts result set', () => {
     assert.ok(!result?.isError, `recall types=[memory,entity,edge] returned isError: ${JSON.stringify(result)}`);
   });
 
-  it('recall with unknown type strings is tolerated (filter ignores unknown types)', async (t) => {
+  it('recall with an unknown type string is rejected by inputSchema enforcement', async (t) => {
     if (!embeddingAvailable) return t.skip('Embedding server not configured in test stack � skipping');
-    // Server filters to valid RecallKnowledgeType values � unknown strings are dropped,
-    // resulting in an empty types filter (equivalent to no filter) or an empty search.
-    // Either way it must not crash.
+    // The dispatcher now validates args against each tool's inputSchema before the handler runs, so an
+    // out-of-enum `types` value is rejected (previously the handler silently dropped unknown types). Still
+    // a clean client error, never a server fault.
     const result = await session.callTool('recall', { space: 'general', query: entityName, topK: 5, types: ['__unknown__'] });
-    // Should be either a valid response or an error indicating no results � not a server fault
+    assert.ok(result?.isError, 'Out-of-enum types value must return isError');
     const text = result?.content?.[0]?.text ?? '';
-    assert.ok(typeof text === 'string', 'Response text must be a string regardless of types value');
+    assert.ok(typeof text === 'string', 'Response text must be a string');
   });
 
   it('recall_global with types=["entity"] does not return isError', async (t) => {

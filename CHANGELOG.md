@@ -975,6 +975,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING (MCP): tool arguments are now validated against each tool's `inputSchema` before the handler
+  runs.** Previously the dispatcher validated only the JSON-RPC envelope and each handler hand-checked its
+  own args, so `additionalProperties`, `enum`, numeric bounds, `pattern`, `maxItems`, and `propertyNames`
+  were advisory. An `ajv` pass in the MCP router now enforces the schema `tools/list` publishes, rejecting a
+  non-conforming call with a clear `isError` message (handlers keep their semantic checks — the query
+  operator allowlist, "at least one field", strict-linkage UUID rules — that JSON Schema can't express).
+  This is intentionally a hard cutover with no grace period (next release is major): calls that used to be
+  silently tolerated now fail — unknown/extra properties, out-of-range numbers that were previously clamped
+  (e.g. `find_similar.topK > 100`, `traverse.limit > 1000`), out-of-enum values (e.g. `recall.types` with an
+  unknown type, which used to be silently dropped) and malformed ids. `bulk_write` is exempt — its contract
+  is partial success (report per-item errors in the result, don't abort the batch), so it validates each
+  item in its handler; its full schema still appears in `tools/list` for discovery. The validator is built
+  per connection (the `space` `enum` is token-scoped) with a per-tool compiled cache. New standalone tests
+  cover the accept path and every breaking rejection. Adds `ajv` as a server dependency.
+
 - **MCP `tools/list` is now fully self-describing, and `find_similar` is harmonised with `recall`.** An agent
   can discover a tool's entire input contract from its schema alone: closed objects (`additionalProperties:
   false`) on all 31 tools, plus promoted-from-prose keywords — `enum`s, `minimum`/`maximum`/`default`,

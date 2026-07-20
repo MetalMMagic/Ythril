@@ -68,8 +68,10 @@ describe('MCP args enforcement — breaking rejections', () => {
   it('rejects a space the token cannot see (enum)', () => {
     rejects('get_stats', { space: 'secret' });
   });
-  it('rejects an over-cap bulk array (maxItems 500)', () => {
-    const memories = Array.from({ length: 501 }, () => ({ fact: 'x' }));
-    rejects('bulk_write', { space: 'general', memories });
+  it('bulk_write is EXEMPT from schema enforcement (partial-success: per-item errors, not call rejection)', () => {
+    // bulk_write's contract is to process valid items and report per-item errors in the result, so the
+    // dispatcher skips arg-validation for it (tool.skipSchemaValidation). Its rich schema stays in
+    // tools/list for discovery; the handler validates each item.
+    assert.equal(tool('bulk_write').skipSchemaValidation, true);
   });
 });

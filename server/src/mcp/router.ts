@@ -152,10 +152,13 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
           isError: true,
         };
       }
-      // Enforce the advertised inputSchema before the handler runs.
-      const argErr = argsValidator.validate(tool, a);
-      if (argErr) {
-        return { content: [{ type: 'text' as const, text: `Error: ${argErr}` }], isError: true };
+      // Enforce the advertised inputSchema before the handler runs — except partial-success tools
+      // (bulk_write), which report per-item errors in the result rather than rejecting the whole call.
+      if (!tool.skipSchemaValidation) {
+        const argErr = argsValidator.validate(tool, a);
+        if (argErr) {
+          return { content: [{ type: 'text' as const, text: `Error: ${argErr}` }], isError: true };
+        }
       }
       return await tool.handle({
         args: a,

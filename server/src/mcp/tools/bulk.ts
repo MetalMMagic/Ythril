@@ -18,6 +18,9 @@ export const bulk_writeTool: ToolHandler = {
   description: 'Batch upsert memories, entities, edges, and/or chrono entries in a single call. Processing order: memories → entities → edges → chrono, so edges referencing newly created entities within the same batch resolve correctly. Each array is optional and capped at 500 entries. Per-item validation errors are reported in `errors` without aborting the rest of the batch.',
   mutating: true,
   spaceRequired: true,
+  // Partial-success contract: invalid items are reported per-item in `errors`, not rejected up front.
+  // The rich item schemas below are for tools/list discovery; per-item validation is done in the handler.
+  skipSchemaValidation: true,
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {

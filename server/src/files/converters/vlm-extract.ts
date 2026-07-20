@@ -15,7 +15,7 @@
 import { log } from '../../util/log.js';
 import { getDocumentProcessingConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
 import { UnstructuredConverter, type UnstructuredResult } from './unstructured.js';
-import { renderPdfPages, isRenderAvailable } from './renderer.js';
+import { renderDocumentPages, isRenderAvailableFor } from './renderer.js';
 import { transcribePageImage, repairMarkdown } from './vlm-client.js';
 import { decideRoute, validateExtraction } from './extraction-policy.js';
 
@@ -33,7 +33,7 @@ export interface VlmExtractResult extends UnstructuredResult {
  *  the plain OCR converter directly. */
 export async function vlmExtractDocument(fileBytes: Buffer, fileName: string): Promise<VlmExtractResult> {
   const cfg = getDocumentProcessingConfig();
-  const render = await isRenderAvailable();
+  const render = await isRenderAvailableFor(fileName);
   // `repair` reuses the VLM (or a wired-in repairModel), so it's available whenever the VLM is; decideRoute
   // only actually schedules the repair stage for `max` mode.
   const route = decideRoute(cfg.mode, { ocr: true, render, vlm: !!cfg.vlmModel, repair: !!cfg.vlmModel, verify: false });
@@ -55,7 +55,8 @@ export async function vlmExtractDocument(fileBytes: Buffer, fileName: string): P
   // ── VLM path ────────────────────────────────────────────────────────────────
   const baseUrl = cfg.vlmBaseUrl || getMediaEmbeddingConfig().vision?.baseUrl || 'http://ollama:11434';
   try {
-    const { pages, truncated } = await renderPdfPages(fileBytes, {
+    const { pages, truncated } = await renderDocumentPages(fileBytes, {
+      fileName,
       dpi: cfg.renderDpi,
       maxPages: cfg.maxPages,
       timeoutMs: cfg.pageTimeoutMs * Math.min(cfg.maxPages, 20),

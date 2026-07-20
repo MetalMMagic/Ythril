@@ -1,0 +1,8 @@
+# Pinned for reproducible, auditable builds. All permissive licenses — NO copyleft (see LICENSES.md).
+# (LibreOffice is installed via apt in the Dockerfile, not pip — MPL/LGPL, invoked as a separate process.)
+# Bump deliberately (check changelogs / CVEs / license).
+pypdfium2==4.30.0        # Apache-2.0 / BSD-3-Clause (wraps PDFium, BSD-3-Clause)
+Pillow==11.0.0           # HPND (permissive)
+fastapi==0.115.6         # MIT
+uvicorn==0.34.0          # BSD-3-Clause
+python-multipart==0.0.20 # Apache-2.0

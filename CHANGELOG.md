@@ -107,6 +107,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Office documents can now reach the VLM extraction path, not just PDFs (F11-a).** Until now only PDFs
+  rasterized to page images for the vision-model document pipeline, so DOCX/EPUB/PPTX/… in a `vlm`/`auto`/
+  `max` extraction mode silently fell back to plain OCR — exactly the layout-heavy files that benefit most
+  from a VLM. A new **optional** first-party sidecar, **`doc-office`**, converts office docs to PDF with
+  headless **LibreOffice** and rasterizes them (reusing the PDFium path), so they flow through the existing
+  OCR-grounded VLM pipeline unchanged. It is **opt-in** (`docker compose --profile office up -d`) because
+  LibreOffice is heavy (≈ +1 GB); when it isn't running, office docs fall back to OCR exactly as before —
+  the default behaviour is unchanged. The render client now routes by file type (PDF → `doc-render`, office
+  → `doc-office`) and probes the right sidecar's health, so an office doc with the sidecar down falls back
+  cleanly without a wasted attempt. Guardrails carried over: internal-only network, non-root, read-only
+  rootfs + a tmpfs for the per-request LibreOffice profile, memory/CPU/PID caps, size + page caps, and a
+  conversion timeout — a LibreOffice hiccup degrades to OCR, never taking the worker down. LibreOffice is
+  MPL-2.0 / LGPL-3.0 (not AGPL) and runs as a separate process, so it carries no copyleft into Ythril.
+  Verified end-to-end (a real DOCX → LibreOffice → PDF → PNG page image); render-client routing unit-tested;
+  the heavy sidecar's integration test skips unless it's running.
+
 - **Token creation now explains each permission level (PR-U6).** Under the Read-only / Standard / Admin
   choices in the Create-token dialog, a live help line spells out exactly what the selected level can and
   cannot do — Read-only reads only (no create/modify/delete, no admin), Standard reads and writes data within

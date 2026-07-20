@@ -530,6 +530,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Brain tables: the Description cell now fills its column again.** `.desc-cell` set `display: -webkit-box`
+  (for the 3-line clamp) directly on the `<td>`, which overrode `display: table-cell` and dropped the cell
+  out of the table layout, so it no longer filled its column. The clamp moved to an inner wrapper; the `<td>`
+  stays a real table cell. Affects the Memories, Entities, Chrono, and File-meta tables.
+
 - **Entry forms now pre-fill properties for types linked to a schema-library entry.** When adding an
   entity/memory/etc. and selecting a type whose schema is a library reference (`$ref`), the properties
   section came up empty — `GET /api/spaces/:id/meta` returned the bare `{ $ref }` without the linked

@@ -193,7 +193,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                     <tr>
                       <td style="max-width:300px; white-space:pre-wrap; word-break:break-word;">{{ mem.fact }}</td>
                       <td class="desc-cell" style="max-width:180px;" [title]="mem.description ?? ''">
-                        {{ mem.description || '—' }}
+                        <div class="desc-clamp">{{ mem.description || '—' }}</div>
                       </td>
                       <td style="font-size:11px;">
                         @for (tag of (mem.tags ?? []); track tag) { <span class="tag tag-clickable" (click)="applyFilter('tag', tag)">{{ tag }}</span> }

@@ -172,7 +172,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                             }
                           </div>
                         </td>
-                        <td class="desc-cell" style="max-width:200px;" [title]="fm.description ?? ''">{{ fm.description || '–' }}</td>
+                        <td class="desc-cell" style="max-width:200px;" [title]="fm.description ?? ''"><div class="desc-clamp">{{ fm.description || '–' }}</div></td>
                         <td>
                           <div class="chip-list">
                             @for (tag of fm.tags; track tag) {

@@ -212,7 +212,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                     <tr>
                       <td>{{ entry.title }}</td>
                       <td class="desc-cell" style="max-width:160px;" [title]="entry.description ?? ''">
-                        {{ entry.description || '—' }}
+                        <div class="desc-clamp">{{ entry.description || '—' }}</div>
                       </td>
                       <td><span class="badge badge-blue">{{ entry.type }}</span></td>
                       <td><span class="badge" [class.badge-purple]="entry.status === 'upcoming'" [class.badge-blue]="entry.status === 'active'" style="font-size:11px">{{ entry.status }}</span></td>

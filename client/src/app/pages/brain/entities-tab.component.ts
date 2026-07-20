@@ -165,7 +165,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                         @if (ent.type) { <span class="badge badge-purple">{{ ent.type }}</span> }
                       </td>
                       <td class="desc-cell" style="max-width:200px;" [title]="ent.description ?? ''">
-                        {{ ent.description || '—' }}
+                        <div class="desc-clamp">{{ ent.description || '—' }}</div>
                       </td>
                       <td style="font-size:11px;">
                         @for (tag of (ent.tags ?? []); track tag) { <span class="tag">{{ tag }}</span> }

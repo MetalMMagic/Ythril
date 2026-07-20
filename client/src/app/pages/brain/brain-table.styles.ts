@@ -95,9 +95,13 @@ export const BRAIN_RECORD_TABLE_STYLES = `
       color: var(--error);
     }
     .inline-confirm button { font-size: 11px; }
+    /* The td stays a real table cell so it fills its column; the 3-line clamp lives on an inner box
+       (setting display:-webkit-box on the td itself drops it out of table layout). */
     .desc-cell {
       font-size: 12px;
       color: var(--text-muted);
+    }
+    .desc-cell .desc-clamp {
       overflow: hidden;
       display: -webkit-box;
       -webkit-line-clamp: 3;

@@ -364,11 +364,11 @@ Click **Create New Space**. Fill in:
 
 Click the gear icon on any space row to open its settings panel. Changes save and close automatically.
 
-**General tab:** Update the display name, purpose, usage notes for AI assistants, storage quota, and auto-delete window.
+**Settings tab:** Update the display name, purpose, usage notes for AI assistants, storage quota, and auto-delete window — grouped into **Identity**, **Purpose**, and **Limits** cards. A blank storage quota or auto-delete window shows an **Unlimited** / **No auto-delete** pill so the default is unmistakable.
 
 - **Auto-delete records after (days)** — an optional space-wide expiry. Every record (memory, entity, edge, chrono entry) created or updated in the space is deleted automatically this many days later. Leave it blank or `0` to keep records forever. Individual writes can override the default (or opt out) with their own per-record TTL via the API. Deletion propagates over sync, so an expired record won't come back from a connected peer.
 
-**Schema tab:** Define what data this space accepts. Types are listed on the left; click one to edit its rules in a stable panel on the right (you don't lose your place editing a type or property, and several property editors can be open at once). A **Validation** pill in the header shows the space's current mode at a glance.
+**Schema tab:** Define what data this space accepts. Types are listed on the left; click one to edit its rules in a stable panel on the right (you don't lose your place editing a type or property, and several property editors can be open at once). The **Validation mode** and **Strict linkage** controls sit in the header — validation posture governs the schemas, so it lives here beside them.
 
 - **Validation mode** — `off` means anything goes; `warn` lets writes through but flags violations; `strict` blocks invalid writes entirely.
 - **Strict linkage** — when on, references between items must be valid IDs and deletion of referenced items is blocked.

@@ -1009,6 +1009,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Space → Settings tab regrouped into cards, and the validation controls move to the Schema tab
+  (PR-U9, part 3).** The Settings tab's fields are grouped into three **SettingsCards** — **Identity** (display
+  name), **Purpose** (purpose + usage notes), and **Limits** (storage quota + record TTL, side by side); a
+  blank quota or TTL now surfaces an **"Unlimited"** / **"No auto-delete"** pill instead of only hint text. The
+  **validation mode** select and **strict linkage** checkbox move OUT of the Settings tab and onto the **Schema
+  tab**, where validation posture belongs — beside the schemas it governs; the read-only posture pill that used
+  to sit in the Schema header becomes the editable control. State is unchanged (shared `SpaceSettingsState`), so
+  the footer save round-trips exactly as before — verified end-to-end (set strict on the Schema tab → Save →
+  reopen → still strict). Characterization tests landed first (#319) and were updated to the new arrangement.
+
 - **Settings → Spaces list gains an operator summary, a load-error state, and a first-run empty state (PR-U9,
   part 2).** A **SummaryStrip** above the table rolls up the whole workspace at a glance: total **space count**,
   **aggregate storage in use** (summed across every space, 2 decimals under 10 GiB), and an **Indexing**

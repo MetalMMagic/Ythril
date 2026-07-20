@@ -274,7 +274,8 @@ const STAGES = [
 export class ModelsComponent implements OnInit {
   private readonly http = inject(HttpClient);
 
-  readonly MODES: DocMode[] = ['ocr', 'vlm', 'auto', 'max'];
+  // Button order: Auto first (it's the default), then OCR · VLM · Max ascending in capability.
+  readonly MODES: DocMode[] = ['auto', 'ocr', 'vlm', 'max'];
   readonly STAGES = STAGES;
 
   loading = signal(true);

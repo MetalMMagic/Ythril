@@ -1063,6 +1063,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Models: the document-extraction mode buttons now read Auto · OCR · VLM · Max.** The picker
+  led with `OCR`; it now leads with **Auto** (the default mode), followed by OCR, VLM, and Max in ascending
+  capability — so the default is first and the order tells the capability story. Button-order only; behaviour
+  and the underlying modes are unchanged.
+
 - **The Ythril brand mark now appears on the sign-in and setup screens too, from one shared component.** The
   orb-with-glowing-Y mark stood only in the top-bar wordmark; the login, first-run setup, and OIDC-callback
   screens still showed a plain-text "ythril" with an old accent dot. A new shared `BrandLogoComponent`

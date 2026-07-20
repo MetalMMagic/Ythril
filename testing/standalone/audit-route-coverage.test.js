@@ -57,6 +57,9 @@ const EXEMPT = new Map([
   ['/api/theme', 'public, unauthenticated theme endpoint'],
   ['/api/metrics', 'Prometheus scrape endpoint'],
   ['/mcp', 'MCP has its own tool-level audit path'],
+  // Read-only diagnostic: lists a provider endpoint's models to report reachability. POST only because it
+  // takes a target in the body; it mutates no config or state (the media-config PATCH beside it IS audited).
+  ['/api/admin/media-config/test-connection', 'read-only connectivity probe — lists models, mutates nothing'],
 ]);
 
 let resolveOperation;

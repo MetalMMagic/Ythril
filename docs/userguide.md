@@ -368,7 +368,7 @@ Click the gear icon on any space row to open its settings panel. Changes save an
 
 - **Auto-delete records after (days)** — an optional space-wide expiry. Every record (memory, entity, edge, chrono entry) created or updated in the space is deleted automatically this many days later. Leave it blank or `0` to keep records forever. Individual writes can override the default (or opt out) with their own per-record TTL via the API. Deletion propagates over sync, so an expired record won't come back from a connected peer.
 
-**Schema tab:** Define what data this space accepts. Types are listed on the left; click one to edit its rules in a stable panel on the right (you don't lose your place editing a type or property, and several property editors can be open at once). The **Validation mode** and **Strict linkage** controls sit in the header — validation posture governs the schemas, so it lives here beside them.
+**Schema tab:** Define what data this space accepts. A **Schema validation** bar at the very top holds the space-wide **Validation mode** and **Strict linkage** controls — these govern *every* type in the space, not the collection you happen to be viewing. Below it, the entity / edge / memory / chrono collections each list their types on the left; click one to edit its rules in a stable panel on the right (you don't lose your place editing a type or property, and several property editors can be open at once).
 
 - **Validation mode** — `off` means anything goes; `warn` lets writes through but flags violations; `strict` blocks invalid writes entirely.
 - **Strict linkage** — when on, references between items must be valid IDs and deletion of referenced items is blocked.
@@ -415,7 +415,7 @@ Tokens can also be **space-scoped** — restricted to a specific list of spaces.
 
 ### Creating a token
 
-Click **Create Token**. Enter a name, choose a permission level, optionally set an expiry date, and optionally restrict it to specific spaces. Click **Create** — the token value is shown **once**. Copy it immediately.
+Click **Create Token**. Enter a name, choose a permission level, optionally set an expiry date, and optionally restrict it to specific spaces. A help line under the permission choices spells out exactly what the selected level can and cannot do (Read-only reads only; Standard reads and writes data; Admin adds token/space/config management). Click **Create** — the token value is shown **once**. Copy it immediately. The tokens list shows each token's permission level and space scope at any time.
 
 This dialog has no "Library Access" toggle. Library Access tokens (for sharing your schema library with other instances) are created separately, from the **Schema Library** page's own **Create token** dialog — see [Schema Library](#schema-library).
 

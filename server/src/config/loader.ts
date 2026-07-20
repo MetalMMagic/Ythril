@@ -434,11 +434,31 @@ export function getEmbeddingConfig() {
   const cfg = getConfig();
   // No baseUrl in the default = use the bundled local ONNX model.
   // Set baseUrl in config.json to override with an HTTP endpoint (e.g. Ollama).
-  return cfg.embedding ?? {
+  const base = cfg.embedding ?? {
     model: 'nomic-ai/nomic-embed-text-v1.5',
     dimensions: 768,
     similarity: 'cosine' as const,
   };
+  // API key: env > secrets.json > legacy inline config. Never surfaced from config.json.
+  let embApiKey: string | undefined = process.env['EMBEDDING_API_KEY'];
+  if (!embApiKey) {
+    try { embApiKey = (getSecrets() as { embedding?: { apiKey?: string } }).embedding?.apiKey; } catch { /* pre-setup */ }
+  }
+  // Env pins ("fix-set" for managed infra) win over config; each pinned field is reported in
+  // lockedByInfra (see getMediaEmbeddingConfig) so the UI renders it read-only.
+  return {
+    ...base,
+    baseUrl: process.env['EMBEDDING_URL'] ?? base.baseUrl,
+    model: process.env['EMBEDDING_MODEL'] ?? base.model,
+    dimensions: process.env['EMBEDDING_DIMENSIONS'] ? Number(process.env['EMBEDDING_DIMENSIONS']) : base.dimensions,
+    provider: (process.env['EMBEDDING_PROVIDER'] as 'local' | 'external' | undefined) ?? base.provider ?? 'local',
+    apiKey: embApiKey ?? base.apiKey,
+  };
+}
+
+/** The external embedding endpoint's API key, resolved (env > secrets). Never in config.json. */
+export function getEmbeddingApiKey(): string | undefined {
+  return getEmbeddingConfig().apiKey;
 }
 
 export function getMongoUri(): string {
@@ -595,6 +615,12 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   if (process.env['DOC_ASSIST_URL'] || process.env['DOC_ASSIST_MODEL'] || process.env['DOC_ASSIST_API_KEY']) {
     locked.push('documentProcessing.assistModel');
   }
+  // Text-embedding env pins ("fix-set" for managed infra) → the matching field renders read-only in the UI.
+  if (process.env['EMBEDDING_PROVIDER']) locked.push('embedding.provider');
+  if (process.env['EMBEDDING_URL']) locked.push('embedding.baseUrl');
+  if (process.env['EMBEDDING_MODEL']) locked.push('embedding.model');
+  if (process.env['EMBEDDING_DIMENSIONS']) locked.push('embedding.dimensions');
+  if (process.env['EMBEDDING_API_KEY']) locked.push('embedding.apiKey');
 
   return {
     enabled,

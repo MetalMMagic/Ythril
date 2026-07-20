@@ -117,6 +117,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Text-embedding provider is now configurable on Settings → Models, with a `local`/`external` toggle and an
+  SSRF-guarded external path (SSRF follow-up part 2).** The embedding endpoint (the model that powers semantic
+  recall) was config-file-only; it now has a **Text embedding** card — provider, endpoint, model, dimensions,
+  similarity, and API key. `provider: 'external'` routes the runtime embedding call through `ssrfSafeFetch`
+  (closing the same raw-fetch gap as the media providers); `local` keeps a plain fetch for the bundled ONNX /
+  an internal endpoint. Changing the **model / dimensions / similarity re-indexes every vector**, so the save
+  requires an explicit "I understand this re-indexes and takes a while" confirmation; the existing reindex flow
+  does the work. Honors the infra controls like the rest of the page — `mediaEmbedding.infraManaged` locks the
+  whole thing, and `EMBEDDING_PROVIDER`/`EMBEDDING_URL`/`EMBEDDING_MODEL`/`EMBEDDING_DIMENSIONS`/`EMBEDDING_API_KEY`
+  pin individual fields read-only. The API key lives in `secrets.json` (masked). Also a **Test connection**
+  button for the embedding endpoint.
+
 - **The OCR-sidecar timeout is now configurable (F11).** It was a hardcoded 2-minute ceiling; it's now
   `documentProcessing.ocrTimeoutMs` (env `DOC_OCR_TIMEOUT_MS`, editable under Settings → Models → Advanced),
   default `120000`. It applies to **all** extraction modes — OCR is the sole engine in `ocr` mode and the

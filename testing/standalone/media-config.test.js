@@ -46,6 +46,8 @@ describe('getMediaEmbeddingConfig', () => {
   let getMediaEmbeddingConfig;
   let getDocumentProcessingConfig;
   let getDocAssistApiKey;
+  let getEmbeddingConfig;
+  let getEmbeddingApiKey;
 
   const ENV_KEYS = [
     'MEDIA_EMBEDDING_ENABLED', 'VISION_PROVIDER', 'STT_PROVIDER',
@@ -57,6 +59,7 @@ describe('getMediaEmbeddingConfig', () => {
     'DOC_VERIFY_MODEL', 'DOC_VERIFY_URL',
     'YTHRIL_MEDIA_INFRA_MANAGED',
     'DOC_OCR_TIMEOUT_MS',
+    'EMBEDDING_PROVIDER', 'EMBEDDING_URL', 'EMBEDDING_MODEL', 'EMBEDDING_DIMENSIONS', 'EMBEDDING_API_KEY',
   ];
 
   function clearEnv() {
@@ -72,6 +75,8 @@ describe('getMediaEmbeddingConfig', () => {
     getMediaEmbeddingConfig = mod.getMediaEmbeddingConfig;
     getDocumentProcessingConfig = mod.getDocumentProcessingConfig;
     getDocAssistApiKey = mod.getDocAssistApiKey;
+    getEmbeddingConfig = mod.getEmbeddingConfig;
+    getEmbeddingApiKey = mod.getEmbeddingApiKey;
     _reloadConfig = mod.reloadConfig;
     // Must call loadConfig() once to initialise _config before any test runs.
     mod.loadConfig();
@@ -353,6 +358,47 @@ describe('getMediaEmbeddingConfig', () => {
       process.env['DOC_OCR_TIMEOUT_MS'] = '450000';
       writeConfig({ mediaEmbedding: { documentProcessing: { ocrTimeoutMs: 300_000 } } });
       assert.equal(getDocumentProcessingConfig().ocrTimeoutMs, 450_000);
+    });
+  });
+
+  // ── text embedding provider (SSRF follow-up part 2) ──────────────────────────
+  describe('embedding config', () => {
+    it('defaults to provider=local with no apiKey', () => {
+      writeConfig();
+      const e = getEmbeddingConfig();
+      assert.equal(e.provider, 'local');
+      assert.equal(e.apiKey, undefined);
+      assert.equal(getEmbeddingApiKey(), undefined);
+    });
+
+    it('resolves provider/baseUrl/model/dimensions from config.json', () => {
+      writeConfig({ embedding: { provider: 'external', baseUrl: 'https://emb.example.com', model: 'text-embed-3', dimensions: 1536, similarity: 'cosine' } });
+      const e = getEmbeddingConfig();
+      assert.equal(e.provider, 'external');
+      assert.equal(e.baseUrl, 'https://emb.example.com');
+      assert.equal(e.dimensions, 1536);
+    });
+
+    it('EMBEDDING_* env pins override config and appear in lockedByInfra', () => {
+      process.env['EMBEDDING_PROVIDER'] = 'external';
+      process.env['EMBEDDING_URL'] = 'https://env-emb.example.com';
+      process.env['EMBEDDING_MODEL'] = 'env-model';
+      writeConfig({ embedding: { provider: 'local', baseUrl: 'https://cfg.example.com', model: 'cfg-model', dimensions: 768, similarity: 'cosine' } });
+      const e = getEmbeddingConfig();
+      assert.equal(e.provider, 'external');
+      assert.equal(e.baseUrl, 'https://env-emb.example.com');
+      assert.equal(e.model, 'env-model');
+      const locked = getMediaEmbeddingConfig().lockedByInfra ?? [];
+      assert.ok(locked.includes('embedding.provider'));
+      assert.ok(locked.includes('embedding.baseUrl'));
+      assert.ok(locked.includes('embedding.model'));
+    });
+
+    it('EMBEDDING_API_KEY resolves via getEmbeddingApiKey and locks the field', () => {
+      process.env['EMBEDDING_API_KEY'] = 'sk-emb-env';
+      writeConfig();
+      assert.equal(getEmbeddingApiKey(), 'sk-emb-env');
+      assert.ok((getMediaEmbeddingConfig().lockedByInfra ?? []).includes('embedding.apiKey'));
     });
   });
 

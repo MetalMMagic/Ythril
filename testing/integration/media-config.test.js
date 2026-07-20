@@ -144,6 +144,44 @@ describe('Media config — test connection (F11-PR5b)', () => {
   });
 });
 
+// ── Text embedding config on the Models surface (SSRF follow-up part 2) ────────
+
+describe('Media config — text embedding', () => {
+  before(async () => { tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim(); });
+  after(async () => {
+    // Restore to the bundled local model so no external/broken endpoint leaks into other suites.
+    await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { embedding: { provider: 'local', baseUrl: null } }).catch(() => {});
+  });
+
+  it('GET surfaces the embedding block', async () => {
+    const r = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
+    assert.equal(r.status, 200);
+    assert.ok(r.body?.embedding, 'embedding block should be present');
+    assert.ok(typeof r.body.embedding.model === 'string');
+  });
+
+  it('rejects an external embedding endpoint that is not a public URL (SSRF)', async () => {
+    const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
+      { embedding: { provider: 'external', baseUrl: 'http://127.0.0.1:9999' } });
+    assert.equal(r.status, 400, `expected SSRF rejection, got ${r.status}: ${JSON.stringify(r.body)}`);
+  });
+
+  it('a provider-only change (no model/dims change) round-trips without reindex', async () => {
+    const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { embedding: { provider: 'local' } });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body?.config?.embedding?.provider, 'local');
+  });
+
+  it('the embedding API key is masked in GET, never returned plaintext', async () => {
+    const set = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { embedding: { provider: 'local', apiKey: 'sk-emb-secret' } });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    const reread = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
+    const key = reread.body?.embedding?.apiKey;
+    assert.ok(!key || !key.includes('sk-emb-secret'), `key must be masked, got: ${key}`);
+    await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { embedding: { provider: 'local', apiKey: null } }).catch(() => {});
+  });
+});
+
 // ── F11-b — external assist model (hosted egress) ─────────────────────────────
 
 describe('Media config — external assist model (F11-b)', () => {

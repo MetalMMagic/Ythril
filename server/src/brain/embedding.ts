@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { getDataRoot, getEmbeddingConfig } from '../config/loader.js';
+import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
 import { embeddingDurationSeconds, embeddingQueueDepth } from '../metrics/registry.js';
 
@@ -48,11 +49,18 @@ async function embedViaHttp(
   cfg: ReturnType<typeof getEmbeddingConfig>,
 ): Promise<EmbeddingResult> {
   const url = `${cfg.baseUrl!.replace(/\/$/, '')}/v1/embeddings`;
+  // External endpoints go through the SSRF-guarded fetch (DNS-resolve + IP-pin + redirect re-validation);
+  // a local/trusted endpoint (e.g. on-cluster Ollama, private address) uses a plain fetch, which the guard
+  // would rightly reject. Mirrors the vision/STT provider split (SSRF follow-up part 2).
+  const doFetch = cfg.provider === 'external' ? (ssrfSafeFetch as unknown as typeof fetch) : fetch;
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await doFetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(cfg.apiKey ? { Authorization: `Bearer ${cfg.apiKey}` } : {}),
+      },
       body: JSON.stringify({ model: cfg.model, input: text }),
       signal: AbortSignal.timeout(30_000),
     });

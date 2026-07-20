@@ -15,7 +15,16 @@ interface TestResult {
   ok: boolean; reachable: boolean; status?: number; models?: string[];
   modelPresent?: boolean; detail?: string; latencyMs: number;
 }
-type TestTarget = 'vision' | 'stt' | 'assist';
+type TestTarget = 'vision' | 'stt' | 'assist' | 'embedding';
+
+/** Text-embedding config (top-level config.embedding, surfaced on this page). Changing model/dimensions/
+ *  similarity re-indexes every vector — the save gates those behind an explicit confirmation. */
+interface EmbeddingCfg {
+  provider?: 'local' | 'external';
+  baseUrl?: string | null; model?: string; dimensions?: number;
+  similarity?: 'cosine' | 'dotProduct' | 'euclidean';
+  apiKey?: string;
+}
 
 type DocMode = 'ocr' | 'vlm' | 'auto' | 'max';
 type DocAssistUse = 'repair';
@@ -39,6 +48,7 @@ interface MediaCfg {
   sttProvider?: 'local' | 'external';
   vision?: ProviderCfg;
   stt?: ProviderCfg;
+  embedding?: EmbeddingCfg;
   documentProcessing?: DocProcCfg;
   workerConcurrency?: number;
   fallbackToExternal?: boolean;
@@ -201,6 +211,55 @@ const STAGES = [
       </section>
 
       <div class="cards">
+        <!-- Text embedding -->
+        <app-settings-card class="span-all" icon="database" heading="Text embedding — semantic recall"
+          purpose="Turns text into the vectors that power semantic search across every space.">
+          <app-status-pill pill [variant]="embedding.provider === 'external' ? 'active' : 'ok'">
+            {{ embedding.provider === 'external' ? 'External' : (embedding.baseUrl ? 'Local · HTTP' : 'Bundled · in-process') }}
+          </app-status-pill>
+          <div class="field">
+            <label>Provider @if (embeddingLocked('provider')) { <app-status-pill variant="env">env</app-status-pill> }</label>
+            <select [(ngModel)]="embedding.provider" [disabled]="embeddingLocked('provider')">
+              <option value="local">Local / trusted (bundled ONNX, or an internal endpoint)</option>
+              <option value="external">External (public OpenAI-compatible endpoint)</option>
+            </select>
+          </div>
+          <div class="grid2">
+            <div class="field"><label>Endpoint <span style="font-size:11px;color:var(--text-muted);font-weight:normal;">(blank = bundled in-process model)</span></label><input data-mono type="url" [(ngModel)]="embedding.baseUrl" [disabled]="embeddingLocked('baseUrl')" placeholder="http://ollama:11434 or https://api.example.com" /></div>
+            <div class="field"><label>Model</label><input data-mono [(ngModel)]="embedding.model" [disabled]="embeddingLocked('model')" placeholder="nomic-embed-text" /></div>
+          </div>
+          <div class="grid2">
+            <div class="field"><label>Dimensions</label><input type="number" min="1" max="16384" [(ngModel)]="embedding.dimensions" [disabled]="embeddingLocked('dimensions')" /></div>
+            <div class="field"><label>Similarity</label>
+              <select [(ngModel)]="embedding.similarity" [disabled]="embeddingLocked('model')">
+                <option value="cosine">cosine</option>
+                <option value="dotProduct">dotProduct</option>
+                <option value="euclidean">euclidean</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label>API key (external only)</label>
+            <input type="password" [(ngModel)]="embeddingApiKeyInput" [disabled]="embeddingLocked('apiKey')"
+              [placeholder]="embedding.apiKey ? 'Leave blank to keep current' : 'Bearer token (optional)'" />
+          </div>
+          @if (embeddingNeedsReindex()) {
+            <div class="runline warn" style="margin-top:4px;">
+              <ph-icon name="warning" [size]="15"/>
+              <span>Changing the <b>model, dimensions, or similarity</b> re-embeds <b>every vector in every space</b>. You'll confirm on save — recall is degraded until the reindex finishes.</span>
+            </div>
+          }
+          <div class="testrow">
+            <button class="btn btn-sm btn-secondary" type="button" (click)="testConnection('embedding')" [disabled]="testOf('embedding')?.loading || !embedding.baseUrl">
+              {{ testOf('embedding')?.loading ? 'Testing…' : 'Test connection' }}
+            </button>
+            @if (testOf('embedding')?.res; as r) {
+              <app-status-pill [variant]="testPillVariant(r)" [dot]="true">{{ testPillLabel(r) }}</app-status-pill>
+              <span class="hint">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            }
+          </div>
+        </app-settings-card>
+
         <!-- Vision -->
         <app-settings-card icon="image" heading="Vision — image captioning" purpose="Describes uploaded images and indexes faces for search.">
           <app-status-pill pill [variant]="form.enabled ? 'active' : 'off'">{{ form.visionProvider === 'external' ? 'External' : 'Local · Ollama' }}</app-status-pill>
@@ -385,6 +444,16 @@ export class ModelsComponent implements OnInit {
   visionApiKeyInput = '';
   sttApiKeyInput = '';
   assistApiKeyInput = '';
+  embeddingApiKeyInput = '';
+  // Serialized model|dimensions|similarity at load — changing any of these re-indexes every vector.
+  private embeddingReindexBaseline = '';
+
+  // ── Text embedding ──
+  get embedding(): EmbeddingCfg { return (this.form.embedding ??= {}); }
+  embeddingLocked(field: string): boolean { return this.isLocked(`embedding.${field}`); }
+  private reindexKey(): string { return `${this.embedding.model ?? ''}|${this.embedding.dimensions ?? ''}|${this.embedding.similarity ?? ''}`; }
+  /** True when a reindex-triggering field (model/dimensions/similarity) differs from what was loaded. */
+  embeddingNeedsReindex(): boolean { return this.reindexKey() !== this.embeddingReindexBaseline; }
 
   // ── F11-PR5b: test connection ──
   testState = signal<Partial<Record<TestTarget, { loading?: boolean; res?: TestResult }>>>({});
@@ -440,7 +509,10 @@ export class ModelsComponent implements OnInit {
         this.form = { vision: {}, stt: {}, ...cfg, documentProcessing: dp };
         this.form.vision = { ...cfg.vision, apiKey: undefined };
         this.form.stt = { ...cfg.stt, apiKey: undefined };
+        this.form.embedding = { provider: 'local', ...cfg.embedding };
+        this.embeddingReindexBaseline = this.reindexKey();
         this.assistApiKeyInput = '';
+        this.embeddingApiKeyInput = '';
         this.docCfgSig.set(dp);
         this.docMode.set(dp.mode ?? 'ocr');
         this.loading.set(false);
@@ -505,6 +577,19 @@ export class ModelsComponent implements OnInit {
       assist.acknowledgedHost = host;
     }
 
+    // Reindex confirmation: changing the embedding model / dimensions / similarity re-embeds EVERY vector in
+    // every space. Make the operator acknowledge it — and that it takes a while — before saving.
+    if (this.embeddingNeedsReindex()) {
+      const ok = await this.confirmDialog.confirm({
+        title: 'Change the embedding model — re-index everything?',
+        message: `Changing the embedding model, dimensions, or similarity means every stored vector in every space must be RE-EMBEDDED. Recall is degraded until it finishes, and on a large instance this can take a long while. Only continue if you understand what you're doing.`,
+        confirmLabel: 'Yes, re-index — I understand',
+        cancelLabel: 'Cancel',
+        danger: true,
+      });
+      if (!ok) return;
+    }
+
     this.saving.set(true);
     this.saveError.set('');
     this.saveOk.set('');
@@ -523,6 +608,14 @@ export class ModelsComponent implements OnInit {
       sttProvider: this.form.sttProvider,
       vision: { baseUrl: this.form.vision?.baseUrl, model: this.form.vision?.model, ...(this.visionApiKeyInput ? { apiKey: this.visionApiKeyInput } : {}) },
       stt: { baseUrl: this.form.stt?.baseUrl, model: this.form.stt?.model, ...(this.sttApiKeyInput ? { apiKey: this.sttApiKeyInput } : {}) },
+      embedding: {
+        provider: this.embedding.provider,
+        baseUrl: this.embedding.baseUrl || null,
+        model: this.embedding.model,
+        dimensions: this.embedding.dimensions,
+        similarity: this.embedding.similarity,
+        ...(this.embeddingApiKeyInput ? { apiKey: this.embeddingApiKeyInput } : {}),
+      },
       // Only the PATCH-writable doc fields (vlmModel/repairModel/URLs are env-only, never sent).
       documentProcessing: {
         mode: dp.mode, renderDpi: dp.renderDpi, maxPages: dp.maxPages, pageTimeoutMs: dp.pageTimeoutMs, concurrency: dp.concurrency, ocrTimeoutMs: dp.ocrTimeoutMs,
@@ -539,6 +632,8 @@ export class ModelsComponent implements OnInit {
         this.visionApiKeyInput = '';
         this.sttApiKeyInput = '';
         this.assistApiKeyInput = '';
+        this.embeddingApiKeyInput = '';
+        this.embeddingReindexBaseline = this.reindexKey(); // re-baseline so a second save won't re-prompt
         this.saving.set(false);
         setTimeout(() => this.saveOk.set(''), 3000);
       },

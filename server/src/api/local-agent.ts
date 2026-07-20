@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { requireAdminMfa } from '../auth/middleware.js';
 import { log } from '../util/log.js';
+import { isLoopbackHost, LOCAL_AGENT_DEFAULT_URL } from './local-agent-url.js';
 
 export const localAgentRouter = Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,21 +48,13 @@ export function isLocalAgentFeatureEnabled(): boolean {
   return envTrue('YTHRIL_LOCAL_AGENT_ENABLED') || runtimeLocalAgentEnabled;
 }
 
-function isLoopbackHost(host: string): boolean {
-  // Only accept numeric loopback addresses. 'localhost' is intentionally excluded
-  // because it is resolved via DNS/hosts and could be remapped to a non-loopback
-  // address on a compromised system.
-  const h = host.toLowerCase();
-  return h === '127.0.0.1' || h === '::1';
-}
-
 function getAgentConfig(): { baseUrl: string | null; token: string | null } {
   if (!isLocalAgentFeatureEnabled()) {
     return { baseUrl: null, token: null };
   }
 
   // Use || not ?? so an empty-string env var falls back to the default loopback URL.
-  const raw = process.env['YTHRIL_LOCAL_AGENT_URL']?.trim() || 'http://127.0.0.1:38123';
+  const raw = process.env['YTHRIL_LOCAL_AGENT_URL']?.trim() || LOCAL_AGENT_DEFAULT_URL;
   let token = process.env['YTHRIL_LOCAL_AGENT_TOKEN']?.trim() || null;
   // Prefer runtime token (pre-generated at spawn); fall back to token file.
   if (!token) token = runtimeConnectorToken;

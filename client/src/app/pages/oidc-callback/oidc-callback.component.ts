@@ -3,6 +3,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { AuthService, OIDC_SILENT_STATE_PREFIX } from '../../core/auth.service';
 import { HttpClient } from '@angular/common/http';
 import { CommonModule } from '@angular/common';
+import { BrandLogoComponent } from '../../shared/brand-logo.component';
 import { TranslocoPipe } from '@jsverse/transloco';
 
 /**
@@ -22,13 +23,12 @@ import { TranslocoPipe } from '@jsverse/transloco';
 @Component({
   selector: 'app-oidc-callback',
   standalone: true,
-  imports: [CommonModule, TranslocoPipe],
+  imports: [CommonModule, TranslocoPipe, BrandLogoComponent],
   template: `
     <div class="auth-page">
       <div class="auth-card">
         <div class="auth-logo">
-          <span class="auth-logo-dot"></span>
-          {{ 'app.logo' | transloco }}
+          <app-brand-logo [size]="30" />
         </div>
 
         @if (error()) {

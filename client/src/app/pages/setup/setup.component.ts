@@ -4,18 +4,18 @@ import { Router } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { AuthService } from '../../core/auth.service';
 import { CommonModule } from '@angular/common';
+import { BrandLogoComponent } from '../../shared/brand-logo.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 @Component({
   selector: 'app-setup',
   standalone: true,
-  imports: [FormsModule, CommonModule, TranslocoPipe],
+  imports: [FormsModule, CommonModule, TranslocoPipe, BrandLogoComponent],
   template: `
     <div class="auth-page">
       <div class="auth-card" style="max-width: 460px;">
         <div class="auth-logo">
-          <span class="auth-logo-dot"></span>
-          {{ 'app.logo' | transloco }}
+          <app-brand-logo [size]="30" />
         </div>
         <p class="auth-subtitle">{{ 'setup.subtitle' | transloco }}</p>
 

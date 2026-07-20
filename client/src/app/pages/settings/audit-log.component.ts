@@ -7,6 +7,7 @@ import { SpacesApi } from '../../core/spaces-api.service';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { StatusPillComponent, type StatusVariant } from '../../shared/status-pill.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
+import { ModalDirective } from '../../shared/modal.directive';
 import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
 
 @Component({
@@ -18,7 +19,7 @@ import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-st
   // when state changes and skips the whole-tree sweep otherwise — this page renders up to a
   // 100-row table plus a live-streaming server log, both in the CD hot path.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, StatusPillComponent, RelativeTimeComponent, SummaryStripComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, StatusPillComponent, RelativeTimeComponent, SummaryStripComponent, ModalDirective],
   styles: [`
     .audit-toolbar {
       display: flex;
@@ -320,8 +321,8 @@ import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-st
 
     <!-- Detail panel -->
     @if (selectedEntry(); as e) {
-      <div class="detail-overlay" (click)="selectedEntry.set(null)">
-        <div class="detail-panel" (click)="$event.stopPropagation()">
+      <div class="detail-overlay">
+        <div class="detail-panel" [appModal]="'auditLog.detail.title' | transloco" appModalCloseOnBackdrop (dismiss)="selectedEntry.set(null)" (click)="$event.stopPropagation()">
           <h3>{{ 'auditLog.detail.title' | transloco }}</h3>
           <dl class="detail-grid">
             <dt>{{ 'auditLog.table.timestamp' | transloco }}</dt>

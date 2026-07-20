@@ -61,7 +61,7 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
   it('copies the space into the settings form', () => {
     const c = make();
     c.openSettings(rich);
-    expect(c.stForm).toEqual({ label: 'Work', purpose: 'p', usageNotes: 'u', maxGiB: 7, recordTtlDays: 90 });
+    expect(c.stForm).toEqual({ label: 'Work', purpose: 'p', usageNotes: 'u', maxGiB: 7, recordTtlDays: 90, documentExtraction: '' });
   });
 
   it('copies duplicate rules by VALUE — editing the form must not mutate the space object', () => {
@@ -97,11 +97,20 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
     expect(st.propertySchemas).toEqual([{ key: 'age', s: { type: 'number', minimum: 0 }, _enumInput: '' }]);
   });
 
+  it('copies a per-space documentExtraction override into the form, and clears to "" when absent (F11-c)', () => {
+    const c = make();
+    c.openSettings(space({ id: 'ov', label: 'Ov', documentExtraction: 'max' } as Partial<Space>));
+    expect(c.stForm.documentExtraction).toBe('max');
+    // A space with no override maps to '' (inherit instance default).
+    c.openSettings(space({ id: 'plain', label: 'Plain' } as Partial<Space>));
+    expect(c.stForm.documentExtraction).toBe('');
+  });
+
   it('defaults everything when the space has no meta at all', () => {
     const bare = space({ id: 'bare', label: 'Bare' });
     const c = make();
     c.openSettings(bare);
-    expect(c.stForm).toEqual({ label: 'Bare', purpose: '', usageNotes: '', maxGiB: null, recordTtlDays: null });
+    expect(c.stForm).toEqual({ label: 'Bare', purpose: '', usageNotes: '', maxGiB: null, recordTtlDays: null, documentExtraction: '' });
     expect(c.schValidation).toBe('off');
     expect(c.schStrictLinkage).toBe(false);
     expect(c.schTagSuggestions).toEqual([]);

@@ -65,4 +65,38 @@ describe('VLM extraction mode wiring (F11)', () => {
     assert.ok(r.body?.sha256);
     assert.equal(r.body?.embeddingStatus, 'pending');
   });
+
+  // ── F11-c: per-space extraction-mode override ─────────────────────────────────
+  it('a per-space documentExtraction override round-trips and clears (F11-c)', async () => {
+    // Instance default is OCR here; set the space to override to `max` and confirm it persists.
+    const set = await patch(INSTANCES.a, tokenA, '/api/spaces/general', { documentExtraction: 'max' });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    assert.equal(set.body?.space?.documentExtraction, 'max');
+
+    // The override is surfaced on the spaces list too (so the UI can render it).
+    const list = await get(INSTANCES.a, tokenA, '/api/spaces');
+    const general = (list.body?.spaces ?? []).find(s => s.id === 'general');
+    assert.equal(general?.documentExtraction, 'max', 'override should appear in the spaces list');
+
+    // null clears it → the space inherits the instance default again (field absent).
+    const clear = await patch(INSTANCES.a, tokenA, '/api/spaces/general', { documentExtraction: null });
+    assert.equal(clear.status, 200, JSON.stringify(clear.body));
+    assert.equal(clear.body?.space?.documentExtraction, undefined, 'null should clear the override');
+  });
+
+  it('an upload to a space with a per-space override still degrades gracefully (202)', async () => {
+    // Instance default OCR, but the space overrides to `vlm`. With no sidecars in CI the per-space
+    // route must degrade exactly like the instance-wide one — accepted for async processing, never 5xx.
+    await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: { mode: 'ocr' } });
+    const set = await patch(INSTANCES.a, tokenA, '/api/spaces/general', { documentExtraction: 'vlm' });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+
+    const r = await upload(tokenA, `space-override-${Date.now()}.pdf`, Buffer.from('%PDF-1.4 test').toString('base64'));
+    assert.equal(r.status, 202, `expected 202 (graceful async), got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.ok(r.body?.sha256);
+    assert.equal(r.body?.embeddingStatus, 'pending');
+
+    // Restore: clear the per-space override so it doesn't leak into other suites.
+    await patch(INSTANCES.a, tokenA, '/api/spaces/general', { documentExtraction: null }).catch(() => {});
+  });
 });

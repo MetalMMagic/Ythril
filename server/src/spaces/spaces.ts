@@ -6,7 +6,7 @@
  */
 import { getConfig, saveConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
-import type { SpaceConfig, SpaceMeta, DupeActionRule } from '../config/types.js';
+import type { SpaceConfig, SpaceMeta, DupeActionRule, DocExtractionMode } from '../config/types.js';
 import { buildSpaceVectorIndexes } from './vector-index.js';
 import { syncSchemaFiles, META_VERSION_CAP } from './_shared.js';
 
@@ -16,7 +16,7 @@ import { syncSchemaFiles, META_VERSION_CAP } from './_shared.js';
  *  Returns the updated SpaceConfig, or null if the space was not found. */
 export function updateSpace(
   spaceId: string,
-  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | null },
+  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | null; documentExtraction?: DocExtractionMode | null },
 ): SpaceConfig | null {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
@@ -40,6 +40,10 @@ export function updateSpace(
   // F10 auto-TTL — local operational setting; `in` so an explicit clear (undefined) removes it.
   if ('recordTtlDays' in updates) {
     space.recordTtlDays = updates.recordTtlDays && updates.recordTtlDays > 0 ? updates.recordTtlDays : undefined;
+  }
+  // F11-c per-space extraction-mode override — local operational setting; `in` so an explicit clear removes it.
+  if ('documentExtraction' in updates) {
+    space.documentExtraction = updates.documentExtraction ?? undefined;
   }
 
   if (updates.meta !== undefined) {

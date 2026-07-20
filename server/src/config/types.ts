@@ -194,6 +194,10 @@ export interface SpaceConfig {
    *  the scheduled scan. Default false (scan-time only). Applies to all inserts,
    *  including bulk. */
   dupeRulesOnInsert?: boolean;
+  /** Per-space document-extraction mode override (F11-c). Local/operational (not governed or synced,
+   *  like dupeRules): when set, documents uploaded to THIS space use this mode instead of the
+   *  instance-wide `documentProcessing.mode`. Absent = inherit the instance default. */
+  documentExtraction?: DocExtractionMode;
   /** Auto-TTL (F10): when set (> 0), every new/updated record in this space is stamped with an expiry
    *  `now + recordTtlDays` and deleted by the TTL sweep once it lapses (through the normal delete path,
    *  so it tombstones + syncs). A per-record `ttlDays` on a write overrides this. Absent = no auto-TTL. */

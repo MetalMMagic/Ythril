@@ -67,6 +67,23 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
     </div>
   </app-settings-card>
 
+  <app-settings-card icon="package" [heading]="'spaces.settings.card.extraction' | transloco" [purpose]="'spaces.settings.card.extractionHint' | transloco">
+    <div class="field" style="margin:0;max-width:260px;">
+      <label style="display:flex;align-items:center;gap:8px;">
+        {{ 'spaces.settings.extractionMode' | transloco }}
+        @if (state.stForm.documentExtraction === '') { <app-status-pill variant="off">{{ 'spaces.settings.extractionInheritPill' | transloco }}</app-status-pill> }
+      </label>
+      <select [(ngModel)]="state.stForm.documentExtraction">
+        <option value="">{{ 'spaces.settings.extractionInherit' | transloco }}</option>
+        <option value="auto">{{ 'spaces.settings.extractionAuto' | transloco }}</option>
+        <option value="ocr">{{ 'spaces.settings.extractionOcr' | transloco }}</option>
+        <option value="vlm">{{ 'spaces.settings.extractionVlm' | transloco }}</option>
+        <option value="max">{{ 'spaces.settings.extractionMax' | transloco }}</option>
+      </select>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.extractionHint' | transloco }}</div>
+    </div>
+  </app-settings-card>
+
 </div>
   `,
 })

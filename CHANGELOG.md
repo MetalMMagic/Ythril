@@ -107,6 +107,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-space document-extraction mode override (F11-c).** A single space can now override the
+  instance-wide extraction `mode` — run one archive of scanned PDFs under `max` (VLM + repair) while the
+  rest of the instance stays on fast `ocr`, or vice versa. Set it from the space's **Settings → Document
+  extraction** picker (Instance default · Auto · OCR · VLM · Max), or via `PATCH /api/spaces/:id` with
+  `{ "documentExtraction": "ocr" | "vlm" | "auto" | "max" }` (`null` clears it and re-inherits the instance
+  default). Like dupe rules and record-TTL this is a **local, per-instance** operational setting — never
+  governed or synced across a network. The per-space mode threads through the conversion pipeline into the
+  worker; when a space has no override, uploads use the instance-wide mode byte-for-byte as before, and a
+  VLM override still degrades gracefully to OCR when no vision model/render sidecar is present. New
+  integration coverage (round-trip + graceful degradation) and updated space-settings specs; en/de/pl keys.
+
 - **Office documents can now reach the VLM extraction path, not just PDFs (F11-a).** Until now only PDFs
   rasterized to page images for the vision-model document pipeline, so DOCX/EPUB/PPTX/… in a `vlm`/`auto`/
   `max` extraction mode silently fell back to plain OCR — exactly the layout-heavy files that benefit most

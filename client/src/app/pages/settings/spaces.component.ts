@@ -267,6 +267,7 @@ export class SpacesComponent implements OnInit {
       label:  this.state.stForm.label.trim() || target.label,
       maxGiB: this.state.stForm.maxGiB,
       recordTtlDays: this.state.stForm.recordTtlDays, // F10 (null clears; 0/undefined = no auto-TTL)
+      documentExtraction: this.state.stForm.documentExtraction || null, // F11-c ('' = inherit instance default)
       meta:   this.state.buildMeta(),
     }).subscribe({
       next: ({ space }) => {

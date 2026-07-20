@@ -321,8 +321,11 @@ async function processJob(
         // Delete any stale chunks first so a re-upload always produces a clean set.
         await deleteConversionArtifacts(spaceId, fileId);
         const resolvedFmt = (job.resolvedFormat ?? 'text') as ResolvedFormat;
+        // F11-c: a per-space extraction-mode override wins over the instance-wide default (pipeline
+        // falls back to `documentProcessing.mode` when this is undefined).
+        const spaceMode = getConfig().spaces.find(s => s.id === spaceId)?.documentExtraction;
         const { chunks, convertedMarkdown, extractedImages } = await runConversionPipeline(
-          fileBytes, filePath, resolvedFmt,
+          fileBytes, filePath, resolvedFmt, { mode: spaceMode },
         );
         if (chunks.length > 0 || extractedImages.length > 0) {
           const { chunkCount, convertedFileId, embedFailures } = await storeConversionResults(

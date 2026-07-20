@@ -14,6 +14,7 @@
  */
 import { log } from '../../util/log.js';
 import { getDocumentProcessingConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
+import type { DocExtractionMode } from '../../config/types.js';
 import { UnstructuredConverter, type UnstructuredResult } from './unstructured.js';
 import { renderDocumentPages, isRenderAvailableFor } from './renderer.js';
 import { transcribePageImage, repairMarkdown } from './vlm-client.js';
@@ -30,13 +31,19 @@ export interface VlmExtractResult extends UnstructuredResult {
 }
 
 /** Run the configured extraction mode for a document. `mode: 'ocr'` never calls this — the pipeline uses
- *  the plain OCR converter directly. */
-export async function vlmExtractDocument(fileBytes: Buffer, fileName: string): Promise<VlmExtractResult> {
+ *  the plain OCR converter directly. `modeOverride` (F11-c) is the per-space override; when absent the
+ *  instance-wide `documentProcessing.mode` applies. */
+export async function vlmExtractDocument(
+  fileBytes: Buffer,
+  fileName: string,
+  modeOverride?: DocExtractionMode,
+): Promise<VlmExtractResult> {
   const cfg = getDocumentProcessingConfig();
+  const mode = modeOverride ?? cfg.mode;
   const render = await isRenderAvailableFor(fileName);
   // `repair` reuses the VLM (or a wired-in repairModel), so it's available whenever the VLM is; decideRoute
   // only actually schedules the repair stage for `max` mode.
-  const route = decideRoute(cfg.mode, { ocr: true, render, vlm: !!cfg.vlmModel, repair: !!cfg.vlmModel, verify: false });
+  const route = decideRoute(mode, { ocr: true, render, vlm: !!cfg.vlmModel, repair: !!cfg.vlmModel, verify: false });
 
   // OCR is evidence + fallback. Tolerate it being down IF the VLM path can still run (ungrounded).
   let ocr: UnstructuredResult | null = null;

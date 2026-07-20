@@ -62,7 +62,7 @@ export class SpaceSettingsState {
   schemaCollTab = signal<KnowledgeType>('entity');
 
   // ── settings tab ───────────────────────────────────────────────────────────
-  stForm = { label: '', purpose: '', usageNotes: '', maxGiB: null as number | null, recordTtlDays: null as number | null };
+  stForm = { label: '', purpose: '', usageNotes: '', maxGiB: null as number | null, recordTtlDays: null as number | null, documentExtraction: '' as '' | 'ocr' | 'vlm' | 'auto' | 'max' };
 
   // ── duplicates tab ─────────────────────────────────────────────────────────
   dupeRulesState: DupeActionRule[] = [];
@@ -107,7 +107,7 @@ export class SpaceSettingsState {
     this.schemaCollTab.set('entity');
     this.settingsError.set('');
     this.settingsSaving.set(false);
-    this.stForm = { label: s.label, purpose: s.meta?.purpose ?? '', usageNotes: s.meta?.usageNotes ?? '', maxGiB: s.maxGiB ?? null, recordTtlDays: s.recordTtlDays ?? null };
+    this.stForm = { label: s.label, purpose: s.meta?.purpose ?? '', usageNotes: s.meta?.usageNotes ?? '', maxGiB: s.maxGiB ?? null, recordTtlDays: s.recordTtlDays ?? null, documentExtraction: s.documentExtraction ?? '' };
     this.dupeRulesState = (s.dupeRules ?? []).map(r => ({ ...r }));
     this.dupeSurvivor = s.dupeMergeSurvivor ?? 'older';
     this.dupeOnInsert = s.dupeRulesOnInsert ?? false;
@@ -185,6 +185,7 @@ export class SpaceSettingsState {
       label: this.stForm.label.trim(),
       maxGiB: this.stForm.maxGiB,
       recordTtlDays: this.stForm.recordTtlDays,
+      documentExtraction: this.stForm.documentExtraction,
       meta: this.buildMeta(),
     });
   }

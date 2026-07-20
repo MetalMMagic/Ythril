@@ -107,6 +107,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Characterization tests for the space Danger tab (6 tests), landed before its PR-U9 rework.** The
+  `SpaceDangerTabComponent` performs the irreversible space operations — rename, wipe, delete, leave-network —
+  and shipped with no coverage. These pin the confirm-gating the rework must not weaken: a cancelled confirm
+  never calls the API, and a confirmed one hits the right endpoint and updates state (rename reflects the new
+  id; delete closes the dialog). Ships before the rework that escalates Wipe to a red tier and adds
+  type-to-confirm to Rename.
+
 - **Characterization tests for the Duplicates screens (11 tests), landed before their UX rework.** Both the
   `DuplicatesComponent` settings page and the per-space `SpaceDuplicatesTabComponent` shipped with no coverage;
   these pin the behavior the PR-U8 rework must preserve — load/error states, the optimistic Dismiss (removes on

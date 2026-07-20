@@ -107,6 +107,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A proper Ythril favicon and a matching brand mark in the header.** The app shipped with no favicon (the
+  browser tab showed the generic default, and every page logged a `/favicon.ico` 404). It now has an on-brand
+  mark — a black orb with a soft-glowing green **"Y"** (pointed tips) — served as a crisp scalable
+  **`favicon.svg`**, with a **32×32 PNG** fallback and a **180×180 `apple-touch-icon`** (dark-square, for iOS
+  home-screen / PWA), all wired via `<link rel="icon">` in `index.html` plus a `theme-color`. The same mark
+  replaces the old dot in the top-bar wordmark, so it now reads **"Ythril"** with the orb as the capital Y. The
+  logo green is a slightly greener lime (`#9eec55`) than the UI accent, kept just for the mark. Verified the SVG
+  serves (200, no more 404) and the header renders end-to-end with Playwright.
+
 - **Characterization tests for the Settings → Data page (16 tests), landed before its PR-U11 redesign.** The
   Data page (backups, schedule, destination, maintenance, DB migration) is 775 lines and shipped with no
   coverage. These pin what the design-system redesign must preserve — the cron build/parse round-trip (with

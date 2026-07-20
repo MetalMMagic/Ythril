@@ -81,8 +81,10 @@ export class SpaceSettingsState {
     entity: {}, memory: {}, edge: {}, chrono: {},
   };
   schNewTypeInputs:  Record<string, string> = { entity: '', memory: '', edge: '', chrono: '' };
-  schExpandedType:   { kt: KnowledgeType; name: string } | null = null;
-  schExpandedProp:   { kt: KnowledgeType; typeName: string; propKey: string } | null = null;
+  /** The type shown in the master/detail editor pane (single-select — that's what master/detail is). */
+  schSelectedType:   { kt: KnowledgeType; name: string } | null = null;
+  /** Property editors open in the detail pane. Multiple may be open at once (U4). Keyed `kt|type|prop`. */
+  schExpandedProps = new Set<string>();
 
   // ── danger tab ─────────────────────────────────────────────────────────────
   dangerRenameId    = '';
@@ -118,8 +120,8 @@ export class SpaceSettingsState {
     this.schTagSuggestions = [...(meta.tagSuggestions ?? [])];
     this.schNewTagInput    = '';
     this.schNewTypeInputs  = { entity: '', memory: '', edge: '', chrono: '' };
-    this.schExpandedType   = null;
-    this.schExpandedProp   = null;
+    this.schSelectedType   = null;
+    this.schExpandedProps.clear();
     const loadKt = (kt: KnowledgeType): Record<string, TypeSchemaState> => {
       const map: Record<string, TypeSchemaState> = {};
       for (const [name, ts] of Object.entries(meta.typeSchemas?.[kt] ?? {})) {
@@ -286,12 +288,17 @@ export class SpaceSettingsState {
     return (this.schTypeSchemas[kt] ?? {})[name]?._libRef ?? null;
   }
 
-  isTypeExpanded(kt: KnowledgeType, name: string): boolean {
-    return this.schExpandedType?.kt === kt && this.schExpandedType?.name === name;
+  /** Master/detail: the selected type is the one rendered in the editor pane. Single-select. */
+  isTypeSelected(kt: KnowledgeType, name: string): boolean {
+    return this.schSelectedType?.kt === kt && this.schSelectedType?.name === name;
   }
 
-  toggleTypeExpand(kt: KnowledgeType, name: string): void {
-    this.schExpandedType = this.isTypeExpanded(kt, name) ? null : { kt, name };
+  selectType(kt: KnowledgeType, name: string): void {
+    this.schSelectedType = { kt, name };
+  }
+
+  private propKey(kt: KnowledgeType, typeName: string, propKey: string): string {
+    return `${kt}|${typeName}|${propKey}`;
   }
 
   addType(kt: KnowledgeType): void {
@@ -302,21 +309,23 @@ export class SpaceSettingsState {
       [kt]: { ...(this.schTypeSchemas[kt] ?? {}), [raw]: { namingPattern: '', tagSuggestions: [], propertySchemas: [], _newPropInput: '', _newTagInput: '' } },
     };
     this.schNewTypeInputs = { ...this.schNewTypeInputs, [kt]: '' };
-    this.schExpandedType  = { kt, name: raw };
+    this.schSelectedType  = { kt, name: raw };
   }
 
   removeType(kt: KnowledgeType, name: string): void {
     const { [name]: _dropped, ...rest } = this.schTypeSchemas[kt] ?? {};
     this.schTypeSchemas = { ...this.schTypeSchemas, [kt]: rest };
-    if (this.schExpandedType?.kt === kt && this.schExpandedType.name === name) this.schExpandedType = null;
+    if (this.schSelectedType?.kt === kt && this.schSelectedType.name === name) this.schSelectedType = null;
   }
 
   isPropExpanded(kt: KnowledgeType, typeName: string, propKey: string): boolean {
-    return this.schExpandedProp?.kt === kt && this.schExpandedProp?.typeName === typeName && this.schExpandedProp?.propKey === propKey;
+    return this.schExpandedProps.has(this.propKey(kt, typeName, propKey));
   }
 
   togglePropExpand(kt: KnowledgeType, typeName: string, propKey: string): void {
-    this.schExpandedProp = this.isPropExpanded(kt, typeName, propKey) ? null : { kt, typeName, propKey };
+    const k = this.propKey(kt, typeName, propKey);
+    if (this.schExpandedProps.has(k)) this.schExpandedProps.delete(k);
+    else this.schExpandedProps.add(k);
   }
 
   addProp(kt: KnowledgeType, typeName: string): void {
@@ -325,13 +334,13 @@ export class SpaceSettingsState {
     if (!key || state.propertySchemas.some(e => e.key === key)) { state._newPropInput = ''; return; }
     state.propertySchemas = [...state.propertySchemas, { key, s: {}, _enumInput: '' }];
     state._newPropInput   = '';
-    this.schExpandedProp  = { kt, typeName, propKey: key };
+    this.schExpandedProps.add(this.propKey(kt, typeName, key));
   }
 
   removeProp(kt: KnowledgeType, typeName: string, propKey: string): void {
     const state = this.typeState(kt, typeName);
     state.propertySchemas = state.propertySchemas.filter(e => e.key !== propKey);
-    if (this.isPropExpanded(kt, typeName, propKey)) this.schExpandedProp = null;
+    this.schExpandedProps.delete(this.propKey(kt, typeName, propKey));
   }
 
   addTypeTag(kt: KnowledgeType, typeName: string): void {

@@ -41,34 +41,34 @@ function setup(schemaApi: Partial<SchemaApi> = {}) {
   return { c, state };
 }
 
-describe('SpaceSettingsState — schema accordion (single-expand; redesign will change to multi-open)', () => {
+describe('SpaceSettingsState — schema master/detail selection + multi-open properties (U4)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('addType inserts the type and auto-expands it', () => {
+  it('addType inserts the type and auto-selects it (shown in the detail pane)', () => {
     const { state } = setup();
     state.schNewTypeInputs = { ...state.schNewTypeInputs, entity: 'Service' };
     state.addType('entity');
     expect(state.typeNames('entity')).toContain('Service');
-    expect(state.isTypeExpanded('entity', 'Service')).toBe(true);
+    expect(state.isTypeSelected('entity', 'Service')).toBe(true);
   });
 
-  it('toggleTypeExpand is single-expand: opening a second type closes the first', () => {
+  it('selectType is single-select: selecting a second type deselects the first (one detail pane)', () => {
     const { state } = setup();
     state.schTypeSchemas = { ...state.schTypeSchemas, entity: { A: mkType(), B: mkType() } };
-    state.toggleTypeExpand('entity', 'A');
-    expect(state.isTypeExpanded('entity', 'A')).toBe(true);
-    state.toggleTypeExpand('entity', 'B');
-    expect(state.isTypeExpanded('entity', 'B')).toBe(true);
-    expect(state.isTypeExpanded('entity', 'A')).toBe(false); // ← the accordion collapse the redesign removes
+    state.selectType('entity', 'A');
+    expect(state.isTypeSelected('entity', 'A')).toBe(true);
+    state.selectType('entity', 'B');
+    expect(state.isTypeSelected('entity', 'B')).toBe(true);
+    expect(state.isTypeSelected('entity', 'A')).toBe(false); // master/detail shows one type at a time
   });
 
-  it('removeType clears the expansion when the removed type was open', () => {
+  it('removeType clears the selection when the removed type was selected', () => {
     const { state } = setup();
     state.schTypeSchemas = { ...state.schTypeSchemas, entity: { A: mkType() } };
-    state.toggleTypeExpand('entity', 'A');
+    state.selectType('entity', 'A');
     state.removeType('entity', 'A');
     expect(state.typeNames('entity')).not.toContain('A');
-    expect(state.isTypeExpanded('entity', 'A')).toBe(false);
+    expect(state.isTypeSelected('entity', 'A')).toBe(false);
   });
 
   it('addProp auto-expands the new property; removeProp clears it', () => {
@@ -79,6 +79,21 @@ describe('SpaceSettingsState — schema accordion (single-expand; redesign will 
     expect(state.isPropExpanded('entity', 'A', 'cost')).toBe(true);
     state.removeProp('entity', 'A', 'cost');
     expect(state.isPropExpanded('entity', 'A', 'cost')).toBe(false);
+  });
+
+  it('property editors are multi-open: expanding a second property keeps the first open', () => {
+    const { state } = setup();
+    state.schTypeSchemas = {
+      ...state.schTypeSchemas,
+      entity: { A: mkType({ propertySchemas: [{ key: 'a', s: {}, _enumInput: '' }, { key: 'b', s: {}, _enumInput: '' }] }) },
+    };
+    state.togglePropExpand('entity', 'A', 'a');
+    state.togglePropExpand('entity', 'A', 'b');
+    expect(state.isPropExpanded('entity', 'A', 'a')).toBe(true); // ← stays open (was single-expand before U4)
+    expect(state.isPropExpanded('entity', 'A', 'b')).toBe(true);
+    state.togglePropExpand('entity', 'A', 'a'); // toggle closes just this one
+    expect(state.isPropExpanded('entity', 'A', 'a')).toBe(false);
+    expect(state.isPropExpanded('entity', 'A', 'b')).toBe(true);
   });
 });
 

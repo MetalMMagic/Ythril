@@ -59,11 +59,11 @@ describe('SpaceSettingsState — unsaved-changes (U4)', () => {
 
   it('ignores transient input buffers and UI state', () => {
     state.openSettings(space());
-    // Half-typed new-type input, active tab, expanded row — none of these persist.
+    // Half-typed new-type input, active tab, selected type — none of these persist.
     state.schNewTypeInputs['entity'] = 'draft';
     state.settingsTab.set('schema');
     state.schemaCollTab.set('memory');
-    state.schExpandedType = { kt: 'entity', name: 'whatever' };
+    state.schSelectedType = { kt: 'entity', name: 'whatever' };
     expect(state.isDirty()).toBe(false);
   });
 

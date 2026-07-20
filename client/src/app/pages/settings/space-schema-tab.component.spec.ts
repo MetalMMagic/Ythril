@@ -177,3 +177,57 @@ describe('SpaceSchemaTabComponent — schema-library link (must survive the rede
     expect(c.importConflict()).toMatchObject({ kt: 'entity', name: 'Svc', allowAddAs: false });
   });
 });
+
+describe('SpaceSchemaTabComponent — validation controls (moved here in U9 pt3)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  /** Render the tab with the validation state populated; flush ngModel's microtask write. */
+  async function render(validationMode: 'off' | 'warn' | 'strict' = 'off', strictLinkage = false) {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [SpaceSchemaTabComponent, getTranslocoModule()],
+      providers: [
+        SpaceSettingsState,
+        { provide: SpacesApi, useValue: {} },
+        { provide: ToastService, useValue: { show: () => {}, error: () => {}, success: () => {} } },
+        { provide: SchemaApi, useValue: { listSchemaLibrary: () => of({ entries: [] }), upsertSchemaLibraryEntry: () => of({ entry: {} }) } },
+      ],
+    });
+    const fixture = TestBed.createComponent(SpaceSchemaTabComponent);
+    const state = TestBed.inject(SpaceSettingsState);
+    state.schValidation = validationMode;
+    state.schStrictLinkage = strictLinkage;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    return { fixture, state, el: fixture.nativeElement as HTMLElement };
+  }
+
+  it('renders an editable 3-option validationMode select reflecting state.schValidation', async () => {
+    const { el } = await render('strict');
+    const select = el.querySelector('.val-select') as HTMLSelectElement | null;
+    expect(select).not.toBeNull();
+    expect(Array.from(select!.options).map(o => o.value)).toEqual(['off', 'warn', 'strict']);
+    expect(select!.value).toBe('strict');
+  });
+
+  it('changing the validationMode select writes state.schValidation (view → state)', async () => {
+    const { fixture, state, el } = await render('off');
+    const select = el.querySelector('.val-select') as HTMLSelectElement;
+    select.value = 'warn';
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(state.schValidation).toBe('warn');
+  });
+
+  it('renders a strictLinkage checkbox two-way bound to state.schStrictLinkage', async () => {
+    const { fixture, state, el } = await render('off', true);
+    const box = el.querySelector('.val-check input[type="checkbox"]') as HTMLInputElement;
+    expect(box).not.toBeNull();
+    expect(box.checked).toBe(true);            // state → view
+    box.checked = false;
+    box.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+    expect(state.schStrictLinkage).toBe(false); // view → state
+  });
+});

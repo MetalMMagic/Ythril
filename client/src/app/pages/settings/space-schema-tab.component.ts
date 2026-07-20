@@ -19,7 +19,6 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
-import { StatusPillComponent, type StatusVariant } from '../../shared/status-pill.component';
 import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
 import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state.service';
 import { SchemaApi } from '../../core/schema-api.service';
@@ -28,7 +27,11 @@ import { KnowledgeType, PropertySchema, SchemaLibraryEntry, TypeSchema } from '.
 
 const SCHEMA_MD_STYLES = `
 .sch-head-row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-.val-pill-wrap { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); }
+.val-controls { display:inline-flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.val-lbl { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
+.val-select { font:inherit; font-size:12px; text-transform:none; letter-spacing:0; padding:3px 8px; border:1px solid var(--border); border-radius:6px; background:var(--bg-elevated); color:var(--text-primary); }
+.val-check { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary); cursor:pointer; }
+.val-check input { margin:0; }
 .sch-md { display:grid; grid-template-columns:minmax(190px,250px) 1fr; gap:18px; align-items:start; margin-top:6px; }
 @media (max-width:760px) { .sch-md { grid-template-columns:1fr; } }
 .sch-master { display:flex; flex-direction:column; gap:3px; min-width:0; }
@@ -55,7 +58,7 @@ const SCHEMA_MD_STYLES = `
 @Component({
   selector: 'app-space-schema-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [SPACE_DIALOG_STYLES, SCHEMA_MD_STYLES],
   template: `
@@ -99,10 +102,20 @@ const SCHEMA_MD_STYLES = `
     } @else {
       <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.chronoTypeHint' | transloco }}</span></div>
     }
-    <span class="val-pill-wrap" [attr.title]="'spaces.schema.validation.hint' | transloco">
-      {{ 'spaces.schema.validation.label' | transloco }}
-      <app-status-pill [variant]="validationPill().variant" [dot]="true">{{ validationPill().label | transloco }}</app-status-pill>
-    </span>
+    <div class="val-controls">
+      <label class="val-lbl" [attr.title]="'spaces.schema.validation.hint' | transloco">
+        {{ 'spaces.schema.validation.label' | transloco }}
+        <select [(ngModel)]="state.schValidation" class="val-select">
+          <option value="off">{{ 'spaces.settings.validation.off' | transloco }}</option>
+          <option value="warn">{{ 'spaces.settings.validation.warn' | transloco }}</option>
+          <option value="strict">{{ 'spaces.settings.validation.strict' | transloco }}</option>
+        </select>
+      </label>
+      <label class="val-check" [attr.title]="'spaces.settings.strictLinkageHint' | transloco">
+        <input type="checkbox" [(ngModel)]="state.schStrictLinkage" />
+        {{ 'spaces.settings.strictLinkage' | transloco }}
+      </label>
+    </div>
   </div>
 
   <!-- master / detail -->
@@ -427,15 +440,6 @@ export class SpaceSchemaTabComponent {
   selectedTypeName(kt: KnowledgeType): string | null {
     const s = this.state.schSelectedType;
     return s && s.kt === kt && this.state.typeNames(kt).includes(s.name) ? s.name : null;
-  }
-
-  /** Validation-posture pill for the tab header — mirrors the space's `validationMode`. */
-  validationPill(): { variant: StatusVariant; label: string } {
-    switch (this.state.schValidation) {
-      case 'strict': return { variant: 'active', label: 'spaces.schema.validation.strict' };
-      case 'warn':   return { variant: 'warn',   label: 'spaces.schema.validation.warn' };
-      default:       return { variant: 'off',    label: 'spaces.schema.validation.off' };
-    }
   }
 
   exportSchema(): void {

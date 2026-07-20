@@ -59,20 +59,30 @@ describe('DuplicatesComponent', () => {
     expect(c.loading()).toBe(false);
   });
 
-  it('dismiss on the "open" filter removes the row optimistically', () => {
-    const { c } = setup();
+  it('dismiss (confirmed) on the "open" filter removes the row optimistically', async () => {
+    const { c } = setup({}, true);
     c.statusFilter = 'open';
     c.rows.set([rec({ id: 'd1' }), rec({ id: 'd2' })]);
-    c.dismiss(rec({ id: 'd1' }));
+    await c.dismiss(rec({ id: 'd1' }));
     expect(c.rows().map(r => r.id)).toEqual(['d2']);
   });
 
-  it('dismiss on the "all" filter keeps the row but marks it dismissed', () => {
-    const { c } = setup();
+  it('dismiss (confirmed) on the "all" filter keeps the row but marks it dismissed', async () => {
+    const { c } = setup({}, true);
     c.statusFilter = 'all';
     c.rows.set([rec({ id: 'd1', status: 'open' })]);
-    c.dismiss(rec({ id: 'd1' }));
+    await c.dismiss(rec({ id: 'd1' }));
     expect(c.rows()[0]).toMatchObject({ id: 'd1', status: 'dismissed' });
+  });
+
+  it('dismiss is now guarded: cancelling the confirm leaves the row untouched', async () => {
+    const dismissSpy = vi.fn().mockReturnValue(of({ status: 'ok' }));
+    const { c } = setup({ dismissDuplicate: dismissSpy }, false);
+    c.statusFilter = 'open';
+    c.rows.set([rec({ id: 'd1' })]);
+    await c.dismiss(rec({ id: 'd1' }));
+    expect(dismissSpy).not.toHaveBeenCalled();
+    expect(c.rows().map(r => r.id)).toEqual(['d1']);
   });
 
   it('merge asks for confirmation and, when confirmed, calls the API and removes the row', async () => {

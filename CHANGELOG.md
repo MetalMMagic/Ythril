@@ -994,6 +994,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Duplicates rebuilt on the design system (PR-U8).** The wide table becomes responsive
+  **A-vs-B comparison cards** — each pair shows record A beside record B with a coloured **confidence meter**
+  (the match score as a percentage), the space/type, and a relative detected-time. A **SummaryStrip** on top
+  rolls up open count · average confidence · shown. **Dismiss is now guarded** (a confirm, since it drops the
+  pair from the open list); Merge stays confirm-guarded and names the surviving record. The per-space rules
+  tab (**Settings → Spaces → Duplicates**) gains an **empty state** explaining what rules do and reframes the
+  0–1 `minScore` as a **percent slider**. Behaviour is pinned by the characterization tests from the previous
+  PR (updated for the new guarded Dismiss); verified end-to-end with Playwright against seeded duplicates.
+
 - **BREAKING (MCP): tool arguments are now validated against each tool's `inputSchema` before the handler
   runs.** Previously the dispatcher validated only the JSON-RPC envelope and each handler hand-checked its
   own args, so `additionalProperties`, `enum`, numeric bounds, `pattern`, `maxItems`, and `propertyNames`

@@ -1,12 +1,17 @@
 /**
- * VLM client for document transcription (F11) — local Ollama path.
+ * VLM client for document transcription (F11).
  *
  * Sends a rendered page image + a strict verbatim-transcription prompt to an Ollama vision model
  * (`/api/chat` with `images`), mirroring the media vision provider's request shape. Output is bounded
  * (`num_predict`) and temperature 0 for determinism. Throws on unreachable/error so the extractor can
- * fall back to OCR. External (hosted OpenAI-compatible) endpoints — and routing their egress through
- * `ssrfSafeFetch` — are a later phase; this is the bundled, no-egress path.
+ * fall back to OCR.
+ *
+ * `repairMarkdown` uses the bundled local Ollama (no egress). `repairMarkdownExternal` (F11-b) is the ONE
+ * path that sends document content OFF the instance — to an operator-configured external OpenAI-compatible
+ * "assist model" — so it is routed through `ssrfSafeFetch` and is only reached after an explicit egress
+ * acknowledgment (enforced at config-save time).
  */
+import { ssrfSafeFetch } from '../../util/ssrf.js';
 
 export interface VlmTranscription {
   text: string;
@@ -75,11 +80,54 @@ const REPAIR_PROMPT =
 export async function repairMarkdown(
   opts: { baseUrl: string; model: string; draft: string; evidence: string; issues?: string[]; timeoutMs?: number },
 ): Promise<VlmTranscription> {
-  const issues = opts.issues?.length ? `\n\nValidation flagged: ${opts.issues.join('; ')}.` : '';
-  const content = `${REPAIR_PROMPT}${issues}\n\n--- DRAFT ---\n${opts.draft}\n\n--- OCR TEXT ---\n${opts.evidence}`;
   return postChat(
     opts.baseUrl, opts.model,
-    [{ role: 'user', content }], // text-only — no page image
+    [{ role: 'user', content: repairContent(opts.draft, opts.evidence, opts.issues) }], // text-only — no page image
     opts.timeoutMs ?? 60_000,
   );
+}
+
+/** Build the shared repair user-message content (draft + OCR evidence + flagged issues). */
+function repairContent(draft: string, evidence: string, issues?: string[]): string {
+  const flagged = issues?.length ? `\n\nValidation flagged: ${issues.join('; ')}.` : '';
+  return `${REPAIR_PROMPT}${flagged}\n\n--- DRAFT ---\n${draft}\n\n--- OCR TEXT ---\n${evidence}`;
+}
+
+/**
+ * F11-b — reconcile a draft against OCR evidence via an **external** OpenAI-compatible chat endpoint (the
+ * operator-configured "assist model"). Routed through `ssrfSafeFetch` — this is the one path that sends
+ * document content (draft + OCR text) off the instance — and Bearer-authenticated when an `apiKey` is given.
+ * Throws on unreachable/HTTP error so the caller falls back to the local repair, then OCR.
+ */
+export async function repairMarkdownExternal(
+  opts: { baseUrl: string; model: string; apiKey?: string; draft: string; evidence: string; issues?: string[]; timeoutMs?: number },
+): Promise<VlmTranscription> {
+  const url = `${opts.baseUrl.replace(/\/$/, '')}/v1/chat/completions`;
+  let res: Response;
+  try {
+    res = await ssrfSafeFetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        temperature: 0,
+        max_tokens: MAX_OUTPUT_TOKENS,
+        messages: [{ role: 'user', content: repairContent(opts.draft, opts.evidence, opts.issues) }],
+      }),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
+    });
+  } catch (err) {
+    throw new Error(`assist model unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`assist model HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const json = await res.json() as { choices?: Array<{ message?: { content?: string }; finish_reason?: string }>; error?: unknown };
+  if (json.error) throw new Error(`assist model error: ${typeof json.error === 'string' ? json.error : JSON.stringify(json.error).slice(0, 200)}`);
+  const choice = json.choices?.[0];
+  return { text: choice?.message?.content ?? '', truncated: choice?.finish_reason === 'length' };
 }

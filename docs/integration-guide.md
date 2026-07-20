@@ -2043,6 +2043,25 @@ content, and re-validates. If the repaired output passes it is accepted; if it e
 the extractor falls back to OCR — so the result is still never worse than plain OCR. Exactly one repair pass
 runs per document (bounded cost); consensus/verification is a later phase.
 
+**External assist model (F11-b) — hosted egress, opt-in and acknowledged.** By default every extraction path
+is local (the bundled Ollama VLM / OCR sidecar): no document content leaves your instance. You can optionally
+point a **bigger, external model** at specific tasks under `documentProcessing.assistModel`:
+
+| Field | Description |
+|---|---|
+| `baseUrl` | External **OpenAI-compatible** endpoint (`POST {baseUrl}/v1/chat/completions`). Validated against SSRF on save (must be a public http(s) URL — no private/loopback/metadata addresses) and reached only through the SSRF-guarded fetch. Env: `DOC_ASSIST_URL`. |
+| `model` | Model tag to request. Env: `DOC_ASSIST_MODEL`. |
+| `apiKey` | Optional bearer token. Stored in `secrets.json` (never `config.json`), masked in the admin API. Env: `DOC_ASSIST_API_KEY`. |
+| `uses` | Which tasks the external model powers — `["repair"]` today (the `max`-mode repair pass); more are planned. Empty ⇒ configured but inert (no egress). |
+| `acknowledgedHost` | The endpoint host the operator acknowledged egress to. **Required to match `baseUrl`'s host whenever `uses` is non-empty** — the admin API rejects the save otherwise, and the extractor re-checks it at runtime, so document content never leaves the box without recorded consent. |
+
+⚠️ **This is the only setting that sends document content off the instance.** When a task is assigned, the
+external model receives OCR-extracted text and draft transcriptions (and, for future image-based tasks,
+rendered page images). Settings → Models surfaces an **acknowledgment dialog** on save that states exactly
+what egresses to which host; that acknowledgment sets `acknowledgedHost`. Pinning `DOC_ASSIST_URL` (etc.) via
+env locks the whole block read-only in the UI. When no assist model is configured, or its `uses` is empty, the
+repair pass stays entirely local exactly as before.
+
 **Example `config.json` excerpt:**
 
 ```json

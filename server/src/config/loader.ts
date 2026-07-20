@@ -591,6 +591,11 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   if (sttModelEnv) locked.push('stt.model');
   if (sttApiKeyEnv) locked.push('stt.apiKey');
 
+  // F11-b — when the external assist model's endpoint is pinned by env, lock the whole block in the UI.
+  if (process.env['DOC_ASSIST_URL'] || process.env['DOC_ASSIST_MODEL'] || process.env['DOC_ASSIST_API_KEY']) {
+    locked.push('documentProcessing.assistModel');
+  }
+
   return {
     enabled,
     visionProvider,
@@ -626,6 +631,7 @@ const DOCUMENT_PROCESSING_DEFAULTS: Required<DocumentProcessingConfig> = {
   vlmBaseUrl: '',  // empty = reuse the media vision provider's (Ollama) URL
   repairModel: '',   // empty = reuse vlmModel for the max-mode repair pass
   repairBaseUrl: '', // empty = reuse vlmBaseUrl (then the vision URL)
+  assistModel: {},   // F11-b — no external assist model by default (resolved with env overrides above)
 };
 
 /**
@@ -649,7 +655,23 @@ export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig
     vlmBaseUrl: process.env['DOC_VLM_URL'] ?? base.vlmBaseUrl ?? d.vlmBaseUrl,
     repairModel: process.env['DOC_REPAIR_MODEL'] ?? base.repairModel ?? d.repairModel,
     repairBaseUrl: process.env['DOC_REPAIR_URL'] ?? base.repairBaseUrl ?? d.repairBaseUrl,
+    // F11-b — external assist model. Env (DOC_ASSIST_URL/MODEL) pins baseUrl/model over config; `uses` and
+    // `acknowledgedHost` are config-only (they encode operator intent + consent). apiKey lives in secrets —
+    // read it via getDocAssistApiKey(). Absent baseUrl ⇒ no external assist model.
+    assistModel: {
+      baseUrl: process.env['DOC_ASSIST_URL'] ?? base.assistModel?.baseUrl,
+      model: process.env['DOC_ASSIST_MODEL'] ?? base.assistModel?.model,
+      uses: base.assistModel?.uses ?? [],
+      acknowledgedHost: base.assistModel?.acknowledgedHost,
+    },
   };
+}
+
+/** F11-b — the external assist model's API key: env (DOC_ASSIST_API_KEY) > secrets.json. Never in config.json. */
+export function getDocAssistApiKey(): string | undefined {
+  if (process.env['DOC_ASSIST_API_KEY']) return process.env['DOC_ASSIST_API_KEY'];
+  try { return (getSecrets().mediaEmbedding as { docAssistApiKey?: string } | undefined)?.docAssistApiKey; }
+  catch { return undefined; }
 }
 
 // ── Face Recognition Config ──────────────────────────────────────────────────

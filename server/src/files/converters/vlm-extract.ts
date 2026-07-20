@@ -13,11 +13,11 @@
  * (with ssrfSafeFetch) are later phases.
  */
 import { log } from '../../util/log.js';
-import { getDocumentProcessingConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
+import { getDocumentProcessingConfig, getMediaEmbeddingConfig, getDocAssistApiKey } from '../../config/loader.js';
 import type { DocExtractionMode } from '../../config/types.js';
 import { UnstructuredConverter, type UnstructuredResult } from './unstructured.js';
 import { renderDocumentPages, isRenderAvailableFor } from './renderer.js';
-import { transcribePageImage, repairMarkdown } from './vlm-client.js';
+import { transcribePageImage, repairMarkdown, repairMarkdownExternal } from './vlm-client.js';
 import { decideRoute, validateExtraction } from './extraction-policy.js';
 
 const TRANSCRIBE_PROMPT =
@@ -92,14 +92,27 @@ export async function vlmExtractDocument(
     // Only for `max` (route has the repair stage) and only when we have OCR evidence to reconcile against.
     // Repair can only turn a fallback into an acceptance — it never degrades a result that already passed.
     if (route.stages.includes('repair') && ocr && evidence.trim()) {
-      const repairModel = cfg.repairModel || cfg.vlmModel;
-      const repairBase = cfg.repairBaseUrl || baseUrl;
+      // F11-b — route repair to the external assist model when it's configured for `repair` AND its egress
+      // host has been acknowledged. The host-match is re-checked HERE so document content never leaves the
+      // instance without recorded consent, even if config.json were hand-edited to add `uses` without an ack.
+      const assist = cfg.assistModel;
+      let useExternal = false;
+      if (assist?.baseUrl && assist.model && assist.uses?.includes('repair')) {
+        try { useExternal = assist.acknowledgedHost === new URL(assist.baseUrl).host; } catch { useExternal = false; }
+        if (!useExternal) log.warn('VLM extract: assist model set for repair but its egress host is not acknowledged — using local repair');
+      }
+      const repairModel = useExternal ? assist!.model! : (cfg.repairModel || cfg.vlmModel);
       try {
-        log.info(`VLM extract: validation failed (${v.issues.join('; ')}) — repairing with ${repairModel}`);
-        const r = await repairMarkdown({
-          baseUrl: repairBase, model: repairModel, draft: markdown, evidence, issues: v.issues,
-          timeoutMs: cfg.pageTimeoutMs,
-        });
+        log.info(`VLM extract: validation failed (${v.issues.join('; ')}) — repairing with ${useExternal ? 'external ' : ''}${repairModel}`);
+        const r = useExternal
+          ? await repairMarkdownExternal({
+              baseUrl: assist!.baseUrl!, model: assist!.model!, apiKey: getDocAssistApiKey(),
+              draft: markdown, evidence, issues: v.issues, timeoutMs: cfg.pageTimeoutMs,
+            })
+          : await repairMarkdown({
+              baseUrl: cfg.repairBaseUrl || baseUrl, model: repairModel, draft: markdown, evidence, issues: v.issues,
+              timeoutMs: cfg.pageTimeoutMs,
+            });
         const repaired = r.text.trim();
         const rv = validateExtraction(repaired, evidence, { finishReason: r.truncated ? 'length' : undefined });
         if (rv.ok) {

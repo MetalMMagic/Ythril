@@ -6,15 +6,23 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { SettingsCardComponent } from '../../shared/settings-card.component';
 import { StatusPillComponent, StatusVariant } from '../../shared/status-pill.component';
+import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
 interface ProviderCfg { label?: string; baseUrl?: string; model?: string; apiKey?: string; }
 
 type DocMode = 'ocr' | 'vlm' | 'auto' | 'max';
+type DocAssistUse = 'repair';
+/** F11-b — external "assist model": a bigger, hosted LLM (own endpoint) assigned to specific tasks. The
+ *  only path that sends document content off the instance, so it's gated by an egress acknowledgment. */
+interface DocAssistCfg {
+  baseUrl?: string; model?: string; apiKey?: string; uses?: DocAssistUse[]; acknowledgedHost?: string;
+}
 interface DocProcCfg {
   mode?: DocMode;
   renderDpi?: number; maxPages?: number; pageTimeoutMs?: number; concurrency?: number;
   // read-only (env/config-file only — never PATCHed from here)
   vlmModel?: string; vlmBaseUrl?: string; repairModel?: string; repairBaseUrl?: string;
+  assistModel?: DocAssistCfg;
 }
 
 interface MediaCfg {
@@ -249,6 +257,40 @@ const STAGES = [
           </details>
         </app-settings-card>
 
+        <!-- External assist model (F11-b) -->
+        <app-settings-card class="span-all" icon="globe" heading="External assist model"
+          purpose="An optional bigger, hosted model you assign to specific tasks. This is the only setting that sends document content off this instance.">
+          <app-status-pill pill [variant]="assistLocked() ? 'env' : (assistUses('repair') ? 'active' : 'off')">
+            {{ assistLocked() ? 'env' : (assistUses('repair') ? 'In use' : 'Not configured') }}
+          </app-status-pill>
+          <div class="grid2">
+            <div class="field"><label>Endpoint (OpenAI-compatible)</label><input data-mono type="url" [(ngModel)]="assist.baseUrl" [disabled]="assistLocked()" placeholder="https://api.example.com" /></div>
+            <div class="field"><label>Model</label><input data-mono [(ngModel)]="assist.model" [disabled]="assistLocked()" placeholder="e.g. a hosted GPT / Llama" /></div>
+          </div>
+          <div class="field">
+            <label>API key</label>
+            <input type="password" [(ngModel)]="assistApiKeyInput" [disabled]="assistLocked()"
+              [placeholder]="assist.apiKey ? 'Leave blank to keep current' : 'Bearer token (optional)'" />
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label>Used for</label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);font-weight:normal;">
+              <input type="checkbox" [checked]="assistUses('repair')" (change)="toggleAssistUse('repair', $any($event.target).checked)" [disabled]="assistLocked()" />
+              Document repair pass (<code>max</code> mode) — reconcile a page's VLM draft against the OCR text
+            </label>
+          </div>
+          <div class="runline warn" style="margin-top:14px;">
+            <ph-icon name="warning" [size]="15"/>
+            <span>
+              When assigned a task, this model receives document content — OCR-extracted text and draft
+              transcriptions (and rendered page images for image-based tasks). <b>That data leaves your
+              instance.</b>
+              @if (assistNeedsAck()) { You'll confirm egress to <code>{{ assistHost() }}</code> when you save. }
+              @else if (assist.acknowledgedHost) { Egress to <code>{{ assist.acknowledgedHost }}</code> is acknowledged. }
+            </span>
+          </div>
+        </app-settings-card>
+
         <!-- Advanced worker -->
         <app-settings-card icon="gear" heading="Advanced" purpose="Worker and upload limits for the media pipeline.">
           <div class="grid2">
@@ -273,6 +315,7 @@ const STAGES = [
 })
 export class ModelsComponent implements OnInit {
   private readonly http = inject(HttpClient);
+  private readonly confirmDialog = inject(ConfirmDialogService);
 
   // Button order: Auto first (it's the default), then OCR · VLM · Max ascending in capability.
   readonly MODES: DocMode[] = ['auto', 'ocr', 'vlm', 'max'];
@@ -288,6 +331,25 @@ export class ModelsComponent implements OnInit {
   lockedByInfra: string[] = [];
   visionApiKeyInput = '';
   sttApiKeyInput = '';
+  assistApiKeyInput = '';
+
+  // ── F11-b: external assist model ──
+  /** Live handle to the editable assist-model block (lazily initialised so the template can bind fields). */
+  get assist(): DocAssistCfg { return (this.form.documentProcessing ??= {}).assistModel ??= {}; }
+  assistLocked(): boolean { return this.isLocked('documentProcessing.assistModel'); }
+  assistUses(u: DocAssistUse): boolean { return this.assist.uses?.includes(u) ?? false; }
+  toggleAssistUse(u: DocAssistUse, on: boolean): void {
+    const set = new Set(this.assist.uses ?? []);
+    if (on) set.add(u); else set.delete(u);
+    this.assist.uses = [...set];
+  }
+  /** The endpoint host (for the egress acknowledgment), or '' when the URL is empty/invalid. */
+  assistHost(): string { try { return this.assist.baseUrl ? new URL(this.assist.baseUrl).host : ''; } catch { return ''; } }
+  /** True when a task is assigned to an endpoint whose host hasn't been acknowledged yet — save will prompt. */
+  assistNeedsAck(): boolean {
+    const host = this.assistHost();
+    return !!host && (this.assist.uses?.length ?? 0) > 0 && this.assist.acknowledgedHost !== host;
+  }
 
   /** The loaded doc-processing config (read-only fields like vlmModel live here). */
   private docCfgSig = signal<DocProcCfg>({});
@@ -299,9 +361,13 @@ export class ModelsComponent implements OnInit {
       next: cfg => {
         this.lockedByInfra = cfg.lockedByInfra ?? [];
         const dp: DocProcCfg = { mode: 'auto', renderDpi: 150, maxPages: 50, pageTimeoutMs: 60000, concurrency: 2, ...cfg.documentProcessing };
+        // F11-b — keep a copy of the assist model with `uses` always an array; the masked apiKey stays only
+        // so the template can show "key set" — it is never sent back (assistApiKeyInput carries changes).
+        dp.assistModel = { uses: [], ...cfg.documentProcessing?.assistModel };
         this.form = { vision: {}, stt: {}, ...cfg, documentProcessing: dp };
         this.form.vision = { ...cfg.vision, apiKey: undefined };
         this.form.stt = { ...cfg.stt, apiKey: undefined };
+        this.assistApiKeyInput = '';
         this.docCfgSig.set(dp);
         this.docMode.set(dp.mode ?? 'ocr');
         this.loading.set(false);
@@ -342,11 +408,38 @@ export class ModelsComponent implements OnInit {
   capVariant(model?: string): StatusVariant { return this.form.enabled ? (model ? 'active' : 'warn') : 'off'; }
   capLabel(model?: string): string { return !this.form.enabled ? 'Off' : (model ? 'Active' : 'No model'); }
 
-  save(): void {
+  async save(): Promise<void> {
+    const dp = this.form.documentProcessing ?? {};
+    const assist = dp.assistModel ?? {};
+    const uses = assist.uses ?? [];
+    const host = this.assistHost();
+
+    // F11-b — egress acknowledgment: assigning a task to an external endpoint whose host isn't yet
+    // acknowledged requires an explicit confirmation that document content leaves the instance.
+    if (!this.assistLocked() && this.assistNeedsAck()) {
+      const ok = await this.confirmDialog.confirm({
+        title: 'Send document content to an external model?',
+        message: `The model at ${host} will receive document content — OCR-extracted text and draft transcriptions (and rendered page images for image-based tasks). This data leaves your instance and is subject to that provider's handling. Enable egress to ${host}?`,
+        confirmLabel: 'Enable — I understand',
+        cancelLabel: 'Cancel',
+        danger: true,
+      });
+      if (!ok) return;              // not acknowledged → abort the whole save
+      assist.acknowledgedHost = host;
+    }
+
     this.saving.set(true);
     this.saveError.set('');
     this.saveOk.set('');
-    const dp = this.form.documentProcessing ?? {};
+    // Assist block: send baseUrl/model/uses/acknowledgedHost (+ apiKey only when the operator typed a new
+    // one — the masked value from GET is never echoed back). Omitted when locked by env.
+    const assistPayload: DocAssistCfg | undefined = this.assistLocked() ? undefined : {
+      baseUrl: assist.baseUrl || undefined,
+      model: assist.model || undefined,
+      uses,
+      acknowledgedHost: assist.acknowledgedHost,
+      ...(this.assistApiKeyInput ? { apiKey: this.assistApiKeyInput } : {}),
+    };
     const payload: MediaCfg = {
       enabled: this.form.enabled,
       visionProvider: this.form.visionProvider,
@@ -354,7 +447,10 @@ export class ModelsComponent implements OnInit {
       vision: { baseUrl: this.form.vision?.baseUrl, model: this.form.vision?.model, ...(this.visionApiKeyInput ? { apiKey: this.visionApiKeyInput } : {}) },
       stt: { baseUrl: this.form.stt?.baseUrl, model: this.form.stt?.model, ...(this.sttApiKeyInput ? { apiKey: this.sttApiKeyInput } : {}) },
       // Only the PATCH-writable doc fields (vlmModel/repairModel/URLs are env-only, never sent).
-      documentProcessing: { mode: dp.mode, renderDpi: dp.renderDpi, maxPages: dp.maxPages, pageTimeoutMs: dp.pageTimeoutMs, concurrency: dp.concurrency },
+      documentProcessing: {
+        mode: dp.mode, renderDpi: dp.renderDpi, maxPages: dp.maxPages, pageTimeoutMs: dp.pageTimeoutMs, concurrency: dp.concurrency,
+        ...(assistPayload ? { assistModel: assistPayload } : {}),
+      },
       fallbackToExternal: this.form.fallbackToExternal,
       maxFileSizeBytes: this.form.maxFileSizeBytes,
       workerConcurrency: this.form.workerConcurrency,
@@ -365,6 +461,7 @@ export class ModelsComponent implements OnInit {
         this.saveOk.set('Saved');
         this.visionApiKeyInput = '';
         this.sttApiKeyInput = '';
+        this.assistApiKeyInput = '';
         this.saving.set(false);
         setTimeout(() => this.saveOk.set(''), 3000);
       },

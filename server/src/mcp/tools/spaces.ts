@@ -8,7 +8,7 @@ import { updateSpace } from '../../spaces/spaces.js';
 export const list_spacesTool: ToolHandler = {
   name: 'list_spaces',
   description: 'List all accessible spaces with their IDs, labels, descriptions, and entry counts (memories, entities, edges, chrono). Use counts to decide which spaces are populated and worth querying.',
-  inputSchema: (s: ToolSchemas) => ({ type: 'object', properties: {}, required: [] }),
+  inputSchema: (_s: ToolSchemas) => ({ type: 'object', properties: {}, required: [], additionalProperties: false }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { accessibleSpaces } = ctx;
     const spaceCountResults = await Promise.allSettled(
@@ -57,6 +57,7 @@ export const get_statsTool: ToolHandler = {
             space: s.requiredSpace,
           },
           required: ['space'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { callSpace } = ctx;
@@ -95,6 +96,7 @@ export const get_space_metaTool: ToolHandler = {
             space: s.requiredSpace,
           },
           required: ['space'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { callSpace } = ctx;
@@ -142,10 +144,11 @@ export const update_spaceTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            label: { type: 'string', description: 'New display label for the space (max 200 chars).' },
-            description: { type: 'string', description: 'New description for the space (max 2000 chars). Surfaced to MCP clients as space-level instructions.' },
+            label: { type: 'string', minLength: 1, maxLength: 200, description: 'New display label for the space (1–200 chars).' },
+            description: { type: 'string', maxLength: 2000, description: 'New description for the space (max 2000 chars). Surfaced to MCP clients as space-level instructions.' },
           },
           required: ['space'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace, isAdmin } = ctx;
@@ -191,6 +194,7 @@ export const wipe_spaceTool: ToolHandler = {
             },
           },
           required: ['space'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace, isAdmin } = ctx;

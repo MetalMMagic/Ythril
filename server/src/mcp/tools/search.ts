@@ -8,12 +8,36 @@
  */
 
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, type McpRecallTraverseItem } from './shared.js';
+import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uuidSchema, unitScoreSchema, QUERY_FILTER_OPERATORS, RECALL_FILTER_KEY_PATTERN, type McpRecallTraverseItem } from './shared.js';
 import { MAX_RECALL_TRAVERSE, traverseRecallSeeds } from '../../brain/edges.js';
 import { type FilterExpression, validateFilterExpression } from '../../brain/filter.js';
 import { queryBrain } from '../../brain/query.js';
 import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal } from '../../brain/recall.js';
 import { resolveMemberSpaces, collectAcrossMembers } from '../../spaces/proxy.js';
+import { NotFoundError } from '../../util/errors.js';
+
+/**
+ * Space scope for find_similar — mirrors recall's omit-space idiom (F1 consistency).
+ *
+ * - `space` given (and not the deprecated `crossSpace`): locate the source in that proxy-resolved space
+ *   and search only there (searchIds `undefined` → findSimilar searches just the base space).
+ * - `space` omitted, or legacy `crossSpace: true`: locate the source across ALL accessible spaces (first
+ *   base that holds the entry wins) and search across all of them.
+ *
+ * Pure (proxy resolver injected) so the scope logic is unit-testable without a database.
+ */
+export function resolveFindSimilarScope(
+  callSpace: string | undefined,
+  crossSpace: boolean,
+  accessibleSpaceIds: string[],
+  resolveMembers: (space: string) => string[],
+): { candidateBases: string[]; searchIds: string[] | undefined } {
+  if (callSpace && !crossSpace) {
+    const members = resolveMembers(callSpace);
+    return { candidateBases: [members[0] ?? callSpace], searchIds: undefined };
+  }
+  return { candidateBases: accessibleSpaceIds, searchIds: accessibleSpaceIds };
+}
 
 export const recallTool: ToolHandler = {
   name: 'recall',
@@ -22,8 +46,8 @@ export const recallTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.optionalSpace,
-            query: { type: 'string', description: 'Natural language search query.' },
-            topK: { type: 'number', description: 'Max results (default 10).' },
+            query: { type: 'string', minLength: 1, description: 'Natural language search query (required, non-empty).' },
+            topK: { type: 'number', minimum: 1, default: 10, description: 'Max results to return. Default 10; no hard cap, but very large values are slower.' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Optional tag filter — only results bearing ALL of these tags are returned (applies to memories, entities, chrono entries, and files).' },
             types: {
               type: 'array',
@@ -35,10 +59,7 @@ export const recallTool: ToolHandler = {
               description: 'Optional minimum result count per type. Guarantees at least that many results of each type if available (e.g. {"entity": 2, "edge": 1}). Omit to use pure score ranking.',
               additionalProperties: { type: 'number' },
             },
-            minScore: {
-              type: 'number',
-              description: 'Minimum cosine similarity score (0.0–1.0). Results below this threshold are excluded.',
-            },
+            minScore: unitScoreSchema('Minimum cosine similarity score (0.0–1.0). Results below this threshold are excluded.'),
             traverse: {
               type: 'number',
               minimum: 0,
@@ -47,9 +68,11 @@ export const recallTool: ToolHandler = {
             },
             filter: {
               type: 'object',
-              description: 'Optional property equality/comparison filter applied after vector search. Keys must use dot-notation and start with "properties.", "tags", "type", "name", "status", or "label". Each value is an operator object with one or more of: eq, ne, in (array), exists (boolean), gt, gte, lt, lte. Example: { "properties.status": { "eq": "accepted" }, "properties.count": { "gt": 10 } }. Records not matching ALL filter conditions are excluded.',
+              description: 'Optional property equality/comparison filter applied after vector search. Keys must use dot-notation and start with "properties.", "tags", "type", "name", "status", or "label" (any other key is rejected). Each value is an operator object with one or more of: eq, ne, in (array), exists (boolean), gt, gte, lt, lte. Example: { "properties.status": { "eq": "accepted" }, "properties.count": { "gt": 10 } }. Records not matching ALL filter conditions are excluded.',
+              propertyNames: { pattern: RECALL_FILTER_KEY_PATTERN },
               additionalProperties: {
                 type: 'object',
+                additionalProperties: false,
                 properties: {
                   eq: { description: 'Exact equality.' },
                   ne: { description: 'Not equal.' },
@@ -64,6 +87,7 @@ export const recallTool: ToolHandler = {
             },
           },
           required: ['query'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace, accessibleSpaceIds } = ctx;
@@ -143,27 +167,32 @@ export const recallTool: ToolHandler = {
 
 export const find_similarTool: ToolHandler = {
   name: 'find_similar',
-  description: 'Find entries with high vector similarity to an existing entry. Use for deduplication, "more like this", and merge detection. Uses the entry\'s stored embedding — no re-embedding.',
-  spaceRequired: true,
+  description: 'Find entries with high vector similarity to an existing entry. Use for deduplication, "more like this", and merge detection. Uses the entry\'s stored embedding — no re-embedding. Provide `space` to scope to one space, or omit it to search across all accessible spaces (like recall).',
+  spaceRequired: false,
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {
-            space: s.requiredSpace,
-            entryId: { type: 'string', description: 'UUID of the source entry.' },
+            space: s.optionalSpace,
+            entryId: uuidSchema('UUID v4 of the source entry.'),
             entryType: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'], description: 'Knowledge type of the source entry.' },
             targetTypes: {
               type: 'array',
               items: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'] },
               description: 'Which knowledge types to search in. Omit to search all types.',
             },
-            topK: { type: 'number', description: 'Max results (default 10).' },
-            minScore: { type: 'number', description: 'Minimum cosine similarity threshold (0.0–1.0). Results below this are excluded.' },
-            crossSpace: { type: 'boolean', description: 'If true, search across all spaces the token can access. Default: false.' },
+            topK: { type: 'number', minimum: 1, maximum: 100, default: 10, description: 'Max results to return (clamped to 1–100). Default 10.' },
+            minScore: unitScoreSchema('Minimum cosine similarity threshold (0.0–1.0). Results below this are excluded.'),
+            traverse: {
+              type: 'number', minimum: 0, maximum: MAX_RECALL_TRAVERSE, default: 0,
+              description: `Optional graph-expansion depth (integer 0–${MAX_RECALL_TRAVERSE}, default 0). When > 0, each similar match is expanded along knowledge-graph edges up to this many hops and the connected entities are returned alongside the matches (annotated with source, hops, and path). With traverse > 0 the response is JSON instead of the plain text summary.`,
+            },
+            crossSpace: { type: 'boolean', default: false, description: 'DEPRECATED — omit `space` instead to search all accessible spaces. When true, forces a cross-space search even if `space` is given.' },
           },
-          required: ['space', 'entryId', 'entryType'],
+          required: ['entryId', 'entryType'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
-    const { args: a, callSpace, cfg, tokenSpaces } = ctx;
+    const { args: a, callSpace, accessibleSpaceIds } = ctx;
     const entryId = String(a['entryId'] ?? '').trim();
     if (!entryId) throw new Error('entryId must not be empty');
     if (!UUID_V4_RE.test(entryId)) throw new Error('entryId must be a valid UUID v4');
@@ -177,39 +206,66 @@ export const find_similarTool: ToolHandler = {
       ? (a['targetTypes'] as unknown[]).filter((t): t is RecallKnowledgeType => typeof t === 'string' && validTypes.has(t))
       : undefined;
 
-    let crossSpaceIds: string[] | undefined;
-    if (crossSpace) {
-      crossSpaceIds = cfg.spaces
-        .filter(s => !tokenSpaces || tokenSpaces.includes(s.id))
-        .map(s => s.id);
+    let traverse = 0;
+    if (a['traverse'] != null) {
+      if (typeof a['traverse'] !== 'number' || !Number.isInteger(a['traverse']) || a['traverse'] < 0 || a['traverse'] > MAX_RECALL_TRAVERSE) {
+        throw new Error(`traverse must be an integer between 0 and ${MAX_RECALL_TRAVERSE}`);
+      }
+      traverse = a['traverse'];
     }
 
-    const memberIds = resolveMemberSpaces(callSpace);
-    const result = await findSimilar(
-      memberIds[0] ?? callSpace,
-      entryId,
-      entryType as RecallKnowledgeType,
-      topK,
-      targetTypes,
-      minScore,
-      crossSpaceIds,
-    );
-
-    const lines: string[] = [];
-    lines.push(`Source: [${result.source.type}] ${formatRecallSummary(result.source)} (ID: ${result.source._id})`);
-    if (result.results.length === 0) {
-      lines.push('No similar entries found.');
-    } else {
-      for (let i = 0; i < result.results.length; i++) {
-        const r = result.results[i]!;
-        const spaceLabel = crossSpace ? ` [${r.spaceId}]` : '';
-        lines.push(`[${i + 1}]${spaceLabel} [${r.type}] (score: ${r.score?.toFixed(3) ?? 'n/a'}) ${formatRecallSummary(r)}`);
+    // Locate the source entry: with a space, use it; without, try each accessible space (first match
+    // wins — the lookup fails fast before any search, so misses are cheap).
+    const { candidateBases, searchIds } = resolveFindSimilarScope(callSpace || undefined, crossSpace, accessibleSpaceIds, resolveMemberSpaces);
+    let result: Awaited<ReturnType<typeof findSimilar>> | undefined;
+    let usedBase: string | undefined;
+    for (const base of candidateBases) {
+      try {
+        result = await findSimilar(base, entryId, entryType as RecallKnowledgeType, topK, targetTypes, minScore, searchIds);
+        usedBase = base;
+        break;
+      } catch (e) {
+        if (e instanceof NotFoundError && candidateBases.length > 1) continue;
+        throw e;
       }
     }
+    if (!result || !usedBase) throw new NotFoundError(`Entry '${entryId}' not found in any accessible space (type: ${entryType}).`);
 
-    return {
-      content: [{ type: 'text' as const, text: lines.join('\n') }],
+    const crossSpaceMode = !callSpace || crossSpace;
+
+    if (traverse === 0) {
+      const lines: string[] = [];
+      lines.push(`Source: [${result.source.type}] ${formatRecallSummary(result.source)} (ID: ${result.source._id})`);
+      if (result.results.length === 0) {
+        lines.push('No similar entries found.');
+      } else {
+        for (let i = 0; i < result.results.length; i++) {
+          const r = result.results[i]!;
+          const spaceLabel = crossSpaceMode ? ` [${r.spaceId}]` : '';
+          lines.push(`[${i + 1}]${spaceLabel} [${r.type}] (score: ${r.score?.toFixed(3) ?? 'n/a'}) ${formatRecallSummary(r)}`);
+        }
+      }
+      return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
+    }
+
+    // Graph-augmented: expand the similar seeds along edges (mirrors recall's traverse), JSON output.
+    const traverseSpaces = searchIds ?? [usedBase];
+    const totalCap = topK * (traverse + 1) * 4;
+    const neighbours = await traverseRecallSeeds(
+      traverseSpaces,
+      result.results.map(sd => ({ _id: sd._id, spaceId: sd.spaceId })),
+      traverse,
+      Math.max(0, totalCap - result.results.length),
+    );
+    const results: McpRecallTraverseItem[] = [
+      ...result.results.map(r => ({ score: r.score, source: 'recall' as const, hops: 0, path: [], spaceId: r.spaceId, type: r.type, matchedText: formatRecallSummary(r), record: toRecallRecord(r) })),
+      ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity', matchedText: `${n.record.name} (${n.record.type})`, record: entityDocToRecord(n.record) })),
+    ];
+    const output = {
+      source: { type: result.source.type, id: result.source._id, matchedText: formatRecallSummary(result.source) },
+      results, count: results.length, traverseDepth: traverse,
     };
+    return { content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }] };
   },
 };
 
@@ -226,15 +282,19 @@ export const queryTool: ToolHandler = {
               enum: ['memories', 'entities', 'edges', 'chrono', 'files'],
               description: 'Collection to query.',
             },
-            filter: { type: 'object', description: 'MongoDB filter document.' },
+            filter: {
+              type: 'object',
+              description: `MongoDB filter document. Only these operators are allowed (any other $-operator is rejected): ${QUERY_FILTER_OPERATORS.join(', ')}. Nesting is capped at depth 8. $regex must be a string, length-limited, and rejected if it risks catastrophic backtracking; $options is allowed only alongside $regex and only with flags i, m, s, x. Results are ordered seq/updatedAt/createdAt descending — there is no sort parameter.`,
+            },
             projection: {
               type: 'object',
-              description: 'Fields to include (1) or exclude (0).',
+              description: 'Fields to include (1) or exclude (0). The `embedding` field is always excluded and cannot be re-included.',
             },
-            limit: { type: 'number', description: 'Max documents (default 20, max 100).' },
-            maxTimeMS: { type: 'number', description: 'Query timeout in ms (max 30000).' },
+            limit: { type: 'number', minimum: 1, maximum: 100, default: 20, description: 'Max documents to return (clamped to 1–100). Default 20.' },
+            maxTimeMS: { type: 'number', minimum: 1, maximum: 10000, default: 5000, description: 'Server-side query timeout in ms. Default 5000, hard-capped at 10000.' },
           },
           required: ['space', 'collection', 'filter'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;

@@ -24,11 +24,13 @@ export const bulk_writeTool: ToolHandler = {
             space: s.requiredSpace,
             memories: {
               type: 'array',
-              description: 'Memory entries to insert. Same fields as the `remember` tool.',
+              maxItems: 500,
+              description: 'Memory entries to insert (max 500; excess entries are dropped). Same fields as the `remember` tool.',
               items: {
                 type: 'object',
+                additionalProperties: false,
                 properties: {
-                  fact:        { type: 'string', description: 'The fact or memory to store.' },
+                  fact:        { type: 'string', minLength: 1, maxLength: 50000, description: 'The fact or memory to store (1–50 000 characters).' },
                   tags:        { type: 'array', items: { type: 'string' }, description: 'Categorisation tags.' },
                   entityIds:   { type: 'array', items: { type: 'string' }, description: 'Related entity IDs.' },
                   description: { type: 'string', description: 'Optional prose context.' },
@@ -41,9 +43,11 @@ export const bulk_writeTool: ToolHandler = {
             },
             entities: {
               type: 'array',
-              description: 'Entity entries to upsert. Same fields as the `upsert_entity` tool.',
+              maxItems: 500,
+              description: 'Entity entries to upsert (max 500; excess entries are dropped). Same fields as the `upsert_entity` tool.',
               items: {
                 type: 'object',
+                additionalProperties: false,
                 properties: {
                   id:          { type: 'string', description: 'Optional UUID v4 — if provided, updates the entity with this ID (or inserts with this ID). If omitted, a new entity is always inserted.' },
                   name:        { type: 'string', description: 'Entity name.' },
@@ -58,9 +62,11 @@ export const bulk_writeTool: ToolHandler = {
             },
             edges: {
               type: 'array',
-              description: 'Edge entries to upsert. Same fields as the `upsert_edge` tool.',
+              maxItems: 500,
+              description: 'Edge entries to upsert (max 500; excess entries are dropped). Same fields as the `upsert_edge` tool.',
               items: {
                 type: 'object',
+                additionalProperties: false,
                 properties: {
                   from:        { type: 'string', description: 'Source entity ID.' },
                   to:          { type: 'string', description: 'Target entity ID.' },
@@ -77,9 +83,11 @@ export const bulk_writeTool: ToolHandler = {
             },
             chrono: {
               type: 'array',
-              description: 'Chrono entries to insert. Same fields as the `create_chrono` tool.',
+              maxItems: 500,
+              description: 'Chrono entries to insert (max 500; excess entries are dropped). Same fields as the `create_chrono` tool.',
               items: {
                 type: 'object',
+                additionalProperties: false,
                 properties: {
                   title:       { type: 'string' },
                   type:        { type: 'string', description: 'Entry type (e.g. event, deadline, plan, prediction, milestone, or a custom type defined in the space schema).' },
@@ -100,6 +108,7 @@ export const bulk_writeTool: ToolHandler = {
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
           required: ['space'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;

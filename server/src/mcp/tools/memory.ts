@@ -13,7 +13,7 @@ import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateMemory } from '../../spaces/schema-validation.js';
-import { TTL_DAYS_SCHEMA, ttlDaysFromArgs } from './shared.js';
+import { TTL_DAYS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 
 export const rememberTool: ToolHandler = {
   name: 'remember',
@@ -24,7 +24,7 @@ export const rememberTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            fact: { type: 'string', description: 'The fact, observation, or memory to store.' },
+            fact: { type: 'string', minLength: 1, maxLength: 50000, description: 'The fact, observation, or memory to store (1–50 000 characters).' },
             entities: {
               type: 'array',
               items: { type: 'string' },
@@ -43,11 +43,12 @@ export const rememberTool: ToolHandler = {
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
-            checkDuplicates: { type: 'boolean', description: 'Run a semantic near-duplicate check before storing (default true). When a highly similar memory already exists, the response flags it (id + summary + score) so you can update it instead of creating a redundant one. The memory is still stored regardless. Set false to skip the check.' },
-            dupeThreshold: { type: 'number', description: 'Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.' },
+            checkDuplicates: { type: 'boolean', default: true, description: 'Run a semantic near-duplicate check before storing (default true). When a highly similar memory already exists, the response flags it (id + summary + score) so you can update it instead of creating a redundant one. The memory is still stored regardless. Set false to skip the check.' },
+            dupeThreshold: unitScoreSchema('Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.'),
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'fact'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;
@@ -150,6 +151,7 @@ export const update_memoryTool: ToolHandler = {
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'id'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;
@@ -197,10 +199,11 @@ export const delete_memoryTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: { type: 'string', description: 'Memory ID to delete.' },
+            id: { type: 'string', minLength: 1, description: 'Memory ID to delete.' },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
           required: ['space', 'id'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;

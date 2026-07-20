@@ -218,6 +218,16 @@ export interface EmbeddingConfig {
   model: string;
   dimensions: number;
   similarity: 'cosine' | 'dotProduct' | 'euclidean';
+  /**
+   * Where the HTTP embedding endpoint lives (only relevant when `baseUrl` is set). `local` (default) = a
+   * trusted internal endpoint (e.g. Ollama on the cluster network) reached with a plain fetch; `external` =
+   * an operator-supplied public endpoint reached through the SSRF-guarded fetch at runtime (SSRF follow-up
+   * part 2). Mirrors `visionProvider`/`sttProvider`. Absent/`local` keeps today's behaviour.
+   */
+  provider?: 'local' | 'external';
+  /** API key for an external embedding endpoint. Stored in `secrets.json` (never `config.json`), masked in
+   *  the admin API. */
+  apiKey?: string;
 }
 
 export interface StorageConfig {

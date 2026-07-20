@@ -2224,6 +2224,10 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 | `stt.baseUrl` | `WHISPER_URL` | `http://whisper:8000` | STT service endpoint |
 | `stt.model` | `WHISPER_MODEL` | `base` | Whisper model size/name |
 | `stt.apiKey` | `STT_API_KEY` | — | API key for external STT provider (stored in `secrets.json`) |
+| `embedding.provider` | `EMBEDDING_PROVIDER` | `local` | Text-embedding endpoint trust: `local` (bundled ONNX or an internal HTTP endpoint, plain fetch) or `external` (public endpoint, reached through the SSRF-guarded fetch). Config lives at top-level `config.embedding` but is edited on **Settings → Models**. |
+| `embedding.baseUrl` | `EMBEDDING_URL` | — | Embedding HTTP endpoint (OpenAI-compatible `/v1/embeddings`). Blank = the bundled in-process ONNX model. |
+| `embedding.model` | `EMBEDDING_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | Embedding model. **Changing the model / `dimensions` / `similarity` re-indexes every vector** (the UI requires an explicit confirmation; `POST /api/brain/spaces/:id/reindex` runs it). |
+| `embedding.apiKey` | `EMBEDDING_API_KEY` | — | API key for an external embedding endpoint (stored in `secrets.json`, masked in the API). |
 | `workerConcurrency` | `WORKER_CONCURRENCY` | `2` | Max parallel jobs |
 | `workerPollIntervalMs` | `WORKER_POLL_INTERVAL_MS` | `1000` | Base poll interval (ms) |
 | `workerMaxPollIntervalMs` | `WORKER_MAX_POLL_INTERVAL_MS` | `30000` | Max poll interval when idle (ms) |

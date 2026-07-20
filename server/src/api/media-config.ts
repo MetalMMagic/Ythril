@@ -10,7 +10,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey } from '../config/loader.js';
+import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey, getEmbeddingConfig, getEmbeddingApiKey } from '../config/loader.js';
 import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl, ssrfSafeFetch } from '../util/ssrf.js';
@@ -35,6 +35,9 @@ mediaConfigRouter.get('/', requireAdmin, (req, res) => {
   // restart. Surfacing it lets the UI show "applying…" instead of leaving the
   // operator guessing whether their provider switch is live yet.
   masked['providerReloadPending'] = getActiveProviderSignature() !== providerSignature(cfg);
+  // Text embedding lives at top-level config.embedding but is surfaced here so it's on the Models page.
+  const emb = getEmbeddingConfig();
+  masked['embedding'] = { ...emb, apiKey: emb.apiKey ? '••••••••' : undefined };
   res.json(masked);
 });
 
@@ -71,12 +74,25 @@ const DocumentProcessingPatchSchema = z.object({
   assistModel: AssistModelPatchSchema.optional(),
 }).strict();
 
+// Text-embedding provider. Lives at top-level `config.embedding` (not under mediaEmbedding), but is
+// surfaced/edited here so all model config sits on one page. `model`/`dimensions`/`similarity` changes
+// re-index every vector — the client gates those behind an explicit confirmation. `apiKey` → secrets.json.
+const EmbeddingPatchSchema = z.object({
+  provider: z.enum(['local', 'external']).optional(),
+  baseUrl: z.string().url().optional().nullable(),
+  model: z.string().min(1).max(256).optional(),
+  dimensions: z.number().int().min(1).max(16_384).optional(),
+  similarity: z.enum(['cosine', 'dotProduct', 'euclidean']).optional(),
+  apiKey: z.string().max(512).optional().nullable(),
+}).strict();
+
 const MediaConfigPatchSchema = z.object({
   enabled: z.boolean().optional(),
   visionProvider: z.enum(['local', 'external']).optional(),
   sttProvider: z.enum(['local', 'external']).optional(),
   vision: ProviderPatchSchema.optional(),
   stt: ProviderPatchSchema.optional(),
+  embedding: EmbeddingPatchSchema.optional(),
   documentProcessing: DocumentProcessingPatchSchema.optional(),
   workerConcurrency: z.number().int().min(1).max(16).optional(),
   workerPollIntervalMs: z.number().int().min(100).max(60_000).optional(),
@@ -134,6 +150,13 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     res.status(400).json({ error: 'stt.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' });
     return;
   }
+  // Text-embedding external endpoint — same SSRF rule (only when the effective provider is external).
+  const effectiveEmbType = parsed.data.embedding?.provider ?? getEmbeddingConfig().provider ?? 'local';
+  if (effectiveEmbType === 'external' && parsed.data.embedding?.baseUrl
+      && !isSsrfSafeUrl(parsed.data.embedding.baseUrl)) {
+    res.status(400).json({ error: 'embedding.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' });
+    return;
+  }
 
   // ── F11-b: external assist model — locked check + SSRF + egress-acknowledgment enforcement ──
   // This is the only path that sends document content OFF the instance, so a `uses`-active endpoint must be
@@ -183,8 +206,12 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const assistApiKeyChange = (assistPatch && 'apiKey' in assistPatch)
       ? assistPatch.apiKey ?? null
       : undefined;
+    // Text-embedding key → secrets.embedding.apiKey (top-level, matching getEmbeddingConfig()).
+    const embApiKeyChange = (parsed.data.embedding && 'apiKey' in parsed.data.embedding)
+      ? parsed.data.embedding.apiKey ?? null
+      : undefined;
 
-    if (visionApiKeyChange !== undefined || sttApiKeyChange !== undefined || assistApiKeyChange !== undefined) {
+    if (visionApiKeyChange !== undefined || sttApiKeyChange !== undefined || assistApiKeyChange !== undefined || embApiKeyChange !== undefined) {
       const secrets = getSecrets();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sAny = secrets as any;
@@ -200,6 +227,11 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
       if (assistApiKeyChange !== undefined) {
         if (assistApiKeyChange === null || assistApiKeyChange === '') delete sAny.mediaEmbedding.docAssistApiKey;
         else sAny.mediaEmbedding.docAssistApiKey = assistApiKeyChange;
+      }
+      if (embApiKeyChange !== undefined) {
+        sAny.embedding = sAny.embedding ?? {};
+        if (embApiKeyChange === null || embApiKeyChange === '') delete sAny.embedding.apiKey;
+        else sAny.embedding.apiKey = embApiKeyChange;
       }
       saveSecrets(secrets);
     }
@@ -234,11 +266,25 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
       }
       merged['documentProcessing'] = dpMerged;
     }
+    // Text embedding lives at TOP-LEVEL `config.embedding`, not under mediaEmbedding — pull it out of the
+    // media merge and apply it separately (apiKey already routed to secrets above).
+    delete merged['embedding'];
+    if (parsed.data.embedding) {
+      const e = { ...parsed.data.embedding } as Record<string, unknown>;
+      delete e['apiKey']; // never in config.json
+      // null baseUrl clears it (switch back to the bundled local ONNX model).
+      if (e['baseUrl'] === null) delete e['baseUrl'];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      cfg.embedding = { ...(cfg.embedding as any ?? {}), ...e };
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     cfg.mediaEmbedding = merged as any;
     saveConfig(cfg);
     log.info(`Media embedding config updated by admin`);
-    res.json({ ok: true, config: maskSecrets(getMediaEmbeddingConfig()) });
+    const respBody = maskSecrets(getMediaEmbeddingConfig()) as Record<string, unknown>;
+    const emb = getEmbeddingConfig();
+    respBody['embedding'] = { ...emb, apiKey: emb.apiKey ? '••••••••' : undefined };
+    res.json({ ok: true, config: respBody });
   } catch (err) {
     log.warn(`Failed to save media config: ${err}`);
     res.status(500).json({ error: 'Failed to save configuration' });
@@ -252,7 +298,7 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
 // the media worker reaches them.
 
 const TestConnectionSchema = z.object({
-  target: z.enum(['vision', 'stt', 'assist']),
+  target: z.enum(['vision', 'stt', 'assist', 'embedding']),
 }).strict();
 
 mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => {
@@ -274,6 +320,10 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
   } else if (target === 'stt') {
     baseUrl = cfg.stt?.baseUrl; model = cfg.stt?.model; apiKey = cfg.stt?.apiKey;
     external = cfg.sttProvider === 'external';
+  } else if (target === 'embedding') {
+    const e = getEmbeddingConfig();
+    baseUrl = e.baseUrl; model = e.model; apiKey = getEmbeddingApiKey();
+    external = e.provider === 'external';
   } else {
     const a = cfg.documentProcessing?.assistModel;
     baseUrl = a?.baseUrl; model = a?.model; apiKey = getDocAssistApiKey();

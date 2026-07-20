@@ -332,10 +332,19 @@ describe('$ref resolution — space references a library entry', () => {
     }).catch(() => {});
   });
 
-  it('the $ref typeSchema can be saved to a space', async () => {
+  it('the $ref typeSchema can be saved to a space (raw meta preserves the $ref for round-trip)', async () => {
     const r = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta`);
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.deepEqual(r.body.typeSchemas?.entity?.service, { $ref: `library:${refLibName}` });
+  });
+
+  it('GET /meta?resolve=1 expands the $ref to the library entry\'s effective schema (fixes empty entry-form props)', async () => {
+    const r = await get(INSTANCES.a, token(), `/api/spaces/${TEST_SPACE}/meta?resolve=1`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const resolved = r.body.typeSchemas?.entity?.service;
+    assert.ok(resolved && !resolved.$ref, `expected the $ref resolved away, got ${JSON.stringify(resolved)}`);
+    // The library schema defines `owner` — it must surface so the UI can pre-fill it on the add form.
+    assert.ok(resolved.propertySchemas?.owner, `resolved type must carry the library propertySchemas (owner), got ${JSON.stringify(resolved.propertySchemas)}`);
   });
 
   it('a write that satisfies the referenced schema succeeds', async () => {

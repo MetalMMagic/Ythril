@@ -2147,6 +2147,8 @@ Required services (bundled by default; override only when you point at external 
 
 Kubernetes manifests are provided in `kubernetes/manifests/ollama-deploy.yaml` and `kubernetes/manifests/whisper-deploy.yaml`. Dual `NetworkPolicy` + `CiliumNetworkPolicy` resources are in `media-netpol.yaml` and `media-cilium-netpol.yaml`.
 
+When you point vision/STT at an **external** provider, its endpoint URL is validated against SSRF on save (must be a public http(s) URL) **and** reached only through the SSRF-guarded fetch at runtime (DNS-resolve + IP-pin + redirect re-validation) — so a DNS-rebind or redirect can't turn it into a request to an internal address. The bundled local Ollama/Whisper providers use a direct fetch (their addresses are private by design).
+
 #### Upload Response
 
 When a media file is uploaded, the response includes an `embeddingStatus` field:

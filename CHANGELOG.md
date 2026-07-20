@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **External media providers now route their egress through the SSRF-guarded fetch at runtime (SSRF
+  follow-up, part 1).** The external vision and speech-to-text providers (`ExternalVisionProvider`,
+  `ExternalWhisperProvider`) validated their operator-supplied endpoint URL only at config-save time, then
+  called it with a raw `fetch` — leaving a DNS-rebinding / redirect-to-internal window (the same gap F11-b
+  closed for the document assist model). Their runtime calls now go through `ssrfSafeFetch` (DNS-resolve +
+  IP-pin + redirect re-validation). The **bundled local** Ollama/Whisper providers keep a plain `fetch` — their
+  addresses are private by design and the guard would rightly reject them — so local deploys are byte-for-byte
+  unchanged. New standalone test proves the guard is applied to the external providers and *not* the local
+  ones. (Embedding + OIDC-JWKS egress are part 2 — see `_TODO-ORDERED.md`.)
+
 - **Browser SSE streams no longer carry the auth token in the URL — closed a credential-leak vector.** The
   live brain-change stream (`GET /api/brain/spaces/:id/events`, F12) and the admin audit-log tail
   (`GET /api/about/logs/stream`) are opened by the browser `EventSource` API, which cannot set an

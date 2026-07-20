@@ -23,7 +23,7 @@
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { NetworksApi } from '../../core/networks-api.service';
 import { SchemaApi } from '../../core/schema-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -155,6 +155,69 @@ describe('SpacesComponent — storageInfo / fmtGiB', () => {
   });
 });
 
+
+describe('SpacesComponent — summary strip (U9 pt2)', () => {
+  it('reports the space count, aggregate storage in use, and an indexing-attention count', () => {
+    const c = create([
+      space({ id: 'a', label: 'A', usageGiB: 2 }),
+      space({ id: 'b', label: 'B', usageGiB: 3.5, indexStatus: 'building' }),
+      space({ id: 'c', label: 'C', usageGiB: 1, indexStatus: 'ready' }),
+    ]).componentInstance;
+    const items = c.spacesSummary();
+    expect(items[0].value).toBe('3');           // count
+    expect(items[1].value).toBe('6.50 GiB');    // 2 + 3.5 + 1, <10 GiB → 2 decimals
+    expect(items[2].value).toBe('1');           // one space building
+    expect(items[2].variant).toBe('warn');      // attention → warn
+  });
+
+  it('collapses to the ok variant with zero indexing when every space is ready', () => {
+    const c = create([space({ id: 'a', label: 'A', usageGiB: 0.4, indexStatus: 'ready' })]).componentInstance;
+    const items = c.spacesSummary();
+    expect(items[2].value).toBe('0');
+    expect(items[2].variant).toBe('ok');
+  });
+
+  it('counts a failed index as needing attention', () => {
+    const c = create([space({ id: 'a', label: 'A', indexStatus: 'failed' })]).componentInstance;
+    expect(c.spacesSummary()[2].value).toBe('1');
+  });
+});
+
+describe('SpacesComponent — load-error state', () => {
+  function createErroring() {
+    TestBed.resetTestingModule();
+    const erroringApi = {
+      listSpaces: () => throwError(() => new Error('boom')),
+      listNetworks: () => of({ networks: [] }),
+      getSpaceStats: () => of(STATS),
+      listSchemaLibrary: () => of({ entries: [] }),
+    } as any;
+    TestBed.configureTestingModule({
+      imports: [SpacesComponent, getTranslocoModule()],
+      providers: [
+        { provide: SpacesApi, useValue: erroringApi },
+        { provide: NetworksApi, useValue: erroringApi },
+        { provide: SchemaApi, useValue: erroringApi },
+        { provide: ToastService, useValue: { show: () => {}, error: () => {}, success: () => {} } },
+        { provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(true) } },
+      ],
+    });
+    const fixture = TestBed.createComponent(SpacesComponent);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('a failed list load flips store.error and clears loading', () => {
+    const c = createErroring().componentInstance;
+    expect(c.store.error()).toBe(true);
+    expect(c.store.loading()).toBe(false);
+  });
+
+  it('does not render the summary strip while in the error state', () => {
+    const fixture = createErroring();
+    expect(fixture.nativeElement.querySelector('app-summary-strip')).toBeNull();
+  });
+});
 
 describe('SpacesComponent — settings dialog rendering', () => {
   const s = space({ id: 'work', label: 'Work' });

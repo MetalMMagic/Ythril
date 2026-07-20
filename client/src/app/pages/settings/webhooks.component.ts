@@ -50,7 +50,7 @@ interface WebhookForm {
   template: `
     <!-- CREATE / EDIT DIALOG -->
     @if (form(); as f) {
-      <div class="dialog-backdrop" (click)="closeForm()">
+      <div class="dialog-backdrop">
         <div class="dialog" [appModal]="(f.id ? 'webhooks.dialog.editTitle' : 'webhooks.dialog.createTitle') | transloco" (dismiss)="closeForm()" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ (f.id ? 'webhooks.dialog.editTitle' : 'webhooks.dialog.createTitle') | transloco }}</div>
@@ -126,8 +126,8 @@ interface WebhookForm {
 
     <!-- DELIVERIES DIALOG -->
     @if (deliveriesFor(); as d) {
-      <div class="dialog-backdrop" (click)="deliveriesFor.set(null)">
-        <div class="dialog wide" [appModal]="'webhooks.deliveries.title' | transloco" (dismiss)="deliveriesFor.set(null)" (click)="$event.stopPropagation()">
+      <div class="dialog-backdrop">
+        <div class="dialog wide" [appModal]="'webhooks.deliveries.title' | transloco" appModalCloseOnBackdrop (dismiss)="deliveriesFor.set(null)" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'webhooks.deliveries.title' | transloco }}</div>
             <button class="icon-btn" type="button" [attr.aria-label]="'common.close' | transloco" (click)="deliveriesFor.set(null)"><ph-icon name="x" [size]="16"/></button>

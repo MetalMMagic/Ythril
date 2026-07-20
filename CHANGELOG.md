@@ -1036,6 +1036,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Data-entry dialogs no longer discard your input when you click outside them.** Every dialog used to
+  hand-roll its own backdrop, and most closed the moment you clicked outside the panel — so a stray click
+  while filling in a new token, space, schema entry, webhook, network, or a record editor threw away
+  everything you had typed. Backdrop dismissal is now owned centrally by the shared `ModalDirective` and is
+  **off by default**: a click outside a form does nothing (close it with ✕, Cancel, or Escape), while
+  read-only / confirm dialogs opt back in with a single `appModalCloseOnBackdrop` attribute to keep the
+  convenient click-away. ~16 input-holding dialogs across settings and the brain were migrated; the directive
+  also gives each the focus-trap, `aria-modal`, and Escape handling it may have lacked. Future dialogs are safe
+  by construction. Behaviour is pinned by the ModalDirective spec (default-no-dismiss, opt-in dismiss,
+  ignores clicks bubbling from inside the panel) and verified end-to-end with Playwright (a filled token
+  dialog survives an outside click with its input intact, and still closes via Escape).
 - **Schema tab tidied: space-wide validation moved to the top, and the typography unified.** The
   **validation mode** and **strict linkage** controls sat in the per-collection sub-header, where they looked
   like a setting for the active collection (entities / edges / …) rather than the whole space. They now live in

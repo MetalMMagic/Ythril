@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
+import { ModalDirective } from '../../shared/modal.directive';
 import { TagInputComponent } from '../../shared/tag-input.component';
 import { PropertiesEditorComponent } from '../../shared/properties-editor.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
@@ -25,12 +26,12 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
   selector: 'app-record-drawer',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ModalDirective],
   styles: [BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES],
   template: `
       @if (state.drawerRecord(); as dr) {
-        <div class="drawer-overlay" (click)="state.close()">
-          <div class="drawer" (click)="$event.stopPropagation()" role="dialog" [attr.aria-label]="'brain.drawer.recordDetailsAriaLabel' | transloco">
+        <div class="drawer-overlay">
+          <div class="drawer" [appModal]="'brain.drawer.recordDetailsAriaLabel' | transloco" (dismiss)="state.close()" (click)="$event.stopPropagation()">
             <div class="drawer-header">
               <div style="flex:1; min-width:0;">
                 @if (dr.kind === 'memory') { <span class="badge badge-blue" style="margin-bottom:6px; display:inline-block;">{{ 'brain.drawer.badge.memory' | transloco }}</span> }

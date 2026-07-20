@@ -254,7 +254,7 @@ import { RelativeTimeComponent } from '../../shared/relative-time.component';
 
     <!-- Create token form (dialog) -->
     @if (showCreateDialog()) {
-      <div class="dialog-backdrop" (click)="showCreateDialog.set(false)">
+      <div class="dialog-backdrop">
         <div class="dialog" [appModal]="'tokens.create.title' | transloco" (dismiss)="showCreateDialog.set(false)" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'tokens.create.title' | transloco }}</div>

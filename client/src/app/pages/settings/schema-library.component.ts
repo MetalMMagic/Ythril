@@ -240,7 +240,7 @@ import { ModalDirective } from '../../shared/modal.directive';
 
     <!-- Create / Edit dialog -->
     @if (showDialog()) {
-      <div class="dialog-backdrop" (click)="closeDialog()">
+      <div class="dialog-backdrop">
         <div class="dialog" [appModal]="editingEntry() ? ('schemaLib.dialog.editTitle' | transloco) : ('schemaLib.dialog.createTitle' | transloco)" (dismiss)="closeDialog()" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">
@@ -308,8 +308,8 @@ import { ModalDirective } from '../../shared/modal.directive';
 
     <!-- Delete confirmation dialog -->
     @if (deletingEntry()) {
-      <div class="dialog-backdrop" (click)="deletingEntry.set(null)">
-        <div class="dialog" style="max-width:400px;" [appModal]="'schemaLib.delete.title' | transloco" (dismiss)="deletingEntry.set(null)" (click)="$event.stopPropagation()">
+      <div class="dialog-backdrop">
+        <div class="dialog" style="max-width:400px;" [appModal]="'schemaLib.delete.title' | transloco" appModalCloseOnBackdrop (dismiss)="deletingEntry.set(null)" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <div class="card-title">{{ 'schemaLib.delete.title' | transloco }}</div>
             <button class="icon-btn" [attr.aria-label]="'common.close' | transloco" (click)="deletingEntry.set(null)"><ph-icon name="x" [size]="14"/></button>

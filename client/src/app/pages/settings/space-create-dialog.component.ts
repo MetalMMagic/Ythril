@@ -24,7 +24,7 @@ import { SpaceMeta, ValidationMode } from '../../core/api.types';
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [SPACE_DIALOG_STYLES],
   template: `
-<div class="dialog-backdrop" (click)="closed.emit()">
+<div class="dialog-backdrop">
   <div class="dialog" [appModal]="'spaces.create.title' | transloco" (dismiss)="closed.emit()" (click)="$event.stopPropagation()">
     <div class="dialog-header">
       <div class="card-title">{{ 'spaces.create.title' | transloco }}</div>

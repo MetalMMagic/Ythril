@@ -312,7 +312,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 
     <!-- Add Catalog dialog -->
     @if (showAddCatalog()) {
-      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;" (click)="showAddCatalog.set(false)">
+      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;">
         <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:92vw;max-width:480px;" [appModal]="'schemaLib.catalog.addTitle' | transloco" (dismiss)="showAddCatalog.set(false)" (click)="$event.stopPropagation()">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
             <h3 style="margin:0;font-size:15px;">{{ 'schemaLib.catalog.addTitle' | transloco }}</h3>
@@ -347,8 +347,8 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 
     <!-- Catalog browse dialog -->
     @if (browsing(); as b) {
-      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;" (click)="browsing.set(null)">
-        <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:96vw;max-width:780px;max-height:85vh;display:flex;flex-direction:column;" [appModal]="'schemaLib.catalog.browseTitle' | transloco" (dismiss)="browsing.set(null)" (click)="$event.stopPropagation()">
+      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;">
+        <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:96vw;max-width:780px;max-height:85vh;display:flex;flex-direction:column;" [appModal]="'schemaLib.catalog.browseTitle' | transloco" appModalCloseOnBackdrop (dismiss)="browsing.set(null)" (click)="$event.stopPropagation()">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-shrink:0;">
             <h3 style="margin:0;font-size:15px;">{{ 'schemaLib.catalog.browseTitle' | transloco }}: <span style="font-family:var(--font-mono);">{{ b.catalogName }}</span></h3>
             <button class="icon-btn" type="button" [attr.aria-label]="'common.close' | transloco" (click)="browsing.set(null)"><ph-icon name="x" [size]="18"/></button>
@@ -381,7 +381,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
     }
     <!-- Create library access token dialog -->
     @if (showCreateLibToken()) {
-      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;" (click)="closeCreateLibToken()">
+      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;">
         <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:92vw;max-width:420px;" [appModal]="'schemaLib.share.tokenDialogTitle' | transloco" (dismiss)="closeCreateLibToken()" (click)="$event.stopPropagation()">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
             <h3 style="margin:0;font-size:15px;">{{ 'schemaLib.share.tokenDialogTitle' | transloco }}</h3>
@@ -424,7 +424,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 
     <!-- Export space schema dialog -->
     @if (exportSpaceDialog()) {
-      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;" (click)="exportSpaceDialog.set(null)">
+      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;">
         <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:92vw;max-width:500px;" [appModal]="'schemaLib.exportSpace.dialogTitle' | transloco" (dismiss)="exportSpaceDialog.set(null)" (click)="$event.stopPropagation()">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
             <h3 style="margin:0;font-size:15px;">{{ 'schemaLib.exportSpace.dialogTitle' | transloco }}</h3>
@@ -465,7 +465,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 
     <!-- Apply group to space dialog -->
     @if (applyGroupDialog()) {
-      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;" (click)="applyGroupDialog.set(null)">
+      <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:200;">
         <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:92vw;max-width:500px;" [appModal]="'schemaLib.applyGroup.dialogTitle' | transloco" (dismiss)="applyGroupDialog.set(null)" (click)="$event.stopPropagation()">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
             <h3 style="margin:0;font-size:15px;">{{ 'schemaLib.applyGroup.dialogTitle' | transloco }}</h3>
@@ -505,7 +505,7 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
     }
 
     @if (showDialog()) {
-      <div class="dialog-backdrop" (click)="closeDialog()">
+      <div class="dialog-backdrop">
         <div class="dialog" [appModal]="editingName() ? ('schemaLib.dialog.editTitle' | transloco) : ('schemaLib.dialog.createTitle' | transloco)" (dismiss)="closeDialog()" (click)="$event.stopPropagation()">
           <div class="dialog-header">
             <h3>{{ editingName() ? ('schemaLib.dialog.editTitle' | transloco) : ('schemaLib.dialog.createTitle' | transloco) }}</h3>
@@ -583,8 +583,8 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 
     <!-- Delete warning dialog -->
     @if (deleteDialog(); as dd) {
-      <div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:320;display:flex;align-items:center;justify-content:center;" (click)="closeDeleteDialog()">
-        <div style="background:var(--surface);border-radius:8px;padding:24px;max-width:480px;width:90%;display:flex;flex-direction:column;gap:16px;" [appModal]="'schemaLib.delete.title' | transloco" (dismiss)="closeDeleteDialog()" (click)="$event.stopPropagation()">
+      <div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:320;display:flex;align-items:center;justify-content:center;">
+        <div style="background:var(--surface);border-radius:8px;padding:24px;max-width:480px;width:90%;display:flex;flex-direction:column;gap:16px;" [appModal]="'schemaLib.delete.title' | transloco" appModalCloseOnBackdrop (dismiss)="closeDeleteDialog()" (click)="$event.stopPropagation()">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
             <h3 style="margin:0;font-size:15px;">{{ 'schemaLib.delete.title' | transloco }}</h3>
             <button class="icon-btn" type="button" [attr.aria-label]="'common.close' | transloco" (click)="closeDeleteDialog()"><ph-icon name="x" [size]="18"/></button>

@@ -19,6 +19,7 @@ import { catchError, map } from 'rxjs/operators';
 import cytoscape from 'cytoscape';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
+import { ModalDirective } from '../../shared/modal.directive';
 import { httpErrorReason } from '../../core/http-error';
 import {
   Space,
@@ -67,7 +68,7 @@ interface DetailRow {
   // `openBrainDrawer` alongside the `drawerRecord` signal that guards the drawer's `@if`, the same
   // load-bearing coupling pinned by the brain spec.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, TagInputComponent, PropertiesEditorComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, TagInputComponent, PropertiesEditorComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe, ModalDirective],
   host: { '[class.embedded]': 'isEmbedded()' },
   styles: [`
     :host {
@@ -942,8 +943,8 @@ interface DetailRow {
 
     <!-- â•â•â• Brain-style drawer modal (memory / chrono) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
     @if (drawerRecord(); as dr) {
-      <div class="bdrawer-overlay" (click)="closeBrainDrawer()">
-        <div class="bdrawer-modal" (click)="$event.stopPropagation()" role="dialog">
+      <div class="bdrawer-overlay">
+        <div class="bdrawer-modal" [appModal]="'brain.drawer.recordDetailsAriaLabel' | transloco" (dismiss)="closeBrainDrawer()" (click)="$event.stopPropagation()">
           <div class="bdrawer-header">
             <div style="flex:1; min-width:0;">
               @if (dr.kind === 'memory') { <span class="badge badge-blue" style="margin-bottom:6px; display:inline-block;">{{ 'graph.drawer.badge.memory' | transloco }}</span> }

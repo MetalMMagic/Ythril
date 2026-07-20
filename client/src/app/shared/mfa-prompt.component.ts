@@ -8,6 +8,7 @@
 import { Component, inject, signal, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { ModalDirective } from './modal.directive';
 import { MfaService, MfaChallenge } from '../core/mfa.service';
 import { Subscription } from 'rxjs';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -15,7 +16,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 @Component({
   selector: 'app-mfa-prompt',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe],
+  imports: [CommonModule, FormsModule, TranslocoPipe, ModalDirective],
   styles: [`
     .overlay {
       position: fixed; inset: 0;
@@ -47,8 +48,8 @@ import { TranslocoPipe } from '@jsverse/transloco';
   `],
   template: `
     @if (active()) {
-      <div class="overlay" (click)="cancel()">
-        <div class="dialog" (click)="$event.stopPropagation()">
+      <div class="overlay">
+        <div class="dialog" [appModal]="'mfaPrompt.title' | transloco" (dismiss)="cancel()" (click)="$event.stopPropagation()">
           <h2>{{ 'mfaPrompt.title' | transloco }}</h2>
           <p>{{ 'mfaPrompt.body' | transloco }}</p>
           <input

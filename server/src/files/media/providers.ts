@@ -14,6 +14,17 @@
 
 import type { MediaProviderConfig } from '../../config/types.js';
 import { log } from '../../util/log.js';
+import { ssrfSafeFetch } from '../../util/ssrf.js';
+
+/**
+ * Runtime egress guard. **External** (operator-supplied, public) provider endpoints go through
+ * `ssrfSafeFetch` — DNS-resolve + IP-pin + redirect re-validation — closing the save-time-only URL check
+ * against DNS-rebinding / redirect-to-internal. **Local** providers (bundled Ollama / Whisper on the trusted
+ * internal network) keep a plain `fetch`: their addresses are private, which `ssrfSafeFetch` would (rightly)
+ * reject. The provider CLASS already encodes which is which (Ollama/Whisper = local; External* = external).
+ */
+const egressFetch = (external: boolean): typeof fetch =>
+  external ? (ssrfSafeFetch as unknown as typeof fetch) : fetch;
 
 // ── Bounded JSON response reader ──────────────────────────────────────────────────────
 //
@@ -151,7 +162,8 @@ export class ExternalVisionProvider implements VisionProvider {
 
     let res: Response;
     try {
-      res = await fetch(url, {
+      // External endpoint → SSRF-guarded egress.
+      res = await egressFetch(true)(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -197,6 +209,10 @@ export class ExternalVisionProvider implements VisionProvider {
 export class WhisperProvider implements SttProvider {
   constructor(private readonly cfg: MediaProviderConfig) {}
 
+  /** Local (bundled Whisper) by default → plain fetch. `ExternalWhisperProvider` flips this so its egress
+   *  is routed through `ssrfSafeFetch`. */
+  protected readonly external: boolean = false;
+
   async transcribe(audioBytes: Buffer, mimeType: string): Promise<SttResult> {
     const base = (this.cfg.baseUrl ?? 'http://whisper.ythril.svc.cluster.local:8000').replace(/\/$/, '');
     const model = this.cfg.model ?? 'base';
@@ -217,7 +233,8 @@ export class WhisperProvider implements SttProvider {
 
     let res: Response;
     try {
-      res = await fetch(url, {
+      // Local Whisper → plain fetch (private address); external → SSRF-guarded egress.
+      res = await egressFetch(this.external)(url, {
         method: 'POST',
         headers: this.cfg.apiKey ? { Authorization: `Bearer ${this.cfg.apiKey}` } : {},
         body: form,
@@ -252,8 +269,11 @@ export class WhisperProvider implements SttProvider {
 
 // ── External Whisper API ──────────────────────────────────────────────────
 
-/** Delegates to the same WhisperProvider implementation — OpenAI Whisper API is compatible. */
-export class ExternalWhisperProvider extends WhisperProvider {}
+/** Delegates to the same WhisperProvider implementation — OpenAI Whisper API is compatible — but marks the
+ *  egress external so it is routed through `ssrfSafeFetch`. */
+export class ExternalWhisperProvider extends WhisperProvider {
+  protected override readonly external = true;
+}
 
 // ── Factory ───────────────────────────────────────────────────────────────
 

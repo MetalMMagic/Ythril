@@ -371,6 +371,17 @@ describe('getMediaEmbeddingConfig', () => {
       assert.equal(getEmbeddingApiKey(), undefined);
     });
 
+    it('a PARTIAL stored block still yields complete config (model/dimensions never undefined)', () => {
+      // Regression: a PATCH that wrote only { provider } left cfg.embedding partial; getEmbeddingConfig used
+      // `cfg.embedding ?? defaults`, so model/dimensions went undefined and vector-index creation broke.
+      writeConfig({ embedding: { provider: 'local' } });
+      const e = getEmbeddingConfig();
+      assert.equal(e.provider, 'local');
+      assert.equal(e.model, 'nomic-ai/nomic-embed-text-v1.5');
+      assert.equal(e.dimensions, 768);
+      assert.equal(e.similarity, 'cosine');
+    });
+
     it('resolves provider/baseUrl/model/dimensions from config.json', () => {
       writeConfig({ embedding: { provider: 'external', baseUrl: 'https://emb.example.com', model: 'text-embed-3', dimensions: 1536, similarity: 'cosine' } });
       const e = getEmbeddingConfig();

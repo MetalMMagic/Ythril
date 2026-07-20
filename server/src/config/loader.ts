@@ -434,23 +434,21 @@ export function getEmbeddingConfig() {
   const cfg = getConfig();
   // No baseUrl in the default = use the bundled local ONNX model.
   // Set baseUrl in config.json to override with an HTTP endpoint (e.g. Ollama).
-  const base = cfg.embedding ?? {
-    model: 'nomic-ai/nomic-embed-text-v1.5',
-    dimensions: 768,
-    similarity: 'cosine' as const,
-  };
+  const base: Partial<EmbeddingConfig> = cfg.embedding ?? {};
   // API key: env > secrets.json > legacy inline config. Never surfaced from config.json.
   let embApiKey: string | undefined = process.env['EMBEDDING_API_KEY'];
   if (!embApiKey) {
     try { embApiKey = (getSecrets() as { embedding?: { apiKey?: string } }).embedding?.apiKey; } catch { /* pre-setup */ }
   }
-  // Env pins ("fix-set" for managed infra) win over config; each pinned field is reported in
-  // lockedByInfra (see getMediaEmbeddingConfig) so the UI renders it read-only.
+  // Defaults are applied PER FIELD, not `cfg.embedding ?? {…}`: a PARTIAL stored block (e.g. after a PATCH
+  // that only changed `provider`) must still yield a complete config — `model`/`dimensions` are load-bearing
+  // for vector-index creation, so they can never be undefined. Env pins ("fix-set") win over config; each
+  // pinned field is reported in lockedByInfra so the UI renders it read-only.
   return {
-    ...base,
     baseUrl: process.env['EMBEDDING_URL'] ?? base.baseUrl,
-    model: process.env['EMBEDDING_MODEL'] ?? base.model,
-    dimensions: process.env['EMBEDDING_DIMENSIONS'] ? Number(process.env['EMBEDDING_DIMENSIONS']) : base.dimensions,
+    model: process.env['EMBEDDING_MODEL'] ?? base.model ?? 'nomic-ai/nomic-embed-text-v1.5',
+    dimensions: process.env['EMBEDDING_DIMENSIONS'] ? Number(process.env['EMBEDDING_DIMENSIONS']) : (base.dimensions ?? 768),
+    similarity: base.similarity ?? ('cosine' as const),
     provider: (process.env['EMBEDDING_PROVIDER'] as 'local' | 'external' | undefined) ?? base.provider ?? 'local',
     apiKey: embApiKey ?? base.apiKey,
   };
@@ -494,7 +492,7 @@ export function getDataRoot(): string {
 
 // ── Media Embedding Config ─────────────────────────────────────────────────
 
-import type { MediaEmbeddingConfig, MediaProviderConfig, FaceRecognitionConfig, DocumentProcessingConfig } from './types.js';
+import type { MediaEmbeddingConfig, MediaProviderConfig, FaceRecognitionConfig, DocumentProcessingConfig, EmbeddingConfig } from './types.js';
 
 const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
   // Enabled by default: both K8s manifests (kubernetes/manifests/ollama-deploy.yaml,

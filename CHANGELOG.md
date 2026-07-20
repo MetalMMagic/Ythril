@@ -968,6 +968,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Space → Schema tab rebuilt as master/detail.** The old 4-level nested accordion — where opening
+  a type pushed everything down and opening a property nested further, and expanding one collapsed the last — is
+  replaced by a **type list on the left and a stable editor pane on the right**: click a type to edit it without
+  losing your place, and **multiple property editors can be open at once** (previously a single-expand accordion).
+  A **validation-posture pill** (Off / Warn / Strict) now sits in the tab header, the `▲`/`▼` text carets became
+  `ph-icon`s, and the import-conflict dialog — previously hardcoded English — is now translated (en/de/pl). The
+  collapsed-property constraint chips are kept. Behavior is pinned by the characterization tests added in the
+  previous PR (selection + multi-open, import-conflict resolution, schema-library link). Verified end-to-end in a
+  booted instance (Playwright).
+
 - **Settings → About on the design system.** The flat label/value grid is now two grouped `SettingsCard`s —
   **Instance** (label, ID, version, and public URL when set) and **System** (MongoDB version, uptime, and disk
   usage) — that flow side by side on wide screens and stack on narrow ones. The bespoke `disk-bar-*` is

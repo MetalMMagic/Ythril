@@ -4,6 +4,10 @@
  * Extracted from SpacesComponent (A17.8b), together with the import-conflict and library-picker
  * dialogs it owns. Needs no inputs/outputs: SpaceSettingsState holds the schema being edited.
  *
+ * Layout is master/detail (PR-U4): a type list on the left selects the type shown in a stable editor
+ * pane on the right, so editing a type or a property no longer collapses the whole list (the old
+ * 4-level accordion). Property editors are multi-open — several can be expanded at once in the pane.
+ *
  * `schImportError`/`schImportInfo` are signals here, unlike in the old component where they were
  * plain fields. They are written from `FileReader.onload`, which is a bare async callback with no
  * signal write of its own — under OnPush a plain field mutated there would leave the message
@@ -15,18 +19,45 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { StatusPillComponent, type StatusVariant } from '../../shared/status-pill.component';
 import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
 import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state.service';
 import { SchemaApi } from '../../core/schema-api.service';
 import { ToastService } from '../../core/toast.service';
 import { KnowledgeType, PropertySchema, SchemaLibraryEntry, TypeSchema } from '../../core/api.types';
 
+const SCHEMA_MD_STYLES = `
+.sch-head-row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+.val-pill-wrap { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); }
+.sch-md { display:grid; grid-template-columns:minmax(190px,250px) 1fr; gap:18px; align-items:start; margin-top:6px; }
+@media (max-width:760px) { .sch-md { grid-template-columns:1fr; } }
+.sch-master { display:flex; flex-direction:column; gap:3px; min-width:0; }
+.sch-type-item { display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:none;
+  border:1px solid transparent; border-radius:8px; padding:7px 9px; cursor:pointer; font:inherit; color:var(--text-primary); }
+.sch-type-item:hover { background:var(--bg-elevated); }
+.sch-type-item.sel { background:color-mix(in srgb,var(--accent) 12%,transparent); border-color:color-mix(in srgb,var(--accent) 34%,transparent); }
+.sch-type-item .nm { font-family:var(--font-mono); font-size:13px; color:var(--accent); flex:1; min-width:0;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sch-type-badges { display:inline-flex; gap:3px; flex-wrap:wrap; justify-content:flex-end; }
+.sch-empty-list { color:var(--text-muted); font-size:12.5px; font-style:italic; padding:14px 6px; text-align:center; }
+.sch-detail { min-width:0; }
+.sch-detail-empty { color:var(--text-muted); font-size:13px; font-style:italic; padding:26px 20px; text-align:center;
+  border:1px dashed var(--border); border-radius:10px; }
+.sch-detail-head { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid var(--border); }
+.sch-detail-head .dt { font-family:var(--font-mono); font-size:15px; color:var(--accent); font-weight:600; flex:1; min-width:0;
+  overflow:hidden; text-overflow:ellipsis; }
+.sch-detail-head .acts { display:flex; gap:4px; flex-shrink:0; }
+.sch-add-row { display:flex; gap:6px; align-items:center; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); flex-wrap:wrap; }
+.sch-add-row .sch-add-imports { display:flex; gap:6px; flex-wrap:wrap; }
+.prop-caret { color:var(--text-muted); flex-shrink:0; display:inline-flex; }
+`;
+
 @Component({
   selector: 'app-space-schema-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [SPACE_DIALOG_STYLES],
+  styles: [SPACE_DIALOG_STYLES, SCHEMA_MD_STYLES],
   template: `
 <!-- export / import toolbar -->
 <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
@@ -57,21 +88,25 @@ import { KnowledgeType, PropertySchema, SchemaLibraryEntry, TypeSchema } from '.
 </div>
 <div class="sch-coll-body">
 
-  @if (state.schemaCollTab() === 'entity') {
-    <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.entityTypeHint' | transloco }}</span></div>
-  }
-  @if (state.schemaCollTab() === 'edge') {
-    <div class="sch-sub">{{ 'spaces.schema.subtitle.labels' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.edgeLabelHint' | transloco }}</span></div>
-  }
-  @if (state.schemaCollTab() === 'memory') {
-    <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.memoryTypeHint' | transloco }}</span></div>
-  }
-  @if (state.schemaCollTab() === 'chrono') {
-    <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.chronoTypeHint' | transloco }}</span></div>
-  }
+  <!-- sub-header + validation-posture pill -->
+  <div class="sch-head-row">
+    @if (state.schemaCollTab() === 'entity') {
+      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.entityTypeHint' | transloco }}</span></div>
+    } @else if (state.schemaCollTab() === 'edge') {
+      <div class="sch-sub">{{ 'spaces.schema.subtitle.labels' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.edgeLabelHint' | transloco }}</span></div>
+    } @else if (state.schemaCollTab() === 'memory') {
+      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.memoryTypeHint' | transloco }}</span></div>
+    } @else {
+      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.chronoTypeHint' | transloco }}</span></div>
+    }
+    <span class="val-pill-wrap" [attr.title]="'spaces.schema.validation.hint' | transloco">
+      {{ 'spaces.schema.validation.label' | transloco }}
+      <app-status-pill [variant]="validationPill().variant" [dot]="true">{{ validationPill().label | transloco }}</app-status-pill>
+    </span>
+  </div>
 
-  <!-- type list -->
-  <ng-container *ngTemplateOutlet="typeList; context: { kt: state.schemaCollTab() }"></ng-container>
+  <!-- master / detail -->
+  <ng-container *ngTemplateOutlet="masterDetail; context: { kt: state.schemaCollTab() }"></ng-container>
 
   <!-- Global tag suggestions (entity tab) -->
   @if (state.schemaCollTab() === 'entity') {
@@ -88,256 +123,239 @@ import { KnowledgeType, PropertySchema, SchemaLibraryEntry, TypeSchema } from '.
 
 </div><!-- sch-coll-body -->
 
-<!-- ── shared type-list template ── -->
-<ng-template #typeList let-kt="kt">
-  <div class="table-wrapper" style="margin-bottom:0;">
-    <table class="type-table">
-      <thead>
-        <tr>
-          <th>{{ kt === 'edge' ? ('spaces.schema.typeTable.labelColumn' | transloco) : ('spaces.schema.typeTable.typeName' | transloco) }}</th>
-          <th style="width:48px;"></th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (name of state.typeNames(kt); track name) {
-          <tr class="prop-row" [class.prow-open]="state.isTypeExpanded(kt,name)">
-            <td (click)="state.toggleTypeExpand(kt,name)" style="cursor:pointer;">
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-family:var(--font-mono);font-size:13px;color:var(--accent);">{{ name }}</span>
-                @if (state.typeLibRef(kt,name)) {
-                  <span class="badge badge-blue" style="font-size:10px;">Library</span>
-                } @else {
-                  @if (state.typeState(kt,name).propertySchemas.length) {
-                    <span class="badge badge-gray" style="font-size:10px;">{{ state.typeState(kt,name).propertySchemas.length }} prop{{ state.typeState(kt,name).propertySchemas.length !== 1 ? 's' : '' }}</span>
-                  }
-                  @if (state.typeState(kt,name).tagSuggestions.length) {
-                    <span class="badge badge-gray" style="font-size:10px;">{{ state.typeState(kt,name).tagSuggestions.length }} tag{{ state.typeState(kt,name).tagSuggestions.length !== 1 ? 's' : '' }}</span>
-                  }
-                  @if (kt === 'entity' && state.typeState(kt,name).namingPattern) {
-                    <span class="badge badge-gray" style="font-size:10px;">pattern</span>
-                  }
-                }
-              </div>
-            </td>
-            <td (click)="$event.stopPropagation()">
-              <div style="display:flex;gap:4px;justify-content:flex-end;">
-                <button class="btn btn-ghost btn-sm" type="button" (click)="exportTypeSchema(kt,name)"
-                  style="padding:2px 6px;" [attr.title]="'spaces.schema.exportTypeTitle' | transloco"><ph-icon name="upload" [size]="12"/></button>
-                @if (!state.typeLibRef(kt,name)) {
-                  <button class="btn btn-ghost btn-sm" type="button" (click)="saveTypeToLibrary(kt,name)"
-                    style="font-size:10px;padding:2px 6px;" [attr.title]="'spaces.schema.saveToLibraryTitle' | transloco">{{ 'spaces.schema.saveToLibraryButton' | transloco }}</button>
-                }
-                <button class="btn btn-ghost btn-sm" type="button" (click)="state.toggleTypeExpand(kt,name)"
-                  style="font-size:10px;padding:2px 8px;min-width:28px;">{{ state.isTypeExpanded(kt,name) ? '▲' : '▼' }}</button>
-                <button class="icon-btn danger" type="button" (click)="state.removeType(kt,name)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
-              </div>
-            </td>
-          </tr>
-          @if (state.isTypeExpanded(kt,name)) {
-            <tr class="prop-expand-row" (click)="$event.stopPropagation()">
-              <td colspan="2" style="padding:0;">
-                <div class="pdet">
-                  @if (state.typeLibRef(kt,name); as libRef) {
-                    <!-- Linked library schema — non-editable -->
-                    <div style="display:flex;align-items:center;gap:10px;padding:4px 0;color:var(--text-secondary);font-size:13px;">
-                      <ph-icon name="bookmarks" [size]="16" style="color:var(--accent);flex-shrink:0;"/>
-                      <span>{{ 'spaces.schema.libRef.linkedHint' | transloco: {name: libRef} }}</span>
-                    </div>
-                  } @else {
-                  <!-- Naming pattern (entity only) -->
-                  @if (kt === 'entity') {
-                    <div class="pdet-fields" style="margin-bottom:12px;">
-                      <div class="field" style="margin:0;">
-                        <label>{{ 'spaces.schema.namingPattern' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.namingPatternHint' | transloco }}</span></label>
-                        <input type="text" [(ngModel)]="state.typeState(kt,name).namingPattern" [placeholder]="'spaces.schema.namingPatternPlaceholder' | transloco" style="max-width:320px;" />
-                      </div>
-                    </div>
-                  }
-                  <!-- Tag suggestions per type -->
-                  <div class="pdet-full" style="margin-bottom:12px;">
-                    <div class="field" style="margin:0;">
-                      <label>{{ 'spaces.schema.tagSuggestions' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.tagSuggestionsHint' | transloco }}</span></label>
-                      <div class="chip-wrap">
-                        @for (tag of state.typeState(kt,name).tagSuggestions; track tag) {
-                          <span class="chip">{{ tag }}<button type="button" class="chip-rm" (click)="state.typeState(kt,name).tagSuggestions=state.typeState(kt,name).tagSuggestions.filter(x=>x!==tag)"><ph-icon name="x" [size]="12"/></button></span>
-                        }
-                        <input type="text" class="chip-field" [(ngModel)]="state.typeState(kt,name)._newTagInput"
-                          [placeholder]="state.typeState(kt,name).tagSuggestions.length ? '' : ('spaces.schema.addTagPlaceholder' | transloco)"
-                          (keydown.enter)="$event.preventDefault();state.addTypeTag(kt,name)" />
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Property schemas -->
-                  <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">{{ 'spaces.schema.propertySchemas' | transloco }}</div>
-                  <div class="table-wrapper" style="margin-bottom:0;">
-                    <table class="prop-table" style="margin-bottom:0;">
-                      <thead>
-                        <tr>
-                          <th style="width:160px;">{{ 'spaces.schema.propTable.property' | transloco }}</th>
-                          <th style="width:80px;">{{ 'spaces.schema.propTable.type' | transloco }}</th>
-                          <th>{{ 'spaces.schema.propTable.constraints' | transloco }}</th>
-                          <th style="width:68px;"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        @for (p of state.typeState(kt,name).propertySchemas; track p.key) {
-                          <tr class="prop-row" [class.prow-open]="state.isPropExpanded(kt,name,p.key)"
-                            (click)="state.togglePropExpand(kt,name,p.key)">
-                            <td>
-                              <div style="display:flex;align-items:center;gap:7px;">
-                                <span style="font-family:var(--font-mono);font-size:12px;">{{ p.key }}</span>
-                                <label class="req-toggle" [class.is-req]="p.s.required" (click)="$event.stopPropagation()">
-                                  <input type="checkbox" [checked]="p.s.required" (change)="p.s.required = !p.s.required" style="pointer-events:none;" />
-                                  {{ 'spaces.schema.propDetail.required' | transloco }}
-                                </label>
-                              </div>
-                            </td>
-                            <td><span class="badge badge-gray" style="font-size:11px;">{{ p.s.type ?? 'any' }}</span></td>
-                            <td style="font-size:11px;color:var(--text-muted);">
-                              @if (p.s.enum?.length) { <span class="badge badge-gray" style="font-size:10px;margin-right:3px;">enum {{ p.s.enum!.length }}</span> }
-                              @if (p.s.minimum!==undefined) { <span style="margin-right:4px;">min:{{ p.s.minimum }}</span> }
-                              @if (p.s.maximum!==undefined) { <span style="margin-right:4px;">max:{{ p.s.maximum }}</span> }
-                              @if (p.s.pattern) { <span style="margin-right:4px;">pattern</span> }
-                              @if (p.s.default!==undefined) { <span style="margin-right:4px;">default:{{ p.s.default }}</span> }
-                              @if (p.s.mergeFn) { <span class="badge badge-blue" style="font-size:10px;">{{ p.s.mergeFn }}</span> }
-                            </td>
-                            <td (click)="$event.stopPropagation()">
-                              <div style="display:flex;gap:4px;justify-content:flex-end;">
-                                <button class="icon-btn danger" type="button" (click)="state.removeProp(kt,name,p.key)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
-                              </div>
-                            </td>
-                          </tr>
-                          @if (state.isPropExpanded(kt,name,p.key)) {
-                            <tr class="prop-expand-row" (click)="$event.stopPropagation()">
-                              <td colspan="4" style="padding:0;">
-                                <div class="pdet">
-                                  <div class="pdet-fields">
-                                    <div class="field" style="margin:0;">
-                                      <label>{{ 'spaces.schema.propDetail.type' | transloco }}</label>
-                                      <select [(ngModel)]="p.s.type">
-                                        <option [ngValue]="undefined">any</option>
-                                        <option value="string">string</option>
-                                        <option value="number">number</option>
-                                        <option value="boolean">boolean</option>
-                                        <option value="date">date</option>
-                                      </select>
-                                    </div>
-                                    <div class="field" style="margin:0;">
-                                      <label>{{ 'spaces.schema.propDetail.default' | transloco }}</label>
-                                      <input type="text" [(ngModel)]="p.s.default" placeholder="—" />
-                                    </div>
-                                    <div class="field" style="margin:0;">
-                                      <label>{{ 'spaces.schema.propDetail.mergeFn' | transloco }}</label>
-                                      <select [(ngModel)]="p.s.mergeFn">
-                                        <option [ngValue]="undefined">—</option>
-                                        <option value="avg">avg</option><option value="min">min</option>
-                                        <option value="max">max</option><option value="sum">sum</option>
-                                        <option value="and">and</option><option value="or">or</option>
-                                        <option value="xor">xor</option>
-                                      </select>
-                                    </div>
-                                    @if (p.s.type==='string'||p.s.type===undefined) {
-                                      <div class="field" style="margin:0;">
-                                        <label>{{ 'spaces.schema.propDetail.pattern' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.propDetail.patternHint' | transloco }}</span></label>
-                                        <input type="text" [(ngModel)]="p.s.pattern" placeholder="^[A-Z].*" />
-                                      </div>
-                                    }
-                                    @if (p.s.type==='number'||p.s.type===undefined) {
-                                      <div class="field" style="margin:0;">
-                                        <label>{{ 'spaces.schema.propDetail.min' | transloco }}</label>
-                                        <input type="number" [(ngModel)]="p.s.minimum" placeholder="—" />
-                                      </div>
-                                      <div class="field" style="margin:0;">
-                                        <label>{{ 'spaces.schema.propDetail.max' | transloco }}</label>
-                                        <input type="number" [(ngModel)]="p.s.maximum" placeholder="—" />
-                                      </div>
-                                    }
-                                  </div>
-                                  @if (p.s.type !== 'boolean') {
-                                    <div class="pdet-full">
-                                      <div class="field" style="margin:0;">
-                                        <label>{{ 'spaces.schema.propDetail.enumValues' | transloco }} <span style="font-size:11px;font-weight:normal;color:var(--text-muted);">{{ 'spaces.schema.propDetail.enumHint' | transloco }}</span></label>
-                                        <div class="chip-wrap">
-                                          @for (ev of (p.s.enum??[]); track ev) {
-                                            <span class="chip">{{ ev }}<button type="button" class="chip-rm" (click)="state.removeEnumVal(kt,name,p.key,ev)"><ph-icon name="x" [size]="12"/></button></span>
-                                          }
-                                          <input type="text" class="chip-field" [(ngModel)]="p._enumInput"
-                                            [placeholder]="'spaces.schema.propDetail.enumPlaceholder' | transloco" (keydown)="state.onEnumKey($event,kt,name,p.key)" />
-                                        </div>
-                                      </div>
-                                    </div>
-                                  }
-                                </div>
-                              </td>
-                            </tr>
-                          }
-                        } @empty {
-                          <tr>
-                            <td colspan="4" style="padding:28px 0;text-align:center;color:var(--text-muted);font-size:13px;font-style:italic;">
-                              {{ 'spaces.schema.noProps' | transloco }}
-                            </td>
-                          </tr>
-                        }
-                      </tbody>
-                    </table>
-                  </div>
-                  <!-- add property -->
-                  <div style="display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
-                    <input type="text" [(ngModel)]="state.typeState(kt,name)._newPropInput" [placeholder]="'spaces.schema.newPropNamePlaceholder' | transloco"
-                      style="flex:1;max-width:220px;"
-                      (keydown.enter)="$event.preventDefault();state.addProp(kt,name)" />
-                    <button class="btn btn-secondary btn-sm" type="button"
-                      (click)="state.addProp(kt,name)" [disabled]="!state.typeState(kt,name)._newPropInput.trim()">{{ 'spaces.schema.addPropertyButton' | transloco }}</button>
-                  </div>
-                  } <!-- end @else (not a lib-ref type) -->
-                </div>
-              </td>
-            </tr>
+<!-- ── master/detail template ── -->
+<ng-template #masterDetail let-kt="kt">
+  <div class="sch-md">
+    <!-- MASTER: selectable type list -->
+    <div class="sch-master">
+      @for (name of state.typeNames(kt); track name) {
+        <button type="button" class="sch-type-item" [class.sel]="state.isTypeSelected(kt,name)" (click)="state.selectType(kt,name)">
+          <span class="nm">{{ name }}</span>
+          <span class="sch-type-badges">
+            @if (state.typeLibRef(kt,name)) {
+              <span class="badge badge-blue" style="font-size:9px;">Library</span>
+            } @else {
+              @if (state.typeState(kt,name).propertySchemas.length) {
+                <span class="badge badge-gray" style="font-size:9px;">{{ state.typeState(kt,name).propertySchemas.length }}p</span>
+              }
+              @if (kt === 'entity' && state.typeState(kt,name).namingPattern) {
+                <span class="badge badge-gray" style="font-size:9px;">pat</span>
+              }
+            }
+          </span>
+        </button>
+      } @empty {
+        <div class="sch-empty-list">{{ kt === 'edge' ? ('spaces.schema.noEdgeLabels' | transloco) : ('spaces.schema.noTypes' | transloco) }}</div>
+      }
+
+      <!-- add type/label + import -->
+      <div class="sch-add-row">
+        <input type="text" [(ngModel)]="state.schNewTypeInputs[kt]" [placeholder]="kt === 'edge' ? ('spaces.schema.newLabelPlaceholder' | transloco) : ('spaces.schema.newTypeNamePlaceholder' | transloco)"
+          style="flex:1;min-width:110px;"
+          (keydown.enter)="$event.preventDefault();state.addType(kt)" />
+        <button class="btn btn-secondary btn-sm" type="button"
+          (click)="state.addType(kt)" [disabled]="!state.schNewTypeInputs[kt]?.trim()">{{ kt === 'edge' ? ('spaces.schema.addLabelButton' | transloco) : ('spaces.schema.addTypeButton' | transloco) }}</button>
+      </div>
+      <div class="sch-add-imports" style="margin-top:6px;">
+        <button class="btn btn-ghost btn-sm" type="button"
+          (click)="triggerImportTypeSchemaNew(kt)"
+          [attr.title]="'spaces.schema.importFromFileButton' | transloco"><ph-icon name="download-simple" [size]="12" style="margin-right:3px;vertical-align:-2px;"/>{{ 'spaces.schema.importFromFileButton' | transloco }}</button>
+        <button class="btn btn-ghost btn-sm" type="button"
+          (click)="triggerImportFromLibraryNew(kt)"
+          [attr.title]="'spaces.schema.importFromLibraryTitle' | transloco"><ph-icon name="bookmarks" [size]="12" style="margin-right:3px;vertical-align:-2px;"/>{{ 'spaces.schema.importFromLibraryButton' | transloco }}</button>
+      </div>
+      @if (schImportError()) {
+        <div style="font-size:12px;color:var(--error);margin-top:6px;">{{ schImportError() }}</div>
+      }
+      @if (schImportInfo()) {
+        <div style="font-size:12px;color:var(--success);margin-top:6px;">{{ schImportInfo() }}</div>
+      }
+    </div>
+
+    <!-- DETAIL: editor for the selected type -->
+    <div class="sch-detail">
+      @if (selectedTypeName(kt); as name) {
+        <div class="sch-detail-head">
+          <span class="dt">{{ name }}</span>
+          <span class="acts">
+            <button class="btn btn-ghost btn-sm" type="button" (click)="exportTypeSchema(kt,name)"
+              style="padding:2px 6px;" [attr.title]="'spaces.schema.exportTypeTitle' | transloco"><ph-icon name="upload" [size]="13"/></button>
+            @if (!state.typeLibRef(kt,name)) {
+              <button class="btn btn-ghost btn-sm" type="button" (click)="saveTypeToLibrary(kt,name)"
+                style="font-size:10px;padding:2px 8px;" [attr.title]="'spaces.schema.saveToLibraryTitle' | transloco">{{ 'spaces.schema.saveToLibraryButton' | transloco }}</button>
+            }
+            <button class="icon-btn danger" type="button" (click)="state.removeType(kt,name)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
+          </span>
+        </div>
+
+        @if (state.typeLibRef(kt,name); as libRef) {
+          <!-- Linked library schema — non-editable -->
+          <div style="display:flex;align-items:center;gap:10px;padding:4px 0;color:var(--text-secondary);font-size:13px;">
+            <ph-icon name="bookmarks" [size]="16" style="color:var(--accent);flex-shrink:0;"/>
+            <span>{{ 'spaces.schema.libRef.linkedHint' | transloco: {name: libRef} }}</span>
+          </div>
+        } @else {
+          <!-- Naming pattern (entity only) -->
+          @if (kt === 'entity') {
+            <div class="field" style="margin:0 0 12px;">
+              <label>{{ 'spaces.schema.namingPattern' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.namingPatternHint' | transloco }}</span></label>
+              <input type="text" [(ngModel)]="state.typeState(kt,name).namingPattern" [placeholder]="'spaces.schema.namingPatternPlaceholder' | transloco" style="max-width:320px;" />
+            </div>
           }
-        } @empty {
-          <tr>
-            <td colspan="2" style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;font-style:italic;">
-              {{ kt === 'edge' ? ('spaces.schema.noEdgeLabels' | transloco) : ('spaces.schema.noTypes' | transloco) }}
-            </td>
-          </tr>
+          <!-- Tag suggestions per type -->
+          <div class="field" style="margin:0 0 12px;">
+            <label>{{ 'spaces.schema.tagSuggestions' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.tagSuggestionsHint' | transloco }}</span></label>
+            <div class="chip-wrap">
+              @for (tag of state.typeState(kt,name).tagSuggestions; track tag) {
+                <span class="chip">{{ tag }}<button type="button" class="chip-rm" (click)="state.typeState(kt,name).tagSuggestions=state.typeState(kt,name).tagSuggestions.filter(x=>x!==tag)"><ph-icon name="x" [size]="12"/></button></span>
+              }
+              <input type="text" class="chip-field" [(ngModel)]="state.typeState(kt,name)._newTagInput"
+                [placeholder]="state.typeState(kt,name).tagSuggestions.length ? '' : ('spaces.schema.addTagPlaceholder' | transloco)"
+                (keydown.enter)="$event.preventDefault();state.addTypeTag(kt,name)" />
+            </div>
+          </div>
+          <!-- Property schemas -->
+          <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px;">{{ 'spaces.schema.propertySchemas' | transloco }}</div>
+          <div class="table-wrapper" style="margin-bottom:0;">
+            <table class="prop-table" style="margin-bottom:0;">
+              <thead>
+                <tr>
+                  <th style="width:30px;"></th>
+                  <th style="width:150px;">{{ 'spaces.schema.propTable.property' | transloco }}</th>
+                  <th style="width:80px;">{{ 'spaces.schema.propTable.type' | transloco }}</th>
+                  <th>{{ 'spaces.schema.propTable.constraints' | transloco }}</th>
+                  <th style="width:40px;"></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (p of state.typeState(kt,name).propertySchemas; track p.key) {
+                  <tr class="prop-row" [class.prow-open]="state.isPropExpanded(kt,name,p.key)"
+                    (click)="state.togglePropExpand(kt,name,p.key)">
+                    <td><span class="prop-caret"><ph-icon [name]="state.isPropExpanded(kt,name,p.key) ? 'caret-up' : 'caret-down'" [size]="13"/></span></td>
+                    <td>
+                      <div style="display:flex;align-items:center;gap:7px;">
+                        <span style="font-family:var(--font-mono);font-size:12px;">{{ p.key }}</span>
+                        <label class="req-toggle" [class.is-req]="p.s.required" (click)="$event.stopPropagation()">
+                          <input type="checkbox" [checked]="p.s.required" (change)="p.s.required = !p.s.required" style="pointer-events:none;" />
+                          {{ 'spaces.schema.propDetail.required' | transloco }}
+                        </label>
+                      </div>
+                    </td>
+                    <td><span class="badge badge-gray" style="font-size:11px;">{{ p.s.type ?? 'any' }}</span></td>
+                    <td style="font-size:11px;color:var(--text-muted);">
+                      @if (p.s.enum?.length) { <span class="badge badge-gray" style="font-size:10px;margin-right:3px;">enum {{ p.s.enum!.length }}</span> }
+                      @if (p.s.minimum!==undefined) { <span style="margin-right:4px;">min:{{ p.s.minimum }}</span> }
+                      @if (p.s.maximum!==undefined) { <span style="margin-right:4px;">max:{{ p.s.maximum }}</span> }
+                      @if (p.s.pattern) { <span style="margin-right:4px;">pattern</span> }
+                      @if (p.s.default!==undefined) { <span style="margin-right:4px;">default:{{ p.s.default }}</span> }
+                      @if (p.s.mergeFn) { <span class="badge badge-blue" style="font-size:10px;">{{ p.s.mergeFn }}</span> }
+                    </td>
+                    <td (click)="$event.stopPropagation()">
+                      <button class="icon-btn danger" type="button" (click)="state.removeProp(kt,name,p.key)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
+                    </td>
+                  </tr>
+                  @if (state.isPropExpanded(kt,name,p.key)) {
+                    <tr class="prop-expand-row" (click)="$event.stopPropagation()">
+                      <td colspan="5" style="padding:0;">
+                        <div class="pdet">
+                          <div class="pdet-fields">
+                            <div class="field" style="margin:0;">
+                              <label>{{ 'spaces.schema.propDetail.type' | transloco }}</label>
+                              <select [(ngModel)]="p.s.type">
+                                <option [ngValue]="undefined">any</option>
+                                <option value="string">string</option>
+                                <option value="number">number</option>
+                                <option value="boolean">boolean</option>
+                                <option value="date">date</option>
+                              </select>
+                            </div>
+                            <div class="field" style="margin:0;">
+                              <label>{{ 'spaces.schema.propDetail.default' | transloco }}</label>
+                              <input type="text" [(ngModel)]="p.s.default" placeholder="—" />
+                            </div>
+                            <div class="field" style="margin:0;">
+                              <label>{{ 'spaces.schema.propDetail.mergeFn' | transloco }}</label>
+                              <select [(ngModel)]="p.s.mergeFn">
+                                <option [ngValue]="undefined">—</option>
+                                <option value="avg">avg</option><option value="min">min</option>
+                                <option value="max">max</option><option value="sum">sum</option>
+                                <option value="and">and</option><option value="or">or</option>
+                                <option value="xor">xor</option>
+                              </select>
+                            </div>
+                            @if (p.s.type==='string'||p.s.type===undefined) {
+                              <div class="field" style="margin:0;">
+                                <label>{{ 'spaces.schema.propDetail.pattern' | transloco }} <span style="font-size:10px;font-weight:400;color:var(--text-muted);">{{ 'spaces.schema.propDetail.patternHint' | transloco }}</span></label>
+                                <input type="text" [(ngModel)]="p.s.pattern" placeholder="^[A-Z].*" />
+                              </div>
+                            }
+                            @if (p.s.type==='number'||p.s.type===undefined) {
+                              <div class="field" style="margin:0;">
+                                <label>{{ 'spaces.schema.propDetail.min' | transloco }}</label>
+                                <input type="number" [(ngModel)]="p.s.minimum" placeholder="—" />
+                              </div>
+                              <div class="field" style="margin:0;">
+                                <label>{{ 'spaces.schema.propDetail.max' | transloco }}</label>
+                                <input type="number" [(ngModel)]="p.s.maximum" placeholder="—" />
+                              </div>
+                            }
+                          </div>
+                          @if (p.s.type !== 'boolean') {
+                            <div class="pdet-full">
+                              <div class="field" style="margin:0;">
+                                <label>{{ 'spaces.schema.propDetail.enumValues' | transloco }} <span style="font-size:11px;font-weight:normal;color:var(--text-muted);">{{ 'spaces.schema.propDetail.enumHint' | transloco }}</span></label>
+                                <div class="chip-wrap">
+                                  @for (ev of (p.s.enum??[]); track ev) {
+                                    <span class="chip">{{ ev }}<button type="button" class="chip-rm" (click)="state.removeEnumVal(kt,name,p.key,ev)"><ph-icon name="x" [size]="12"/></button></span>
+                                  }
+                                  <input type="text" class="chip-field" [(ngModel)]="p._enumInput"
+                                    [placeholder]="'spaces.schema.propDetail.enumPlaceholder' | transloco" (keydown)="state.onEnumKey($event,kt,name,p.key)" />
+                                </div>
+                              </div>
+                            </div>
+                          }
+                        </div>
+                      </td>
+                    </tr>
+                  }
+                } @empty {
+                  <tr>
+                    <td colspan="5" style="padding:24px 0;text-align:center;color:var(--text-muted);font-size:13px;font-style:italic;">
+                      {{ 'spaces.schema.noProps' | transloco }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+          <!-- add property -->
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+            <input type="text" [(ngModel)]="state.typeState(kt,name)._newPropInput" [placeholder]="'spaces.schema.newPropNamePlaceholder' | transloco"
+              style="flex:1;max-width:220px;"
+              (keydown.enter)="$event.preventDefault();state.addProp(kt,name)" />
+            <button class="btn btn-secondary btn-sm" type="button"
+              (click)="state.addProp(kt,name)" [disabled]="!state.typeState(kt,name)._newPropInput.trim()">{{ 'spaces.schema.addPropertyButton' | transloco }}</button>
+          </div>
         }
-      </tbody>
-    </table>
+      } @else {
+        <div class="sch-detail-empty">{{ kt === 'edge' ? ('spaces.schema.detail.emptyEdge' | transloco) : ('spaces.schema.detail.empty' | transloco) }}</div>
+      }
+    </div>
   </div>
-  <!-- add type/label -->
-  <div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;">
-    <input type="text" [(ngModel)]="state.schNewTypeInputs[kt]" [placeholder]="kt === 'edge' ? ('spaces.schema.newLabelPlaceholder' | transloco) : ('spaces.schema.newTypeNamePlaceholder' | transloco)"
-      style="flex:1;max-width:200px;"
-      (keydown.enter)="$event.preventDefault();state.addType(kt)" />
-    <button class="btn btn-secondary btn-sm" type="button"
-      (click)="state.addType(kt)" [disabled]="!state.schNewTypeInputs[kt]?.trim()">{{ kt === 'edge' ? ('spaces.schema.addLabelButton' | transloco) : ('spaces.schema.addTypeButton' | transloco) }}</button>
-    <button class="btn btn-secondary btn-sm" type="button"
-      (click)="triggerImportTypeSchemaNew(kt)"
-      [attr.title]="'spaces.schema.importFromFileButton' | transloco"><ph-icon name="download-simple" [size]="13" style="margin-right:4px;vertical-align:-2px;"/>{{ 'spaces.schema.importFromFileButton' | transloco }}</button>
-    <button class="btn btn-secondary btn-sm" type="button"
-      (click)="triggerImportFromLibraryNew(kt)"
-      [attr.title]="'spaces.schema.importFromLibraryTitle' | transloco"><ph-icon name="bookmarks" [size]="13" style="margin-right:4px;vertical-align:-2px;"/>{{ 'spaces.schema.importFromLibraryButton' | transloco }}</button>
-  </div>
-  @if (schImportError()) {
-    <div style="font-size:12px;color:var(--error);margin-top:4px;">{{ schImportError() }}</div>
-  }
-  @if (schImportInfo()) {
-    <div style="font-size:12px;color:var(--success);margin-top:4px;">{{ schImportInfo() }}</div>
-  }
 </ng-template>
 
 @if (importConflict(); as conflict) {
   <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:320;" (click)="dismissImportConflict()">
     <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:440px;max-width:96vw;" (click)="$event.stopPropagation()">
-      <div style="font-weight:700;font-size:15px;margin-bottom:8px;">Type already exists</div>
-      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;">A type named <strong style="font-family:var(--font-mono);">{{ conflict.name }}</strong> already exists in <strong>{{ conflict.kt }}</strong>. What would you like to do?</p>
+      <div style="font-weight:700;font-size:15px;margin-bottom:8px;">{{ 'spaces.schema.conflict.title' | transloco }}</div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;" [innerHTML]="'spaces.schema.conflict.body' | transloco: { name: conflict.name, kt: conflict.kt }"></p>
       <div style="display:flex;flex-direction:column;gap:10px;">
-        <button class="btn btn-secondary" type="button" (click)="resolveImportConflictOverride()">Override existing</button>
+        <button class="btn btn-secondary" type="button" (click)="resolveImportConflictOverride()">{{ 'spaces.schema.conflict.override' | transloco }}</button>
         @if (importConflict()!.allowAddAs) {
           <div style="display:flex;gap:8px;align-items:center;">
             <input type="text" [ngModel]="importConflictAddAsName()" (ngModelChange)="importConflictAddAsName.set($event)"
-              placeholder="New type name" style="flex:1;" (keydown.enter)="$event.preventDefault();resolveImportConflictAddAs()" />
-            <button class="btn btn-primary btn-sm" type="button" (click)="resolveImportConflictAddAs()" [disabled]="!importConflictAddAsName().trim()">Add as</button>
+              [placeholder]="'spaces.schema.conflict.newNamePlaceholder' | transloco" style="flex:1;" (keydown.enter)="$event.preventDefault();resolveImportConflictAddAs()" />
+            <button class="btn btn-primary btn-sm" type="button" (click)="resolveImportConflictAddAs()" [disabled]="!importConflictAddAsName().trim()">{{ 'spaces.schema.conflict.addAs' | transloco }}</button>
           </div>
         }
         <button class="btn btn-ghost" type="button" (click)="dismissImportConflict()">{{ 'common.cancel' | transloco }}</button>
@@ -404,6 +422,21 @@ export class SpaceSchemaTabComponent {
   libPickerLoading    = signal(false);
 
   libPickerEntries    = signal<SchemaLibraryEntry[]>([]);
+
+  /** The selected type's name if it belongs to the given collection and still exists, else null. */
+  selectedTypeName(kt: KnowledgeType): string | null {
+    const s = this.state.schSelectedType;
+    return s && s.kt === kt && this.state.typeNames(kt).includes(s.name) ? s.name : null;
+  }
+
+  /** Validation-posture pill for the tab header — mirrors the space's `validationMode`. */
+  validationPill(): { variant: StatusVariant; label: string } {
+    switch (this.state.schValidation) {
+      case 'strict': return { variant: 'active', label: 'spaces.schema.validation.strict' };
+      case 'warn':   return { variant: 'warn',   label: 'spaces.schema.validation.warn' };
+      default:       return { variant: 'off',    label: 'spaces.schema.validation.off' };
+    }
+  }
 
   exportSchema(): void {
     const space = this.state.settingsSpace();

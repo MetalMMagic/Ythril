@@ -107,6 +107,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Characterization tests for the space Settings tab (5 tests), landed before its PR-U9 pt3 regroup.** The
+  `SpaceSettingsTabComponent` shipped with no coverage — it is pure `ngModel` bindings onto
+  `SpaceSettingsState`. These pin the current *arrangement* so the pt3 rework is a reviewable diff, not a
+  silent drop: the tab renders label / purpose / usage-notes / max-storage / record-TTL, and it currently
+  renders the 3-option `validationMode` select and the `strictLinkage` checkbox (both two-way bound to the
+  state the footer save serialises). Ships before the rework that groups the fields into cards and moves the
+  validation controls to the Schema tab. Green against the original code.
+
 - **Characterization tests for the space Danger tab (6 tests), landed before its PR-U9 rework.** The
   `SpaceDangerTabComponent` performs the irreversible space operations — rename, wipe, delete, leave-network —
   and shipped with no coverage. These pin the confirm-gating the rework must not weaken: a cancelled confirm

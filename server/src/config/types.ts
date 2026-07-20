@@ -394,6 +394,19 @@ export interface DocumentProcessingConfig {
    */
   repairBaseUrl?: string;
   /**
+   * F11-d — optional **second** document VLM for the `max`-mode **consensus** pass. When set, `max` mode runs
+   * this model as an independent second transcription of each page, reconciles it with the primary draft
+   * against the OCR evidence, and keeps the highest-OCR-coverage result — so consensus is **never worse**
+   * than the primary. Empty (default) ⇒ no consensus pass. Best paired with a *different* model than
+   * `vlmModel` (two identical deterministic passes agree trivially). Env: `DOC_VERIFY_MODEL`.
+   */
+  verifyModel?: string;
+  /**
+   * F11-d — base URL for the consensus/verify model. Empty (default) reuses `vlmBaseUrl` (then the vision
+   * URL). Env: `DOC_VERIFY_URL`.
+   */
+  verifyBaseUrl?: string;
+  /**
    * F11-b — an **external** "assist model" (a bigger, hosted LLM the operator points Ythril at) and what
    * it is used for. Distinct from the bundled local VLM: this is the only place document content is sent
    * OFF the instance, so it is opt-in and gated by an explicit acknowledgment. `apiKey` is NOT stored here

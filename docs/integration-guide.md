@@ -2028,6 +2028,8 @@ The unstructured sidecar strategy and image extraction behaviour can be tuned un
 | `vlmBaseUrl` | `""` | Endpoint for the VLM. Empty ⇒ falls back to the media vision provider's `baseUrl`, then `http://ollama:11434`. Env override: `DOC_VLM_URL`. |
 | `repairModel` | `""` | **`max` mode only.** Model used for the repair pass when a page's VLM output fails OCR-evidence validation — it reconciles the draft against the OCR text in one extra text-only call. Empty ⇒ reuses `vlmModel`. Set this to wire in a stronger model you host. Env override: `DOC_REPAIR_MODEL`. |
 | `repairBaseUrl` | `""` | Endpoint for the repair model. Empty ⇒ reuses `vlmBaseUrl`. Env override: `DOC_REPAIR_URL`. |
+| `verifyModel` | `""` | **`max` mode only (F11-d consensus).** A *second* document VLM. When set, `max` runs it as an independent second transcription of each page, reconciles it with the primary draft against the OCR text, and keeps the highest-coverage result — **never worse** than the primary. Empty ⇒ no consensus pass. Best set to a *different* model than `vlmModel`. Env override: `DOC_VERIFY_MODEL`. |
+| `verifyBaseUrl` | `""` | Endpoint for the verify model. Empty ⇒ reuses `vlmBaseUrl`. Env override: `DOC_VERIFY_URL`. |
 | `renderDpi` | `150` | Page rasterization DPI for the render sidecar (VLM modes only). |
 | `maxPages` | `50` | Cap on pages rendered/transcribed per document (VLM modes only). |
 | `pageTimeoutMs` | `60000` | Per-page VLM transcription timeout (VLM modes only). |
@@ -2041,7 +2043,16 @@ Ythril transparently uses OCR — no upload fails because a model isn't wired in
 OCR text to `repairModel` (or `vlmModel` if unset) in a single text-only call, asks it to restore any dropped
 content, and re-validates. If the repaired output passes it is accepted; if it errors or still doesn't pass,
 the extractor falls back to OCR — so the result is still never worse than plain OCR. Exactly one repair pass
-runs per document (bounded cost); consensus/verification is a later phase.
+runs per document (bounded cost).
+
+**Consensus pass (`max` mode, F11-d).** When a `verifyModel` is configured, `max` mode adds one bounded
+**consensus** step on top of an already-accepted draft: the verify model independently transcribes the pages
+(a second, ideally different, VLM), that draft is reconciled with the primary against the OCR text, and the
+highest-OCR-coverage of the three candidates (primary, second draft, reconciled) is kept. Because the primary
+is always a candidate and ties keep it, consensus **can only match or beat** the primary's coverage — never
+regress it. It is failure-tolerant (any error keeps the primary) and bounded (one extra transcription set +
+one reconcile call, subject to the same max-pages cap). Empty `verifyModel` ⇒ no consensus pass, unchanged
+behaviour. Consensus arbitrates by OCR-evidence coverage; N-pass entropy voting is a possible future refinement.
 
 **External assist model (F11-b) — hosted egress, opt-in and acknowledged.** By default every extraction path
 is local (the bundled Ollama VLM / OCR sidecar): no document content leaves your instance. You can optionally

@@ -54,6 +54,7 @@ describe('getMediaEmbeddingConfig', () => {
     'WORKER_CONCURRENCY', 'WORKER_POLL_INTERVAL_MS', 'WORKER_MAX_POLL_INTERVAL_MS',
     'MEDIA_EMBEDDING_FALLBACK_TO_EXTERNAL', 'MAX_FILE_SIZE_BYTES', 'STALLED_JOB_TIMEOUT_MS',
     'DOC_ASSIST_URL', 'DOC_ASSIST_MODEL', 'DOC_ASSIST_API_KEY',
+    'DOC_VERIFY_MODEL', 'DOC_VERIFY_URL',
   ];
 
   function clearEnv() {
@@ -305,6 +306,32 @@ describe('getMediaEmbeddingConfig', () => {
       writeConfig();
       assert.equal(getDocAssistApiKey(), 'sk-env-123');
       assert.ok(getMediaEmbeddingConfig().lockedByInfra?.includes('documentProcessing.assistModel'));
+    });
+  });
+
+  // ── F11-d: consensus / verify model ───────────────────────────────────────────
+  describe('verify model (F11-d)', () => {
+    it('empty by default → no consensus pass', () => {
+      writeConfig();
+      const dp = getDocumentProcessingConfig();
+      assert.equal(dp.verifyModel, '');
+      assert.equal(dp.verifyBaseUrl, '');
+    });
+
+    it('resolves verifyModel/verifyBaseUrl from config.json', () => {
+      writeConfig({ mediaEmbedding: { documentProcessing: { verifyModel: 'second-vlm', verifyBaseUrl: 'http://ollama2:11434' } } });
+      const dp = getDocumentProcessingConfig();
+      assert.equal(dp.verifyModel, 'second-vlm');
+      assert.equal(dp.verifyBaseUrl, 'http://ollama2:11434');
+    });
+
+    it('DOC_VERIFY_MODEL / DOC_VERIFY_URL env override config', () => {
+      process.env['DOC_VERIFY_MODEL'] = 'env-vlm';
+      process.env['DOC_VERIFY_URL'] = 'http://env-ollama:11434';
+      writeConfig({ mediaEmbedding: { documentProcessing: { verifyModel: 'cfg-vlm' } } });
+      const dp = getDocumentProcessingConfig();
+      assert.equal(dp.verifyModel, 'env-vlm');
+      assert.equal(dp.verifyBaseUrl, 'http://env-ollama:11434');
     });
   });
 });

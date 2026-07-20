@@ -949,6 +949,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → About on the design system.** The flat label/value grid is now two grouped `SettingsCard`s —
+  **Instance** (label, ID, version, and public URL when set) and **System** (MongoDB version, uptime, and disk
+  usage) — that flow side by side on wide screens and stack on narrow ones. The bespoke `disk-bar-*` is
+  replaced by the shared `UsageBar` with a health **status pill** (Healthy / High / Critical) whose thresholds
+  now come from the *same* classifier the bar uses (warn ≥ 80%, critical ≥ 95%), so the pill and bar always
+  agree and read identically to the Storage page. A load failure now renders the shared `ErrorState` with a
+  **Retry** button instead of a bare red line. Behaviour is pinned by new characterization tests written
+  against the original component.
+
 - **Settings → Storage on the design system.** The usage bar is now the shared `UsageBar` (retiring the
   page-local `usage-bar-*` dialect), with a health **status pill** (Healthy / Warning / Full) next to the
   percentage, and **Refresh keeps the current figures on screen with an inline spinner** instead of blanking

@@ -35,17 +35,17 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
       letter-spacing: -0.03em;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 3px;
       text-decoration: none;
     }
 
-    .topbar-logo-dot {
-      width: 7px;
-      height: 7px;
-      background: var(--accent);
-      border-radius: 50%;
+    .topbar-logo-mark {
+      width: 21px;
+      height: 21px;
       flex-shrink: 0;
+      display: block;
     }
+    .topbar-logo-word { line-height: 1; }
 
     .topbar-spacer { flex: 1; }
 
@@ -209,9 +209,24 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
         >
           <ph-icon [name]="drawerOpen() ? 'x' : 'list'" [size]="20"/>
         </button>
-        <a class="topbar-logo" routerLink="/">
-          <span class="topbar-logo-dot"></span>
-          {{ 'app.logo' | transloco }}
+        <a class="topbar-logo" routerLink="/" [attr.aria-label]="'app.logo' | transloco">
+          <svg class="topbar-logo-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+            <defs>
+              <radialGradient id="lgOrb" cx="42%" cy="36%" r="72%">
+                <stop offset="0%" stop-color="#1a1f26"/><stop offset="58%" stop-color="#0a0c0f"/><stop offset="100%" stop-color="#040507"/>
+              </radialGradient>
+              <radialGradient id="lgHalo" cx="50%" cy="47%" r="50%">
+                <stop offset="0%" stop-color="#9eec55" stop-opacity="0.55"/><stop offset="55%" stop-color="#9eec55" stop-opacity="0.12"/><stop offset="100%" stop-color="#9eec55" stop-opacity="0"/>
+              </radialGradient>
+            </defs>
+            <circle cx="16" cy="16" r="15.5" fill="url(#lgOrb)"/>
+            <circle cx="16" cy="16" r="15.3" fill="none" stroke="#9eec55" stroke-opacity="0.16" stroke-width="0.7"/>
+            <circle cx="16" cy="15.2" r="9.5" fill="url(#lgHalo)"/>
+            <g fill="#9eec55">
+              <path d="M5.8 6 L16 19 L26.2 6 L23.1 7.7 L16 14.6 L8.9 7.7 Z"/>
+              <path d="M13.3 13.6 L18.7 13.6 L16 27 Z"/>
+            </g>
+          </svg><span class="topbar-logo-word">thril</span>
         </a>
         <span class="topbar-spacer"></span>
         <button class="topbar-logout" (click)="logout()">{{ 'nav.signOut' | transloco }}</button>

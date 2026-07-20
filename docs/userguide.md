@@ -380,7 +380,7 @@ Click the gear icon on any space row to open its settings panel. Changes save an
 - **From File** — import a schema from a previously exported JSON file.
 - **Save to Lib** — save the current type schema to the Schema Library for reuse in other spaces.
 
-**Danger tab:** Rename the space ID, wipe all data, or delete the space entirely.
+**Danger tab:** Rename the space ID, wipe all data, or delete the space entirely. All three are guarded: because renaming changes the space ID (which breaks existing token and MCP references to it), **Rename** — like Wipe and Delete — now asks you to type the current space ID to confirm.
 
 Each space row carries only a gear/configure (⚙) button — there is no pencil icon. Renaming, wiping, and deleting all live inside the space's settings panel, on the **Danger** tab.
 

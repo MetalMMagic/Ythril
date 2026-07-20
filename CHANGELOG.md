@@ -1001,6 +1001,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Space Danger tab: Rename now requires type-to-confirm, and Wipe is a red-tier action (PR-U9, part 1).**
+  Renaming a space changes its ID — which breaks existing token and MCP references — so **Rename** now uses
+  the same type-the-current-ID confirmation as Wipe and Delete (previously a plain confirm). The **Wipe**
+  section is escalated to the red danger tier to match its irreversibility, and the per-collection count
+  tiles use a responsive `auto-fit` grid instead of a fixed 5-column row. Behaviour is pinned by the danger-
+  tab characterization tests from the previous PR.
+
 - **Settings → Duplicates rebuilt on the design system (PR-U8).** The wide table becomes responsive
   **A-vs-B comparison cards** — each pair shows record A beside record B with a coloured **confidence meter**
   (the match score as a percentage), the space/type, and a relative detected-time. A **SummaryStrip** on top

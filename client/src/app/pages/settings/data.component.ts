@@ -1,11 +1,17 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AdminApi } from '../../core/admin-api.service';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
+import { SettingsCardComponent } from '../../shared/settings-card.component';
+import { StatusPillComponent, type StatusVariant } from '../../shared/status-pill.component';
+import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
+import { RelativeTimeComponent } from '../../shared/relative-time.component';
+import { PhIconComponent } from '../../shared/ph-icon.component';
 
 type UriSource = 'env' | 'config' | 'default';
+type Frequency = 'never' | 'hourly' | 'daily' | 'weekly' | 'monthly';
 
 interface BackupConfig {
   schedule?: string;
@@ -19,124 +25,83 @@ interface BackupConfig {
 @Component({
   selector: 'app-data',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe],
+  imports: [
+    CommonModule, FormsModule, TranslocoPipe,
+    SettingsCardComponent, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, PhIconComponent,
+  ],
+  styles: [`
+    .data-page { display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
+    .freq-opt, .day-opt { display: flex; align-items: center; gap: 6px; cursor: pointer; border-radius: var(--radius-sm);
+      border: 1px solid var(--border); background: transparent; color: var(--text-secondary); transition: all .15s; }
+    .freq-opt { padding: 8px 16px; font-size: 14px; }
+    .day-opt { padding: 6px 12px; font-size: 13px; }
+    .freq-opt.sel, .day-opt.sel { border-color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--text-primary); font-weight: 600; }
+    .sched-summary { padding: 10px 14px; background: var(--bg-elevated); border-radius: var(--radius-sm);
+      font-size: 13px; color: var(--text-secondary); display: inline-flex; align-items: center; gap: 8px; }
+    .save-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+    /* Danger zone — visually quarantined red region for disruptive / irreversible ops. */
+    .dz { border: 1px solid var(--danger); border-radius: 12px; padding: 4px 16px 16px; margin-top: 8px;
+      background: color-mix(in srgb, var(--danger) 4%, transparent); }
+    .dz-head { display: flex; align-items: center; gap: 8px; padding: 14px 2px 4px; color: var(--danger);
+      font-weight: 700; font-size: 14px; }
+    .dz-hint { font-size: 12.5px; color: var(--text-secondary); margin: 0 0 12px; }
+    .dz-block { padding: 14px 0; border-top: 1px solid var(--border-muted); }
+    .dz-block:first-of-type { border-top: none; }
+    .dz-block h4 { margin: 0 0 4px; font-size: 14px; font-weight: 620; }
+    .dz-block .sub { margin: 0 0 12px; font-size: 13px; color: var(--text-secondary); }
+    .mono { font-family: var(--font-mono); font-size: 13px; }
+    .muted { color: var(--text-muted); font-size: 14px; }
+  `],
   template: `
-    <div class="page-header" style="margin-bottom:16px;">
-      <div class="card-title">{{ 'data.title' | transloco }}</div>
-    </div>
+    <div class="data-page">
+      <div class="page-header"><div class="card-title">{{ 'data.title' | transloco }}</div></div>
 
-    <!-- ── Database info card (read-only) ───────────────────────────── -->
-    <div class="card" style="margin-bottom:20px;">
-      <div class="card-header">
-        <h3 class="card-title">{{ 'data.db.title' | transloco }}</h3>
+      <app-summary-strip [items]="summaryItems()"/>
+
+      <!-- ── Database (read-only) ─────────────────────────────── -->
+      <app-settings-card icon="database" [heading]="'data.db.title' | transloco" [purpose]="uriSource() ? (('data.db.sourceDesc.' + uriSource()) | transloco) : ''">
         @if (uriSource()) {
-          <span class="badge" [class]="sourceBadgeClass()">
-            {{ ('data.db.source.' + uriSource()) | transloco }}
-          </span>
+          <app-status-pill pill [variant]="sourcePillVariant()" [dot]="true">{{ ('data.db.source.' + uriSource()) | transloco }}</app-status-pill>
         }
-      </div>
-      <div class="card-body">
-        @if (uriSource()) {
-          <p style="margin-bottom:8px;font-size:14px;color:var(--text-secondary);">
-            {{ ('data.db.sourceDesc.' + uriSource()) | transloco }}
-          </p>
-        }
-        @if (currentUriRedacted()) {
-          <code style="font-size:13px;color:var(--text-secondary);">{{ currentUriRedacted() }}</code>
-        }
-      </div>
-    </div>
+        @if (currentUriRedacted()) { <code class="mono" style="color:var(--text-secondary);">{{ currentUriRedacted() }}</code> }
+      </app-settings-card>
 
-    <!-- ── Maintenance mode section ──────────────────────────────────── -->
-    <div class="card" style="margin-bottom:20px;">
-      <div class="card-header">
-        <h3 class="card-title">{{ 'data.maintenance.title' | transloco }}</h3>
-        @if (maintenanceActive() !== null) {
-          <span class="badge" [class]="maintenanceActive() ? 'badge-error' : 'badge-success'">
-            {{ maintenanceActive()
-              ? ('data.maintenance.active' | transloco)
-              : ('data.maintenance.inactive' | transloco) }}
-          </span>
-        }
-      </div>
-      <div class="card-body">
-        <button
-          class="btn btn-sm"
-          [class]="maintenanceActive() ? 'btn-primary' : 'btn-danger'"
-          [disabled]="togglingMaintenance()"
-          (click)="toggleMaintenance()"
-        >
-          @if (togglingMaintenance()) { <span class="spinner spinner-sm"></span> }
-          {{ maintenanceActive()
-            ? ('data.maintenance.deactivate' | transloco)
-            : ('data.maintenance.activate' | transloco) }}
-        </button>
-        @if (maintenanceError()) {
-          <div class="alert alert-error" style="margin-top:10px;">{{ maintenanceError() }}</div>
-        }
-      </div>
-    </div>
+      <!-- ── Backups ──────────────────────────────────────────── -->
+      <app-settings-card icon="floppy-disk" [heading]="'data.backup.title' | transloco" [purpose]="'data.backup.description' | transloco">
+        @if (backups().length) { <app-status-pill pill variant="ok" [dot]="true">{{ backups().length }}</app-status-pill> }
 
-    <!-- ── Backups card ───────────────────────────────────────── -->
-    <div class="card" style="margin-bottom:20px;">
-      <div class="card-header">
-        <h3 class="card-title">{{ 'data.backup.title' | transloco }}</h3>
-      </div>
-      <div class="card-body">
-        <p style="margin-bottom:12px;color:var(--text-secondary);font-size:14px;">
-          {{ 'data.backup.description' | transloco }}
-        </p>
-        <button
-          class="btn btn-secondary btn-sm"
-          style="margin-bottom:16px;"
-          [disabled]="backingUp()"
-          (click)="takeBackup()"
-        >
-          @if (backingUp()) { <span class="spinner spinner-sm"></span> }
-          {{ 'data.backup.takeButton' | transloco }}
+        <button class="btn btn-secondary btn-sm" style="margin-bottom:14px;" [disabled]="backingUp()" (click)="takeBackup()">
+          @if (backingUp()) { <span class="spinner spinner-sm"></span> }{{ 'data.backup.takeButton' | transloco }}
         </button>
-        @if (backupTaken()) {
-          <div class="alert alert-success" style="margin-bottom:12px;">
-            {{ 'data.backup.success' | transloco }}
-          </div>
-        }
-        @if (backupError()) {
-          <div class="alert alert-error" style="margin-bottom:12px;">{{ backupError() }}</div>
-        }
-        @if (restoreSuccess()) {
-          <div class="alert alert-success" style="margin-bottom:12px;">
-            {{ 'data.backup.restoreSuccess' | transloco }}
-          </div>
-        }
-        @if (restoreError()) {
-          <div class="alert alert-error" style="margin-bottom:12px;">{{ restoreError() }}</div>
-        }
+
+        @if (backupTaken())    { <div class="alert alert-success" style="margin-bottom:12px;">{{ 'data.backup.success' | transloco }}</div> }
+        @if (backupError())    { <div class="alert alert-error"   style="margin-bottom:12px;">{{ backupError() }}</div> }
+        @if (restoreSuccess()) { <div class="alert alert-success" style="margin-bottom:12px;">{{ 'data.backup.restoreSuccess' | transloco }}</div> }
+        @if (restoreError())   { <div class="alert alert-error"   style="margin-bottom:12px;">{{ restoreError() }}</div> }
+
         @if (loadingBackups()) {
           <span class="spinner spinner-sm"></span>
-        } @else if (backups().length === 0) {
-          <p style="color:var(--text-muted);font-size:14px;">{{ 'data.backup.empty' | transloco }}</p>
+        } @else if (!backups().length) {
+          <p class="muted">{{ 'data.backup.empty' | transloco }}</p>
         } @else {
           <table class="table" style="font-size:13px;">
-            <thead>
-              <tr>
-                <th>{{ 'data.backup.colDate' | transloco }}</th>
-                <th>{{ 'data.backup.colCollections' | transloco }}</th>
-                <th></th>
-              </tr>
-            </thead>
+            <thead><tr>
+              <th>{{ 'data.backup.colDate' | transloco }}</th>
+              <th>{{ 'data.backup.colCollections' | transloco }}</th>
+              <th></th>
+            </tr></thead>
             <tbody>
               @for (b of backups(); track b.id) {
                 <tr>
-                  <td style="font-family:monospace;">{{ b.createdAt }}</td>
-                  <td>{{ b.collections.length }}</td>
+                  <td>
+                    <app-relative-time [value]="b.createdAt"/>
+                    @if (b.id === latestBackupId()) { <app-status-pill variant="active" style="margin-left:8px;">{{ 'data.backup.latest' | transloco }}</app-status-pill> }
+                  </td>
+                  <td class="mono">{{ b.collections.length }}</td>
                   <td style="text-align:right;">
-                    <button
-                      class="btn btn-sm btn-danger"
-                      [disabled]="!!restoringId()"
-                      (click)="confirmRestore(b.id)"
-                    >
-                      @if (restoringId() === b.id) { <span class="spinner spinner-sm"></span> }
-                      {{ 'data.backup.restoreButton' | transloco }}
+                    <button class="btn btn-sm btn-danger" [disabled]="!!restoringId()" (click)="confirmRestore(b.id)">
+                      @if (restoringId() === b.id) { <span class="spinner spinner-sm"></span> }{{ 'data.backup.restoreButton' | transloco }}
                     </button>
                   </td>
                 </tr>
@@ -144,115 +109,62 @@ interface BackupConfig {
             </tbody>
           </table>
         }
-      </div>
-    </div>
+      </app-settings-card>
 
-    <!-- ── Backup Destination card ───────────────────────────── -->
-    <div class="card" style="margin-bottom:20px;">
-      <div class="card-header">
-        <h3 class="card-title">{{ 'data.dest.title' | transloco }}</h3>
+      <!-- ── Backup Destination ───────────────────────────────── -->
+      <app-settings-card icon="database" [heading]="'data.dest.title' | transloco" [purpose]="migrationEnabled() ? ('data.dest.description' | transloco) : ''">
         @if (migrationEnabled()) {
-          <span class="badge" [class]="destConfigured() ? 'badge-success' : 'badge-secondary'">
-            {{ destConfigured() ? ('data.dest.configured' | transloco) : ('data.dest.notConfigured' | transloco) }}
-          </span>
+          <app-status-pill pill [variant]="destConfigured() ? 'active' : 'off'" [dot]="true">{{ destConfigured() ? ('data.dest.configured' | transloco) : ('data.dest.notConfigured' | transloco) }}</app-status-pill>
         }
-      </div>
-      <div class="card-body">
         @if (!migrationEnabled()) {
-          <p style="font-size:14px;color:var(--text-secondary);">{{ 'data.dest.featureDisabled' | transloco }}</p>
+          <p class="muted">{{ 'data.dest.featureDisabled' | transloco }}</p>
         } @else {
-          <p style="margin-bottom:20px;color:var(--text-secondary);font-size:14px;">
-            {{ 'data.dest.description' | transloco }}
-          </p>
-
-          <!-- Ythril-internal toggle -->
-          <div style="margin-bottom:20px;padding:14px 16px;background:var(--bg-elevated);border-radius:var(--radius-sm);">
+          <div style="margin-bottom:16px;padding:14px 16px;background:var(--bg-elevated);border-radius:var(--radius-sm);">
             <label style="display:flex;align-items:center;gap:10px;cursor:pointer;">
               <input class="form-check-input" type="checkbox" [(ngModel)]="destForm.ythrilInternal" style="margin:0;" />
               <span style="font-weight:500;font-size:14px;">{{ 'data.dest.internalLabel' | transloco }}</span>
             </label>
-            <p style="margin:8px 0 0 26px;font-size:13px;color:var(--text-secondary);">
-              {{ 'data.dest.internalHint' | transloco }}
-            </p>
+            <p style="margin:8px 0 0 26px;font-size:13px;color:var(--text-secondary);">{{ 'data.dest.internalHint' | transloco }}</p>
           </div>
 
-          <!-- Path field -->
           <div class="form-group" style="margin-bottom:16px;">
             <label class="form-label">{{ 'data.dest.pathLabel' | transloco }}</label>
-            <input
-              class="form-control"
-              type="text"
-              [disabled]="destForm.ythrilInternal"
-              [(ngModel)]="destForm.customPath"
-              [placeholder]="destForm.ythrilInternal
-                ? (backupsPath() || ('data.dest.internalPathHint' | transloco))
-                : ('data.dest.pathPlaceholder' | transloco)"
-              style="font-family:monospace;font-size:13px;"
-            />
-            @if (!destForm.ythrilInternal) {
-              <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">{{ 'data.dest.pathHint' | transloco }}</div>
-            }
+            <input class="form-control mono" type="text" [disabled]="destForm.ythrilInternal" [(ngModel)]="destForm.customPath"
+              [placeholder]="destForm.ythrilInternal ? (backupsPath() || ('data.dest.internalPathHint' | transloco)) : ('data.dest.pathPlaceholder' | transloco)" />
+            @if (!destForm.ythrilInternal) { <div class="muted" style="font-size:12px;margin-top:4px;">{{ 'data.dest.pathHint' | transloco }}</div> }
           </div>
 
-          <!-- How many backups to keep -->
           <div class="form-group" style="margin-bottom:12px;">
             <label class="form-label">{{ 'data.dest.keepLabel' | transloco }}</label>
             <div style="display:flex;align-items:center;gap:8px;">
-              <input
-                class="form-control"
-                type="number"
-                [(ngModel)]="destForm.keepLocal"
-                min="1"
-                style="width:100px;"
-                [placeholder]="'data.dest.keepUnlimitedPlaceholder' | transloco"
-              />
+              <input class="form-control" type="number" [(ngModel)]="destForm.keepLocal" min="1" style="width:100px;" [placeholder]="'data.dest.keepUnlimitedPlaceholder' | transloco" />
               <span style="font-size:13px;color:var(--text-secondary);">{{ 'data.dest.keepSuffix' | transloco }}</span>
             </div>
           </div>
 
-          @if (destSaveSuccess()) {
-            <div class="alert alert-success" style="margin-bottom:12px;">{{ 'data.dest.saveSuccess' | transloco }}</div>
-          }
-          @if (destSaveError()) {
-            <div class="alert alert-error" style="margin-bottom:12px;">{{ destSaveError() }}</div>
-          }
-          <button class="btn btn-primary btn-sm" [disabled]="savingDest()" (click)="saveDest()">
-            @if (savingDest()) { <span class="spinner spinner-sm"></span> }
-            {{ 'data.dest.saveButton' | transloco }}
-          </button>
+          @if (destSaveError()) { <div class="alert alert-error" style="margin-bottom:12px;">{{ destSaveError() }}</div> }
+          <div class="save-row">
+            <button class="btn btn-primary btn-sm" [disabled]="savingDest()" (click)="saveDest()">
+              @if (savingDest()) { <span class="spinner spinner-sm"></span> }{{ 'data.dest.saveButton' | transloco }}
+            </button>
+            @if (configDirty()) { <app-status-pill variant="warn" [dot]="true">{{ 'common.unsavedChanges' | transloco }}</app-status-pill> }
+            @else if (destSaveSuccess()) { <app-status-pill variant="ok" icon="check-circle">{{ 'data.dest.saveSuccess' | transloco }}</app-status-pill> }
+          </div>
         }
-      </div>
-    </div>
+      </app-settings-card>
 
-    <!-- ── Scheduled Backups card ──────────────────────────── -->
-    <div class="card" style="margin-bottom:20px;">
-      <div class="card-header">
-        <h3 class="card-title">{{ 'data.schedule.title' | transloco }}</h3>
+      <!-- ── Scheduled Backups ────────────────────────────────── -->
+      <app-settings-card icon="timer" [heading]="'data.schedule.title' | transloco" [purpose]="migrationEnabled() ? ('data.schedule.howOften' | transloco) : ''">
         @if (migrationEnabled()) {
-          <span class="badge" [class]="scheduleConfigured() ? 'badge-success' : 'badge-secondary'">
-            {{ scheduleConfigured() ? ('data.schedule.configured' | transloco) : ('data.schedule.notConfigured' | transloco) }}
-          </span>
+          <app-status-pill pill [variant]="scheduleConfigured() ? 'active' : 'off'" [dot]="true">{{ scheduleConfigured() ? ('data.schedule.configured' | transloco) : ('data.schedule.notConfigured' | transloco) }}</app-status-pill>
         }
-      </div>
-      <div class="card-body">
         @if (!migrationEnabled()) {
-          <p style="font-size:14px;color:var(--text-secondary);">{{ 'data.schedule.featureDisabled' | transloco }}</p>
+          <p class="muted">{{ 'data.schedule.featureDisabled' | transloco }}</p>
         } @else {
-          <p style="margin-bottom:20px;color:var(--text-secondary);font-size:14px;">
-            {{ 'data.schedule.howOften' | transloco }}
-          </p>
-
-          <!-- Frequency pill-buttons -->
-          <div class="form-group" style="margin-bottom:24px;">
+          <div class="form-group" style="margin-bottom:20px;">
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               @for (opt of freqOptions; track opt.value) {
-                <label
-                  style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 16px;border-radius:var(--radius-sm);border:1px solid;font-size:14px;transition:all 0.15s;"
-                  [style.border-color]="scheduleForm.frequency === opt.value ? 'var(--accent)' : 'var(--border-color)'"
-                  [style.background]="scheduleForm.frequency === opt.value ? 'var(--nav-active-dim)' : 'transparent'"
-                  [style.color]="scheduleForm.frequency === opt.value ? 'var(--text-primary)' : 'var(--text-secondary)'"
-                  [style.font-weight]="scheduleForm.frequency === opt.value ? '600' : '400'"
-                >
+                <label class="freq-opt" [class.sel]="scheduleForm.frequency === opt.value">
                   <input type="radio" name="freq" [value]="opt.value" [(ngModel)]="scheduleForm.frequency" style="display:none;" />
                   {{ opt.label | transloco }}
                 </label>
@@ -261,31 +173,20 @@ interface BackupConfig {
           </div>
 
           @if (scheduleForm.frequency !== 'never') {
-            <!-- Time of day — not shown for hourly -->
             @if (scheduleForm.frequency !== 'hourly') {
               <div class="form-group" style="margin-bottom:16px;">
                 <label class="form-label">{{ 'data.schedule.atTime' | transloco }}</label>
                 <select class="form-control" [(ngModel)]="scheduleForm.hour" style="max-width:240px;">
-                  @for (h of hours; track h.value) {
-                    <option [ngValue]="h.value">{{ h.label }}</option>
-                  }
+                  @for (h of hours; track h) { <option [ngValue]="h">{{ formatHour(h) }}</option> }
                 </select>
               </div>
             }
-
-            <!-- Day of week (weekly only) -->
             @if (scheduleForm.frequency === 'weekly') {
               <div class="form-group" style="margin-bottom:16px;">
                 <label class="form-label">{{ 'data.schedule.onWeekday' | transloco }}</label>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                   @for (d of weekdays; track d.value) {
-                    <label
-                      style="display:flex;align-items:center;gap:5px;cursor:pointer;padding:6px 12px;border-radius:var(--radius-sm);border:1px solid;font-size:13px;transition:all 0.15s;"
-                      [style.border-color]="scheduleForm.weekday === d.value ? 'var(--accent)' : 'var(--border-color)'"
-                      [style.background]="scheduleForm.weekday === d.value ? 'var(--nav-active-dim)' : 'transparent'"
-                      [style.color]="scheduleForm.weekday === d.value ? 'var(--text-primary)' : 'var(--text-secondary)'"
-                      [style.font-weight]="scheduleForm.weekday === d.value ? '600' : '400'"
-                    >
+                    <label class="day-opt" [class.sel]="scheduleForm.weekday === d.value">
                       <input type="radio" name="weekday" [value]="d.value" [(ngModel)]="scheduleForm.weekday" style="display:none;" />
                       {{ d.label | transloco }}
                     </label>
@@ -293,104 +194,77 @@ interface BackupConfig {
                 </div>
               </div>
             }
-
-            <!-- Day of month (monthly only) -->
             @if (scheduleForm.frequency === 'monthly') {
               <div class="form-group" style="margin-bottom:16px;">
                 <label class="form-label">{{ 'data.schedule.onMonthDay' | transloco }}</label>
                 <select class="form-control" [(ngModel)]="scheduleForm.monthDay" style="max-width:120px;">
-                  @for (d of monthDays; track d) {
-                    <option [ngValue]="d">{{ d }}</option>
-                  }
+                  @for (d of monthDays; track d) { <option [ngValue]="d">{{ d }}</option> }
                 </select>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">{{ 'data.schedule.monthDayHint' | transloco }}</div>
+                <div class="muted" style="font-size:12px;margin-top:4px;">{{ 'data.schedule.monthDayHint' | transloco }}</div>
               </div>
             }
-
-            <!-- Human-readable summary -->
-            <div style="margin-bottom:16px;padding:10px 14px;background:var(--bg-elevated);border-radius:var(--radius-sm);font-size:13px;color:var(--text-secondary);">
-              {{ scheduleSummary() }}
-            </div>
+            <div class="sched-summary" style="margin-bottom:16px;"><ph-icon name="timer" [size]="14"/>{{ scheduleSummary() }}</div>
           }
 
-          @if (scheduleSaveSuccess()) {
-            <div class="alert alert-success" style="margin-bottom:12px;">{{ 'data.schedule.saveSuccess' | transloco }}</div>
-          }
-          @if (scheduleSaveError()) {
-            <div class="alert alert-error" style="margin-bottom:12px;">{{ scheduleSaveError() }}</div>
-          }
-          <button class="btn btn-primary btn-sm" [disabled]="savingSchedule()" (click)="saveSchedule()">
-            @if (savingSchedule()) { <span class="spinner spinner-sm"></span> }
-            {{ 'data.schedule.saveButton' | transloco }}
+          @if (scheduleSaveError()) { <div class="alert alert-error" style="margin-bottom:12px;">{{ scheduleSaveError() }}</div> }
+          <div class="save-row">
+            <button class="btn btn-primary btn-sm" [disabled]="savingSchedule()" (click)="saveSchedule()">
+              @if (savingSchedule()) { <span class="spinner spinner-sm"></span> }{{ 'data.schedule.saveButton' | transloco }}
+            </button>
+            @if (configDirty()) { <app-status-pill variant="warn" [dot]="true">{{ 'common.unsavedChanges' | transloco }}</app-status-pill> }
+            @else if (scheduleSaveSuccess()) { <app-status-pill variant="ok" icon="check-circle">{{ 'data.schedule.saveSuccess' | transloco }}</app-status-pill> }
+          </div>
+        }
+      </app-settings-card>
+
+      <!-- ── Danger Zone: disruptive / irreversible ops ───────── -->
+      <div class="dz">
+        <div class="dz-head"><ph-icon name="warning" [size]="16"/>{{ 'data.dangerZone.title' | transloco }}</div>
+        <p class="dz-hint">{{ 'data.dangerZone.hint' | transloco }}</p>
+
+        <!-- Maintenance mode -->
+        <div class="dz-block">
+          <h4>{{ 'data.maintenance.title' | transloco }}
+            @if (maintenanceActive() !== null) {
+              <app-status-pill [variant]="maintenanceActive() ? 'warn' : 'ok'" [dot]="true" style="margin-left:8px;">{{ maintenanceActive() ? ('data.maintenance.active' | transloco) : ('data.maintenance.inactive' | transloco) }}</app-status-pill>
+            }
+          </h4>
+          <button class="btn btn-sm" [class]="maintenanceActive() ? 'btn-primary' : 'btn-danger'" [disabled]="togglingMaintenance()" (click)="toggleMaintenance()">
+            @if (togglingMaintenance()) { <span class="spinner spinner-sm"></span> }{{ maintenanceActive() ? ('data.maintenance.deactivate' | transloco) : ('data.maintenance.activate' | transloco) }}
           </button>
-        }
-      </div>
-    </div>
+          @if (maintenanceError()) { <div class="alert alert-error" style="margin-top:10px;">{{ maintenanceError() }}</div> }
+        </div>
 
-    <!-- ── Migrate Database card ───────────────────────────── -->
-    <div class="card">
-      <div class="card-header">
-        <h3 class="card-title">{{ 'data.migrate.title' | transloco }}</h3>
-      </div>
-      <div class="card-body">
-        @if (uriSource() === 'env') {
-          <p style="font-size:14px;color:var(--text-secondary);">
-            {{ 'data.migrate.envNote' | transloco }}
-          </p>        } @else if (!migrationEnabled()) {
-          <p style="font-size:14px;color:var(--text-secondary);">
-            {{ 'data.migrate.featureDisabled' | transloco }}
-          </p>        } @else {
-          <p style="margin-bottom:16px;color:var(--text-secondary);font-size:14px;">
-            {{ 'data.migrate.description' | transloco }}
-          </p>
-
-          <div class="form-group" style="margin-bottom:12px;">
-            <label class="form-label">{{ 'data.migrate.newUriLabel' | transloco }}</label>
-            <input
-              class="form-control"
-              type="text"
-              [(ngModel)]="migrateUri"
-              placeholder="mongodb://new-host:27017/"
-              style="font-family:monospace;font-size:13px;"
-            />
-          </div>
-
-          @if (testResult()) {
-            <div class="alert" [class]="testResult()!.ok ? 'alert-success' : 'alert-error'" style="margin-bottom:12px;">
-              {{ testResult()!.ok
-                ? ('data.migrate.testOk' | transloco)
-                : (('data.migrate.testFail' | transloco) + ': ' + testResult()!.error) }}
+        <!-- Migrate database -->
+        <div class="dz-block">
+          <h4>{{ 'data.migrate.title' | transloco }}</h4>
+          @if (uriSource() === 'env') {
+            <p class="sub">{{ 'data.migrate.envNote' | transloco }}</p>
+          } @else if (!migrationEnabled()) {
+            <p class="sub">{{ 'data.migrate.featureDisabled' | transloco }}</p>
+          } @else {
+            <p class="sub">{{ 'data.migrate.description' | transloco }}</p>
+            <div class="form-group" style="margin-bottom:12px;">
+              <label class="form-label">{{ 'data.migrate.newUriLabel' | transloco }}</label>
+              <input class="form-control mono" type="text" [(ngModel)]="migrateUri" placeholder="mongodb://new-host:27017/" />
+            </div>
+            @if (testResult()) {
+              <div class="alert" [class]="testResult()!.ok ? 'alert-success' : 'alert-error'" style="margin-bottom:12px;">
+                {{ testResult()!.ok ? ('data.migrate.testOk' | transloco) : (('data.migrate.testFail' | transloco) + ': ' + testResult()!.error) }}
+              </div>
+            }
+            @if (migrateSuccess()) { <div class="alert alert-success" style="margin-bottom:12px;">{{ 'data.migrate.success' | transloco }}</div> }
+            @if (migrateError())   { <div class="alert alert-error"   style="margin-bottom:12px;">{{ migrateError() }}</div> }
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-secondary btn-sm" [disabled]="testing() || !migrateUri.trim()" (click)="testMigrateConnection()">
+                @if (testing()) { <span class="spinner spinner-sm"></span> }{{ 'data.migrate.testButton' | transloco }}
+              </button>
+              <button class="btn btn-danger btn-sm" [disabled]="migrating() || !testResult()?.ok" (click)="confirmMigrate()">
+                @if (migrating()) { <span class="spinner spinner-sm"></span> }{{ 'data.migrate.migrateButton' | transloco }}
+              </button>
             </div>
           }
-
-          @if (migrateSuccess()) {
-            <div class="alert alert-success" style="margin-bottom:12px;">
-              {{ 'data.migrate.success' | transloco }}
-            </div>
-          }
-          @if (migrateError()) {
-            <div class="alert alert-error" style="margin-bottom:12px;">{{ migrateError() }}</div>
-          }
-
-          <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button
-              class="btn btn-secondary btn-sm"
-              [disabled]="testing() || !migrateUri.trim()"
-              (click)="testMigrateConnection()"
-            >
-              @if (testing()) { <span class="spinner spinner-sm"></span> }
-              {{ 'data.migrate.testButton' | transloco }}
-            </button>
-            <button
-              class="btn btn-danger btn-sm"
-              [disabled]="migrating() || !testResult()?.ok"
-              (click)="confirmMigrate()"
-            >
-              @if (migrating()) { <span class="spinner spinner-sm"></span> }
-              {{ 'data.migrate.migrateButton' | transloco }}
-            </button>
-          </div>
-        }
+        </div>
       </div>
     </div>
   `,
@@ -414,9 +288,26 @@ export class DataComponent implements OnInit {
   restoreError = signal<string | null>(null);
   backupConfig = signal<BackupConfig | null>(null);
 
+  /** The most-recent backup id, for the "Latest" marker (backups come newest-first from the API). */
+  latestBackupId = computed(() => this.backups()[0]?.id ?? null);
+
+  /** Operator overview strip: DB source, maintenance state, backup count, and the saved schedule. */
+  summaryItems = computed<SummaryItem[]>(() => {
+    const t = (k: string) => this.transloco.translate(k);
+    const items: SummaryItem[] = [];
+    const src = this.uriSource();
+    if (src) items.push({ label: t('data.summary.database'), value: t('data.db.source.' + src), variant: this.sourcePillVariant() });
+    const maint = this.maintenanceActive();
+    if (maint !== null) items.push({ label: t('data.summary.maintenance'), value: maint ? t('data.summary.maintenanceOn') : t('data.summary.maintenanceOff'), variant: maint ? 'warn' : 'ok' });
+    items.push({ label: t('data.summary.backups'), value: this.backups().length });
+    const freq = this.freqFromCron(this.backupConfig()?.schedule);
+    items.push({ label: t('data.summary.schedule'), value: freq === 'never' ? t('data.schedule.notConfigured') : t('data.schedule.freq.' + freq), variant: freq === 'never' ? 'off' : 'active' });
+    return items;
+  });
+
   // ─ Schedule form (human-friendly, not raw cron) ─────────────────────────────────────
   scheduleForm = {
-    frequency: 'never' as 'never' | 'hourly' | 'daily' | 'weekly' | 'monthly',
+    frequency: 'never' as Frequency,
     hour: 2,
     minute: 0,
     weekday: 1, // 0 = Sun … 6 = Sat
@@ -437,6 +328,9 @@ export class DataComponent implements OnInit {
   destSaveError = signal<string | null>(null);
   backupsPath = signal<string>('');
 
+  /** Snapshot of the last-saved config, so the UI can flag unsaved edits and auto-dismiss "Saved". */
+  private savedSnapshot = signal<string>('');
+
   // ─ Static option lists ──────────────────────────────────────────────────────────
   readonly freqOptions = [
     { value: 'never',   label: 'data.schedule.freq.never'   },
@@ -456,16 +350,7 @@ export class DataComponent implements OnInit {
     { value: 6, label: 'data.schedule.weekday.6' },
   ];
 
-  readonly hours = Array.from({ length: 24 }, (_, i) => {
-    const ampm = i < 12 ? 'AM' : 'PM';
-    const h12 = i === 0 ? 12 : i > 12 ? i - 12 : i;
-    const label =
-      i === 0  ? '12:00 midnight' :
-      i === 12 ? '12:00 noon' :
-      `${h12}:00 ${ampm}`;
-    return { value: i, label };
-  });
-
+  readonly hours = Array.from({ length: 24 }, (_, i) => i);
   readonly monthDays = Array.from({ length: 28 }, (_, i) => i + 1);
 
   maintenanceActive = signal<boolean | null>(null);
@@ -485,11 +370,12 @@ export class DataComponent implements OnInit {
     this.refreshBackups();
   }
 
-  sourceBadgeClass(): string {
+  /** StatusPill variant for the DB-source pill (env is flagged — it can't be changed from the UI). */
+  sourcePillVariant(): StatusVariant {
     const s = this.uriSource();
-    if (s === 'env') return 'badge-warning';
-    if (s === 'config') return 'badge-info';
-    return 'badge-secondary';
+    if (s === 'env') return 'warn';
+    if (s === 'config') return 'active';
+    return 'off';
   }
 
   private loadConfig(): void {
@@ -522,6 +408,7 @@ export class DataComponent implements OnInit {
         this.destForm.keepLocal      = config?.offsite?.retention?.keepCount ?? config?.retention?.keepLocal ?? null;
         // Populate schedule form
         this.parseCron(config?.schedule);
+        this.savedSnapshot.set(JSON.stringify(this.buildConfig()));
       },
       error: () => {},
     });
@@ -550,7 +437,7 @@ export class DataComponent implements OnInit {
       },
       error: err => {
         this.backingUp.set(false);
-        this.backupError.set(err?.error?.error ?? 'Backup failed');
+        this.backupError.set(err?.error?.error ?? this.transloco.translate('data.backup.error'));
       },
     });
   }
@@ -577,7 +464,7 @@ export class DataComponent implements OnInit {
       },
       error: err => {
         this.restoringId.set(null);
-        this.restoreError.set(err?.error?.error ?? 'Restore failed');
+        this.restoreError.set(err?.error?.error ?? this.transloco.translate('data.backup.restoreError'));
       },
     });
   }
@@ -591,10 +478,11 @@ export class DataComponent implements OnInit {
         this.backupConfig.set(config);
         this.savingSchedule.set(false);
         this.scheduleSaveSuccess.set(true);
+        this.savedSnapshot.set(JSON.stringify(this.buildConfig()));
       },
       error: err => {
         this.savingSchedule.set(false);
-        this.scheduleSaveError.set(err?.error?.error ?? 'Save failed');
+        this.scheduleSaveError.set(err?.error?.error ?? this.transloco.translate('data.schedule.saveError'));
       },
     });
   }
@@ -608,10 +496,11 @@ export class DataComponent implements OnInit {
         this.backupConfig.set(config);
         this.savingDest.set(false);
         this.destSaveSuccess.set(true);
+        this.savedSnapshot.set(JSON.stringify(this.buildConfig()));
       },
       error: err => {
         this.savingDest.set(false);
-        this.destSaveError.set(err?.error?.error ?? 'Save failed');
+        this.destSaveError.set(err?.error?.error ?? this.transloco.translate('data.dest.saveError'));
       },
     });
   }
@@ -673,6 +562,18 @@ export class DataComponent implements OnInit {
     }
   }
 
+  /** Pure classification of a cron string into a frequency bucket (for the summary strip, no side effects). */
+  private freqFromCron(cron: string | undefined): Frequency {
+    if (!cron?.trim()) return 'never';
+    const parts = cron.trim().split(/\s+/);
+    if (parts.length !== 5) return 'never';
+    const [, hr, dom, , dow] = parts;
+    if (hr === '*' && dom === '*' && dow === '*') return 'hourly';
+    if (dom !== '*' && dow === '*') return 'monthly';
+    if (dom === '*' && dow !== '*') return 'weekly';
+    return 'daily';
+  }
+
   // ─ Computed state helpers ──────────────────────────────────────────────────────────
 
   destConfigured(): boolean {
@@ -683,26 +584,30 @@ export class DataComponent implements OnInit {
     return this.scheduleForm.frequency !== 'never';
   }
 
+  /** True when the schedule/destination forms differ from what was last saved. */
+  configDirty(): boolean {
+    return this.migrationEnabled() && JSON.stringify(this.buildConfig()) !== this.savedSnapshot();
+  }
+
+  /** Localised clock label for an hour (0–23), shared by the time dropdown and the schedule summary. */
+  formatHour(h: number): string {
+    if (h === 0)  return this.transloco.translate('data.time.midnight');
+    if (h === 12) return this.transloco.translate('data.time.noon');
+    const h12 = h > 12 ? h - 12 : h;
+    const ampm = this.transloco.translate(h < 12 ? 'data.time.am' : 'data.time.pm');
+    return `${h12}:00 ${ampm}`;
+  }
+
   scheduleSummary(): string {
     const f = this.scheduleForm.frequency;
     if (f === 'never')  return '';
-    if (f === 'hourly') return 'Every hour, on the hour';
-    const h = this.scheduleForm.hour;
-    const ampm = h < 12 ? 'AM' : 'PM';
-    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-    const t = `${h12}:00 ${ampm}`;
-    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    if (f === 'daily')   return `Every day at ${t}`;
-    if (f === 'weekly')  return `Every ${days[this.scheduleForm.weekday]} at ${t}`;
-    if (f === 'monthly') {
-      const n = this.scheduleForm.monthDay;
-      const ord = n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`;
-      return `On the ${ord} of every month at ${t}`;
-    }
+    if (f === 'hourly') return this.transloco.translate('data.schedule.summary.hourly');
+    const time = this.formatHour(this.scheduleForm.hour);
+    if (f === 'daily')   return this.transloco.translate('data.schedule.summary.daily', { time });
+    if (f === 'weekly')  return this.transloco.translate('data.schedule.summary.weekly', { day: this.transloco.translate('data.schedule.weekday.' + this.scheduleForm.weekday), time });
+    if (f === 'monthly') return this.transloco.translate('data.schedule.summary.monthly', { day: this.scheduleForm.monthDay, time });
     return '';
   }
-
-  // ─ Directory browser (server-side, works in workstation mode; in Docker exposes mounted paths) ──
 
   testMigrateConnection(): void {
     const uri = this.migrateUri.trim();
@@ -715,7 +620,7 @@ export class DataComponent implements OnInit {
         this.testing.set(false);
       },
       error: err => {
-        this.testResult.set({ ok: false, error: err?.error?.error ?? 'Request failed' });
+        this.testResult.set({ ok: false, error: err?.error?.error ?? this.transloco.translate('data.migrate.requestFailed') });
         this.testing.set(false);
       },
     });
@@ -731,7 +636,7 @@ export class DataComponent implements OnInit {
         this.togglingMaintenance.set(false);
       },
       error: err => {
-        this.maintenanceError.set(err?.error?.error ?? 'Request failed');
+        this.maintenanceError.set(err?.error?.error ?? this.transloco.translate('data.maintenance.requestFailed'));
         this.togglingMaintenance.set(false);
       },
     });
@@ -763,11 +668,11 @@ export class DataComponent implements OnInit {
         this.migrating.set(false);
         const code = err?.error?.code;
         if (code === 'FEATURE_DISABLED') {
-          this.migrateError.set('Migration must be enabled by the administrator (YTHRIL_DB_MIGRATION_ENABLED=true).');
+          this.migrateError.set(this.transloco.translate('data.migrate.errorFeatureDisabled'));
         } else if (code === 'INFRA_MANAGED') {
-          this.migrateError.set('Database connection is managed via environment variable. Update MONGO_URI in your infrastructure configuration instead.');
+          this.migrateError.set(this.transloco.translate('data.migrate.errorInfraManaged'));
         } else {
-          this.migrateError.set(err?.error?.error ?? 'Migration failed');
+          this.migrateError.set(err?.error?.error ?? this.transloco.translate('data.migrate.error'));
         }
       },
     });

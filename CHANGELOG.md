@@ -1019,6 +1019,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Data rebuilt on the design system, with a quarantined Danger Zone (PR-U11).** The 775-line
+  hand-rolled page moves onto shared primitives: an **overview SummaryStrip** (database source · maintenance
+  state · backup count · active schedule), **SettingsCards** for Database / Backups / Destination / Schedule,
+  **StatusPills** for every status badge, and **RelativeTime** for backup timestamps (with a "Latest" marker on
+  the newest). The disruptive/irreversible operations — **maintenance mode** and **database migration** — are
+  quarantined in a visually-distinct red **Danger Zone** below the routine backup controls; the restore and
+  migrate actions keep their type-to-confirm rituals. The schedule and destination forms now show an
+  **"Unsaved changes"** pill that clears when the config matches what was saved. Every previously-hardcoded
+  English string is routed through transloco — the schedule summary (`Every Monday at 2:00 AM`), the clock
+  labels, and the backup/restore/save/migrate error fallbacks (including the `FEATURE_DISABLED`/`INFRA_MANAGED`
+  migrate messages) — with new en/de/pl keys. Behaviour is pinned by the characterization tests from the
+  previous PR (#321), updated for the transloco-routed helpers; verified end-to-end with Playwright.
+
 - **Settings → Space → Settings tab regrouped into cards, and the validation controls move to the Schema tab
   (PR-U9, part 3).** The Settings tab's fields are grouped into three **SettingsCards** — **Identity** (display
   name), **Purpose** (purpose + usage notes), and **Limits** (storage quota + record TTL, side by side); a

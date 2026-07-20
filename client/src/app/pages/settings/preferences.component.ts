@@ -1,19 +1,21 @@
 import { Component, inject, signal } from '@angular/core';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { MfaComponent } from './mfa.component';
+import { SettingsCardComponent } from '../../shared/settings-card.component';
 
 @Component({
   selector: 'app-preferences',
   standalone: true,
-  imports: [TranslocoPipe, MfaComponent],
+  imports: [TranslocoPipe, MfaComponent, SettingsCardComponent],
   styles: [`
-    .pref-section { margin-bottom: 32px; }
+    .prefs-page { display: flex; flex-direction: column; gap: 16px; max-width: 720px; }
+    .section-label { margin: 12px 0 0; font-size: 12px; font-weight: 700; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--text-muted); }
 
     .lang-grid {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
-      margin-top: 12px;
     }
 
     .lang-btn {
@@ -36,14 +38,8 @@ import { MfaComponent } from './mfa.component';
     }
   `],
   template: `
-    <div class="pref-section">
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">{{ 'prefs.language.title' | transloco }}</div>
-            <div class="card-subtitle">{{ 'prefs.language.subtitle' | transloco }}</div>
-          </div>
-        </div>
+    <div class="prefs-page">
+      <app-settings-card icon="globe" [heading]="'prefs.language.title' | transloco" [purpose]="'prefs.language.subtitle' | transloco">
         <div class="lang-grid">
           @for (lang of languages; track lang.code) {
             <button
@@ -54,10 +50,9 @@ import { MfaComponent } from './mfa.component';
             </button>
           }
         </div>
-      </div>
-    </div>
+      </app-settings-card>
 
-    <div class="pref-section">
+      <h2 class="section-label">{{ 'prefs.security.title' | transloco }}</h2>
       <app-mfa />
     </div>
   `,

@@ -1019,6 +1019,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Preferences rebuilt on the design system, with MFA grouped under "Security" (PR-U12).** The
+  Preferences page and the MFA panel were the last hand-rolled settings screens; both now use the shared
+  **SettingsCard** (the language switcher on a card with a globe icon, MFA on a card with a lock icon), and
+  MFA's status moves from a raw badge to a **StatusPill** (Enabled/Disabled). MFA is now presented under a
+  **Security** section heading below the language card, so security settings read as their own group. Behaviour
+  is unchanged — the language switch and the full MFA enroll/verify/disable flow are untouched — and pinned by
+  a new PreferencesComponent characterization test (plus the existing MFA spec); verified end-to-end with
+  Playwright (language switch localises the nav; the Security grouping and MFA pill render). The settings
+  section navigation intentionally stays in the global sidebar (a settings-local nav rail would add nesting,
+  not remove it).
+
 - **Settings → Data rebuilt on the design system, with a quarantined Danger Zone (PR-U11).** The 775-line
   hand-rolled page moves onto shared primitives: an **overview SummaryStrip** (database source · maintenance
   state · backup count · active schedule), **SettingsCards** for Database / Backups / Destination / Schedule,

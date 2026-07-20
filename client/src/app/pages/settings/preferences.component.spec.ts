@@ -8,13 +8,19 @@
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { of } from 'rxjs';
 import { TranslocoService } from '@jsverse/transloco';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { PreferencesComponent } from './preferences.component';
+import { AuthApi } from '../../core/auth-api.service';
 
 function make() {
   TestBed.resetTestingModule();
-  TestBed.configureTestingModule({ imports: [PreferencesComponent, getTranslocoModule()] });
+  TestBed.configureTestingModule({
+    imports: [PreferencesComponent, getTranslocoModule()],
+    // The template embeds <app-mfa/>, which calls AuthApi.getMfaStatus() on init.
+    providers: [{ provide: AuthApi, useValue: { getMfaStatus: () => of({ enabled: false }) } }],
+  });
   const fixture = TestBed.createComponent(PreferencesComponent);
   return { fixture, c: fixture.componentInstance, transloco: TestBed.inject(TranslocoService) };
 }
@@ -34,5 +40,16 @@ describe('PreferencesComponent — language switch', () => {
     expect(spy).toHaveBeenCalledWith('de');
     expect(c.activeLang()).toBe('de');
     expect(localStorage.getItem('lang')).toBe('de');
+  });
+
+  // U12 arrangement: language on a SettingsCard, MFA under a Security section.
+  it('renders the language SettingsCard, a Security section, and the MFA component', () => {
+    const { fixture } = make();
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('app-settings-card')).not.toBeNull();
+    expect(el.querySelectorAll('.lang-btn').length).toBe(3);
+    expect(el.querySelector('.section-label')).not.toBeNull();
+    expect(el.querySelector('app-mfa')).not.toBeNull();
   });
 });

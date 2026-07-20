@@ -1036,6 +1036,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Ythril brand mark now appears on the sign-in and setup screens too, from one shared component.** The
+  orb-with-glowing-Y mark stood only in the top-bar wordmark; the login, first-run setup, and OIDC-callback
+  screens still showed a plain-text "ythril" with an old accent dot. A new shared `BrandLogoComponent`
+  (`<app-brand-logo>`) renders the mark-as-**Y** + "thril" from a single source of truth, and all four surfaces
+  now use it — so the identity is consistent from the first screen a user sees, and can't drift apart again.
+  The top-bar's previously-inlined SVG and the unused `.auth-logo-dot` style are gone.
+
+- **README rewritten to actually explain why Ythril matters.** The old README was an exhaustive feature spec;
+  it now leads with the problem ("every AI conversation starts from zero") and what becomes possible — a
+  benefit-first hero, a use-case grid for humans (never re-explain yourself, one brain across every assistant,
+  files that answer back, a team brain that syncs without a cloud), a slim quickstart, and a condensed
+  capabilities/security tour that links out to the deep docs. New logo asset at `docs/assets/ythril-mark.svg`.
+
+- **Settings → Audit Log's detail dialog adopts the central modal directive** (`appModal` +
+  `appModalCloseOnBackdrop`), finishing the read-only-dialog migration from the previous change. (The file
+  preview keeps its own overlay by design — it has bespoke document-level arrow-key navigation and a
+  self-focusing overlay that the shared focus-trap would disturb, and it holds no unsaved input.)
+
 - **Data-entry dialogs no longer discard your input when you click outside them.** Every dialog used to
   hand-roll its own backdrop, and most closed the moment you clicked outside the panel — so a stray click
   while filling in a new token, space, schema entry, webhook, network, or a record editor threw away

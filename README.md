@@ -1,136 +1,101 @@
-﻿# Ythril
+<!-- markdownlint-disable MD033 MD041 MD001 MD022 MD026 -->
+<div align="center">
 
-**Self-hosted brain server for AI assistants.** Persistent memory, knowledge graphs, semantic search, file storage, and multi-brain sync — all behind a standard MCP interface, fully under your control.
+<img src="docs/assets/ythril-mark.svg" width="112" height="112" alt="Ythril" />
 
-Ythril gives every MCP-compatible client (Claude, Cursor, Windsurf, VS Code Copilot, or anything that speaks the [Model Context Protocol](https://modelcontextprotocol.io)) a persistent, structured knowledge backend. Data is organised into **spaces** — isolated containers with their own memories, entities, edges, timelines, files, and schemas. Each space exposes its own MCP endpoint with 31 tools, a full REST API, and a web UI. Spaces can be synced across multiple brains through policy-driven networks with fine-grained governance. Run it with `docker compose up -d` and complete setup in minutes (first pull/build can take longer on a clean machine).
+# Ythril
 
----
+### Give your AI a memory that's actually yours.
 
-## Key Capabilities
+**Ythril is a private, self-hosted brain that every AI assistant can plug into** — so Claude, Cursor, Copilot, and anything that speaks [MCP](https://modelcontextprotocol.io) stops forgetting, and starts remembering *your* projects, files, people, and decisions. On your hardware. Under your control.
 
-### Semantic Recall
+[![License: PolyForm SB](https://img.shields.io/badge/license-PolyForm%20Small%20Business-2b7bb9)](LICENSE)
+[![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-native-9eec55?labelColor=0d1117)](https://modelcontextprotocol.io)
+[![Self-hosted](https://img.shields.io/badge/self--hosted-docker%20compose%20up-0d1117)](#-quickstart)
+[![Runs offline](https://img.shields.io/badge/works-fully%20offline-6e7681)](#your-data-your-rules)
 
-Store facts and context as **memories** with automatic vector embeddings. The `recall` MCP tool performs semantic search across all knowledge types — memories, entities, edges, chrono entries, and files — using MongoDB Atlas `$vectorSearch`. Results are ranked by similarity and include a type discriminator, so an LLM can search the entire brain with a single natural-language query. Omit the `space` parameter and `recall` searches across every space the token can access.
-
-### Knowledge Graph
-
-Model structured knowledge with **entities** (named, typed, with properties), **edges** (directed, labelled, weighted relationships), and **graph traversal** (multi-hop BFS with direction control and cycle detection). The `traverse` tool lets an LLM explore connections from any entity up to N hops deep, and the `query` tool supports arbitrary MongoDB filter queries on any collection.
-
-### Chrono Timeline
-
-Track events, deadlines, plans, predictions, and milestones with the **chrono** subsystem. Date-range filters, AND/OR tag queries, full-text search, type/status filtering, and pagination come built in.
-
-### File Storage
-
-Full file manager with **chunked upload** (5 MB pieces, progress tracking, automatic retry), directory tree, inline preview (text, code, images, PDF), and file-level metadata (description, tags, properties). All file operations are available as MCP tools and via the REST API.
-
-Uploaded PDF, DOCX, and EPUB files are automatically converted to text by the bundled `unstructured-api` sidecar using full OCR and layout detection (`hi_res` strategy). Tables are extracted as structured HTML; embedded images are extracted as independent subfiles and queued for the full media pipeline (captioning + face recognition). Plain-text and HTML files are converted in-process. All converted content is chunked and embedded so it is immediately searchable via `recall`.
-
-### Image, Audio & Video Understanding
-
-Upload binary media and Ythril makes it searchable like everything else. Images are captioned with a vision model (default `moondream` via Ollama), audio is silence-segmented and transcribed with Whisper, and video is decomposed into keyframes plus audio chunks. Every result lands in the **same** `nomic-embed-text-v1.5` vector space as memories, entities, and documents — so a single semantic query crosses text, speech, and pictures. Bundled out of the box on both Docker Compose and Kubernetes; toggle in **Settings → Models** if you'd rather plug in OpenAI, Azure, or your own endpoints.
-
-### Face Recognition
-
-Automatically detect, embed, and label faces in uploaded images. Ythril runs `@vladmandic/human` (BlazeFace Back + FaceRes 128d descriptors) entirely in-process on the CPU — no GPU, no sidecar, no Python. Detected faces are matched against a per-space gallery using `$vectorSearch`. When a face exceeds the configurable cosine similarity threshold, the image is automatically linked to the matching person entity. Label a single photo and future uploads of the same person are tagged without any further input.
-
-Gallery poisoning is prevented by a person-type entity guard: only entities whose `type` belongs to `personEntityTypes` (default `["person"]`) can enter the gallery, regardless of what else is tagged on a photo. Synced images are automatically reprocessed so secondary instances build their own gallery from network-replicated content.
-
-Opt-in — requires placing two model files (~7 MB total) in your data directory. See the [integration guide](docs/integration-guide.md) for setup.
-
-### Schema Validation
-
-Define per-type schemas (`typeSchemas`) organised by knowledge type (`entity`, `edge`, `memory`, `chrono`) and type name. Each type entry can specify a naming pattern (regex), tag suggestions, and per-property schemas with `type` (string/number/boolean/date), `enum`, `minimum`/`maximum`, `pattern` (regex), `required`, `default`, and `mergeFn` constraints. Enforce them in **strict** mode (reject violations), **warn** mode (accept with warnings), or leave validation **off**. Schema files are auto-synced to the `schemas/` folder in the space file store on every save. Export and import the full schema as JSON from the Settings → Spaces → Schema tab or via the API.
-
-### Bulk Operations
-
-The `bulk_write` tool and `POST /api/brain/spaces/:spaceId/bulk` endpoint batch-upsert up to 500 memories, entities, edges, and chrono entries in a single call. Processing order is deterministic (memories → entities → edges → chrono), so edges can reference entities created in the same batch. Schema validation is applied per item.
-
-### Proxy Spaces
-
-A **proxy space** groups multiple real spaces into a single virtual endpoint. Read operations (recall, query, list) aggregate results across all member spaces transparently. Write operations route to a specific member via `targetSpace`. Proxy spaces have no storage of their own — they are pure aggregation layers.
-
-### Space Export & Import
-
-`GET /api/admin/spaces/:spaceId/export` dumps the entire knowledge base of a space (memories, entities, edges, chrono, file metadata) as a single JSON document. `POST /api/admin/spaces/:spaceId/import` upserts it back — useful for backup, migration, or seeding new brains.
-
-### Find Similar
-
-Given an existing entry's `_id`, find other entries with high vector similarity — no re-embedding step. The `find_similar` MCP tool and `POST /api/brain/spaces/:spaceId/find-similar` REST endpoint use the entry's **stored embedding vector** directly. Supports cross-space search, target-type filtering, score thresholds, and configurable result count. Ideal for deduplication, "more like this", and merge detection.
-
-### Audit Log
-
-Append-only, immutable access log of every authenticated API operation. The audit trail captures token identity, OIDC subject, operation name, target space, HTTP status, client IP, and request duration. Entries are automatically purged after a configurable retention period (default 90 days). The web UI (**Settings → Audit Log**) provides filterable search, detail views, and JSON/CSV export. Configure `logReads` to include or exclude read operations.
-
-### Webhooks
-
-Subscribe external systems to real-time HTTP POST notifications when write events occur. Supports 16 domain event types across memories, entities, edges, chrono, and files (including `entity.merged`) — 19 in total once the operational events `link_violation.created`, `duplicate.detected`, and `test.ping` are counted. Payloads are signed with HMAC-SHA256, delivered with at-least-once guarantees (6 retries with exponential backoff), and SSRF-protected — targets are DNS-resolved and validated at delivery time and every redirect hop is re-validated, so a webhook cannot be pointed (or redirected/rebound) at a private/reserved IP. Manage subscriptions through the REST API (`/api/admin/webhooks`).
-
-### 31 MCP Tools
-
-Every capability is exposed as an MCP tool that any LLM client can call:
-
-| Category | Tools |
-|----------|-------|
-| Memory | `remember`, `recall`, `update_memory`, `delete_memory`, `find_similar` |
-| Knowledge graph | `upsert_entity`, `update_entity`, `merge_entities`, `find_entities_by_name`, `upsert_edge`, `update_edge`, `traverse`, `query` |
-| Timeline | `create_chrono`, `update_chrono`, `list_chrono` |
-| Files | `read_file`, `write_file`, `list_dir`, `delete_file`, `create_dir`, `move_file` |
-| Discovery | `help`, `list_spaces`, `get_stats`, `get_space_meta` |
-| Batch & admin | `bulk_write`, `update_space`, `wipe_space` |
-| Sync | `list_peers`, `sync_now` |
-
-Read-only tokens automatically hide all mutating tools and block them if called directly.
-
-### Multi-Brain Sync
-
-Brains can form **networks** to sync selected spaces. Five network types define governance and data flow:
-
-| Type | Topology | Governance |
-|------|----------|------------|
-| **Closed** | Full mesh, bidirectional | Unanimous vote to add/remove members |
-| **Democratic** | Full mesh, bidirectional | Majority vote |
-| **Club** | Full mesh, bidirectional | Inviter approves unilaterally |
-| **Braintree** | Hierarchical push-only (root → leaves) | Ancestor approves |
-| **Pub/Sub** | One publisher → many subscribers | Auto-accept, push-only |
-
-Sync uses watermark-based incremental replication with SHA-256 file manifests, Merkle verification, and conflict detection with four resolution strategies (keep-local, keep-incoming, keep-both, save-to-space).
-
-Membership changes are decided by **cryptographically signed votes**: each brain holds a persistent Ed25519 keypair and signs every governance vote cast; peers pin each other's public keys on first contact. Signatures let votes relay safely through intermediate nodes (multi-hop braintree trees) and make it impossible for one member to forge another's vote. Set `requireSignedVotes` on a network to reject any unsigned vote once all members have published keys. Tombstone-based deletions are likewise bound to the authenticated peer, so a member cannot forge a tombstone to delete another instance's data.
-
-### Security & Auth
-
-- **PAT tokens** (`ythril_*`) with bcrypt-hashed storage, per-space scope, read-only mode, and expiry dates
-- **OIDC / SSO** — Authorization Code + PKCE with Keycloak, Entra ID, Okta, Auth0, or any OIDC-compliant IdP
-- **Optional TOTP MFA** for admin mutations
-- **RSA-4096-OAEP zero-knowledge invite handshake** for network joining
-- **MongoDB operator whitelist** — blocks `$where`, `$function`, injection via `$options`
-- **ReDoS protection** on all user-supplied regex patterns
-- **Path sandboxing** against traversal, null bytes, and encoded characters
-- **SSRF guards** blocking RFC-1918, CGNAT, loopback, IMDS, IPv6 ULA, link-local, unspecified, embedded credentials, and alternate host encodings (decimal/hex/octal/short-form IPv4, IPv4-mapped IPv6). Outbound targets are re-resolved via DNS and every resolved address is validated (defeats DNS names pointing at internal hosts and DNS rebinding); webhook delivery pins the connection to the validated IP (closing the DNS-rebind window between check and connect) and follows redirects manually, re-validating and re-pinning each hop
-- **Storage quotas** (soft/hard limits) for files and brain data
-- **Global rate limiting** (configurable per-endpoint)
-- **Content-Security-Policy**, security headers, `0600` config file enforcement
-- **Opt-in cross-origin embedding** — off by default (`frame-ancestors 'self'`). Listing trusted origins under `embed.allowedOrigins` in config adds them to the CSP `frame-ancestors` directive and lets them push `ythril:theme` postMessages; loading the app with `?embedded=1` hides the host chrome for iframe/portal deployments
+</div>
 
 ---
 
-## Getting Started
+## Every AI conversation starts from zero. That's the problem.
+
+You explain your project. It helps. You close the tab. It forgets **everything** — your stack, your preferences, the decision you made last week, who "Sarah from finance" is. Tomorrow you start over. Your actual knowledge is scattered across chats, docs, drives, and three different assistants that don't talk to each other, half of it sitting on someone else's cloud being used to train the next model.
+
+**Ythril fixes that.** It's one persistent brain that all your AI tools read from and write to — and it's *yours*.
+
+> Ask, months later: *"What did we decide about the auth rewrite, and who owns it?"* — and your assistant just knows. Because it wrote it down, in a brain you host.
+
+---
+
+## 🧠 What becomes possible
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### Never re-explain yourself
+Your assistant remembers your projects, people, and past decisions across **every session and every tool**. Context follows you instead of dying when you close the window.
+
+</td>
+<td width="50%" valign="top">
+
+### One brain, every assistant
+Claude on the web, Cursor in your editor, Copilot in your IDE — all reading and writing the **same** memory over MCP. Switch tools freely; the knowledge stays put.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### Turn your files into answers
+Drop in PDFs, docs, images, audio, even video. Ythril OCRs, transcribes, and captions all of it, then makes it **searchable in one plain-language question** — with the source, not a folder to dig through.
+
+</td>
+<td width="50%" valign="top">
+
+### It knows who's who
+Label a face once and every future photo of that person is tagged automatically. People, relationships, and timelines are stored as **structure** — a real knowledge graph, not a soup of embeddings.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### A team brain that syncs — without a cloud
+Everyone runs their own Ythril; share exactly the spaces you choose through **governed networks** (vote to admit members, push-only trees, publisher→subscriber). Institutional memory that no vendor holds hostage.
+
+</td>
+<td width="50%" valign="top">
+
+### One question, across everything
+A single semantic query crosses memories, notes, documents, speech, and pictures — because it *all* lands in the same vector space. Ask once; get the answer wherever it lives.
+
+</td>
+</tr>
+</table>
+
+> **For teams & managers:** stop paying per seat for assistants that forget your business by lunch. Ythril is the institutional-memory layer you *own* — onboard faster, keep decisions and context in one searchable place, and never hand your knowledge to a third party to train on.
+
+---
+
+## Your data, your rules
+
+- **Self-hosted, `docker compose up`.** No accounts, no per-seat pricing, no data leaving your machine.
+- **Works fully offline.** Bundled local models for embeddings, vision, and speech — plug in OpenAI/Azure/your own endpoints only if you *want* to.
+- **Never trains on your knowledge.** It's a database you run, not a service that mines you.
+- **Enterprise-grade security out of the box** — OIDC/SSO, optional MFA, an immutable audit log, per-token scopes, and aggressive SSRF/injection hardening. [Details ↓](#-under-the-hood)
+
+---
+
+## ⚡ Quickstart
 
 ```bash
 docker compose up -d
-# → open http://localhost:3200
+# → open http://localhost:3200 and finish setup in your browser
 ```
 
-| I am... | Start here | Then read |
-|---------|------------|-----------|
-| User / operator | [Workstation Mode Guide](docs/workstation-mode-guide.md) | [User Guide](docs/userguide.md), [Use Case Examples](docs/usecase-examples.md) |
-| Integrator (API/MCP) | [Integration Guide](docs/integration-guide.md) | [Network Types](docs/network-types.md), [Sync Protocol](docs/sync-protocol.md) |
-| Developer / contributor | [Contribution Guide](docs/contribution-guide.md) | [Docker Build Protocol](docs/docker-build-protocol.md), [Dependencies](docs/dependencies.md) |
-
-### Connecting an MCP Client
-
-Point any MCP-compatible client at your brain:
+Then point any MCP client at your new brain:
 
 ```json
 {
@@ -143,96 +108,103 @@ Point any MCP-compatible client at your brain:
 }
 ```
 
-Each space has its own MCP endpoint (`/mcp/{spaceId}`). The AI assistant immediately sees the space's purpose, schema, and all available tools.
+That's it. Your assistant instantly sees the space's purpose, its schema, and every tool it can call — and can start remembering.
+
+> Each **space** is an isolated container (its own memories, entities, files, and schema) with its own MCP endpoint at `/mcp/{spaceId}`. Keep *work* and *home* and *client-X* cleanly apart, or aggregate them with a proxy space.
+
+<div align="center">
+
+**Where next?**
+
+| I'm a… | Start here |
+|---|---|
+| 👤 User / operator | [Workstation Mode](docs/workstation-mode-guide.md) · [User Guide](docs/userguide.md) · [Use-case examples](docs/usecase-examples.md) |
+| 🔌 Integrator (API / MCP) | [Integration Guide](docs/integration-guide.md) · [Network Types](docs/network-types.md) · [Sync Protocol](docs/sync-protocol.md) |
+| 🛠️ Developer | [Contribution Guide](docs/contribution-guide.md) · [Docker Build](docs/docker-build-protocol.md) |
+
+</div>
 
 ---
 
-## Network Topologies
+## What's inside
 
-See [Network Types](docs/network-types.md) for the full specification.
+A quick tour — every capability is also a callable **MCP tool** (31 of them), a REST endpoint, and a screen in the web UI.
 
-**Standalone** — single brain, no sync, full local control.
+| | |
+|---|---|
+| 🔎 **Semantic recall** | One natural-language `recall` searches memories, entities, edges, timelines, and files at once — ranked by meaning, not keywords. |
+| 🕸️ **Knowledge graph** | Typed **entities**, labelled **edges**, and multi-hop **traversal** — model how things actually connect, then let the AI walk the graph. |
+| 📅 **Chrono timeline** | Events, deadlines, plans, milestones — with date ranges, tags, and full-text search built in. |
+| 📎 **Files that answer back** | Chunked uploads, inline preview, and automatic OCR / transcription / captioning → instantly searchable. |
+| 🖼️ **Media understanding** | Images captioned, audio transcribed, video keyframed — all in the same searchable vector space. |
+| 🙂 **Face recognition** | In-process, CPU-only, no GPU. Label once, auto-tag forever. |
+| 📐 **Schema validation** | Per-type rules (regex, enums, ranges, required fields) in strict / warn / off modes. |
+| 🔁 **Multi-brain sync** | Governed **networks** with signed votes, incremental replication, and conflict resolution. |
+| 🧾 **Audit log & webhooks** | Immutable access trail + HMAC-signed, SSRF-protected event delivery to your systems. |
+| 🧩 **Bulk, proxy, export, find-similar** | Batch writes, virtual aggregate spaces, one-file backup/restore, and "more like this" dedup. |
+
+*(Full detail for every one of these lives in the [Integration Guide](docs/integration-guide.md).)*
+
+---
+
+## Multi-brain networks
+
+Run one brain, or many that sync only the spaces you choose — with the governance model that fits your trust boundary.
+
+<div align="center">
 
 ```mermaid
 flowchart LR
-	subgraph BA["🧠 Brain"]
-		SA[space]
-	end
+  subgraph BA["🧠 Brain A"]
+    SA[space]
+  end
+  subgraph BB["🧠 Brain B"]
+    SB[space]
+  end
+  subgraph BC["🧠 Brain C"]
+    SC[space]
+  end
+  SA <--> SB
+  SA <--> SC
+  SB <--> SC
 ```
 
-**Closed / Democratic / Club** — symmetric sync between all members.
+</div>
 
-```mermaid
-flowchart LR
-	subgraph BA["🧠 Brain A"]
-		SA[space]
-	end
-	subgraph BB["🧠 Brain B"]
-		SB[space]
-	end
-	subgraph BC["🧠 Brain C"]
-		SC[space]
-	end
+| Type | Flow | Who gets in |
+|---|---|---|
+| **Closed** | full mesh | unanimous vote |
+| **Democratic** | full mesh | majority vote |
+| **Club** | full mesh | inviter approves |
+| **Braintree** | push-only, root → leaves | ancestor approves |
+| **Pub / Sub** | one publisher → many subscribers | auto-accept |
 
-	SA <--> SB
-	SA <--> SC
-	SB <--> SC
-```
+Replication is watermark-based and incremental, with SHA-256 file manifests and Merkle verification. Membership changes are **cryptographically signed** (each brain holds an Ed25519 keypair; peers pin keys on first contact) so no member can forge another's vote — even relayed multiple hops through a tree. Full spec: [Network Types](docs/network-types.md) · [Sync Protocol](docs/sync-protocol.md).
 
-**Braintree** — push-only from a root brain down to subscribers.
+---
 
-```mermaid
-flowchart TD
-	subgraph BR["🧠 Root"]
-		SR[space]
-	end
-	subgraph BA["🧠 Brain A"]
-		SA[space]
-	end
-	subgraph BB["🧠 Brain B"]
-		SB[space]
-	end
-	subgraph BC["🧠 Brain C"]
-		SC[space]
-	end
-	subgraph BD["🧠 Brain D"]
-		SD[space]
-	end
+## 🔐 Under the hood
 
-	SR --> SA
-	SR --> SB
-	SA --> SC
-	SA --> SD
-```
+Security is not an add-on:
 
-**Pub/Sub** — single publisher distributes knowledge to any number of subscribers.
+- **Auth** — PAT tokens (`ythril_*`, bcrypt-hashed, per-space scope, read-only mode, expiry) · **OIDC/SSO** (Keycloak, Entra ID, Okta, Auth0…) · optional **TOTP MFA** for admin actions.
+- **Network trust** — RSA-4096-OAEP zero-knowledge invite handshake; Ed25519-signed governance votes and tombstones.
+- **Hardening** — MongoDB operator whitelist, ReDoS-guarded regex, path-traversal sandboxing, storage quotas, global rate limiting, CSP + security headers, `0600` config enforcement.
+- **SSRF defense-in-depth** — outbound targets are DNS-re-resolved and every resolved IP validated (blocks RFC-1918, CGNAT, loopback, IMDS, IPv6 ULA/link-local, and encoded-IP tricks); webhook delivery pins the connection to the checked IP and re-validates every redirect hop, closing the DNS-rebind window.
 
-```mermaid
-flowchart TD
-	subgraph PUB["🧠 Publisher"]
-		SP[space]
-	end
-	subgraph S1["🧠 Sub A"]
-		SA[space]
-	end
-	subgraph S2["🧠 Sub B"]
-		SB[space]
-	end
-	subgraph S3["🧠 Sub C"]
-		SC[space]
-	end
-
-	SP --> SA
-	SP --> SB
-	SP --> SC
-```
+Runs on Docker Compose or Kubernetes. Bundled sidecars (Ollama, Whisper, document OCR) mean it works **completely offline** — or wire in hosted models from **Settings → Models**.
 
 ---
 
 ## License
 
-Ythril is source-available under the [PolyForm Small Business License 1.0.0](LICENSE). Individuals and small businesses (< 100 people, < $1M revenue) can use, modify, and self-host it freely. Larger organisations require a commercial license. Hosting Ythril as a paid managed or cloud service offered to third parties also requires a commercial license, regardless of company size. Contact `contact@ythril.net` to obtain one.
+Source-available under the [PolyForm Small Business License 1.0.0](LICENSE). **Free to use, modify, and self-host** for individuals and small businesses (< 100 people, < $1M revenue). Larger organisations — or anyone offering Ythril as a paid managed/cloud service — need a commercial license: `contact@ythril.net`.
 
 ## Contributing
 
-Contributions are welcome. Open an issue for bugs or proposals, keep changes scoped and testable, and submit a pull request with a short rationale. See the [Contribution Guide](docs/contribution-guide.md) for dev setup and testing instructions.
+Issues and PRs welcome — keep changes scoped and testable, and include a short rationale. See the [Contribution Guide](docs/contribution-guide.md).
+
+<div align="center">
+<br/>
+<sub>Ythril — the memory layer your AI should have shipped with.</sub>
+</div>

@@ -7,12 +7,13 @@ import { AuthService } from '../../core/auth.service';
 import { FilesApi } from '../../core/files-api.service';
 import { EmbedService } from '../../core/embed.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { BrandLogoComponent } from '../../shared/brand-logo.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, PhIconComponent, TranslocoPipe, A11yModule],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, PhIconComponent, TranslocoPipe, A11yModule, BrandLogoComponent],
   styles: [`
     :host { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
@@ -39,13 +40,6 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
       text-decoration: none;
     }
 
-    .topbar-logo-mark {
-      width: 21px;
-      height: 21px;
-      flex-shrink: 0;
-      display: block;
-    }
-    .topbar-logo-word { line-height: 1; }
 
     .topbar-spacer { flex: 1; }
 
@@ -209,24 +203,8 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
         >
           <ph-icon [name]="drawerOpen() ? 'x' : 'list'" [size]="20"/>
         </button>
-        <a class="topbar-logo" routerLink="/" [attr.aria-label]="'app.logo' | transloco">
-          <svg class="topbar-logo-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-            <defs>
-              <radialGradient id="lgOrb" cx="42%" cy="36%" r="72%">
-                <stop offset="0%" stop-color="#1a1f26"/><stop offset="58%" stop-color="#0a0c0f"/><stop offset="100%" stop-color="#040507"/>
-              </radialGradient>
-              <radialGradient id="lgHalo" cx="50%" cy="47%" r="50%">
-                <stop offset="0%" stop-color="#9eec55" stop-opacity="0.55"/><stop offset="55%" stop-color="#9eec55" stop-opacity="0.12"/><stop offset="100%" stop-color="#9eec55" stop-opacity="0"/>
-              </radialGradient>
-            </defs>
-            <circle cx="16" cy="16" r="15.5" fill="url(#lgOrb)"/>
-            <circle cx="16" cy="16" r="15.3" fill="none" stroke="#9eec55" stroke-opacity="0.16" stroke-width="0.7"/>
-            <circle cx="16" cy="15.2" r="9.5" fill="url(#lgHalo)"/>
-            <g fill="#9eec55">
-              <path d="M5.8 6 L16 19 L26.2 6 L23.1 7.7 L16 14.6 L8.9 7.7 Z"/>
-              <path d="M13.3 13.6 L18.7 13.6 L16 27 Z"/>
-            </g>
-          </svg><span class="topbar-logo-word">thril</span>
+        <a class="topbar-logo" routerLink="/">
+          <app-brand-logo [size]="21" />
         </a>
         <span class="topbar-spacer"></span>
         <button class="topbar-logout" (click)="logout()">{{ 'nav.signOut' | transloco }}</button>

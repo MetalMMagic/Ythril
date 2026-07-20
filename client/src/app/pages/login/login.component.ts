@@ -4,19 +4,19 @@ import { Router, RouterLink, ActivatedRoute } from '@angular/router';
 import { HttpClient } from '@angular/common/http';
 import { AuthService } from '../../core/auth.service';
 import type { OidcInfo } from '../../core/auth.service';
+import { BrandLogoComponent } from '../../shared/brand-logo.component';
 import { CommonModule } from '@angular/common';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 @Component({
   selector: 'app-login',
   standalone: true,
-  imports: [FormsModule, CommonModule, RouterLink, TranslocoPipe],
+  imports: [FormsModule, CommonModule, RouterLink, TranslocoPipe, BrandLogoComponent],
   template: `
     <div class="auth-page">
       <div class="auth-card">
         <div class="auth-logo">
-          <span class="auth-logo-dot"></span>
-          {{ 'app.logo' | transloco }}
+          <app-brand-logo [size]="30" />
         </div>
 
         @if (ssoRedirecting()) {

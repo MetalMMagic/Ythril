@@ -5,7 +5,7 @@ export const list_peersTool: ToolHandler = {
   name: 'list_peers',
   description: 'List all configured peer ythril instances (for Brain Networks).',
   admin: true,
-  inputSchema: (s: ToolSchemas) => ({ type: 'object', properties: {}, required: [] }),
+  inputSchema: (_s: ToolSchemas) => ({ type: 'object', properties: {}, required: [], additionalProperties: false }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const listPeersCfg = getConfig();
     // Build a flat list of peers across all networks, scrubbing all
@@ -51,10 +51,11 @@ export const sync_nowTool: ToolHandler = {
           properties: {
             peerId: {
               type: 'string',
-              description: 'instanceId of the peer to sync. Omit to sync all networks.',
+              description: 'Exact instanceId of the peer to sync (must be a known member instanceId — never a URL). Omit to sync all networks.',
             },
           },
           required: [],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a } = ctx;

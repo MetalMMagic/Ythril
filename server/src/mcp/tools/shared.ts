@@ -27,6 +27,37 @@ export function ttlDaysFromArgs(args: Record<string, unknown>): number | null | 
   return v;
 }
 
+/**
+ * Shared JSON-Schema fragments so `tools/list` fully describes every input (F1 self-describing surface).
+ * The MCP dispatcher does not enforce inputSchema (handlers validate manually), so these keywords are the
+ * machine-readable contract an agent reads to discover valid values/bounds — kept in lockstep with the
+ * handler/brain validators they mirror.
+ */
+
+/** A UUID-v4 id argument (case-insensitive), matching `UUID_V4_RE`. */
+const UUID_V4_PATTERN = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$';
+export function uuidSchema(description: string) {
+  return { type: 'string', pattern: UUID_V4_PATTERN, description } as const;
+}
+
+/** A 0.0–1.0 score/threshold argument. */
+export function unitScoreSchema(description: string) {
+  return { type: 'number', minimum: 0, maximum: 1, description } as const;
+}
+
+/** MongoDB operators the structured `query` filter accepts — mirrors `ALLOWED_OPERATORS` (brain/query.ts). */
+export const QUERY_FILTER_OPERATORS = [
+  '$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin', '$and', '$or', '$nor', '$not',
+  '$exists', '$type', '$regex', '$options', '$all', '$elemMatch', '$size', '$mod',
+] as const;
+
+/**
+ * `propertyNames` pattern for the recall filter's keys — mirrors `ALLOWED_FILTER_KEY_PREFIXES`
+ * (brain/filter.ts): `properties.<path>`, or exactly `tags`/`type`/`name`/`status`/`label` (optionally
+ * dot-suffixed). Encodes the injection-prevention allowlist so agents see which keys are legal.
+ */
+export const RECALL_FILTER_KEY_PATTERN = '^(properties\\..+|(tags|type|name|status|label)(\\..+)?)$';
+
 /** Format a RecallResult as a single human-readable summary line. */
 export function formatRecallSummary(r: RecallResult): string {
   switch (r.type) {

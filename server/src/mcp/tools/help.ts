@@ -91,7 +91,7 @@ export const helpTool: ToolHandler = {
     '(spaces, memories, entities, edges, chrono, files), how to choose between query / recall / '
     + 'filtered recall, schema authoring, and the REST API map. Call this first when unsure.',
   // Deliberately not mutating, not admin, not spaceRequired: read-only and instance-global.
-  inputSchema: (_s: ToolSchemas) => ({ type: 'object', properties: {}, required: [] }),
+  inputSchema: (_s: ToolSchemas) => ({ type: 'object', properties: {}, required: [], additionalProperties: false }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     // Deferred import: help.ts is itself part of the registry in index.ts, so a
     // top-level import would be circular. By call time the registry is complete.
@@ -135,6 +135,8 @@ ${RETRIEVAL_GUIDE}
 ${SCHEMA_GUIDE}
 
 ## Tools available to this token
+
+Each tool's COMPLETE input contract — every parameter, allowed values, numeric bounds, filter operators, and defaults — is published in its \`inputSchema\` via MCP \`tools/list\`, the authoritative machine-readable reference. The list below is a one-line summary per tool; call \`tools/list\` and read the schema before constructing arguments.
 
 ${toolLines}
 

@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs, uuidSchema, unitScoreSchema } from './shared.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
 import { findEntitiesByName, updateEntityById, upsertEntity } from '../../brain/entities.js';
 import { type PropertyResolution, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
@@ -16,9 +16,9 @@ export const upsert_entityTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: { type: 'string', description: 'Optional UUID v4 — if provided, updates the entity with this ID (or inserts with this ID if it does not exist). If omitted, a new entity is always inserted.' },
-            name: { type: 'string', description: 'Entity name.' },
-            type: { type: 'string', description: 'Entity type (person, place, concept, …).' },
+            id: uuidSchema('Optional UUID v4 — if provided, updates the entity with this ID (or inserts with this ID if it does not exist). If omitted, a new entity is always inserted.'),
+            name: { type: 'string', minLength: 1, description: 'Entity name.' },
+            type: { type: 'string', minLength: 1, description: 'Entity type (person, place, concept, …).' },
             tags: { type: 'array', items: { type: 'string' } },
             description: { type: 'string', description: 'Optional prose description or summary of this entity.' },
             properties: {
@@ -27,11 +27,12 @@ export const upsert_entityTool: ToolHandler = {
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
-            checkDuplicates: { type: 'boolean', description: 'On a NEW entity insert (no id / unknown id), run a semantic near-duplicate check first (default true). Flags highly similar existing entities (id + summary + score) so you can merge or update instead of creating a duplicate. Does not fire on updates. Set false to skip.' },
-            dupeThreshold: { type: 'number', description: 'Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.' },
+            checkDuplicates: { type: 'boolean', default: true, description: 'On a NEW entity insert (no id / unknown id), run a semantic near-duplicate check first (default true). Flags highly similar existing entities (id + summary + score) so you can merge or update instead of creating a duplicate. Does not fire on updates. Set false to skip.' },
+            dupeThreshold: unitScoreSchema('Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.'),
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'name', 'type'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace, name } = ctx;
@@ -87,7 +88,7 @@ export const update_entityTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: { type: 'string', description: 'Entity ID to update.' },
+            id: { type: 'string', minLength: 1, description: 'Entity ID to update.' },
             name: { type: 'string', description: 'New entity name.' },
             type: { type: 'string', description: 'New entity type.' },
             description: { type: 'string', description: 'New prose description or summary.' },
@@ -101,6 +102,7 @@ export const update_entityTool: ToolHandler = {
             deleteFields: { type: 'array', items: { type: 'string' }, description: 'Dot-notation paths to delete from the entity (e.g. ["properties.oldKey", "description"]). System fields (id, name, type, spaceId, createdAt, updatedAt) cannot be deleted. Deletions are permanent.' },
             ttlDays: TTL_DAYS_SCHEMA,
           },
+          additionalProperties: false,
           required: ['space', 'id'],
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
@@ -140,8 +142,8 @@ export const merge_entitiesTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            survivorId: { type: 'string', description: 'UUID of the entity to keep.' },
-            absorbedId: { type: 'string', description: 'UUID of the entity to absorb and delete.' },
+            survivorId: uuidSchema('UUID v4 of the entity to keep (must differ from absorbedId).'),
+            absorbedId: uuidSchema('UUID v4 of the entity to absorb and delete (must differ from survivorId).'),
             resolutions: {
               type: 'array',
               description: 'Per-property conflict resolutions. Each entry: { key, resolution, customValue? }.',
@@ -149,15 +151,17 @@ export const merge_entitiesTool: ToolHandler = {
                 type: 'object',
                 properties: {
                   key: { type: 'string', description: 'Property key to resolve.' },
-                  resolution: { type: 'string', description: 'One of: "survivor", "absorbed", "custom", or "fn:<name>".' },
+                  resolution: { type: 'string', pattern: '^(survivor|absorbed|custom|fn:(avg|min|max|sum|and|or|xor))$', description: 'One of: "survivor", "absorbed", "custom" (requires customValue), or "fn:<name>" where <name> is a numeric merge (avg, min, max, sum) or boolean merge (and, or, xor).' },
                   customValue: { description: 'Required when resolution is "custom".' },
                 },
                 required: ['key', 'resolution'],
+                additionalProperties: false,
               },
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
           required: ['space', 'survivorId', 'absorbedId'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;
@@ -259,9 +263,10 @@ export const find_entities_by_nameTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            name: { type: 'string', description: 'Exact entity name to look up.' },
+            name: { type: 'string', minLength: 1, description: 'Exact entity name to look up.' },
           },
           required: ['space', 'name'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace, name } = ctx;

@@ -1012,7 +1012,7 @@ POST /api/brain/spaces/:spaceId/find-similar
 
 Given an existing entry's `_id`, find other entries with high vector similarity. Unlike `recall` (which re-embeds a text query), `find_similar` uses the entry's **stored embedding vector** directly — no re-embedding step. Ideal for deduplication, "more like this", and merge detection.
 
-> **Also available as MCP tool:** `find_similar`
+> **Also available as MCP tool:** `find_similar` — note the MCP tool makes `space` optional (omit it to search all accessible spaces, like `recall`) and adds `traverse`; its `crossSpace` flag is deprecated in favour of omitting `space`. This REST endpoint keeps `spaceId` in the path and the `crossSpace` body flag.
 
 **Request body:**
 
@@ -5678,7 +5678,9 @@ Ythril exposes a single global MCP server via SSE. Each tool accepts a `space` p
 
 ### Server Instructions
 
-On connect, the server sends global instructions listing all available space IDs and noting that each tool requires a `space` parameter (except `recall` and `list_chrono`, where `space` is optional and enables cross-space results when omitted; and `list_peers`/`sync_now` which are global). Call `list_spaces` to get space IDs, descriptions, and entry counts (memories, entities, edges, chrono) — useful for discovering which spaces are populated before querying. Call `get_space_meta` with a specific space to get its full schema, purpose, and usage notes.
+On connect, the server sends global instructions listing all available space IDs and noting that each tool requires a `space` parameter (except `recall`, `list_chrono`, and `find_similar`, where `space` is optional and enables cross-space results when omitted; and `list_peers`/`sync_now` which are global). Call `list_spaces` to get space IDs, descriptions, and entry counts (memories, entities, edges, chrono) — useful for discovering which spaces are populated before querying. Call `get_space_meta` with a specific space to get its full schema, purpose, and usage notes.
+
+> **Tool inputs are self-describing.** Every tool's complete input contract — each parameter, its allowed values (`enum`), numeric bounds (`minimum`/`maximum`/`default`), string limits, the filter-operator allowlist, and `additionalProperties: false` — is published in its `inputSchema` via `tools/list`. Treat `tools/list` as the authoritative, machine-readable reference and read a tool's schema before constructing arguments; the `help` tool points here too.
 
 ### Read-Only Tokens
 
@@ -5774,7 +5776,7 @@ Content-Type: application/json
 | `delete_memory` | Delete a memory by ID |
 | `recall` | Semantic search across all knowledge types (memories, entities, edges, chrono entries, files). Searches the specified `space`; omit `space` to search across all accessible spaces |
 | `query` | Structured MongoDB filter query (read-only) — supports `memories`, `entities`, `edges`, `chrono`, and `files` collections |
-| `find_similar` | Find entries with high vector similarity to an existing entry by ID — no re-embedding step |
+| `find_similar` | Find entries with high vector similarity to an existing entry by ID — no re-embedding step. Provide `space` to scope to one space, or omit it to search across all accessible spaces (like `recall`). Supports `traverse` (graph expansion). The legacy `crossSpace` flag is deprecated — omit `space` instead |
 | `get_stats` | Return counts of memories, entities, edges, chrono entries, and files |
 | `get_space_meta` | Return the full space schema definition, purpose, usage notes, and stats |
 | `upsert_entity` | Create or update a named entity (with optional properties) |

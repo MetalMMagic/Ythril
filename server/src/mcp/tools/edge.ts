@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
 import { traverseGraph, updateEdgeById, upsertEdge } from '../../brain/edges.js';
 import { getConfig } from '../../config/loader.js';
@@ -15,11 +15,11 @@ export const upsert_edgeTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            from: { type: 'string', description: 'Source entity ID.' },
-            to: { type: 'string', description: 'Target entity ID.' },
-            label: { type: 'string', description: 'Relationship label (e.g. "works_at", "knows").' },
+            from: { type: 'string', minLength: 1, description: 'Source entity ID (a UUID v4; required to be an existing entity ID when the space uses strict linkage).' },
+            to: { type: 'string', minLength: 1, description: 'Target entity ID (a UUID v4; required to be an existing entity ID when the space uses strict linkage).' },
+            label: { type: 'string', minLength: 1, description: 'Relationship label (e.g. "works_at", "knows").' },
             type: { type: 'string', description: 'Optional edge type (e.g. "causal", "attribution").' },
-            weight: { type: 'number', description: 'Optional edge weight (0–1).' },
+            weight: unitScoreSchema('Optional edge weight (0–1).'),
             tags: { type: 'array', items: { type: 'string' }, description: 'Categorisation tags.' },
             description: { type: 'string', description: 'Optional prose description of why this relationship exists.' },
             properties: {
@@ -31,6 +31,7 @@ export const upsert_edgeTool: ToolHandler = {
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'from', 'to', 'label'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace, name } = ctx;
@@ -83,10 +84,10 @@ export const update_edgeTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: { type: 'string', description: 'Edge ID to update.' },
+            id: { type: 'string', minLength: 1, description: 'Edge ID to update.' },
             label: { type: 'string', description: 'New relationship label.' },
             type: { type: 'string', description: 'New edge type.' },
-            weight: { type: 'number', description: 'New edge weight (0–1).' },
+            weight: unitScoreSchema('New edge weight (0–1).'),
             description: { type: 'string', description: 'New prose description.' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Tags to merge with existing tags.' },
             properties: {
@@ -99,6 +100,7 @@ export const update_edgeTool: ToolHandler = {
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'id'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;
@@ -137,10 +139,11 @@ export const traverseTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            startId: { type: 'string', description: 'UUID of the starting entity.' },
+            startId: { type: 'string', minLength: 1, description: 'UUID of the starting entity.' },
             direction: {
               type: 'string',
               enum: ['outbound', 'inbound', 'both'],
+              default: 'outbound',
               description: 'Follow edges from the node (outbound), to the node (inbound), or both directions. Default: outbound.',
             },
             edgeLabels: {
@@ -148,10 +151,11 @@ export const traverseTool: ToolHandler = {
               items: { type: 'string' },
               description: 'Filter traversal to specific edge labels only. Omit to traverse all labels.',
             },
-            maxDepth: { type: 'number', description: 'Maximum hops from startId (default 3, max 10).' },
-            limit: { type: 'number', description: 'Maximum total nodes returned (default 100).' },
+            maxDepth: { type: 'number', minimum: 1, maximum: 10, default: 3, description: 'Maximum hops from startId (clamped to 1–10). Default 3.' },
+            limit: { type: 'number', minimum: 1, maximum: 1000, default: 100, description: 'Maximum total nodes returned (clamped to 1–1000). Default 100.' },
           },
           required: ['space', 'startId'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;

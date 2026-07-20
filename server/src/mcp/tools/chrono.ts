@@ -1,5 +1,5 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
-import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs } from './shared.js';
+import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 import { ChronoFilter, createChrono, listChrono, updateChrono, parseRecurrence } from '../../brain/chrono.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
@@ -15,12 +15,12 @@ export const create_chronoTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            title: { type: 'string', description: 'Entry title.' },
-            type: { type: 'string', description: 'Entry type (e.g. event, deadline, plan, prediction, milestone, or a custom type defined in the space schema).' },
-            startsAt: { type: 'string', description: 'ISO 8601 start date/time.' },
+            title: { type: 'string', minLength: 1, description: 'Entry title.' },
+            type: { type: 'string', minLength: 1, description: 'Entry type. Rejected unless it is one of the space\'s allowed chrono types: the defaults are event, deadline, plan, prediction, milestone, or the custom set declared in the space\'s typeSchemas.chrono.' },
+            startsAt: { type: 'string', minLength: 1, description: 'ISO 8601 start date/time.' },
             endsAt: { type: 'string', description: 'Optional ISO 8601 end date/time.' },
-            status: { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], description: 'Status (default: upcoming).' },
-            confidence: { type: 'number', description: 'Confidence level 0–1 (for predictions).' },
+            status: { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'], default: 'upcoming', description: 'Status (default: upcoming).' },
+            confidence: unitScoreSchema('Confidence level 0–1 (for predictions).'),
             tags: { type: 'array', items: { type: 'string' }, description: 'Categorisation tags.' },
             entityIds: { type: 'array', items: { type: 'string' }, description: 'Related entity IDs.' },
             memoryIds: { type: 'array', items: { type: 'string' }, description: 'Related memory IDs.' },
@@ -35,15 +35,17 @@ export const create_chronoTool: ToolHandler = {
               description: 'Optional recurrence rule, e.g. { freq: "weekly", interval: 1, until: "2027-01-01T00:00:00Z" }.',
               properties: {
                 freq: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'] },
-                interval: { type: 'number', description: 'Repeat every N periods (positive integer, default 1).' },
+                interval: { type: 'integer', minimum: 1, default: 1, description: 'Repeat every N periods (positive integer, default 1).' },
                 until: { type: 'string', description: 'Optional ISO 8601 end date.' },
               },
               required: ['freq'],
+              additionalProperties: false,
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'title', 'type', 'startsAt'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;
@@ -126,13 +128,13 @@ export const update_chronoTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            id: { type: 'string', description: 'Chrono entry ID.' },
+            id: { type: 'string', minLength: 1, description: 'Chrono entry ID.' },
             title: { type: 'string', description: 'New title.' },
             type: { type: 'string', description: 'Entry type (e.g. event, deadline, plan, prediction, milestone, or a custom type defined in the space schema).' },
             startsAt: { type: 'string', description: 'New ISO 8601 start date/time.' },
             endsAt: { type: 'string', description: 'New ISO 8601 end date/time.' },
             status: { type: 'string', enum: ['upcoming', 'active', 'completed', 'overdue', 'cancelled'] },
-            confidence: { type: 'number', description: 'Confidence level 0–1.' },
+            confidence: unitScoreSchema('Confidence level 0–1.'),
             tags: { type: 'array', items: { type: 'string' } },
             entityIds: { type: 'array', items: { type: 'string' } },
             memoryIds: { type: 'array', items: { type: 'string' } },
@@ -147,15 +149,17 @@ export const update_chronoTool: ToolHandler = {
               description: 'Recurrence rule, e.g. { freq: "weekly", interval: 1, until: "2027-01-01T00:00:00Z" }.',
               properties: {
                 freq: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'yearly'] },
-                interval: { type: 'number', description: 'Repeat every N periods (positive integer, default 1).' },
+                interval: { type: 'integer', minimum: 1, default: 1, description: 'Repeat every N periods (positive integer, default 1).' },
                 until: { type: 'string', description: 'Optional ISO 8601 end date.' },
               },
               required: ['freq'],
+              additionalProperties: false,
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'id'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;
@@ -218,10 +222,11 @@ export const list_chronoTool: ToolHandler = {
             after: { type: 'string', description: 'ISO 8601 timestamp — return entries created after this point in time.' },
             before: { type: 'string', description: 'ISO 8601 timestamp — return entries created before this point in time.' },
             search: { type: 'string', description: 'Case-insensitive substring match on title and description.' },
-            limit: { type: 'number', description: 'Max results (default 20, max 100).' },
-            skip: { type: 'number', description: 'Number of results to skip for pagination (default 0).' },
+            limit: { type: 'number', minimum: 1, maximum: 100, default: 20, description: 'Max results (clamped to 1–100). Default 20.' },
+            skip: { type: 'number', minimum: 0, default: 0, description: 'Number of results to skip for pagination (default 0).' },
           },
           required: [],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace, accessibleSpaceIds } = ctx;

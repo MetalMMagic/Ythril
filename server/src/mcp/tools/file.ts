@@ -20,9 +20,10 @@ export const read_fileTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            path: { type: 'string', description: 'File path relative to the space root.' },
+            path: { type: 'string', minLength: 1, description: 'File path relative to the space root.' },
           },
           required: ['space', 'path'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;
@@ -47,7 +48,7 @@ export const write_fileTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            path: { type: 'string', description: 'File path relative to the space root.' },
+            path: { type: 'string', minLength: 1, description: 'File path relative to the space root.' },
             content: { type: 'string', description: 'Text content to write.' },
             description: { type: 'string', description: 'Optional human-readable summary stored as file metadata.' },
             tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags for filtering and recall.' },
@@ -60,10 +61,12 @@ export const write_fileTool: ToolHandler = {
             inputFormat: {
               type: 'string',
               enum: ['pdf', 'docx', 'epub', 'html', 'md', 'txt', 'text', 'auto'],
+              default: 'auto',
               description: 'How to process the file. "auto" (default) detects from extension/MIME type. "text" bypasses conversion (single flat embedding). "md"/"txt" use the in-process normaliser+chunker. "pdf"/"docx"/"epub"/"html" use the full conversion pipeline.',
             },
           },
           required: ['space', 'path', 'content'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;
@@ -110,10 +113,12 @@ export const list_dirTool: ToolHandler = {
             space: s.requiredSpace,
             path: {
               type: 'string',
+              default: '',
               description: 'Directory path relative to space root (default: root).',
             },
           },
           required: ['space'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace, name } = ctx;
@@ -148,10 +153,11 @@ export const delete_fileTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            path: { type: 'string', description: 'File path relative to the space root.' },
+            path: { type: 'string', minLength: 1, description: 'File path relative to the space root.' },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
           required: ['space', 'path'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;
@@ -187,10 +193,11 @@ export const create_dirTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            path: { type: 'string', description: 'Directory path relative to the space root.' },
+            path: { type: 'string', minLength: 1, description: 'Directory path relative to the space root.' },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
           required: ['space', 'path'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;
@@ -212,11 +219,12 @@ export const move_fileTool: ToolHandler = {
           type: 'object',
           properties: {
             space: s.requiredSpace,
-            src: { type: 'string', description: 'Source path.' },
-            dst: { type: 'string', description: 'Destination path.' },
+            src: { type: 'string', minLength: 1, description: 'Source path.' },
+            dst: { type: 'string', minLength: 1, description: 'Destination path.' },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
           },
           required: ['space', 'src', 'dst'],
+          additionalProperties: false,
         }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { args: a, callSpace } = ctx;

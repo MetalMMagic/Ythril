@@ -975,6 +975,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **MCP `tools/list` is now fully self-describing, and `find_similar` is harmonised with `recall`.** An agent
+  can discover a tool's entire input contract from its schema alone: closed objects (`additionalProperties:
+  false`) on all 31 tools, plus promoted-from-prose keywords — `enum`s, `minimum`/`maximum`/`default`,
+  `minLength`/`maxLength`, `maxItems` (the bulk-write 500 cap), and UUID `pattern`s on id fields. The
+  structured `query.filter` now lists its allowed MongoDB operator set and depth/regex rules (previously a
+  bare `{type: object}`), the recall/find filter encodes its key allowlist via `propertyNames`, and
+  `query.maxTimeMS` advertises the **real** 10000 ms ceiling (the schema had claimed 30000). The `help` tool
+  and the integration guide now point agents at `tools/list` as the authoritative reference. Separately,
+  **`find_similar` now accepts an optional `space`** — omit it to search across all accessible spaces, exactly
+  like `recall` (it locates the source entry across your spaces) — and **gains `traverse`** for graph
+  expansion; the old `crossSpace` flag is deprecated (omit `space` instead) but still honoured. The REST
+  `find-similar` endpoint is unchanged. New standalone tests pin the schema invariants and the space
+  resolution logic. (Note: schema keywords are advisory — the MCP dispatcher validates in the handlers, not
+  against `inputSchema` — so this is safe for existing callers.)
+
 - **Settings → Space → Schema tab rebuilt as master/detail.** The old 4-level nested accordion — where opening
   a type pushed everything down and opening a property nested further, and expanding one collapsed the last — is
   replaced by a **type list on the left and a stable editor pane on the right**: click a type to edit it without

@@ -72,3 +72,5 @@ server/dist
 
 # Local one-command preview (not for commit)
 preview.sh
+preview.ps1
+config/_preview_mint.mjs

@@ -2378,14 +2378,18 @@ When the face recognition feature is first enabled, any existing `initSpace` cal
 
 All settings live under `mediaEmbedding.faceRecognition` in `config.json`. None are controllable via the `PATCH /api/admin/media-config` endpoint (face recognition is a local-only feature; no external service is involved).
 
-| Field | Default | Description |
-|---|---|---|
-| `enabled` | `false` | Master switch. When false, face detection is completely skipped. |
-| `confidenceThreshold` | `0.6` | Cosine similarity score (0–1) required for auto-labeling. Lower values label more aggressively; higher values require a closer match. Tune upward as your gallery grows. |
-| `minFaceSizeFraction` | `0.05` | Minimum face bounding-box size as a fraction of the image's shorter side. Faces smaller than this are skipped (avoids noise from crowd shots or background faces). |
-| `modelPath` | `"human-models"` | Path relative to `DATA_ROOT` where the BlazeFace and FaceRes model files are located. |
-| `personEntityTypes` | `["person"]` | Entity type names that qualify as people. Only entities with a `type` in this list are eligible to enter the face gallery. Extend this list if you use custom type names like `"contact"` or `"employee"`. |
-| `reprocessSyncedImages` | `true` | When true, images received via network sync are automatically re-enqueued for face processing if they haven't been processed yet. Set to false to keep gallery building local-origin only. |
+Each field can also be **pinned by an infra admin** through the env var below, with the same precedence as every other media setting: **env → `config.json` → default**. A pinned field is reported in `lockedByInfra` on `GET /api/admin/media-config`, so the Settings UI renders it read-only rather than offering a control that silently does nothing. This is why the env vars exist at all: every other model in the pipeline (vision, speech-to-text, embedding, the assist model, both sidecars) could already be pinned, so an infra-managed deployment could fix every model *except* whether faces are detected and embedded — the setting with the clearest privacy weight of the lot.
+
+| Field | Env var | Default | Description |
+|---|---|---|---|
+| `enabled` | `FACE_RECOGNITION_ENABLED` | `false` | Master switch. When false, face detection is completely skipped. |
+| `confidenceThreshold` | `FACE_RECOGNITION_CONFIDENCE_THRESHOLD` | `0.6` | Cosine similarity score (0–1) required for auto-labeling. Lower values label more aggressively; higher values require a closer match. Tune upward as your gallery grows. |
+| `minFaceSizeFraction` | `FACE_RECOGNITION_MIN_FACE_SIZE_FRACTION` | `0.05` | Minimum face bounding-box size as a fraction of the image's shorter side. Faces smaller than this are skipped (avoids noise from crowd shots or background faces). |
+| `modelPath` | `FACE_RECOGNITION_MODEL_PATH` | `"human-models"` | Path relative to `DATA_ROOT` where the BlazeFace and FaceRes model files are located. |
+| `personEntityTypes` | `FACE_RECOGNITION_PERSON_ENTITY_TYPES` | `["person"]` | Entity type names that qualify as people. Only entities with a `type` in this list are eligible to enter the face gallery. Extend this list if you use custom type names like `"contact"` or `"employee"`. **Comma-separated** as an env var: `FACE_RECOGNITION_PERSON_ENTITY_TYPES=person,employee`. |
+| `reprocessSyncedImages` | `FACE_RECOGNITION_REPROCESS_SYNCED_IMAGES` | `true` | When true, images received via network sync are automatically re-enqueued for face processing if they haven't been processed yet. Set to false to keep gallery building local-origin only. |
+
+> Booleans accept `true` or `1`; anything else reads as false. Pinning `FACE_RECOGNITION_ENABLED=false` is the way to guarantee no face processing happens on an instance regardless of what is in `config.json` — including after a restore from a backup taken on an instance where it was on.
 
 **Example `config.json` excerpt:**
 

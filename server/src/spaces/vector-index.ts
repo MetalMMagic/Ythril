@@ -80,6 +80,52 @@ export function vectorFilterFieldsFor(spaceId: string, collectionSuffix: string)
 interface SearchIndexField { type?: string; path?: string; numDimensions?: number }
 
 /**
+ * Wait — ONCE per process — for the database's search component to answer.
+ *
+ * `mongot` (the search process inside mongodb-atlas-local) starts AFTER mongod accepts connections, and
+ * compose's `depends_on: service_healthy` waits on mongod only. On a cold start, index calls can fail
+ * purely because search is not listening yet. The old code treated any such failure as "not Atlas Local",
+ * skipped index creation and never retried — permanent, silent loss of semantic recall for the life of
+ * that deployment.
+ *
+ * This gate is deliberately shared and memoized. An earlier version of the fix retried inside
+ * `ensureVectorSearchIndex`, which runs once per collection per space — so a cold boot paid the full
+ * backoff five times per space and delayed startup enough to break crash-recovery. Waiting once bounds
+ * the cost to a single window no matter how many spaces exist.
+ */
+let searchReadyProbe: Promise<boolean> | null = null;
+
+export function resetSearchReadyProbe(): void { searchReadyProbe = null; }
+
+async function searchAvailable(): Promise<boolean> {
+  if (searchReadyProbe) return searchReadyProbe;
+  searchReadyProbe = (async () => {
+    const ATTEMPTS = 6;
+    const BACKOFF_MS = 2_000;
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+      try {
+        // Any collection will do — this asks "is search answering at all?", not "does this index exist".
+        await getDb().collection('_vectorsearch_probe').listSearchIndexes().toArray();
+        return true;
+      } catch (err) {
+        lastErr = err;
+        if (attempt < ATTEMPTS) await new Promise(r => setTimeout(r, BACKOFF_MS));
+      }
+    }
+    log.warn(
+      `Database search (\`mongot\`) did not answer after ${ATTEMPTS} attempts ` +
+        `(${Math.round((ATTEMPTS * BACKOFF_MS) / 1000)}s): ${lastErr instanceof Error ? lastErr.message : String(lastErr)}. ` +
+        `SEMANTIC RECALL WILL RETURN EMPTY until vector indexes are built — rebuild them from ` +
+        `Settings → Space → Danger Zone, or POST /api/spaces/<space>/rebuild-indexes. ` +
+        `Use mongodb/mongodb-atlas-local for $vectorSearch support.`,
+    );
+    return false;
+  })();
+  return searchReadyProbe;
+}
+
+/**
  * Create or validate the $vectorSearch index for a space collection.
  *
  * The index declares the vector field plus a set of `type:"filter"` fields (P6) so recall can
@@ -116,37 +162,18 @@ export async function ensureVectorSearchIndex(
 
   // List existing search indexes
   let indexes: Array<{ name: string; status?: string; latestDefinition?: { fields?: SearchIndexField[] } }> = [];
-  // RETRY, do not give up. `mongot` (the search process inside mongodb-atlas-local) comes up AFTER
-  // mongod accepts connections, and compose's `depends_on: service_healthy` waits on mongod only. So on
-  // a cold start this call can fail purely because search is not listening yet — and the previous code
-  // treated any failure as "not Atlas Local", skipped index creation and never tried again. The result
-  // was permanent, silent loss of semantic recall for the life of that deployment: recall returned
-  // empty forever, `/ready` still reported `vectorSearch: ok` (it probes the capability, not the
-  // per-space indexes), and the only trace was one WARN at boot that named the wrong collection.
-  // Measured on a fresh test stack: the call failed five times at boot and succeeded on the same
-  // collection minutes later.
-  const LIST_ATTEMPTS = 6;
-  const LIST_BACKOFF_MS = 2_000;
-  let listErr: unknown;
-  for (let attempt = 1; attempt <= LIST_ATTEMPTS; attempt++) {
-    try {
-      indexes = await coll.listSearchIndexes().toArray() as typeof indexes;
-      listErr = undefined;
-      break;
-    } catch (err) {
-      listErr = err;
-      if (attempt < LIST_ATTEMPTS) await new Promise(r => setTimeout(r, LIST_BACKOFF_MS));
-    }
-  }
-  if (listErr !== undefined) {
-    // Only now is it fair to conclude search is genuinely unavailable. Report the underlying error —
-    // swallowing it is what made this take a full day to find — and name the actual collection.
+  // One shared wait for search to come up (see searchAvailable) rather than a backoff per collection.
+  if (!(await searchAvailable())) return;
+  try {
+    indexes = await coll.listSearchIndexes().toArray() as typeof indexes;
+  } catch (err) {
+    // Search answered the probe but not for this collection — report it against the collection that
+    // actually failed. The old message hardcoded `_memories` for all five, which sent the diagnosis
+    // in the wrong direction for a long time.
     log.warn(
-      `Could not list search indexes for ${spaceId}_${collectionSuffix} after ${LIST_ATTEMPTS} attempts ` +
-        `(${Math.round((LIST_ATTEMPTS * LIST_BACKOFF_MS) / 1000)}s): ${listErr instanceof Error ? listErr.message : String(listErr)}. ` +
-        `SEMANTIC RECALL WILL RETURN EMPTY for this collection until the index is built — ` +
-        `rebuild it from Settings → Space → Danger Zone, or POST /api/spaces/${spaceId}/rebuild-indexes. ` +
-        `Use mongodb/mongodb-atlas-local for $vectorSearch support.`,
+      `Could not list search indexes for ${spaceId}_${collectionSuffix}: ${err instanceof Error ? err.message : String(err)}. ` +
+        `Semantic recall will return empty for it until the index is built — rebuild from ` +
+        `Settings → Space → Danger Zone, or POST /api/spaces/${spaceId}/rebuild-indexes.`,
     );
     return;
   }

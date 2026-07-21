@@ -276,29 +276,12 @@ export async function buildSpaceVectorIndexes(
   opts: { force?: boolean } = {},
 ): Promise<void> {
   const embCfg = getEmbeddingConfig();
-  // CREATE the collection when it is missing, rather than skipping it. A vector index cannot be built
-  // on a collection that does not exist, and these collections are created lazily on first write — so
-  // anything skipped here never gets an index at all, and recall for that record type silently returns
-  // empty forever. Measured: a space with 22 entities, 10 edges, 2 chrono and 4 files had an index on
-  // `memories` alone, because only that collection existed when indexes were last built.
-  //
-  // An empty collection costs nothing, and creating it up front means every record type is recallable
-  // from its first write instead of from the next restart.
-  const db = getDb();
-  const present = new Set((await db.listCollections().toArray()).map(c => c.name));
+  // Iterate every vector-indexed collection unconditionally. They always exist by this point:
+  // initSpace() creates them explicitly precisely so indexes can be built on them. An earlier revision
+  // of this fix created any that were missing — which was redundant, and broke space RENAME, because
+  // MongoDB refuses renameCollection when the target namespace already exists. The collections were
+  // never the problem; the missing indexes came from the mongot cold-start race handled above.
   for (const suffix of VECTOR_INDEXED_COLLECTIONS) {
-    const collName = `${spaceId}_${suffix}`;
-    if (!present.has(collName)) {
-      try {
-        await db.createCollection(collName);
-      } catch (err) {
-        // Racing another writer that just created it is fine; anything else means we cannot index it.
-        if (!present.has(collName) && !/already exists/i.test(err instanceof Error ? err.message : String(err))) {
-          log.warn(`Could not create ${collName} to build its vector index: ${err}`);
-          continue;
-        }
-      }
-    }
     const filterFields = deriveVectorFilterFields(spaceId, suffix);
     await ensureVectorSearchIndex(spaceId, suffix, embCfg.dimensions, embCfg.similarity, 'embedding', 'embedding', waitForReady, filterFields, opts);
   }

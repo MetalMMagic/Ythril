@@ -16,6 +16,7 @@ import { spaceNetworkInfo } from '../spaces/network-status.js';
 import { z } from 'zod';
 import { v4 as uuidv4 } from 'uuid';
 import { log } from '../util/log.js';
+import { buildSpaceVectorIndexes } from '../spaces/vector-index.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import { peerSafeFetch } from '../sync/peer-fetch.js';
 import type { SpaceMeta, KnowledgeType, TypeSchema } from '../config/types.js';
@@ -195,6 +196,38 @@ function mergeSpaceMeta(
 
   return merged;
 }
+
+// POST /api/spaces/:id/rebuild-indexes
+//
+// The repair operation for "semantic recall returns nothing". Until this existed there was NO way to
+// recreate a space's vector search indexes: `POST .../reindex` only re-embeds documents, so an operator
+// could reindex the entire space, watch every record be processed, and still get zero results. The only
+// paths that ever built an index were creating a space and — by accident — editing its type schemas.
+//
+// Restoring a backup used to leave exactly that state (the restore drops collections, which destroys
+// their indexes); that is now repaired automatically, but a manual lever still matters for any other
+// way an index can go missing, and for verifying a recovery.
+//
+// Deliberately `force`: the caller is here because something is wrong, so the "definition already
+// matches" shortcut is not to be trusted — a stale entry that mongot has not yet collected would make
+// the repair silently do nothing.
+spacesRouter.post('/:id/rebuild-indexes', globalRateLimit, requireAdminMfaScoped('id'), async (req, res) => {
+  const spaceId = req.params['id'] as string;
+  if (!getConfig().spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  try {
+    // Not awaiting READY: a rebuild over a large space takes minutes and would time out the request.
+    // Recall returns empty until the build completes — that gap is why this lives in the danger zone.
+    await buildSpaceVectorIndexes(spaceId, false, { force: true });
+    res.json({ ok: true, spaceId, status: 'rebuilding' });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    log.error(`POST /api/spaces/${spaceId}/rebuild-indexes: ${err}`);
+    res.status(500).json({ error: msg });
+  }
+});
 
 // PATCH /api/spaces/:id/rename
 spacesRouter.patch('/:id/rename', globalRateLimit, requireAdminMfaScoped('id'), async (req, res) => {

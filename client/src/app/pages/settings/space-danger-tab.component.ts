@@ -5,7 +5,7 @@
  * the server data and SpaceSettingsState owns the dialog form state, and both are services the
  * page provides — so this component just renders them and calls them.
  */
-import { Component, ChangeDetectionStrategy, inject } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -38,6 +38,14 @@ import { TranslocoService } from '@jsverse/transloco';
     </button>
   </form>
   @if (state.dangerRenameError()) { <div class="alert alert-error" style="margin-top:8px;">{{ state.dangerRenameError() }}</div> }
+</div>
+
+<div class="dz-section">
+  <div class="dz-section-title">{{ 'spaces.dangerZone.rebuildIndexesTitle' | transloco }}</div>
+  <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">{{ 'spaces.dangerZone.rebuildIndexesDescription' | transloco }}</p>
+  <button class="btn btn-secondary" type="button" [disabled]="rebuildingIndexes()" (click)="rebuildIndexes()">
+    @if (rebuildingIndexes()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.dangerZone.rebuildIndexesButton' | transloco }}
+  </button>
 </div>
 
 <div class="dz-section dz-red">
@@ -100,6 +108,38 @@ export class SpaceDangerTabComponent {
   private toast = inject(ToastService);
   private confirmDialog = inject(ConfirmDialogService);
   private transloco = inject(TranslocoService);
+
+  rebuildingIndexes = signal(false);
+
+  /**
+   * Rebuild this space's vector search indexes — the repair for "search returns nothing".
+   *
+   * It sits in the danger zone because it has a real cost: recall returns EMPTY until the rebuild
+   * finishes, which on a large space is minutes. It is not destructive — no record is touched, only the
+   * index is recreated — so the confirmation explains the outage rather than demanding a typed id.
+   */
+  async rebuildIndexes(): Promise<void> {
+    const target = this.state.settingsSpace();
+    if (!target) return;
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('spaces.dangerZone.rebuildIndexesTitle'),
+      message: this.transloco.translate('spaces.dangerZone.confirmRebuildIndexes', { label: target.label }),
+      confirmLabel: this.transloco.translate('spaces.dangerZone.rebuildIndexesButton'),
+      danger: true,
+    });
+    if (!ok) return;
+    this.rebuildingIndexes.set(true);
+    this.spacesApi.rebuildSpaceIndexes(target.id).subscribe({
+      next: () => {
+        this.rebuildingIndexes.set(false);
+        this.toast.success(this.transloco.translate('spaces.dangerZone.rebuildIndexesStarted'));
+      },
+      error: (err: { error?: { error?: string }; message?: string }) => {
+        this.rebuildingIndexes.set(false);
+        this.toast.error(err?.error?.error ?? err?.message ?? this.transloco.translate('spaces.dangerZone.rebuildIndexesFailed'));
+      },
+    });
+  }
 
   async submitDangerRename(): Promise<void> {
     const target = this.state.settingsSpace();

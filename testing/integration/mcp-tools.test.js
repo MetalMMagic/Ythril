@@ -187,40 +187,52 @@ async function ensureReindexed(baseUrl, token) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * Probe embedding readiness at USE time, not once. Readiness is defined by a full round-trip:
- * a uniquely-remembered fact must be *recallable with a non-zero count*. That is stricter than
- * "the endpoint answered" on purpose — memory storage succeeds in a degraded mode with no
- * embedding server, but recall then returns empty without vectors, and a mid-warm-up model can
- * answer one call and then fail the next. This retries across ollama warm-up, which is the flake
- * it replaces: the old one-shot probe passed the instant the endpoint answered, then a later
- * recall failed while the model was still loading (observed once on a cold stack).
+ * Probe embedding readiness at USE time, not once. Readiness is defined by a full round-trip: a
+ * uniquely-remembered fact must be *recallable with a non-zero count*. That is stricter than "the
+ * endpoint answered" on purpose — memory storage succeeds in a degraded mode with no embedding
+ * server, but recall then returns empty without vectors.
  *
- * Returns false fast when the endpoint is unreachable — the server says "Could not reach embedding
- * endpoint …" (server/src/brain/embedding.ts), which the CI test stack always hits (no embedding
- * service), so CI keeps skipping deterministically with no retry cost. Transient warm-up states
- * (HTTP 5xx while the model loads, empty vector, recall count 0) are retried with backoff.
- */
-async function waitForEmbeddingReady(session, space = 'general', { attempts = 8, delayMs = 2000 } = {}) {
+ * REMEMBER ONCE, THEN POLL. The previous version inserted a NEW fact on every attempt and recalled it
+ * immediately, so each round raced MongoDB's vector-index lag from zero and the probe could
+ * essentially never succeed — measured at ~10s on the test stack, against 8 attempts that each
+ * restarted the clock. Every embedding-dependent test therefore skipped itself, permanently, while CI
+ * reported green: 19 tests covering remember / recall / recall_global — the product's core — were
+ * running nowhere. The message they printed ("Embedding server not configured in test stack") was a
+ * wrong conclusion drawn from a probe that could not pass; the bundled ONNX model works fine and the
+ * stored vectors are real.
+ *
+ * Returns false fast when the endpoint is genuinely unreachable — the server says "Could not reach
+ * embedding endpoint …" (server/src/brain/embedding.ts) — so a stack with no embedding service still
+ * skips deterministically instead of burning the full timeout.
+  */
+async function waitForEmbeddingReady(session, space = 'general', { attempts = 15, delayMs = 2000 } = {}) {
   const unreachable = (text) => text.includes('could not reach') || text.includes('unreachable');
-  for (let i = 0; i < attempts; i++) {
-    const fact = `__embedding-probe-${Date.now()}-${i}__`;
-    const remembered = await session.callTool('remember', { space, fact, tags: [] });
-    const remText = (remembered?.content?.[0]?.text ?? '').toLowerCase();
-    if (remembered?.isError && unreachable(remText)) return false; // endpoint down → deterministic skip
-    if (!remembered?.isError) {
-      // remember succeeded; the real readiness signal is a recall that returns actual results.
-      const recalled = await session.callTool('recall', { space, query: fact, topK: 1 });
-      if (!recalled?.isError) {
-        let count = 0;
-        try { count = JSON.parse(recalled?.content?.[0]?.text ?? '{}').count ?? 0; }
-        catch { count = (recalled?.content?.[0]?.text ?? '').length > 0 ? 1 : 0; }
-        if (count > 0) return true;
-      } else if (unreachable((recalled?.content?.[0]?.text ?? '').toLowerCase())) {
-        return false;
-      }
-    }
-    if (i < attempts - 1) await sleep(delayMs); // transient warm-up (loading / empty) → retry
+
+  // Store ONE fact, then give the index time to catch up with it.
+  const fact = `__embedding-probe-${Date.now()}__`;
+  const remembered = await session.callTool('remember', { space, fact, tags: [] });
+  const remText = (remembered?.content?.[0]?.text ?? '').toLowerCase();
+  // Storing is what needs the embedding service; if that failed there is nothing to recall. Either way
+  // the suite skips — but log the reason so it is not mistaken for the index-lag case again.
+  if (remembered?.isError) {
+    console.log(`  embedding probe: remember failed (${unreachable(remText) ? 'endpoint unreachable' : remText.slice(0, 120)})`);
+    return false;
   }
+
+  for (let i = 0; i < attempts; i++) {
+    const recalled = await session.callTool('recall', { space, query: fact, topK: 1 });
+    if (recalled?.isError) {
+      if (unreachable((recalled?.content?.[0]?.text ?? '').toLowerCase())) return false;
+    } else {
+      let count = 0;
+      try { count = JSON.parse(recalled?.content?.[0]?.text ?? '{}').count ?? 0; }
+      catch { count = (recalled?.content?.[0]?.text ?? '').length > 0 ? 1 : 0; }
+      if (count > 0) return true;
+    }
+    await sleep(delayMs); // vector-index lag / model warm-up — the SAME fact becomes recallable
+  }
+  // Exhausted. Say what was actually observed — a silent 'not configured' is what hid this for so long.
+  console.log(`  embedding probe: stored ok but recall returned 0 after ${(attempts * delayMs) / 1000}s (vector-index lag exceeded the budget, or recall is broken) — fact=${fact}`);
   return false;
 }
 

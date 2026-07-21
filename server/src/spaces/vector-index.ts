@@ -101,6 +101,7 @@ export async function ensureVectorSearchIndex(
   indexSuffix: string = 'embedding',
   waitForReady: boolean = true,
   filterFields: string[] = [],
+  opts: { force?: boolean } = {},
 ): Promise<void> {
   const db = getDb();
   const coll = db.collection(`${spaceId}_${collectionSuffix}`);
@@ -115,13 +116,37 @@ export async function ensureVectorSearchIndex(
 
   // List existing search indexes
   let indexes: Array<{ name: string; status?: string; latestDefinition?: { fields?: SearchIndexField[] } }> = [];
-  try {
-    indexes = await coll.listSearchIndexes().toArray() as typeof indexes;
-  } catch {
-    // If listSearchIndexes fails (e.g. not Atlas Local), skip vector search index creation
+  // RETRY, do not give up. `mongot` (the search process inside mongodb-atlas-local) comes up AFTER
+  // mongod accepts connections, and compose's `depends_on: service_healthy` waits on mongod only. So on
+  // a cold start this call can fail purely because search is not listening yet — and the previous code
+  // treated any failure as "not Atlas Local", skipped index creation and never tried again. The result
+  // was permanent, silent loss of semantic recall for the life of that deployment: recall returned
+  // empty forever, `/ready` still reported `vectorSearch: ok` (it probes the capability, not the
+  // per-space indexes), and the only trace was one WARN at boot that named the wrong collection.
+  // Measured on a fresh test stack: the call failed five times at boot and succeeded on the same
+  // collection minutes later.
+  const LIST_ATTEMPTS = 6;
+  const LIST_BACKOFF_MS = 2_000;
+  let listErr: unknown;
+  for (let attempt = 1; attempt <= LIST_ATTEMPTS; attempt++) {
+    try {
+      indexes = await coll.listSearchIndexes().toArray() as typeof indexes;
+      listErr = undefined;
+      break;
+    } catch (err) {
+      listErr = err;
+      if (attempt < LIST_ATTEMPTS) await new Promise(r => setTimeout(r, LIST_BACKOFF_MS));
+    }
+  }
+  if (listErr !== undefined) {
+    // Only now is it fair to conclude search is genuinely unavailable. Report the underlying error —
+    // swallowing it is what made this take a full day to find — and name the actual collection.
     log.warn(
-      `Could not list search indexes for ${spaceId}_memories. ` +
-        `Vector search may be unavailable. Use mongodb/mongodb-atlas-local for $vectorSearch support.`,
+      `Could not list search indexes for ${spaceId}_${collectionSuffix} after ${LIST_ATTEMPTS} attempts ` +
+        `(${Math.round((LIST_ATTEMPTS * LIST_BACKOFF_MS) / 1000)}s): ${listErr instanceof Error ? listErr.message : String(listErr)}. ` +
+        `SEMANTIC RECALL WILL RETURN EMPTY for this collection until the index is built — ` +
+        `rebuild it from Settings → Space → Danger Zone, or POST /api/spaces/${spaceId}/rebuild-indexes. ` +
+        `Use mongodb/mongodb-atlas-local for $vectorSearch support.`,
     );
     return;
   }
@@ -137,7 +162,12 @@ export async function ensureVectorSearchIndex(
     const dimsMatch = existingDims === numDimensions;
     const filtersMatch = existingFilters.size === desiredFilters.size
       && [...desiredFilters].every(p => existingFilters.has(p));
-    if (dimsMatch && filtersMatch) {
+    // `force`: a caller that has just dropped and recreated the collection (restore) cannot trust this
+    // diff. mongot's bookkeeping lags the drop, so the OLD index can still be listed here — the diff
+    // then says "already correct", we skip creating, and mongot garbage-collects the stale entry
+    // moments later. Result: no index, no error, nothing logged, and recall silently returns empty
+    // forever. Measured: that is exactly what happened on the first attempt at the restore fix.
+    if (dimsMatch && filtersMatch && !opts.force) {
       log.debug(`Vector search index ${indexName} already up to date`);
       return;
     }
@@ -213,29 +243,59 @@ export async function pollVectorIndexReady(
 /** Create every $vectorSearch index a space needs (per-type embedding indexes plus
  *  the optional face index). `waitForReady` is threaded to each — false creates them
  *  and returns without polling (B1). */
-export async function buildSpaceVectorIndexes(spaceId: string, waitForReady: boolean): Promise<void> {
+export async function buildSpaceVectorIndexes(
+  spaceId: string,
+  waitForReady: boolean,
+  opts: { force?: boolean } = {},
+): Promise<void> {
   const embCfg = getEmbeddingConfig();
+  // CREATE the collection when it is missing, rather than skipping it. A vector index cannot be built
+  // on a collection that does not exist, and these collections are created lazily on first write — so
+  // anything skipped here never gets an index at all, and recall for that record type silently returns
+  // empty forever. Measured: a space with 22 entities, 10 edges, 2 chrono and 4 files had an index on
+  // `memories` alone, because only that collection existed when indexes were last built.
+  //
+  // An empty collection costs nothing, and creating it up front means every record type is recallable
+  // from its first write instead of from the next restart.
+  const db = getDb();
+  const present = new Set((await db.listCollections().toArray()).map(c => c.name));
   for (const suffix of VECTOR_INDEXED_COLLECTIONS) {
+    const collName = `${spaceId}_${suffix}`;
+    if (!present.has(collName)) {
+      try {
+        await db.createCollection(collName);
+      } catch (err) {
+        // Racing another writer that just created it is fine; anything else means we cannot index it.
+        if (!present.has(collName) && !/already exists/i.test(err instanceof Error ? err.message : String(err))) {
+          log.warn(`Could not create ${collName} to build its vector index: ${err}`);
+          continue;
+        }
+      }
+    }
     const filterFields = deriveVectorFilterFields(spaceId, suffix);
-    await ensureVectorSearchIndex(spaceId, suffix, embCfg.dimensions, embCfg.similarity, 'embedding', 'embedding', waitForReady, filterFields);
+    await ensureVectorSearchIndex(spaceId, suffix, embCfg.dimensions, embCfg.similarity, 'embedding', 'embedding', waitForReady, filterFields, opts);
   }
   const faceCfg = getFaceRecognitionConfig();
   if (faceCfg.enabled) {
-    await ensureVectorSearchIndex(spaceId, 'files', 128, 'cosine', 'faceEmbedding', 'faceEmbedding', waitForReady);
+    await ensureVectorSearchIndex(spaceId, 'files', 128, 'cosine', 'faceEmbedding', 'faceEmbedding', waitForReady, undefined, opts);
   }
 }
 
 /** Poll all of a space's vector-search indexes until READY. Returns true only if every
  *  expected index reached READY within the window. */
 export async function waitForSpaceIndexesReady(spaceId: string): Promise<boolean> {
-  let allReady = true;
-  for (const suffix of VECTOR_INDEXED_COLLECTIONS) {
-    if (!(await pollVectorIndexReady(spaceId, suffix, `${spaceId}_${suffix}_embedding`))) allReady = false;
-  }
+  // Poll CONCURRENTLY. These builds run independently inside the database, so waiting on them one after
+  // another only adds up their timeouts: five collections at a 60s ceiling each meant a space could sit
+  // at indexStatus='building' for five minutes when every index was in fact ready in seconds. That was
+  // masked for as long as only `memories` was ever indexed — fixing that made the serial wait visible.
+  const polls = VECTOR_INDEXED_COLLECTIONS.map(suffix =>
+    pollVectorIndexReady(spaceId, suffix, `${spaceId}_${suffix}_embedding`),
+  );
   if (getFaceRecognitionConfig().enabled) {
-    if (!(await pollVectorIndexReady(spaceId, 'files', `${spaceId}_files_faceEmbedding`))) allReady = false;
+    polls.push(pollVectorIndexReady(spaceId, 'files', `${spaceId}_files_faceEmbedding`));
   }
-  return allReady;
+  const results = await Promise.all(polls);
+  return results.every(Boolean);
 }
 
 /** Background step kicked off by createSpace: wait for the deferred vector-index

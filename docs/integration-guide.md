@@ -1555,6 +1555,38 @@ Re-computes all embeddings with the current model. **Runs asynchronously** — t
 
 Returns `409 { "error": "Reindex already in progress" }` if one is already running for the space.
 
+> **Reindexing does NOT repair "search returns nothing".** It re-computes the embeddings *stored on*
+> your records. Recall queries those vectors through a separate `$vectorSearch` index, and that index
+> can be missing while every record still holds a perfectly good embedding — after restoring a backup,
+> or if the database search process was not ready when the instance started. Reindexing every record
+> in the space will not create it. Use the rebuild endpoint below.
+
+### Rebuild search indexes
+
+```http
+POST /api/spaces/:spaceId/rebuild-indexes
+```
+
+Recreates the space's `$vectorSearch` indexes. Requires **admin + MFA** and is recorded in the audit
+log as `space.indexes.rebuild`. Also available in the UI at **Settings → Space → Danger Zone →
+Rebuild search indexes**.
+
+**Runs asynchronously** — the call returns as soon as the build is submitted. **Recall returns empty
+for that space until the build completes**, which is why it sits in the danger zone; no records are
+modified.
+
+```json
+{ "ok": true, "spaceId": "general", "status": "rebuilding" }
+```
+
+Returns `404` when the space does not exist.
+
+You should rarely need this: indexes are built when a space is created, retried on startup if the
+database search process is slow to come up, and rebuilt automatically after a restore. It exists
+because an index going missing is otherwise **silent** — an empty result set is indistinguishable from
+"no matches", and `/ready` reports `vectorSearch: ok` regardless, since it probes the capability
+rather than each space's indexes.
+
 ---
 
 ### Bulk Write

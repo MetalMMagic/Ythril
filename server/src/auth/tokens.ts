@@ -1,7 +1,7 @@
 ﻿import { randomBytes } from 'crypto';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
-import { getConfig, saveConfig, getSecrets, saveSecrets } from '../config/loader.js';
+import { getConfig, saveConfig, mutateConfig, getSecrets, saveSecrets } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { TokenRecord } from '../config/types.js';
 
@@ -106,7 +106,7 @@ export async function findMatchingToken(
     const ok = await verifyToken(plaintext, record.hash);
     if (!ok) continue;
     if (record.expiresAt && new Date(record.expiresAt) < new Date()) continue;
-    healPrefix(config, record, prefix);
+    healPrefix(record, prefix);
     _tokenCache.set(plaintext, { tokenId: record.id, expiresAt: Date.now() + CACHE_TTL_MS });
     return record;
   }
@@ -122,19 +122,31 @@ export async function findMatchingToken(
     const ok = await verifyToken(plaintext, record.hash);
     if (!ok) continue;
     if (record.expiresAt && new Date(record.expiresAt) < new Date()) continue;
-    healPrefix(config, record, prefix);
+    healPrefix(record, prefix);
     _tokenCache.set(plaintext, { tokenId: record.id, expiresAt: Date.now() + CACHE_TTL_MS });
     return record;
   }
   return null;
 }
 
-/** Rewrite a record's prefix to the current format (best-effort persist). */
-function healPrefix(config: ReturnType<typeof getConfig>, record: TokenRecord, prefix: string): void {
+/**
+ * Rewrite a record's prefix to the current format (best-effort persist).
+ *
+ * Re-resolves the record by id inside the write instead of saving the object it was handed. The
+ * caller looked the record up out of `config.tokens`, then awaited a bcrypt verify — and a config
+ * reload during that await replaces the tokens array wholesale, leaving the caller holding a detached
+ * record. Mutating that object and saving would persist a config with no backfill in it: the token
+ * keeps authenticating via the slow fallback scan forever, silently, and the migration never lands.
+ * The in-memory object is still updated so the current request sees the healed value.
+ */
+function healPrefix(record: TokenRecord, prefix: string): void {
   if (record.prefix === prefix) return;
   record.prefix = prefix;
   try {
-    saveConfig(config);
+    mutateConfig(cfg => {
+      const live = cfg.tokens.find(t => t.id === record.id);
+      if (live) live.prefix = prefix;
+    });
     log.info(`Migrated lookup prefix for token '${record.name}' (${record.id}) on first use.`);
   } catch { /* best-effort — will persist on the next config save */ }
 }

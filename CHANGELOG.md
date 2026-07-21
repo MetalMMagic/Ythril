@@ -1267,6 +1267,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A legacy token's prefix backfill could be silently lost, leaving it on the slow lookup path
+  forever.** `findMatchingToken` reads `config.tokens`, awaits a bcrypt compare — deliberately slow, so
+  a wide window — and then heals the matched record's lookup prefix. Since the config watcher landed, a
+  reload can happen inside that window on a live instance, and a reload replaces the tokens array
+  wholesale: the caller is left holding a **detached record**, so writing the prefix onto it and saving
+  persisted a config with no backfill in it. The token kept authenticating, but via the full bcrypt
+  scan on every request, indefinitely, with nothing reporting it. `healPrefix` now re-resolves the
+  record by id inside the write instead of saving the object it was handed.
+  This is the nested-reference hazard called out when the watcher shipped, with a concrete victim: the
+  in-place config refresh keeps *top-level* references valid, but a reference into `cfg.tokens` (or
+  `cfg.spaces`) is still replaced. It surfaced as an unrelated-looking integration failure that only
+  reproduced in the full suite, because only there did a reload land in the window. New standalone test
+  drives the race deterministically — `reloadConfig()` is synchronous, so calling it immediately after
+  the lookup starts places it inside the bcrypt await — and was verified to fail against the previous
+  code.
+
 - **Characterization tests for the settings `ModelsComponent` (25 tests), landed before it is split.**
   The 643-line page had **no coverage at all** and is about to become three tabs (Models · Pipelines ·
   Tools) with a per-space pipeline surface behind it, so these are proven green against the unmodified

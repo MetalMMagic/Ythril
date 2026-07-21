@@ -214,10 +214,31 @@ export function reloadConfig(): Config {
   parsed.tokens ??= [];
   parsed.networks ??= [];
   validateOidcBlock(parsed);
-  _config = parsed;
+  // Refresh the EXISTING object in place rather than swapping in a new one.
+  //
+  // Callers routinely do `const cfg = getConfig()`, await something, then
+  // `saveConfig(cfg)`. If a reload replaced `_config`, that held reference would
+  // be detached, and saving it would write pre-reload content — reverting the very
+  // edit the reload just picked up. Ten such call sites exist (spaces lifecycle,
+  // rename, invite, tokens, network join); mutating in place keeps every one of
+  // them pointing at fresh data, so their own change merges on top instead of
+  // replacing it.
+  //
+  // Caveat worth knowing: a reference held to a NESTED object (a single `space`
+  // out of `cfg.spaces`) is still detached, because the arrays are replaced
+  // wholesale. Those sites are listed in ARCHITECTURE-TODO and want `mutateConfig`.
+  if (_config) {
+    const mutable = _config as unknown as Record<string, unknown>;
+    for (const key of Object.keys(mutable)) delete mutable[key];
+    Object.assign(_config, parsed);
+    parsed = _config;
+  } else {
+    _config = parsed;
+  }
   // Fix permission bits without rewriting content — avoids overwriting a
   // host-side edit that hasn't propagated through the bind-mount yet.
   try { fs.chmodSync(CONFIG_PATH, 0o600); } catch { /* non-POSIX host — ignore */ }
+  recordConfigMtime(); // we are now in sync with what is on disk
   return parsed;
 }
 
@@ -289,6 +310,80 @@ export function saveConfig(config: Config): void {
   // Ensure permissions after write
   fs.chmodSync(CONFIG_PATH, 0o600);
   if (gen > _flushedGeneration) _flushedGeneration = gen;
+  recordConfigMtime();
+}
+
+// ── External-change watcher ────────────────────────────────────────────────
+//
+// The running server treats its in-memory config as authoritative and writes the
+// whole thing back on every change. That makes the copy stale the moment anyone
+// edits config.json directly, and the next write silently reverts their edit —
+// with no error and no log line. `mutateConfig` fixes this for a single writer;
+// it cannot fix the 67 call sites that save a config they already hold, and
+// converting them all would still leave the next one someone writes exposed.
+//
+// So watch the file instead of policing the writes: reload when it changes
+// underneath us, and every existing call site becomes correct untouched.
+//
+// `fs.watchFile` (stat polling) rather than `fs.watch` (inotify): config.json
+// normally lives on a Docker Desktop bind mount, where inotify events are
+// unreliable and can be missed entirely — see the propagation note on
+// reloadConfig. Polling a single stat every couple of seconds costs nothing and
+// works the same on every host.
+
+let _configWatchActive = false;
+let _lastKnownMtimeMs = 0;
+let _reloadChain: Promise<void> = Promise.resolve();
+
+/** Remember the mtime we just produced, so our own writes don't look foreign. */
+function recordConfigMtime(): void {
+  try { _lastKnownMtimeMs = fs.statSync(CONFIG_PATH).mtimeMs; } catch { /* file may not exist yet */ }
+}
+
+/**
+ * Reload config.json whenever it changes on disk by any hand but ours.
+ *
+ * `onExternalChange` receives control after the file has been detected as
+ * changed and is responsible for the actual reload — it lives in the caller so
+ * this module stays free of dependencies on spaces, auth and secrets. It runs
+ * the same path as `POST /api/admin/reload-config`, because a hand-added space
+ * needs initialising, not merely parsing.
+ */
+export function startConfigWatcher(
+  onExternalChange: () => Promise<void> | void,
+  intervalMs = 2000,
+): void {
+  if (_configWatchActive) return;
+  _configWatchActive = true;
+  recordConfigMtime();
+
+  fs.watchFile(CONFIG_PATH, { interval: intervalMs, persistent: false }, curr => {
+    if (curr.mtimeMs === 0) return;                    // removed, or mid-replace
+    if (curr.mtimeMs === _lastKnownMtimeMs) return;    // our own write
+    // A write of ours is in flight — either the coalesced flush has not run yet, or
+    // it has renamed the file but not yet recorded the resulting mtime. Reloading now
+    // would read our own bytes back as if they were foreign and, worse, discard the
+    // in-memory change that is still waiting to be flushed. Skip; the next poll sees
+    // any genuinely foreign edit.
+    if (_writeGeneration > _flushedGeneration) return;
+    // Claim this version before reloading. If the reload throws — an operator
+    // saved half a file — we do not retry the same broken bytes every tick; the
+    // next edit changes the mtime and we try again.
+    _lastKnownMtimeMs = curr.mtimeMs;
+    log.info('config.json changed on disk — reloading');
+    _reloadChain = _reloadChain
+      .catch(() => { /* a prior failure must not break the chain */ })
+      .then(() => onExternalChange())
+      .then(() => { recordConfigMtime(); })
+      .catch(err => log.error(`Reload after external config change failed; keeping current config: ${err}`));
+  });
+}
+
+/** Stop watching (tests, and shutdown). */
+export function stopConfigWatcher(): void {
+  if (!_configWatchActive) return;
+  fs.unwatchFile(CONFIG_PATH);
+  _configWatchActive = false;
 }
 
 /**
@@ -331,6 +426,7 @@ async function writeConfigAsync(): Promise<void> {
   await fs.promises.rename(tmp, CONFIG_PATH);
   try { await fs.promises.chmod(CONFIG_PATH, 0o600); } catch { /* non-POSIX host — ignore */ }
   if (gen > _flushedGeneration) _flushedGeneration = gen;
+  recordConfigMtime(); // ours, not foreign — the watcher must not react to it
 }
 
 /**

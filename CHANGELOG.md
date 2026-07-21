@@ -1267,6 +1267,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An edit made to `config.json` on a running instance is no longer reverted by the server.** The server
+  treats its in-memory config as authoritative and writes the whole file back on every change — creating
+  a space, renaming one, saving settings. That made the in-memory copy stale the moment anyone edited the
+  file directly, so the next write silently reverted the edit. No error, no log line. `POST /api/admin/reload-config`
+  existed precisely to support hand edits, but nothing forced you to call it *before* the server next
+  wrote, and the failure was invisible when you didn't.
+  The server now **watches `config.json` and reloads within about two seconds** of a foreign change,
+  running the same work the reload endpoint does — so a space added by hand is initialised, not merely
+  parsed. `fs.watchFile` stat-polling is used rather than `fs.watch`/inotify, because the file normally
+  lives on a bind mount where inotify events are unreliable; our own writes are recognised by mtime and
+  ignored. Fixing the staleness rather than the writes means all **67 `saveConfig` call sites across 21
+  files** become correct without being touched — and, unlike converting them, cannot be undone by the
+  next handler someone writes.
+  A reload now **refreshes the config object in place instead of replacing it**, because ten call sites
+  hold a config across an `await` before saving it; replacing the object would detach those references
+  and write pre-reload content, reverting the very edit the reload just picked up.
+  **Remaining window, stated plainly:** an edit can still be lost if a config write lands in the ~2
+  seconds before the watcher notices — the exposure goes from *forever* to *one poll interval*, not to
+  zero. The test proves this both ways: it passes with the watcher given time to poll, and still fails
+  when the write races it. Calling the reload endpoint after a hand edit closes the window.
+
 - **A background config write could erase a change made to `config.json` by someone else.**
   `saveConfig()` serialises the whole in-memory config, so the ordinary read-mutate-save shape is
   last-writer-wins: anything written to the file after that snapshot was taken is silently dropped.

@@ -66,41 +66,39 @@ describe('config.json write safety', () => {
   });
 
   after(async () => {
-    // Never leave a marker behind — the next boot would try to reconcile it.
-    const cfg = readConfig();
-    if (cfg.pendingSpaceOp?.spaceId?.startsWith('cfgsafe-')) {
-      delete cfg.pendingSpaceOp;
-      writeConfig(cfg);
-    }
     for (const id of createdSpaceIds) {
       await delWithBody(INSTANCES.a, token, `/api/spaces/${id}`, { confirm: true }).catch(() => {});
     }
   });
 
-  // KNOWN DEFECT (tracked, not fixed here): request handlers still save from the in-memory
-  // config, which goes stale the moment anyone edits config.json directly — so an operator's
-  // hand edit is reverted by the next config-writing request unless they reload first. Fixing
-  // it means routing every handler through mutateConfig, which is its own change with its own
-  // risk; this release-blocker fix covers the background writer, where the window is minutes
-  // rather than milliseconds. Left as TODO so the gap stays visible instead of unasserted.
-  it('an on-disk change survives a later server-side config write', { todo: 'handlers still save a stale in-memory config' }, async () => {
+  // Was TODO until the config watcher landed: handlers save from the in-memory config, which
+  // went stale the moment anyone edited config.json directly, so an operator's hand edit was
+  // reverted by the next config-writing request. The watcher reloads within its poll interval,
+  // and the reload refreshes the config object in place, so a handler holding a reference
+  // across an await now merges onto fresh data instead of writing pre-reload content.
+  it('an on-disk change survives a later server-side config write', async () => {
     const victim = `cfgsafe-victim-${RUN_ID}`;
     const renamed = `${victim}-renamed`;
     const createR = await post(INSTANCES.a, token, '/api/spaces', { id: victim, label: 'Config Safety' });
     assert.equal(createR.status, 201, JSON.stringify(createR.body));
     createdSpaceIds.push(renamed);
 
-    // A third party writes to config.json — here a crash marker for an unrelated space,
-    // which is exactly what the crash-recovery path depends on surviving.
+    // A third party edits config.json — an operator relabelling a space by hand, which is
+    // exactly the workflow `POST /api/admin/reload-config` exists to support. Deliberately
+    // NOT a pendingSpaceOp marker: markers are consumed by the crash-recovery path, so one
+    // would be cleared by the very reload under test and would also block the rename below.
+    const edited = `cfgsafe-edited-${RUN_ID}`;
+    const editedR = await post(INSTANCES.a, token, '/api/spaces', { id: edited, label: 'Before' });
+    assert.equal(editedR.status, 201, JSON.stringify(editedR.body));
+    createdSpaceIds.push(edited);
+
     const cfg = readConfig();
-    cfg.pendingSpaceOp = {
-      type: 'rename',
-      spaceId: `cfgsafe-other-${RUN_ID}`,
-      newId: `cfgsafe-other-${RUN_ID}-dst`,
-      startedAt: new Date(RUN_ID).toISOString(),
-    };
+    cfg.spaces.find(s => s.id === edited).label = 'Edited By Hand';
     writeConfig(cfg);
-    await new Promise(r => setTimeout(r, 600)); // let the bind-mount propagate
+    // Let the bind-mount propagate AND the config watcher's stat poll (2s) notice.
+    // Without this the request below would race the watcher and the test would be
+    // asserting the old behaviour half the time.
+    await new Promise(r => setTimeout(r, 4000));
 
     // Now make the server persist config from its own copy, via an unrelated change.
     const renameR = await patch(INSTANCES.a, token, `/api/spaces/${victim}/rename`, { newId: renamed, confirm: true });
@@ -108,32 +106,28 @@ describe('config.json write safety', () => {
     await new Promise(r => setTimeout(r, 600));
 
     const after = readConfig();
-    assert.ok(
-      after.pendingSpaceOp,
+    assert.equal(
+      after.spaces.find(s => s.id === edited)?.label,
+      'Edited By Hand',
       'a config change written to disk was erased by a later server-side write — ' +
-      'any concurrent operator edit or crash marker is lost the same way',
+      'any operator edit is lost the same way',
     );
-    assert.equal(after.pendingSpaceOp.spaceId, `cfgsafe-other-${RUN_ID}`);
     // ...and the server's own change is there too: this is a merge, not a stalemate.
     assert.ok(after.spaces.some(s => s.id === renamed), 'the rename should still have been applied');
   });
 
-  it('index-readiness finalisation does not erase a marker written while it polled', async () => {
+  it('index-readiness finalisation does not erase an edit written while it polled', async () => {
     // The exact CI failure, in miniature: create a space (readiness polling starts in the
-    // background), inject a marker while it runs, and assert the marker is still there once
-    // the space reports ready. Before the fix the background write clobbered it.
+    // background), edit config.json while it runs, and assert the edit is still there once
+    // the space reports ready. Before the fix, that background write — which holds its
+    // snapshot for as long as the index builds take — silently reverted the edit.
     const id = `cfgsafe-ready-${RUN_ID}`;
     const createR = await post(INSTANCES.a, token, '/api/spaces', { id, label: 'Readiness Race' });
     assert.equal(createR.status, 201, JSON.stringify(createR.body));
     createdSpaceIds.push(id);
 
     const cfg = readConfig();
-    cfg.pendingSpaceOp = {
-      type: 'rename',
-      spaceId: `cfgsafe-ready-other-${RUN_ID}`,
-      newId: `cfgsafe-ready-other-${RUN_ID}-dst`,
-      startedAt: new Date(RUN_ID).toISOString(),
-    };
+    cfg.spaces.find(s => s.id === id).label = 'Relabelled Mid-Build';
     writeConfig(cfg);
 
     // Wait for readiness to actually land (that write is the one under test).
@@ -144,9 +138,10 @@ describe('config.json write safety', () => {
     }
     assert.ok(ready, `space '${id}' never reached indexStatus=ready`);
 
-    assert.ok(
-      readConfig().pendingSpaceOp,
-      'background index-readiness write erased a marker written while it was polling',
+    assert.equal(
+      readConfig().spaces.find(s => s.id === id)?.label,
+      'Relabelled Mid-Build',
+      'the background index-readiness write erased an edit made while it was polling',
     );
   });
 });

@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { log } from '../util/log.js';
 import type { Config, SecretsFile, SchemaLibraryEntry, SchemaCatalog } from './types.js';
+import { normalizeDocExtractionMode } from './types.js';
 import { resolveMasterSecret, isEnvelope, encryptEnvelope, decryptEnvelope } from './secretbox.js';
 
 const CONFIG_PATH = process.env['CONFIG_PATH'] ?? '/config/config.json';
@@ -795,7 +796,12 @@ export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig
   return {
     strategy: base.strategy ?? d.strategy,
     extractImages: base.extractImages ?? d.extractImages,
-    mode: base.mode ?? d.mode,
+    // Normalise on READ, not only at the API boundary: `max` is a stored value that existing
+    // config.json files still carry, and it can reach here without ever passing through a PATCH
+    // (a hand edit, a restored backup, a config baked by infra). Left unnormalised it would fall
+    // through the ladder as an unknown value and quietly drop the repair pass those instances asked
+    // for — a downgrade nobody triggered and nothing would report.
+    mode: normalizeDocExtractionMode(base.mode) ?? d.mode,
     renderDpi: base.renderDpi ?? d.renderDpi,
     maxPages: base.maxPages ?? d.maxPages,
     pageTimeoutMs: base.pageTimeoutMs ?? d.pageTimeoutMs,

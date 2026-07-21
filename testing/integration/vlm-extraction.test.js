@@ -53,12 +53,14 @@ describe('VLM extraction mode wiring (F11)', () => {
     assert.equal(r.body?.embeddingStatus, 'pending');
   });
 
-  it('a PDF uploaded under mode:max (repair tier) also degrades gracefully (202)', async () => {
-    // `max` adds the repair pass on top of `vlm`. With no VLM/render/OCR sidecar in CI the route still
+  it('a PDF uploaded under the repair tier also degrades gracefully (202)', async () => {
+    // `repair` adds the repair pass on top of `vlm`. With no VLM/render/OCR sidecar in CI the route still
     // collapses to OCR — the repair tier must never make an upload fail where `vlm`/`ocr` would succeed.
+    // Sent as the LEGACY `max` spelling on purpose: existing config carries it, and it must land as
+    // `repair` rather than falling through as an unknown level and silently dropping the repair pass.
     const set = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: { mode: 'max' } });
     assert.equal(set.status, 200, JSON.stringify(set.body));
-    assert.equal(set.body?.config?.documentProcessing?.mode, 'max');
+    assert.equal(set.body?.config?.documentProcessing?.mode, 'repair', 'legacy max must normalise to repair');
 
     const r = await upload(tokenA, `max-mode-${Date.now()}.pdf`, Buffer.from('%PDF-1.4 test').toString('base64'));
     assert.equal(r.status, 202, `expected 202 (graceful async), got ${r.status}: ${JSON.stringify(r.body)}`);
@@ -66,17 +68,33 @@ describe('VLM extraction mode wiring (F11)', () => {
     assert.equal(r.body?.embeddingStatus, 'pending');
   });
 
+  it('a document uploaded to a space with extraction off is skipped, not left pending', async () => {
+    // The failure this guards against is a file stuck at 'pending' forever: indistinguishable from a
+    // stuck queue, with recall returning nothing and neither saying why.
+    const set = await patch(INSTANCES.a, tokenA, '/api/spaces/general', { documentExtraction: 'off' });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    assert.equal(set.body?.space?.documentExtraction, 'off');
+
+    const r = await upload(tokenA, `off-mode-${Date.now()}.pdf`, Buffer.from('%PDF-1.4 test').toString('base64'));
+    assert.ok(r.status === 201 || r.status === 202, `unexpected status ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body?.embeddingStatus, 'skipped', 'an unanalysed document must reach a terminal state');
+
+    // Put it back so the ordering of later tests does not depend on this one.
+    await patch(INSTANCES.a, tokenA, '/api/spaces/general', { documentExtraction: null });
+  });
+
   // ── F11-c: per-space extraction-mode override ─────────────────────────────────
   it('a per-space documentExtraction override round-trips and clears (F11-c)', async () => {
-    // Instance default is OCR here; set the space to override to `max` and confirm it persists.
+    // Sent as the legacy `max`, stored as `repair` — a space configured before the rename keeps the
+    // level it asked for instead of quietly dropping to a lower rung.
     const set = await patch(INSTANCES.a, tokenA, '/api/spaces/general', { documentExtraction: 'max' });
     assert.equal(set.status, 200, JSON.stringify(set.body));
-    assert.equal(set.body?.space?.documentExtraction, 'max');
+    assert.equal(set.body?.space?.documentExtraction, 'repair');
 
     // The override is surfaced on the spaces list too (so the UI can render it).
     const list = await get(INSTANCES.a, tokenA, '/api/spaces');
     const general = (list.body?.spaces ?? []).find(s => s.id === 'general');
-    assert.equal(general?.documentExtraction, 'max', 'override should appear in the spaces list');
+    assert.equal(general?.documentExtraction, 'repair', 'override should appear in the spaces list');
 
     // null clears it → the space inherits the instance default again (field absent).
     const clear = await patch(INSTANCES.a, tokenA, '/api/spaces/general', { documentExtraction: null });

@@ -1891,6 +1891,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Document extraction is now a ladder with a real "off", and `auto` means the most that is possible.**
+  The levels are `off · ocr · vlm · repair`, plus `auto`. Two things changed beyond the naming:
+  - **`auto` now resolves to the highest level the instance can actually run.** It previously routed
+    identically to `vlm` — neither added the repair or consensus stages, only `max` did — so an operator
+    who configured a repair model and chose "auto" silently never got it. **This changes behaviour on
+    upgrade without anyone touching a setting:** an `auto` space with a repair model configured starts
+    running the repair (and verify) pass, which is more thorough but slower and more model calls per
+    document. Set the level to `vlm` explicitly to keep the previous behaviour.
+  - **`off` means documents are stored but never analysed** — no OCR, no render, no VLM, and nothing in
+    them can be recalled. Those uploads are **never queued** and are recorded as `skipped`. Queueing
+    them would leave every such file at `embeddingStatus: pending` forever, which is indistinguishable
+    from a stuck queue: a spinner that never resolves and recall that returns nothing, with neither
+    saying why.
+  - **`max` is renamed to `repair`**, after what that step adds — `auto` already meant "as much as
+    possible", so `max` was the same idea named from the other end. `max` is still accepted, and is
+    normalised **on read** rather than only at the API boundary: it is a stored value that reaches the
+    loader from a hand edit, a restored backup or an infra-baked config without passing through a PATCH,
+    and left unnormalised it would fall through as an unknown level and quietly drop the repair pass
+    those instances asked for.
+  - **The instance setting is a ceiling, not a default.** The effective level is
+    `min(instance, space override)`. Lowering the instance level caps every space above it (the space
+    keeps its choice and returns to it if the ceiling rises); raising it lifts only spaces on `auto`;
+    and instance `off` is a floor as well as a ceiling. Capability is granted centrally, while the
+    decision to use less of it stays with the space.
+
+  `extraction-policy` coverage: 22 → 35 tests, including the ceiling lattice and that a space stored as
+  `max` still gets the repair pass. Per-space picker, its three locales, and the docs updated to match.
+
 - **Settings → Models: the document-extraction mode buttons now read Auto · OCR · VLM · Max.** The picker
   led with `OCR`; it now leads with **Auto** (the default mode), followed by OCR, VLM, and Max in ascending
   capability — so the default is first and the order tells the capability story. Button-order only; behaviour

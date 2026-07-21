@@ -300,9 +300,28 @@ describe('ModelsComponent — derived display state', () => {
 
   it('setMode keeps the form and the signal in step', () => {
     const { c } = make();
-    c.setMode('max');
-    expect(c.docMode()).toBe('max');
-    expect(c.form.documentProcessing?.mode).toBe('max');
+    c.setMode('repair');
+    expect(c.docMode()).toBe('repair');
+    expect(c.form.documentProcessing?.mode).toBe('repair');
+  });
+
+  // The ladder gained `off` and renamed `max` to `repair` (owner, 2026-07-21). `off` is the rung
+  // with consequences: it must read as a deliberate choice, not as a degraded or broken pipeline.
+  it("'off' reads as off, not as a missing model or a fallback", () => {
+    const { c } = make();
+    c.setMode('off');
+    expect(c.docPillLabel()).toBe('Off');
+    expect(c.docVariant()).toBe('off');
+    expect(c.vlmNeededButMissing()).toBe(false); // nothing runs, so nothing can be missing
+    expect(c.docSummary()).toContain('never analysed');
+    expect(c.runLine()).toContain('Nothing runs');
+    expect(c.stageClass('ocr')).toBe('dim');
+  });
+
+  it("'auto' shows the full chain, because it means the most this instance can do", () => {
+    const { c } = make(cfgFixture({ documentProcessing: { mode: 'auto', vlmModel: 'llava' } }));
+    expect(c.stageClass('repair')).toBe('on');
+    expect(c.docSummary()).toContain('llava');
   });
 });
 

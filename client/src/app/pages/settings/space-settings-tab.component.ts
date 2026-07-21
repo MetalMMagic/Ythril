@@ -76,9 +76,10 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
       <select [(ngModel)]="state.stForm.documentExtraction">
         <option value="">{{ 'spaces.settings.extractionInherit' | transloco }}</option>
         <option value="auto">{{ 'spaces.settings.extractionAuto' | transloco }}</option>
+        <option value="off">{{ 'spaces.settings.extractionOff' | transloco }}</option>
         <option value="ocr">{{ 'spaces.settings.extractionOcr' | transloco }}</option>
         <option value="vlm">{{ 'spaces.settings.extractionVlm' | transloco }}</option>
-        <option value="max">{{ 'spaces.settings.extractionMax' | transloco }}</option>
+        <option value="repair">{{ 'spaces.settings.extractionRepair' | transloco }}</option>
       </select>
       <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.extractionHint' | transloco }}</div>
     </div>

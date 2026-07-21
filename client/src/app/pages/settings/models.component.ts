@@ -26,7 +26,7 @@ interface EmbeddingCfg {
   apiKey?: string;
 }
 
-type DocMode = 'ocr' | 'vlm' | 'auto' | 'max';
+type DocMode = 'off' | 'ocr' | 'vlm' | 'repair' | 'auto';
 type DocAssistUse = 'repair';
 /** F11-b — external "assist model": a bigger, hosted LLM (own endpoint) assigned to specific tasks. The
  *  only path that sends document content off the instance, so it's gated by an egress acknowledgment. */
@@ -58,17 +58,21 @@ interface MediaCfg {
 }
 
 const MODE_DESC: Record<DocMode, string> = {
-  ocr:  'The OCR sidecar (Tesseract) reads text and tables from each page. Fast, fully local, no vision model needed.',
-  vlm:  'Render each page and transcribe it with the vision model, grounded on the OCR text.',
-  auto: 'Use the vision model when it’s available, otherwise fall back to OCR automatically.',
-  max:  'VLM, a repair pass that reconciles the draft against the OCR text, plus an optional second-model consensus pass when a verify model is set.',
+  off:    'Documents are stored but never read. No text is extracted, so nothing from them can be recalled.',
+  ocr:    'The OCR sidecar (Tesseract) reads text and tables from each page. Fast, fully local, no vision model needed.',
+  vlm:    'Render each page and transcribe it with the vision model, grounded on the OCR text.',
+  repair: 'VLM, plus a repair pass that reconciles the draft against the OCR text — and a second-model consensus pass when a verify model is set.',
+  auto:   'As much as this instance can do: the repair pass when a repair model is configured, otherwise the vision model, otherwise OCR.',
 };
 // Which pipeline stages are active per mode (drives the diagram).
 const MODE_STAGES: Record<DocMode, Set<string>> = {
-  ocr:  new Set(['ocr']),
-  vlm:  new Set(['ocr', 'render', 'vlm', 'validate']),
-  auto: new Set(['ocr', 'render', 'vlm', 'validate']),
-  max:  new Set(['ocr', 'render', 'vlm', 'validate', 'repair', 'verify']),
+  off:    new Set([]),
+  ocr:    new Set(['ocr']),
+  vlm:    new Set(['ocr', 'render', 'vlm', 'validate']),
+  repair: new Set(['ocr', 'render', 'vlm', 'validate', 'repair', 'verify']),
+  // 'auto' resolves to the top rung the instance can run, so it shows the full chain — the
+  // stages it cannot run are the same ones the missing-model warning already calls out.
+  auto:   new Set(['ocr', 'render', 'vlm', 'validate', 'repair', 'verify']),
 };
 const STAGES = [
   { key: 'ocr', nm: 'OCR', sub: 'evidence' },
@@ -430,7 +434,7 @@ export class ModelsComponent implements OnInit {
   private readonly confirmDialog = inject(ConfirmDialogService);
 
   // Button order: Auto first (it's the default), then OCR · VLM · Max ascending in capability.
-  readonly MODES: DocMode[] = ['auto', 'ocr', 'vlm', 'max'];
+  readonly MODES: DocMode[] = ['auto', 'off', 'ocr', 'vlm', 'repair'];
   readonly STAGES = STAGES;
 
   loading = signal(true);
@@ -529,7 +533,8 @@ export class ModelsComponent implements OnInit {
   // ── document extraction helpers ──
   setMode(m: DocMode): void { this.docMode.set(m); if (this.form.documentProcessing) this.form.documentProcessing.mode = m; }
   private vlmConfigured(): boolean { return !!this.docCfg().vlmModel; }
-  vlmNeededButMissing(): boolean { return this.docMode() !== 'ocr' && !this.vlmConfigured(); }
+  // 'off' runs nothing, so a missing vision model is not a problem it can have.
+  vlmNeededButMissing(): boolean { return this.docMode() !== 'ocr' && this.docMode() !== 'off' && !this.vlmConfigured(); }
   modeDescHtml(): string { return `<b>${this.docMode().toUpperCase()}</b> — ${MODE_DESC[this.docMode()]}`; }
   stageClass(key: string): string {
     if (!MODE_STAGES[this.docMode()].has(key)) return 'dim';
@@ -537,6 +542,7 @@ export class ModelsComponent implements OnInit {
     return 'on';
   }
   runLine(): string {
+    if (this.docMode() === 'off') return 'Nothing runs. Documents are stored as uploaded; no text is extracted and none of their content can be recalled.';
     if (this.vlmNeededButMissing()) return 'No vision model configured (DOC_VLM_MODEL is empty) — this mode falls back to OCR until you set one.';
     return this.docMode() === 'ocr'
       ? 'OCR only — text and tables are read by the OCR sidecar. No page rendering or vision model.'
@@ -544,13 +550,20 @@ export class ModelsComponent implements OnInit {
   }
   docSummary(): string {
     const m = this.docMode();
+    if (m === 'off') return 'Not read at all — documents are stored but never analysed';
     if (m === 'ocr') return 'Read by OCR only';
     if (this.vlmNeededButMissing()) return `Mode is ${m.toUpperCase()}, but no vision model — falls back to OCR`;
     const model = this.docCfg().vlmModel;
-    return `Read by ${m.toUpperCase()} — OCR-grounded ${model} vision${m === 'max' ? ', repaired against OCR' : ''}`;
+    return `Read by ${m.toUpperCase()} — OCR-grounded ${model} vision${m === 'repair' || m === 'auto' ? ', repaired against OCR' : ''}`;
   }
-  docPillLabel(): string { return this.vlmNeededButMissing() ? 'OCR fallback' : 'Active'; }
-  docVariant(): StatusVariant { return this.vlmNeededButMissing() ? 'warn' : 'active'; }
+  docPillLabel(): string {
+    if (this.docMode() === 'off') return 'Off';
+    return this.vlmNeededButMissing() ? 'OCR fallback' : 'Active';
+  }
+  docVariant(): StatusVariant {
+    if (this.docMode() === 'off') return 'off';
+    return this.vlmNeededButMissing() ? 'warn' : 'active';
+  }
 
   // ── summary pill helpers for vision/stt ──
   capVariant(model?: string): StatusVariant { return this.form.enabled ? (model ? 'active' : 'warn') : 'off'; }

@@ -21,6 +21,7 @@ import type { FileMetaDoc } from '../config/types.js';
 import { getMediaEmbeddingConfig, DEFAULT_MEDIA_MAX_FILE_SIZE_BYTES } from '../config/loader.js';
 import { resolveInputFormat, deleteConversionArtifacts, isMediaFormat, type ResolvedFormat } from './converters/pipeline.js';
 import { enqueueMediaJob, enqueueTextJob } from './media/job-queue.js';
+import { documentsAreOff } from './converters/extraction-level.js';
 import { toDocId } from '../util/paths.js';
 import { log } from '../util/log.js';
 
@@ -85,6 +86,19 @@ export async function dispatchFileProcessing(
   }
 
   if (resolvedFormat !== 'text') {
+    // Documents are off for this space: the file is stored but never analysed. Record a terminal
+    // state instead of queueing work that will do nothing — a job that is enqueued and then produces
+    // no chunks leaves the file at `pending` forever, which is indistinguishable from a stuck queue.
+    // That is precisely the silent-failure shape the vector-index work was about: the UI shows a
+    // spinner, recall returns nothing, and neither says why.
+    if (documentsAreOff(spaceId)) {
+      await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
+        asFilter<FileMetaDoc>({ _id: normId }),
+        { $set: { embeddingStatus: 'skipped' } },
+      );
+      log.info(`Document ${spaceId}/${filePath} not analysed: document extraction is off for this space`);
+      return { resolvedFormat, embeddingStatus: 'skipped' };
+    }
     // Document (md/txt/html/pdf/docx/epub): always converted by the background worker.
     // Clear stale conversion artifacts first so overwriting a document does not leave
     // duplicate chunk records behind.

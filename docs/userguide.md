@@ -536,7 +536,7 @@ When both providers are set to *Local*, no file content ever leaves your instanc
 
 ### External assist model (documents)
 
-The **External assist model** card lets you point a bigger, hosted model at specific document tasks — currently the **document repair pass** used by `max` extraction mode. It's off unless you both fill in an **Endpoint** + **Model** *and* tick a task under **Used for**.
+The **External assist model** card lets you point a bigger, hosted model at specific document tasks — currently the **document repair pass** used by the `repair` extraction level (and by `auto` when a repair model is configured). It's off unless you both fill in an **Endpoint** + **Model** *and* tick a task under **Used for**.
 
 This is the one document setting that sends content off your instance: when a task is assigned, the model receives OCR-extracted text and draft transcriptions (and, for future image tasks, rendered page images). Because of that, saving with a task assigned pops an **acknowledgment dialog** naming exactly what data goes to which host — you must confirm before it's enabled, and Ythril records that consent so content is never sent to a host you didn't acknowledge. Endpoints are checked to be public addresses, and the API key is stored in the encrypted secrets file. Leave it unconfigured (or untick every task) to keep document processing fully local.
 

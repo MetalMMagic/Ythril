@@ -51,6 +51,7 @@ import {
 } from '../converters/pipeline.js';
 import type { ResolvedFormat } from '../converters/pipeline.js';
 import { ConversionUnavailableError } from '../converters/types.js';
+import { effectiveDocExtractionMode } from '../converters/extraction-level.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { spaceRoot } from '../sandbox.js';
@@ -323,7 +324,7 @@ async function processJob(
         const resolvedFmt = (job.resolvedFormat ?? 'text') as ResolvedFormat;
         // F11-c: a per-space extraction-mode override wins over the instance-wide default (pipeline
         // falls back to `documentProcessing.mode` when this is undefined).
-        const spaceMode = getConfig().spaces.find(s => s.id === spaceId)?.documentExtraction;
+        const spaceMode = effectiveDocExtractionMode(spaceId);
         const { chunks, convertedMarkdown, extractedImages } = await runConversionPipeline(
           fileBytes, filePath, resolvedFmt, { mode: spaceMode },
         );

@@ -11,6 +11,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey, getEmbeddingConfig, getEmbeddingApiKey } from '../config/loader.js';
+import { DOC_EXTRACTION_MODES_IN, normalizeDocExtractionMode } from '../config/types.js';
 import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl, ssrfSafeFetch } from '../util/ssrf.js';
@@ -66,7 +67,8 @@ const AssistModelPatchSchema = z.object({
 const DocumentProcessingPatchSchema = z.object({
   strategy: z.enum(['hi_res', 'auto', 'fast', 'ocr_only']).optional(),
   extractImages: z.boolean().optional(),
-  mode: z.enum(['ocr', 'vlm', 'auto', 'max']).optional(),
+  // `max` accepted as the legacy spelling of `repair`; normalised before it is stored.
+  mode: z.enum(DOC_EXTRACTION_MODES_IN).optional(),
   renderDpi: z.number().int().min(72).max(600).optional(),
   maxPages: z.number().int().min(1).max(2_000).optional(),
   pageTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
@@ -263,6 +265,10 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
         ...(existing.documentProcessing as Record<string, unknown> ?? {}),
         ...parsed.data.documentProcessing,
       };
+      // Store the canonical spelling, so `max` never round-trips back out to a client.
+      if (parsed.data.documentProcessing.mode !== undefined) {
+        dpMerged['mode'] = normalizeDocExtractionMode(parsed.data.documentProcessing.mode);
+      }
       if (assistPatch) {
         const a = { ...assistPatch } as Record<string, unknown>;
         delete a['apiKey']; // never in config.json

@@ -12,6 +12,8 @@ import assert from 'node:assert/strict';
 import {
   decideRoute, validateExtraction, evidenceCoverage, coverageTokens, bestByEvidence,
 } from '../../server/dist/files/converters/extraction-policy.js';
+import { capDocExtractionMode } from '../../server/dist/files/converters/extraction-level.js';
+import { normalizeDocExtractionMode } from '../../server/dist/config/types.js';
 
 const ALL = { ocr: true, render: true, vlm: true, repair: true, verify: true };
 const none = (o) => ({ ocr: false, render: false, vlm: false, repair: false, verify: false, ...o });
@@ -53,22 +55,42 @@ describe('decideRoute', () => {
     assert.match(r.fallbackReason, /vlm/);
   });
 
-  it("mode 'max' composes repair + verify when wired in", () => {
-    const r = decideRoute('max', ALL);
+  it("mode 'repair' composes repair + verify when wired in", () => {
+    const r = decideRoute('repair', ALL);
     assert.deepEqual(r.stages, ['render', 'ocr-evidence', 'vlm', 'validate', 'repair', 'verify']);
     assert.equal(r.label, 'ocr+vlm+repair+verify');
   });
 
-  it("mode 'max' omits repair/verify when they aren't available", () => {
-    const r = decideRoute('max', none({ ocr: true, render: true, vlm: true }));
+  it("mode 'repair' omits repair/verify when they aren't available", () => {
+    const r = decideRoute('repair', none({ ocr: true, render: true, vlm: true }));
     assert.deepEqual(r.stages, ['render', 'ocr-evidence', 'vlm', 'validate']);
     assert.equal(r.label, 'ocr+vlm');
   });
 
-  it("mode 'auto' never forces the max-only repair/verify tiers even when available", () => {
+  // CHANGED BEHAVIOUR (owner, 2026-07-21): 'auto' means "the most that is possible", so it now
+  // resolves to the top rung instead of sitting level with 'vlm'. The previous test asserted the
+  // opposite; it is inverted rather than removed, because that inversion IS the change.
+  it("mode 'auto' resolves to the highest rung available — repair + verify when wired in", () => {
     const r = decideRoute('auto', ALL);
-    assert.ok(!r.stages.includes('repair'));
-    assert.ok(!r.stages.includes('verify'));
+    assert.ok(r.stages.includes('repair'), "'auto' should use the repair model when one exists");
+    assert.ok(r.stages.includes('verify'));
+    assert.equal(r.label, 'ocr+vlm+repair+verify');
+  });
+
+  it("mode 'auto' degrades to plain VLM when no repair model is wired in", () => {
+    const r = decideRoute('auto', none({ ocr: true, render: true, vlm: true }));
+    assert.deepEqual(r.stages, ['render', 'ocr-evidence', 'vlm', 'validate']);
+    assert.equal(r.label, 'ocr+vlm');
+  });
+
+  it("mode 'off' runs nothing at all — distinct from OCR-with-no-sidecar", () => {
+    for (const avail of [ALL, none()]) {
+      const r = decideRoute('off', avail);
+      assert.deepEqual(r.stages, []);
+      assert.equal(r.label, 'off');
+      assert.equal(r.ocrOnly, false, "'off' is not the OCR path — nothing runs");
+      assert.equal(r.fallbackReason, undefined, "'off' is a choice, not a degradation");
+    }
   });
 });
 
@@ -152,5 +174,69 @@ describe('bestByEvidence (F11-d consensus arbitration)', () => {
     const r = bestByEvidence([primary, verify, consensus], evidence);
     assert.equal(r.candidate.label, 'consensus');
     assert.equal(r.coverage, 1);
+  });
+});
+
+describe('capDocExtractionMode — the instance ceiling', () => {
+  it('a space may choose anything at or below the ceiling', () => {
+    assert.equal(capDocExtractionMode('repair', 'ocr'), 'ocr');
+    assert.equal(capDocExtractionMode('repair', 'vlm'), 'vlm');
+    assert.equal(capDocExtractionMode('repair', 'repair'), 'repair');
+    assert.equal(capDocExtractionMode('vlm', 'off'), 'off');
+  });
+
+  it('a choice above the ceiling is capped, not honoured', () => {
+    assert.equal(capDocExtractionMode('ocr', 'repair'), 'ocr');
+    assert.equal(capDocExtractionMode('vlm', 'repair'), 'vlm');
+    assert.equal(capDocExtractionMode('off', 'repair'), 'off');
+  });
+
+  it("instance 'off' is a floor as well as a ceiling — nothing is analysed anywhere", () => {
+    for (const choice of ['off', 'ocr', 'vlm', 'repair', 'auto']) {
+      assert.equal(capDocExtractionMode('off', choice), 'off');
+    }
+  });
+
+  it("a space on 'auto' follows the ceiling wherever it moves", () => {
+    assert.equal(capDocExtractionMode('ocr', 'auto'), 'ocr');
+    assert.equal(capDocExtractionMode('repair', 'auto'), 'repair');
+    assert.equal(capDocExtractionMode('off', 'auto'), 'off');
+  });
+
+  it("an 'auto' ceiling imposes no policy limit — the space's choice stands", () => {
+    assert.equal(capDocExtractionMode('auto', 'ocr'), 'ocr');
+    assert.equal(capDocExtractionMode('auto', 'repair'), 'repair');
+    assert.equal(capDocExtractionMode('auto', 'auto'), 'auto');
+  });
+
+  it('raising the ceiling does not raise a space that chose a lower rung', () => {
+    // Capability grows centrally; the decision to use less of it stays local.
+    assert.equal(capDocExtractionMode('repair', 'ocr'), 'ocr');
+  });
+
+  it('an unknown value is never silently downgraded', () => {
+    assert.equal(capDocExtractionMode('repair', 'something-new'), 'something-new');
+  });
+});
+
+describe('normalizeDocExtractionMode — the legacy max spelling', () => {
+  it("'max' reads as 'repair', because it is a stored value in existing config.json files", () => {
+    assert.equal(normalizeDocExtractionMode('max'), 'repair');
+  });
+
+  it('every other value passes through untouched', () => {
+    for (const m of ['off', 'ocr', 'vlm', 'repair', 'auto']) {
+      assert.equal(normalizeDocExtractionMode(m), m);
+    }
+  });
+
+  it('absent stays absent — "unset" must not become a level', () => {
+    assert.equal(normalizeDocExtractionMode(undefined), undefined);
+    assert.equal(normalizeDocExtractionMode(null), undefined);
+  });
+
+  it("a space stored as 'max' still gets the repair pass after the rename", () => {
+    assert.equal(capDocExtractionMode('auto', normalizeDocExtractionMode('max')), 'repair');
+    assert.ok(decideRoute(normalizeDocExtractionMode('max'), ALL).stages.includes('repair'));
   });
 });

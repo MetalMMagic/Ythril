@@ -25,7 +25,7 @@ export interface Space {
   recordTtlDays?: number;
   /** Per-space document-extraction mode override (F11-c). Absent = inherit the instance default
    *  (Settings → Models). Local/operational, like dupe rules. */
-  documentExtraction?: 'ocr' | 'vlm' | 'auto' | 'max';
+  documentExtraction?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto';
   /** Vector-index build state for a newly created space (B1). 'building' while the
    *  Atlas indexes finish; absent means ready. Semantic recall waits for READY. */
   indexStatus?: 'building' | 'ready' | 'failed';

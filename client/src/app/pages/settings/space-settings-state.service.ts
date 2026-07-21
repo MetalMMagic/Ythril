@@ -62,7 +62,7 @@ export class SpaceSettingsState {
   schemaCollTab = signal<KnowledgeType>('entity');
 
   // ── settings tab ───────────────────────────────────────────────────────────
-  stForm = { label: '', purpose: '', usageNotes: '', maxGiB: null as number | null, recordTtlDays: null as number | null, documentExtraction: '' as '' | 'ocr' | 'vlm' | 'auto' | 'max' };
+  stForm = { label: '', purpose: '', usageNotes: '', maxGiB: null as number | null, recordTtlDays: null as number | null, documentExtraction: '' as '' | 'off' | 'ocr' | 'vlm' | 'repair' | 'auto' };
 
   // ── duplicates tab ─────────────────────────────────────────────────────────
   dupeRulesState: DupeActionRule[] = [];

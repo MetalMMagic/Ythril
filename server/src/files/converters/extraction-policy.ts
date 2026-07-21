@@ -33,6 +33,8 @@ export interface ExtractionRoute {
 }
 
 const OCR_ROUTE: ExtractionRoute = { stages: ['ocr'], ocrOnly: true, label: 'ocr' };
+/** Nothing runs. Distinct from "OCR with no sidecar": this is a deliberate choice, not a degradation. */
+const OFF_ROUTE: ExtractionRoute = { stages: [], ocrOnly: false, label: 'off' };
 
 /**
  * Decide the extraction route. Never throws: VLM modes that lack `render` or `vlm` degrade to OCR (with a
@@ -40,7 +42,15 @@ const OCR_ROUTE: ExtractionRoute = { stages: ['ocr'], ocrOnly: true, label: 'ocr
  * `ConversionUnavailableError` downstream — routing does not mask that.
  */
 export function decideRoute(mode: DocExtractionMode, avail: CapabilityAvailability): ExtractionRoute {
+  // `off` means the document is not analysed at all — not "analysed by the cheap path". No stage runs,
+  // and the caller records a terminal skipped state rather than leaving the file queued forever.
+  if (mode === 'off') return OFF_ROUTE;
   if (mode === 'ocr') return OCR_ROUTE;
+
+  // `auto` means "the most this instance can actually do", so it resolves to the highest rung that is
+  // wired in. Without it, `auto` would sit at the same level as `vlm` and an operator asking for the
+  // best available would silently never get the repair pass they configured a model for.
+  if (mode === 'auto') mode = avail.repair ? 'repair' : 'vlm';
 
   // Every VLM mode needs page rasterization AND a VLM; otherwise fall back to OCR.
   if (!avail.render || !avail.vlm) {
@@ -54,9 +64,11 @@ export function decideRoute(mode: DocExtractionMode, avail: CapabilityAvailabili
   stages.push('vlm', 'validate');
   label.push('vlm');
 
-  // `max` composes the heavyweight tiers when they're wired in (promotion is runtime, gated on validation).
-  if (mode === 'max' && avail.repair) { stages.push('repair'); label.push('repair'); }
-  if (mode === 'max' && avail.verify) { stages.push('verify'); label.push('verify'); }
+  // `repair` composes the heavyweight tiers when they're wired in (promotion is runtime, gated on
+  // validation). `verify` is a sub-capability of this rung rather than a rung of its own — it engages
+  // only when a verify model is configured.
+  if (mode === 'repair' && avail.repair) { stages.push('repair'); label.push('repair'); }
+  if (mode === 'repair' && avail.verify) { stages.push('verify'); label.push('verify'); }
 
   return { stages, ocrOnly: false, label: label.join('+') };
 }

@@ -455,8 +455,33 @@ export interface DocAssistModelConfig {
 /** F11-b — tasks an external assist model can be assigned to. Extensible (transcribe / verify are later). */
 export type DocAssistUse = 'repair';
 
-/** F11 — document-extraction mode: OCR-only (default) vs the VLM precision pipeline. */
-export type DocExtractionMode = 'ocr' | 'vlm' | 'auto' | 'max';
+/**
+ * F11 — how thoroughly documents are read, low to high:
+ *
+ *   off     nothing is extracted; the file is stored but never analysed
+ *   ocr     the OCR sidecar reads text and tables — fully local, no vision model
+ *   vlm     pages are rendered and transcribed by the vision model, grounded on the OCR text
+ *   repair  vlm plus a repair pass reconciling the draft against the OCR evidence
+ *           (and a second-model consensus pass when a verify model is configured)
+ *   auto    whatever is the most this instance can actually do — resolved at runtime
+ *
+ * `auto` is not a rung, it is "the highest rung available": it degrades to `vlm` without a repair
+ * model and to `ocr` without a vision model, so an instance never advertises a stage it cannot run.
+ *
+ * `max` is the previous name for `repair` and is still accepted when read — it is a stored value in
+ * config.json, and dropping it would silently reset an instance to a different level on load. See
+ * `normalizeDocExtractionMode`.
+ */
+export type DocExtractionMode = 'off' | 'ocr' | 'vlm' | 'repair' | 'auto';
+
+/** Every value accepted on input, including the legacy `max` spelling of `repair`. */
+export const DOC_EXTRACTION_MODES_IN = ['off', 'ocr', 'vlm', 'repair', 'auto', 'max'] as const;
+
+/** Fold the legacy `max` spelling into `repair`; pass everything else through. */
+export function normalizeDocExtractionMode(mode: string | undefined | null): DocExtractionMode | undefined {
+  if (mode === null || mode === undefined) return undefined;
+  return (mode === 'max' ? 'repair' : mode) as DocExtractionMode;
+}
 
 /**
  * Configuration for the face recognition pipeline.

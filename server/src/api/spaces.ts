@@ -20,6 +20,7 @@ import { buildSpaceVectorIndexes } from '../spaces/vector-index.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import { peerSafeFetch } from '../sync/peer-fetch.js';
 import type { SpaceMeta, KnowledgeType, TypeSchema } from '../config/types.js';
+import { DOC_EXTRACTION_MODES_IN, normalizeDocExtractionMode } from '../config/types.js';
 import { writeFile as writeSpaceFile } from '../files/files.js';
 
 export const spacesRouter = Router();
@@ -142,7 +143,8 @@ const UpdateSpaceBody = z.object({
   // F10: auto-TTL in days. 0/null clears it; a positive value stamps every new/updated record.
   recordTtlDays: z.number().int().nonnegative().max(36500).nullable().optional(),
   // F11-c: per-space document-extraction mode override. null clears it (inherit the instance default).
-  documentExtraction: z.enum(['ocr', 'vlm', 'auto', 'max']).nullable().optional(),
+  // `max` is accepted as the legacy spelling of `repair` and normalised on the way in.
+  documentExtraction: z.enum(DOC_EXTRACTION_MODES_IN).nullable().optional(),
 }).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined, {
   message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, or documentExtraction must be provided',
 });
@@ -434,7 +436,7 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
   // Per-space extraction-mode override (F11-c) is local/operational (like dupe rules) — apply
   // immediately, never voted. null clears the override so the space inherits the instance default.
   if (parsed.data.documentExtraction !== undefined) {
-    updateSpace(id, { documentExtraction: parsed.data.documentExtraction ?? undefined });
+    updateSpace(id, { documentExtraction: normalizeDocExtractionMode(parsed.data.documentExtraction) });
   }
 
   // Merge the incoming meta with the existing meta so that PATCH has true
@@ -508,7 +510,14 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     }
   }
 
-  const updated = updateSpace(id, { ...parsed.data, meta: mergedMeta });
+  // Pull documentExtraction out of the spread: the parsed value may still be the legacy `max`,
+  // and only the normalised spelling is ever stored.
+  const { documentExtraction: rawMode, ...restPatch } = parsed.data;
+  const updated = updateSpace(id, {
+    ...restPatch,
+    meta: mergedMeta,
+    ...(rawMode !== undefined ? { documentExtraction: normalizeDocExtractionMode(rawMode) } : {}),
+  });
   if (!updated) {
     res.status(404).json({ error: `Space '${id}' not found` });
     return;

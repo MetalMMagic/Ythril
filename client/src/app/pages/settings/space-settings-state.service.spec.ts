@@ -99,8 +99,8 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
 
   it('copies a per-space documentExtraction override into the form, and clears to "" when absent (F11-c)', () => {
     const c = make();
-    c.openSettings(space({ id: 'ov', label: 'Ov', documentExtraction: 'max' } as Partial<Space>));
-    expect(c.stForm.documentExtraction).toBe('max');
+    c.openSettings(space({ id: 'ov', label: 'Ov', documentExtraction: 'repair' } as Partial<Space>));
+    expect(c.stForm.documentExtraction).toBe('repair');
     // A space with no override maps to '' (inherit instance default).
     c.openSettings(space({ id: 'plain', label: 'Plain' } as Partial<Space>));
     expect(c.stForm.documentExtraction).toBe('');

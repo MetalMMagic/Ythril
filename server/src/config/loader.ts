@@ -658,7 +658,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
     // Surface the resolved document-processing/extraction settings (F11) so the admin API GET and the
     // Models UI can read them back (the worker ignores this block).
     documentProcessing: getDocumentProcessingConfig(),
-    lockedByInfra: locked,
+    lockedByInfra: [...locked, ...lockedFaceRecognitionFields()],
     // F11 — infra-managed lock (like YTHRIL_MONGO_INFRA_MANAGED): env OR config marks the whole media/model
     // config as managed by infrastructure, so the admin API refuses edits and the UI is read-only.
     infraManaged: process.env['YTHRIL_MEDIA_INFRA_MANAGED'] === 'true' || base.infraManaged === true,
@@ -748,15 +748,51 @@ const FACE_RECOGNITION_DEFAULTS: Required<FaceRecognitionConfig> = {
  *
  * Returns defaults with `enabled: false` when no config block is present.
  */
+/**
+ * Env keys that pin face recognition, mirroring the media-provider pattern. Face recognition was the
+ * only model in the pipeline an infra admin could not set — every other one (vision, STT, embedding,
+ * assist, both sidecars) already had an override, so an infra-managed deployment could pin everything
+ * except whether faces are processed at all. That is the setting with the clearest privacy weight.
+ */
+const FACE_RECOGNITION_ENV: Record<keyof Required<FaceRecognitionConfig>, string> = {
+  enabled: 'FACE_RECOGNITION_ENABLED',
+  confidenceThreshold: 'FACE_RECOGNITION_CONFIDENCE_THRESHOLD',
+  minFaceSizeFraction: 'FACE_RECOGNITION_MIN_FACE_SIZE_FRACTION',
+  modelPath: 'FACE_RECOGNITION_MODEL_PATH',
+  personEntityTypes: 'FACE_RECOGNITION_PERSON_ENTITY_TYPES',
+  reprocessSyncedImages: 'FACE_RECOGNITION_REPROCESS_SYNCED_IMAGES',
+};
+
+/** Field names (as `faceRecognition.<field>`) currently pinned by an env var. */
+export function lockedFaceRecognitionFields(): string[] {
+  return (Object.entries(FACE_RECOGNITION_ENV) as Array<[string, string]>)
+    .filter(([, envKey]) => process.env[envKey] !== undefined)
+    .map(([field]) => `faceRecognition.${field}`);
+}
+
 export function getFaceRecognitionConfig(): Required<FaceRecognitionConfig> {
-  const mediaCfg = getConfig().mediaEmbedding;
-  const base: FaceRecognitionConfig = mediaCfg?.faceRecognition ?? {};
+  // Tolerate config not being loaded: an infra env pin must apply during early boot too, and this is
+  // read from paths that can run before the first successful load.
+  let base: FaceRecognitionConfig = {};
+  try { base = getConfig().mediaEmbedding?.faceRecognition ?? {}; } catch { /* pre-setup */ }
+
+  // env → config → default, matching getMediaEmbeddingConfig's precedence exactly.
+  const pick = <K extends keyof Required<FaceRecognitionConfig>>(
+    field: K,
+    parse: (raw: string) => Required<FaceRecognitionConfig>[K],
+  ): Required<FaceRecognitionConfig>[K] => {
+    const rawEnv = process.env[FACE_RECOGNITION_ENV[field]];
+    if (rawEnv !== undefined) return parse(rawEnv);
+    return (base[field] ?? FACE_RECOGNITION_DEFAULTS[field]) as Required<FaceRecognitionConfig>[K];
+  };
+
   return {
-    enabled: base.enabled ?? FACE_RECOGNITION_DEFAULTS.enabled,
-    confidenceThreshold: base.confidenceThreshold ?? FACE_RECOGNITION_DEFAULTS.confidenceThreshold,
-    minFaceSizeFraction: base.minFaceSizeFraction ?? FACE_RECOGNITION_DEFAULTS.minFaceSizeFraction,
-    modelPath: base.modelPath ?? FACE_RECOGNITION_DEFAULTS.modelPath,
-    personEntityTypes: base.personEntityTypes ?? FACE_RECOGNITION_DEFAULTS.personEntityTypes,
-    reprocessSyncedImages: base.reprocessSyncedImages ?? FACE_RECOGNITION_DEFAULTS.reprocessSyncedImages,
+    enabled: pick('enabled', v => v === 'true' || v === '1'),
+    confidenceThreshold: pick('confidenceThreshold', v => Number(v)),
+    minFaceSizeFraction: pick('minFaceSizeFraction', v => Number(v)),
+    modelPath: pick('modelPath', v => v),
+    // Comma-separated: FACE_RECOGNITION_PERSON_ENTITY_TYPES=person,employee
+    personEntityTypes: pick('personEntityTypes', v => v.split(',').map(t => t.trim()).filter(Boolean)),
+    reprocessSyncedImages: pick('reprocessSyncedImages', v => v === 'true' || v === '1'),
   };
 }

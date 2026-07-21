@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Face recognition can now be pinned by infra — it was the one model in the pipeline that could not
+  be.** Vision, speech-to-text, embedding, the document assist model and both sidecars all had env
+  overrides, so an infra-managed deployment could fix every model *except whether faces are detected
+  and embedded at all* — the setting with the clearest privacy weight of the lot. Opting out required
+  filesystem access to `config.json`, and it is deliberately absent from
+  `PATCH /api/admin/media-config`, so there was no API path either. Every
+  `mediaEmbedding.faceRecognition` field now takes an env var (`FACE_RECOGNITION_ENABLED`,
+  `_CONFIDENCE_THRESHOLD`, `_MIN_FACE_SIZE_FRACTION`, `_MODEL_PATH`, `_PERSON_ENTITY_TYPES`,
+  `_REPROCESS_SYNCED_IMAGES`) with the same **env → config → default** precedence every other media
+  setting uses. `FACE_RECOGNITION_ENABLED=false` guarantees no face processing on an instance
+  regardless of what `config.json` says — including after restoring a backup taken where it was on.
+  Pinned fields are reported in `lockedByInfra`, so the Settings UI renders them read-only instead of
+  offering a control that silently does nothing. New standalone tests cover precedence, the coercion
+  of each field (booleans, numbers, and the comma-separated entity-type list), and the lock reporting.
+
 - **Self-hosted OpenAI-compatible inference on a private address is now a supported shape**
   (`allowPrivateModelEndpoints`). Provider config offered `local` and `external`, and those names look
   like a trust level but actually select a **wire protocol**: `local` speaks Ollama's `/api/chat`,

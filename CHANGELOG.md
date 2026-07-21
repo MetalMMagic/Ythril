@@ -117,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `UNSTRUCTURED_REPLICAS=0`, `OLLAMA_REPLICAS=0` or `WHISPER_REPLICAS=0` keeps that service out of the
   stack entirely — a running container is stopped and removed on the next `docker compose up`, and a
   machine that never starts it never pays for its image pull. This matters most for `unstructured`
-  (~4.5 GB compressed / ~7.5 GB on disk): an instance that doesn't need server-side PDF/DOCX/EPUB
+  (≈10.8 GB download, 20–32 GB on disk): an instance that doesn't need server-side PDF/DOCX/EPUB
   conversion, or that points `CONVERSION_SIDECAR_URL` at an external converter, no longer has to
   download it. Conversion then reports `sidecar_down` — the existing graceful degradation — and
   in-process text/HTML conversion plus every other feature keep working. Previously the only options
@@ -1252,6 +1252,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Corrected the `unstructured` sidecar's documented size — it was stated in four places and every
+  figure was wrong — and hardened the Kubernetes reference for it.** Reported by an operator deploying
+  on k3s with default-deny egress. The size is a capacity-planning number (`.env.example` cites it to
+  justify `UNSTRUCTURED_REPLICAS=0`), and it now comes from the **registry manifest** rather than from
+  one runtime: **≈10.8 GB to download** across 26 compressed layers, and **20–32 GB on disk depending
+  on the storage driver** — 20.7 GB measured on k3s/containerd, 31.9 GB on Docker Desktop. On-disk is
+  deliberately a range: two honest measurements disagreed by 1.5x because the storage driver decides,
+  so a single precise-looking figure would just be wrong somewhere else. (Three of the four stale
+  claims were identical, which reads like corroboration but was one source copied three times.)
+  Three further fixes to `kubernetes/manifests/ythril-deployment.yaml`, the artifact a Kubernetes
+  deployer actually copies. **`HF_HUB_OFFLINE=1` was missing:** without it every `hi_res` extraction on
+  a no-egress cluster fails outright — total failure, not degradation — because `huggingface_hub` calls
+  the hub to resolve models that are already baked into the image. **The runtime UID is now declared**
+  (`notebook-user`, uid 1000 — confirmed from the image’s registry config, no pull required), so the
+  full Pod Security Admission `restricted` set is asserted explicitly (`runAsNonRoot`,
+  `runAsUser`/`runAsGroup: 1000`, `readOnlyRootFilesystem` with an emptyDir for scratch,
+  `seccompProfile: RuntimeDefault`, `drop: [ALL]`) instead of a deployer having to run the image to
+  find out. **And the CPU limit rose from 1000m to 4000m** to match the measured workload (1.73 GB RSS
+  across 61 threads, ~4 cores) and the compose sizing, which disagreed with it.
+  Also **digest-pinned `unstructured-api`** — it was left on a mutable tag by the same change that
+  pinned `ollama`, `whisper`, `mongodb-atlas-local` and `node:22-slim`, despite being the highest-risk
+  parser in the stack. And clarified `RENDER_SIDECAR_URL`: `http://localhost:8100` is the *application*
+  default while compose overrides it to `http://doc-render:8100` — both correct for their layer, which
+  the guide never said.
+
 - **Updating an instance no longer breaks every tab that was already open.** Every Angular build rehashes
   its lazy-chunk filenames, so a browser still running the previous `main-*.js` asks for a `chunk-*.js`
   that no longer exists the moment you navigate to a lazy route. The result was a **dead click**: no
@@ -1437,7 +1462,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `kubernetes/manifests/ythril-deployment.yaml`) to the still-public `unstructured-io/unstructured-api:0.0.75`
   — the same upstream release minus the `-full` extras (extra Tesseract language packs + LibreOffice),
   which Ythril's `hi_res` OCR + embedded-image extraction path does not use. It is also the image
-  upstream's own README points self-hosters at, is ~4.5 GB compressed (vs the heavier `-full`), and stays
+  upstream's own README points self-hosters at, is ≈10.8 GB to download (vs the heavier `-full`), and stays
   Apache-2.0. No server or config change was needed; the sidecar API (`/general/v0/general`) is identical.
 
 - **Image/PDF previews and file downloads were broken (blank pane / failed download).** They loaded

@@ -108,20 +108,51 @@ spec:
         # License: Apache-2.0 (verify before pinning any new tag — see note above)
         # NOTE: the `-full` variant was made private on quay.io (401 on pull); the public
         # `unstructured-api` image is the same release minus extra Tesseract language packs
-        # and still bundles OCR model weights (Tesseract) — ~4.5 GB compressed. Pre-pull on
-        # nodes before first deployment to avoid cold-start delays on Pod restarts.
+        # and still bundles OCR model weights (Tesseract). SIZE, measured rather than estimated:
+        # ≈10.8 GB to download (26 compressed layers, from the registry manifest) and 20–32 GB on disk
+        # depending on the storage driver — 20.7 GB observed on k3s/containerd, 31.9 GB on Docker
+        # Desktop. Pre-pull on nodes before first deployment to avoid cold-start delays on restarts.
         - name: unstructured
-          # Pin to a specific tag and verify the LICENSE before upgrading.
-          # Run `docker run --rm --entrypoint cat <image> /app/LICENSE` to confirm Apache-2.0.
-          image: downloads.unstructured.io/unstructured-io/unstructured-api:0.1.2
-          # Lighter hardening than the main container: the OCR pipeline writes
-          # scratch files across its own filesystem, so readOnlyRootFilesystem is
-          # left off, but privilege escalation and added capabilities are still denied.
+          # Pinned to the manifest-list digest so a re-pull cannot silently substitute a different
+          # image — this is the highest-risk parser in the deployment. Verify the LICENSE before
+          # changing it: `docker run --rm --entrypoint cat <image> /app/LICENSE` (Apache-2.0).
+          image: downloads.unstructured.io/unstructured-io/unstructured-api:0.1.2@sha256:986bc7e5d6c24916c22d45d925db366f55bf4d2ebb0079a7b5d38b48fbc6fb1d
+          env:
+            # WITHOUT THIS, EVERY hi_res EXTRACTION FAILS on a no-egress cluster with
+            #   "Can't load image processor for 'microsoft/table-transformer-structure-recognition'"
+            # — total failure, not degradation. The layout and table models ARE baked into the image,
+            # but huggingface_hub calls the hub to *resolve* them before reading its own cache, and a
+            # default-deny egress policy blocks that call. Offline mode makes it use what it has.
+            # Do NOT set HOME or XDG_CACHE_HOME here: the image's HOME=/home/notebook-user is what
+            # locates that baked cache, and moving it makes the image try to download instead.
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            # numba compiles a function and caches it NEXT TO the installed package, and matplotlib
+            # wants a config dir — both fail on a read-only root filesystem, so point them at the
+            # writable scratch mount below.
+            - name: NUMBA_CACHE_DIR
+              value: /tmp/numba
+            - name: MPLCONFIGDIR
+              value: /tmp/matplotlib
+          # The image runs as uid 1000 (`notebook-user`) — confirmed from its registry config, not by
+          # experiment — so the full Pod Security Admission `restricted` set is assertable here.
+          # Declared explicitly so a deployer does not have to run the image to find out.
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: RuntimeDefault
             capabilities:
               drop:
                 - ALL
+          volumeMounts:
+            # Everything the OCR pipeline writes at request time lands here, which is what lets the
+            # root filesystem stay read-only.
+            - name: unstructured-tmp
+              mountPath: /tmp
           ports:
             - containerPort: 8000
           resources:
@@ -129,8 +160,12 @@ spec:
               cpu: "250m"
               memory: "2Gi"
             limits:
-              cpu: "1000m"
-              memory: "4Gi"
+              # Measured on a real hi_res extraction: 1.73 GB RSS across 61 threads, using roughly 4
+              # cores. The previous 1000m limit throttled that to a quarter of what the job wants —
+              # this now matches the compose sizing (`UNSTRUCTURED_CPUS`, default 4.0) so the two
+              # deployment paths do not disagree about the shape of the workload.
+              cpu: "4000m"
+              memory: "6Gi"
           readinessProbe:
             httpGet:
               path: /healthcheck
@@ -159,6 +194,12 @@ spec:
         # without provisioning storage.
         - name: tmp
           emptyDir: {}
+        # Per-request OCR scratch for the unstructured sidecar (numba/matplotlib caches, page images).
+        # Sized because hi_res spills page renders here; ephemeral, so an emptyDir keeps the sidecar's
+        # root filesystem read-only without provisioning storage.
+        - name: unstructured-tmp
+          emptyDir:
+            sizeLimit: 1Gi
 ---
 # Persistent config store. /config holds config.json (tokens, spaces, networks),
 # secrets.json, and the schema library — all runtime-mutable state that must

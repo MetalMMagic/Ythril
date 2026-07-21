@@ -1215,6 +1215,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Updating an instance no longer breaks every tab that was already open.** Every Angular build rehashes
+  its lazy-chunk filenames, so a browser still running the previous `main-*.js` asks for a `chunk-*.js`
+  that no longer exists the moment you navigate to a lazy route. The result was a **dead click**: no
+  message, no network entry (the browser caches the failed dynamic import, so the retry never leaves the
+  page), and only a `TypeError: error loading dynamically imported module` in a console the user is not
+  looking at — with a hard refresh as the only recovery, which nobody has a reason to try. Two things were
+  wrong. **The server answered a missing build asset with `200 text/html`**: the SPA fallback handed back
+  index.html, so the browser received a web page where it had asked for JavaScript and nothing on either
+  side could tell a stale build from a real route. A request for a hashed build asset that does not exist
+  is now a genuine **404**, while navigation paths still receive index.html so deep links keep working.
+  **And the client had no recovery at all** — no navigation-error handler, nothing watching for a failed
+  import. It now detects a chunk-load failure (router hook plus global `error`/`unhandledrejection`
+  listeners, matching the wording Chrome, Firefox and Safari each use) and reloads once, which picks up
+  the new bundle and completes the navigation the user asked for. The guard is a **60-second cooldown
+  timestamp, not a boolean**: a broken deploy boots fine and only fails on navigation, so clearing a flag
+  on successful boot would have turned the one-shot reload into an endless reload loop — there is a test
+  named after exactly that trap. Reported by the instance owner, who lost Spaces and Models after an
+  update; reproduced, and both halves verified against the live test stack (11 new server assertions,
+  8 client).
+
 - **The conflict-resolution integration tests no longer skip themselves into a green build.** Nine tests
   in `conflict-resolution.test.js` began with `if (!conflictId) { t.skip('Could not seed conflict'); return; }`,
   and the `seedConflict()` helper returned `null` on any non-201 instead of failing. Seeding there is a

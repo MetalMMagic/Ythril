@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Rate limits are now per client, not per source IP — one busy client can no longer 429 everyone else.**
+  In the default Docker deployment there is no reverse proxy, so every request reaches Ythril from the same
+  Docker gateway address (`::ffff:172.21.0.x`). With the limiters keyed on `req.ip`, that put **every**
+  client of the instance into one shared 300/min bucket: a single busy integration — or a buggy one, which
+  is exactly what the brain request storm was — locked out every other client, and the app could 429 its
+  own UI. The global, sync, notify and bulk-wipe limiters now bucket on the **presented credential**
+  (`Authorization: Bearer`, or the MCP `?token=` parameter, which the transport uses by design), hashed
+  before use so the credential never lands in a store key, a log line, or a header. Requests with no
+  credential (login, setup, an anonymous probe) still key on the IP — the only identity they have — with
+  IPv6 normalised to the `/64` so a client cannot rotate through addresses it already owns; the auth
+  limiter stays IP-keyed on purpose, since throttling credential-guessing is precisely a per-source
+  concern. Because per-client keying alone would let a flood of random bearer strings mint unbounded
+  buckets, a **per-IP flood backstop** (3000/min, far above any legitimate single client) now sits in
+  front of every route except `/health`, `/ready` and `/metrics`. `docs/integration-guide.md` documents
+  the keying, the backstop, and why a reverse-proxy deployment must set `TRUST_PROXY` to the exact hop
+  count. (Found in the 2026-07-21 multi-lens audit; the storm had already shown the impact.)
+
 - **A hung identity provider can no longer stall the login path — the OIDC discovery fetch is now
   bounded.** `getDiscoveryDoc()` called `fetch(url)` on `<issuer>/.well-known/openid-configuration` with no
   `AbortSignal`, so an IdP that accepted the TCP connection and then never answered held the request until

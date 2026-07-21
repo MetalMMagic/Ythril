@@ -31,7 +31,7 @@ import { localAgentRouter } from './api/local-agent.js';
 import { dataRouter } from './api/data.js';
 import { mediaConfigRouter } from './api/media-config.js';
 import { maintenanceMiddleware } from './maintenance.js';
-import { globalRateLimit } from './rate-limit/middleware.js';
+import { globalRateLimit, ipFloodBackstop } from './rate-limit/middleware.js';
 import { configExists, reloadConfig, getConfig, saveConfig, loadSecrets } from './config/loader.js';
 import { requireAuth, requireAdminMfa, requireAdminMfaScoped } from './auth/middleware.js';
 import { clearTokenCache } from './auth/tokens.js';
@@ -195,6 +195,14 @@ export function createApp() {
   // Runs after metrics so durationMs is accurate; before routes so it sees
   // the 'finish' event for every response.
   app.use(auditMiddleware);
+
+  // ── Flood backstop ───────────────────────────────────────────────────────
+  // The per-route limiters key on the CLIENT (see rate-limit/middleware.ts), which is what stops one
+  // busy client starving the others. That keying alone would let a flood of random bearer strings mint
+  // an unbounded number of buckets, so this per-IP ceiling sits in front of everything as the outer
+  // bound. It is set far above any legitimate single client and is invisible in normal operation.
+  // Mounted after the probe/metrics routes above so /health, /ready and /metrics are never throttled.
+  app.use(ipFloodBackstop);
 
   // ── Maintenance mode ─────────────────────────────────────────────────────
   // When active, blocks all API traffic except /health, /ready, /metrics and

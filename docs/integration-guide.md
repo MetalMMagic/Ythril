@@ -615,13 +615,34 @@ Extended errors may include:
 
 ## Rate Limits
 
-| Scope | Limit | Applies To |
-|---|---|---|
-| Auth | 10 / min | Token creation, setup, invite/apply |
-| Global | 300 / min | All authenticated endpoints |
-| Sync | 2 000 / min | Sync API endpoints |
-| Notify | 60 / min | `GET /api/notify`, `POST /api/notify`, `POST /api/notify/trigger` |
-| Bulk wipe | 5 / min | `DELETE /api/brain/spaces/:spaceId/{memories,entities,edges,chrono}` |
+| Scope | Limit | Keyed by | Applies To |
+|---|---|---|---|
+| Auth | 10 / min | source IP | Token creation, setup, invite/apply |
+| Global | 300 / min | client | All authenticated endpoints |
+| Sync | 2 000 / min | client (peer) | Sync API endpoints |
+| Notify | 60 / min | client | `GET /api/notify`, `POST /api/notify`, `POST /api/notify/trigger` |
+| Bulk wipe | 5 / min | client | `DELETE /api/brain/spaces/:spaceId/{memories,entities,edges,chrono}` |
+| Flood backstop | 3 000 / min | source IP | Everything except `/health`, `/ready`, `/metrics` |
+
+**"Keyed by client" means your budget is your own.** The limiter buckets on the credential you present —
+the `Authorization: Bearer` token, or the MCP `?token=` parameter — so one busy integration cannot spend
+another's allowance. This matters most in the default Docker deployment: with no reverse proxy in front,
+every request reaches Ythril from the same Docker gateway address, so an IP-keyed limit would be a single
+shared bucket for the whole instance. The credential is hashed before it is used as a key; it never
+appears in a key, a log line, or a header.
+
+Requests with **no** credential (login, setup, an anonymous probe) key on the source IP — that is the only
+identity they have — and IPv6 addresses are normalised to their `/64` so a client cannot rotate through
+addresses it already owns.
+
+The **flood backstop** is a per-IP ceiling in front of every route, set far above any legitimate single
+client. It exists because per-client keying alone would let a flood of random bearer strings mint an
+unbounded number of buckets. You should never see it in normal operation.
+
+> **Behind a reverse proxy, set `TRUST_PROXY`** (see the environment table above) to the exact number of
+> proxy hops. Without it `req.ip` is the proxy's address, so the auth limiter and the flood backstop
+> collapse to one bucket for all traffic through that proxy. Do not use `true`: it trusts the entire
+> client-supplied `X-Forwarded-For` chain, which lets a caller spoof the address those limits key on.
 
 Rate limit headers follow the IETF draft-7 format: a single combined `RateLimit` header plus a `RateLimit-Policy` header (the legacy draft-6 `RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset` headers are not emitted):
 

@@ -79,9 +79,16 @@ function parseComposeServices(text) {
       continue;
     }
 
-    if (indent > 4 && listKey && line.startsWith('- ')) {
-      const item = line.slice(2).trim().replace(/^["']|["']$/g, '');
-      if (Array.isArray(services[current][listKey])) services[current][listKey].push(item);
+    if (indent > 4 && listKey) {
+      if (line.startsWith('- ')) {
+        const item = line.slice(2).trim().replace(/^["']|["']$/g, '');
+        if (Array.isArray(services[current][listKey])) services[current][listKey].push(item);
+      } else if (line.includes(':')) {
+        // A nested scalar (e.g. `deploy:` → `replicas:`), recorded as "deploy.replicas".
+        const nk = line.slice(0, line.indexOf(':')).trim();
+        const nv = line.slice(line.indexOf(':') + 1).trim();
+        if (nv !== '') services[current][`${listKey}.${nk}`] = nv.replace(/^["']|["']$/g, '');
+      }
     }
   }
   return services;
@@ -166,6 +173,40 @@ describe('docker-compose.yml — untrusted-parser sidecar hardening', () => {
       });
     });
   }
+
+  it('unstructured keeps its request-time caches inside the tmpfs and its models offline', () => {
+    // Each of these was established by running a real hi_res extraction against the hardened
+    // container; dropping any one of them breaks document conversion rather than just weakening it.
+    const env = (key) => services.unstructured?.[`environment.${key}`];
+    assert.equal(env('NUMBA_CACHE_DIR'), '/tmp/numba', 'without this numba caches next to the package → fails on a read-only rootfs');
+    assert.equal(env('MPLCONFIGDIR'), '/tmp/matplotlib', 'matplotlib needs a writable config dir');
+    assert.equal(env('HF_HUB_OFFLINE'), '1', 'the models are baked in, but huggingface_hub calls the hub to resolve them — impossible on the internal network');
+    for (const forbidden of ['HOME', 'XDG_CACHE_HOME']) {
+      assert.equal(
+        env(forbidden),
+        undefined,
+        `${forbidden} must NOT be set on unstructured — it relocates the baked Hugging Face model cache, ` +
+          `which makes hi_res extraction try to download on a network with no internet`,
+      );
+    }
+  });
+
+  it('every heavy sidecar can be switched off from .env (infra-managed deployments)', () => {
+    const envExample = readFileSync(join(repoRoot, '.env.example'), 'utf8');
+    for (const name of ['ollama', 'whisper', 'unstructured']) {
+      const replicas = String(services[name]?.['deploy.replicas'] ?? '');
+      const match = /\$\{([A-Z0-9_]+):-1\}/.exec(replicas);
+      assert.ok(
+        match,
+        `${name} should declare deploy.replicas: \${SOME_VAR:-1} so infra can drop it with 0 ` +
+          `without editing docker-compose.yml (got "${replicas}")`,
+      );
+      assert.ok(
+        envExample.includes(match[1]),
+        `${match[1]} gates the ${name} service but is not documented in .env.example`,
+      );
+    }
+  });
 
   it('the operator can raise every ceiling from .env without editing the compose file', () => {
     const envExample = readFileSync(join(repoRoot, '.env.example'), 'utf8');

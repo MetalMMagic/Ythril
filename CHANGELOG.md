@@ -17,20 +17,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a read-only root filesystem plus a `/tmp` tmpfs, and `mem_limit` / `pids_limit` / `cpus` ceilings —
   matching what the Kubernetes manifests already enforced (Compose was the gap, exactly like the network
   isolation before it). **The ceilings are sized from live measurement, not guesswork:** a moondream vision
-  caption peaks at ~2.9 GB RSS / ~8 cores / 36 threads and a transcription at ~1.5 GB / 31 threads, so the
+  caption peaks at ~2.9 GB RSS / ~8 cores / 36 threads, a transcription at ~1.5 GB / 31 threads and a
+  `hi_res` extraction at ~1.7 GB / 61 threads, so the
   defaults sit ~3x higher (`ollama` 8g, `whisper` 4g, `unstructured` 6g); every ceiling is overridable from
   `.env` (`OLLAMA_MEM_LIMIT`, `WHISPER_CPUS`, …) for larger models. Verified against the live stack: each
   service goes healthy and a real image caption and audio transcription still succeed under the caps, with
   no measurable latency change (warm captions 214 ms vs 320 ms before). **One documented exception:**
   `whisper` keeps a writable root filesystem — its image launches through `uv run`, which rewrites its own
   virtualenv on every start, so a read-only rootfs crash-loops it; that was confirmed against the image
-  rather than assumed. A new standalone test (`compose-sidecar-hardening.test.js`) locks all of this in:
+  rather than assumed. `unstructured` *does* keep its read-only rootfs, with its request-time caches
+  redirected into the tmpfs (`NUMBA_CACHE_DIR`, `MPLCONFIGDIR`) — numba otherwise compiles and caches
+  `projection_by_bboxes` next to the package and fails on the read-only mount. A new standalone test (`compose-sidecar-hardening.test.js`) locks all of this in:
   every parser sidecar must declare each control, every ceiling must be `.env`-overridable and documented,
   and a **new** compose service must either be hardened or explicitly exempted with a reason. **Upgrade
   note:** these ceilings did not exist before, so if you already run a model heavier than the defaults
   (a 13B vision model, `large-v3` transcription), set the matching `*_MEM_LIMIT` in `.env` before
   `docker compose up -d` — otherwise the first job after the upgrade is OOM-killed
   (`docker inspect <container> --format '{{.State.OOMKilled}}'` confirms it).
+
+- **Fixed: server-side `hi_res` document conversion failed outright on the bundled sidecar.** Any
+  PDF/DOCX/EPUB sent to the bundled `unstructured` sidecar came back
+  `Can't load image processor for 'microsoft/table-transformer-structure-recognition'`. The cause is not a
+  missing model — both the layout model (`unstructuredio/yolo_x_layout`) and the table model **are** baked
+  into the image — it is that `huggingface_hub` calls the hub to *resolve* them before reading its own
+  cache, and the sidecar deliberately sits on the **internal** `ythril-convert` network with no internet
+  egress, so that call fails and takes the request down with it. Setting `HF_HUB_OFFLINE=1` makes it use
+  the models it already has: the same extraction now returns 200 with the document's text. Found while
+  validating the container hardening below — the failure reproduces identically with *and* without the
+  hardening, so it predates it.
+
+- **Each heavy sidecar can now be switched off from `.env`, so infra decides what a deployment runs.**
+  `UNSTRUCTURED_REPLICAS=0`, `OLLAMA_REPLICAS=0` or `WHISPER_REPLICAS=0` keeps that service out of the
+  stack entirely — a running container is stopped and removed on the next `docker compose up`, and a
+  machine that never starts it never pays for its image pull. This matters most for `unstructured`
+  (~4.5 GB compressed / ~7.5 GB on disk): an instance that doesn't need server-side PDF/DOCX/EPUB
+  conversion, or that points `CONVERSION_SIDECAR_URL` at an external converter, no longer has to
+  download it. Conversion then reports `sidecar_down` — the existing graceful degradation — and
+  in-process text/HTML conversion plus every other feature keep working. Previously the only options
+  were the clunky `docker compose stop <svc>` / `--scale <svc>=0` on every `up`, or editing the compose
+  file. The hardening test asserts each switch exists and is documented in `.env.example`.
 
 - **Fixed two latent breakages in the Kubernetes media manifests, found while validating the above.** The
   `whisper` Deployment requested `runAsNonRoot`/`runAsUser: 1000` *and* `readOnlyRootFilesystem: true` —

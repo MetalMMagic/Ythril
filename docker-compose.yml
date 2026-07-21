@@ -128,10 +128,24 @@
     image: ollama/ollama:latest@sha256:6345fbc18bd73a1e16404be681dbc6fd291a027cab43ed541abe78c4c81051b0
     container_name: ythril-ollama
     restart: unless-stopped
-    # Parses untrusted user media — block privilege escalation. (Memory/pid/cap limits for the heavy
-    # model servers are tracked separately: they need live-stack sizing so a cap doesn't OOM inference.)
+    # Parses untrusted user media — hardened to match kubernetes/manifests/ollama-deploy.yaml
+    # (readOnlyRootFilesystem + drop ALL + resource limits). Compose was the gap.
+    # Everything it writes goes to the models volume; /tmp is a tmpfs so the rootfs stays read-only.
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+    # Sized from a live measurement, not a guess: a moondream vision caption peaked at ~2.4 GB RSS,
+    # ~8 cores and 43 threads on a 16-core host. `pids_limit` counts THREADS, and inference threads
+    # scale with the host's core count, so the ceiling is deliberately far above that — it exists to
+    # stop a fork bomb, not to size inference. Override in .env when you run a larger vision model
+    # (llava:13b and friends need noticeably more than moondream's 1.7 GB of weights).
+    mem_limit: ${OLLAMA_MEM_LIMIT:-8g}
+    pids_limit: ${OLLAMA_PIDS_LIMIT:-2048}
+    cpus: ${OLLAMA_CPUS:-8.0}
     # Auto-pull the default vision model on first start so the first upload
     # does not fail with "model not found". Subsequent restarts no-op.
     entrypoint: ["/bin/sh", "-c"]
@@ -161,11 +175,27 @@
     image: fedirz/faster-whisper-server:latest-cpu@sha256:760e5e43d427dc6cfbbc4731934b908b7de9c7e6d5309c6a1f0c8c923a5b6030
     container_name: ythril-whisper
     restart: unless-stopped
-    # Parses untrusted user media — block privilege escalation (see the ollama note re: heavier limits).
+    # Parses untrusted user media — same treatment as ollama below, with ONE exception:
+    # NO `read_only` here. Verified against the live image: faster-whisper-server is launched through
+    # `uv run`, which rewrites its own virtualenv (`/root/faster-whisper-server/.venv/...`) on every
+    # start — a read-only rootfs makes it crash-loop with "Read-only file system (os error 30)".
+    # Seeding a named volume over the venv would "fix" it while silently pinning the OLD venv across
+    # image upgrades, which is worse. Everything else below still applies.
     security_opt:
       - no-new-privileges:true
-    environment:
-      WHISPER_MODEL: "base"  # ~140 MB; auto-downloads on first request
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=256m
+    # Measured: a 3 s clip through faster-whisper `small` peaked at ~1.4 GB RSS, ~4 cores, 42 threads.
+    # Raise WHISPER_MEM_LIMIT if you point `mediaEmbedding.stt.model` at a large-v3 class model.
+    mem_limit: ${WHISPER_MEM_LIMIT:-4g}
+    pids_limit: ${WHISPER_PIDS_LIMIT:-1024}
+    cpus: ${WHISPER_CPUS:-4.0}
+    # NOTE: no WHISPER_MODEL here on purpose. Ythril sends the model with every request
+    # (`mediaEmbedding.stt.model`, default `base`) and faster-whisper-server downloads it on first use,
+    # so a compose-level default would be dead config — the image's own knob is WHISPER__MODEL
+    # (double underscore, pydantic nested settings), which the single-underscore spelling never set.
     volumes:
       - ythril-whisper-cache:/root/.cache
     healthcheck:
@@ -207,9 +237,21 @@
     image: downloads.unstructured.io/unstructured-io/unstructured-api:0.1.2
     container_name: ythril-unstructured
     restart: unless-stopped
-    # Parses untrusted user documents (OCR) — block privilege escalation (see the ollama note re: heavier limits).
+    # Parses untrusted user documents (OCR) — the highest-risk parser in the stack, so it gets the same
+    # treatment as doc-render below. It has no volume: everything it writes is per-request scratch, which
+    # is what the /tmp tmpfs is for (hi_res OCR spills page images there).
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g
+    # OCR memory scales with page count/DPI, so this ceiling is generous; raise it in .env for very
+    # large scans rather than letting a malformed document take the host down with it.
+    mem_limit: ${UNSTRUCTURED_MEM_LIMIT:-6g}
+    pids_limit: ${UNSTRUCTURED_PIDS_LIMIT:-1024}
+    cpus: ${UNSTRUCTURED_CPUS:-4.0}
     healthcheck:
       # The image is a Python/uvicorn service; probe /healthcheck with the bundled
       # interpreter rather than assuming curl/wget is present.

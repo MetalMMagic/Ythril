@@ -239,6 +239,57 @@ mode transparently fall back to OCR (unchanged from before). Everything happens 
 `ythril-convert` network — no page images or text leave the instance. Licensing: LibreOffice is MPL-2.0 /
 LGPL-3.0 (not AGPL) and runs as a separate process (not linked), so it carries no copyleft into Ythril.
 
+### Sandboxing and resource ceilings
+
+Every one of these sidecars exists to parse **untrusted user-supplied input** — uploaded images, audio,
+PDFs — which makes them the highest-risk processes in the deployment. They are therefore confined the
+same way in Compose and in Kubernetes:
+
+| Control | Compose | Kubernetes |
+|---|---|---|
+| No privilege escalation | `security_opt: [no-new-privileges:true]` | `allowPrivilegeEscalation: false` |
+| All Linux capabilities dropped | `cap_drop: [ALL]` | `capabilities.drop: [ALL]` |
+| Read-only root filesystem | `read_only: true` + a `/tmp` tmpfs | `readOnlyRootFilesystem: true` + an `emptyDir` |
+| Memory / CPU ceiling | `mem_limit` / `cpus` | `resources.limits.memory` / `.cpu` |
+| Process (thread) ceiling | `pids_limit` | pod-level (`podPidsLimit` on the kubelet) |
+| Network isolation | separate bridge networks (`ythril-media`, internal `ythril-convert`) | `media-netpol.yaml` egress rules |
+
+Writes are confined to the named volume each service already owns (`/root/.ollama`, `/root/.cache`) plus
+a per-container tmpfs at `/tmp`; nothing else on the root filesystem is writable.
+
+**One documented exception:** `whisper` runs *without* `read_only`. The `faster-whisper-server` image
+starts through `uv run`, which rewrites its own virtualenv on every launch, so a read-only root filesystem
+crash-loops it (`Read-only file system (os error 30)`); the same image also cannot run as a non-root user,
+because that virtualenv lives under a root-owned path. Every other control above still applies to it. The
+Kubernetes manifest carries the same exception for the same reason.
+
+**The ceilings are sized from measurement, not guesswork** — on a 16-core host, a moondream vision
+caption peaked at ~2.4 GB RSS / ~8 cores / 43 threads, and a short clip through faster-whisper `small`
+at ~1.4 GB / ~4 cores / 42 threads. The defaults sit roughly 3× above that. Note that `pids_limit`
+counts **threads**, and inference libraries spawn one per core, so the process ceiling is deliberately
+far above the observed peak: it is there to stop a fork bomb, not to size inference.
+
+If you run a larger model (a 13B vision model, a `large-v3` transcription model) or OCR very large
+scans, raise the relevant ceiling in `.env` rather than editing `docker-compose.yml`:
+
+```bash
+OLLAMA_MEM_LIMIT=16g       # default 8g  / OLLAMA_PIDS_LIMIT 2048       / OLLAMA_CPUS 8.0
+WHISPER_MEM_LIMIT=8g       # default 4g  / WHISPER_PIDS_LIMIT 1024      / WHISPER_CPUS 4.0
+UNSTRUCTURED_MEM_LIMIT=8g  # default 6g  / UNSTRUCTURED_PIDS_LIMIT 1024 / UNSTRUCTURED_CPUS 4.0
+```
+
+A job that exceeds its memory ceiling is OOM-killed by the kernel: the affected caption/transcription/
+extraction fails and is reported as such, the rest of the stack keeps running. To confirm that is what
+happened, check the container rather than guessing:
+
+```bash
+docker inspect ythril-ollama --format '{{.State.OOMKilled}}'   # true → raise OLLAMA_MEM_LIMIT
+```
+
+> **Upgrading an existing deployment:** these ceilings did not exist before, so if you already run a model
+> heavier than the defaults (a 13B vision model, `large-v3` transcription), set the matching `*_MEM_LIMIT`
+> in `.env` **before** you `docker compose up -d` — otherwise the first job after the upgrade is OOM-killed.
+
 **Licensing impact — none on Ythril's PolyForm obligations.** All three are permissively
 licensed (MIT / Apache 2.0), carry no copyleft, and run as independent network services
 rather than linked code — the same TCP-socket relationship analysed for MongoDB above.

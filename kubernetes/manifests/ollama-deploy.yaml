@@ -50,11 +50,18 @@ spec:
           env:
             - name: OLLAMA_KEEP_ALIVE
               value: "24h"
+            # The container runs as uid 1000 with a read-only rootfs, so HOME points at the writable
+            # emptyDir. That also moves Ollama's DEFAULT model store to $HOME/.ollama — which is why
+            # OLLAMA_MODELS is set explicitly: without it the models PVC below is mounted but never
+            # used, and `ollama pull moondream` (1.7 GB) fills the 1 Gi emptyDir instead. Verified
+            # against the image: with OLLAMA_MODELS set, blobs/ and manifests/ are created there.
             - name: HOME
               value: /tmp
+            - name: OLLAMA_MODELS
+              value: /models
           volumeMounts:
             - name: models
-              mountPath: /root/.ollama
+              mountPath: /models
             - name: tmp
               mountPath: /tmp
           securityContext:

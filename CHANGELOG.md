@@ -8,6 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The heavy parser sidecars are now confined: capabilities dropped, root filesystem read-only, memory /
+  process / CPU ceilings (Docker hardening, Tier B).** `ollama`, `whisper` and `unstructured` exist to parse
+  **untrusted** user-supplied media and documents, which makes them the highest-risk processes in a
+  deployment — but in Compose they ran with the full default capability set, a writable root filesystem and
+  no resource ceiling at all, so a parser exploit or a malformed file could escalate, tamper with the image
+  at runtime, or take the host down by exhausting memory or forking. All three now run with `cap_drop: ALL`,
+  a read-only root filesystem plus a `/tmp` tmpfs, and `mem_limit` / `pids_limit` / `cpus` ceilings —
+  matching what the Kubernetes manifests already enforced (Compose was the gap, exactly like the network
+  isolation before it). **The ceilings are sized from live measurement, not guesswork:** a moondream vision
+  caption peaks at ~2.9 GB RSS / ~8 cores / 36 threads and a transcription at ~1.5 GB / 31 threads, so the
+  defaults sit ~3x higher (`ollama` 8g, `whisper` 4g, `unstructured` 6g); every ceiling is overridable from
+  `.env` (`OLLAMA_MEM_LIMIT`, `WHISPER_CPUS`, …) for larger models. Verified against the live stack: each
+  service goes healthy and a real image caption and audio transcription still succeed under the caps, with
+  no measurable latency change (warm captions 214 ms vs 320 ms before). **One documented exception:**
+  `whisper` keeps a writable root filesystem — its image launches through `uv run`, which rewrites its own
+  virtualenv on every start, so a read-only rootfs crash-loops it; that was confirmed against the image
+  rather than assumed. A new standalone test (`compose-sidecar-hardening.test.js`) locks all of this in:
+  every parser sidecar must declare each control, every ceiling must be `.env`-overridable and documented,
+  and a **new** compose service must either be hardened or explicitly exempted with a reason. **Upgrade
+  note:** these ceilings did not exist before, so if you already run a model heavier than the defaults
+  (a 13B vision model, `large-v3` transcription), set the matching `*_MEM_LIMIT` in `.env` before
+  `docker compose up -d` — otherwise the first job after the upgrade is OOM-killed
+  (`docker inspect <container> --format '{{.State.OOMKilled}}'` confirms it).
+
+- **Fixed two latent breakages in the Kubernetes media manifests, found while validating the above.** The
+  `whisper` Deployment requested `runAsNonRoot`/`runAsUser: 1000` *and* `readOnlyRootFilesystem: true` —
+  both of which that image cannot satisfy (its virtualenv lives under a root-owned path and is rewritten at
+  startup), so the pod would have crash-looped; it now carries the same documented exception as Compose,
+  keeping capability-drop, seccomp, resource limits and the NetworkPolicy. The `ollama` Deployment mounted
+  its 20 Gi models PVC at `/root/.ollama` while setting `HOME=/tmp`, which silently moved Ollama's model
+  store into the 1 Gi `emptyDir` — so the documented `ollama pull moondream` (1.7 GB) could never fit; it
+  now sets `OLLAMA_MODELS` explicitly and mounts the PVC there. Both diagnoses were verified by running the
+  actual images, not inferred.
+
 - **External media providers now route their egress through the SSRF-guarded fetch at runtime (SSRF
   follow-up, part 1).** The external vision and speech-to-text providers (`ExternalVisionProvider`,
   `ExternalWhisperProvider`) validated their operator-supplied endpoint URL only at config-save time, then

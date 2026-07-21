@@ -1288,6 +1288,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A space rename could silently not happen — collections moved, API returned 200, config kept the
+  old id.** `renameSpace` looked the space up, then awaited `moveSpaceData`, which renames every
+  collection and takes seconds. A config reload landing in that window replaces `cfg.spaces` wholesale
+  and leaves the looked-up object **orphaned**, so the commit that followed mutated a detached record:
+  the physical move succeeded, the write reported success, and the space kept its **old** id. Every
+  subsequent lookup under the new id then 404'd, with nothing anywhere reporting a failure. The commit
+  now re-resolves the space by id inside the write.
+  This is the second instance of the same mechanism, after the token-prefix backfill in the previous
+  release: the in-place config refresh keeps a *top-level* reference (`const cfg = getConfig()`) valid,
+  but a reference **into** it (one `space` out of `cfg.spaces`, one token out of `cfg.tokens`) is
+  replaced. New standalone test pins the mechanism itself without a database — including that
+  committing through an orphan loses the change *and reports success* — so the next read-modify-write
+  across an await has something to fail against.
+  Found by chasing an intermittent CI failure whose stated symptom ("files survive rename") pointed at
+  the file path rather than the rename; the first hypothesis (a `createSpace` write race) did not
+  survive scrutiny and was discarded rather than shipped.
+
 - **Face recognition is now actually pinnable from a Compose deployment — and an empty env var no
   longer counts as a pin.** Two halves of the same gap. The documented guarantee that
   `FACE_RECOGNITION_ENABLED=false` stops all face processing could not hold under the default

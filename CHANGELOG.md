@@ -1215,6 +1215,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The conflict-resolution integration tests no longer skip themselves into a green build.** Nine tests
+  in `conflict-resolution.test.js` began with `if (!conflictId) { t.skip('Could not seed conflict'); return; }`,
+  and the `seedConflict()` helper returned `null` on any non-201 instead of failing. Seeding there is a
+  plain `POST /api/conflicts/seed` with no environmental dependency — so the day that endpoint regressed,
+  all nine tests would have skipped and CI would have stayed green with nothing to show for it. The helper
+  now asserts the 201 (with the status and body in the message) and the guards are gone. `conflicts.test.js` had six more escape hatches of the same shape, including one test that
+  skipped and then asserted the very thing it had just guarded on, with unreachable code after the
+  `return`. Running the suite against the live 4-instance stack settled the open question behind them:
+  peer file-sync hash-mismatch detection **does** work there — the dependent tests ran for real and the
+  retry loop lands in roughly two of its six attempts — so those guards are now assertions too. Both files
+  were verified end to end: 15/15 and 10/10 passing with **0 skipped**, three consecutive runs clean, and
+  a mutation check (breaking the seed endpoint) turns 9 silent skips into 9 real failures. (Found in the 2026-07-21 multi-lens audit.)
+
 - **Brain tables: the Description cell now fills its column again.** `.desc-cell` set `display: -webkit-box`
   (for the 3-line clamp) directly on the `<td>`, which overrode `display: table-cell` and dropped the cell
   out of the table layout, so it no longer filled its column. The clamp moved to an inner wrapper; the `<td>`

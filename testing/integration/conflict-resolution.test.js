@@ -83,7 +83,10 @@ async function seedConflict(spaceId, originalPath, conflictPath) {
     peerInstanceLabel: 'Test Peer',
     detectedAt: new Date().toISOString(),
   });
-  if (r.status !== 201) return null;
+  // Assert rather than return null: this is a plain API call with no environmental dependency, so a
+  // non-201 is a regression in the seed endpoint — not a reason for every test below to skip itself
+  // and leave CI green.
+  assert.equal(r.status, 201, `seedConflict(${spaceId}, ${originalPath}) failed: ${r.status} ${JSON.stringify(r.body)}`);
   return id;
 }
 
@@ -148,7 +151,7 @@ describe('Conflict Resolution Actions', () => {
   });
 
   describe('keep-local', () => {
-    it('deletes conflict file, keeps original, removes record', async (t) => {
+    it('deletes conflict file, keeps original, removes record', async () => {
       const origPath = `cr-local-orig-${RUN}.txt`;
       const confPath = `cr-local-conf-${RUN}.txt`;
 
@@ -160,7 +163,6 @@ describe('Conflict Resolution Actions', () => {
 
       // Seed conflict record
       const conflictId = await seedConflict('general', origPath, confPath);
-      if (!conflictId) { t.skip('Could not seed conflict'); return; }
 
       // Resolve: keep-local
       const r = await post(INSTANCES.a, tokenA, `/api/conflicts/${conflictId}/resolve`, {
@@ -185,7 +187,7 @@ describe('Conflict Resolution Actions', () => {
   });
 
   describe('keep-incoming', () => {
-    it('replaces original with conflict copy, removes record', async (t) => {
+    it('replaces original with conflict copy, removes record', async () => {
       const origPath = `cr-incoming-orig-${RUN}.txt`;
       const confPath = `cr-incoming-conf-${RUN}.txt`;
 
@@ -193,7 +195,6 @@ describe('Conflict Resolution Actions', () => {
       await uploadFile('general', confPath, 'incoming version');
 
       const conflictId = await seedConflict('general', origPath, confPath);
-      if (!conflictId) { t.skip('Could not seed conflict'); return; }
 
       const r = await post(INSTANCES.a, tokenA, `/api/conflicts/${conflictId}/resolve`, {
         action: 'keep-incoming',
@@ -217,7 +218,7 @@ describe('Conflict Resolution Actions', () => {
   });
 
   describe('keep-both', () => {
-    it('keeps both files, removes record', async (t) => {
+    it('keeps both files, removes record', async () => {
       const origPath = `cr-both-orig-${RUN}.txt`;
       const confPath = `cr-both-conf-${RUN}.txt`;
 
@@ -225,7 +226,6 @@ describe('Conflict Resolution Actions', () => {
       await uploadFile('general', confPath, 'incoming version');
 
       const conflictId = await seedConflict('general', origPath, confPath);
-      if (!conflictId) { t.skip('Could not seed conflict'); return; }
 
       const r = await post(INSTANCES.a, tokenA, `/api/conflicts/${conflictId}/resolve`, {
         action: 'keep-both',
@@ -246,7 +246,7 @@ describe('Conflict Resolution Actions', () => {
       assert.equal(check.status, 404);
     });
 
-    it('with rename: renames conflict file', async (t) => {
+    it('with rename: renames conflict file', async () => {
       const origPath = `cr-both-rename-orig-${RUN}.txt`;
       const confPath = `cr-both-rename-conf-${RUN}.txt`;
       const renameTo = `cr-both-renamed-${RUN}.txt`;
@@ -255,7 +255,6 @@ describe('Conflict Resolution Actions', () => {
       await uploadFile('general', confPath, 'incoming version');
 
       const conflictId = await seedConflict('general', origPath, confPath);
-      if (!conflictId) { t.skip('Could not seed conflict'); return; }
 
       const r = await post(INSTANCES.a, tokenA, `/api/conflicts/${conflictId}/resolve`, {
         action: 'keep-both',
@@ -283,7 +282,7 @@ describe('Conflict Resolution Actions', () => {
   });
 
   describe('save-to-space', () => {
-    it('copies conflict file to target space, deletes from source, removes record', async (t) => {
+    it('copies conflict file to target space, deletes from source, removes record', async () => {
       const origPath = `cr-save-orig-${RUN}.txt`;
       const confPath = `cr-save-conf-${RUN}.txt`;
 
@@ -291,7 +290,6 @@ describe('Conflict Resolution Actions', () => {
       await uploadFile('general', confPath, 'incoming version');
 
       const conflictId = await seedConflict('general', origPath, confPath);
-      if (!conflictId) { t.skip('Could not seed conflict'); return; }
 
       // Resolve: save conflict copy to target space
       const r = await post(INSTANCES.a, tokenA, `/api/conflicts/${conflictId}/resolve`, {
@@ -320,7 +318,7 @@ describe('Conflict Resolution Actions', () => {
       assert.equal(check.status, 404);
     });
 
-    it('with rename: saves to target space under new name', async (t) => {
+    it('with rename: saves to target space under new name', async () => {
       const origPath = `cr-save-rename-orig-${RUN}.txt`;
       const confPath = `cr-save-rename-conf-${RUN}.txt`;
       const renameTo = `cr-save-renamed-${RUN}.txt`;
@@ -329,7 +327,6 @@ describe('Conflict Resolution Actions', () => {
       await uploadFile('general', confPath, 'incoming version');
 
       const conflictId = await seedConflict('general', origPath, confPath);
-      if (!conflictId) { t.skip('Could not seed conflict'); return; }
 
       const r = await post(INSTANCES.a, tokenA, `/api/conflicts/${conflictId}/resolve`, {
         action: 'save-to-space',
@@ -348,7 +345,7 @@ describe('Conflict Resolution Actions', () => {
       assert.equal(confGone, false);
     });
 
-    it('rejects inaccessible targetSpaceId → 403', async (t) => {
+    it('rejects inaccessible targetSpaceId → 403', async () => {
       const origPath = `cr-save-noaccess-orig-${RUN}.txt`;
       const confPath = `cr-save-noaccess-conf-${RUN}.txt`;
 
@@ -356,7 +353,6 @@ describe('Conflict Resolution Actions', () => {
       await uploadFile('general', confPath, 'incoming version');
 
       const conflictId = await seedConflict('general', origPath, confPath);
-      if (!conflictId) { t.skip('Could not seed conflict'); return; }
 
       // Use a non-existent space name
       const r = await post(INSTANCES.a, tokenA, `/api/conflicts/${conflictId}/resolve`, {
@@ -368,7 +364,7 @@ describe('Conflict Resolution Actions', () => {
   });
 
   describe('bulk-resolve', () => {
-    it('resolves multiple conflicts with keep-local', async (t) => {
+    it('resolves multiple conflicts with keep-local', async () => {
       const conflicts = [];
       for (let i = 0; i < 3; i++) {
         const origPath = `cr-bulk-orig-${i}-${RUN}.txt`;
@@ -376,7 +372,6 @@ describe('Conflict Resolution Actions', () => {
         await uploadFile('general', origPath, `local-${i}`);
         await uploadFile('general', confPath, `incoming-${i}`);
         const id = await seedConflict('general', origPath, confPath);
-        if (!id) { t.skip(`Could not seed conflict ${i}`); return; }
         conflicts.push({ id, origPath, confPath });
       }
 
@@ -398,13 +393,12 @@ describe('Conflict Resolution Actions', () => {
       }
     });
 
-    it('returns partial results when some conflicts fail', async (t) => {
+    it('returns partial results when some conflicts fail', async () => {
       const origPath = `cr-bulk-partial-orig-${RUN}.txt`;
       const confPath = `cr-bulk-partial-conf-${RUN}.txt`;
       await uploadFile('general', origPath, 'local');
       await uploadFile('general', confPath, 'incoming');
       const validId = await seedConflict('general', origPath, confPath);
-      if (!validId) { t.skip('Could not seed conflict'); return; }
 
       const r = await post(INSTANCES.a, tokenA, '/api/conflicts/bulk-resolve', {
         ids: [validId, 'nonexistent-conflict-id'],

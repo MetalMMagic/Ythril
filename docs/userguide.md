@@ -90,6 +90,8 @@ At the top of the page a row of **space chips** lets you switch space; each chip
 
 If the search index needs rebuilding (for example after the embedding model changes), a banner appears reading *"Embeddings are stale — the embedding model has changed and this space needs reindexing."* Click **Reindex now** to rebuild it.
 
+> **Reindex and rebuild are different repairs.** *Reindex* re-embeds your content against the current model. It does **not** help when the search index itself is missing or broken — the symptom there is search quietly returning nothing at all, with no error. That one needs **Rebuild search indexes** on the space's **Danger** tab (see below).
+
 ### Memories
 
 Memories are the core knowledge unit — plain-language statements you want to remember.
@@ -367,7 +369,11 @@ Click the gear icon on any space row to open its settings panel. Changes save an
 **Settings tab:** Update the display name, purpose, usage notes for AI assistants, storage quota, auto-delete window, and document-extraction mode — grouped into **Identity**, **Purpose**, **Limits**, and **Document extraction** cards. A blank storage quota, auto-delete window, or extraction override shows an **Unlimited** / **No auto-delete** / **Instance default** pill so the default is unmistakable.
 
 - **Auto-delete records after (days)** — an optional space-wide expiry. Every record (memory, entity, edge, chrono entry) created or updated in the space is deleted automatically this many days later. Leave it blank or `0` to keep records forever. Individual writes can override the default (or opt out) with their own per-record TTL via the API. Deletion propagates over sync, so an expired record won't come back from a connected peer.
-- **Extraction mode** — how documents (PDF / DOCX / EPUB) uploaded to *this* space are converted to text. Leave it on **Instance default** to follow the instance-wide setting (**Settings → Models**), or override it just for this space: **OCR** (fastest, text + layout), **Auto** or **VLM** (transcribe pages with a vision model, always falling back to OCR), or **Max** (adds a repair pass). Useful when one space holds scanned archives that need the heavier path while the rest of the instance stays light. This override is local to your instance — it is never synced to connected peers.
+- **Extraction mode** — how thoroughly documents (PDF / DOCX / EPUB) uploaded to *this* space are read. Leave it on **Instance default** to follow the instance-wide setting (**Settings → Models**), or choose one for this space: **Off**, **OCR** (fastest, text + layout), **VLM** (transcribe pages with a vision model, always falling back to OCR), **Repair** (adds a pass that reconciles the transcription against the OCR text), or **Auto** (as much as the instance can do). Useful when one space holds scanned archives that need the heavier path while the rest of the instance stays light.
+
+  The instance setting is a **ceiling, not a default**: a space can ask for less than the instance allows, never more. If the instance is on **OCR**, a space set to **Repair** runs OCR — it keeps its choice and returns to it if the ceiling is raised again. Raising the instance level lifts only spaces on **Auto**.
+
+  **Off means documents are stored but never read.** No text is extracted, so nothing inside them can be found by search — those uploads are marked *skipped* rather than sitting in the processing queue. This override is local to your instance — it is never synced to connected peers.
 
 **Schema tab:** Define what data this space accepts. A **Schema validation** bar at the very top holds the space-wide **Validation mode** and **Strict linkage** controls — these govern *every* type in the space, not the collection you happen to be viewing. Below it, the entity / edge / memory / chrono collections each list their types on the left; click one to edit its rules in a stable panel on the right (you don't lose your place editing a type or property, and several property editors can be open at once).
 
@@ -381,9 +387,13 @@ Click the gear icon on any space row to open its settings panel. Changes save an
 - **From File** — import a schema from a previously exported JSON file.
 - **Save to Lib** — save the current type schema to the Schema Library for reuse in other spaces.
 
-**Danger tab:** Rename the space ID, wipe all data, or delete the space entirely. All three are guarded: because renaming changes the space ID (which breaks existing token and MCP references to it), **Rename** — like Wipe and Delete — now asks you to type the current space ID to confirm.
+**Danger tab:** Rebuild search indexes, rename the space ID, wipe all data, or delete the space entirely.
 
-Each space row carries only a gear/configure (⚙) button — there is no pencil icon. Renaming, wiping, and deleting all live inside the space's settings panel, on the **Danger** tab.
+**Rebuild search indexes** is the repair for *search returns nothing and nothing says why* — a space whose vector indexes are missing or were destroyed (restoring a backup used to do this). It re-creates them from your existing content; search stays empty until it finishes, and nothing is deleted. Reindexing is not a substitute: it re-embeds content against the current model and cannot recreate a missing index. Requires an admin token (and TOTP when MFA is on).
+
+The other three are guarded: because renaming changes the space ID (which breaks existing token and MCP references to it), **Rename** — like Wipe and Delete — now asks you to type the current space ID to confirm.
+
+Each space row carries only a gear/configure (⚙) button — there is no pencil icon. Rebuilding indexes, renaming, wiping, and deleting all live inside the space's settings panel, on the **Danger** tab.
 
 ### Renaming a space
 
@@ -551,14 +561,14 @@ Face recognition lets Ythril automatically detect faces in uploaded images and l
 #### How to use it
 
 1. **Place the model files** — Download `blazeface-back.json`, `blazeface-back.bin`, `faceres.json`, and `faceres.bin` from `https://vladmandic.github.io/human/models/` and place them in the `human-models/` folder inside your data directory.
-2. **Enable the feature** — In `config.json` set `mediaEmbedding.faceRecognition.enabled: true`. No UI toggle is available; this is intentional since enabling it without model files would silently do nothing.
+2. **Enable the feature** — In `config.json` set `mediaEmbedding.faceRecognition.enabled: true`, or set `FACE_RECOGNITION_ENABLED=true` in the environment. No UI toggle is available; this is intentional since enabling it without model files would silently do nothing.
 3. **Upload images** — Any image that goes through the media pipeline is automatically processed. Faces are detected, embedded, and stored. If no gallery exists yet, faces are stored unlabeled.
 4. **Label a face** — Open the file in the Files view and link it to a person entity (via the entity tag in the file metadata panel). The face embedding is immediately added to the gallery.
 5. **Auto-labeling kicks in** — From this point on, new images containing that person's face are automatically linked to their entity, as long as the match score exceeds the confidence threshold.
 
 #### Settings
 
-These are set in `config.json` under `mediaEmbedding.faceRecognition` — they are not editable from the UI:
+These are set in `config.json` under `mediaEmbedding.faceRecognition`, or pinned by your infrastructure through the matching environment variable (`FACE_RECOGNITION_ENABLED`, `_CONFIDENCE_THRESHOLD`, `_MIN_FACE_SIZE_FRACTION`, `_MODEL_PATH`, `_PERSON_ENTITY_TYPES`, `_REPROCESS_SYNCED_IMAGES`). An environment value wins over `config.json`, so `FACE_RECOGNITION_ENABLED=false` guarantees no faces are processed on that instance — including after restoring a backup taken where it was on. Neither is editable from the UI:
 
 | Setting | Default | What it does |
 |---|---|---|

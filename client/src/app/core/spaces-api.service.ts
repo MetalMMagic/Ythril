@@ -61,6 +61,22 @@ export class SpacesApi {
     return this.http.patch<{ space: Space }>(`/api/spaces/${oldId}/rename`, { newId });
   }
 
+  /**
+   * Rebuild the space's vector search indexes — the repair for "search returns nothing".
+   *
+   * Recall goes through a `$vectorSearch` index that is separate from the stored vectors, so it can be
+   * missing while every record still has a perfectly good embedding: recall then returns empty with no
+   * error anywhere. Reindexing does NOT fix that — it re-embeds documents and never touches the index.
+   * This is the only operation that rebuilds it.
+   *
+   * Returns immediately; the build continues in the background and recall stays empty until it finishes.
+   */
+  rebuildSpaceIndexes(spaceId: string): Observable<{ ok: boolean; spaceId: string; status: string }> {
+    return this.http.post<{ ok: boolean; spaceId: string; status: string }>(
+      `/api/spaces/${spaceId}/rebuild-indexes`, {},
+    );
+  }
+
   wipeSpace(spaceId: string, types?: WipeCollectionType[]): Observable<{ deleted: WipeResult }> {
     const body: { types?: WipeCollectionType[] } = types && types.length > 0 ? { types } : {};
     return this.http.post<{ deleted: WipeResult }>(`/api/admin/spaces/${spaceId}/wipe`, body);

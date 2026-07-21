@@ -1233,5 +1233,11 @@
   "networks.wizard.stepLabel": "Step {{ current }} of {{ total }}",
   "metrics.health.ok": "Healthy",
   "metrics.health.warn": "Warning",
-  "metrics.health.full": "Full"
+  "metrics.health.full": "Full",
+  "spaces.dangerZone.rebuildIndexesTitle": "Rebuild search indexes",
+  "spaces.dangerZone.rebuildIndexesDescription": "Repairs semantic search when it returns nothing. Records keep their vectors, but the search index they are queried through can be missing — after restoring a backup, or if the database search process was not ready at startup. Reindexing does not fix this; only a rebuild does. Search stays empty until the rebuild finishes.",
+  "spaces.dangerZone.rebuildIndexesButton": "Rebuild indexes",
+  "spaces.dangerZone.confirmRebuildIndexes": "Rebuild the search indexes for \"{{label}}\"? No records are changed, but semantic search returns no results until the rebuild completes — minutes on a large space.",
+  "spaces.dangerZone.rebuildIndexesStarted": "Rebuilding search indexes — search results will be incomplete until it finishes.",
+  "spaces.dangerZone.rebuildIndexesFailed": "Could not start the index rebuild."
 }

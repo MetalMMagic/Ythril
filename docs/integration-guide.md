@@ -1555,6 +1555,38 @@ Re-computes all embeddings with the current model. **Runs asynchronously** — t
 
 Returns `409 { "error": "Reindex already in progress" }` if one is already running for the space.
 
+> **Reindexing does NOT repair "search returns nothing".** It re-computes the embeddings *stored on*
+> your records. Recall queries those vectors through a separate `$vectorSearch` index, and that index
+> can be missing while every record still holds a perfectly good embedding — after restoring a backup,
+> or if the database search process was not ready when the instance started. Reindexing every record
+> in the space will not create it. Use the rebuild endpoint below.
+
+### Rebuild search indexes
+
+```http
+POST /api/spaces/:spaceId/rebuild-indexes
+```
+
+Recreates the space's `$vectorSearch` indexes. Requires **admin + MFA** and is recorded in the audit
+log as `space.indexes.rebuild`. Also available in the UI at **Settings → Space → Danger Zone →
+Rebuild search indexes**.
+
+**Runs asynchronously** — the call returns as soon as the build is submitted. **Recall returns empty
+for that space until the build completes**, which is why it sits in the danger zone; no records are
+modified.
+
+```json
+{ "ok": true, "spaceId": "general", "status": "rebuilding" }
+```
+
+Returns `404` when the space does not exist.
+
+You should rarely need this: indexes are built when a space is created, retried on startup if the
+database search process is slow to come up, and rebuilt automatically after a restore. It exists
+because an index going missing is otherwise **silent** — an empty result set is indistinguishable from
+"no matches", and `/ready` reports `vectorSearch: ok` regardless, since it probes the capability
+rather than each space's indexes.
+
 ---
 
 ### Bulk Write
@@ -4640,6 +4672,8 @@ X-TOTP-Code: <code>   # required when MFA is enabled
 ```
 
 **Requires admin token** (and TOTP code when MFA is enabled). Re-reads `config.json` from disk. Useful after manual edits. Any spaces added to the config since the last load are automatically initialized (MongoDB collections, indexes, vector search index, and file directories created). The built-in `general` space is ensured to exist.
+
+> **Reload promptly after a manual edit.** The running server holds `config.json` in memory and writes the whole file back whenever anything changes it — creating a space, renaming one, saving settings. Until you reload, that in-memory copy does not know about your edit, so the next such write reverts it. Edit and reload as one step; do not leave a hand-edited config unreloaded on a live instance. Stopping the server, editing, and starting it again is always safe.
 
 Reloading also flushes the token and OIDC caches, so a token revoked by a manual edit — or an updated OIDC block — takes effect immediately rather than after the cache expires. Legacy tokens that lack a `prefix` field are **not** removed: `findMatchingToken()` verifies them via a fallback scan and backfills the prefix on first use, so a reload never invalidates existing tokens.
 

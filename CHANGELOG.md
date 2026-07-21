@@ -1252,6 +1252,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A background config write could erase a change made to `config.json` by someone else.**
+  `saveConfig()` serialises the whole in-memory config, so the ordinary read-mutate-save shape is
+  last-writer-wins: anything written to the file after that snapshot was taken is silently dropped.
+  For a request handler the window is milliseconds. For **vector-index readiness polling it is up to a
+  minute** — it captures the config, waits for the index builds, then writes one field back over the
+  top of whatever arrived meanwhile. The change it erased in practice was a `pendingSpaceOp` crash
+  marker: the marker is the *only* record that a rename was half-applied, so losing it strands the
+  space under its old id with nothing left to recover from, and the next reload finds nothing to
+  reconcile. New `mutateConfig()` re-reads the file immediately before applying the change, closing the
+  background writer's window to the same few milliseconds a request handler already has. New standalone
+  test injects a marker while readiness polls and asserts it survives.
+  **Known gap, deliberately not fixed here and tracked as a TODO test:** request handlers still save
+  from the in-memory copy, which goes stale the moment anyone edits `config.json` directly — so an
+  operator's hand edit is reverted by the next config-writing request unless they reload first. Routing
+  every handler through `mutateConfig` is its own change with its own risk.
+
+- **Semantic recall could be silently dead — on a cold start, and after every restore.** Four defects,
+  each hiding the one beneath it, all now fixed. **Symptom:** search returns nothing. No error, no
+  failed request, no log line at query time — an empty result set looks exactly like "no matches" —
+  and `/ready` keeps reporting `vectorSearch: ok`, because it probes whether the *capability* exists,
+  not whether a space actually has indexes. Records keep storing perfectly good vectors the whole time.
+  **1 · Cold-start race (affects any deployment).** `mongot`, the search process inside
+  `mongodb-atlas-local`, starts *after* mongod accepts connections, and compose waits only on mongod.
+  If index setup ran in that window, `listSearchIndexes` failed — and the code treated *any* failure as
+  "not Atlas Local", skipped index creation and **never retried for the life of the process**. It now
+  retries with backoff, reports the underlying error instead of swallowing it in a bare `catch`, names
+  the collection that actually failed (the old message hardcoded `_memories` for all five), and tells
+  the operator how to repair it.
+  **2 · Only `memories` ever got an index.** The other four collections (`entities`, `edges`, `chrono`,
+  `files`) are created lazily on first write, so they did not exist when indexes were built and were
+  skipped — permanently. Measured on a real stack: 22 entities, 10 edges, 2 chrono and 4 files, all
+  with embeddings, none searchable. Those collections are now created up front so every record type is
+  recallable from its first write.
+  **3 · Restoring a backup destroyed every index.** Restore drops each collection before reloading it,
+  which takes its search index with it, and nothing rebuilt them: disaster recovery appeared to succeed
+  while quietly leaving the instance without the feature it exists for. Restore now rebuilds them and
+  reports which spaces are rebuilding. It **forces** the rebuild rather than trusting the
+  "definition already matches" shortcut — right after a drop, mongot can still list the *old* index, so
+  the diff says "nothing to do" and the stale entry is collected moments later, leaving nothing.
+  **4 · There was no repair operation at all.** `POST /api/brain/spaces/:id/reindex` only re-embeds
+  documents — an operator could reindex an entire space, watch every record process, and still get zero
+  results. The only things that ever built an index were creating a space and, by accident, editing its
+  type schemas. **Settings → Space → Danger Zone now has "Rebuild search indexes"**
+  (`POST /api/spaces/:id/rebuild-indexes`, admin + MFA, audited as `space.indexes.rebuild`). It lives in
+  the danger zone because it has a real cost: recall returns empty until the rebuild finishes.
+  **If your instance has search that returns nothing, use that button** — existing instances may
+  already be in this state, and nothing self-heals it.
+  Found because 19 integration tests covering `recall`/`recall_global`/`remember` had been skipping
+  themselves with a misleading "Embedding server not configured" message — a wrong conclusion drawn
+  from a readiness probe that could never pass (it stored a NEW fact every attempt and recalled it
+  immediately, racing the index lag from zero each round). The probe now stores once and polls, so
+  **the core feature has real CI coverage for the first time: 99 tests, 0 skipped**, plus a new
+  end-to-end test asserting that store → back up → restore → recall still returns the record.
+
 - **Corrected the `unstructured` sidecar's documented size — it was stated in four places and every
   figure was wrong — and hardened the Kubernetes reference for it.** Reported by an operator deploying
   on k3s with default-deny egress. The size is a capacity-planning number (`.env.example` cites it to

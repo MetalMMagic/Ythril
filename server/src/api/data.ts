@@ -27,6 +27,7 @@ import { runBackupNow } from '../db/backup-scheduler.js';
 import { loadBackupConfig, BACKUP_CONFIG_PATH, BackupConfigSchema } from '../db/backup-config.js';
 import { dumpDatabase } from '../db/dump.js';
 import { restoreDatabase } from '../db/restore.js';
+import { buildSpaceVectorIndexes } from '../spaces/vector-index.js';
 import { testConnection } from '../db/conn-test.js';
 import { isSsrfSafeMongoUri } from '../util/ssrf.js';
 import { log } from '../util/log.js';
@@ -355,7 +356,32 @@ dataRouter.post('/restore', requireAdminMfa, async (req, res) => {
   setMaintenanceActive(true);
   try {
     await restoreDatabase(getMongoUri(), backupDir);
-    res.json({ ok: true });
+
+    // Restoring DROPS every collection before reloading it, and dropping a collection destroys its
+    // vector search index along with it. Without rebuilding here, semantic recall returns empty
+    // FOREVER after a restore — silently: an empty result set is indistinguishable from "no matches",
+    // and `/ready` still reports `vectorSearch: ok` because that probes the capability, not whether a
+    // space's index exists. Disaster recovery would appear to succeed and quietly leave the instance
+    // without its core feature.
+    //
+    // Not awaiting READY (`waitForReady: false`): index builds take minutes on a large restore, and
+    // holding the HTTP response open that long would time out. The build is reported so the operator
+    // knows recall is still warming up rather than broken.
+    const rebuilt: string[] = [];
+    const failed: string[] = [];
+    for (const space of getConfig().spaces ?? []) {
+      try {
+        await buildSpaceVectorIndexes(space.id, false, { force: true });
+        rebuilt.push(space.id);
+      } catch (err) {
+        failed.push(space.id);
+        log.error(`restore: failed to rebuild vector indexes for space '${space.id}': ${err}`);
+      }
+    }
+    if (failed.length > 0) {
+      log.warn(`restore: ${failed.length} space(s) have no vector index — semantic recall will return empty for them until rebuilt`);
+    }
+    res.json({ ok: true, vectorIndexes: { rebuilding: rebuilt, failed } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error(`POST /api/admin/data/restore: ${err}`);

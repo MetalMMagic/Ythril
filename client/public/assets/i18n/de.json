@@ -1234,5 +1234,11 @@
   "networks.wizard.stepLabel": "Schritt {{ current }} von {{ total }}",
   "metrics.health.ok": "In Ordnung",
   "metrics.health.warn": "Warnung",
-  "metrics.health.full": "Voll"
+  "metrics.health.full": "Voll",
+  "spaces.dangerZone.rebuildIndexesTitle": "Suchindizes neu aufbauen",
+  "spaces.dangerZone.rebuildIndexesDescription": "Repariert die semantische Suche, wenn sie nichts zurückgibt. Die Einträge behalten ihre Vektoren, aber der Suchindex, über den sie abgefragt werden, kann fehlen — nach dem Wiederherstellen einer Sicherung oder wenn der Suchprozess der Datenbank beim Start noch nicht bereit war. Ein Reindex behebt das nicht, nur ein Neuaufbau. Bis dieser fertig ist, bleibt die Suche leer.",
+  "spaces.dangerZone.rebuildIndexesButton": "Indizes neu aufbauen",
+  "spaces.dangerZone.confirmRebuildIndexes": "Suchindizes für „{{label}}\" neu aufbauen? Es werden keine Einträge verändert, aber die semantische Suche liefert bis zum Abschluss keine Ergebnisse — bei einem großen Space dauert das Minuten.",
+  "spaces.dangerZone.rebuildIndexesStarted": "Suchindizes werden neu aufgebaut — bis zum Abschluss sind die Suchergebnisse unvollständig.",
+  "spaces.dangerZone.rebuildIndexesFailed": "Der Index-Neuaufbau konnte nicht gestartet werden."
 }

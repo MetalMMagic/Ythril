@@ -1234,5 +1234,11 @@
   "networks.wizard.stepLabel": "Krok {{ current }} z {{ total }}",
   "metrics.health.ok": "W normie",
   "metrics.health.warn": "Ostrzeżenie",
-  "metrics.health.full": "Pełny"
+  "metrics.health.full": "Pełny",
+  "spaces.dangerZone.rebuildIndexesTitle": "Odbuduj indeksy wyszukiwania",
+  "spaces.dangerZone.rebuildIndexesDescription": "Naprawia wyszukiwanie semantyczne, gdy nic nie zwraca. Rekordy zachowują swoje wektory, ale indeks wyszukiwania, przez który są odpytywane, może nie istnieć — po przywróceniu kopii zapasowej albo gdy proces wyszukiwania bazy danych nie był gotowy przy starcie. Ponowne indeksowanie tego nie naprawia, tylko odbudowa. Do jej zakończenia wyszukiwanie pozostaje puste.",
+  "spaces.dangerZone.rebuildIndexesButton": "Odbuduj indeksy",
+  "spaces.dangerZone.confirmRebuildIndexes": "Odbudować indeksy wyszukiwania dla „{{label}}\"? Żaden rekord nie zostanie zmieniony, ale wyszukiwanie semantyczne nie zwróci wyników do zakończenia odbudowy — w dużej przestrzeni potrwa to kilka minut.",
+  "spaces.dangerZone.rebuildIndexesStarted": "Trwa odbudowa indeksów wyszukiwania — do jej zakończenia wyniki będą niepełne.",
+  "spaces.dangerZone.rebuildIndexesFailed": "Nie udało się rozpocząć odbudowy indeksów."
 }

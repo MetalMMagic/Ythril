@@ -1,5 +1,5 @@
 import { ApplicationConfig, provideZonelessChangeDetection, APP_INITIALIZER, inject } from '@angular/core';
-import { provideRouter, withComponentInputBinding, TitleStrategy } from '@angular/router';
+import { provideRouter, withComponentInputBinding, withNavigationErrorHandler, TitleStrategy } from '@angular/router';
 import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideTransloco, provideTranslocoMissingHandler, Translation, TranslocoLoader, TranslocoService } from '@jsverse/transloco';
@@ -10,6 +10,7 @@ import { authInterceptor } from './core/auth.interceptor';
 import { mfaInterceptor } from './core/mfa.interceptor';
 import { ThemeService } from './core/theme.service';
 import { TranslocoTitleStrategy } from './core/title-strategy';
+import { staleBuildNavigationErrorHandler, installStaleBuildGlobalHandler, markBuildLoaded } from './core/stale-build-recovery';
 
 @Injectable({ providedIn: 'root' })
 export class TranslocoHttpLoader implements TranslocoLoader {
@@ -22,10 +23,18 @@ export class TranslocoHttpLoader implements TranslocoLoader {
 export const appConfig: ApplicationConfig = {
   providers: [
     provideZonelessChangeDetection(),
-    provideRouter(routes, withComponentInputBinding()),
+    provideRouter(routes, withComponentInputBinding(), withNavigationErrorHandler(staleBuildNavigationErrorHandler)),
     { provide: TitleStrategy, useClass: TranslocoTitleStrategy },
     provideHttpClient(withInterceptors([authInterceptor, mfaInterceptor])),
     provideAnimationsAsync(),
+    {
+      // Recover from "the app was updated while this tab was open": the stale bundle asks for lazy
+      // chunks that no longer exist, and without this the navigation dies silently — no message, no
+      // network entry, just a dead click. Registered first so it is listening as early as possible.
+      provide: APP_INITIALIZER,
+      useFactory: () => () => { installStaleBuildGlobalHandler(); markBuildLoaded(); },
+      multi: true,
+    },
     {
       provide: APP_INITIALIZER,
       useFactory: (theme: ThemeService) => () => theme.init(),

@@ -521,8 +521,23 @@ export function createApp() {
   // index.html so Angular's client-side router handles navigation.
   app.use(express.static(clientDist));
 
-  // ── SPA fallback — return index.html for all unmatched GET requests ───────
-  app.get('/{*path}', (_req, res, next) => {
+  // ── SPA fallback — return index.html for unmatched NAVIGATION requests ────
+  //
+  // The fallback deliberately does NOT cover build assets. Every Angular build rehashes its lazy-chunk
+  // filenames, so a browser that still holds a pre-update `main-*.js` will ask for a `chunk-*.js` that no
+  // longer exists. Answering that with index.html means the browser requested JavaScript and received
+  // HTML: the module import fails with an opaque "error loading dynamically imported module", the route
+  // click does nothing, and nothing on either side can tell a stale build from a real page. (That is
+  // exactly how it presented in practice — a dead click with no network entry and no message.)
+  //
+  // A missing asset is a 404. The client turns that into a one-shot reload; see the chunk-load recovery
+  // in the Angular app config.
+  const ASSET_REQUEST = /\.(?:js|mjs|css|map|json|woff2?|ttf|eot|svg|png|jpe?g|gif|webp|avif|ico)$/i;
+  app.get('/{*path}', (req, res, next) => {
+    if (ASSET_REQUEST.test(req.path)) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
     const indexPath = path.join(clientDist, 'index.html');
     res.sendFile(indexPath, (err) => {
       if (err) next(); // fall through to 404 if index.html not built yet

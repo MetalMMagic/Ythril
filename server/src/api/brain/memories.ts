@@ -4,6 +4,7 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.js';
 import { listMemories, deleteMemory, bulkDeleteMemories, remember, updateMemory } from '../../brain/memory.js';
@@ -61,11 +62,14 @@ memoriesRouter.post('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAu
       ? (properties as Record<string, string | number | boolean>)
       : undefined;
   const safeEntityIds: string[] = Array.isArray(entityIds) ? entityIds : [];
-  // Validate that all entityIds are valid UUID v4 (not names) — only when strictLinkage is on
+  // Every id must be a UUID v4 AND name an entity that exists. Format alone was never enough: a
+  // syntactically perfect id pointing at nothing stores exactly as silently as a name did, and the
+  // dangling link only shows up later as a traversal that comes back empty.
   if (isStrictLinkage(wt.target)) {
-    const invalidEntityIds = safeEntityIds.filter((id: string) => !UUID_V4_RE.test(id));
-    if (invalidEntityIds.length > 0) {
-      res.status(400).json({ error: '`entityIds` must contain valid UUID v4 values (entity IDs), not names', invalid: invalidEntityIds });
+    try {
+      await assertRefsResolve(wt.target, 'entityIds', 'entity', safeEntityIds);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
       return;
     }
   }

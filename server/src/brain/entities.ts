@@ -145,6 +145,20 @@ export async function findEntitiesByName(spaceId: string, name: string): Promise
     .toArray() as Promise<EntityDoc[]>;
 }
 
+/**
+ * Fetch several entities by id in one query.
+ *
+ * Callers linking records hold ids, but the embedded text wants names — an entity's name is what a
+ * semantic search actually matches on, so dropping it from the embed text would quietly degrade
+ * recall for every linked record. One `$in` beats a lookup per id.
+ */
+export async function findEntitiesByIds(spaceId: string, ids: readonly string[]): Promise<EntityDoc[]> {
+  if (ids.length === 0) return [];
+  return col<EntityDoc>(`${spaceId}_entities`)
+    .find(asFilter<EntityDoc>({ _id: { $in: [...new Set(ids)] }, spaceId }))
+    .toArray() as Promise<EntityDoc[]>;
+}
+
 /** Find an entity by exact ID */
 export async function getEntityById(spaceId: string, id: string): Promise<EntityDoc | null> {
   return col<EntityDoc>(`${spaceId}_entities`).findOne(asFilter<EntityDoc>({ _id: id, spaceId })) as Promise<EntityDoc | null>;

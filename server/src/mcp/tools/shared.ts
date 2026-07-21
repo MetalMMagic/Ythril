@@ -2,7 +2,8 @@ import type { RecallResult } from '../../brain/recall.js';
 
 /** Helpers shared by the MCP tool handlers (moved out of mcp/router.ts). */
 
-export const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Re-exported from the canonical definition so there is exactly one copy in the codebase.
+export { UUID_V4_RE, UUID_V4_PATTERN } from '../../brain/entity-refs.js';
 
 /** JSON-schema fragment for the per-record TTL arg (F10), shared by every MCP write tool. */
 export const TTL_DAYS_SCHEMA = {

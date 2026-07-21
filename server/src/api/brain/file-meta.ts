@@ -14,11 +14,12 @@ import { toDocId } from '../../util/paths.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { updateFileMeta, deleteFileMeta } from '../../files/file-meta.js';
+import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { fileExists } from '../../files/files.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
-import { resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
+import { resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
 import type { FileMetaDoc } from '../../config/types.js';
 
 export const fileMetaRouter = Router();
@@ -108,6 +109,21 @@ fileMetaRouter.patch('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth
   if (memoryIds !== undefined && !Array.isArray(memoryIds)) { res.status(400).json({ error: '`memoryIds` must be an array' }); return; }
   if (properties !== undefined && (typeof properties !== 'object' || properties === null || Array.isArray(properties))) {
     res.status(400).json({ error: '`properties` must be a plain object' }); return;
+  }
+
+  // A file carries THREE reference fields, and until now none of them was validated — not even under
+  // strict linkage, which every other brain route already honoured. So this was the widest silent
+  // hole: attach a memory to a file with a name or a stale id and it stored clean, then the file
+  // simply never turned up in anything that traversed the link.
+  if (isStrictLinkage(wt.target)) {
+    try {
+      await assertRefsResolve(wt.target, 'entityIds', 'entity', entityIds as string[] | undefined);
+      await assertRefsResolve(wt.target, 'memoryIds', 'memory', memoryIds as string[] | undefined);
+      await assertRefsResolve(wt.target, 'chronoIds', 'chrono', chronoIds as string[] | undefined);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      return;
+    }
   }
 
   const updated = await findFirstAcrossMembers(wt.target,

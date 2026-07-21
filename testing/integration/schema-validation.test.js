@@ -31,7 +31,7 @@ function token() { return tokenA; }
 before(async () => {
   tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
   // Create a dedicated, non-networked space for schema validation tests
-  const r = await post(INSTANCES.a, token(), '/api/spaces', { id: TEST_SPACE, label: `Schema Test ${RUN}` });
+  const r = await post(INSTANCES.a, token(), '/api/spaces', { id: TEST_SPACE, label: `Schema Test ${RUN}`, meta: { strictLinkage: false } });
   assert.equal(r.status, 201, `Failed to create test space: ${JSON.stringify(r.body)}`);
 });
 

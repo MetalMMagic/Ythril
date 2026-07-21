@@ -806,6 +806,17 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
   });
 
   it('Create chrono with optional fields', async () => {
+    // Real ids: linkage is validated now, and a placeholder only ever proved that an unchecked
+    // string survives a round-trip.
+    const linkedEnt = await post(INSTANCES.a, token(), '/api/brain/spaces/general/entities', {
+      name: `ChronoLink-${RUN}`, type: 'concept',
+    });
+    assert.equal(linkedEnt.status, 201, JSON.stringify(linkedEnt.body));
+    const linkedMem = await post(INSTANCES.a, token(), '/api/brain/spaces/general/memories', {
+      fact: `chrono link target ${RUN}`,
+    });
+    assert.equal(linkedMem.status, 201, JSON.stringify(linkedMem.body));
+
     const r = await post(INSTANCES.a, token(), '/api/brain/spaces/general/chrono', {
       title: `Deadline-${RUN}`,
       type: 'deadline',
@@ -814,16 +825,16 @@ describe('Brain -- chrono CRUD (/api/brain/spaces/:spaceId/chrono)', () => {
       status: 'upcoming',
       confidence: 0.8,
       tags: ['important'],
-      entityIds: ['some-entity'],
-      memoryIds: ['some-memory'],
+      entityIds: [linkedEnt.body._id],
+      memoryIds: [linkedMem.body._id],
       description: 'Submit report',
     });
     assert.equal(r.status, 201, JSON.stringify(r.body));
     assert.equal(r.body.type, 'deadline');
     assert.equal(r.body.confidence, 0.8);
     assert.ok(r.body.endsAt, 'endsAt should be set');
-    assert.deepStrictEqual(r.body.entityIds, ['some-entity']);
-    assert.deepStrictEqual(r.body.memoryIds, ['some-memory']);
+    assert.deepStrictEqual(r.body.entityIds, [linkedEnt.body._id]);
+    assert.deepStrictEqual(r.body.memoryIds, [linkedMem.body._id]);
     assert.equal(r.body.description, 'Submit report');
   });
 

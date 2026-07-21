@@ -142,9 +142,9 @@ describe('Proxy spaces', () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
 
     // Create two member spaces
-    const rA = await post(BASE, tokenA, '/api/spaces', { id: SPACE_A, label: 'Alpha' });
+    const rA = await post(BASE, tokenA, '/api/spaces', { id: SPACE_A, label: 'Alpha', meta: { strictLinkage: false } });
     assert.equal(rA.status, 201, `Create alpha: ${JSON.stringify(rA.body)}`);
-    const rB = await post(BASE, tokenA, '/api/spaces', { id: SPACE_B, label: 'Beta' });
+    const rB = await post(BASE, tokenA, '/api/spaces', { id: SPACE_B, label: 'Beta', meta: { strictLinkage: false } });
     assert.equal(rB.status, 201, `Create beta: ${JSON.stringify(rB.body)}`);
 
     // Create the proxy space

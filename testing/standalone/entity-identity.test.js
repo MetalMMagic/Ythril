@@ -102,94 +102,14 @@ describe('Entity upsert identity model', () => {
   });
 });
 
-// ── Remember entity resolution (Defect 3 fix) ──────────────────────────────
-
-describe('remember entity resolution — no ghost stubs', () => {
-  it('entity name resolution returns warning when entity not found', () => {
-    // Simulate: entity name "traefik" not found in DB → should warn, not auto-create
-    const entityNames = ['traefik', 'nginx'];
-    const dbResults = new Map(); // empty — no entities found
-
-    const entityIds = [];
-    const unresolvedNames = [];
-    for (const eName of entityNames) {
-      const matches = dbResults.get(eName) ?? [];
-      if (matches.length === 0) {
-        unresolvedNames.push(eName);
-      } else {
-        for (const m of matches) entityIds.push(m._id);
-      }
-    }
-    assert.deepEqual(entityIds, []);
-    assert.deepEqual(unresolvedNames, ['traefik', 'nginx']);
-  });
-
-  it('entity name resolution links to existing entity regardless of type', () => {
-    // Simulate: "traefik" exists as type="service"
-    const dbResults = new Map([
-      ['traefik', [{ _id: 'abc-123', name: 'traefik', type: 'service' }]],
-    ]);
-
-    const entityNames = ['traefik'];
-    const entityIds = [];
-    const unresolvedNames = [];
-    for (const eName of entityNames) {
-      const matches = dbResults.get(eName) ?? [];
-      if (matches.length === 0) {
-        unresolvedNames.push(eName);
-      } else {
-        for (const m of matches) entityIds.push(m._id);
-      }
-    }
-    assert.deepEqual(entityIds, ['abc-123']);
-    assert.deepEqual(unresolvedNames, []);
-  });
-
-  it('entity name resolution links to all matches and emits multi-match warning', () => {
-    // Simulate: "Lisa" exists as both type="person" and type="character"
-    const dbResults = new Map([
-      ['Lisa', [
-        { _id: 'id-1', name: 'Lisa', type: 'person' },
-        { _id: 'id-2', name: 'Lisa', type: 'character' },
-      ]],
-    ]);
-
-    const entityNames = ['Lisa'];
-    const entityIds = [];
-    const multiMatchWarnings = [];
-    for (const eName of entityNames) {
-      const matches = dbResults.get(eName) ?? [];
-      if (matches.length === 0) {
-        // skip
-      } else {
-        if (matches.length > 1) {
-          multiMatchWarnings.push(`'${eName}' matched ${matches.length} entities — linked to all`);
-        }
-        for (const m of matches) entityIds.push(m._id);
-      }
-    }
-    assert.deepEqual(entityIds, ['id-1', 'id-2']);
-    assert.equal(multiMatchWarnings.length, 1);
-    assert.ok(multiMatchWarnings[0].includes('Lisa'));
-  });
-
-  it('mixed found and not-found names produce correct lists', () => {
-    const dbResults = new Map([
-      ['redis', [{ _id: 'r-1', name: 'redis', type: 'service' }]],
-    ]);
-
-    const entityNames = ['redis', 'phantom'];
-    const entityIds = [];
-    const unresolvedNames = [];
-    for (const eName of entityNames) {
-      const matches = dbResults.get(eName) ?? [];
-      if (matches.length === 0) {
-        unresolvedNames.push(eName);
-      } else {
-        for (const m of matches) entityIds.push(m._id);
-      }
-    }
-    assert.deepEqual(entityIds, ['r-1']);
-    assert.deepEqual(unresolvedNames, ['phantom']);
-  });
-});
+// ── Remember entity linkage ────────────────────────────────────────────────
+//
+// The three tests that used to live here described `remember` resolving entity NAMES and silently
+// storing the memory unlinked when a name did not resolve. That behaviour is gone: `remember` takes
+// `entityIds` (UUID v4) and refuses the write when an id is malformed or does not exist.
+//
+// They are not rewritten in place because they never exercised the product — each one rebuilt the
+// resolution loop inline over a local `Map`, so it asserted that a copy of the logic agreed with
+// itself. The real behaviour is covered against the real code in `entity-refs.test.js`
+// (format + the strict-linkage default) and `integration/entity-refs.test.js` (the end-to-end
+// refusal), which is why the count here drops rather than moves.

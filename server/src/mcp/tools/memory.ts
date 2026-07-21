@@ -7,11 +7,12 @@
 
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { validateDeleteFields } from '../../brain/delete-fields.js';
-import { findEntitiesByName } from '../../brain/entities.js';
+import { findEntitiesByIds } from '../../brain/entities.js';
+import { assertRefsResolve, UUID_V4_PATTERN } from '../../brain/entity-refs.js';
 import { deleteMemory, remember, updateMemory } from '../../brain/memory.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
-import { resolveWriteTarget, findFirstAcrossMembers } from '../../spaces/proxy.js';
+import { resolveWriteTarget, findFirstAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
 import { resolveMetaRefs, validateMemory } from '../../spaces/schema-validation.js';
 import { TTL_DAYS_SCHEMA, ttlDaysFromArgs, unitScoreSchema } from './shared.js';
 
@@ -25,10 +26,10 @@ export const rememberTool: ToolHandler = {
           properties: {
             space: s.requiredSpace,
             fact: { type: 'string', minLength: 1, maxLength: 50000, description: 'The fact, observation, or memory to store (1–50 000 characters).' },
-            entities: {
+            entityIds: {
               type: 'array',
-              items: { type: 'string' },
-              description: 'Entity names mentioned in this memory.',
+              items: { type: 'string', pattern: UUID_V4_PATTERN },
+              description: 'Entity IDs (UUID v4) to link this memory to. Pass IDs, not names — look the entity up first (search_entities / list) and use its id. Every id must reference an existing entity; an unknown id is rejected rather than stored as a dead link.',
             },
             tags: {
               type: 'array',
@@ -56,7 +57,7 @@ export const rememberTool: ToolHandler = {
     if (!fact.trim()) throw new Error('fact must not be empty');
     if (fact.length > 50_000) throw new Error('fact must not exceed 50 000 characters');
     const tags = Array.isArray(a['tags']) ? (a['tags'] as string[]) : [];
-    const entityNames = Array.isArray(a['entities']) ? (a['entities'] as string[]) : [];
+    const entityIdsArg = Array.isArray(a['entityIds']) ? (a['entityIds'] as string[]) : [];
     const description = typeof a['description'] === 'string' ? a['description'] : undefined;
     const props = (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties']))
       ? (a['properties'] as Record<string, string | number | boolean>)
@@ -82,24 +83,17 @@ export const rememberTool: ToolHandler = {
     // Quota check — throws QuotaError (caught below) on hard limit
     const remQuota = await checkQuota('brain');
 
-    // Resolve entity names to existing entity IDs (Defect 3 fix).
-    // Never auto-create ghost stubs — warn on unresolved names instead.
-    const entityIds: string[] = [];
-    const unresolvedNames: string[] = [];
-    const multiMatchWarnings: string[] = [];
-    for (const eName of entityNames) {
-      const matches = await findEntitiesByName(ts, eName);
-      if (matches.length === 0) {
-        unresolvedNames.push(eName);
-      } else {
-        if (matches.length > 1) {
-          multiMatchWarnings.push(`'${eName}' matched ${matches.length} entities — linked to all`);
-        }
-        for (const m of matches) entityIds.push(m._id);
-      }
+    // Entity linkage is by ID. This used to accept names and silently store the memory UNLINKED
+    // when a name did not resolve — a dropped edge in a graph store, invisible until a traversal
+    // that should have found it came back empty. Now: wrong shape or unknown id, the write is
+    // refused and the agent is told which value was bad.
+    const entityIds: string[] = entityIdsArg;
+    if (isStrictLinkage(ts)) {
+      await assertRefsResolve(ts, 'entityIds', 'entity', entityIds);
     }
-
-    const resolvedNames = entityNames.filter(n => !unresolvedNames.includes(n));
+    // Names still go into the embedded text (they are what a search actually matches on), but they
+    // are now derived FROM the ids rather than being the input.
+    const resolvedNames = (await findEntitiesByIds(ts, entityIds)).map(e => e.name);
     // Insert-time duplicate check defaults ON for the interactive remember tool.
     const remDupeCheck = a['checkDuplicates'] !== false;
     const remDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
@@ -110,10 +104,8 @@ export const rememberTool: ToolHandler = {
     if (mem.similar && mem.similar.length > 0) {
       warnings.push(`⚠️ Possible duplicate — ${mem.similar.length} existing memor${mem.similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${mem.similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. This memory was still stored; pass checkDuplicates:false to skip this check, or update the existing one instead.`);
     }
-    if (unresolvedNames.length > 0) {
-      warnings.push(`⚠️ Unresolved entity names (not linked — create them first): ${unresolvedNames.map(n => `'${n}'`).join(', ')}`);
-    }
-    for (const w of multiMatchWarnings) warnings.push(`⚠️ ${w}`);
+    // (An unresolved or ambiguous reference is now a hard error above, not a warning on a write
+    // that already happened.)
     // Schema warnings (reuse violations from pre-write check)
     if (remMeta?.validationMode === 'warn') {
       for (const v of remSchemaViolations) warnings.push(`⚠️ Schema: ${v.field} — ${v.reason}`);
@@ -139,7 +131,7 @@ export const update_memoryTool: ToolHandler = {
             id: { type: 'string', description: 'Memory ID to update.' },
             fact: { type: 'string', description: 'New fact text (triggers re-embedding).' },
             tags: { type: 'array', items: { type: 'string' }, description: 'New tags (replaces existing).' },
-            entityIds: { type: 'array', items: { type: 'string' }, description: 'New entity ID links (replaces existing).' },
+            entityIds: { type: 'array', items: { type: 'string', pattern: UUID_V4_PATTERN }, description: 'New entity ID links (UUID v4, replaces existing). Every id must reference an existing entity.' },
             description: { type: 'string', description: 'New prose description or context.' },
             properties: {
               type: 'object',
@@ -172,7 +164,15 @@ export const update_memoryTool: ToolHandler = {
       updates.fact = a['fact'] as string;
     }
     if (Array.isArray(a['tags'])) updates.tags = a['tags'] as string[];
-    if (Array.isArray(a['entityIds'])) updates.entityIds = a['entityIds'] as string[];
+    if (Array.isArray(a['entityIds'])) {
+      const ids = a['entityIds'] as string[];
+      // This path had NO validation at all — not even the strict gate the other tools carried — so
+      // any string was written through as a link.
+      // Validate against the resolved write target — for a proxy space that is the concrete member
+      // the memory will be written to, so the entity must exist where the link will live.
+      if (isStrictLinkage(wt.target)) await assertRefsResolve(wt.target, 'entityIds', 'entity', ids);
+      updates.entityIds = ids;
+    }
     if (typeof a['description'] === 'string') updates.description = a['description'] as string;
     if (a['properties'] !== null && typeof a['properties'] === 'object' && !Array.isArray(a['properties'])) {
       updates.properties = a['properties'] as Record<string, string | number | boolean>;

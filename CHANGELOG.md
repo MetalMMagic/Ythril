@@ -1926,6 +1926,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING: every reference between brain records is now a UUID, and one that cannot resolve is
+  refused instead of silently stored.** Reported by the owner: `remember` took entity *names* and
+  stored the memory **unlinked** when a name did not resolve, `upsert_edge` demanded a UUID v4 and
+  hard-errored on a name, and several paths validated nothing at all. In a graph store a dropped link
+  is invisible — the write returns success and the gap only surfaces later as a traversal that quietly
+  comes back empty.
+  - **`remember` no longer accepts `entities` (names). It takes `entityIds` (UUID v4)**, like every
+    other write path. An agent must look the entity up and pass its id. This is the breaking part: a
+    client passing names now gets an error rather than a memory with no links.
+  - **`meta.strictLinkage` now defaults to ON.** It existed already but defaulted *off*, so the safe
+    behaviour was the one nobody opted into. The opt-out survives for the case that justified it —
+    staged imports whose targets are created later — and is now a deliberate per-space choice.
+  - **Existence is checked, not just format.** A syntactically perfect UUID pointing at nothing dangles
+    exactly as silently as a name did, so single-record writes verify the target exists. Bulk writes
+    keep format-only checking on purpose: a payload may reference a record created earlier in the same
+    payload, and rejecting that would break valid forward references.
+  - **The gaps are closed:** MCP `update_memory`, bulk memory items, and — the widest hole — the file
+    metadata route, which accepted all three of `entityIds`/`chronoIds`/`memoryIds` with no UUID check
+    and no strict gate whatsoever. Errors name the field and the offending values so an agent can
+    self-correct.
+  - `UUID_V4_RE` had **three separate copies** applied inconsistently; there is now one definition.
+  - **Restoring a space export is unaffected** — import writes records directly rather than through
+    these routes, so an export whose records reference each other round-trips regardless.
+  - **A correction to the report:** it stated that `update_memory` advertised `entities` while its
+    handler read `entityIds`. Both were in fact `entityIds` and agreed; the confusion was that
+    `remember` used `entities`. The genuine `update_memory` defect was the total absence of validation.
+  - **Test-quality finding worth recording:** the ~45 tests covering this area validated *local
+    reimplementations* of the rules (a private `validateEdgeRef` carrying its own
+    `strictLinkage === true`, a `remember` resolution loop rebuilt over a `Map`). They passed
+    regardless of what the product did, and did not notice any of this change. Replaced with tests
+    that exercise the real helpers, verified to fail when the default is reverted.
+
 - **Images, audio and video get the same ladder documents got — including a real "off".** Each class now
   has a per-space level capped by an instance ceiling under `mediaEmbedding.levels`, settable through
   `PATCH /api/spaces/:id` as `imageAnalysis` (`off · caption · recognition · auto`), `audioAnalysis`

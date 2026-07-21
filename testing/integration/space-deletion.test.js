@@ -39,6 +39,9 @@ describe('Space deletion — full cleanup', () => {
     const createR = await post(INSTANCES.a, token, '/api/spaces', {
       id: spaceId,
       label: 'Deletion Brain Test',
+      // Seeds an edge by entity NAME to populate the space quickly; the subject here is that
+      // deletion removes every collection, not how references are validated.
+      meta: { strictLinkage: false },
     });
     assert.equal(createR.status, 201, `Create: ${JSON.stringify(createR.body)}`);
 

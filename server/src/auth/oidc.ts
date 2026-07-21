@@ -93,9 +93,21 @@ type JwksHandle = ReturnType<typeof createRemoteJWKSet>;
 let _jwksHandle: JwksHandle | null = null;
 let _cachedIssuerUrl = '';
 
+/**
+ * Ceiling for every outbound call this module makes to the IdP (discovery + JWKS).
+ *
+ * This sits on the AUTHENTICATION path: an IdP that accepts the TCP connection and then never
+ * answers would otherwise hold the request until the OS socket timeout — minutes — and because the
+ * discovery document is cached with a TTL, the stall recurs rather than happening once. Ten seconds
+ * is well beyond any healthy IdP's response time and well below anything a user would wait out.
+ */
+export const OIDC_HTTP_TIMEOUT_MS = 10_000;
+
 function getJwksHandle(jwksUri: string, issuerUrl: string): JwksHandle {
   if (_jwksHandle && _cachedIssuerUrl === issuerUrl) return _jwksHandle;
-  _jwksHandle = createRemoteJWKSet(new URL(jwksUri));
+  // jose defaults to 5s; pin it so the budget is explicit policy rather than a library default that
+  // could change under us — the same reasoning as DEFAULT_OIDC_ALGORITHMS above.
+  _jwksHandle = createRemoteJWKSet(new URL(jwksUri), { timeoutDuration: OIDC_HTTP_TIMEOUT_MS });
   _cachedIssuerUrl = issuerUrl;
   return _jwksHandle;
 }
@@ -127,7 +139,17 @@ export async function getDiscoveryDoc(issuerUrl: string): Promise<DiscoveryDoc> 
 
   validateOidcUrl(issuerUrl, 'issuerUrl');
   const url = issuerUrl.replace(/\/$/, '') + '/.well-known/openid-configuration';
-  const res = await fetch(url);
+  let res: Response;
+  try {
+    res = await fetch(url, { signal: AbortSignal.timeout(OIDC_HTTP_TIMEOUT_MS) });
+  } catch (err) {
+    // An unreachable IdP and one that hangs are the same failure to the caller, and both must be
+    // reported as such rather than surfacing an opaque AbortError from deep in the auth path.
+    const reason = err instanceof Error && err.name === 'TimeoutError'
+      ? `no response within ${OIDC_HTTP_TIMEOUT_MS}ms`
+      : err instanceof Error ? err.message : String(err);
+    throw new Error(`OIDC discovery failed: ${reason} for ${url}`);
+  }
   if (!res.ok) {
     throw new Error(`OIDC discovery failed: ${res.status} ${res.statusText} for ${url}`);
   }

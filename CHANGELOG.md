@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **A hung identity provider can no longer stall the login path — the OIDC discovery fetch is now
+  bounded.** `getDiscoveryDoc()` called `fetch(url)` on `<issuer>/.well-known/openid-configuration` with no
+  `AbortSignal`, so an IdP that accepted the TCP connection and then never answered held the request until
+  the OS socket timeout — minutes — on the **authentication** path. Because the discovery document is
+  cached with a 5-minute TTL, the stall recurred every time the cache expired rather than happening once.
+  Both outbound calls this module makes now share an explicit 10-second budget (`OIDC_HTTP_TIMEOUT_MS`),
+  and the JWKS handle pins the same value instead of inheriting jose's default, so the budget is policy
+  rather than a library default that could shift. A timeout is reported as
+  `OIDC discovery failed: no response within 10000ms for <url>`, so an operator can tell "it hung" from
+  "it refused" or "it returned 500". New standalone test drives a real server that accepts connections and
+  never responds, proving the call gives up instead of hanging. (Every other outbound call in the server
+  already carried a timeout; this one was the exception. Found in the 2026-07-21 multi-lens audit.)
+
 - **The heavy parser sidecars are now confined: capabilities dropped, root filesystem read-only, memory /
   process / CPU ceilings (Docker hardening, Tier B).** `ollama`, `whisper` and `unstructured` exist to parse
   **untrusted** user-supplied media and documents, which makes them the highest-risk processes in a

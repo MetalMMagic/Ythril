@@ -116,22 +116,40 @@
 
   # ── Media embedding stack (image / audio / video → text → embedding) ──────
   # On by default to mirror the K8s setup (kubernetes/manifests/{ollama,whisper}-deploy.yaml).
-  # Disable for resource-constrained workstations by either:
+  # Disable for resource-constrained or infra-managed deployments by either:
   #   1. Setting `mediaEmbedding.enabled: false` in config/config.json
   #      (containers still run but no jobs are enqueued), or
-  #   2. Stopping them: `docker compose stop ollama whisper` and either
-  #      `docker compose up --scale ollama=0 --scale whisper=0` thereafter,
-  #      or assigning a non-default profile in docker-compose.override.yml.
+  #   2. Setting `OLLAMA_REPLICAS=0` / `WHISPER_REPLICAS=0` in .env — the deployment-level
+  #      switch below, which keeps the container out of the stack entirely.
   ollama:
     # Pinned to the current multi-arch manifest-list digest (reproducible; a re-pull can't silently
     # substitute a different image). Refresh: docker buildx imagetools inspect ollama/ollama:latest.
     image: ollama/ollama:latest@sha256:6345fbc18bd73a1e16404be681dbc6fd291a027cab43ed541abe78c4c81051b0
     container_name: ythril-ollama
     restart: unless-stopped
-    # Parses untrusted user media — block privilege escalation. (Memory/pid/cap limits for the heavy
-    # model servers are tracked separately: they need live-stack sizing so a cap doesn't OOM inference.)
+    # Infra switch: `OLLAMA_REPLICAS=0` in .env keeps this service out of the deployment entirely
+    # (a running container is stopped and removed on the next `up`). Vision captioning then reports
+    # the provider as unreachable and the rest of the stack is unaffected.
+    deploy:
+      replicas: ${OLLAMA_REPLICAS:-1}
+    # Parses untrusted user media — hardened to match kubernetes/manifests/ollama-deploy.yaml
+    # (readOnlyRootFilesystem + drop ALL + resource limits). Compose was the gap.
+    # Everything it writes goes to the models volume; /tmp is a tmpfs so the rootfs stays read-only.
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+    # Sized from a live measurement, not a guess: a moondream vision caption peaked at ~2.4 GB RSS,
+    # ~8 cores and 43 threads on a 16-core host. `pids_limit` counts THREADS, and inference threads
+    # scale with the host's core count, so the ceiling is deliberately far above that — it exists to
+    # stop a fork bomb, not to size inference. Override in .env when you run a larger vision model
+    # (llava:13b and friends need noticeably more than moondream's 1.7 GB of weights).
+    mem_limit: ${OLLAMA_MEM_LIMIT:-8g}
+    pids_limit: ${OLLAMA_PIDS_LIMIT:-2048}
+    cpus: ${OLLAMA_CPUS:-8.0}
     # Auto-pull the default vision model on first start so the first upload
     # does not fail with "model not found". Subsequent restarts no-op.
     entrypoint: ["/bin/sh", "-c"]
@@ -161,11 +179,30 @@
     image: fedirz/faster-whisper-server:latest-cpu@sha256:760e5e43d427dc6cfbbc4731934b908b7de9c7e6d5309c6a1f0c8c923a5b6030
     container_name: ythril-whisper
     restart: unless-stopped
-    # Parses untrusted user media — block privilege escalation (see the ollama note re: heavier limits).
+    # Infra switch — see the ollama note above. `WHISPER_REPLICAS=0` in .env drops it entirely.
+    deploy:
+      replicas: ${WHISPER_REPLICAS:-1}
+    # Parses untrusted user media — same treatment as ollama below, with ONE exception:
+    # NO `read_only` here. Verified against the live image: faster-whisper-server is launched through
+    # `uv run`, which rewrites its own virtualenv (`/root/faster-whisper-server/.venv/...`) on every
+    # start — a read-only rootfs makes it crash-loop with "Read-only file system (os error 30)".
+    # Seeding a named volume over the venv would "fix" it while silently pinning the OLD venv across
+    # image upgrades, which is worse. Everything else below still applies.
     security_opt:
       - no-new-privileges:true
-    environment:
-      WHISPER_MODEL: "base"  # ~140 MB; auto-downloads on first request
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=256m
+    # Measured: a 3 s clip through faster-whisper `small` peaked at ~1.4 GB RSS, ~4 cores, 42 threads.
+    # Raise WHISPER_MEM_LIMIT if you point `mediaEmbedding.stt.model` at a large-v3 class model.
+    mem_limit: ${WHISPER_MEM_LIMIT:-4g}
+    pids_limit: ${WHISPER_PIDS_LIMIT:-1024}
+    cpus: ${WHISPER_CPUS:-4.0}
+    # NOTE: no WHISPER_MODEL here on purpose. Ythril sends the model with every request
+    # (`mediaEmbedding.stt.model`, default `base`) and faster-whisper-server downloads it on first use,
+    # so a compose-level default would be dead config — the image's own knob is WHISPER__MODEL
+    # (double underscore, pydantic nested settings), which the single-underscore spelling never set.
     volumes:
       - ythril-whisper-cache:/root/.cache
     healthcheck:
@@ -186,12 +223,12 @@
   # `sidecar_down` — Ythril itself still runs, so it is intentionally NOT a startup
   # dependency of the ythril service (conversion degrades gracefully until it is up).
   #
-  # HEAVY IMAGE: unstructured-api bundles OCR model weights (Tesseract) and is
-  # ~4.5 GB compressed (~6–8 GB on disk); first boot is slow (hence the long start_period). See
-  # docs/dependencies.md. To skip it on a resource-constrained workstation, stop it
-  # (`docker compose stop unstructured`) or scale it to zero
-  # (`docker compose up --scale unstructured=0`); in-process text/HTML conversion and
-  # all other features keep working — only PDF/DOCX/EPUB conversion is unavailable.
+  # HEAVY IMAGE: unstructured-api bundles OCR model weights (Tesseract) and is ~32 GB ON DISK —
+  # a few GB compressed, but the unpacked layers are what your Docker disk actually holds (measured
+  # with `docker images`, not estimated). First boot is slow, hence the long start_period. See
+  # docs/dependencies.md. To skip it entirely on a resource-constrained workstation, set
+  # `UNSTRUCTURED_REPLICAS=0` in .env (below); in-process text/HTML conversion and all other
+  # features keep working — only PDF/DOCX/EPUB conversion is unavailable.
   #
   # Isolation: it parses UNTRUSTED user-supplied documents, so it sits on its own
   # internal `ythril-convert` network — no database access and no internet egress
@@ -207,9 +244,47 @@
     image: downloads.unstructured.io/unstructured-io/unstructured-api:0.1.2
     container_name: ythril-unstructured
     restart: unless-stopped
-    # Parses untrusted user documents (OCR) — block privilege escalation (see the ollama note re: heavier limits).
+    # Infra switch — this is the HEAVY one (~32 GB on disk), so a deployment that
+    # does not need server-side PDF/DOCX/EPUB conversion should not pay for it: `UNSTRUCTURED_REPLICAS=0`
+    # in .env keeps it out of the stack (and out of the first `docker compose up` pull). Conversion then
+    # reports `sidecar_down` — the same graceful degradation as an external converter being unreachable —
+    # and in-process text/HTML conversion plus every other feature keeps working. Set
+    # CONVERSION_SIDECAR_URL as well when you point Ythril at an external converter instead.
+    deploy:
+      replicas: ${UNSTRUCTURED_REPLICAS:-1}
+    # Parses untrusted user documents (OCR) — the highest-risk parser in the stack, so it gets the same
+    # treatment as doc-render below. It has no volume: everything it writes is per-request scratch, which
+    # is what the /tmp tmpfs is for (hi_res OCR spills page images there).
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g
+    environment:
+      # Everything this service writes at request time has to land in the tmpfs above, or the
+      # read-only rootfs breaks it. Verified by running a real hi_res extraction:
+      #   - numba compiles `projection_by_bboxes` and caches it NEXT TO the package by default,
+      #     which fails with "no locator available for file …/xycut.py" on a read-only rootfs;
+      #   - matplotlib wants a config dir;
+      #   - torch inductor already uses TMPDIR, so /tmp covers it.
+      NUMBA_CACHE_DIR: /tmp/numba
+      MPLCONFIGDIR: /tmp/matplotlib
+      # NOT a hardening flag — this fixes hi_res extraction outright. The layout and table models
+      # (`unstructuredio/yolo_x_layout`, `microsoft/table-transformer-structure-recognition`) ARE
+      # baked into the image, but huggingface_hub still calls the hub to resolve them; this service
+      # sits on the INTERNAL `ythril-convert` network with no internet, so that call fails and the
+      # request dies with "Can't load image processor for 'microsoft/table-transformer-…'". Offline
+      # mode makes it use the models it already has. (Do NOT set HOME or XDG_CACHE_HOME here —
+      # they are what locates that baked cache.)
+      HF_HUB_OFFLINE: "1"
+    # Measured on a real hi_res extraction: 1.73 GB RSS and 61 threads. OCR memory scales with page
+    # count/DPI, so this ceiling stays generous; raise it in .env for very large scans rather than
+    # letting a malformed document take the host down with it.
+    mem_limit: ${UNSTRUCTURED_MEM_LIMIT:-6g}
+    pids_limit: ${UNSTRUCTURED_PIDS_LIMIT:-1024}
+    cpus: ${UNSTRUCTURED_CPUS:-4.0}
     healthcheck:
       # The image is a Python/uvicorn service; probe /healthcheck with the bundled
       # interpreter rather than assuming curl/wget is present.

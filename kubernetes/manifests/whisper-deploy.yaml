@@ -29,10 +29,15 @@ spec:
         app: whisper
         component: media-embedding
     spec:
+      # NOTE — this image can run neither as a non-root user nor on a read-only root filesystem, and
+      # both were verified against `fedirz/faster-whisper-server:latest-cpu` rather than assumed:
+      # the server is launched through `uv run`, which rewrites its own virtualenv under the
+      # root-owned /root/faster-whisper-server on every start. As uid 1000 that write is denied; with
+      # a read-only rootfs it crash-loops on "Read-only file system (os error 30)". Everything that
+      # does NOT depend on the image's layout — dropped capabilities, no privilege escalation,
+      # seccomp, the resource ceilings, and the media NetworkPolicy — still applies, and this matches
+      # what `docker-compose.yml` does for the same image.
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
@@ -43,8 +48,10 @@ spec:
             - containerPort: 8000
               name: http
           env:
-            - name: WHISPER_MODEL
-              value: "base"
+            # No WHISPER_MODEL here: Ythril sends the model with every request
+            # (`mediaEmbedding.stt.model`, default `base`) and faster-whisper-server downloads it on
+            # first use. The image's own default-model knob is WHISPER__MODEL (double underscore,
+            # pydantic nested settings) — the single-underscore spelling never set anything.
             - name: HF_HOME
               value: /tmp/huggingface
             - name: XDG_CACHE_HOME
@@ -54,7 +61,7 @@ spec:
               mountPath: /tmp
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
+            # readOnlyRootFilesystem intentionally omitted — see the pod-level note above.
             capabilities:
               drop:
                 - ALL

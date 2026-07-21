@@ -20,7 +20,7 @@ Recommended host minimums:
 
 - CPU: 2 cores
 - RAM: 6 GB (4 GB for Ythril + Mongo, ~2 GB for the bundled media-embedding stack)
-- Disk: at least 20 GB free — ~2 GB for the `moondream` vision model and the Whisper `base` model, plus ~6–8 GB for the `unstructured` document-parsing image (the `doc-render` image is small, a few hundred MB)
+- Disk: at least 50 GB free — ~2 GB for the `moondream` vision model and the Whisper `base` model, plus **~32 GB for the `unstructured` document-parsing image** (measured with `docker images`; set `UNSTRUCTURED_REPLICAS=0` in `.env` to skip it entirely if you do not need server-side PDF/DOCX/EPUB conversion). The `doc-render` image is small, a few hundred MB.
 
 > **Slimmer install:** Ythril ships with bundled image and audio/video understanding
 > services so attachments become searchable automatically. If your machine is tight

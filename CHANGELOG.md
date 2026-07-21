@@ -1267,6 +1267,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Characterization tests for the settings `ModelsComponent` (25 tests), landed before it is split.**
+  The 643-line page had **no coverage at all** and is about to become three tabs (Models · Pipelines ·
+  Tools) with a per-space pipeline surface behind it, so these are proven green against the unmodified
+  component first — a test written after a refactor only proves the new code agrees with itself.
+  They pin the contracts chosen for consequence rather than coverage: **a masked API key is never echoed
+  back** (GET returns keys masked; sending the mask would overwrite a real credential with asterisks, and
+  `apiKey` appears in the payload only when the operator typed one), **only the PATCH-writable document
+  fields are sent** (`vlmModel` / `repairModel` / sidecar URLs are env-only and including them makes the
+  API reject the entire save), and **both confirmations abort the whole save when declined** — the egress
+  acknowledgment that document content leaves the instance, and the re-index that re-embeds every vector
+  in every space. A rebuild that turned either into a fire-and-forget toast would be a silent privacy or
+  data regression, so both are asserted in each direction, including that a saved re-index re-baselines
+  so a second save does not prompt again.
+  Verified green against the unmodified component *and* verified to fail when the masked-key guard and
+  the re-index abort are deliberately removed — a characterization test that cannot fail is worthless.
+  Client suite: 390 → 415 tests.
+
 - **An edit made to `config.json` on a running instance is no longer reverted by the server.** The server
   treats its in-memory config as authoritative and writes the whole file back on every change — creating
   a space, renaming one, saving settings. That made the in-memory copy stale the moment anyone edited the

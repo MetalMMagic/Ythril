@@ -198,6 +198,12 @@ export interface SpaceConfig {
    *  like dupeRules): when set, documents uploaded to THIS space use this mode instead of the
    *  instance-wide `documentProcessing.mode`. Absent = inherit the instance default. */
   documentExtraction?: DocExtractionMode;
+  /** Per-space level for images / audio / video, capped by the matching instance ceiling in
+   *  `mediaEmbedding.levels`. Same contract as `documentExtraction`: local/operational, never governed
+   *  or synced, and absent means "follow the instance". See `media-level.ts` for the ladders. */
+  imageAnalysis?: ImageLevel;
+  audioAnalysis?: AudioLevel;
+  videoAnalysis?: VideoLevel;
   /** Auto-TTL (F10): when set (> 0), every new/updated record in this space is stamped with an expiry
    *  `now + recordTtlDays` and deleted by the TTL sweep once it lapses (through the normal delete path,
    *  so it tombstones + syncs). A per-record `ttlDays` on a write overrides this. Absent = no auto-TTL. */
@@ -295,6 +301,10 @@ export interface MediaProviderConfig {
 export interface MediaEmbeddingConfig {
   /** Master switch — when false, media files store with embeddingStatus="disabled". */
   enabled?: boolean;
+  /** Instance CEILINGS per media class — the most a space is allowed to do, not a default a space
+   *  inherits. Absent = `auto` (no policy limit). Documents have their own under
+   *  `documentProcessing.mode`, which predates this block. */
+  levels?: MediaLevelCeilings;
   /** "local" → bundled cluster endpoint (Ollama); "external" → user-supplied API. */
   visionProvider?: 'local' | 'external';
   /** "local" → bundled cluster endpoint (faster-whisper-server); "external" → user-supplied API. */
@@ -481,6 +491,35 @@ export const DOC_EXTRACTION_MODES_IN = ['off', 'ocr', 'vlm', 'repair', 'auto', '
 export function normalizeDocExtractionMode(mode: string | undefined | null): DocExtractionMode | undefined {
   if (mode === null || mode === undefined) return undefined;
   return (mode === 'max' ? 'repair' : mode) as DocExtractionMode;
+}
+
+/**
+ * The other media ladders, same shape as documents: low to high, plus `auto` meaning "as much as this
+ * instance can do". `off` always means the file is stored but never analysed — not "analysed cheaply".
+ *
+ *   images   caption      describe the image for search
+ *            recognition  caption plus face detection/embedding (opt-in, privacy-weighted)
+ *   audio    on           transcribe
+ *   video    audio        pull the audio track and transcribe it
+ *            full         keyframes as images as well — NOT BUILT YET; reserved so the ladder reads
+ *                         complete, and rejected rather than silently treated as `audio`
+ */
+export type ImageLevel = 'off' | 'caption' | 'recognition' | 'auto';
+export type AudioLevel = 'off' | 'on' | 'auto';
+export type VideoLevel = 'off' | 'audio' | 'full' | 'auto';
+export type TextLevel = 'off' | 'embed' | 'chunk' | 'auto';
+
+export const IMAGE_LEVELS = ['off', 'caption', 'recognition', 'auto'] as const;
+export const AUDIO_LEVELS = ['off', 'on', 'auto'] as const;
+export const VIDEO_LEVELS = ['off', 'audio', 'full', 'auto'] as const;
+export const TEXT_LEVELS = ['off', 'embed', 'chunk', 'auto'] as const;
+
+/** Instance ceilings for the media classes. Absent = `auto` (no policy limit of its own). */
+export interface MediaLevelCeilings {
+  images?: ImageLevel;
+  audio?: AudioLevel;
+  video?: VideoLevel;
+  text?: TextLevel;
 }
 
 /**

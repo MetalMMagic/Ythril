@@ -2082,7 +2082,29 @@ The effective level is `min(instance mode, space override)`, which has three con
 - **Raising the instance mode does not raise any space** that chose a specific lower level — only spaces on `"auto"` follow it upward. Capability is granted centrally; using less of it stays with the space.
 - **Instance `"off"` is a floor as well as a ceiling.** Nothing is analysed anywhere, whatever a space asks for.
 
-A space on `"auto"` follows the instance level wherever it moves. Uploads to a space whose effective level is `"off"` are stored and marked `embeddingStatus: "skipped"` — they are never queued, so they do not sit at `pending` waiting for work that will not happen.
+A space on `"auto"` follows the instance level wherever it moves.
+
+**The other media classes work the same way.** `PATCH /api/spaces/:id` also accepts `imageAnalysis`,
+`audioAnalysis` and `videoAnalysis` (send `null` to clear an override), each capped by the matching
+ceiling under `mediaEmbedding.levels`:
+
+| Class | Levels, low to high | `off` means |
+|---|---|---|
+| `imageAnalysis` | `off` · `caption` · `recognition` · `auto` | no caption, no image embedding, no face detection |
+| `audioAnalysis` | `off` · `on` · `auto` | no transcription |
+| `videoAnalysis` | `off` · `audio` · `full` · `auto` | no audio extraction, no transcription |
+
+`recognition` is the rung that permits **face detection and embedding**, and it is gated twice: the
+instance-wide `mediaEmbedding.faceRecognition.enabled` must allow it *and* the space must be at
+`recognition`. A space on `caption` gets described images and no face data — which is the reason
+images have their own ladder rather than riding on the master media switch.
+
+`videoAnalysis: "full"` (keyframes analysed as images) is **reserved and not implemented**. The API
+**rejects it with 400** rather than accepting it and behaving like `audio`, so an operator is never
+told that keyframe analysis is running when nothing of the sort is built.
+
+Uploads to a class whose effective level is `off` are stored and marked `embeddingStatus: "skipped"`.
+They are never queued, so they do not sit at `pending` waiting for work that will not happen. Uploads to a space whose effective level is `"off"` are stored and marked `embeddingStatus: "skipped"` — they are never queued, so they do not sit at `pending` waiting for work that will not happen.
 
 | Field | Default | Description |
 |---|---|---|

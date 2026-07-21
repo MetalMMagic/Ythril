@@ -20,7 +20,7 @@ import { buildSpaceVectorIndexes } from '../spaces/vector-index.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import { peerSafeFetch } from '../sync/peer-fetch.js';
 import type { SpaceMeta, KnowledgeType, TypeSchema } from '../config/types.js';
-import { DOC_EXTRACTION_MODES_IN, normalizeDocExtractionMode } from '../config/types.js';
+import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
 import { writeFile as writeSpaceFile } from '../files/files.js';
 
 export const spacesRouter = Router();
@@ -145,8 +145,13 @@ const UpdateSpaceBody = z.object({
   // F11-c: per-space document-extraction mode override. null clears it (inherit the instance default).
   // `max` is accepted as the legacy spelling of `repair` and normalised on the way in.
   documentExtraction: z.enum(DOC_EXTRACTION_MODES_IN).nullable().optional(),
-}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined, {
-  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, or documentExtraction must be provided',
+  // Per-space analysis level for the other media classes, capped by the instance ceiling.
+  // null clears the override so the space follows the instance again.
+  imageAnalysis: z.enum(IMAGE_LEVELS).nullable().optional(),
+  audioAnalysis: z.enum(AUDIO_LEVELS).nullable().optional(),
+  videoAnalysis: z.enum(VIDEO_LEVELS).nullable().optional(),
+}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined || d.imageAnalysis !== undefined || d.audioAnalysis !== undefined || d.videoAnalysis !== undefined, {
+  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, or videoAnalysis must be provided',
 });
 
 const ReorderSpacesBody = z.object({
@@ -324,7 +329,7 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     }
   }
 
-  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, indexStatus }, idx) => ({
+  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, indexStatus }, idx) => ({
     id, label, builtIn, folders, maxGiB, flex, description,
     usageGiB: usageGiBByIdx[idx],
     ...(indexStatus ? { indexStatus } : {}),
@@ -337,6 +342,11 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     ...(dupeRulesOnInsert ? { dupeRulesOnInsert } : {}),
     ...(recordTtlDays ? { recordTtlDays } : {}),
     ...(documentExtraction ? { documentExtraction } : {}),
+    // Only present when the space overrides the instance — an absent field means 'follows the
+    // instance', which the UI renders differently from an explicit choice.
+    ...(imageAnalysis ? { imageAnalysis } : {}),
+    ...(audioAnalysis ? { audioAnalysis } : {}),
+    ...(videoAnalysis ? { videoAnalysis } : {}),
     ...(includeCounts && countsBySpaceId[id] ? { counts: countsBySpaceId[id] } : {}),
   }));
   // Include storage usage summary when quota is configured
@@ -435,6 +445,14 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
 
   // Per-space extraction-mode override (F11-c) is local/operational (like dupe rules) — apply
   // immediately, never voted. null clears the override so the space inherits the instance default.
+  if (parsed.data.videoAnalysis === 'full') {
+    res.status(400).json({
+      error: "video level 'full' is reserved but not implemented yet — keyframe analysis is not built. " +
+             "Use 'audio' to transcribe the audio track, or 'auto'.",
+    });
+    return;
+  }
+
   if (parsed.data.documentExtraction !== undefined) {
     updateSpace(id, { documentExtraction: normalizeDocExtractionMode(parsed.data.documentExtraction) });
   }

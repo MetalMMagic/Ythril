@@ -22,6 +22,7 @@ import { getMediaEmbeddingConfig, DEFAULT_MEDIA_MAX_FILE_SIZE_BYTES } from '../c
 import { resolveInputFormat, deleteConversionArtifacts, isMediaFormat, type ResolvedFormat } from './converters/pipeline.js';
 import { enqueueMediaJob, enqueueTextJob } from './media/job-queue.js';
 import { documentsAreOff } from './converters/extraction-level.js';
+import { mediaIsOff } from './converters/media-level.js';
 import { toDocId } from '../util/paths.js';
 import { log } from '../util/log.js';
 
@@ -76,6 +77,14 @@ export async function dispatchFileProcessing(
     if (input.bytes > maxBytes) {
       await setMediaStatus('skipped');
       log.info(`Media file ${spaceId}/${filePath} skipped: ${input.bytes} bytes exceeds maxFileSizeBytes (${maxBytes})`);
+      return { resolvedFormat, embeddingStatus: 'skipped' };
+    }
+    // This class is off for this space: store the file, analyse nothing, and say so terminally.
+    // Enqueuing a job that will do nothing leaves the file at `pending` forever — indistinguishable
+    // from a stuck queue, and the reason recall comes back empty would be nowhere to be found.
+    if (mediaIsOff(spaceId, mediaType)) {
+      await setMediaStatus('skipped');
+      log.info(`Media file ${spaceId}/${filePath} not analysed: ${mediaType} analysis is off for this space`);
       return { resolvedFormat, embeddingStatus: 'skipped' };
     }
     await setMediaStatus('pending');

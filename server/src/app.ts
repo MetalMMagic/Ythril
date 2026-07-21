@@ -32,7 +32,7 @@ import { dataRouter } from './api/data.js';
 import { mediaConfigRouter } from './api/media-config.js';
 import { maintenanceMiddleware } from './maintenance.js';
 import { globalRateLimit, ipFloodBackstop } from './rate-limit/middleware.js';
-import { configExists, reloadConfig, getConfig, saveConfig, loadSecrets } from './config/loader.js';
+import { configExists, reloadConfig, getConfig, saveConfig, loadSecrets, startConfigWatcher } from './config/loader.js';
 import { requireAuth, requireAdminMfa, requireAdminMfaScoped } from './auth/middleware.js';
 import { clearTokenCache } from './auth/tokens.js';
 import { clearOidcCache } from './auth/oidc.js';
@@ -454,30 +454,41 @@ export function createApp() {
   // Reload config.json from disk without a container restart.  Useful when the
   // operator edits config.json directly or when integration tests inject new
   // settings.  Requires a valid Bearer PAT (same auth as all other API routes).
+  //
+  // Also runs automatically when the file changes on disk (see startConfigWatcher
+  // below): an operator's edit is otherwise reverted by the next config write, and
+  // reloading is only half the job — a space added by hand still needs initialising.
+  // Both paths therefore go through this one function rather than the watcher doing
+  // a bare re-parse.
+  async function applyConfigFromDisk(): Promise<void> {
+    const oldSpaceIds = new Set(getConfig().spaces.map(s => s.id));
+    reloadConfig();
+    loadSecrets(); // Also reload secrets.json (peer tokens injected by tests/scripts)
+    // Prefix-less (legacy) tokens are NOT stripped — findMatchingToken()
+    // verifies them via a fallback scan and backfills the prefix on first use.
+    // Flush caches so revoked tokens and updated OIDC config take effect immediately
+    clearTokenCache();
+    clearOidcCache();
+    // Ensure the built-in general space survives config edits
+    await ensureGeneralSpace();
+    // Complete any space rename/delete interrupted by a crash whose marker is
+    // present in the (re)loaded config. Idempotent and a no-op without a marker;
+    // gives operators a restart-free way to finish a stuck op. Runs before the
+    // new-space init below so a rename isn't shadowed by re-creating its old id.
+    await reconcilePendingSpaceOp();
+    // Initialise any spaces that were added to the config file
+    const newCfg = getConfig();
+    for (const space of newCfg.spaces) {
+      if (!oldSpaceIds.has(space.id) && !space.proxyFor) {
+        await initSpace(space.id);
+      }
+    }
+  }
+
+  startConfigWatcher(() => applyConfigFromDisk());
   app.post('/api/admin/reload-config', globalRateLimit, requireAdminMfa, async (_req, res) => {
     try {
-      const oldSpaceIds = new Set(getConfig().spaces.map(s => s.id));
-      reloadConfig();
-      loadSecrets(); // Also reload secrets.json (peer tokens injected by tests/scripts)
-      // Prefix-less (legacy) tokens are NOT stripped — findMatchingToken()
-      // verifies them via a fallback scan and backfills the prefix on first use.
-      // Flush caches so revoked tokens and updated OIDC config take effect immediately
-      clearTokenCache();
-      clearOidcCache();
-      // Ensure the built-in general space survives config edits
-      await ensureGeneralSpace();
-      // Complete any space rename/delete interrupted by a crash whose marker is
-      // present in the (re)loaded config. Idempotent and a no-op without a marker;
-      // gives operators a restart-free way to finish a stuck op. Runs before the
-      // new-space init below so a rename isn't shadowed by re-creating its old id.
-      await reconcilePendingSpaceOp();
-      // Initialise any spaces that were added to the config file
-      const newCfg = getConfig();
-      for (const space of newCfg.spaces) {
-        if (!oldSpaceIds.has(space.id) && !space.proxyFor) {
-          await initSpace(space.id);
-        }
-      }
+      await applyConfigFromDisk();
       res.json({ ok: true });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

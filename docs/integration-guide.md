@@ -4673,6 +4673,8 @@ X-TOTP-Code: <code>   # required when MFA is enabled
 
 **Requires admin token** (and TOTP code when MFA is enabled). Re-reads `config.json` from disk. Useful after manual edits. Any spaces added to the config since the last load are automatically initialized (MongoDB collections, indexes, vector search index, and file directories created). The built-in `general` space is ensured to exist.
 
+> **Reload promptly after a manual edit.** The running server holds `config.json` in memory and writes the whole file back whenever anything changes it — creating a space, renaming one, saving settings. Until you reload, that in-memory copy does not know about your edit, so the next such write reverts it. Edit and reload as one step; do not leave a hand-edited config unreloaded on a live instance. Stopping the server, editing, and starting it again is always safe.
+
 Reloading also flushes the token and OIDC caches, so a token revoked by a manual edit — or an updated OIDC block — takes effect immediately rather than after the cache expires. Legacy tokens that lack a `prefix` field are **not** removed: `findMatchingToken()` verifies them via a fallback scan and backfills the prefix on first use, so a reload never invalidates existing tokens.
 
 **Response** `200`:

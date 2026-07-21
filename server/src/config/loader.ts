@@ -254,6 +254,29 @@ let _flushedGeneration = 0; // highest generation already durably on disk
 let _flushScheduled = false;
 let _flushChain: Promise<void> = Promise.resolve();
 
+/**
+ * Apply a small change to config.json without clobbering whatever else has landed
+ * on disk since our in-memory copy was loaded.
+ *
+ * `saveConfig` serialises the whole in-memory config, so the usual read-mutate-save
+ * shape is last-writer-wins: any edit another writer made to the file in between —
+ * an operator's hand edit, a `pendingSpaceOp` crash marker, a space created by a
+ * concurrent request — is silently erased. That is tolerable for a request handler,
+ * which mutates and saves within a few milliseconds, but not for a background task
+ * that captured its snapshot and then waited: vector-index readiness polling can hold
+ * one for a minute before writing a single field back.
+ *
+ * Re-reading immediately before the write closes that window to the same few
+ * milliseconds a request handler already has. It is not a substitute for real
+ * locking — two processes can still interleave — but it stops a stale snapshot from
+ * resurrecting old state wholesale.
+ */
+export function mutateConfig(apply: (config: Config) => void): void {
+  const fresh = reloadConfig();
+  apply(fresh);
+  saveConfig(fresh);
+}
+
 export function saveConfig(config: Config): void {
   _config = config;
   const gen = ++_writeGeneration;

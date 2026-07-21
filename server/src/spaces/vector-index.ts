@@ -7,7 +7,7 @@
  * lifecycle; spaces.ts calls in, not the other way round.
  */
 import { getDb, asDoc } from '../db/mongo.js';
-import { getConfig, saveConfig, getEmbeddingConfig, getFaceRecognitionConfig } from '../config/loader.js';
+import { getConfig, mutateConfig, getEmbeddingConfig, getFaceRecognitionConfig } from '../config/loader.js';
 import { resolveMetaRefs } from './schema-validation.js';
 import { log } from '../util/log.js';
 import type { KnowledgeType } from '../config/types.js';
@@ -318,10 +318,16 @@ export async function finalizeSpaceIndexReady(spaceId: string): Promise<void> {
   } catch (err) {
     log.warn(`Space '${spaceId}': error awaiting vector index readiness: ${err instanceof Error ? err.message : String(err)}`);
   }
-  const cfg = getConfig();
-  const space = cfg.spaces.find(s => s.id === spaceId);
-  if (!space) return; // space was deleted while its indexes built
-  space.indexStatus = ok ? 'ready' : 'failed';
-  saveConfig(cfg);
+  // Re-read before writing: the poll above may have run for a minute, and saving the
+  // snapshot we started with would erase anything written to config.json since — a
+  // pendingSpaceOp crash marker being the case that bites, since losing it strands a
+  // half-finished rename with no record that it was ever in flight.
+  let found = true;
+  mutateConfig(cfg => {
+    const space = cfg.spaces.find(s => s.id === spaceId);
+    if (!space) { found = false; return; } // space was deleted while its indexes built
+    space.indexStatus = ok ? 'ready' : 'failed';
+  });
+  if (!found) return;
   log.info(`Space '${spaceId}': vector indexes ${ok ? 'ready' : 'did not reach READY (marked failed)'}`);
 }

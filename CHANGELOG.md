@@ -1252,6 +1252,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A background config write could erase a change made to `config.json` by someone else.**
+  `saveConfig()` serialises the whole in-memory config, so the ordinary read-mutate-save shape is
+  last-writer-wins: anything written to the file after that snapshot was taken is silently dropped.
+  For a request handler the window is milliseconds. For **vector-index readiness polling it is up to a
+  minute** — it captures the config, waits for the index builds, then writes one field back over the
+  top of whatever arrived meanwhile. The change it erased in practice was a `pendingSpaceOp` crash
+  marker: the marker is the *only* record that a rename was half-applied, so losing it strands the
+  space under its old id with nothing left to recover from, and the next reload finds nothing to
+  reconcile. New `mutateConfig()` re-reads the file immediately before applying the change, closing the
+  background writer's window to the same few milliseconds a request handler already has. New standalone
+  test injects a marker while readiness polls and asserts it survives.
+  **Known gap, deliberately not fixed here and tracked as a TODO test:** request handlers still save
+  from the in-memory copy, which goes stale the moment anyone edits `config.json` directly — so an
+  operator's hand edit is reverted by the next config-writing request unless they reload first. Routing
+  every handler through `mutateConfig` is its own change with its own risk.
+
 - **Semantic recall could be silently dead — on a cold start, and after every restore.** Four defects,
   each hiding the one beneath it, all now fixed. **Symptom:** search returns nothing. No error, no
   failed request, no log line at query time — an empty result set looks exactly like "no matches" —

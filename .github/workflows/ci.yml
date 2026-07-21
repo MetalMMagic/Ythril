@@ -83,6 +83,20 @@ jobs:
       - name: Run all tests
         run: npm run test:all:core
 
+      # A server-side failure is invisible from the test output alone. When a reconcile
+      # logs an error and returns, or a sidecar never comes up, the assertion reports a
+      # bare 404 and the reason lives in the container log — which teardown then throws
+      # away. Dumping the logs on failure is the difference between diagnosing a red
+      # build and guessing at it across 15-minute round trips.
+      - name: Dump container logs on failure
+        if: failure()
+        run: |
+          for svc in $(docker compose -p ythril-test -f testing/docker-compose.test.yml ps --services); do
+            echo "::group::$svc"
+            docker compose -p ythril-test -f testing/docker-compose.test.yml logs --tail 500 "$svc" || true
+            echo "::endgroup::"
+          done
+
       - name: Tear down containers
         if: always()
         run: docker compose -p ythril-test -f testing/docker-compose.test.yml down -v --remove-orphans

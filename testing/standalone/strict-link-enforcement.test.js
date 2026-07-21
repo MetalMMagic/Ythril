@@ -230,9 +230,13 @@ describe('strictLinkage is a per-space opt-in setting', () => {
    * Simulate the enforcement gating pattern used in the API.
    * When strictLinkage is false/undefined, validation is skipped.
    */
+  // MIRROR of the production rule, kept because these cases enumerate edge shapes cheaply.
+  // The rule itself (including the default) is asserted against the REAL `isStrictLinkage` in
+  // entity-refs.test.js — without that, this local copy would agree with itself forever, which is
+  // exactly how the default flipping from off to on went unnoticed here.
   function validateEdgeRef(meta, from, to) {
     const errors = [];
-    if (meta?.strictLinkage === true) {
+    if (meta?.strictLinkage !== false) {
       if (!UUID_V4_RE.test(from)) errors.push({ field: 'from', reason: 'not a UUID v4' });
       if (!UUID_V4_RE.test(to)) errors.push({ field: 'to', reason: 'not a UUID v4' });
     }
@@ -240,7 +244,7 @@ describe('strictLinkage is a per-space opt-in setting', () => {
   }
 
   function shouldBlockDelete(meta, backlinks) {
-    if (meta?.strictLinkage !== true) return false;
+    if (meta?.strictLinkage === false) return false;
     return backlinks.length > 0;
   }
 
@@ -256,15 +260,15 @@ describe('strictLinkage is a per-space opt-in setting', () => {
     assert.equal(errors.length, 0);
   });
 
-  it('strictLinkage=undefined → name-based from/to allowed', () => {
+  it('strictLinkage=undefined → name-based from/to REJECTED (strict is the default)', () => {
     const meta = {};
     const errors = validateEdgeRef(meta, 'kubernetes', 'docker');
-    assert.equal(errors.length, 0);
+    assert.equal(errors.length, 2, 'a space that says nothing about linkage now gets the safe behaviour');
   });
 
-  it('no meta → name-based from/to allowed', () => {
+  it('no meta → name-based from/to REJECTED (strict is the default)', () => {
     const errors = validateEdgeRef(undefined, 'kubernetes', 'docker');
-    assert.equal(errors.length, 0);
+    assert.equal(errors.length, 2);
   });
 
   it('strictLinkage=true → delete blocked when backlinks exist', () => {

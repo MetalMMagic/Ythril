@@ -12,7 +12,8 @@ import { resolveMetaRefs, type SchemaViolation } from '../../spaces/schema-valid
 import type { SpaceMeta } from '../../config/types.js';
 
 /** Regex that matches a UUID v4 (case-insensitive). */
-export const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Re-exported from the canonical definition so there is exactly one copy in the codebase.
+export { UUID_V4_RE } from '../../brain/entity-refs.js';
 
 // ── Webhook helper ────────────────────────────────────────────────────────
 

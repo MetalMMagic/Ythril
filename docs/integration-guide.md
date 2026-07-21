@@ -708,7 +708,7 @@ POST /api/brain/spaces/:spaceId/memories
 }
 ```
 
-**Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). When the space has `strictLinkage` enabled, `entityIds` must contain valid UUID v4 values (entity IDs); passing names instead of IDs returns `400`. `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl).
+**Constraints**: `fact` max 50 000 chars. `type` optional string — stored on the document and validated against the space's `typeSchemas.memory` allowlist when set. `tags` must be an array of strings. `description` optional string. `properties` optional object; property values should be a string, number, or boolean (unlike the entity endpoint, the memory/edge/chrono write paths don't reject non-primitive values at the API layer — schema validation is the gate when the space defines the property). Every id in `entityIds` must be a UUID v4 **and** name an entity that exists — passing a name, a malformed id, or an id that resolves to nothing returns `400` and stores nothing. This is the default; a space can opt out with `meta.strictLinkage: false` (see [Reference integrity](#reference-integrity)). `ttlDays` optional — see [Record Expiry (TTL)](#record-expiry-ttl).
 
 ---
 
@@ -1186,9 +1186,9 @@ Default limit: 50, max: 500.
 DELETE /api/brain/spaces/:spaceId/entities/:id
 ```
 
-**Response** `204` when no inbound references exist (or `strictLinkage` is not enabled).
+**Response** `204` when no inbound references exist (or the space has opted out with `strictLinkage: false`).
 
-**Response** `409 Conflict` when the space has `strictLinkage` enabled in its meta and the entity still has inbound backlinks (edges, memories, or chrono entries that reference it). The caller must first delete or relink the backlinked items before the deletion is permitted. Response body:
+**Response** `409 Conflict` when the entity still has inbound backlinks (the default; a space that opted out with `strictLinkage: false` deletes regardless) (edges, memories, or chrono entries that reference it). The caller must first delete or relink the backlinked items before the deletion is permitted. Response body:
 
 ```json
 {
@@ -4696,6 +4696,35 @@ The `label` names this brain instance.
 ---
 
 ## Admin API
+
+## Reference integrity
+
+Every link between brain records — a memory's `entityIds`, an edge's `from`/`to`, a chrono entry's
+`entityIds`/`memoryIds`, a file's `entityIds`/`chronoIds`/`memoryIds` — names the target by its **id**,
+which is a **UUID v4**. A name is not a reference.
+
+**A reference that cannot resolve is refused.** The write returns `400` (or an MCP `isError`) naming the
+field and the offending value, and **nothing is stored**. Both halves are checked:
+
+- the value is a UUID v4, and
+- a record with that id exists in the target space.
+
+Format alone was never sufficient — a syntactically perfect id pointing at nothing dangles exactly as
+silently as a name did, and the only symptom is a later traversal that quietly returns nothing.
+
+### Opting out
+
+A space may set `meta.strictLinkage: false` to accept unresolved references. This exists for **staged
+imports**, where records legitimately reference targets that are created later in the run. It is a
+deliberate per-space choice to accept dangling links, and it is **off by default** — you do not get lax
+linkage by saying nothing.
+
+Bulk writes (`POST /bulk`, `bulk_write`) check reference **format** but not existence even when strict,
+because a payload may reference a record created earlier in the same payload; rejecting those would
+break valid forward references within a batch.
+
+Restoring a space export is unaffected: import writes records directly rather than through these
+routes, so an export whose records reference each other round-trips regardless of the setting.
 
 ### Reload Config
 

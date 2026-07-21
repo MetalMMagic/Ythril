@@ -26,7 +26,7 @@ import type { EntityDoc, EdgeDoc, ChronoType, ChronoStatus } from '../config/typ
 /** Max items processed per collection in a single bulk call. */
 export const BULK_MAX_PER_TYPE = 500;
 
-const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+import { UUID_V4_RE } from './entity-refs.js';
 const CHRONO_STATUSES = new Set<ChronoStatus>(['upcoming', 'active', 'completed', 'overdue', 'cancelled']);
 const MAX_FACT_LENGTH = 50_000;
 
@@ -103,9 +103,18 @@ export async function bulkWrite(spaceId: string, input: BulkInput): Promise<Bulk
     const properties = optProps(item['properties']);
     const ttlDays = bulkTtlDays(item['ttlDays']);
     if (ttlDays === TTL_INVALID) { errors.push({ type: 'memory', index: i, reason: TTL_INVALID_MSG }); continue; }
+    // Memory items were the one bulk shape with no reference check at all — edges and chrono both
+    // had one. Format only, like the rest of bulk: a payload may legitimately reference an entity
+    // created earlier in the SAME payload, so an existence check here would reject valid forward
+    // references. Staged imports that need dangling refs use the strictLinkage escape hatch.
+    const memEntityIds = strArray(item['entityIds']);
+    if (strict && memEntityIds.some(id => !UUID_V4_RE.test(id))) {
+      errors.push({ type: 'memory', index: i, reason: '`entityIds` must contain valid UUID v4 values (entity IDs), not names' });
+      continue;
+    }
     try {
       if (schemaFails('memory', i, validateMemory(meta ?? {}, { type, properties }))) continue;
-      await remember(spaceId, fact, strArray(item['entityIds']), strArray(item['tags']),
+      await remember(spaceId, fact, memEntityIds, strArray(item['tags']),
         typeof item['description'] === 'string' ? item['description'] : undefined, properties, undefined, type,
         undefined, undefined, ttlDays);
       inserted.memories++;

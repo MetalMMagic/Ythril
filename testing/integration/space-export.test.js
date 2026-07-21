@@ -42,7 +42,7 @@ describe('Space export — basic export', () => {
 
   it('export returns correct top-level structure', async () => {
     const spaceId = `export-struct-${RUN_ID}`;
-    const createR = await post(INSTANCES.a, adminToken, '/api/spaces', { id: spaceId, label: 'Export Struct Test' });
+    const createR = await post(INSTANCES.a, adminToken, '/api/spaces', { id: spaceId, label: 'Export Struct Test', meta: { strictLinkage: false } });
     assert.equal(createR.status, 201, `Create: ${JSON.stringify(createR.body)}`);
     createdSpaceIds.push(spaceId);
 
@@ -64,7 +64,7 @@ describe('Space export — basic export', () => {
 
   it('export includes seeded data and excludes embedding vectors', async () => {
     const spaceId = `export-data-${RUN_ID}`;
-    const createR = await post(INSTANCES.a, adminToken, '/api/spaces', { id: spaceId, label: 'Export Data Test' });
+    const createR = await post(INSTANCES.a, adminToken, '/api/spaces', { id: spaceId, label: 'Export Data Test', meta: { strictLinkage: false } });
     assert.equal(createR.status, 201);
     createdSpaceIds.push(spaceId);
 
@@ -127,7 +127,7 @@ describe('Space export — basic export', () => {
 
   it('export includes file metadata', async () => {
     const spaceId = `export-files-${RUN_ID}`;
-    const createR = await post(INSTANCES.a, adminToken, '/api/spaces', { id: spaceId, label: 'Export Files Test' });
+    const createR = await post(INSTANCES.a, adminToken, '/api/spaces', { id: spaceId, label: 'Export Files Test', meta: { strictLinkage: false } });
     assert.equal(createR.status, 201);
     createdSpaceIds.push(spaceId);
 
@@ -283,7 +283,7 @@ describe('Space export/import — round-trip (export → wipe → import)', () =
 
   it('export → wipe → import restores all brain data', async () => {
     const spaceId = `roundtrip-${RUN_ID}`;
-    const createR = await post(INSTANCES.a, tok, '/api/spaces', { id: spaceId, label: 'Round-trip Test' });
+    const createR = await post(INSTANCES.a, tok, '/api/spaces', { id: spaceId, label: 'Round-trip Test', meta: { strictLinkage: false } });
     assert.equal(createR.status, 201, `Create: ${JSON.stringify(createR.body)}`);
     roundTripSpaceIds.push(spaceId);
 

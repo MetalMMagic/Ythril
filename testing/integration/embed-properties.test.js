@@ -47,7 +47,7 @@ async function recallMatch(id, query, types, timeoutMs = 30_000) {
 describe('Property keys are embedded (B4)', () => {
   before(async () => {
     token = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
-    const c = await post(INSTANCES.a, token, '/api/spaces', { id: SPACE, label: 'B4 Embed Props' });
+    const c = await post(INSTANCES.a, token, '/api/spaces', { id: SPACE, label: 'B4 Embed Props', meta: { strictLinkage: false } });
     assert.ok([201, 409].includes(c.status), `create space: ${JSON.stringify(c.body)}`);
     // Probe whether embeddings are available in this stack.
     const probe = await post(INSTANCES.a, token, `/api/brain/spaces/${SPACE}/entities`,

@@ -4,6 +4,7 @@
  * Split out of the api/brain.ts monolith (A17.3); handlers are unchanged.
  */
 import { Router } from 'express';
+import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
 import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.js';
 import { listEdges, deleteEdge, upsertEdge, getEdgeById, updateEdgeById, bulkDeleteEdges } from '../../brain/edges.js';
@@ -33,17 +34,20 @@ edgesRouter.post('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, de
     res.status(400).json({ error: '`from` string required' });
     return;
   }
-  if (isStrictLinkage(wt.target) && !UUID_V4_RE.test(from)) {
-    res.status(400).json({ error: '`from` must be a valid UUID v4 (entity ID), not a name' });
-    return;
-  }
+  // `from` is resolved below together with `to`, so both ends are reported at once rather than
+  // making the caller fix one, retry, and discover the other.
   if (!to || typeof to !== 'string') {
     res.status(400).json({ error: '`to` string required' });
     return;
   }
-  if (isStrictLinkage(wt.target) && !UUID_V4_RE.test(to)) {
-    res.status(400).json({ error: '`to` must be a valid UUID v4 (entity ID), not a name' });
-    return;
+  if (isStrictLinkage(wt.target)) {
+    try {
+      await assertRefsResolve(wt.target, 'from', 'entity', [from as string]);
+      await assertRefsResolve(wt.target, 'to', 'entity', [to as string]);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      return;
+    }
   }
   if (!label || typeof label !== 'string') {
     res.status(400).json({ error: '`label` string required' });

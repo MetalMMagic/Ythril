@@ -79,9 +79,20 @@ export function resolveWriteTarget(
   return { ok: true, target: targetSpace };
 }
 
-/** Returns true if strict linkage enforcement is enabled for a space. */
+/**
+ * Whether a space enforces that a reference field actually contains record IDs.
+ *
+ * **Defaults to ON** — absent means strict. It used to default off, which meant the safe behaviour
+ * was the one nobody opted into: a name (or a typo, or an id from another space) landed in
+ * `entityIds` unvalidated, the write returned success, and the missing link only surfaced later as a
+ * traversal that quietly returned nothing.
+ *
+ * The opt-out survives for the case that justified it: importing records whose targets do not exist
+ * yet, where refs are resolved in a later pass. Turning it off is a deliberate, per-space choice to
+ * accept dangling references — not something you get by saying nothing.
+ */
 export function isStrictLinkage(spaceId: string): boolean {
-  return findSpace(spaceId)?.meta?.strictLinkage === true;
+  return findSpace(spaceId)?.meta?.strictLinkage !== false;
 }
 
 // ── Member fan-out ─────────────────────────────────────────────────────────

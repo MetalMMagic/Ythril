@@ -40,7 +40,7 @@ describe('Space wipe — full wipe', () => {
 
   it('full wipe removes all brain data and files, returns correct deleted counts', async () => {
     const spaceId = `wipe-full-${RUN_ID}`;
-    const createR = await post(INSTANCES.a, adminToken, '/api/spaces', { id: spaceId, label: 'Wipe Full Test' });
+    const createR = await post(INSTANCES.a, adminToken, '/api/spaces', { id: spaceId, label: 'Wipe Full Test', meta: { strictLinkage: false } });
     assert.equal(createR.status, 201, `Create: ${JSON.stringify(createR.body)}`);
     createdSpaceIds.push(spaceId);
 

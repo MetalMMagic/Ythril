@@ -10,6 +10,7 @@
 import { getConfig, getMongoUri, atRestEncryptionActive } from './loader.js';
 import { requireEncryptedTransport, allowInsecurePeersRaw } from './transport-security.js';
 import { allowPrivateModelEndpoints } from './model-egress-policy.js';
+import { modelEndpointExposure, formatExposure } from './model-egress-exposure.js';
 
 export type PostureLevel = 'pass' | 'warn' | 'fail';
 
@@ -79,12 +80,36 @@ export function computeSecurityPosture(): SecurityPosture {
   // Widening where model/media egress may point is a deliberate operator decision, so it is reported
   // rather than silent — but it is NOT a `fail`: the guard itself stays on (DNS-pinning, redirect
   // re-validation, crown-jewel ranges still blocked), only private addresses become reachable.
+  //
+  // Report the EXPOSURE, not the flag. "allowPrivateModelEndpoints is on" tells an operator what they
+  // set; "vision → 10.43.12.7 (private)" tells them what it actually reaches, which is the thing that
+  // makes this check load-bearing. A hostname is named as a hostname — only the resolution-time guard
+  // knows where it points, and claiming otherwise here would be a guess.
   if (allowPrivateModelEndpoints()) {
-    checks.push({
-      id: 'egress.privateModelEndpoints',
-      level: 'warn',
-      message: 'allowPrivateModelEndpoints is on — external model/media endpoints may resolve to private addresses (self-hosted inference). SSRF guarding, IP-pinning and redirect re-validation still apply; loopback and link-local/IMDS stay blocked.',
-    });
+    const exposure = modelEndpointExposure();
+    const privateOnes = exposure.filter(e => e.klass === 'private');
+    checks.push(exposure.length === 0
+      ? {
+          id: 'egress.privateModelEndpoints',
+          level: 'warn',
+          message: 'allowPrivateModelEndpoints is on but no external model/media endpoint is configured — nothing is using the permission.',
+        }
+      : {
+          id: 'egress.privateModelEndpoints',
+          level: 'warn',
+          message: `allowPrivateModelEndpoints is on — ${privateOnes.length} of ${exposure.length} external endpoint(s) resolve to private addresses. ${formatExposure(exposure)}. SSRF guarding, IP-pinning and redirect re-validation still apply; loopback, link-local/IMDS and cloud-metadata addresses stay blocked.`,
+        });
+  } else {
+    // Flag off, but an endpoint may still be pointed at a private literal — that config cannot work, and
+    // silently failing at inference is exactly what the reporter hit. Say so.
+    const stuck = modelEndpointExposure().filter(e => e.klass === 'private' || e.klass === 'invalid');
+    if (stuck.length > 0) {
+      checks.push({
+        id: 'egress.privateModelEndpoints',
+        level: 'warn',
+        message: `External model endpoint(s) point at addresses this instance will refuse to call: ${formatExposure(stuck)}. Set allowPrivateModelEndpoints (or YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true) for a self-hosted endpoint on a private address; cloud-metadata addresses stay blocked regardless.`,
+      });
+    }
   }
 
   // ── At rest ──────────────────────────────────────────────────────────────────

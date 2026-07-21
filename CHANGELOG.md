@@ -25,6 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `local` provider, which uses a plain `fetch` with no guard at all.
   The flag is **config/env only and deliberately not a field on `PATCH /api/admin/media-config`**: a value
   that becomes an egress target must never be widenable from the admin API (mirrors `allowPrivatePeers`).
+  **Cloud-metadata endpoints are carved out explicitly**, because "RFC-1918 private" and "cloud metadata"
+  are different risk classes that must not share a switch. Two of them live *inside* ranges the opt-in
+  opens — AWS's IPv6 IMDS `fd00:ec2::254` (unique-local `fd00::/8`) and Alibaba Cloud's
+  `100.100.100.200` (CGNAT `100.64.0.0/10`) — so without the carve-out, enabling private endpoints would
+  have silently re-exposed the single highest-value SSRF target on those hosts. They are now blocked with
+  the opt-in on or off, alongside loopback and `169.254.169.254`, while legitimate addresses in the same
+  ranges (a real ULA or CGNAT service) stay reachable. This also hardens the pre-existing
+  `allowPrivatePeers` path, which shares the same range logic and had the same gap.
+  The posture check reports **effective exposure rather than intent**: instead of "the flag is on" it
+  names each configured external endpoint and how it classifies —
+  `vision → 10.43.12.7 (private); documentAssist → api.example.com (hostname)` — since widening egress is
+  the entire reason it is surfaced. A hostname is reported as a hostname, because only the
+  resolution-time guard can know where it points. With the flag OFF, an endpoint pointed at a private
+  address is now called out too, instead of failing silently at inference.
   It is reported in the startup security posture and at `GET /api/about/security`
   (`egress.privateModelEndpoints`), and a rejection now names the flag instead of just refusing the URL.
   Note for anyone who hit this: a private **IP literal** was rejected at save time, but a cluster

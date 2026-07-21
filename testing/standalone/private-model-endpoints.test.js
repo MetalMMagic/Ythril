@@ -32,6 +32,7 @@ import assert from 'node:assert/strict';
 let isSsrfSafeUrl;
 let assertUrlSafeResolved;
 let allowPrivateModelEndpoints;
+let classifyEndpoint;
 
 const ENV_KEY = 'YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS';
 let savedEnv;
@@ -61,6 +62,7 @@ describe('private model endpoints — operator opt-in', () => {
   before(async () => {
     ({ isSsrfSafeUrl, assertUrlSafeResolved } = await import('../../server/dist/util/ssrf.js'));
     ({ allowPrivateModelEndpoints } = await import('../../server/dist/config/model-egress-policy.js'));
+    ({ classifyEndpoint } = await import('../../server/dist/config/model-egress-exposure.js'));
   });
 
   beforeEach(() => { savedEnv = process.env[ENV_KEY]; delete process.env[ENV_KEY]; });
@@ -156,6 +158,69 @@ describe('private model endpoints — operator opt-in', () => {
         () => assertUrlSafeResolved(CLUSTER_URL, { lookup: multi, allowPrivate: true }),
         /169\.254\.169\.254/,
       );
+    });
+  });
+
+  describe('cloud metadata is a different risk class from RFC-1918 private', () => {
+    // Reviewer catch, and it was a real hole: two metadata endpoints live INSIDE ranges that the
+    // opt-in deliberately opens, so before the carve-outs, enabling private endpoints made them
+    // reachable again — the single highest-value SSRF target on those hosts.
+    //
+    //   fd00:ec2::254    AWS IPv6 IMDS, inside fd00::/8 unique-local
+    //   100.100.100.200  Alibaba Cloud IMDS, inside 100.64.0.0/10 CGNAT
+    //
+    // Nobody enabling "reach my 10.43.x.x cluster service" is asking for those.
+    const METADATA = [
+      ['http://[fd00:ec2::254]/latest/meta-data/', 'AWS IPv6 IMDS'],
+      ['http://[fd00:ec2::]/', 'AWS IPv6 IMDS prefix'],
+      ['http://100.100.100.200/latest/meta-data/', 'Alibaba Cloud IMDS'],
+      ['http://169.254.169.254/', 'IMDS (IPv4)'],
+      ['http://metadata.google.internal/', 'GCP metadata hostname'],
+    ];
+
+    for (const [url, label] of METADATA) {
+      it(`blocks ${label} even with the opt-in on`, () => {
+        assert.equal(isSsrfSafeUrl(url, true), false, `${url} must stay blocked`);
+        assert.equal(isSsrfSafeUrl(url, false), false);
+      });
+    }
+
+    it('still permits legitimate addresses in those same ranges', () => {
+      // The carve-outs must be surgical: a real ULA or CGNAT service stays reachable.
+      for (const url of ['http://[fd12:3456::1]:8080', 'http://100.64.1.1:8080', 'http://100.100.100.100/']) {
+        assert.equal(isSsrfSafeUrl(url, true), true, `${url} is a legitimate private address`);
+      }
+    });
+
+    it('blocks a hostname that RESOLVES to a metadata endpoint, opt-in on', async () => {
+      for (const address of ['169.254.169.254', '100.100.100.200']) {
+        await assert.rejects(
+          () => assertUrlSafeResolved('http://inference.internal/', { lookup: resolvesTo(address), allowPrivate: true }),
+          /Blocked SSRF target/,
+          `${address} must stay blocked at resolution time too`,
+        );
+      }
+    });
+  });
+
+  describe('posture reports effective exposure, not intent', () => {
+    // "allowPrivate is on" states the flag; "vision → 10.43.12.7 (private)" states the exposure. The
+    // second is what makes the check load-bearing, since widening egress is the whole reason it exists.
+    it('classifies a private literal, a public one, and a hostname distinctly', () => {
+      assert.deepEqual(classifyEndpoint('http://10.43.12.7:8080'), { host: '10.43.12.7', klass: 'private' });
+      assert.deepEqual(classifyEndpoint('https://140.82.121.4/v1'), { host: '140.82.121.4', klass: 'public' });
+      // Honest about what a static check cannot know: a hostname is a hostname until it resolves.
+      assert.deepEqual(classifyEndpoint('https://api.example.com/v1'), { host: 'api.example.com', klass: 'hostname' });
+    });
+
+    it('marks a crown-jewel endpoint invalid, not private — it is unreachable either way', () => {
+      for (const url of ['http://169.254.169.254/', 'http://100.100.100.200/', 'http://[fd00:ec2::254]/']) {
+        assert.equal(classifyEndpoint(url).klass, 'invalid', url);
+      }
+    });
+
+    it('does not throw on an unparseable endpoint', () => {
+      assert.equal(classifyEndpoint('not a url').klass, 'invalid');
     });
   });
 });

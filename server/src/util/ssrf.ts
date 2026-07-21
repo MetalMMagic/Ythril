@@ -109,16 +109,27 @@ function isBlockedIpv4Int(n: number): boolean {
 }
 
 /**
- * "Crown-jewel" IPv4 ranges that are blocked even for peers allowed to use private
- * addresses (`allowPrivatePeers`): loopback, link-local incl. cloud IMDS, the
- * unspecified address, and broadcast. No legitimate peer ever lives on these, and
- * they are the highest-value SSRF targets (169.254.169.254 → cloud credentials).
+ * "Crown-jewel" IPv4 ranges, blocked even when private addresses are permitted
+ * (`allowPrivatePeers`, `allowPrivateModelEndpoints`): loopback, link-local incl.
+ * cloud IMDS, the unspecified address, broadcast, and Alibaba Cloud metadata.
+ *
+ * The distinction matters: "RFC-1918 private" and "cloud metadata endpoint" are
+ * DIFFERENT RISK CLASSES. An operator opting into private addresses wants their
+ * 10.x cluster service reachable; nobody wants 169.254.169.254 or 100.100.100.200
+ * reachable. Metadata endpoints that happen to live inside an otherwise-private
+ * range therefore need an explicit carve-out, or the opt-in silently re-exposes
+ * the single highest-value SSRF target on that host (→ cloud credentials).
  */
 const ALWAYS_BLOCKED_IPV4_CIDRS: ReadonlyArray<readonly [number, number]> = [
   [0x00000000, 0xff000000], // 0.0.0.0/8      unspecified
   [0x7f000000, 0xff000000], // 127.0.0.0/8    loopback
-  [0xa9fe0000, 0xffff0000], // 169.254.0.0/16 link-local incl. IMDS
+  [0xa9fe0000, 0xffff0000], // 169.254.0.0/16 link-local incl. IMDS (AWS/GCP/Azure/Oracle/DO/Hetzner)
   [0xffffffff, 0xffffffff], // 255.255.255.255 broadcast
+  // Alibaba Cloud's metadata endpoint. It sits in 100.64.0.0/10 (CGNAT), which "allow private" opens —
+  // so without this carve-out, opting into private addresses would hand back the one target that
+  // matters most on an Alibaba host. "RFC-1918 private" and "cloud metadata" are different risk
+  // classes and must not share a switch.
+  [0x646464c8, 0xffffffff], // 100.100.100.200 Alibaba Cloud IMDS
 ];
 
 function isCrownJewelIpv4Int(n: number): boolean {
@@ -197,6 +208,10 @@ function isCrownJewelIpv6Expanded(h: number[]): boolean {
   if (h.slice(0, 6).every(x => x === 0) && (h[6] !== 0 || h[7] !== 0)) {
     return isCrownJewelIpv4Int((((h[6]! << 16) >>> 0) | h[7]!) >>> 0);
   }
+  // AWS's IPv6 instance-metadata endpoint, fd00:ec2::254. It lives in fd00::/8 (unique-local) — a range
+  // "allow private" deliberately opens — so it needs the same explicit carve-out as 169.254.169.254 and
+  // 100.100.100.200, or enabling private endpoints on an IPv6 EC2 host would quietly re-expose IMDS.
+  if (h[0] === 0xfd00 && h[1] === 0x0ec2) return true;                // fd00:ec2::/32 AWS IMDS (IPv6)
   return false;
 }
 
@@ -258,7 +273,13 @@ function isIpLiteral(host: string): boolean {
  * address will pass here — call `assertUrlSafeResolved` / `ssrfSafeFetch` before
  * actually making the request.
  */
-export function isSsrfSafeUrl(raw: string): boolean {
+/**
+ * @param allowPrivate permit private/reserved ranges (RFC-1918, CGNAT, IPv6 ULA) — for an
+ *   operator-declared self-hosted endpoint on a cluster address. Crown-jewel addresses (loopback,
+ *   link-local / cloud IMDS, unspecified) and the `localhost` / metadata hostnames stay blocked
+ *   regardless, exactly as for sync peers. Default false keeps every existing caller unchanged.
+ */
+export function isSsrfSafeUrl(raw: string, allowPrivate = false): boolean {
   let parsed: URL;
   try {
     parsed = new URL(raw);
@@ -270,7 +291,7 @@ export function isSsrfSafeUrl(raw: string): boolean {
 
   const host = normaliseHost(parsed.hostname);
   if (host === 'localhost' || host === 'metadata.google.internal') return false;
-  if (isBlockedIp(host)) return false;
+  if (isPeerBlockedIp(host, allowPrivate)) return false;
   return true;
 }
 

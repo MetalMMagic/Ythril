@@ -2087,6 +2087,28 @@ point a **bigger, external model** at specific tasks under `documentProcessing.a
 | Field | Description |
 |---|---|
 | `baseUrl` | External **OpenAI-compatible** endpoint (`POST {baseUrl}/v1/chat/completions`). Validated against SSRF on save (must be a public http(s) URL — no private/loopback/metadata addresses) and reached only through the SSRF-guarded fetch. Env: `DOC_ASSIST_URL`. |
+
+> **Self-hosting inference on a private address?** The `local` / `external` choice selects a **wire
+> protocol**, not a trust level: `local` speaks Ollama's (`/api/chat`), `external` speaks OpenAI's
+> (`/chat/completions`, `/v1/embeddings`, `/v1/audio/transcriptions`). A self-hosted OpenAI-compatible
+> server — llama.cpp `llama-server`, vLLM, LocalAI — therefore needs `external`, even when it lives on a
+> cluster address like `http://llm-inference.llm.svc.cluster.local:8080`.
+>
+> Set **`allowPrivateModelEndpoints: true`** in `config.json`, or `YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true`,
+> to permit that. It is config/env only and deliberately **not** settable through
+> `PATCH /api/admin/media-config` — a field that becomes an egress target must never be widenable from
+> the admin API.
+>
+> Enabling it does **not** disable the SSRF guard. Those calls still go through `ssrfSafeFetch`, which
+> resolves DNS, pins the resolved IP for the connection and re-validates every redirect; only the
+> private-address rejection lifts. Loopback, link-local / cloud metadata (IMDS) and the `localhost` /
+> `metadata.google.internal` hostnames stay blocked either way — including when a hostname *resolves* to
+> one, which is the DNS-rebinding case. A declared-private `external` endpoint is therefore more tightly
+> guarded than a `local` provider, which uses a plain `fetch`.
+>
+> The instance reports this in its startup security posture and at `GET /api/about/security`
+> (`egress.privateModelEndpoints`).
+
 | `model` | Model tag to request. Env: `DOC_ASSIST_MODEL`. |
 | `apiKey` | Optional bearer token. Stored in `secrets.json` (never `config.json`), masked in the admin API. Env: `DOC_ASSIST_API_KEY`. |
 | `uses` | Which tasks the external model powers — `["repair"]` today (the `max`-mode repair pass); more are planned. Empty ⇒ configured but inert (no egress). |
@@ -2237,8 +2259,8 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 | Field | Env var | Default | Description |
 |---|---|---|---|
 | `enabled` | `MEDIA_EMBEDDING_ENABLED` | `true` | Master on/off switch |
-| `visionProvider` | `VISION_PROVIDER` | `local` | `local` (Ollama) or `external` (OpenAI-compatible) |
-| `sttProvider` | `STT_PROVIDER` | `local` | `local` (Whisper) or `external` (OpenAI-compatible) |
+| `visionProvider` | `VISION_PROVIDER` | `local` | Wire protocol, not trust level: `local` (Ollama `/api/chat`) or `external` (OpenAI `/chat/completions`). A self-hosted OpenAI-compatible server needs `external` — see `allowPrivateModelEndpoints` for one on a private address. |
+| `sttProvider` | `STT_PROVIDER` | `local` | Wire protocol, not trust level: `local` (bundled Whisper) or `external` (OpenAI-compatible). Both speak `/v1/audio/transcriptions`. |
 | `vision.baseUrl` | `OLLAMA_URL` | `http://ollama:11434` | Vision service endpoint (short name resolves in both Docker Compose and the K8s `ythril` namespace) |
 | `vision.model` | `VISION_MODEL` | `moondream` | Vision model name |
 | `vision.apiKey` | `VISION_API_KEY` | — | API key for external vision provider (stored in `secrets.json`, never in `config.json`) |

@@ -258,7 +258,13 @@ function isIpLiteral(host: string): boolean {
  * address will pass here — call `assertUrlSafeResolved` / `ssrfSafeFetch` before
  * actually making the request.
  */
-export function isSsrfSafeUrl(raw: string): boolean {
+/**
+ * @param allowPrivate permit private/reserved ranges (RFC-1918, CGNAT, IPv6 ULA) — for an
+ *   operator-declared self-hosted endpoint on a cluster address. Crown-jewel addresses (loopback,
+ *   link-local / cloud IMDS, unspecified) and the `localhost` / metadata hostnames stay blocked
+ *   regardless, exactly as for sync peers. Default false keeps every existing caller unchanged.
+ */
+export function isSsrfSafeUrl(raw: string, allowPrivate = false): boolean {
   let parsed: URL;
   try {
     parsed = new URL(raw);
@@ -270,7 +276,7 @@ export function isSsrfSafeUrl(raw: string): boolean {
 
   const host = normaliseHost(parsed.hostname);
   if (host === 'localhost' || host === 'metadata.google.internal') return false;
-  if (isBlockedIp(host)) return false;
+  if (isPeerBlockedIp(host, allowPrivate)) return false;
   return true;
 }
 

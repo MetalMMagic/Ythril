@@ -12,6 +12,7 @@
  * acknowledgment (enforced at config-save time).
  */
 import { ssrfSafeFetch } from '../../util/ssrf.js';
+import { allowPrivateModelEndpoints } from '../../config/model-egress-policy.js';
 
 export interface VlmTranscription {
   text: string;
@@ -140,6 +141,11 @@ export async function repairMarkdownExternal(
         messages: [{ role: 'user', content: repairContent(opts.draft, opts.evidence, opts.issues) }],
       }),
       signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
+    }, {
+      // Lets a self-hosted OpenAI-compatible assist model live on a private cluster address. The guard
+      // itself stays on: DNS-resolve, IP-pin and redirect re-validation all still apply — only the
+      // private-address rejection lifts, and crown-jewel ranges remain blocked.
+      allowPrivate: allowPrivateModelEndpoints(),
     });
   } catch (err) {
     throw new Error(`assist model unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);

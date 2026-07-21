@@ -9,6 +9,7 @@
  */
 import { getConfig, getMongoUri, atRestEncryptionActive } from './loader.js';
 import { requireEncryptedTransport, allowInsecurePeersRaw } from './transport-security.js';
+import { allowPrivateModelEndpoints } from './model-egress-policy.js';
 
 export type PostureLevel = 'pass' | 'warn' | 'fail';
 
@@ -73,6 +74,17 @@ export function computeSecurityPosture(): SecurityPosture {
 
   if (cfg?.allowInsecurePlaintext) {
     checks.push({ id: 'transport.plaintext', level: 'warn', message: 'allowInsecurePlaintext is on — the plaintext-exposure guard is disabled.' });
+  }
+
+  // Widening where model/media egress may point is a deliberate operator decision, so it is reported
+  // rather than silent — but it is NOT a `fail`: the guard itself stays on (DNS-pinning, redirect
+  // re-validation, crown-jewel ranges still blocked), only private addresses become reachable.
+  if (allowPrivateModelEndpoints()) {
+    checks.push({
+      id: 'egress.privateModelEndpoints',
+      level: 'warn',
+      message: 'allowPrivateModelEndpoints is on — external model/media endpoints may resolve to private addresses (self-hosted inference). SSRF guarding, IP-pinning and redirect re-validation still apply; loopback and link-local/IMDS stay blocked.',
+    });
   }
 
   // ── At rest ──────────────────────────────────────────────────────────────────

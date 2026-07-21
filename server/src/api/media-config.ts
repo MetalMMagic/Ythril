@@ -14,6 +14,7 @@ import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets
 import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl, ssrfSafeFetch } from '../util/ssrf.js';
+import { allowPrivateModelEndpoints } from '../config/model-egress-policy.js';
 import { log } from '../util/log.js';
 import { providerSignature, getActiveProviderSignature } from '../files/media/worker.js';
 
@@ -138,23 +139,26 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
   // Local providers are trusted (cluster DNS — `*.svc.cluster.local`, addressed
   // via NetworkPolicy). External providers are admin-typed URLs that must
   // resolve to a public endpoint, never to private networks or cloud metadata.
+  // Instance-wide opt-in for self-hosted endpoints on private addresses (env/config only — never a
+  // field on this PATCH, so the admin API cannot widen its own egress).
+  const allowPrivate = allowPrivateModelEndpoints();
   const effectiveVisionType = parsed.data.visionProvider ?? activeCfg.visionProvider ?? 'local';
   const effectiveSttType    = parsed.data.sttProvider    ?? activeCfg.sttProvider    ?? 'local';
   if (effectiveVisionType === 'external' && parsed.data.vision?.baseUrl
-      && !isSsrfSafeUrl(parsed.data.vision.baseUrl)) {
-    res.status(400).json({ error: 'vision.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' });
+      && !isSsrfSafeUrl(parsed.data.vision.baseUrl, allowPrivate)) {
+    res.status(400).json({ error: 'vision.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
     return;
   }
   if (effectiveSttType === 'external' && parsed.data.stt?.baseUrl
-      && !isSsrfSafeUrl(parsed.data.stt.baseUrl)) {
-    res.status(400).json({ error: 'stt.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' });
+      && !isSsrfSafeUrl(parsed.data.stt.baseUrl, allowPrivate)) {
+    res.status(400).json({ error: 'stt.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
     return;
   }
   // Text-embedding external endpoint — same SSRF rule (only when the effective provider is external).
   const effectiveEmbType = parsed.data.embedding?.provider ?? getEmbeddingConfig().provider ?? 'local';
   if (effectiveEmbType === 'external' && parsed.data.embedding?.baseUrl
-      && !isSsrfSafeUrl(parsed.data.embedding.baseUrl)) {
-    res.status(400).json({ error: 'embedding.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' });
+      && !isSsrfSafeUrl(parsed.data.embedding.baseUrl, allowPrivate)) {
+    res.status(400).json({ error: 'embedding.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
     return;
   }
 
@@ -176,7 +180,7 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const effUses = assistPatch.uses ?? existingAssist.uses ?? [];
     const effAck = assistPatch.acknowledgedHost ?? existingAssist.acknowledgedHost;
     if (effUses.length > 0 && effBaseUrl) {
-      if (!isSsrfSafeUrl(effBaseUrl)) {
+      if (!isSsrfSafeUrl(effBaseUrl, allowPrivate)) {
         res.status(400).json({ error: 'assistModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' });
         return;
       }
@@ -335,7 +339,7 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
     return;
   }
   // External endpoints must be public — refuse to probe private/loopback/metadata addresses.
-  if (external && !isSsrfSafeUrl(baseUrl)) {
+  if (external && !isSsrfSafeUrl(baseUrl, allowPrivateModelEndpoints())) {
     res.status(400).json({ error: `The ${target} endpoint is not a public http(s) URL (SSRF-blocked).` });
     return;
   }

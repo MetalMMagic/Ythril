@@ -15,6 +15,7 @@
 import type { MediaProviderConfig } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { ssrfSafeFetch } from '../../util/ssrf.js';
+import { allowPrivateModelEndpoints } from '../../config/model-egress-policy.js';
 
 /**
  * Runtime egress guard. **External** (operator-supplied, public) provider endpoints go through
@@ -23,8 +24,17 @@ import { ssrfSafeFetch } from '../../util/ssrf.js';
  * internal network) keep a plain `fetch`: their addresses are private, which `ssrfSafeFetch` would (rightly)
  * reject. The provider CLASS already encodes which is which (Ollama/Whisper = local; External* = external).
  */
-const egressFetch = (external: boolean): typeof fetch =>
-  external ? (ssrfSafeFetch as unknown as typeof fetch) : fetch;
+const egressFetch = (external: boolean): typeof fetch => {
+  if (!external) return fetch;
+  // An operator running a self-hosted OpenAI-compatible server on a cluster address needs the EXTERNAL
+  // protocol at a PRIVATE address. Note what this relaxes and what it does not: ssrfSafeFetch still
+  // resolves DNS, pins the resolved IP for the connection and re-validates redirects — only the
+  // private-address rejection lifts, and crown-jewel ranges (loopback, link-local/IMDS) stay blocked
+  // either way. This path therefore stays better guarded than a `local` provider, which uses plain fetch.
+  const allowPrivate = allowPrivateModelEndpoints();
+  return ((url: string, init?: RequestInit) =>
+    ssrfSafeFetch(url, init ?? {}, { allowPrivate })) as unknown as typeof fetch;
+};
 
 // ── Bounded JSON response reader ──────────────────────────────────────────────────────
 //

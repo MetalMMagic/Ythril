@@ -888,6 +888,26 @@ export interface Config {
    * REQUIRE_ENCRYPTED_TRANSPORT.
    */
   requireEncryptedTransport?: boolean;
+  /**
+   * Allow the **external** model/media provider endpoints (vision, STT, embedding, document assist) to
+   * live on private/reserved addresses — a self-hosted OpenAI-compatible inference service behind a
+   * cluster address, e.g. `http://llm-inference.llm.svc.cluster.local:8080`.
+   *
+   * Why this exists: `external` selects the OpenAI wire protocol and `local` selects Ollama's, so an
+   * operator running llama.cpp/vLLM/LocalAI on a private address had NO usable shape — `local` speaks a
+   * protocol their server does not implement, and `external` rejected the address at save time.
+   *
+   * Enabling it does NOT drop the egress guard: those calls still go through `ssrfSafeFetch`, which
+   * DNS-resolves, pins the resolved IP for the connection and re-validates every redirect — only the
+   * private-address rejection relaxes. A declared-private external endpoint is therefore *better*
+   * protected than a `local` provider, which uses a plain `fetch`. Crown-jewel addresses (loopback,
+   * link-local / cloud IMDS, unspecified) stay blocked either way.
+   *
+   * Env/config only, deliberately NOT settable through `PATCH /api/admin/media-config`: an endpoint that
+   * becomes an egress target must never be widenable from the admin API. Mirrors `allowPrivatePeers`.
+   * Overridable via YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS.
+   */
+  allowPrivateModelEndpoints?: boolean;
   /** Dynamically-registered OAuth clients (RFC 7591) for the MCP browser
    *  authorization flow. Populated automatically when a client registers; not
    *  meant to be hand-edited. See mcp/oauth.ts. */

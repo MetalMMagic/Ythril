@@ -87,6 +87,462 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   corrected an inaccurate "stored encrypted at rest" note in the schema-library docs (the access token is
   write-only + `0600`, not encrypted — encryption at rest is tracked separately).
 
+- **Test hardening: seven more test groups gain real coverage and specificity (S8, part 2).**
+  Continuing the "what would still pass if the mechanism were removed?" method. **(S8.2)** the
+  `projection` recall option was only unit-tested via `mergeEmbeddingExclusion`; REST `/query` and
+  the MCP `query` tool now assert include-mode (`{fact:1}` → only that field, `_id`, never
+  `embedding`) and exclude-mode (`{tags:0}`) against real returned docs. **(S8.4)** `webhooks.test.js`
+  re-implemented the dispatcher's event set, URL/secret validation, HMAC, and subscription-matching
+  and asserted against the copies; it now imports the real `ALL_WEBHOOK_EVENTS` from the compiled
+  build (which immediately caught three event types the stale copy was missing), and a new
+  `testing/integration/webhooks.test.js` drives the compiled admin API + dispatcher end-to-end —
+  https/SSRF/secret/event validation, and real match→sign→deliver→log via `getMatchingWebhooks` and
+  the delivery log (true HTTP receipt stays out of reach because delivery is SSRF-guarded). **(S8.9)**
+  `schema-validation.test.js` re-implemented `sanitizeFilter`; the `$options` cases now run the real
+  compiled sanitizer via `queryBrain` (in `query-regex-redos.test.js`), and the copy is deleted.
+  **(S8.10)** `space-op-recovery.test.js` verified an interrupted rename via the memories collection
+  only; it now seeds an entity, edge, and chrono too and asserts each survives under the new id — a
+  reconcile that dropped any collection would now fail. **(S8.11)** the file-conversion `inputFormat`
+  tests never observed the parameter; they now count chunk records (`?includeChunks=true`) and assert
+  `inputFormat:'text'` produces **0** chunks while md/html conversion produces **≥1 / ≥2**. **(S8.7)**
+  `audit.test.js` asserted entries merely exist (passes on stale rows from a warm DB); it now
+  correlates a `memory.update` by `entryId === the memory _id` within an `after`-timestamp window,
+  and guards the previously vacuous-if-empty loops. **(S8.8)** the path-traversal tests accepted
+  `400 OR 404` (proving only "no content served"); DELETE and PATCH now assert **exactly 400** with
+  positive controls (a valid-but-absent path → 404, a real file → 200/served) proving the sandbox
+  engaged, and the GET path documents why it intentionally returns 404. Test-only; no runtime code
+  touched.
+
+- **Test hardening: five test groups that would pass with their mechanism removed now assert the
+  real effect (S8, part 1).** Applying the "what would still pass if the mechanism were removed?"
+  method: **(1)** the three untested rate limiters get real 429 burst tests on instance C —
+  `bulkWipeRateLimit` (5/min, the tightest destructive limiter, previously swappable for
+  `globalRateLimit` with no test going red), `globalRateLimit` (300/min) and `syncRateLimit`
+  (2000/min) — each with a positive control proving the first request reaches the route.
+  **(2)** the `retry_embedding` "requires write access" test used the ADMIN token and asserted
+  success, testing nothing; it now uses a read-only token and asserts 403, and a new effect test
+  proves the retry actually resets `embeddingStatus` to pending and the requeued job re-runs to a
+  terminal state. **(3)** `notify/trigger` and `sync_available` asserted only the echoed
+  status/204 — satisfied by a handler that does nothing, which is exactly how the notify
+  rate-limit bug once hid; both now poll the network's sync-history for the record a real cycle
+  appends. **(4)** MCP `update_memory` and the remaining echo-only `PATCH /memories` cases
+  (fact, long-form) re-read the document and deep-equal the persisted value. **(5)** the
+  echo-only PUT/PATCH tests for media-config and edge/memory/chrono type-schemas, and the chrono
+  update paths, all re-read through GET to confirm persistence. Test-only change; no runtime code
+  touched.
+
+- **The sync data-write surface is now peer-only, and direction enforcement can no longer be
+  side-stepped (S10).** The direction guard on the seven `/api/sync/*` write endpoints (`memories`,
+  `entities`, `edges`, `chrono`, `batch-upsert`, `tombstones`, `file-tombstones`) had two holes. First,
+  it only ever bound tokens carrying `peerInstanceId` — **any space-scoped user PAT could write through
+  the sync surface** regardless of the network's direction topology. That matters because sync writes,
+  unlike the REST API (which assigns `seq`/`_id`/`author` server-side), carry raw stream metadata: a
+  downstream operator in a braintree or pub/sub network holding any leaked upstream user PAT could push
+  content upstream, defeating the documented one-way flow and forging sync state the REST API never
+  permits. Second, the guard keyed on the **caller-supplied `networkId` query parameter** — a push-only
+  peer could simply omit it (or name a non-directional network sharing the space) and write anyway.
+  Both are closed: data writes now require a **peer token or an admin token** (403 otherwise, with the
+  error pointing user PATs at the regular REST API), and for identified peers the direction check is
+  derived from this instance's **own membership records covering the target space** — allowed only when
+  at least one relationship carrying that space permits inbound flow — never from wire input. Reads and
+  the governance relays (votes/member gossip, which have their own forgery protections) are unchanged,
+  as are asymmetric topologies where the writer is not listed as a member (braintree parents, single-side
+  configs): their handshake-issued tokens already carry `peerInstanceId`. **Migration for
+  manually-configured networks:** a hand-provisioned peer token must now be minted with
+  `POST /api/tokens { peerInstanceId: "<peer-uuid>" }` (documented in the integration guide); an
+  existing plain PAT used by a peer for data pushes will start receiving 403s on upgrade.
+
+- **Both non-admin join paths bypassed join governance entirely (S9).** The documented model admits a
+  new member only after the required vote passes — braintree: a yes from **every ancestor on the path
+  from the inviting node to the root**; closed: all members; democratic: a majority. Neither non-admin
+  join path implemented this: `POST /api/networks/:id/join` with an invite key **direct-joined**
+  braintree networks (no vote round at all), and the RSA-handshake finalize (`POST /api/invite/finalize`)
+  added the member directly **for every network type** — so a leaf-level invite admitted a member into a
+  braintree, closed, or democratic network with no ancestor or member ever consulted. Ancestor voting
+  existed only on the admin member-add path. Both paths now open the same join vote round the admin path
+  uses: the member record (and its credentials) is **held on the round** (`pendingMember`) and only
+  enters the member list when the vote concludes yes; the braintree required-voter set is recomputed
+  from local topology at conclusion (never trusted from the wire), and the joiner always becomes a child
+  of the instance it joined through — topology fields from the request body are ignored. The inviting
+  instance's own yes is cast implicitly (its admin generated the invite/key), so the common flows are
+  unchanged: club/pubsub still direct-join (documented), and a braintree **root** invite or the first
+  member of a closed network still joins immediately. While a round is open the joiner's provisioned
+  peer PAT is **refused on `/api/sync/*`** (previously an unknown-peer fallback would have honoured its
+  space scope), and a vetoed or expired join round now **revokes the provisioned credentials**
+  (peer PAT and outbound token) instead of leaving them live forever. Re-presenting the consumed invite key with the
+  same `instanceId` polls the round: `202` while open, `200 joined` once admitted, `403` if denied —
+  this also repairs the closed/democratic invite-key flow, which previously **lost the member record
+  entirely** (the round held no `pendingMember`, so a passed vote admitted nobody and the consumed key
+  made re-joining impossible). Covered end-to-end (two live instances, gossip, veto, credential
+  revocation, sync-hold) by `testing/sync/join-governance.test.js`.
+
+- **Dozens of mutating endpoints produced no audit entry at all.** The audit middleware keeps a
+  hand-maintained route table — a second, shadow copy of the router's paths — and nothing kept the two in
+  sync. It had drifted badly: the file-upload rule pointed at `/api/files/:space/upload`, **a route that has
+  never existed** (the real one carries the path in the query string), and the delete/move rules required a
+  trailing slash the real paths don't have. So **every file upload, delete and move was silently unlogged**.
+  `PATCH /api/spaces/:id/rename` wasn't matched either, so **space renames were unaudited** — the one
+  operation that, done wrong, hides a space's data. There was **no `PUT` rule in the entire table**, so every
+  schema write was unlogged. Worst of all, **the whole network/governance surface was missing**: adding or
+  removing a member, casting a vote, joining or forking a network — the operations that decide *who can read
+  the brain* — left no trace. Webhook CRUD was pointed at the wrong prefix entirely (`/api/notify/webhooks`
+  vs the real `/api/admin/webhooks`), so creating a webhook — which exfiltrates data to a third party on
+  every change — was unlogged too. Also missing: duplicate **merges** (which rewrite records and delete the
+  loser), conflict resolution, bulk chrono delete, token regeneration, and schema-library writes.
+  All are now audited. The gap survived because the audit tests only ever asserted `memory.create`,
+  `token.create/delete` and `auth.failed` — the handful of rules that happened to be correct.
+  `testing/standalone/audit-route-coverage.test.js` now **derives the route list from the router source**
+  instead of restating it, so the shadow table cannot drift silently again: add a mutating route and the
+  test fails until it is either audited or explicitly declared exempt *with a reason*.
+
+- **The bundled MongoDB can now be authenticated, and new installs should be.** The bundled database
+  accepted any connection, and Ythril's security model (tokens, admin gating, space scoping, read-only
+  tokens, the audit log) is enforced at the **API layer only** — so anything able to reach port 27017 could
+  read and rewrite every space, invisibly to the audit log. Set `MONGO_USERNAME` / `MONGO_PASSWORD` (see the
+  new `.env.example`) and Ythril connects with credentials, percent-encoded so a password containing `@`,
+  `:` or `/` cannot corrupt the URI. An explicit `MONGO_URI` (managed Atlas, your own cluster) still wins
+  and is untouched. The test stack now runs **authenticated**, so every CI run proves Ythril works against
+  a credentialed database.
+  **Existing installs are unaffected and must not just add credentials:** MongoDB cannot have auth switched
+  on in place — the Atlas Local image runs a single-node replica set (needed for `$vectorSearch`) and only
+  provisions the required internal keyfile on a **first** init, so adding credentials to a database that
+  already holds data makes mongod fail to start (`Unable to acquire security key[s]`). Leaving the variables
+  empty preserves today's behaviour exactly; migrating is a deliberate dump/restore, documented in
+  `docs/dependencies.md`.
+  Also fixes a **vacuous test**: `mongoUriRedacted` asserted the URI contained no `@`, which passed only
+  because the test database had no credentials — the redaction path never ran. It now asserts the password
+  is absent and that a `user:pass` pair cannot survive redaction.
+
+- **The media sidecars can no longer reach the database.** `docker-compose.yml` put all four
+  containers — `ythril`, `ythril-mongo`, `ollama`, `whisper` — on a single flat bridge network, and
+  MongoDB runs with **no authentication**. Ythril's entire security model (PATs, admin gating, space
+  scoping, read-only tokens, the audit log) is enforced at the **API layer only**, so anything able to
+  open a TCP connection to port 27017 could read and rewrite **every space in the brain, invisibly to
+  the audit log**. That mattered because `ollama` and `whisper` are third-party images whose whole job
+  is parsing **untrusted user-supplied media** (uploaded images, audio, video) — the highest-risk
+  attack surface in the deployment. A parser exploit in either would have yielded unauthenticated
+  full-brain read/write. Kubernetes already prevented this (`media-netpol.yaml` gives the sidecars an
+  Egress policy permitting only DNS + 80/443); **Compose — the default deployment — did not.** The
+  network is now split: `ythril-db` (`ythril` + `ythril-mongo`, `internal: true`, so the database has
+  no outbound internet either) and `ythril-media` (`ythril` + the sidecars). Only `ythril` bridges the
+  two. Verified live: from `ollama`, `ythril-mongo` no longer resolves and TCP 27017 is refused, while
+  `ythril` still reaches mongo, ollama and whisper. Pinned by
+  `testing/standalone/network-segmentation.test.js`, which fails if anything re-flattens the network.
+  **Note:** this closes the *reachability* path. MongoDB authentication (defence in depth against
+  host-level access) is tracked separately — it needs a migration story, since enabling it naively
+  would lock existing users out of their own database.
+
+- **Governance rounds no longer conclude on an empty voter set.** `concludeRoundIfReady` treated
+  "no remote voters" (the only member left is the round's subject) as vacuously "everyone voted yes",
+  so a `closed`/braintree round with **zero votes** passed. Combined with gossip round adoption, a
+  malicious peer in a small network could serve a **forged `remove` / `space_deletion` / `meta_change`
+  round** and the victim would conclude it — ejecting a member or deleting a space **without any
+  legitimate vote**. (The per-cast forgery guard correctly rejected the forged votes, but the round
+  needed none to pass.) An empty voter set now concludes only when **this instance itself voted yes**,
+  i.e. a locally-proposed action — a gossip-adopted round carries no local vote and never concludes.
+  Legitimate solo actions (self-initiated remove / space deletion, which cast our own yes) are
+  unaffected. Regression-guarded by `testing/sync/vote-forgery.test.js` and `governance.test.js`.
+
+- **Kubernetes deployment is hardened and its probes/ports now actually work.** The stock
+  `kubernetes/manifests/ythril-deployment.yaml` had no `securityContext`, used the mutable
+  `:latest` image tag, set no resource limits on the main container, and targeted
+  `containerPort: 4100` with `/api/ready` probes — but the server listens on `3200` and the
+  readiness endpoint is `/ready`, so probes never passed and Service targeting hit a dead port.
+  The manifest now: enforces non-root (`runAsNonRoot`, uid/gid 1000) with
+  `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, all capabilities dropped, and
+  `seccompProfile: RuntimeDefault`; backs every writable path with a volume (`/data` and a new
+  `ythril-config` PVC for the previously-**unmounted** `/config`, plus an `emptyDir` for `/tmp`);
+  adds CPU/memory requests and limits to the main container; corrects the port to `3200` and the
+  probe path to `/ready`; and pins a concrete image version with inline guidance for digest
+  pinning. **Behavior change:** `/config` (tokens, spaces, networks, secrets) is now persisted on
+  its own PVC — previously this state was silently lost on every Pod restart. The `ythril-config`
+  PVC is created by the manifest; on clusters without a default StorageClass, provision it first.
+
+- **Sync connections are now SSRF-validated at connection time, and peer URL rewrites
+  are re-validated.** Peer URLs were validated only at admission, but a peer can rewrite
+  its own stored URL after admission (via gossip or the member self-update endpoint) with
+  no re-check, and the sync engine connected with a bare `fetch` (no DNS pin). An
+  admitted-but-malicious member could therefore point itself at `http://169.254.169.254/`
+  (cloud IMDS), loopback, or an internal host, and the victim would connect there with peer
+  auth headers attached. All 15 outbound sync connections now go through an SSRF-safe fetch
+  (DNS-resolve → pin the socket to the validated IP → re-validate each redirect), and the
+  three URL-merge paths re-validate before persisting. **Same-host / LAN deployments** whose
+  peers use private addresses set the new `allowPrivatePeers` config key (or the
+  `SYNC_ALLOW_PRIVATE_PEERS` env var); even then, crown-jewel addresses (loopback,
+  link-local/IMDS, unspecified) stay blocked. Covered by `testing/red-team-tests/sync-peer-ssrf.test.js`
+  and `testing/standalone/peer-ssrf-policy.test.js`.
+
+- **`trust proxy` now defaults to `false` (was hardcoded to `1`).** The default compose
+  deployment is exposed directly with no reverse proxy, so trusting the first hop meant
+  `req.ip` came from the client-supplied `X-Forwarded-For` header — attacker-controllable.
+  That let a client rotate `X-Forwarded-For` to defeat every rate limiter (including the only
+  throttle in front of admin TOTP verification) and to forge client IPs in the audit log.
+  `req.ip` is now derived from the socket by default. **Behavior change:** if you run behind
+  a reverse proxy (nginx/Traefik/ingress), set the new `trustProxy` config key — or the
+  `TRUST_PROXY` env var — to the **exact number of proxy hops** (e.g. `1`), not `true`.
+  Accepts Express's native values (`false` | hop count | `'loopback'` | CIDR list).
+
+- **`?limit`/`?skip` on brain list endpoints are clamped.** A non-numeric value
+  (`?limit=abc`) previously became `NaN` and flowed unbounded into MongoDB. Values are now
+  coerced to a safe bounded integer, the list helpers clamp internally as defense-in-depth,
+  and proxy-space results are re-limited to the requested page size.
+
+- **Rate-limit kill-switches (`SKIP_*_RATE_LIMIT`) are ignored in production.** These test-only
+  env vars are now honoured outside `NODE_ENV=production` only, so a leaked flag can't silently
+  disable rate limiting on a live deployment. A loud warning is logged at startup if one is set.
+
+- **MCP SSE sessions are now bound to the identity that opened them.** An MCP `GET /mcp` SSE
+  session was authorized once, at open time, and `POST /mcp/messages?sessionId=…` then dispatched
+  into it keyed by `sessionId` **alone** — never re-checking whose token drove the call. Because the
+  `sessionId` travels as a query parameter (it lands in reverse-proxy access logs, browser history,
+  and referrers) it is not a secret; any holder of a valid token — even a read-only, single-space
+  one — who learned another session's id could POST tool calls that executed with that session's
+  privileges. Each session is now pinned to the opening token's **id and scope signature**; a
+  `POST` whose token id differs, or whose scopes have since changed, is rejected with `403`. This
+  also fixes privilege staleness (a mid-session scope downgrade now forces reconnect). Raw session
+  ids are no longer logged — only a short non-reversible tag. Covered by
+  `testing/red-team-tests/mcp-security.test.js`.
+
+- **MCP OAuth connector tokens now expire and rotate instead of accumulating.** Every browser-connector
+  consent minted a **permanent** PAT with no cap, so a connector that re-authorized on each reconnect
+  grew `config.json` without bound and left a trail of orphaned, long-lived credentials (and every
+  `saveConfig` rewrites the whole file). OAuth-minted tokens now carry a default **90-day expiry**
+  (`MCP_OAUTH_TOKEN_TTL_DAYS`, `0` = never), a fresh consent **rotates** the single token held for that
+  client rather than appending, and the total connector-token count is capped (oldest evicted). The
+  token exchange advertises `expires_in` so clients can anticipate re-consent. **Behavior change:**
+  connectors will need to re-authorize when their token expires. Covered by
+  `testing/integration/mcp-oauth.test.js`.
+
+- **File paths are re-checked against symlink escapes before every filesystem operation** — the
+  sandbox boundary check was purely lexical (string prefix), so a symlink component anywhere along a
+  path could point outside the space root while the string still looked contained — a TOCTOU that a
+  recursive directory delete would follow out of the sandbox. Every read/write/delete/move/list now
+  canonicalises the path with `realpath` (walking to the nearest existing ancestor for not-yet-created
+  files) and re-asserts the real location is inside the space root; the recursive-delete endpoint does
+  the same before `fs.rm`. (M1)
+
+- **Chunked uploads verify full, non-overlapping coverage before assembly** — `assembleChunks` only
+  checked the aggregate byte count, so a set of chunks with a gap and a compensating overlap could
+  report "complete" and assemble into silently corrupt content. Assembly now verifies the chunks tile
+  `[0, total)` exactly (contiguous, no gaps, no overlaps) before writing, and the returned sha256 is
+  computed from the same buffers that are written in order — the previous hash was produced by a
+  `data` listener racing `stream.pipeline`, so it could cover a different byte view than the file on
+  disk. (M11)
+
+- **File paths are no longer double-URL-decoded** — `resolveSafePath` ran `decodeURIComponent` on a
+  value the HTTP layer had already decoded once. A filename containing a literal `%` (e.g. `50%.png`)
+  therefore threw `URIError` → HTTP 500, and the on-disk path could diverge from the file-meta `_id`.
+  The redundant decode is removed; the disk path now matches the stored `_id` byte-for-byte. (L3)
+
+- **Prototype-polluting property keys are rejected in entity-merge resolution** — `applyResolutions`
+  wrote resolved property values through a computed index; a `__proto__` / `constructor` / `prototype`
+  key would mutate the object prototype instead of adding a data property. Such keys are now skipped.
+  (Impact was limited — merge values are scalars — but it removes the footgun from a path that assigns
+  user/peer-supplied keys.) (L4)
+
+- **The `query` tool no longer silently discards a caller's projection** — the mandatory
+  `embedding`-vector exclusion was applied as a second `.project()` call, which in the MongoDB driver
+  *replaces* the first, dropping any projection the caller supplied. The exclusion is now merged with
+  the caller's projection (respecting MongoDB's inclusion/exclusion rules), and an explicit request to
+  include `embedding` is still stripped so the vector can never leak. (L5)
+
+- **Sync data endpoints now verify network membership, not just space scope** — a peer-bound token
+  was authorised against the calling token's space allow-list alone, so two networks sharing a space
+  but with **disjoint membership** leaked into each other: a member of network X could read/write that
+  space by naming network Y (which it does not belong to). A token carrying a `peerInstanceId` may now
+  reach a space only through a network that peer is actually a member of. Manually-provisioned peer
+  tokens and asymmetric (single-side-configured) networks are unaffected — they fall back to plain
+  token-space scoping. (M3)
+
+- **Sync sequence-counter poisoning is bounded** — every ingested document advances the space's `seq`
+  counter (so local writes always sort above synced ones). A peer could push a single document with a
+  `seq` near the protocol ceiling (2^50), dragging the counter there; once local writes reach the
+  ceiling, peers reject them and the space silently loses the ability to sync new writes. Documents
+  whose `seq` falls within a reserved band below the ceiling (`MAX_INGEST_SEQ = 2^50 − 2^40`) are now
+  refused on every ingest path (single upsert → 400, batch → dropped with a warning, engine pull →
+  skipped), and `bumpSeq` clamps the advance as a backstop. The bound is absolute rather than relative
+  to the current counter, so it never false-positives on a legitimate high-volume space syncing to a
+  fresh peer. (M5)
+
+- **Merkle verification now hashes document content** — leaves were
+  `SHA-256("doc:<type>:<id>:<seq>")`, so a peer serving *altered* content under the same `_id`/`seq`
+  produced the same root: divergence detection caught missing or version-skewed documents but never
+  tampered ones. Leaves now include a canonical content hash (keys sorted, embedding vectors excluded
+  so peers running different models don't false-positive). Files were already content-hashed. Merkle
+  remains advisory (opt-in per network; a mismatch is reported, not blocking). Covered by
+  `testing/standalone/merkle-content-hash.test.js`. (M6)
+
+- **Invite reparent bundles are bound to their target instance** — a braintree *reparent* invite
+  rewrites one existing member's record (including its inbound `tokenHash`) at finalize. `apply` never
+  compared the applying `instanceId` to the session's reparent target, so a holder of a reparent
+  bundle could apply as an unrelated instance and have finalize hand them the victim's member record —
+  a member takeover. `apply` (and finalize, as a TOCTOU backstop) now refuse a mismatch, and the
+  normal join path re-checks membership at finalize. A new optional `expectedInstanceId` on
+  `POST /api/invite/generate` pins any invite to a single instance so a leaked bundle can't be
+  redeemed by someone else. (M10)
+
+- **A `?token=` query parameter is now accepted only on the SSE endpoints** — the Bearer-token
+  query-string fallback exists because the browser `EventSource` API cannot set headers, but it was
+  wired into the shared auth path and therefore honoured on **every route and every method**. A token
+  in a query string leaks into access logs, proxy logs, browser history and `Referer` headers, so it
+  is now accepted only on `GET /api/about/logs/stream` and `GET /mcp` (the two SSE streams).
+  Everything else requires the `Authorization` header. **Breaking** for any integration that passed
+  `?token=` to a REST route — switch it to the header.
+
+- **TOTP codes are single-use** — a code stayed valid for its whole ±1-step window (up to 90 s), so a
+  code captured in transit (proxy log, shoulder-surf, phished operator) could be replayed — precisely
+  the window an attacker with a stolen admin PAT needs to disable MFA. The highest consumed step is
+  now recorded (`totpLastStep` in `secrets.json`) and a code is accepted only for a step strictly
+  greater than it. Note: this makes the "test your authenticator" call on `POST /api/mfa/verify`
+  consume the code, so a code entered there cannot immediately be reused for a gated action — wait
+  for the next one.
+
+- **OIDC ID-token signature algorithms are pinned** — `jwtVerify` ran with no `algorithms` option, so
+  the accepted set was an implicit consequence of jose's JWKS resolver rather than stated policy. It
+  is now an explicit asymmetric allow-list (RS/PS/ES/EdDSA), narrowable per deployment via
+  `oidc.allowedAlgorithms` (e.g. `["RS256"]`). To be precise about the scope: jose already refuses
+  symmetric JWKS keys, so the classic HS/RS confusion attack was **not** reachable — this is defence
+  in depth, not a fix for an exploitable hole. Covered by `testing/standalone/oidc-alg-pinning.test.js`.
+
+- **The instance-level MCP tools now require an admin token** — `list_peers` (full peer topology:
+  instance IDs, URLs, network membership) and `sync_now` (drives outbound connections to every peer)
+  had no admin gate, though their REST equivalents under `/api/networks*` are all `requireAdmin`. Any
+  space-scoped token could enumerate the network and trigger syncs. Both are now admin-only, enforced
+  in the dispatcher and hidden from `tools/list` for non-admin tokens.
+
+- **`POST /api/conflicts/seed` is admin-gated** — this test fixture fabricates conflict records that
+  the UI presents as genuine sync conflicts with an attacker-chosen peer label, and whose resolution
+  actions move/overwrite files. It sat on the plain authenticated router, so any space-scoped token
+  could inject them.
+
+- **Token lookup prefixes now carry their intended entropy** — the stored `prefix` (a pre-filter for
+  the bcrypt scan) was `plaintext.slice(0, 8)` = the literal `ythril_` plus **one** random character,
+  despite a comment claiming 62^8. Roughly 1/62 of all tokens shared a bucket, so a large deployment
+  ran many bcrypt compares per request. It is now taken from the random part (offset 7). Records
+  still holding the old format keep authenticating and are migrated on first use — no token is
+  invalidated, no re-issue needed.
+
+- **`query` tool `$regex` filters are now bounded against ReDoS** — the structured query filter
+  sanitizer whitelisted `$regex` but applied no pattern analysis, so a catastrophic-backtracking
+  pattern could pin MongoDB CPU for the full `maxTimeMS` budget per call (multiplied per member
+  space on proxy spaces). `$regex` values must now be strings of at most 500 characters and pass
+  the same conservative nested-quantifier heuristic used for schema `pattern` rules (shared via
+  `util/redos.ts`); the `maxTimeMS` ceiling drops from 30 s to 10 s. Covered by
+  `testing/standalone/query-regex-redos.test.js`.
+
+- **Removed or ejected sync peers no longer keep valid credentials** — removing a member (direct
+  club/pubsub removal, a concluded remove vote, a departure, or deleting a network) never revoked
+  the peer's PAT or dropped the stored outbound token, so an ejected peer could keep reading and
+  writing sync data indefinitely. Credentials are now revoked once the peer no longer shares **any**
+  network with this instance (membership in another common network preserves them), on both sides of
+  an ejection. The ejection guard also now covers the **data** endpoints (`/api/sync/memories`,
+  `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/manifest`, `/files`, tombstones, merkle …) —
+  previously only `/api/sync/networks/:id/*` returned `401 ejected`, while data endpoints fell back
+  to "space exists" because the network config is deleted on ejection. Covered by
+  `testing/sync/peer-revocation.test.js`.
+
+- **Chunked uploads now enforce the storage quota and a total-size bound** — the `Content-Range`
+  upload branch performed no quota check at all (quota applied only to single-request uploads) and
+  never bounded the declared total, so a client could bypass the files hard limit or fill the disk
+  through the `.chunks` staging area. Every chunk now runs the same quota check as a single-request
+  upload (the first chunk projects the full declared total), staged bytes under `.chunks` count
+  toward measured file usage, and the declared total is capped by `maxChunkedUploadBytes`
+  (default 10 GiB). Covered by `testing/red-team-tests/file-hardening.test.js`.
+
+- **User-uploaded HTML/SVG/XML can no longer run script in the instance origin (stored XSS)** —
+  file downloads served `text/html` and `image/svg+xml` inline with no `Content-Disposition`, so a
+  crafted upload opened in the browser executed in Ythril's origin (web-UI token theft). Active-content
+  types (`.html`, `.htm`, `.svg`, `.xml`, `.xhtml`) are now served with
+  `Content-Disposition: attachment` and a `sandbox` CSP; passive types (images, PDF, plain text)
+  stay inline so previews keep working. Filenames are quote/CRLF-sanitised in the header. Covered by
+  `testing/red-team-tests/file-hardening.test.js`.
+
+- **Document conversion is size-bounded (DoS guard)** — the pdf/docx/epub/html → markdown pipeline
+  accepted inputs of any size (`maxFileSizeBytes` applied only to media embedding), parsed HTML
+  in-process via jsdom, and stored every image a document embedded. Conversion now rejects documents
+  over `maxDocumentConversionBytes` (default 100 MiB; HTML capped at 25 MiB because jsdom parses
+  in-process) permanently — no retry burn — and extracted images are capped at 50 per document /
+  100 MiB aggregate. Covered by `testing/standalone/conversion-limits.test.js`.
+
+- **Webhook delivery now pins the connection to the validated IP** — `ssrfSafeFetch` resolved and
+  validated the target's address but then let `fetch` re-resolve it to connect, leaving a narrow
+  DNS-rebind TOCTOU window between check and connect. It now pins the socket to the exact validated
+  address via an undici dispatcher (TLS SNI / certificate validation still use the hostname), and
+  re-pins on every redirect hop, so the connection can never land on a different (internal) IP than
+  the one that passed the SSRF check. The redirect-follow cap is configurable via
+  `webhookMaxRedirects` in `config.json` (or the `WEBHOOK_MAX_REDIRECTS` env var), default 3, clamped
+  to `[0, 20]`. Adds `undici` as a direct dependency. Covered by
+  `testing/standalone/ssrf-ip-pinning.test.js`.
+
+- **MCP proxy spaces no longer bypass member-space token scope** — an MCP call targeting a proxy space
+  checked the token only against the *proxy* space id, then fanned reads/writes out to the member
+  spaces with no further check. A token scoped solely to a proxy (especially a `proxyFor: ['*']`
+  wildcard) could therefore reach spaces it was never granted — the whole instance in the wildcard
+  case. The MCP dispatcher now requires the token to hold **every** member space (mirroring
+  `requireSpaceAuth` on the REST layer) before any proxy fan-out.
+
+- **MFA setup/disable now require a current TOTP code once MFA is enabled** — `POST /api/mfa/setup`
+  (rotate) and `DELETE /api/mfa` (disable) were gated only by `requireAdmin`, so a stolen admin PAT
+  could silently overwrite or remove the second factor it was meant to be protected by. Both now use
+  `requireAdminMfa`: first-time enrolment still needs no code (MFA is off), but rotating or disabling
+  an *enabled* factor requires a valid code. Break-glass recovery when the authenticator is lost is
+  removing `totpSecret` from `secrets.json` on the host.
+
+- **Token minting cannot escalate scope** — `POST /api/tokens` applied no relationship between the
+  new token's scope and the creating token's. A *space-restricted* admin token could mint an
+  `admin: true` token with no `spaces` (= all spaces) and escalate to unrestricted admin. A
+  space-restricted creator may now only mint tokens confined to a subset of its own spaces; an
+  unrestricted admin is unaffected.
+
+- **OIDC now fails closed for unmatched tokens (behaviour change)** — a JWT that matched neither the
+  `admin` nor the `readOnly` claim rule was granted `readOnly: undefined` (read-write) and
+  `spaces: undefined` (ALL spaces), so any principal able to obtain an audience-matching token from a
+  shared realm got full read-write access to every space. Such tokens are now accepted with
+  **read-only access to no spaces**; a configured-but-missing `spaces` claim likewise yields an empty
+  allow-list rather than all spaces. **Action required:** if you relied on the permissive default,
+  grant access explicitly via `claimMapping` rules (or set `requireMatch: true` to reject unmatched
+  tokens outright). Covered by `testing/standalone/oidc-claim-mapping.test.js` and
+  `testing/red-team-tests/auth-escalation.test.js`.
+
+- **SSRF guard hardened against alternate host encodings and DNS-based bypasses** — the outbound-URL
+  validator (`util/ssrf.ts`) previously inspected only the literal hostname string, so a blocked
+  address supplied in a non-standard encoding — decimal/hex/octal integer (`http://2130706433/`),
+  short form (`http://127.1/`), IPv4-mapped IPv6 (`http://[::ffff:127.0.0.1]/`), trailing dot, or the
+  unspecified address — slipped through, as did any public DNS name that resolves to an internal
+  host. `isSsrfSafeUrl` now canonicalises every IPv4 encoding and expands IPv6 (including
+  IPv4-mapped/compatible forms), and additionally blocks CGNAT (100.64/10) and the broadcast address.
+  A new authoritative async layer (`assertUrlSafeResolved` / `ssrfSafeFetch`) resolves the target via
+  DNS and validates **every** returned A/AAAA record, then follows redirects manually and re-validates
+  each hop. **Webhook delivery** now uses `ssrfSafeFetch`, closing a post-auth SSRF pivot where a
+  webhook target could 302-redirect (or DNS-rebind) to a private/reserved IP after passing
+  creation-time validation. Covered by `testing/standalone/ssrf-hardening.test.js` (65 unit cases) and
+  `testing/red-team-tests/ssrf-encoding.test.js`.
+
+- **Sync: forged tombstones can no longer delete another instance's data** — `applyRemoteTombstone`
+  authorised a deletion purely on `localDoc.author.instanceId === tombstone.instanceId`, both of which
+  are attacker-controlled, so a member could forge a tombstone with `instanceId` set to a victim
+  instance and delete that victim's authored memories/entities/edges/chrono across the network. The
+  deletion is now bound to the authenticated peer: a tombstone may delete a document only when its
+  issuer matches the delivering peer's identity (`peerInstanceId`, set on production peer tokens) or
+  the caller is a trusted local/admin token. A tombstone relayed by a third party on behalf of another
+  author is refused; the author's own tombstone reaches each peer first-hand on direct sync. New
+  red-team test `testing/sync/tombstone-forgery.test.js`; the pubsub tombstone test now uses a
+  production-style bound peer token.
+
+- **Sync governance: vote forgery via the gossip pull path is now rejected** — during a sync cycle a
+  node pulls open vote rounds from each peer and merged the vote casts it received. The merge trusted
+  the `instanceId` on each cast, so a single malicious member could serve a fabricated round
+  pre-stuffed with forged `yes` votes attributed to every other member and drive a `remove` /
+  `space_deletion` / braintree `join` round to conclusion without real quorum — ejecting members or
+  destroying a remote space. The pull-merge (`server/src/sync/engine.ts`) now accepts only a peer's
+  **own** vote (`peerCast.instanceId === member.instanceId`), matching the authenticated POST vote
+  path; each member's vote reaches quorum first-hand because governance networks sync with every
+  member. Additionally, braintree conclusion (`server/src/api/sync.ts`) no longer trusts a
+  peer-supplied `requiredVoters` **set**: it recomputes the ancestor chain from the local topology
+  (anchored on the proposer node), so the set cannot be shrunk to `[attacker]`. Covered by a new
+  red-team integration test `testing/sync/vote-forgery.test.js`; the full governance/vote/braintree/
+  pubsub/democratic/closed suite continues to pass.
+
 ### Documentation
 
 - **User guide: worked example for connecting Ythril to Claude over MCP.** A step-by-step walkthrough in the
@@ -2133,464 +2589,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/api/brain/:spaceId/memories…` with `/api/brain/spaces/:spaceId/memories…`. The web client already
   uses the canonical paths. (All other brain resources — entities, edges, chrono, stats — were already
   canonical-only and are unaffected.)
-
-### Security
-
-- **Test hardening: seven more test groups gain real coverage and specificity (S8, part 2).**
-  Continuing the "what would still pass if the mechanism were removed?" method. **(S8.2)** the
-  `projection` recall option was only unit-tested via `mergeEmbeddingExclusion`; REST `/query` and
-  the MCP `query` tool now assert include-mode (`{fact:1}` → only that field, `_id`, never
-  `embedding`) and exclude-mode (`{tags:0}`) against real returned docs. **(S8.4)** `webhooks.test.js`
-  re-implemented the dispatcher's event set, URL/secret validation, HMAC, and subscription-matching
-  and asserted against the copies; it now imports the real `ALL_WEBHOOK_EVENTS` from the compiled
-  build (which immediately caught three event types the stale copy was missing), and a new
-  `testing/integration/webhooks.test.js` drives the compiled admin API + dispatcher end-to-end —
-  https/SSRF/secret/event validation, and real match→sign→deliver→log via `getMatchingWebhooks` and
-  the delivery log (true HTTP receipt stays out of reach because delivery is SSRF-guarded). **(S8.9)**
-  `schema-validation.test.js` re-implemented `sanitizeFilter`; the `$options` cases now run the real
-  compiled sanitizer via `queryBrain` (in `query-regex-redos.test.js`), and the copy is deleted.
-  **(S8.10)** `space-op-recovery.test.js` verified an interrupted rename via the memories collection
-  only; it now seeds an entity, edge, and chrono too and asserts each survives under the new id — a
-  reconcile that dropped any collection would now fail. **(S8.11)** the file-conversion `inputFormat`
-  tests never observed the parameter; they now count chunk records (`?includeChunks=true`) and assert
-  `inputFormat:'text'` produces **0** chunks while md/html conversion produces **≥1 / ≥2**. **(S8.7)**
-  `audit.test.js` asserted entries merely exist (passes on stale rows from a warm DB); it now
-  correlates a `memory.update` by `entryId === the memory _id` within an `after`-timestamp window,
-  and guards the previously vacuous-if-empty loops. **(S8.8)** the path-traversal tests accepted
-  `400 OR 404` (proving only "no content served"); DELETE and PATCH now assert **exactly 400** with
-  positive controls (a valid-but-absent path → 404, a real file → 200/served) proving the sandbox
-  engaged, and the GET path documents why it intentionally returns 404. Test-only; no runtime code
-  touched.
-
-- **Test hardening: five test groups that would pass with their mechanism removed now assert the
-  real effect (S8, part 1).** Applying the "what would still pass if the mechanism were removed?"
-  method: **(1)** the three untested rate limiters get real 429 burst tests on instance C —
-  `bulkWipeRateLimit` (5/min, the tightest destructive limiter, previously swappable for
-  `globalRateLimit` with no test going red), `globalRateLimit` (300/min) and `syncRateLimit`
-  (2000/min) — each with a positive control proving the first request reaches the route.
-  **(2)** the `retry_embedding` "requires write access" test used the ADMIN token and asserted
-  success, testing nothing; it now uses a read-only token and asserts 403, and a new effect test
-  proves the retry actually resets `embeddingStatus` to pending and the requeued job re-runs to a
-  terminal state. **(3)** `notify/trigger` and `sync_available` asserted only the echoed
-  status/204 — satisfied by a handler that does nothing, which is exactly how the notify
-  rate-limit bug once hid; both now poll the network's sync-history for the record a real cycle
-  appends. **(4)** MCP `update_memory` and the remaining echo-only `PATCH /memories` cases
-  (fact, long-form) re-read the document and deep-equal the persisted value. **(5)** the
-  echo-only PUT/PATCH tests for media-config and edge/memory/chrono type-schemas, and the chrono
-  update paths, all re-read through GET to confirm persistence. Test-only change; no runtime code
-  touched.
-
-- **The sync data-write surface is now peer-only, and direction enforcement can no longer be
-  side-stepped (S10).** The direction guard on the seven `/api/sync/*` write endpoints (`memories`,
-  `entities`, `edges`, `chrono`, `batch-upsert`, `tombstones`, `file-tombstones`) had two holes. First,
-  it only ever bound tokens carrying `peerInstanceId` — **any space-scoped user PAT could write through
-  the sync surface** regardless of the network's direction topology. That matters because sync writes,
-  unlike the REST API (which assigns `seq`/`_id`/`author` server-side), carry raw stream metadata: a
-  downstream operator in a braintree or pub/sub network holding any leaked upstream user PAT could push
-  content upstream, defeating the documented one-way flow and forging sync state the REST API never
-  permits. Second, the guard keyed on the **caller-supplied `networkId` query parameter** — a push-only
-  peer could simply omit it (or name a non-directional network sharing the space) and write anyway.
-  Both are closed: data writes now require a **peer token or an admin token** (403 otherwise, with the
-  error pointing user PATs at the regular REST API), and for identified peers the direction check is
-  derived from this instance's **own membership records covering the target space** — allowed only when
-  at least one relationship carrying that space permits inbound flow — never from wire input. Reads and
-  the governance relays (votes/member gossip, which have their own forgery protections) are unchanged,
-  as are asymmetric topologies where the writer is not listed as a member (braintree parents, single-side
-  configs): their handshake-issued tokens already carry `peerInstanceId`. **Migration for
-  manually-configured networks:** a hand-provisioned peer token must now be minted with
-  `POST /api/tokens { peerInstanceId: "<peer-uuid>" }` (documented in the integration guide); an
-  existing plain PAT used by a peer for data pushes will start receiving 403s on upgrade.
-
-- **Both non-admin join paths bypassed join governance entirely (S9).** The documented model admits a
-  new member only after the required vote passes — braintree: a yes from **every ancestor on the path
-  from the inviting node to the root**; closed: all members; democratic: a majority. Neither non-admin
-  join path implemented this: `POST /api/networks/:id/join` with an invite key **direct-joined**
-  braintree networks (no vote round at all), and the RSA-handshake finalize (`POST /api/invite/finalize`)
-  added the member directly **for every network type** — so a leaf-level invite admitted a member into a
-  braintree, closed, or democratic network with no ancestor or member ever consulted. Ancestor voting
-  existed only on the admin member-add path. Both paths now open the same join vote round the admin path
-  uses: the member record (and its credentials) is **held on the round** (`pendingMember`) and only
-  enters the member list when the vote concludes yes; the braintree required-voter set is recomputed
-  from local topology at conclusion (never trusted from the wire), and the joiner always becomes a child
-  of the instance it joined through — topology fields from the request body are ignored. The inviting
-  instance's own yes is cast implicitly (its admin generated the invite/key), so the common flows are
-  unchanged: club/pubsub still direct-join (documented), and a braintree **root** invite or the first
-  member of a closed network still joins immediately. While a round is open the joiner's provisioned
-  peer PAT is **refused on `/api/sync/*`** (previously an unknown-peer fallback would have honoured its
-  space scope), and a vetoed or expired join round now **revokes the provisioned credentials**
-  (peer PAT and outbound token) instead of leaving them live forever. Re-presenting the consumed invite key with the
-  same `instanceId` polls the round: `202` while open, `200 joined` once admitted, `403` if denied —
-  this also repairs the closed/democratic invite-key flow, which previously **lost the member record
-  entirely** (the round held no `pendingMember`, so a passed vote admitted nobody and the consumed key
-  made re-joining impossible). Covered end-to-end (two live instances, gossip, veto, credential
-  revocation, sync-hold) by `testing/sync/join-governance.test.js`.
-
-- **Dozens of mutating endpoints produced no audit entry at all.** The audit middleware keeps a
-  hand-maintained route table — a second, shadow copy of the router's paths — and nothing kept the two in
-  sync. It had drifted badly: the file-upload rule pointed at `/api/files/:space/upload`, **a route that has
-  never existed** (the real one carries the path in the query string), and the delete/move rules required a
-  trailing slash the real paths don't have. So **every file upload, delete and move was silently unlogged**.
-  `PATCH /api/spaces/:id/rename` wasn't matched either, so **space renames were unaudited** — the one
-  operation that, done wrong, hides a space's data. There was **no `PUT` rule in the entire table**, so every
-  schema write was unlogged. Worst of all, **the whole network/governance surface was missing**: adding or
-  removing a member, casting a vote, joining or forking a network — the operations that decide *who can read
-  the brain* — left no trace. Webhook CRUD was pointed at the wrong prefix entirely (`/api/notify/webhooks`
-  vs the real `/api/admin/webhooks`), so creating a webhook — which exfiltrates data to a third party on
-  every change — was unlogged too. Also missing: duplicate **merges** (which rewrite records and delete the
-  loser), conflict resolution, bulk chrono delete, token regeneration, and schema-library writes.
-  All are now audited. The gap survived because the audit tests only ever asserted `memory.create`,
-  `token.create/delete` and `auth.failed` — the handful of rules that happened to be correct.
-  `testing/standalone/audit-route-coverage.test.js` now **derives the route list from the router source**
-  instead of restating it, so the shadow table cannot drift silently again: add a mutating route and the
-  test fails until it is either audited or explicitly declared exempt *with a reason*.
-
-- **The bundled MongoDB can now be authenticated, and new installs should be.** The bundled database
-  accepted any connection, and Ythril's security model (tokens, admin gating, space scoping, read-only
-  tokens, the audit log) is enforced at the **API layer only** — so anything able to reach port 27017 could
-  read and rewrite every space, invisibly to the audit log. Set `MONGO_USERNAME` / `MONGO_PASSWORD` (see the
-  new `.env.example`) and Ythril connects with credentials, percent-encoded so a password containing `@`,
-  `:` or `/` cannot corrupt the URI. An explicit `MONGO_URI` (managed Atlas, your own cluster) still wins
-  and is untouched. The test stack now runs **authenticated**, so every CI run proves Ythril works against
-  a credentialed database.
-  **Existing installs are unaffected and must not just add credentials:** MongoDB cannot have auth switched
-  on in place — the Atlas Local image runs a single-node replica set (needed for `$vectorSearch`) and only
-  provisions the required internal keyfile on a **first** init, so adding credentials to a database that
-  already holds data makes mongod fail to start (`Unable to acquire security key[s]`). Leaving the variables
-  empty preserves today's behaviour exactly; migrating is a deliberate dump/restore, documented in
-  `docs/dependencies.md`.
-  Also fixes a **vacuous test**: `mongoUriRedacted` asserted the URI contained no `@`, which passed only
-  because the test database had no credentials — the redaction path never ran. It now asserts the password
-  is absent and that a `user:pass` pair cannot survive redaction.
-
-- **The media sidecars can no longer reach the database.** `docker-compose.yml` put all four
-  containers — `ythril`, `ythril-mongo`, `ollama`, `whisper` — on a single flat bridge network, and
-  MongoDB runs with **no authentication**. Ythril's entire security model (PATs, admin gating, space
-  scoping, read-only tokens, the audit log) is enforced at the **API layer only**, so anything able to
-  open a TCP connection to port 27017 could read and rewrite **every space in the brain, invisibly to
-  the audit log**. That mattered because `ollama` and `whisper` are third-party images whose whole job
-  is parsing **untrusted user-supplied media** (uploaded images, audio, video) — the highest-risk
-  attack surface in the deployment. A parser exploit in either would have yielded unauthenticated
-  full-brain read/write. Kubernetes already prevented this (`media-netpol.yaml` gives the sidecars an
-  Egress policy permitting only DNS + 80/443); **Compose — the default deployment — did not.** The
-  network is now split: `ythril-db` (`ythril` + `ythril-mongo`, `internal: true`, so the database has
-  no outbound internet either) and `ythril-media` (`ythril` + the sidecars). Only `ythril` bridges the
-  two. Verified live: from `ollama`, `ythril-mongo` no longer resolves and TCP 27017 is refused, while
-  `ythril` still reaches mongo, ollama and whisper. Pinned by
-  `testing/standalone/network-segmentation.test.js`, which fails if anything re-flattens the network.
-  **Note:** this closes the *reachability* path. MongoDB authentication (defence in depth against
-  host-level access) is tracked separately — it needs a migration story, since enabling it naively
-  would lock existing users out of their own database.
-
-- **Governance rounds no longer conclude on an empty voter set.** `concludeRoundIfReady` treated
-  "no remote voters" (the only member left is the round's subject) as vacuously "everyone voted yes",
-  so a `closed`/braintree round with **zero votes** passed. Combined with gossip round adoption, a
-  malicious peer in a small network could serve a **forged `remove` / `space_deletion` / `meta_change`
-  round** and the victim would conclude it — ejecting a member or deleting a space **without any
-  legitimate vote**. (The per-cast forgery guard correctly rejected the forged votes, but the round
-  needed none to pass.) An empty voter set now concludes only when **this instance itself voted yes**,
-  i.e. a locally-proposed action — a gossip-adopted round carries no local vote and never concludes.
-  Legitimate solo actions (self-initiated remove / space deletion, which cast our own yes) are
-  unaffected. Regression-guarded by `testing/sync/vote-forgery.test.js` and `governance.test.js`.
-
-- **Kubernetes deployment is hardened and its probes/ports now actually work.** The stock
-  `kubernetes/manifests/ythril-deployment.yaml` had no `securityContext`, used the mutable
-  `:latest` image tag, set no resource limits on the main container, and targeted
-  `containerPort: 4100` with `/api/ready` probes — but the server listens on `3200` and the
-  readiness endpoint is `/ready`, so probes never passed and Service targeting hit a dead port.
-  The manifest now: enforces non-root (`runAsNonRoot`, uid/gid 1000) with
-  `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, all capabilities dropped, and
-  `seccompProfile: RuntimeDefault`; backs every writable path with a volume (`/data` and a new
-  `ythril-config` PVC for the previously-**unmounted** `/config`, plus an `emptyDir` for `/tmp`);
-  adds CPU/memory requests and limits to the main container; corrects the port to `3200` and the
-  probe path to `/ready`; and pins a concrete image version with inline guidance for digest
-  pinning. **Behavior change:** `/config` (tokens, spaces, networks, secrets) is now persisted on
-  its own PVC — previously this state was silently lost on every Pod restart. The `ythril-config`
-  PVC is created by the manifest; on clusters without a default StorageClass, provision it first.
-
-- **Sync connections are now SSRF-validated at connection time, and peer URL rewrites
-  are re-validated.** Peer URLs were validated only at admission, but a peer can rewrite
-  its own stored URL after admission (via gossip or the member self-update endpoint) with
-  no re-check, and the sync engine connected with a bare `fetch` (no DNS pin). An
-  admitted-but-malicious member could therefore point itself at `http://169.254.169.254/`
-  (cloud IMDS), loopback, or an internal host, and the victim would connect there with peer
-  auth headers attached. All 15 outbound sync connections now go through an SSRF-safe fetch
-  (DNS-resolve → pin the socket to the validated IP → re-validate each redirect), and the
-  three URL-merge paths re-validate before persisting. **Same-host / LAN deployments** whose
-  peers use private addresses set the new `allowPrivatePeers` config key (or the
-  `SYNC_ALLOW_PRIVATE_PEERS` env var); even then, crown-jewel addresses (loopback,
-  link-local/IMDS, unspecified) stay blocked. Covered by `testing/red-team-tests/sync-peer-ssrf.test.js`
-  and `testing/standalone/peer-ssrf-policy.test.js`.
-
-- **`trust proxy` now defaults to `false` (was hardcoded to `1`).** The default compose
-  deployment is exposed directly with no reverse proxy, so trusting the first hop meant
-  `req.ip` came from the client-supplied `X-Forwarded-For` header — attacker-controllable.
-  That let a client rotate `X-Forwarded-For` to defeat every rate limiter (including the only
-  throttle in front of admin TOTP verification) and to forge client IPs in the audit log.
-  `req.ip` is now derived from the socket by default. **Behavior change:** if you run behind
-  a reverse proxy (nginx/Traefik/ingress), set the new `trustProxy` config key — or the
-  `TRUST_PROXY` env var — to the **exact number of proxy hops** (e.g. `1`), not `true`.
-  Accepts Express's native values (`false` | hop count | `'loopback'` | CIDR list).
-
-- **`?limit`/`?skip` on brain list endpoints are clamped.** A non-numeric value
-  (`?limit=abc`) previously became `NaN` and flowed unbounded into MongoDB. Values are now
-  coerced to a safe bounded integer, the list helpers clamp internally as defense-in-depth,
-  and proxy-space results are re-limited to the requested page size.
-
-- **Rate-limit kill-switches (`SKIP_*_RATE_LIMIT`) are ignored in production.** These test-only
-  env vars are now honoured outside `NODE_ENV=production` only, so a leaked flag can't silently
-  disable rate limiting on a live deployment. A loud warning is logged at startup if one is set.
-
-- **MCP SSE sessions are now bound to the identity that opened them.** An MCP `GET /mcp` SSE
-  session was authorized once, at open time, and `POST /mcp/messages?sessionId=…` then dispatched
-  into it keyed by `sessionId` **alone** — never re-checking whose token drove the call. Because the
-  `sessionId` travels as a query parameter (it lands in reverse-proxy access logs, browser history,
-  and referrers) it is not a secret; any holder of a valid token — even a read-only, single-space
-  one — who learned another session's id could POST tool calls that executed with that session's
-  privileges. Each session is now pinned to the opening token's **id and scope signature**; a
-  `POST` whose token id differs, or whose scopes have since changed, is rejected with `403`. This
-  also fixes privilege staleness (a mid-session scope downgrade now forces reconnect). Raw session
-  ids are no longer logged — only a short non-reversible tag. Covered by
-  `testing/red-team-tests/mcp-security.test.js`.
-
-- **MCP OAuth connector tokens now expire and rotate instead of accumulating.** Every browser-connector
-  consent minted a **permanent** PAT with no cap, so a connector that re-authorized on each reconnect
-  grew `config.json` without bound and left a trail of orphaned, long-lived credentials (and every
-  `saveConfig` rewrites the whole file). OAuth-minted tokens now carry a default **90-day expiry**
-  (`MCP_OAUTH_TOKEN_TTL_DAYS`, `0` = never), a fresh consent **rotates** the single token held for that
-  client rather than appending, and the total connector-token count is capped (oldest evicted). The
-  token exchange advertises `expires_in` so clients can anticipate re-consent. **Behavior change:**
-  connectors will need to re-authorize when their token expires. Covered by
-  `testing/integration/mcp-oauth.test.js`.
-
-- **File paths are re-checked against symlink escapes before every filesystem operation** — the
-  sandbox boundary check was purely lexical (string prefix), so a symlink component anywhere along a
-  path could point outside the space root while the string still looked contained — a TOCTOU that a
-  recursive directory delete would follow out of the sandbox. Every read/write/delete/move/list now
-  canonicalises the path with `realpath` (walking to the nearest existing ancestor for not-yet-created
-  files) and re-asserts the real location is inside the space root; the recursive-delete endpoint does
-  the same before `fs.rm`. (M1)
-
-- **Chunked uploads verify full, non-overlapping coverage before assembly** — `assembleChunks` only
-  checked the aggregate byte count, so a set of chunks with a gap and a compensating overlap could
-  report "complete" and assemble into silently corrupt content. Assembly now verifies the chunks tile
-  `[0, total)` exactly (contiguous, no gaps, no overlaps) before writing, and the returned sha256 is
-  computed from the same buffers that are written in order — the previous hash was produced by a
-  `data` listener racing `stream.pipeline`, so it could cover a different byte view than the file on
-  disk. (M11)
-
-- **File paths are no longer double-URL-decoded** — `resolveSafePath` ran `decodeURIComponent` on a
-  value the HTTP layer had already decoded once. A filename containing a literal `%` (e.g. `50%.png`)
-  therefore threw `URIError` → HTTP 500, and the on-disk path could diverge from the file-meta `_id`.
-  The redundant decode is removed; the disk path now matches the stored `_id` byte-for-byte. (L3)
-
-- **Prototype-polluting property keys are rejected in entity-merge resolution** — `applyResolutions`
-  wrote resolved property values through a computed index; a `__proto__` / `constructor` / `prototype`
-  key would mutate the object prototype instead of adding a data property. Such keys are now skipped.
-  (Impact was limited — merge values are scalars — but it removes the footgun from a path that assigns
-  user/peer-supplied keys.) (L4)
-
-- **The `query` tool no longer silently discards a caller's projection** — the mandatory
-  `embedding`-vector exclusion was applied as a second `.project()` call, which in the MongoDB driver
-  *replaces* the first, dropping any projection the caller supplied. The exclusion is now merged with
-  the caller's projection (respecting MongoDB's inclusion/exclusion rules), and an explicit request to
-  include `embedding` is still stripped so the vector can never leak. (L5)
-
-- **Sync data endpoints now verify network membership, not just space scope** — a peer-bound token
-  was authorised against the calling token's space allow-list alone, so two networks sharing a space
-  but with **disjoint membership** leaked into each other: a member of network X could read/write that
-  space by naming network Y (which it does not belong to). A token carrying a `peerInstanceId` may now
-  reach a space only through a network that peer is actually a member of. Manually-provisioned peer
-  tokens and asymmetric (single-side-configured) networks are unaffected — they fall back to plain
-  token-space scoping. (M3)
-
-- **Sync sequence-counter poisoning is bounded** — every ingested document advances the space's `seq`
-  counter (so local writes always sort above synced ones). A peer could push a single document with a
-  `seq` near the protocol ceiling (2^50), dragging the counter there; once local writes reach the
-  ceiling, peers reject them and the space silently loses the ability to sync new writes. Documents
-  whose `seq` falls within a reserved band below the ceiling (`MAX_INGEST_SEQ = 2^50 − 2^40`) are now
-  refused on every ingest path (single upsert → 400, batch → dropped with a warning, engine pull →
-  skipped), and `bumpSeq` clamps the advance as a backstop. The bound is absolute rather than relative
-  to the current counter, so it never false-positives on a legitimate high-volume space syncing to a
-  fresh peer. (M5)
-
-- **Merkle verification now hashes document content** — leaves were
-  `SHA-256("doc:<type>:<id>:<seq>")`, so a peer serving *altered* content under the same `_id`/`seq`
-  produced the same root: divergence detection caught missing or version-skewed documents but never
-  tampered ones. Leaves now include a canonical content hash (keys sorted, embedding vectors excluded
-  so peers running different models don't false-positive). Files were already content-hashed. Merkle
-  remains advisory (opt-in per network; a mismatch is reported, not blocking). Covered by
-  `testing/standalone/merkle-content-hash.test.js`. (M6)
-
-- **Invite reparent bundles are bound to their target instance** — a braintree *reparent* invite
-  rewrites one existing member's record (including its inbound `tokenHash`) at finalize. `apply` never
-  compared the applying `instanceId` to the session's reparent target, so a holder of a reparent
-  bundle could apply as an unrelated instance and have finalize hand them the victim's member record —
-  a member takeover. `apply` (and finalize, as a TOCTOU backstop) now refuse a mismatch, and the
-  normal join path re-checks membership at finalize. A new optional `expectedInstanceId` on
-  `POST /api/invite/generate` pins any invite to a single instance so a leaked bundle can't be
-  redeemed by someone else. (M10)
-
-- **A `?token=` query parameter is now accepted only on the SSE endpoints** — the Bearer-token
-  query-string fallback exists because the browser `EventSource` API cannot set headers, but it was
-  wired into the shared auth path and therefore honoured on **every route and every method**. A token
-  in a query string leaks into access logs, proxy logs, browser history and `Referer` headers, so it
-  is now accepted only on `GET /api/about/logs/stream` and `GET /mcp` (the two SSE streams).
-  Everything else requires the `Authorization` header. **Breaking** for any integration that passed
-  `?token=` to a REST route — switch it to the header.
-
-- **TOTP codes are single-use** — a code stayed valid for its whole ±1-step window (up to 90 s), so a
-  code captured in transit (proxy log, shoulder-surf, phished operator) could be replayed — precisely
-  the window an attacker with a stolen admin PAT needs to disable MFA. The highest consumed step is
-  now recorded (`totpLastStep` in `secrets.json`) and a code is accepted only for a step strictly
-  greater than it. Note: this makes the "test your authenticator" call on `POST /api/mfa/verify`
-  consume the code, so a code entered there cannot immediately be reused for a gated action — wait
-  for the next one.
-
-- **OIDC ID-token signature algorithms are pinned** — `jwtVerify` ran with no `algorithms` option, so
-  the accepted set was an implicit consequence of jose's JWKS resolver rather than stated policy. It
-  is now an explicit asymmetric allow-list (RS/PS/ES/EdDSA), narrowable per deployment via
-  `oidc.allowedAlgorithms` (e.g. `["RS256"]`). To be precise about the scope: jose already refuses
-  symmetric JWKS keys, so the classic HS/RS confusion attack was **not** reachable — this is defence
-  in depth, not a fix for an exploitable hole. Covered by `testing/standalone/oidc-alg-pinning.test.js`.
-
-- **The instance-level MCP tools now require an admin token** — `list_peers` (full peer topology:
-  instance IDs, URLs, network membership) and `sync_now` (drives outbound connections to every peer)
-  had no admin gate, though their REST equivalents under `/api/networks*` are all `requireAdmin`. Any
-  space-scoped token could enumerate the network and trigger syncs. Both are now admin-only, enforced
-  in the dispatcher and hidden from `tools/list` for non-admin tokens.
-
-- **`POST /api/conflicts/seed` is admin-gated** — this test fixture fabricates conflict records that
-  the UI presents as genuine sync conflicts with an attacker-chosen peer label, and whose resolution
-  actions move/overwrite files. It sat on the plain authenticated router, so any space-scoped token
-  could inject them.
-
-- **Token lookup prefixes now carry their intended entropy** — the stored `prefix` (a pre-filter for
-  the bcrypt scan) was `plaintext.slice(0, 8)` = the literal `ythril_` plus **one** random character,
-  despite a comment claiming 62^8. Roughly 1/62 of all tokens shared a bucket, so a large deployment
-  ran many bcrypt compares per request. It is now taken from the random part (offset 7). Records
-  still holding the old format keep authenticating and are migrated on first use — no token is
-  invalidated, no re-issue needed.
-
-- **`query` tool `$regex` filters are now bounded against ReDoS** — the structured query filter
-  sanitizer whitelisted `$regex` but applied no pattern analysis, so a catastrophic-backtracking
-  pattern could pin MongoDB CPU for the full `maxTimeMS` budget per call (multiplied per member
-  space on proxy spaces). `$regex` values must now be strings of at most 500 characters and pass
-  the same conservative nested-quantifier heuristic used for schema `pattern` rules (shared via
-  `util/redos.ts`); the `maxTimeMS` ceiling drops from 30 s to 10 s. Covered by
-  `testing/standalone/query-regex-redos.test.js`.
-
-- **Removed or ejected sync peers no longer keep valid credentials** — removing a member (direct
-  club/pubsub removal, a concluded remove vote, a departure, or deleting a network) never revoked
-  the peer's PAT or dropped the stored outbound token, so an ejected peer could keep reading and
-  writing sync data indefinitely. Credentials are now revoked once the peer no longer shares **any**
-  network with this instance (membership in another common network preserves them), on both sides of
-  an ejection. The ejection guard also now covers the **data** endpoints (`/api/sync/memories`,
-  `/entities`, `/edges`, `/chrono`, `/batch-upsert`, `/manifest`, `/files`, tombstones, merkle …) —
-  previously only `/api/sync/networks/:id/*` returned `401 ejected`, while data endpoints fell back
-  to "space exists" because the network config is deleted on ejection. Covered by
-  `testing/sync/peer-revocation.test.js`.
-
-- **Chunked uploads now enforce the storage quota and a total-size bound** — the `Content-Range`
-  upload branch performed no quota check at all (quota applied only to single-request uploads) and
-  never bounded the declared total, so a client could bypass the files hard limit or fill the disk
-  through the `.chunks` staging area. Every chunk now runs the same quota check as a single-request
-  upload (the first chunk projects the full declared total), staged bytes under `.chunks` count
-  toward measured file usage, and the declared total is capped by `maxChunkedUploadBytes`
-  (default 10 GiB). Covered by `testing/red-team-tests/file-hardening.test.js`.
-
-- **User-uploaded HTML/SVG/XML can no longer run script in the instance origin (stored XSS)** —
-  file downloads served `text/html` and `image/svg+xml` inline with no `Content-Disposition`, so a
-  crafted upload opened in the browser executed in Ythril's origin (web-UI token theft). Active-content
-  types (`.html`, `.htm`, `.svg`, `.xml`, `.xhtml`) are now served with
-  `Content-Disposition: attachment` and a `sandbox` CSP; passive types (images, PDF, plain text)
-  stay inline so previews keep working. Filenames are quote/CRLF-sanitised in the header. Covered by
-  `testing/red-team-tests/file-hardening.test.js`.
-
-- **Document conversion is size-bounded (DoS guard)** — the pdf/docx/epub/html → markdown pipeline
-  accepted inputs of any size (`maxFileSizeBytes` applied only to media embedding), parsed HTML
-  in-process via jsdom, and stored every image a document embedded. Conversion now rejects documents
-  over `maxDocumentConversionBytes` (default 100 MiB; HTML capped at 25 MiB because jsdom parses
-  in-process) permanently — no retry burn — and extracted images are capped at 50 per document /
-  100 MiB aggregate. Covered by `testing/standalone/conversion-limits.test.js`.
-
-- **Webhook delivery now pins the connection to the validated IP** — `ssrfSafeFetch` resolved and
-  validated the target's address but then let `fetch` re-resolve it to connect, leaving a narrow
-  DNS-rebind TOCTOU window between check and connect. It now pins the socket to the exact validated
-  address via an undici dispatcher (TLS SNI / certificate validation still use the hostname), and
-  re-pins on every redirect hop, so the connection can never land on a different (internal) IP than
-  the one that passed the SSRF check. The redirect-follow cap is configurable via
-  `webhookMaxRedirects` in `config.json` (or the `WEBHOOK_MAX_REDIRECTS` env var), default 3, clamped
-  to `[0, 20]`. Adds `undici` as a direct dependency. Covered by
-  `testing/standalone/ssrf-ip-pinning.test.js`.
-
-- **MCP proxy spaces no longer bypass member-space token scope** — an MCP call targeting a proxy space
-  checked the token only against the *proxy* space id, then fanned reads/writes out to the member
-  spaces with no further check. A token scoped solely to a proxy (especially a `proxyFor: ['*']`
-  wildcard) could therefore reach spaces it was never granted — the whole instance in the wildcard
-  case. The MCP dispatcher now requires the token to hold **every** member space (mirroring
-  `requireSpaceAuth` on the REST layer) before any proxy fan-out.
-
-- **MFA setup/disable now require a current TOTP code once MFA is enabled** — `POST /api/mfa/setup`
-  (rotate) and `DELETE /api/mfa` (disable) were gated only by `requireAdmin`, so a stolen admin PAT
-  could silently overwrite or remove the second factor it was meant to be protected by. Both now use
-  `requireAdminMfa`: first-time enrolment still needs no code (MFA is off), but rotating or disabling
-  an *enabled* factor requires a valid code. Break-glass recovery when the authenticator is lost is
-  removing `totpSecret` from `secrets.json` on the host.
-
-- **Token minting cannot escalate scope** — `POST /api/tokens` applied no relationship between the
-  new token's scope and the creating token's. A *space-restricted* admin token could mint an
-  `admin: true` token with no `spaces` (= all spaces) and escalate to unrestricted admin. A
-  space-restricted creator may now only mint tokens confined to a subset of its own spaces; an
-  unrestricted admin is unaffected.
-
-- **OIDC now fails closed for unmatched tokens (behaviour change)** — a JWT that matched neither the
-  `admin` nor the `readOnly` claim rule was granted `readOnly: undefined` (read-write) and
-  `spaces: undefined` (ALL spaces), so any principal able to obtain an audience-matching token from a
-  shared realm got full read-write access to every space. Such tokens are now accepted with
-  **read-only access to no spaces**; a configured-but-missing `spaces` claim likewise yields an empty
-  allow-list rather than all spaces. **Action required:** if you relied on the permissive default,
-  grant access explicitly via `claimMapping` rules (or set `requireMatch: true` to reject unmatched
-  tokens outright). Covered by `testing/standalone/oidc-claim-mapping.test.js` and
-  `testing/red-team-tests/auth-escalation.test.js`.
-
-- **SSRF guard hardened against alternate host encodings and DNS-based bypasses** — the outbound-URL
-  validator (`util/ssrf.ts`) previously inspected only the literal hostname string, so a blocked
-  address supplied in a non-standard encoding — decimal/hex/octal integer (`http://2130706433/`),
-  short form (`http://127.1/`), IPv4-mapped IPv6 (`http://[::ffff:127.0.0.1]/`), trailing dot, or the
-  unspecified address — slipped through, as did any public DNS name that resolves to an internal
-  host. `isSsrfSafeUrl` now canonicalises every IPv4 encoding and expands IPv6 (including
-  IPv4-mapped/compatible forms), and additionally blocks CGNAT (100.64/10) and the broadcast address.
-  A new authoritative async layer (`assertUrlSafeResolved` / `ssrfSafeFetch`) resolves the target via
-  DNS and validates **every** returned A/AAAA record, then follows redirects manually and re-validates
-  each hop. **Webhook delivery** now uses `ssrfSafeFetch`, closing a post-auth SSRF pivot where a
-  webhook target could 302-redirect (or DNS-rebind) to a private/reserved IP after passing
-  creation-time validation. Covered by `testing/standalone/ssrf-hardening.test.js` (65 unit cases) and
-  `testing/red-team-tests/ssrf-encoding.test.js`.
-
-- **Sync: forged tombstones can no longer delete another instance's data** — `applyRemoteTombstone`
-  authorised a deletion purely on `localDoc.author.instanceId === tombstone.instanceId`, both of which
-  are attacker-controlled, so a member could forge a tombstone with `instanceId` set to a victim
-  instance and delete that victim's authored memories/entities/edges/chrono across the network. The
-  deletion is now bound to the authenticated peer: a tombstone may delete a document only when its
-  issuer matches the delivering peer's identity (`peerInstanceId`, set on production peer tokens) or
-  the caller is a trusted local/admin token. A tombstone relayed by a third party on behalf of another
-  author is refused; the author's own tombstone reaches each peer first-hand on direct sync. New
-  red-team test `testing/sync/tombstone-forgery.test.js`; the pubsub tombstone test now uses a
-  production-style bound peer token.
-
-- **Sync governance: vote forgery via the gossip pull path is now rejected** — during a sync cycle a
-  node pulls open vote rounds from each peer and merged the vote casts it received. The merge trusted
-  the `instanceId` on each cast, so a single malicious member could serve a fabricated round
-  pre-stuffed with forged `yes` votes attributed to every other member and drive a `remove` /
-  `space_deletion` / braintree `join` round to conclusion without real quorum — ejecting members or
-  destroying a remote space. The pull-merge (`server/src/sync/engine.ts`) now accepts only a peer's
-  **own** vote (`peerCast.instanceId === member.instanceId`), matching the authenticated POST vote
-  path; each member's vote reaches quorum first-hand because governance networks sync with every
-  member. Additionally, braintree conclusion (`server/src/api/sync.ts`) no longer trusts a
-  peer-supplied `requiredVoters` **set**: it recomputes the ancestor chain from the local topology
-  (anchored on the proposer node), so the set cannot be shrunk to `[attacker]`. Covered by a new
-  red-team integration test `testing/sync/vote-forgery.test.js`; the full governance/vote/braintree/
-  pubsub/democratic/closed suite continues to pass.
 
 ---
 

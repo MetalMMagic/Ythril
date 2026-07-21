@@ -33,6 +33,7 @@ import { authorRef } from '../../config/author.js';
 import sharp from 'sharp';
 import { col, asDoc, asFilter } from '../../db/mongo.js';
 import { getConfig, getDataRoot, getFaceRecognitionConfig } from '../../config/loader.js';
+import { faceRecognitionAllowed } from '../converters/media-level.js';
 import { updateFileMeta } from '../file-meta.js';
 import { log } from '../../util/log.js';
 import type { FileMetaDoc, AuthorRef } from '../../config/types.js';
@@ -199,6 +200,15 @@ export async function embedFaces(
   imageBytes: Buffer,
 ): Promise<void> {
   const faceCfg = getFaceRecognitionConfig();
+
+  // Two gates, and both must allow it: the instance-wide switch (which infra can pin) and the space
+  // sitting at the `recognition` rung of the image ladder. A space on `caption` gets its images
+  // described and no face data — which is the reason images have their own ladder at all, since the
+  // face embeddings are the part of this pipeline carrying real privacy weight.
+  if (!faceRecognitionAllowed(spaceId)) {
+    log.debug(`Face recogniser: skipped for space '${spaceId}' — image analysis is below 'recognition'`);
+    return;
+  }
 
   let human: HumanInstance;
   try {

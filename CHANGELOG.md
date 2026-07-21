@@ -1926,6 +1926,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Images, audio and video get the same ladder documents got — including a real "off".** Each class now
+  has a per-space level capped by an instance ceiling under `mediaEmbedding.levels`, settable through
+  `PATCH /api/spaces/:id` as `imageAnalysis` (`off · caption · recognition · auto`), `audioAnalysis`
+  (`off · on · auto`) and `videoAnalysis` (`off · audio · full · auto`). Behaviour is unchanged until an
+  operator sets one: every ceiling defaults to `auto`.
+  - **`off` means the file is stored and never analysed**, and those uploads are recorded as `skipped`
+    rather than queued — a job that will do nothing still leaves the file at `pending` forever, which is
+    indistinguishable from a stuck queue. Re-introducing that shape through a feature switch would have
+    been worse than not having the switch.
+  - **`recognition` is the rung that permits face detection and embedding, and it is gated twice:** the
+    instance-wide `faceRecognition.enabled` must allow it *and* the space must be at `recognition`. A
+    space on `caption` gets described images and no face data. That separation is the reason images have
+    their own ladder instead of riding on the master media switch — the face embeddings are the part of
+    this pipeline with real privacy weight, and they were previously all-or-nothing per instance.
+  - **`videoAnalysis: "full"` (keyframes as images) is reserved and not implemented, so the API rejects
+    it with 400** instead of accepting it and quietly behaving like `audio`. The rung exists so the
+    ladder reads complete; being told keyframe analysis is running when it is not would be worse than
+    the gap.
+  - The cap is one generic lattice operation shared by all three classes rather than four copies —
+    copies are how one class quietly acquires "raising the ceiling also raises every space" while the
+    others keep the opposite rule. Property-style tests assert the invariants for every class and every
+    ceiling/choice pair: capping is idempotent, and the effective level never exceeds the ceiling.
+  - The levels are surfaced on the spaces list, not just the PATCH response, so a UI can render the
+    difference between "follows the instance" and an explicit choice.
+
 - **Document extraction is now a ladder with a real "off", and `auto` means the most that is possible.**
   The levels are `off · ocr · vlm · repair`, plus `auto`. Two things changed beyond the naming:
   - **`auto` now resolves to the highest level the instance can actually run.** It previously routed

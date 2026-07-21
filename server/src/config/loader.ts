@@ -621,6 +621,9 @@ const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | '
   // in both environments via the short service name (Docker bridge DNS in compose;
   // ClusterFirst DNS in the `ythril` namespace in K8s).
   enabled: true,
+  // Per-class ceilings default to `auto`: no policy limit of their own, so behaviour is
+  // unchanged until an operator sets one.
+  levels: { images: 'auto', audio: 'auto', video: 'auto', text: 'auto' },
   visionProvider: 'local',
   sttProvider: 'local',
   workerConcurrency: 2,
@@ -742,6 +745,14 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
 
   return {
     enabled,
+    // Per-class ceilings, filled per field so a partial `levels` block cannot drop the classes it
+    // does not mention (the same trap the embedding defaults hit).
+    levels: {
+      images: base.levels?.images ?? MEDIA_EMBEDDING_DEFAULTS.levels.images,
+      audio: base.levels?.audio ?? MEDIA_EMBEDDING_DEFAULTS.levels.audio,
+      video: base.levels?.video ?? MEDIA_EMBEDDING_DEFAULTS.levels.video,
+      text: base.levels?.text ?? MEDIA_EMBEDDING_DEFAULTS.levels.text,
+    },
     visionProvider,
     sttProvider,
     vision,

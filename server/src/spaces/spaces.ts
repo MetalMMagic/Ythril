@@ -6,7 +6,7 @@
  */
 import { getConfig, saveConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
-import type { SpaceConfig, SpaceMeta, DupeActionRule, DocExtractionMode } from '../config/types.js';
+import type { SpaceConfig, SpaceMeta, DupeActionRule, DocExtractionMode, ImageLevel, AudioLevel, VideoLevel } from '../config/types.js';
 import { buildSpaceVectorIndexes } from './vector-index.js';
 import { syncSchemaFiles, META_VERSION_CAP } from './_shared.js';
 
@@ -16,7 +16,7 @@ import { syncSchemaFiles, META_VERSION_CAP } from './_shared.js';
  *  Returns the updated SpaceConfig, or null if the space was not found. */
 export function updateSpace(
   spaceId: string,
-  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | null; documentExtraction?: DocExtractionMode | null },
+  updates: { label?: string; description?: string; maxGiB?: number | null; meta?: SpaceMeta; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | null; documentExtraction?: DocExtractionMode | null; imageAnalysis?: ImageLevel | null; audioAnalysis?: AudioLevel | null; videoAnalysis?: VideoLevel | null },
 ): SpaceConfig | null {
   const cfg = getConfig();
   const space = cfg.spaces.find(s => s.id === spaceId);
@@ -45,6 +45,10 @@ export function updateSpace(
   if ('documentExtraction' in updates) {
     space.documentExtraction = updates.documentExtraction ?? undefined;
   }
+  // The other media ladders, same contract: local/operational, `in` so an explicit clear removes it.
+  if ('imageAnalysis' in updates) space.imageAnalysis = updates.imageAnalysis ?? undefined;
+  if ('audioAnalysis' in updates) space.audioAnalysis = updates.audioAnalysis ?? undefined;
+  if ('videoAnalysis' in updates) space.videoAnalysis = updates.videoAnalysis ?? undefined;
 
   if (updates.meta !== undefined) {
     const now = new Date().toISOString();

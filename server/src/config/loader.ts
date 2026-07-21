@@ -865,10 +865,24 @@ const FACE_RECOGNITION_ENV: Record<keyof Required<FaceRecognitionConfig>, string
   reprocessSyncedImages: 'FACE_RECOGNITION_REPROCESS_SYNCED_IMAGES',
 };
 
+/**
+ * An env var counts as "set" only when it has a value.
+ *
+ * docker-compose passes these through as `FACE_RECOGNITION_ENABLED: ${FACE_RECOGNITION_ENABLED:-}`,
+ * which leaves the variable **defined but empty** when the operator did not set it. Treating defined
+ * as pinned would read the empty string as `false` and force face recognition off for every Compose
+ * deployment — while also reporting all six fields as infra-locked, so the UI would show controls the
+ * operator cannot use and could not explain.
+ */
+function envSet(key: string): string | undefined {
+  const raw = process.env[key];
+  return raw !== undefined && raw !== '' ? raw : undefined;
+}
+
 /** Field names (as `faceRecognition.<field>`) currently pinned by an env var. */
 export function lockedFaceRecognitionFields(): string[] {
   return (Object.entries(FACE_RECOGNITION_ENV) as Array<[string, string]>)
-    .filter(([, envKey]) => process.env[envKey] !== undefined)
+    .filter(([, envKey]) => envSet(envKey) !== undefined)
     .map(([field]) => `faceRecognition.${field}`);
 }
 
@@ -883,7 +897,7 @@ export function getFaceRecognitionConfig(): Required<FaceRecognitionConfig> {
     field: K,
     parse: (raw: string) => Required<FaceRecognitionConfig>[K],
   ): Required<FaceRecognitionConfig>[K] => {
-    const rawEnv = process.env[FACE_RECOGNITION_ENV[field]];
+    const rawEnv = envSet(FACE_RECOGNITION_ENV[field]);
     if (rawEnv !== undefined) return parse(rawEnv);
     return (base[field] ?? FACE_RECOGNITION_DEFAULTS[field]) as Required<FaceRecognitionConfig>[K];
   };

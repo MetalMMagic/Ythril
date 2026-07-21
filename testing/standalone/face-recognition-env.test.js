@@ -88,4 +88,24 @@ describe('face recognition — infra-settable', () => {
     // A control that looks editable but is overridden by env is worse than one that says so.
     assert.ok(!locked.includes('faceRecognition.modelPath'), 'unpinned fields must stay editable');
   });
+
+  // docker-compose passes these as `FACE_RECOGNITION_ENABLED: ${FACE_RECOGNITION_ENABLED:-}`, which
+  // leaves the variable DEFINED BUT EMPTY when the operator set nothing. Reading "defined" as "pinned"
+  // would parse '' as false and force the feature off for every Compose deployment, while reporting
+  // all six fields as infra-locked — controls the operator cannot use and could not explain.
+  it('an empty env var is not a pin — it means the operator set nothing', () => {
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('FACE_RECOGNITION_')) delete process.env[key];
+    }
+    process.env['FACE_RECOGNITION_ENABLED'] = '';
+    process.env['FACE_RECOGNITION_MODEL_PATH'] = '';
+    process.env['FACE_RECOGNITION_PERSON_ENTITY_TYPES'] = '';
+
+    assert.deepEqual(lockedFaceRecognitionFields(), [], 'an empty value must not lock anything');
+    const cfg = getFaceRecognitionConfig();
+    assert.equal(cfg.enabled, false, 'still the default');
+    assert.equal(cfg.modelPath, 'human-models', 'the default path, not an empty string');
+    assert.deepEqual(cfg.personEntityTypes, ['person'], 'the default list, not an empty list');
+  });
+
 });

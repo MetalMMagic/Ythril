@@ -1954,7 +1954,7 @@ chunks do not exist yet when the call returns. This is true for the REST upload 
 
 | Surface | Returns | How to know conversion finished |
 |---------|---------|--------------------------------|
-| `POST /api/files/:spaceId` (document formats) | `202 Accepted` with `embeddingStatus: "pending"` | poll the filemeta record |
+| `POST /api/files/:spaceId` (document formats) | `202 Accepted` with `embeddingStatus: "pending"` — or `201` with `embeddingStatus: "skipped"` when document extraction is `off` for that space | poll the filemeta record |
 | MCP `write_file` | the write confirmation (sha256) — it reports the **write**, not the conversion | poll the filemeta record |
 
 Poll `GET /api/brain/spaces/:spaceId/files?path=<path>` and watch `embeddingStatus`: `pending` →
@@ -2044,7 +2044,7 @@ Setting `CONVERSION_SIDECAR_URL=""` only disables the **sidecar-backed** formats
 
 The bundled `doc-render` sidecar is a tiny PDFium (pypdfium2) service that renders PDF pages to images. It is
 the rasterization step the **VLM document-extraction** path (`mediaEmbedding.documentProcessing.mode` of
-`vlm` / `auto` / `max`) needs and is **not used by the default `ocr` mode** — you can leave it running (it is
+`vlm` / `auto` / `repair`) needs and is **not used by the `ocr` level** — you can leave it running (it is
 lightweight and carries no model weights) or stop it with no effect on today's OCR conversion. Like the
 `unstructured` sidecar it parses untrusted documents, so it runs isolated on the internal-only
 `ythril-convert` network (no database, no internet egress), non-root and resource-limited. Ythril reaches
@@ -2053,7 +2053,7 @@ it via `RENDER_SIDECAR_URL`. The **application** default is `http://localhost:81
 #### Office-render sidecar (`doc-office`) — optional
 
 `doc-render` only opens PDFs, so **office** documents (DOCX, EPUB, PPTX, XLSX, ODT, RTF…) in a `vlm`/`auto`/
-`max` mode fall back to OCR unless the optional **`doc-office`** sidecar is running. It uses **LibreOffice**
+`repair` fall back to OCR unless the optional **`doc-office`** sidecar is running. It uses **LibreOffice**
 (headless) to convert the document to PDF, then rasterizes it exactly like `doc-render`. Because LibreOffice
 is heavy (≈ +1 GB), it is **opt-in**: start it with
 
@@ -2089,29 +2089,29 @@ A space on `"auto"` follows the instance level wherever it moves. Uploads to a s
 | `strategy` | `"hi_res"` | Unstructured partition strategy. `"hi_res"`: full Tesseract OCR + layout detection — accurate on scanned PDFs, extracts embedded images and structured tables. `"auto"`: sidecar picks the fastest viable strategy. `"fast"`: pdfminer text-layer only — fastest but no OCR, no image extraction. `"ocr_only"`: force OCR on every page regardless of whether a text layer exists. |
 | `extractImages` | `true` | When `true` and `strategy` is `"hi_res"`, embedded images found in document partitions are decoded and saved as `_extracted/{originalId}/image-{N}.{ext}` subfiles. Each is automatically enqueued for the full media pipeline (caption + face recognition). Has no effect when strategy is not `"hi_res"`. |
 | `mode` | `"auto"` | How thoroughly documents are read, low to high: `"off"` · `"ocr"` · `"vlm"` · `"repair"`, plus `"auto"`. **`"off"` means documents are stored but never analysed** — no text is extracted, so nothing in them can be recalled; those uploads are recorded as `skipped` rather than queued. `"ocr"` is OCR-only (the unstructured sidecar). `"vlm"` renders each page and transcribes it with a vision model, using OCR as grounding evidence and falling back to OCR if the result doesn't validate (so it is **never worse than OCR**). `"repair"` adds a validation-driven **repair** pass (below) on top of `"vlm"`, plus a second-model consensus pass when a `verifyModel` is set. `"auto"` (default) means **as much as this instance can actually do** — it resolves to `"repair"` when a repair model is configured, otherwise `"vlm"`, otherwise `"ocr"`, so with no `vlmModel` set it is byte-for-byte the OCR-only path. `"max"` is the previous name for `"repair"` and is still accepted on read. |
-| `vlmModel` | `""` | Ollama vision model used for `vlm` / `auto` / `max` (e.g. a bundled `moondream`, or a larger model you wire in). Empty ⇒ the VLM path is unavailable and extraction stays on OCR. Env override: `DOC_VLM_MODEL`. |
+| `vlmModel` | `""` | Ollama vision model used for `vlm` / `auto` / `repair` (e.g. a bundled `moondream`, or a larger model you wire in). Empty ⇒ the VLM path is unavailable and extraction stays on OCR. Env override: `DOC_VLM_MODEL`. |
 | `vlmBaseUrl` | `""` | Endpoint for the VLM. Empty ⇒ falls back to the media vision provider's `baseUrl`, then `http://ollama:11434`. Env override: `DOC_VLM_URL`. |
-| `repairModel` | `""` | **`max` mode only.** Model used for the repair pass when a page's VLM output fails OCR-evidence validation — it reconciles the draft against the OCR text in one extra text-only call. Empty ⇒ reuses `vlmModel`. Set this to wire in a stronger model you host. Env override: `DOC_REPAIR_MODEL`. |
+| `repairModel` | `""` | Used by the **`repair`** level — and by **`auto`**, which resolves to `repair` whenever this is set. Model used for the repair pass when a page's VLM output fails OCR-evidence validation — it reconciles the draft against the OCR text in one extra text-only call. Empty ⇒ reuses `vlmModel`. Set this to wire in a stronger model you host. Env override: `DOC_REPAIR_MODEL`. |
 | `repairBaseUrl` | `""` | Endpoint for the repair model. Empty ⇒ reuses `vlmBaseUrl`. Env override: `DOC_REPAIR_URL`. |
-| `verifyModel` | `""` | **`max` mode only (F11-d consensus).** A *second* document VLM. When set, `max` runs it as an independent second transcription of each page, reconciles it with the primary draft against the OCR text, and keeps the highest-coverage result — **never worse** than the primary. Empty ⇒ no consensus pass. Best set to a *different* model than `vlmModel`. Env override: `DOC_VERIFY_MODEL`. |
+| `verifyModel` | `""` | Engages on the **`repair`** level, and on **`auto`** when a repair model is set (F11-d consensus). A *second* document VLM. When set, the repair level runs it as an independent second transcription of each page, reconciles it with the primary draft against the OCR text, and keeps the highest-coverage result — **never worse** than the primary. Empty ⇒ no consensus pass. Best set to a *different* model than `vlmModel`. Env override: `DOC_VERIFY_MODEL`. |
 | `verifyBaseUrl` | `""` | Endpoint for the verify model. Empty ⇒ reuses `vlmBaseUrl`. Env override: `DOC_VERIFY_URL`. |
 | `renderDpi` | `150` | Page rasterization DPI for the render sidecar (VLM modes only). |
 | `maxPages` | `50` | Cap on pages rendered/transcribed per document (VLM modes only). |
 | `pageTimeoutMs` | `60000` | Per-page VLM transcription timeout (VLM modes only). |
 | `concurrency` | `2` | How many pages are transcribed in parallel (VLM modes only). |
-| `ocrTimeoutMs` | `120000` | Timeout (ms) for a single OCR-sidecar call. Applies to **all** modes — OCR is the engine in `ocr` mode and the grounding evidence + fallback floor in the VLM modes — so raise it when large/complex scanned documents need longer than the 2-min default (especially under `max`). Env override: `DOC_OCR_TIMEOUT_MS`. |
+| `ocrTimeoutMs` | `120000` | Timeout (ms) for a single OCR-sidecar call. Applies to **all** modes — OCR is the engine in `ocr` mode and the grounding evidence + fallback floor in the VLM modes — so raise it when large/complex scanned documents need longer than the 2-min default (especially under `repair`). Env override: `DOC_OCR_TIMEOUT_MS`. |
 
 The VLM modes require both a running `doc-render` sidecar and a configured `vlmModel`. If either is missing,
 Ythril transparently uses OCR — no upload fails because a model isn't wired in yet.
 
-**Repair pass (`max` mode).** When a document's VLM transcription fails the OCR-evidence coverage check,
-`max` mode runs one bounded repair pass before falling back to OCR: it sends the draft transcription and the
+**Repair pass (`repair` level).** When a document's VLM transcription fails the OCR-evidence coverage check,
+the `repair` level runs one bounded repair pass before falling back to OCR: it sends the draft transcription and the
 OCR text to `repairModel` (or `vlmModel` if unset) in a single text-only call, asks it to restore any dropped
 content, and re-validates. If the repaired output passes it is accepted; if it errors or still doesn't pass,
 the extractor falls back to OCR — so the result is still never worse than plain OCR. Exactly one repair pass
 runs per document (bounded cost).
 
-**Consensus pass (`max` mode, F11-d).** When a `verifyModel` is configured, `max` mode adds one bounded
+**Consensus pass (`repair` level, F11-d).** When a `verifyModel` is configured, the `repair` level adds one bounded
 **consensus** step on top of an already-accepted draft: the verify model independently transcribes the pages
 (a second, ideally different, VLM), that draft is reconciled with the primary against the OCR text, and the
 highest-OCR-coverage of the three candidates (primary, second draft, reconciled) is kept. Because the primary
@@ -2151,7 +2151,7 @@ point a **bigger, external model** at specific tasks under `documentProcessing.a
 
 | `model` | Model tag to request. Env: `DOC_ASSIST_MODEL`. |
 | `apiKey` | Optional bearer token. Stored in `secrets.json` (never `config.json`), masked in the admin API. Env: `DOC_ASSIST_API_KEY`. |
-| `uses` | Which tasks the external model powers — `["repair"]` today (the `max`-mode repair pass); more are planned. Empty ⇒ configured but inert (no egress). |
+| `uses` | Which tasks the external model powers — `["repair"]` today (the repair pass); more are planned. Empty ⇒ configured but inert (no egress). |
 | `acknowledgedHost` | The endpoint host the operator acknowledged egress to. **Required to match `baseUrl`'s host whenever `uses` is non-empty** — the admin API rejects the save otherwise, and the extractor re-checks it at runtime, so document content never leaves the box without recorded consent. |
 
 ⚠️ **This is the only setting that sends document content off the instance.** When a task is assigned, the
@@ -6393,7 +6393,7 @@ To bypass SSO auto-redirect and use a PAT instead, navigate to `/login?local`.
 3. Add a mapper for `ythril_spaces` (if using space scoping): **User attribute → Token claim** mapping.
 4. Set `issuerUrl` to `https://keycloak.host/realms/<realm>`.
 
-After saving, run `POST /api/admin/reload-config` to apply the OIDC settings without a restart.
+The change is picked up automatically within about two seconds; run `POST /api/admin/reload-config` if you want to apply it synchronously.
 
 ### Entra ID (Azure AD) Setup
 
@@ -6484,7 +6484,7 @@ exports.onExecutePostLogin = async (event, api) => {
 
 > **Note:** Auth0 requires namespaced custom claims (a URL prefix). Replace `https://ythril.example.com/` with your own namespace.
 
-After saving any IdP configuration, run `POST /api/admin/reload-config` to apply the changes without a restart.
+Any IdP configuration change is picked up automatically within about two seconds; run `POST /api/admin/reload-config` to apply it synchronously.
 
 ### Security Notes and Limitations
 
@@ -6493,6 +6493,6 @@ After saving any IdP configuration, run `POST /api/admin/reload-config` to apply
 - **`admin` and `readOnly` cannot both match.**  If both claim rules match the same JWT, `admin: true` takes precedence and `readOnly` is ignored.  Design your IdP roles to be mutually exclusive.
 - **Spaces claim controls visibility (fail-closed).**  When a `spaces` mapping is configured, the OIDC session can only see and modify the spaces named in that claim.  If the mapping is configured but the claim is missing or is not a string array, the allow-list is **empty (deny all)** — not "all spaces".  Users who cannot see expected spaces should check with their administrator that the IdP is emitting the correct claim values.
 - **Config validation.**  When `oidc.enabled` is `true`, `issuerUrl` and `clientId` are required.  The server validates the OIDC config block at startup and on `reload-config` — a malformed block will prevent the server from starting.
-- **Config reload required.**  Any change to the `oidc` block requires `POST /api/admin/reload-config` or a container restart to take effect.  The OIDC discovery document and JWKS key set are cached in memory and flushed on reload.
+- **Config reload.**  A change to the `oidc` block is picked up **automatically within about two seconds** — the server watches `config.json`, and the reload flushes the cached OIDC discovery document and JWKS key set. Call `POST /api/admin/reload-config` when you want the reload to be synchronous (a deploy script that must not race the next login), or restart the container. Neither is required.
 - **Enforcing OIDC for browser sessions.**  Set `enforceForBrowser: true` to prevent users who have a cached PAT in their browser from bypassing the IdP.  When this flag is set the SPA clears any PAT-based localStorage session on startup and forces a fresh OIDC login.  Programmatic callers (API, MCP) that supply an `Authorization: ****** header are not affected.
 - **Sign-out clears all browser auth state.**  Clicking the sign-out button always removes every Ythril auth key from `localStorage` regardless of whether the session was established via OIDC or a PAT.  For OIDC sessions the browser is additionally redirected to the IdP's `end_session_endpoint` (from the discovery document) with an `id_token_hint` so the Keycloak / IdP server-side session is also destroyed.  Without this step, `prompt=none` silent refresh would immediately re-authenticate the user.  Use `postLogoutRedirectUri` to control where the IdP sends the user after sign-out.

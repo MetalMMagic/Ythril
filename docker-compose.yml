@@ -29,7 +29,7 @@
       # `unstructured` service defined below; override to use an external converter (C2).
       CONVERSION_SIDECAR_URL: ${CONVERSION_SIDECAR_URL:-http://unstructured:8000}
       # Page-render sidecar (PDF → page images) for the F11 VLM extraction path. Defaults to the bundled
-      # `doc-render` service below; only used when documentProcessing.mode is vlm/auto/max.
+      # `doc-render` service below; only used when documentProcessing.mode is vlm/auto/repair.
       RENDER_SIDECAR_URL: ${RENDER_SIDECAR_URL:-http://doc-render:8100}
       # Office → page-image rendering (F11-a). Points at the opt-in `doc-office` sidecar (below, enabled
       # with `--profile office`). When that service isn't running, office docs fall back to OCR.
@@ -51,6 +51,16 @@
       #   YTHRIL_LOCAL_AGENT_ALLOW_INSECURE=true             # HTTP is fine: it never leaves the machine
       YTHRIL_LOCAL_AGENT_URL: ${YTHRIL_LOCAL_AGENT_URL:-http://127.0.0.1:38123}
       YTHRIL_LOCAL_AGENT_TOKEN: ${YTHRIL_LOCAL_AGENT_TOKEN:-}
+      # Face recognition (opt-in). Passed through so an infra admin can pin it without
+      # editing config.json inside the container — FACE_RECOGNITION_ENABLED=false is the
+      # documented guarantee that no faces are detected or embedded on this instance,
+      # and it can only hold if the variable actually reaches the process.
+      FACE_RECOGNITION_ENABLED: ${FACE_RECOGNITION_ENABLED:-}
+      FACE_RECOGNITION_CONFIDENCE_THRESHOLD: ${FACE_RECOGNITION_CONFIDENCE_THRESHOLD:-}
+      FACE_RECOGNITION_MIN_FACE_SIZE_FRACTION: ${FACE_RECOGNITION_MIN_FACE_SIZE_FRACTION:-}
+      FACE_RECOGNITION_MODEL_PATH: ${FACE_RECOGNITION_MODEL_PATH:-}
+      FACE_RECOGNITION_PERSON_ENTITY_TYPES: ${FACE_RECOGNITION_PERSON_ENTITY_TYPES:-}
+      FACE_RECOGNITION_REPROCESS_SYNCED_IMAGES: ${FACE_RECOGNITION_REPROCESS_SYNCED_IMAGES:-}
       # Pass DEBUG=1 from the host shell to enable verbose logging:
       #   DEBUG=1 docker compose up
       DEBUG: ${DEBUG:-}
@@ -306,7 +316,7 @@
   # it parses UNTRUSTED user documents, so it sits on the
   # same isolated internal `ythril-convert` network — no database access and no internet egress — and
   # runs non-root (see sidecars/doc-render/Dockerfile). Only used when documentProcessing.mode is
-  # vlm/auto/max; NOT a startup dependency (VLM extraction degrades to OCR when it is absent). It is
+  # vlm/auto/repair; NOT a startup dependency (VLM extraction degrades to OCR when it is absent). It is
   # light (~python-slim + pypdfium2, no model weights), so leaving it running is cheap.
   doc-render:
     build: ./sidecars/doc-render

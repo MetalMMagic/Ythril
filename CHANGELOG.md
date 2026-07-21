@@ -686,6 +686,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **Documentation staleness sweep — one statement was wrong, not merely out of date.** The integration
+  guide told operators that *"any change to the `oidc` block requires `POST /api/admin/reload-config`
+  or a container restart to take effect"*. Since the config watcher landed, an OIDC edit is picked up
+  automatically within about two seconds — and the same document said so elsewhere, so it contradicted
+  itself. It now describes the reload endpoint as the way to make a reload **synchronous**, not
+  mandatory.
+  The user guide had never caught up with several shipped features, and the omissions hid recovery
+  paths rather than just details:
+  - **Rebuild search indexes** — the only user-facing repair for *search silently returns nothing* —
+    was missing from the Danger tab section entirely, while the reindex banner nearby pointed users at
+    **Reindex now**, which cannot fix a missing index. Both now say which repair applies when.
+  - The per-space extraction picker still described the old `OCR / Auto / VLM / Max` set, with the
+    instance value called a "default". It now documents the full ladder, that the instance value is a
+    **ceiling**, and that `off` means documents are stored but never read.
+  - Face recognition documented five of six fields (`modelPath` was missing) and no env vars at all.
+  - The document-upload polling section listed `pending → processing → complete` without `skipped`, so
+    an integrator polling an `off` space would have polled forever.
+  Nine residual `max` references were renamed to `repair` — two of them (`repairModel` / `verifyModel`
+  as *"`max` mode only"*) would have told an operator on `auto` that those models are inert, when they
+  are exactly what changed.
+
 - **User guide: worked example for connecting Ythril to Claude over MCP.** A step-by-step walkthrough in the
   "Connecting an AI assistant (MCP)" section — public HTTPS URL (via the Networks local connector / Cloudflare
   tunnel), creating a **scoped token first** (the connector inherits its permissions), adding the custom
@@ -1266,6 +1287,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of a third-party signed cast, tampered cast rejected).
 
 ### Fixed
+
+- **Face recognition is now actually pinnable from a Compose deployment — and an empty env var no
+  longer counts as a pin.** Two halves of the same gap. The documented guarantee that
+  `FACE_RECOGNITION_ENABLED=false` stops all face processing could not hold under the default
+  `docker-compose.yml`, because none of the six variables was passed through to the container — the
+  value never reached the process. They are forwarded now.
+  Forwarding them exposed the second half: Compose passes a variable through as
+  `FACE_RECOGNITION_ENABLED: ${FACE_RECOGNITION_ENABLED:-}`, which leaves it **defined but empty**
+  when the operator set nothing. Treating "defined" as "pinned" would have read the empty string as
+  `false` and **forced face recognition off for every Compose deployment**, while reporting all six
+  fields as infra-locked — controls the operator could neither use nor explain. An env var now counts
+  as set only when it has a value, with a test covering it.
+  `.env.example` documents all six, including that an env value wins over `config.json` and survives a
+  restore from a backup taken where the feature was on.
 
 - **A legacy token's prefix backfill could be silently lost, leaving it on the slow lookup path
   forever.** `findMatchingToken` reads `config.tokens`, awaits a bcrypt compare — deliberately slow, so

@@ -223,9 +223,10 @@
   # `sidecar_down` — Ythril itself still runs, so it is intentionally NOT a startup
   # dependency of the ythril service (conversion degrades gracefully until it is up).
   #
-  # HEAVY IMAGE: unstructured-api bundles OCR model weights (Tesseract) and is ~32 GB ON DISK —
-  # a few GB compressed, but the unpacked layers are what your Docker disk actually holds (measured
-  # with `docker images`, not estimated). First boot is slow, hence the long start_period. See
+  # HEAVY IMAGE: unstructured-api bundles OCR model weights (Tesseract). ≈10.8 GB download, 20–32 GB on disk (varies by storage driver):
+  # the download is measured from the registry manifest (26 layers); on-disk depends on the storage
+  # driver, so it is a range, not one number — 20.7 GB was measured on k3s/containerd and 31.9 GB on
+  # Docker Desktop. First boot is slow, hence the long start_period. See
   # docs/dependencies.md. To skip it entirely on a resource-constrained workstation, set
   # `UNSTRUCTURED_REPLICAS=0` in .env (below); in-process text/HTML conversion and all other
   # features keep working — only PDF/DOCX/EPUB conversion is unavailable.
@@ -241,10 +242,14 @@
     # The public `unstructured-api` image is the same release minus extra Tesseract
     # language packs / LibreOffice, and fully supports the hi_res OCR + image-extraction
     # path Ythril uses. Upstream's README points self-hosters at this image too.
-    image: downloads.unstructured.io/unstructured-io/unstructured-api:0.1.2
+    # Pinned to the manifest-list digest, like every other external image here. This was missed when
+    # the others were pinned — and it is the highest-risk parser in the stack, so a silent substitution
+    # matters most here. Refresh:
+    #   docker buildx imagetools inspect downloads.unstructured.io/unstructured-io/unstructured-api:0.1.2
+    image: downloads.unstructured.io/unstructured-io/unstructured-api:0.1.2@sha256:986bc7e5d6c24916c22d45d925db366f55bf4d2ebb0079a7b5d38b48fbc6fb1d
     container_name: ythril-unstructured
     restart: unless-stopped
-    # Infra switch — this is the HEAVY one (~32 GB on disk), so a deployment that
+    # Infra switch — this is the HEAVY one (≈10.8 GB download, 20–32 GB on disk), so a deployment that
     # does not need server-side PDF/DOCX/EPUB conversion should not pay for it: `UNSTRUCTURED_REPLICAS=0`
     # in .env keeps it out of the stack (and out of the first `docker compose up` pull). Conversion then
     # reports `sidecar_down` — the same graceful degradation as an external converter being unreachable —

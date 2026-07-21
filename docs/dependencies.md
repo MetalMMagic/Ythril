@@ -222,9 +222,7 @@ is the first-party page-render sidecar built locally from `sidecars/doc-render` 
 > points self-hosters at. Ythril's PDF/DOCX/EPUB + English-OCR path needs nothing the `-full`
 > extras add.
 >
-> **Image size — `unstructured-api` is very heavy: ~31.9 GB on disk** (measured with
-> `docker images`; the compressed download is a few GB, but the unpacked layers are what your Docker
-> disk actually holds). It bundles OCR model
+> **Image size — `unstructured-api` is very heavy: **≈10.8 GB to download** (26 compressed layers, measured from the registry manifest) and **20–32 GB on disk** depending on the storage driver — measured at 20.7 GB on k3s/containerd and 31.9 GB on Docker Desktop.** It bundles OCR model
 > weights (Tesseract), so the first `docker compose up` pulls a large image and the sidecar
 > is slow to become ready (a long `start_period`). It is intentionally **not** a startup
 > dependency of the `ythril` service — Ythril runs without it and PDF/DOCX/EPUB conversion

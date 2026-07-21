@@ -2016,7 +2016,7 @@ the rasterization step the **VLM document-extraction** path (`mediaEmbedding.doc
 lightweight and carries no model weights) or stop it with no effect on today's OCR conversion. Like the
 `unstructured` sidecar it parses untrusted documents, so it runs isolated on the internal-only
 `ythril-convert` network (no database, no internet egress), non-root and resource-limited. Ythril reaches
-it via `RENDER_SIDECAR_URL` (default `http://localhost:8100`).
+it via `RENDER_SIDECAR_URL`. The **application** default is `http://localhost:8100` (a sidecar in the same network namespace); `docker-compose.yml` overrides it to `http://doc-render:8100`, the service name on the internal network. Both are correct for their layer — check which one applies to your deployment rather than assuming the compose value is the default.
 
 #### Office-render sidecar (`doc-office`) — optional
 

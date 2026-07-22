@@ -54,6 +54,21 @@ export interface MediaLevelCeilings {
   images?: string; audio?: string; video?: string; text?: string;
 }
 
+/** The four classes that have their own ladder. Documents has its own control (`documentProcessing.mode`). */
+export type MediaClass = 'images' | 'audio' | 'video' | 'text';
+
+/**
+ * The ladders, low → high, mirroring `server/src/config/types.ts`.
+ *
+ * `auto` is listed FIRST in each because it is the default and means "as much as is possible" — it
+ * does not rank, so putting it at the top of a list ordered by capability would be a lie about where
+ * it sits. The server validates against its own copy; these only drive the pickers.
+ */
+export const IMAGE_LEVELS = ['auto', 'off', 'caption', 'recognition'] as const;
+export const AUDIO_LEVELS = ['auto', 'off', 'on'] as const;
+export const VIDEO_LEVELS = ['auto', 'off', 'audio', 'full'] as const;
+export const TEXT_LEVELS = ['auto', 'off', 'embed', 'chunk'] as const;
+
 export interface MediaCfg {
   enabled?: boolean;
   levels?: MediaLevelCeilings;

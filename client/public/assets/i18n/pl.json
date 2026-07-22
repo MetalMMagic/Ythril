@@ -1323,7 +1323,6 @@
   "models.pipelines.textPurpose": "Co dzieje się z tekstem, który wychodzi z każdego innego potoku.",
   "models.pipelines.extractionMode": "Tryb ekstrakcji",
   "models.pipelines.ceiling": "Limit instancji",
-  "models.pipelines.ceilingReadOnly": "Najwięcej, na co może pozwolić sobie przestrzeń. Ustawiane w konfiguracji, nie tutaj.",
   "models.pipelines.statusUnavailable": "Nie udało się odczytać statusu na żywo, więc wskaźniki są nieznane, a nie wyłączone: {{detail}}",
   "models.step.ocr": "OCR",
   "models.step.render": "Renderowanie",
@@ -1408,5 +1407,11 @@
   "models.confirm.discardTitle": "Odrzucić niezapisane zmiany?",
   "models.confirm.discardMessage": "Na tej karcie są niezapisane zmiany. Przełączenie karty je odrzuci.",
   "models.confirm.discardConfirm": "Odrzuć",
-  "models.confirm.discardCancel": "Zostań tutaj"
+  "models.confirm.discardCancel": "Zostań tutaj",
+  "models.class.images": "Obrazy",
+  "models.class.audio": "Audio",
+  "models.class.video": "Wideo",
+  "models.class.text": "Tekst",
+  "models.pipelines.ceilingHint": "Najwięcej, co przestrzeń może zrobić z tą klasą. Przestrzeń może wybrać mniej, nigdy więcej — obniżenie tego limitu ogranicza każdą przestrzeń powyżej, a te zachowują swój wybór, jeśli limit znów podniesiesz.",
+  "models.pipelines.ceilingOffWarning": "Wyłączenie obowiązuje wszędzie — żadna przestrzeń nie przetworzy tej klasy."
 }

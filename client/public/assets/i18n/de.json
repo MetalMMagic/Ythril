@@ -1323,7 +1323,6 @@
   "models.pipelines.textPurpose": "Was mit dem Text passiert, der aus allen anderen Pipelines herauskommt.",
   "models.pipelines.extractionMode": "Extraktionsmodus",
   "models.pipelines.ceiling": "Obergrenze der Instanz",
-  "models.pipelines.ceilingReadOnly": "Das Maximum, das ein Bereich nutzen darf. Wird in der Konfiguration gesetzt, nicht hier.",
   "models.pipelines.statusUnavailable": "Der Live-Status konnte nicht gelesen werden, deshalb sind die Statusanzeigen unbekannt statt aus: {{detail}}",
   "models.step.ocr": "OCR",
   "models.step.render": "Rendern",
@@ -1408,5 +1407,11 @@
   "models.confirm.discardTitle": "Ungespeicherte Änderungen verwerfen?",
   "models.confirm.discardMessage": "Auf diesem Tab gibt es ungespeicherte Änderungen. Ein Tab-Wechsel verwirft sie.",
   "models.confirm.discardConfirm": "Verwerfen",
-  "models.confirm.discardCancel": "Hier bleiben"
+  "models.confirm.discardCancel": "Hier bleiben",
+  "models.class.images": "Bilder",
+  "models.class.audio": "Audio",
+  "models.class.video": "Video",
+  "models.class.text": "Text",
+  "models.pipelines.ceilingHint": "Das Maximum, das ein Bereich mit dieser Klasse tun darf. Ein Bereich kann weniger wählen, nie mehr — wenn Sie das hier senken, werden alle Bereiche darüber gekappt, und sie behalten ihre eigene Wahl, falls Sie es wieder anheben.",
+  "models.pipelines.ceilingOffWarning": "Aus gilt überall — kein Bereich kann diese Klasse verarbeiten."
 }

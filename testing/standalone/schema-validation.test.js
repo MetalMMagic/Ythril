@@ -1,584 +1,274 @@
 /**
- * Unit tests: space schema validation engine
+ * Schema validation — against the REAL engine.
  *
- * Covers:
- *  - Entity validation: type allowlist, naming patterns, required properties, property schemas
- *  - Edge validation: label allowlist, required properties, property schemas
- *  - Memory validation: required properties, property schemas
- *  - Chrono validation: required properties, property schemas
- *  - Schema summary generation for MCP instructions
- *  - Edge cases: empty meta, missing fields, invalid regex patterns
+ * This file used to be ~20 KB of simulation: it re-implemented nine functions
+ * (`safeRegexTest`, `hasReDoSRisk`, `validateValue`, `validateProperties`, `validateEntity`,
+ * `validateEdge`, `validateMemory`, `validateChrono`, `buildSchemaSummary`) and then tested the
+ * copies. It passed continuously while testing nothing about the product.
  *
- * These tests use pure in-process logic and do NOT require a MongoDB instance.
- * Run with:
- *   node --test testing/standalone/schema-validation.test.js
+ * Worse than the duplication: **it validated a data model production had deleted.** The fixtures
+ * used `entityTypes`, `namingPatterns` and `requiredProperties` at the root of `meta` — a shape with
+ * zero occurrences anywhere in `server/src`. Production moved to per-type `typeSchemas`, where each
+ * entity type / edge label / memory type / chrono type owns its own naming pattern and property
+ * schemas, and `required` is an inline flag on the property rather than a list beside it. The old
+ * tests could not have caught a regression in any of it, because none of it was what they ran.
+ *
+ * The cases below are the same INTENT, rewritten onto the real API and importing the real functions.
+ * Two areas the simulation never covered at all are added, both places where a silent pass is the
+ * dangerous outcome: unresolvable `$ref`s, and the ReDoS guard on operator-supplied patterns.
+ *
+ * Run: node --test testing/standalone/schema-validation.test.js
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-// We import the compiled JS from the dist directory.
-// Since these are standalone pure-logic tests, we replicate the validation logic
-// inline to avoid import/ESM path issues in the test runner.
+const {
+  validateEntity, validateEdge, validateMemory, validateChrono,
+  getAllowedChronoTypes, resolveMetaRefs, buildSchemaSummary,
+} = await import('../../server/dist/spaces/schema-validation.js');
 
-// ── Replicated validation logic (matches server/src/spaces/schema-validation.ts) ──
-
-function safeRegexTest(pattern, value) {
-  if (pattern.length > 500 || value.length > 10_000) return false;
-  if (hasReDoSRisk(pattern)) return false;
-  try {
-    return new RegExp(pattern).test(value);
-  } catch {
-    return false;
-  }
-}
-
-const NESTED_QUANTIFIER_RE = /\((?:\?:)?(?![-/:](?![?*{]))([^)]*[+*])\)([+*?]|\{)/;
-const ALTERNATION_QUANTIFIER_RE = /\([^)]*\|[^)]*\)([+*?]|\{)/;
-
-function hasReDoSRisk(pattern) {
-  return NESTED_QUANTIFIER_RE.test(pattern) || ALTERNATION_QUANTIFIER_RE.test(pattern);
-}
-
-function validateValue(field, value, schema) {
-  const violations = [];
-  if (schema.type) {
-    if (typeof value !== schema.type) {
-      violations.push({ field, value, reason: `expected type '${schema.type}', got '${typeof value}'` });
-      return violations;
-    }
-  }
-  if (schema.enum && schema.enum.length > 0) {
-    if (!schema.enum.includes(value)) {
-      violations.push({ field, value, reason: `must be one of: ${schema.enum.join(', ')}` });
-    }
-  }
-  if (typeof value === 'number') {
-    if (schema.minimum !== undefined && value < schema.minimum) {
-      violations.push({ field, value, reason: `must be >= ${schema.minimum}` });
-    }
-    if (schema.maximum !== undefined && value > schema.maximum) {
-      violations.push({ field, value, reason: `must be <= ${schema.maximum}` });
-    }
-  }
-  if (typeof value === 'string' && schema.pattern) {
-    if (!safeRegexTest(schema.pattern, value)) {
-      violations.push({ field, value, reason: `does not match pattern: ${schema.pattern}` });
-    }
-  }
-  return violations;
-}
-
-function validateProperties(meta, knowledgeType, properties) {
-  const violations = [];
-  const props = properties ?? {};
-  const required = meta.requiredProperties?.[knowledgeType];
-  if (required) {
-    for (const key of required) {
-      const val = props[key];
-      if (val === undefined || val === null || val === '') {
-        violations.push({
-          field: `properties.${key}`,
-          value: val ?? null,
-          reason: `required property '${key}' is missing or empty`,
-        });
-      }
-    }
-  }
-  const schemas = meta.propertySchemas?.[knowledgeType];
-  if (schemas) {
-    for (const [key, schema] of Object.entries(schemas)) {
-      const val = props[key];
-      if (val === undefined || val === null) continue;
-      violations.push(...validateValue(`properties.${key}`, val, schema));
-    }
-  }
-  return violations;
-}
-
-function validateEntity(meta, entity) {
-  const violations = [];
-  if (!meta) return violations;
-  if (entity.type && meta.entityTypes?.length) {
-    if (!meta.entityTypes.includes(entity.type)) {
-      violations.push({
-        field: 'type',
-        value: entity.type,
-        reason: `not in entityTypes allowlist: ${meta.entityTypes.join(', ')}`,
-      });
-    }
-  }
-  if (entity.name && entity.type && meta.namingPatterns?.[entity.type]) {
-    const pattern = meta.namingPatterns[entity.type];
-    if (!safeRegexTest(pattern, entity.name)) {
-      violations.push({
-        field: 'name',
-        value: entity.name,
-        reason: `does not match naming pattern for type '${entity.type}': ${pattern}`,
-      });
-    }
-  }
-  violations.push(...validateProperties(meta, 'entity', entity.properties));
-  return violations;
-}
-
-function validateEdge(meta, edge) {
-  const violations = [];
-  if (!meta) return violations;
-  if (edge.label && meta.edgeLabels?.length) {
-    if (!meta.edgeLabels.includes(edge.label)) {
-      violations.push({
-        field: 'label',
-        value: edge.label,
-        reason: `not in edgeLabels allowlist: ${meta.edgeLabels.join(', ')}`,
-      });
-    }
-  }
-  violations.push(...validateProperties(meta, 'edge', edge.properties));
-  return violations;
-}
-
-function validateMemory(meta, memory) {
-  if (!meta) return [];
-  return validateProperties(meta, 'memory', memory.properties);
-}
-
-function validateChrono(meta, chrono) {
-  if (!meta) return [];
-  return validateProperties(meta, 'chrono', chrono.properties);
-}
-
-function buildSchemaSummary(meta) {
-  const parts = [];
-  if (meta.entityTypes?.length) {
-    parts.push(`Entity types: ${meta.entityTypes.join(', ')}`);
-  }
-  if (meta.edgeLabels?.length) {
-    parts.push(`Edge labels: ${meta.edgeLabels.join(', ')}`);
-  }
-  if (meta.requiredProperties) {
-    for (const [kt, props] of Object.entries(meta.requiredProperties)) {
-      if (props && props.length > 0) {
-        parts.push(`Required properties (${kt}): ${props.join(', ')}`);
-      }
-    }
-  }
-  if (meta.tagSuggestions?.length) {
-    parts.push(`Suggested tags: ${meta.tagSuggestions.join(', ')}`);
-  }
-  if (parts.length > 0) {
-    parts.push('Call get_space_meta for full schema and usage notes.');
-  }
-  return parts.join('\n');
-}
-
-// ── Tests ──────────────────────────────────────────────────────────────────
-
-describe('Schema validation — entity', () => {
-  const meta = {
-    entityTypes: ['service', 'library', 'team'],
-    namingPatterns: {
-      service: '^[a-z][a-z0-9-]+$',
-      adr: '^adr-[0-9]{4}$',
-    },
-    requiredProperties: {
-      entity: ['status', 'repo'],
-    },
-    propertySchemas: {
-      entity: {
-        status: { type: 'string', enum: ['active', 'deprecated', 'planned'] },
-        port: { type: 'number', minimum: 1, maximum: 65535 },
-      },
-    },
-  };
-
-  it('returns no violations for a valid entity', () => {
-    const v = validateEntity(meta, {
-      name: 'my-service',
-      type: 'service',
-      properties: { status: 'active', repo: 'https://github.com/example' },
-    });
-    assert.equal(v.length, 0);
-  });
-
-  it('rejects entity type not in allowlist', () => {
-    const v = validateEntity(meta, {
-      name: 'foo',
-      type: 'servicee',
-      properties: { status: 'active', repo: 'x' },
-    });
-    assert.ok(v.some(x => x.field === 'type' && x.reason.includes('entityTypes allowlist')));
-  });
-
-  it('rejects entity name failing naming pattern', () => {
-    const v = validateEntity(meta, {
-      name: 'MyService',
-      type: 'service',
-      properties: { status: 'active', repo: 'x' },
-    });
-    assert.ok(v.some(x => x.field === 'name' && x.reason.includes('naming pattern')));
-  });
-
-  it('rejects missing required property', () => {
-    const v = validateEntity(meta, {
-      name: 'my-service',
-      type: 'service',
-      properties: { status: 'active' }, // repo missing
-    });
-    assert.ok(v.some(x => x.field === 'properties.repo'));
-  });
-
-  it('rejects property value not in enum', () => {
-    const v = validateEntity(meta, {
-      name: 'my-service',
-      type: 'service',
-      properties: { status: 'live', repo: 'x' },
-    });
-    assert.ok(v.some(x => x.field === 'properties.status' && x.reason.includes('must be one of')));
-  });
-
-  it('rejects property with wrong type', () => {
-    const v = validateEntity(meta, {
-      name: 'my-service',
-      type: 'service',
-      properties: { status: 'active', repo: 'x', port: 'not-a-number' },
-    });
-    assert.ok(v.some(x => x.field === 'properties.port' && x.reason.includes("expected type 'number'")));
-  });
-
-  it('rejects number out of range', () => {
-    const v = validateEntity(meta, {
-      name: 'my-service',
-      type: 'service',
-      properties: { status: 'active', repo: 'x', port: 99999 },
-    });
-    assert.ok(v.some(x => x.field === 'properties.port' && x.reason.includes('<= 65535')));
-  });
-
-  it('passes when entity type is empty (unrestricted)', () => {
-    const looseMeta = { entityTypes: [] };
-    const v = validateEntity(looseMeta, { name: 'anything', type: 'whatever' });
-    assert.equal(v.length, 0);
-  });
-
-  it('passes when no meta is provided', () => {
-    const v = validateEntity({}, { name: 'anything', type: 'whatever' });
-    assert.equal(v.length, 0);
-  });
-
-  it('passes when meta is undefined', () => {
-    const v = validateEntity(undefined, { name: 'anything', type: 'whatever' });
-    assert.equal(v.length, 0);
-  });
-
-  it('naming pattern not applied when entity type has no pattern', () => {
-    const v = validateEntity(meta, {
-      name: 'AnyNameIsOk',
-      type: 'team', // no naming pattern for 'team'
-      properties: { status: 'active', repo: 'x' },
-    });
-    // No violation for name
-    assert.ok(!v.some(x => x.field === 'name'));
-  });
-
-  it('handles invalid regex pattern gracefully', () => {
-    const badMeta = {
-      namingPatterns: { service: '[invalid(regex' },
-    };
-    const v = validateEntity(badMeta, { name: 'test', type: 'service' });
-    assert.ok(v.some(x => x.field === 'name'));
-  });
-});
-
-describe('Schema validation — edge', () => {
-  const meta = {
-    edgeLabels: ['depends_on', 'owned_by', 'integrates_with'],
-    requiredProperties: {
-      edge: ['reason'],
-    },
-    propertySchemas: {
-      edge: {
-        confidence: { type: 'number', minimum: 0, maximum: 1 },
-      },
-    },
-  };
-
-  it('returns no violations for a valid edge', () => {
-    const v = validateEdge(meta, {
-      label: 'depends_on',
-      properties: { reason: 'direct dependency', confidence: 0.9 },
-    });
-    assert.equal(v.length, 0);
-  });
-
-  it('rejects edge label not in allowlist', () => {
-    const v = validateEdge(meta, {
-      label: 'uses',
-      properties: { reason: 'something' },
-    });
-    assert.ok(v.some(x => x.field === 'label' && x.reason.includes('edgeLabels allowlist')));
-  });
-
-  it('rejects missing required property on edge', () => {
-    const v = validateEdge(meta, {
-      label: 'depends_on',
-      properties: {},
-    });
-    assert.ok(v.some(x => x.field === 'properties.reason'));
-  });
-
-  it('passes when no meta', () => {
-    const v = validateEdge({}, { label: 'anything' });
-    assert.equal(v.length, 0);
-  });
-});
-
-describe('Schema validation — memory', () => {
-  const meta = {
-    requiredProperties: {
-      memory: ['source'],
-    },
-    propertySchemas: {
-      memory: {
-        priority: { type: 'string', enum: ['low', 'medium', 'high'] },
-      },
-    },
-  };
-
-  it('returns no violations for a valid memory', () => {
-    const v = validateMemory(meta, {
-      properties: { source: 'manual', priority: 'high' },
-    });
-    assert.equal(v.length, 0);
-  });
-
-  it('rejects missing required property', () => {
-    const v = validateMemory(meta, { properties: {} });
-    assert.ok(v.some(x => x.field === 'properties.source'));
-  });
-
-  it('rejects invalid enum value', () => {
-    const v = validateMemory(meta, {
-      properties: { source: 'api', priority: 'urgent' },
-    });
-    assert.ok(v.some(x => x.field === 'properties.priority'));
-  });
-});
-
-describe('Schema validation — chrono', () => {
-  const meta = {
-    requiredProperties: {
-      chrono: ['severity'],
-    },
-    propertySchemas: {
-      chrono: {
-        severity: { type: 'string', enum: ['low', 'medium', 'high', 'critical'] },
-      },
-    },
-  };
-
-  it('returns no violations for a valid chrono', () => {
-    const v = validateChrono(meta, {
-      properties: { severity: 'high' },
-    });
-    assert.equal(v.length, 0);
-  });
-
-  it('rejects missing required property', () => {
-    const v = validateChrono(meta, { properties: {} });
-    assert.ok(v.some(x => x.field === 'properties.severity'));
-  });
-});
-
-describe('Schema validation — property schema pattern', () => {
-  it('validates string pattern constraint', () => {
-    const meta = {
-      propertySchemas: {
-        entity: {
-          version: { type: 'string', pattern: '^v\\d+\\.\\d+\\.\\d+$' },
+/** The real shape: per-type schemas, `required` inline on the property. */
+const META = {
+  validationMode: 'strict',
+  typeSchemas: {
+    entity: {
+      service: {
+        namingPattern: '^[a-z][a-z0-9-]+$',
+        propertySchemas: {
+          status: { type: 'string', enum: ['active', 'deprecated', 'planned'], required: true },
+          repo:   { type: 'string', required: true },
+          port:   { type: 'number', minimum: 1, maximum: 65535 },
         },
       },
-    };
-    const good = validateEntity(meta, {
-      name: 'test',
-      type: 'svc',
-      properties: { version: 'v1.2.3' },
-    });
-    assert.equal(good.length, 0);
+      library: { propertySchemas: { status: { type: 'string' } } },
+      team:    {},
+    },
+    edge: {
+      depends_on: { propertySchemas: { since: { type: 'string', required: true } } },
+      owns:       {},
+    },
+    memory: {
+      note: { propertySchemas: { severity: { type: 'string', enum: ['low', 'high'], required: true } } },
+    },
+    chrono: {
+      release: { propertySchemas: { version: { type: 'string', required: true } } },
+    },
+  },
+};
 
-    const bad = validateEntity(meta, {
-      name: 'test',
-      type: 'svc',
-      properties: { version: 'latest' },
-    });
-    assert.ok(bad.some(x => x.field === 'properties.version' && x.reason.includes('pattern')));
+const ok = v => assert.deepEqual(v, [], `expected no violations, got ${JSON.stringify(v)}`);
+const has = (v, field, fragment) => assert.ok(
+  v.some(x => x.field === field && x.reason.includes(fragment)),
+  `expected a violation on '${field}' containing "${fragment}", got ${JSON.stringify(v)}`,
+);
+
+describe('validateEntity', () => {
+  it('accepts a valid entity', () => {
+    ok(validateEntity(META, { name: 'my-service', type: 'service', properties: { status: 'active', repo: 'git@x' } }));
+  });
+
+  it('rejects a type outside the allowlist', () => {
+    const v = validateEntity(META, { name: 'foo', type: 'servicee', properties: { status: 'active', repo: 'x' } });
+    has(v, 'type', 'not in entityTypes allowlist');
+  });
+
+  it('rejects a name failing its type naming pattern', () => {
+    const v = validateEntity(META, { name: 'MyService', type: 'service', properties: { status: 'active', repo: 'x' } });
+    has(v, 'name', 'does not match naming pattern');
+  });
+
+  it('the naming pattern is PER TYPE — a type without one accepts any name', () => {
+    // The whole point of the model production moved to: patterns hang off the type, not off a
+    // space-wide map keyed by name.
+    ok(validateEntity(META, { name: 'Anything At All', type: 'team' }));
+  });
+
+  it('rejects a missing required property', () => {
+    const v = validateEntity(META, { name: 'my-service', type: 'service', properties: { status: 'active' } });
+    has(v, 'properties.repo', "required property 'repo' is missing");
+  });
+
+  it('treats empty string as missing for a required property', () => {
+    const v = validateEntity(META, { name: 'my-service', type: 'service', properties: { status: 'active', repo: '' } });
+    has(v, 'properties.repo', 'missing or empty');
+  });
+
+  it('rejects a value outside its enum', () => {
+    const v = validateEntity(META, { name: 'my-service', type: 'service', properties: { status: 'retired', repo: 'x' } });
+    has(v, 'properties.status', 'must be one of');
+  });
+
+  it('rejects a value of the wrong type', () => {
+    const v = validateEntity(META, { name: 'my-service', type: 'service', properties: { status: 'active', repo: 'x', port: 'eighty' } });
+    has(v, 'properties.port', "expected type 'number'");
+  });
+
+  it('rejects a number outside its range, at both ends', () => {
+    const below = validateEntity(META, { name: 'my-service', type: 'service', properties: { status: 'active', repo: 'x', port: 0 } });
+    has(below, 'properties.port', 'must be >= 1');
+    const above = validateEntity(META, { name: 'my-service', type: 'service', properties: { status: 'active', repo: 'x', port: 70000 } });
+    has(above, 'properties.port', 'must be <= 65535');
+  });
+
+  it('does not check the allowlist when no entity types are defined', () => {
+    ok(validateEntity({ typeSchemas: { entity: {} } }, { name: 'x', type: 'anything' }));
+    ok(validateEntity({}, { name: 'x', type: 'anything' }));
+  });
+
+  it('an entity with no type is unconstrained', () => {
+    ok(validateEntity(META, { name: 'ANYTHING', properties: { whatever: 1 } }));
+  });
+
+  it('a property not in the schema is not rejected', () => {
+    // The schema declares what it knows about; it is not an exhaustive allowlist of keys.
+    ok(validateEntity(META, { name: 'my-service', type: 'service', properties: { status: 'active', repo: 'x', extra: 'fine' } }));
   });
 });
 
-describe('Schema validation — empty/absent properties', () => {
-  it('does not fail when properties is undefined and no required', () => {
-    const meta = { entityTypes: ['service'] };
-    const v = validateEntity(meta, { name: 'x', type: 'service' });
-    assert.equal(v.length, 0);
+describe('validateEdge', () => {
+  it('accepts a valid edge', () => {
+    ok(validateEdge(META, { label: 'depends_on', properties: { since: '2026-01-01' } }));
   });
 
-  it('reports required properties even when properties is undefined', () => {
-    const meta = { requiredProperties: { entity: ['status'] } };
-    const v = validateEntity(meta, { name: 'x', type: 'service' });
-    assert.ok(v.some(x => x.field === 'properties.status'));
+  it('rejects a label outside the allowlist', () => {
+    has(validateEdge(META, { label: 'dependz_on' }), 'label', 'not in edgeLabels allowlist');
   });
 
-  it('skips value validation for undefined properties', () => {
-    const meta = { propertySchemas: { entity: { status: { type: 'string', enum: ['a', 'b'] } } } };
-    const v = validateEntity(meta, { name: 'x', type: 'service' });
-    assert.equal(v.length, 0); // property not present, not required → no violation
+  it('rejects a missing required property', () => {
+    has(validateEdge(META, { label: 'depends_on', properties: {} }), 'properties.since', 'required property');
+  });
+
+  it('is unconstrained with no meta', () => {
+    ok(validateEdge({}, { label: 'anything' }));
+  });
+});
+
+describe('validateMemory', () => {
+  it('accepts a valid memory', () => {
+    ok(validateMemory(META, { type: 'note', properties: { severity: 'low' } }));
+  });
+
+  it('rejects a missing required property', () => {
+    has(validateMemory(META, { type: 'note', properties: {} }), 'properties.severity', 'required property');
+  });
+
+  it('rejects an invalid enum value', () => {
+    has(validateMemory(META, { type: 'note', properties: { severity: 'medium' } }), 'properties.severity', 'must be one of');
+  });
+
+  it('has NO type allowlist — an unknown memory type is simply unconstrained', () => {
+    // Deliberately asymmetric with entity/edge/chrono. Pinned so the asymmetry is a decision on
+    // record rather than something a later reader "fixes" into an allowlist.
+    ok(validateMemory(META, { type: 'not-declared', properties: { anything: 1 } }));
+  });
+});
+
+describe('validateChrono', () => {
+  it('accepts a declared chrono type', () => {
+    ok(validateChrono(META, { type: 'release', properties: { version: '1.0' } }));
+  });
+
+  it('rejects a type outside a custom allowlist', () => {
+    has(validateChrono(META, { type: 'event' }), 'type', 'not in chronoTypes allowlist');
+  });
+
+  it('rejects a missing required property', () => {
+    has(validateChrono(META, { type: 'release', properties: {} }), 'properties.version', 'required property');
+  });
+});
+
+describe('getAllowedChronoTypes', () => {
+  it('falls back to the five built-ins when a space declares none', () => {
+    assert.deepEqual([...getAllowedChronoTypes({})].sort(),
+      ['deadline', 'event', 'milestone', 'plan', 'prediction']);
+    assert.deepEqual([...getAllowedChronoTypes(undefined)].sort(),
+      ['deadline', 'event', 'milestone', 'plan', 'prediction']);
+  });
+
+  it('a space that declares chrono types REPLACES the built-ins rather than extending them', () => {
+    // Extending would silently keep `event` valid on a space that deliberately narrowed the set.
+    assert.deepEqual([...getAllowedChronoTypes(META)], ['release']);
+  });
+});
+
+describe('unresolvable $ref — the silent-pass case the simulation never covered', () => {
+  // A `$ref` that cannot be resolved must NOT behave like "no schema, nothing to check". A space
+  // whose library entry was renamed or deleted would otherwise start accepting anything, and the
+  // only symptom would be validation quietly doing nothing.
+  const REF_META = { typeSchemas: { entity: { service: { $ref: 'library:does-not-exist' } } } };
+
+  it('stamps _unresolvedRef instead of dropping the constraint', () => {
+    const resolved = resolveMetaRefs(REF_META);
+    assert.equal(resolved.typeSchemas.entity.service._unresolvedRef, 'library:does-not-exist');
+  });
+
+  it('surfaces a violation rather than passing with no constraints', () => {
+    const v = validateEntity(resolveMetaRefs(REF_META), { name: 'x', type: 'service' });
+    assert.ok(v.length > 0, 'an unresolvable $ref must produce a violation, not silence');
+  });
+
+  it('leaves meta untouched when there are no refs to resolve', () => {
+    assert.equal(resolveMetaRefs(META), META, 'expected the same object back when nothing changed');
+  });
+});
+
+describe('operator-supplied regex is guarded — a bad pattern fails closed', () => {
+  const withPattern = pattern => ({
+    typeSchemas: { entity: { thing: { propertySchemas: { code: { type: 'string', pattern } } } } },
+  });
+
+  it('a matching pattern passes', () => {
+    ok(validateEntity(withPattern('^[A-Z]{3}$'), { type: 'thing', properties: { code: 'ABC' } }));
+  });
+
+  it('a non-matching value is a violation', () => {
+    has(validateEntity(withPattern('^[A-Z]{3}$'), { type: 'thing', properties: { code: 'abc' } }),
+      'properties.code', 'does not match pattern');
+  });
+
+  it('an INVALID regex fails closed — reported, never thrown', () => {
+    // A malformed pattern is operator input. Throwing would 500 the write; passing would make the
+    // constraint silently optional. It is reported as a violation instead.
+    has(validateEntity(withPattern('^[unterminated'), { type: 'thing', properties: { code: 'x' } }),
+      'properties.code', 'does not match pattern');
+  });
+
+  it('a ReDoS-risky pattern is refused rather than run', () => {
+    // The value here MATCHES the pattern. That is the point: if the guard were removed the regex
+    // would run and pass, so the violation below can only come from the guard declining to run it.
+    // An earlier version used a non-matching value, which produced a violation either way and
+    // therefore proved nothing — it survived the mutation that disables the guard.
+    has(validateEntity(withPattern('^(a+)+$'), { type: 'thing', properties: { code: 'aaaa' } }),
+      'properties.code', 'does not match pattern');
+  });
+
+  it('an over-long value is refused rather than run', () => {
+    has(validateEntity(withPattern('^[a-z]+$'), { type: 'thing', properties: { code: 'a'.repeat(10_001) } }),
+      'properties.code', 'does not match pattern');
+  });
+});
+
+describe('properties absent entirely', () => {
+  it('a type with no required properties accepts a record with none', () => {
+    ok(validateEntity(META, { name: 'x', type: 'library' }));
+  });
+
+  it('required properties are still reported when properties is undefined', () => {
+    // The tempting shortcut — skip validation when there is nothing to validate — would let a write
+    // with no properties at all bypass every required check.
+    has(validateEntity(META, { name: 'my-service', type: 'service' }), 'properties.status', 'required property');
   });
 });
 
 describe('buildSchemaSummary', () => {
-  it('generates a compact summary with all fields', () => {
-    const meta = {
-      entityTypes: ['service', 'library'],
-      edgeLabels: ['depends_on', 'owned_by'],
-      requiredProperties: { entity: ['status'] },
-      tagSuggestions: ['incident', 'deploy'],
-    };
-    const summary = buildSchemaSummary(meta);
-    assert.ok(summary.includes('Entity types: service, library'));
-    assert.ok(summary.includes('Edge labels: depends_on, owned_by'));
-    assert.ok(summary.includes('Required properties (entity): status'));
-    assert.ok(summary.includes('Suggested tags: incident, deploy'));
-    assert.ok(summary.includes('Call get_space_meta'));
+  it('names the declared types so an MCP client can see them', () => {
+    const summary = buildSchemaSummary(META);
+    assert.match(summary, /service/);
+    assert.match(summary, /depends_on/);
   });
 
-  it('returns empty string for empty meta', () => {
-    const summary = buildSchemaSummary({});
-    assert.equal(summary, '');
-  });
-
-  it('returns empty string when arrays are empty', () => {
-    const summary = buildSchemaSummary({ entityTypes: [], edgeLabels: [] });
-    assert.equal(summary, '');
+  it('says nothing about a space with no schema', () => {
+    assert.equal(buildSchemaSummary({}), '');
   });
 });
-
-// ═════════════════════════════════════════════════════════════════════════════
-//  ReDoS protection — safeRegexTest rejects dangerous patterns
-// ═════════════════════════════════════════════════════════════════════════════
-describe('safeRegexTest — ReDoS protection', () => {
-  it('rejects nested quantifier (a+)+', () => {
-    assert.equal(safeRegexTest('(a+)+', 'aaa'), false);
-  });
-
-  it('rejects nested quantifier (a*)*b', () => {
-    assert.equal(safeRegexTest('(a*)*b', 'aaa'), false);
-  });
-
-  it('rejects alternation with quantifier (a|a)+', () => {
-    assert.equal(safeRegexTest('(a|a)+', 'aaa'), false);
-  });
-
-  it('rejects alternation with repeat (a|b){2,}', () => {
-    assert.equal(safeRegexTest('(a|b){2,}', 'aaa'), false);
-  });
-
-  it('rejects (\\d+)+', () => {
-    assert.equal(safeRegexTest('(\\d+)+', '123'), false);
-  });
-
-  it('allows simple quantifiers like ^[A-Z]', () => {
-    assert.equal(safeRegexTest('^[A-Z]', 'Hello'), true);
-  });
-
-  it('allows simple quantifiers like \\d+', () => {
-    assert.equal(safeRegexTest('\\d+', '123'), true);
-  });
-
-  it('allows anchored patterns ^v\\d+\\.\\d+\\.\\d+$', () => {
-    assert.equal(safeRegexTest('^v\\d+\\.\\d+\\.\\d+$', 'v1.2.3'), true);
-  });
-
-  it('allows non-capturing groups (?:a|b)', () => {
-    assert.equal(safeRegexTest('(?:a|b)', 'a'), true);
-  });
-
-  it('allows capturing group with mandatory literal separator (-[a-z0-9]+)+', () => {
-    assert.equal(safeRegexTest('(-[a-z0-9]+)+', '-abc'), true);
-  });
-
-  it('allows capturing group with mandatory / separator (/[a-z]+)+', () => {
-    assert.equal(safeRegexTest('(/[a-z]+)+', '/abc'), true);
-  });
-
-  it('allows capturing group with mandatory : separator (:[a-z]+)+', () => {
-    assert.equal(safeRegexTest('(:[a-z]+)+', ':abc'), true);
-  });
-
-  it('allows anchored naming pattern with mandatory separator ^[a-z](-[a-z0-9]+)+$', () => {
-    assert.equal(safeRegexTest('^[a-z](-[a-z0-9]+)+$', 'a-bc'), true);
-    assert.equal(safeRegexTest('^[a-z](-[a-z0-9]+)+$', 'c-brand-500'), true);
-    // Pattern is correctly evaluated (not blocked by ReDoS check); 'abc' has no dash so it does not match
-    assert.equal(safeRegexTest('^[a-z](-[a-z0-9]+)+$', 'abc'), false);
-  });
-
-  it('still rejects capturing group with optional separator (-?[a-z]+)+', () => {
-    assert.equal(safeRegexTest('(-?[a-z]+)+', 'abc'), false);
-  });
-
-  it('naming pattern with mandatory-separator capturing group passes valid names', () => {
-    const meta = {
-      namingPatterns: { token: '^[a-z](-[a-z0-9]+)+$' },
-    };
-    // Valid: single letter followed by one or more '-segment' groups
-    const pass = validateEntity(meta, { name: 'a-bc', type: 'token' });
-    assert.equal(pass.length, 0, 'a-bc should match ^[a-z](-[a-z0-9]+)+$');
-
-    const pass2 = validateEntity(meta, { name: 'c-brand-500', type: 'token' });
-    assert.equal(pass2.length, 0, 'c-brand-500 should match ^[a-z](-[a-z0-9]+)+$');
-
-    // Invalid: name does not contain any dash segment
-    const fail = validateEntity(meta, { name: 'nodash', type: 'token' });
-    assert.ok(fail.some(x => x.field === 'name' && x.reason.includes('naming pattern')),
-      'nodash should fail the naming pattern');
-  });
-
-  it('rejects pattern exceeding 500 chars', () => {
-    assert.equal(safeRegexTest('a'.repeat(501), 'a'), false);
-  });
-
-  it('rejects value exceeding 10K chars', () => {
-    assert.equal(safeRegexTest('^a', 'a'.repeat(10_001)), false);
-  });
-
-  it('returns false for invalid regex (fail-safe)', () => {
-    assert.equal(safeRegexTest('[invalid', 'test'), false);
-  });
-
-  it('naming pattern with ReDoS risk causes entity violation', () => {
-    const meta = {
-      namingPatterns: { service: '(a+)+' },  // ReDoS-vulnerable
-    };
-    const v = validateEntity(meta, { name: 'ValidService', type: 'service' });
-    assert.ok(v.some(x => x.field === 'name' && x.reason.includes('naming pattern')),
-      'ReDoS pattern should cause a naming violation');
-  });
-
-  it('property schema with ReDoS pattern causes violation', () => {
-    const meta = {
-      propertySchemas: {
-        entity: { code: { type: 'string', pattern: '(a|a)+' } },
-      },
-    };
-    const v = validateEntity(meta, {
-      name: 'test', type: 'svc',
-      properties: { code: 'aaa' },
-    });
-    assert.ok(v.some(x => x.field === 'properties.code' && x.reason.includes('pattern')));
-  });
-});
-
-// $options / operator-allowlist sanitisation is verified against the REAL
-// compiled sanitizer (via queryBrain) in
-// testing/standalone/query-regex-redos.test.js — see "queryBrain — $options
-// sanitisation (compiled path, S8.9)". The former re-implemented copy here was
-// drift-blind to the real ALLOWED_OPERATORS and has been removed (S8.9).

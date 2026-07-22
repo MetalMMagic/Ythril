@@ -59,43 +59,51 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
 
           @if (showEntityForm()) {
             <form class="create-form" (ngSubmit)="createEntity()">
-              <div class="field" style="flex:1; min-width:140px;">
-                <label>{{ 'brain.entities.table.name' | transloco }}</label>
-                <input type="text" [(ngModel)]="entityForm.name" name="name" required />
+              <!-- Row 1: single-line fields, one uniform height (name, type, tags). -->
+              <div class="form-row">
+                <div class="field" style="flex:2; min-width:140px;">
+                  <label>{{ 'brain.entities.table.name' | transloco }}</label>
+                  <input type="text" [(ngModel)]="entityForm.name" name="name" required />
+                </div>
+                <div class="field" style="width:150px;">
+                  <label>{{ 'brain.entities.table.type' | transloco }} @if (store.entityTypeNames().length) { <span style="color:var(--error)">*</span> }</label>
+                  @if (store.entityTypeNames().length) {
+                    <select [(ngModel)]="entityForm.type" name="type" required (ngModelChange)="onEntityTypeChange($event, 'create')">
+                      @for (t of store.entityTypeNames(); track t) {
+                        <option [value]="t">{{ t }}</option>
+                      }
+                    </select>
+                  } @else {
+                    <input type="text" [(ngModel)]="entityForm.type" name="type" [placeholder]="'brain.entities.form.typePlaceholder' | transloco" />
+                  }
+                </div>
+                <div class="field" style="flex:2; min-width:180px;">
+                  <label>{{ 'brain.entities.table.tags' | transloco }}</label>
+                  <app-tag-input [(value)]="entityForm.tags" [suggestions]="store.entityTagSuggestions()" inputName="entFormTags" />
+                </div>
               </div>
-              <div class="field" style="width:140px;">
-                <label>Type @if (store.entityTypeNames().length) { <span style="color:var(--error)">*</span> }</label>
-                @if (store.entityTypeNames().length) {
-                  <select [(ngModel)]="entityForm.type" name="type" required (ngModelChange)="onEntityTypeChange($event, 'create')">
-                    @for (t of store.entityTypeNames(); track t) {
-                      <option [value]="t">{{ t }}</option>
-                    }
-                  </select>
-                } @else {
-                  <input type="text" [(ngModel)]="entityForm.type" name="type" [placeholder]="'brain.entities.form.typePlaceholder' | transloco" />
-                }
+              <!-- Row 2: the tall fields, tops aligned, each grows (description | properties). -->
+              <div class="form-row rich">
+                <div class="field">
+                  <label>{{ 'brain.entities.table.description' | transloco }}</label>
+                  <textarea [(ngModel)]="entityForm.description" name="description" rows="3"></textarea>
+                </div>
+                <div class="field">
+                  <label>{{ 'brain.entities.table.properties' | transloco }}</label>
+                  <app-properties-editor
+                    [schema]="store.entitySchema(entityForm.type)"
+                    [required]="store.requiredProps(store.entitySchema(entityForm.type))"
+                    [(value)]="entityForm.properties"
+                  />
+                </div>
               </div>
-              <div class="field" style="flex:1; min-width:180px;">
-                <label>{{ 'brain.entities.table.tags' | transloco }}</label>
-                <app-tag-input [(value)]="entityForm.tags" [suggestions]="store.entityTagSuggestions()" inputName="entFormTags" />
+              <div style="display:flex; gap:8px;">
+                <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEntity() || !entityForm.name.trim() || (store.entityTypeNames().length ? !entityForm.type : false)">
+                  @if (creatingEntity()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                  {{ 'common.save' | transloco }}
+                </button>
+                <button class="btn-secondary btn btn-sm" type="button" (click)="showEntityForm.set(false)">{{ 'common.cancel' | transloco }}</button>
               </div>
-              <div class="field" style="flex:1; min-width:200px;">
-                <label>{{ 'brain.entities.table.description' | transloco }}</label>
-                <textarea [(ngModel)]="entityForm.description" name="description" rows="3" style="resize:vertical;"></textarea>
-              </div>
-              <div class="field" style="flex:1; min-width:220px;">
-                <label>{{ 'brain.entities.table.properties' | transloco }}</label>
-                <app-properties-editor
-                  [schema]="store.entitySchema(entityForm.type)"
-                  [required]="store.requiredProps(store.entitySchema(entityForm.type))"
-                  [(value)]="entityForm.properties"
-                />
-              </div>
-              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEntity() || !entityForm.name.trim() || (store.entityTypeNames().length ? !entityForm.type : false)">
-                @if (creatingEntity()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-                {{ 'common.save' | transloco }}
-              </button>
-              <button class="btn-secondary btn btn-sm" type="button" (click)="showEntityForm.set(false)">{{ 'common.cancel' | transloco }}</button>
             </form>
           }
 

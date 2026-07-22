@@ -225,7 +225,7 @@
   "common.form.fact": "Fact",
   "common.form.tags": "Tags",
   "common.form.entities": "Entities",
-  "common.form.description": "Short Description",
+  "common.form.description": "Description",
   "common.form.properties": "Properties",
   "common.form.title": "Title",
   "common.form.from": "From",

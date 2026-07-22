@@ -2205,6 +2205,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Brain add-forms are uniform now — same control heights, table-column field order.** The five
+  record tabs had drifted apart: four different control heights on one page (search `5/10`, filter
+  `30`, create-form `5/8`, global `8/12`), the memories create-form in a different field order than
+  its own inline-edit, and `Fact`/`Description` at mismatched sizes. Each tab's Add form is now a
+  vertical stack of rows sharing one control height (`--brain-control-h`, aligned to the tallest
+  existing single-line control so nothing looks cramped): a row of single-line fields at one height,
+  then the tall fields (description alongside properties, or fact alongside description) each free to
+  grow with tops aligned. Field order follows the table columns per tab — memories is now
+  `Fact, Description, tags, entities, properties`; edges `from, relation, to, weight, tags |
+  description, properties`; chrono keeps its required kind/start/end but leads with title then
+  description. Layout only — create/edit payloads are unchanged (the CRUD characterization specs still
+  pass). Verified by booting an isolated instance and screenshotting all four forms (0 change-detection
+  errors). First slice of the Brain UX pass; column-header filters + sort, the inline entity picker,
+  and the File Meta rebuild follow.
+- **`common.form.description` relabelled "Short Description" → "Description".** It read "Short
+  Description" in the memories form and in every record's detail drawer while entities/edges/chrono
+  labelled the same field just "Description" — the inconsistency the feedback called out ("no short",
+  and on the chrono view "short description → description"). Fixed in one shared key across en/de/pl.
+
 - **Per-type tag suggestions are retired — the editor did nothing.** The Schema tab and the Schema
   Library both offered a tag-suggestion editor per type, stored under
   `typeSchemas.<kind>.<type>.tagSuggestions`. It reached **nothing**: the Brain record forms suggest

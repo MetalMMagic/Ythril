@@ -55,65 +55,70 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
 
           @if (showEdgeForm()) {
             <form class="create-form" (ngSubmit)="createEdge()">
-              <div class="field" style="flex:1; min-width:120px;">
-                <label>{{ 'common.form.from' | transloco }}</label>
-                <app-entity-search
-                  mode="picker"
-                  [spaceId]="spaceId()"
-                  placeholder="common.searchEntitiesPlaceholder"
-
-                  [value]="edgeForm.fromDisplay"
-                  (selected)="pickEdgeFrom($event)"
-                />
+              <!-- Field order matches the table columns: from, relation, to, weight, tags | description, properties. -->
+              <div class="form-row">
+                <div class="field" style="flex:1; min-width:120px;">
+                  <label>{{ 'common.form.from' | transloco }}</label>
+                  <app-entity-search
+                    mode="picker"
+                    [spaceId]="spaceId()"
+                    placeholder="common.searchEntitiesPlaceholder"
+                    [value]="edgeForm.fromDisplay"
+                    (selected)="pickEdgeFrom($event)"
+                  />
+                </div>
+                <div class="field" style="flex:1; min-width:120px;">
+                  <label>{{ 'brain.edges.form.relation' | transloco }} <span style="color:var(--error)">*</span></label>
+                  @if (store.edgeLabelNames().length) {
+                    <select [(ngModel)]="edgeForm.label" name="label" required>
+                      @for (l of store.edgeLabelNames(); track l) {
+                        <option [value]="l">{{ l }}</option>
+                      }
+                    </select>
+                  } @else {
+                    <input type="text" [(ngModel)]="edgeForm.label" name="label" required />
+                  }
+                </div>
+                <div class="field" style="flex:1; min-width:120px;">
+                  <label>{{ 'common.form.to' | transloco }}</label>
+                  <app-entity-search
+                    mode="picker"
+                    [spaceId]="spaceId()"
+                    placeholder="common.searchEntitiesPlaceholder"
+                    [value]="edgeForm.toDisplay"
+                    (selected)="pickEdgeTo($event)"
+                  />
+                </div>
+                <div class="field" style="width:90px;">
+                  <label>{{ 'common.form.weight' | transloco }}</label>
+                  <input type="number" [(ngModel)]="edgeForm.weight" name="weight" step="0.1" />
+                </div>
+                <div class="field" style="flex:1; min-width:180px;">
+                  <label>{{ 'brain.edges.table.tags' | transloco }}</label>
+                  <app-tag-input [(value)]="edgeForm.tags" [suggestions]="store.edgeTagSuggestions()" inputName="edgeFormTags" />
+                </div>
               </div>
-              <div class="field" style="flex:1; min-width:120px;">
-                <label>{{ 'brain.edges.form.relation' | transloco }} <span style="color:var(--error)">*</span></label>
-                @if (store.edgeLabelNames().length) {
-                  <select [(ngModel)]="edgeForm.label" name="label" required>
-                    @for (l of store.edgeLabelNames(); track l) {
-                      <option [value]="l">{{ l }}</option>
-                    }
-                  </select>
-                } @else {
-                  <input type="text" [(ngModel)]="edgeForm.label" name="label" required />
-                }
+              <div class="form-row rich">
+                <div class="field">
+                  <label>{{ 'brain.edges.table.description' | transloco }}</label>
+                  <textarea [(ngModel)]="edgeForm.description" name="description" rows="3"></textarea>
+                </div>
+                <div class="field">
+                  <label>{{ 'brain.edges.table.properties' | transloco }}</label>
+                  <app-properties-editor
+                    [schema]="store.edgeSchema(edgeForm.label)"
+                    [required]="store.requiredProps(store.edgeSchema(edgeForm.label))"
+                    [(value)]="edgeForm.properties"
+                  />
+                </div>
               </div>
-              <div class="field" style="flex:1; min-width:120px;">
-                <label>{{ 'common.form.to' | transloco }}</label>
-                <app-entity-search
-                  mode="picker"
-                  [spaceId]="spaceId()"
-                  placeholder="common.searchEntitiesPlaceholder"
-
-                  [value]="edgeForm.toDisplay"
-                  (selected)="pickEdgeTo($event)"
-                />
+              <div style="display:flex; gap:8px;">
+                <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEdge() || !edgeForm.from.trim() || !edgeForm.to.trim() || !edgeForm.label.trim()">
+                  @if (creatingEdge()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                  {{ 'common.save' | transloco }}
+                </button>
+                <button class="btn-secondary btn btn-sm" type="button" (click)="showEdgeForm.set(false)">{{ 'common.cancel' | transloco }}</button>
               </div>
-              <div class="field" style="width:80px;">
-                <label>{{ 'common.form.weight' | transloco }}</label>
-                <input type="number" [(ngModel)]="edgeForm.weight" name="weight" step="0.1" />
-              </div>
-              <div class="field" style="flex:1; min-width:180px;">
-                <label>{{ 'brain.edges.table.tags' | transloco }}</label>
-                <app-tag-input [(value)]="edgeForm.tags" [suggestions]="store.edgeTagSuggestions()" inputName="edgeFormTags" />
-              </div>
-              <div class="field" style="flex:2; min-width:200px;">
-                <label>{{ 'brain.edges.table.description' | transloco }}</label>
-                <textarea [(ngModel)]="edgeForm.description" name="description" rows="3" style="resize:vertical;"></textarea>
-              </div>
-              <div class="field" style="flex:1; min-width:220px;">
-                <label>{{ 'brain.edges.table.properties' | transloco }}</label>
-                <app-properties-editor
-                  [schema]="store.edgeSchema(edgeForm.label)"
-                  [required]="store.requiredProps(store.edgeSchema(edgeForm.label))"
-                  [(value)]="edgeForm.properties"
-                />
-              </div>
-              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingEdge() || !edgeForm.from.trim() || !edgeForm.to.trim() || !edgeForm.label.trim()">
-                @if (creatingEdge()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-                {{ 'common.save' | transloco }}
-              </button>
-              <button class="btn-secondary btn btn-sm" type="button" (click)="showEdgeForm.set(false)">{{ 'common.cancel' | transloco }}</button>
             </form>
           }
 

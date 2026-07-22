@@ -55,52 +55,59 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
           <!-- Add memory form -->
           @if (showMemoryForm()) {
             <form class="create-form" (ngSubmit)="createMemory()">
-              <div class="field" style="flex:2; min-width:200px;">
-                <label>{{ 'common.form.fact' | transloco }}</label>
-                <textarea [(ngModel)]="memoryForm.fact" name="fact" rows="2" required style="width:100%;"></textarea>
-              </div>
-              <div class="field" style="flex:1; min-width:180px;">
-                <label>{{ 'common.form.tags' | transloco }}</label>
-                <app-tag-input [(value)]="memoryForm.tags" [suggestions]="store.memoryTagSuggestions()" inputName="memFormTags" />
-              </div>
-              <div class="field" style="flex:1; min-width:140px;">
-                <label>{{ 'common.form.entities' | transloco }}</label>
-                <div class="flyout-wrap">
-                  <div class="entity-multi">
-                    @for (chip of picker.entityChips(memoryForm.entityIds); track chip.id) {
-                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(memoryForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                    }
-                    <button type="button" class="chip-add" (click)="picker.openFlyout('create-memory-entityIds', memoryForm)">{{ 'common.addMore' | transloco }}</button>
-                  </div>
-                  @if (picker.flyoutField() === 'create-memory-entityIds') {
-                    <div class="flyout-panel">
-                      <app-entity-search
-                        mode="picker"
-                        [spaceId]="spaceId()"
-                        placeholder="common.searchEntitiesPlaceholder"
-
-                        (selected)="picker.pickEntity($event, memoryForm)"
-                      />
-                      <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                        <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                      </div>
-                    </div>
-                  }
+              <!-- Field order matches the table columns: Fact, Description, tags, entities, properties.
+                   Fact and Description are the two multiline fields and share one size (feedback). -->
+              <div class="form-row rich">
+                <div class="field">
+                  <label>{{ 'common.form.fact' | transloco }}</label>
+                  <textarea [(ngModel)]="memoryForm.fact" name="fact" rows="3" required></textarea>
+                </div>
+                <div class="field">
+                  <label>{{ 'common.form.description' | transloco }}</label>
+                  <textarea [(ngModel)]="memoryForm.description" name="description" rows="3"></textarea>
                 </div>
               </div>
-              <div class="field" style="flex:2; min-width:200px;">
-                <label>{{ 'common.form.description' | transloco }}</label>
-                <textarea [(ngModel)]="memoryForm.description" name="description" rows="3" style="resize:vertical;"></textarea>
+              <div class="form-row rich">
+                <div class="field">
+                  <label>{{ 'common.form.tags' | transloco }}</label>
+                  <app-tag-input [(value)]="memoryForm.tags" [suggestions]="store.memoryTagSuggestions()" inputName="memFormTags" />
+                </div>
+                <div class="field">
+                  <label>{{ 'common.form.entities' | transloco }}</label>
+                  <div class="flyout-wrap">
+                    <div class="entity-multi">
+                      @for (chip of picker.entityChips(memoryForm.entityIds); track chip.id) {
+                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(memoryForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
+                      }
+                      <button type="button" class="chip-add" (click)="picker.openFlyout('create-memory-entityIds', memoryForm)">{{ 'common.addMore' | transloco }}</button>
+                    </div>
+                    @if (picker.flyoutField() === 'create-memory-entityIds') {
+                      <div class="flyout-panel">
+                        <app-entity-search
+                          mode="picker"
+                          [spaceId]="spaceId()"
+                          placeholder="common.searchEntitiesPlaceholder"
+                          (selected)="picker.pickEntity($event, memoryForm)"
+                        />
+                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                          <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                </div>
+                <div class="field">
+                  <label>{{ 'common.form.properties' | transloco }}</label>
+                  <app-properties-editor [schema]="store.memorySchema()" [required]="store.requiredProps(store.memorySchema())" [(value)]="memoryForm.properties" />
+                </div>
               </div>
-              <div class="field" style="flex:1; min-width:220px;">
-                <label>{{ 'common.form.properties' | transloco }}</label>
-                <app-properties-editor [schema]="store.memorySchema()" [required]="store.requiredProps(store.memorySchema())" [(value)]="memoryForm.properties" />
+              <div style="display:flex; gap:8px;">
+                <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingMemory() || !memoryForm.fact.trim()">
+                  @if (creatingMemory()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                  {{ 'common.save' | transloco }}
+                </button>
+                <button class="btn-secondary btn btn-sm" type="button" (click)="showMemoryForm.set(false)">{{ 'common.cancel' | transloco }}</button>
               </div>
-              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingMemory() || !memoryForm.fact.trim()">
-                @if (creatingMemory()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-                {{ 'common.save' | transloco }}
-              </button>
-              <button class="btn-secondary btn btn-sm" type="button" (click)="showMemoryForm.set(false)">{{ 'common.cancel' | transloco }}</button>
             </form>
           }
 

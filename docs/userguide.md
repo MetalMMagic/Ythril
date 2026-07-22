@@ -101,9 +101,9 @@ Memories are the core knowledge unit — plain-language statements you want to r
 | Field | Notes |
 |-------|-------|
 | **Fact** | The statement to store. Required. |
+| **Description** | Optional context or rationale. Same size as Fact. |
 | **Tags** | Comma-separated keywords for filtering. |
 | **Entities** | Click to open the entity picker. Search by name and click to link. Linked items appear as chips. |
-| **Description** | Optional context or rationale. |
 | **Properties** | Click to open the JSON editor. Enter any key-value pairs you want to attach. |
 
 Click **Save**. The memory is indexed immediately and available for search.

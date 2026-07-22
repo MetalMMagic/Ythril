@@ -738,6 +738,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   red-team integration test `testing/sync/vote-forgery.test.js`; the full governance/vote/braintree/
   pubsub/democratic/closed suite continues to pass.
 
+### Testing
+
+- **Standalone tests can now run against a real MongoDB, and the first one proves the queue's
+  recovery rule.** Until now no standalone test could reach a database: the test stack published no
+  Mongo port and nothing connected to one. Query rules were therefore only ever checked against
+  hand-built document fixtures and a small JS matcher — which proves the rule is what its author
+  meant, not that **MongoDB agrees**. Those two things genuinely differ, and `stalledJobFilter` sits
+  exactly on the fault line: in MongoDB `{ progressAt: null }` also matches documents where the field
+  is **missing**, while the obvious JS equivalent (`doc.progressAt === null`) does not, and
+  `{ $lt: '<iso string>' }` matches neither null nor missing because of BSON type bracketing — which
+  is the whole reason the filter needs its extra branches. A fixture test cannot see any of that.
+  `testing/docker-compose.test.yml` now publishes `ythril-mongo-a` on **127.0.0.1:27117** (loopback
+  only — the password is in the compose file, so binding it to every interface would be a gift), and
+  `testing/standalone/_mongo-harness.mjs` points the server's own `getMongoUri()` at a per-suite
+  database and calls the server's own `connectMongo()`. Nothing is stubbed: the code under test is the
+  real `col()` / `asFilter()` / `asUpdate()` against the real driver, because a faked data layer would
+  reintroduce the exact gap the harness exists to close. New `job-stall-rule-db.test.js` covers the
+  stall rule end to end and asserts both MongoDB behaviours directly; removing the filter's
+  never-ticked branches makes exactly three of its assertions fail (a job that can never be recovered
+  is a file that silently never finishes). **In CI the harness refuses to skip** — an unreachable
+  database throws instead, because a database test that quietly no-ops on the machine that gates
+  merges still reports green while covering nothing.
+  *Note for existing local stacks:* `ythril-mongo-a` cannot be recreated in place — the Atlas Local
+  image names the replica set after the container id and stores the old container's hostname as the
+  member, so any compose edit to that service orphans the replica set. Run `npm run test:up` (which
+  does a `down -v`) to pick this change up.
+
 ### Documentation
 
 - **Documentation staleness sweep — one statement was wrong, not merely out of date.** The integration

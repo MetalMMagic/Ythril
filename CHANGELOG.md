@@ -8,6 +8,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **⚠️ UPGRADING WITH AN INTERNAL IdP: the OIDC issuer is now public-only by default. If your IdP
+  lives on a private address — Keycloak on `http://keycloak.internal:8080`, Authentik on a cluster
+  service, Dex on `10.x` — you must set `oidc.allowPrivateIssuer: true` in `config.json` (or
+  `YTHRIL_OIDC_ALLOW_PRIVATE_ISSUER=true`) as part of this upgrade, or nobody can sign in.** The
+  opt-in ships in the same release as the tightened default, deliberately: shipping the guard first
+  and the flag later would have been an outage for every such deployment. The server now says so at
+  boot rather than at first login — an enabled OIDC config with a private issuer and no flag is a
+  **FAIL** in the startup security posture (`oidc.issuer`, also at `GET /api/about/security`), and
+  under `security.strict` the server refuses to start, instead of leaving you to diagnose a login
+  page that just says "authentication failed".
+
+  **What was wrong.** `validateOidcUrl` rejected exactly four things: non-`http(s)`, embedded
+  credentials, `169.254.*` / `metadata.google.internal`, and `0.0.0.0`. Every general private range —
+  `10.*`, `192.168.*`, `172.16–31.*`, `127.*`, `::1` — was allowed, and so was every non-standard
+  encoding of them (`2130706433`, `0x7f000001`, `127.1`). Discovery was fetched with a plain `fetch`:
+  no DNS pinning, no redirect re-validation. And `jwks_uri` — a URL that arrives **inside the
+  discovery document**, i.e. attacker-influenced input the moment the issuer is — was handed to
+  `createRemoteJWKSet` after only that four-item check. OIDC Discovery §4.3 constrains the document's
+  `issuer` field and nothing beside it, so the endpoints were a free pivot into the internal network.
+
+  **What now happens.** The issuer, `jwks_uri`, `authorization_endpoint`, `token_endpoint` and
+  `end_session_endpoint` all go through the shared SSRF validator, and both outbound calls (discovery
+  *and* JWKS, via jose's `customFetch`) go through `ssrfSafeFetch` — which resolves DNS, pins the
+  resolved IP for the connection, and re-validates every redirect hop. Enabling the flag does **not**
+  turn that off; only the private-address rejection lifts. Loopback, link-local / cloud metadata
+  (IMDS) and the unspecified address stay blocked either way, including when a hostname *resolves* to
+  one. Same contract as `allowPrivateModelEndpoints`.
+
+  The allowance is scoped to the **issuer's own address class**, not to the flag: a *public* issuer
+  may never hand back a private `jwks_uri`, however the operator has configured their own internal
+  IdP. Endpoints on a different *public* host are accepted and normal — Google publishes
+  `accounts.google.com` with a `jwks_uri` on `www.googleapis.com` and a `token_endpoint` on
+  `oauth2.googleapis.com`, so a "must share the issuer's host" rule would have broken Google Sign-In
+  outright; the address-class rule stops the pivot without asserting something false about how IdPs
+  deploy. A test carries that reasoning so it is not re-litigated later.
+
+  25 new standalone tests against the real exported functions, each rule mutation-checked (remove the
+  flag lookup, the endpoint validation, the §4.3 issuer match — exactly the intended assertions fail
+  and nothing else).
+
 - **Face recognition can now be pinned by infra — it was the one model in the pipeline that could not
   be.** Vision, speech-to-text, embedding, the document assist model and both sidecars all had env
   overrides, so an infra-managed deployment could fix every model *except whether faces are detected

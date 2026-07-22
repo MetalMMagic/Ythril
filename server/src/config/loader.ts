@@ -91,6 +91,12 @@ function validateOidcBlock(cfg: Config): void {
       throw new Error('oidc.scopes must be an array of strings when provided');
     }
   }
+  // Typed strictly on purpose: `"allowPrivateIssuer": "true"` is not `true`, so it would read as OFF
+  // and an internal IdP would stop authenticating with no indication why — the precise failure this
+  // flag exists to prevent. A quoted boolean in hand-edited JSON is a common enough slip to catch here.
+  if (oidc.allowPrivateIssuer !== undefined && typeof oidc.allowPrivateIssuer !== 'boolean') {
+    throw new Error('oidc.allowPrivateIssuer must be a boolean (true/false, unquoted) when provided');
+  }
 }
 
 // ── At-rest encryption (PR-S2) ─────────────────────────────────────────────

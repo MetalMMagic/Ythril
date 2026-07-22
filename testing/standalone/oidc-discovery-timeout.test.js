@@ -10,12 +10,24 @@
  * The test drives a real HTTP server that deliberately never responds, so it proves the behaviour
  * end to end rather than asserting that a constant exists.
  *
+ * WHY THE BLACK HOLE IS NOT ON LOOPBACK (changed with the SSRF part-2b guard): discovery now goes
+ * through `ssrfSafeFetch`, and loopback is a crown-jewel address that stays blocked even with
+ * `oidc.allowPrivateIssuer` on. A `127.0.0.1` issuer would therefore be refused before any socket
+ * opened and this test would prove nothing about timeouts.
+ *
+ * That is not a limitation worth working around — an issuer on the *server's* loopback cannot work as
+ * OIDC anyway: the browser is sent to the same `authorization_endpoint`, and the browser's 127.0.0.1
+ * is not the server's. So the test binds to the host's own private LAN address and opts in, which
+ * incidentally makes it an end-to-end proof that `allowPrivateIssuer` really does let an internal IdP
+ * through — the half of the change that, if broken, is an upgrade outage.
+ *
  * Run: node --test testing/standalone/oidc-discovery-timeout.test.js
  */
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import os from 'node:os';
 
 let getDiscoveryDoc;
 let clearOidcCache;
@@ -23,8 +35,22 @@ let OIDC_HTTP_TIMEOUT_MS;
 
 /** A server that accepts the connection and then holds it open, answering nothing. */
 let blackHole;
+let blackHoleHost;
 let blackHolePort;
 const heldSockets = [];
+
+const ENV_KEY = 'YTHRIL_OIDC_ALLOW_PRIVATE_ISSUER';
+let savedEnv;
+
+/** The host's own non-loopback IPv4 — a private address the guard permits once opted in. */
+function privateHostAddress() {
+  for (const addrs of Object.values(os.networkInterfaces())) {
+    for (const a of addrs ?? []) {
+      if (a.family === 'IPv4' && !a.internal) return a.address;
+    }
+  }
+  return null;
+}
 
 describe('OIDC discovery — timeout', () => {
   before(async () => {
@@ -32,11 +58,16 @@ describe('OIDC discovery — timeout', () => {
       '../../server/dist/auth/oidc.js'
     ));
 
+    savedEnv = process.env[ENV_KEY];
+    process.env[ENV_KEY] = 'true'; // an internal IdP on a private address — the supported deployment
+
+    blackHoleHost = privateHostAddress();
+    if (!blackHoleHost) return; // no LAN address on this host; the tests below skip
     blackHole = http.createServer((req) => {
       // Never write a response, never end it: the classic "hung IdP".
       heldSockets.push(req.socket);
     });
-    await new Promise((resolve) => blackHole.listen(0, '127.0.0.1', resolve));
+    await new Promise((resolve) => blackHole.listen(0, blackHoleHost, resolve));
     blackHolePort = blackHole.address().port;
   });
 
@@ -44,6 +75,7 @@ describe('OIDC discovery — timeout', () => {
     for (const s of heldSockets) s.destroy();
     if (blackHole) await new Promise((resolve) => blackHole.close(resolve));
     clearOidcCache?.();
+    if (savedEnv === undefined) delete process.env[ENV_KEY]; else process.env[ENV_KEY] = savedEnv;
   });
 
   it('exposes an explicit, sane HTTP budget', () => {
@@ -54,11 +86,11 @@ describe('OIDC discovery — timeout', () => {
     );
   });
 
-  it('rejects instead of hanging when the IdP never responds', async () => {
+  it('rejects instead of hanging when the IdP never responds', { skip: !privateHostAddress() && 'no non-loopback IPv4 on this host' }, async () => {
     clearOidcCache();
     const started = Date.now();
     await assert.rejects(
-      () => getDiscoveryDoc(`http://127.0.0.1:${blackHolePort}`),
+      () => getDiscoveryDoc(`http://${blackHoleHost}:${blackHolePort}`),
       (err) => {
         assert.match(err.message, /OIDC discovery failed/);
         // The operator has to be able to tell "it hung" from "it refused" or "it 500'd".
@@ -74,12 +106,26 @@ describe('OIDC discovery — timeout', () => {
     );
   });
 
-  it('reports an unreachable IdP as a discovery failure too', async () => {
+  it('reports an unreachable IdP as a discovery failure too', { skip: !privateHostAddress() && 'no non-loopback IPv4 on this host' }, async () => {
     clearOidcCache();
-    // Port 1 on loopback: connection refused immediately — the other half of the same failure mode.
+    // Port 1: connection refused immediately — the other half of the same failure mode.
     await assert.rejects(
-      () => getDiscoveryDoc('http://127.0.0.1:1'),
+      () => getDiscoveryDoc(`http://${blackHoleHost}:1`),
       /OIDC discovery failed/,
+    );
+  });
+
+  it('a blocked issuer is reported as blocked, not as "the IdP is down"', async () => {
+    clearOidcCache();
+    // Still opted in (the env flag is on for this suite) — loopback is refused anyway, and the
+    // operator must be able to tell a policy refusal from an unreachable IdP.
+    await assert.rejects(
+      () => getDiscoveryDoc('http://127.0.0.1:8080/realms/main'),
+      (err) => {
+        assert.match(err.message, /always-blocked address/);
+        assert.doesNotMatch(err.message, /OIDC discovery failed/);
+        return true;
+      },
     );
   });
 });

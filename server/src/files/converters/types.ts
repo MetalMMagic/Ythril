@@ -3,6 +3,28 @@
  */
 
 /** A single chunk produced by the section or paragraph chunker. */
+/**
+ * One report of forward motion, emitted as work lands.
+ *
+ * `steps` is the route THIS document is taking, not a fixed list: `decideRoute` returns a different
+ * chain per extraction level and per what is actually wired in, so a progress bar built from it shows
+ * the stages that will really run rather than a template with permanently-dark segments.
+ *
+ * `done`/`total` are units within the current step — pages, almost always. They are absent for steps
+ * that are not divisible (validation either happened or did not), and a renderer should show those as
+ * indeterminate rather than inventing a fraction.
+ */
+export interface StepProgress {
+  /** The stage now running, e.g. `render`, `vlm`, `repair`. */
+  step: string;
+  /** Every stage this document's route will run, in order. */
+  steps: string[];
+  /** Units finished within `step`, when the step is divisible. */
+  done?: number;
+  /** Units expected within `step`, when known. */
+  total?: number;
+}
+
 export interface Chunk {
   headingText: string | null;
   content: string;

@@ -735,6 +735,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A processing job now reports which step it is on, so progress can be shown as sections rather than
+  a spinner.** The stall heartbeat already fired as each unit of work landed but carried no identity —
+  it said *something happened*, not *what*. Each report now carries the current step, the full route
+  the document is taking, and how far through the step it is, written in the same update the heartbeat
+  already performed, so this costs no extra writes.
+  Two properties are load-bearing for anything drawing a bar from it:
+  - **The route is per-document, not a fixed list.** `decideRoute` returns a different chain per
+    extraction level and per what is actually wired in, so the sections are the stages that will
+    genuinely run. A document on `ocr` has exactly **one** stage — a segmented bar there would be a
+    lie, and the data says so rather than leaving the renderer to guess. Stages that will not run (no
+    repair model configured) are absent entirely instead of appearing and never filling.
+  - **The counter cannot go backwards.** Pages are transcribed concurrently, so completion order is
+    not index order; progress counts completions rather than the map index, which would jump around.
+    Both are covered, including the negative case showing index order is non-monotonic.
+  The UI half — drawing the segments — rides with the Models/Pipelines rebuild, which already renders
+  the step chain. Worth knowing when it is built: stages are not equal in duration (VLM transcription
+  dominates, validation is near-instant), so equal-width segments would sit still and then jump.
+
 - **Text-embedding provider is now configurable on Settings → Models, with a `local`/`external` toggle and an
   SSRF-guarded external path (SSRF follow-up part 2).** The embedding endpoint (the model that powers semantic
   recall) was config-file-only; it now has a **Text embedding** card — provider, endpoint, model, dimensions,

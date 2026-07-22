@@ -29,6 +29,7 @@ import { embed } from '../../brain/embedding.js';
 import { getConfig, getDocumentProcessingConfig } from '../../config/loader.js';
 import { vlmExtractDocument } from './vlm-extract.js';
 import type { FileMetaDoc, AuthorRef, DocExtractionMode, TextLevel } from '../../config/types.js';
+import type { StepProgress } from './types.js';
 import { log } from '../../util/log.js';
 import { enqueueMediaJob } from '../media/job-queue.js';
 
@@ -142,7 +143,7 @@ export interface ConversionPipelineOptions {
   textLevel?: TextLevel;
   /** Called as each unit of work completes, so a long conversion reads as slow rather than wedged.
    *  The worker uses it to advance the job's stall heartbeat. */
-  onProgress?: () => void;
+  onProgress?: (p: StepProgress) => void;
 }
 
 export interface ConversionResult {

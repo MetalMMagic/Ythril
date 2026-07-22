@@ -8,6 +8,7 @@
 import { col, asFilter, asDoc, asUpdate } from '../../db/mongo.js';
 import { toDocId } from '../../util/paths.js';
 import { escapeRegex } from '../../util/redos.js';
+import type { StepProgress } from '../converters/types.js';
 import type { MediaJobDoc, FileMetaDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
 
@@ -429,12 +430,18 @@ export function stalledJobFilter(cutoff: string): Record<string, unknown> {
  * failed heartbeat must never fail the job it is reporting on — the worst case is that stall
  * detection falls back to the previous tick, which is exactly the behaviour without heartbeats.
  */
-export async function touchJobProgress(spaceId: string, jobId: string): Promise<void> {
+export async function touchJobProgress(
+  spaceId: string,
+  jobId: string,
+  progress?: StepProgress,
+): Promise<void> {
   const now = new Date().toISOString();
   try {
     await jobCollection(spaceId).updateOne(
       asFilter<MediaJobDoc>({ _id: jobId, status: 'processing' }),
-      asUpdate<MediaJobDoc>({ $set: { progressAt: now } }),
+      // The step report rides along in the write the heartbeat already performs — reporting which
+      // step is running costs nothing extra on top of saying that something happened.
+      asUpdate<MediaJobDoc>({ $set: { progressAt: now, ...(progress ? { progress } : {}) } }),
     );
   } catch { /* best-effort — see above */ }
 }

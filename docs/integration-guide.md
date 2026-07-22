@@ -2074,6 +2074,14 @@ The unstructured sidecar strategy and image extraction behaviour can be tuned un
 
 **Test connection (F11).** `POST /api/admin/media-config/test-connection` (admin + MFA) probes a configured endpoint — `{ "target": "vision" | "stt" | "assist" }` — by listing its models (OpenAI-compatible `/v1/models`, falling back to Ollama `/api/tags`). It performs **no inference and sends no document content**, so it is safe to run before acknowledging egress. External endpoints go through the SSRF-guarded fetch; local (trusted) endpoints use a direct fetch. The response reports `{ reachable, modelPresent?, models, latencyMs, detail? }`. Settings → Models exposes a **Test connection** button per provider card.
 
+**Pipeline status.** `GET /api/admin/pipeline-status` (admin) returns the health of the whole pipeline in one read-only payload — it mutates nothing and sends no document content. It reports three things:
+
+- `sidecars[]` — reachability of the document converter, page renderer and office renderer, each with the env var that owns its URL (`CONVERSION_SIDECAR_URL`, `RENDER_SIDECAR_URL`, `RENDER_OFFICE_SIDECAR_URL`).
+- `models[]` — per stage (`embedding`, `vision`, `stt`, `doc-vlm`, `doc-repair`, `doc-verify`, `assist`): the configured model, the endpoint **host** (never the full URL), and a `state` of `ok` / `degraded` / `down` / `blocked` / `off` / `unconfigured`. `degraded` means the endpoint answered but does not list the configured model, and `unconfigured` means nothing is set — an optional stage left empty is not reported as a fault. API keys authenticate the probes and never appear in the response.
+- `index.spaces[]` — per space, the **live** `$vectorSearch` index state read from MongoDB (`live`) alongside what `config.json` claims (`stored`), plus a `drifted` flag when `stored` says `ready` and the database disagrees. Proxy spaces own no collections and are omitted. A deployment whose MongoDB has no Atlas Search support reports `unknown` rather than `missing`.
+
+Results are cached for 20 seconds and single-flighted, so several admins on **Settings → Models & Pipelines** produce one set of probes rather than one per viewer per step. Stages sharing an endpoint (typically `doc-vlm` / `doc-repair` / `doc-verify` on one Ollama) are probed once.
+
 **Per-space override (F11-c).** The `mode` above is a **ceiling, not a default**: a space may choose anything up to it and nothing beyond it. Set the override from the space's **Settings → Document extraction** picker, or via `PATCH /api/spaces/:id` with `{ "documentExtraction": "off" | "ocr" | "vlm" | "repair" | "auto" }` (send `null` to clear it and follow the instance setting again). Like dupe rules and record-TTL, this is a **local, per-instance** operational setting: it is never governed or synced across a network.
 
 The effective level is `min(instance mode, space override)`, which has three consequences worth stating outright:

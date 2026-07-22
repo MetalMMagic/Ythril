@@ -69,9 +69,23 @@ export const AUDIO_LEVELS = ['auto', 'off', 'on'] as const;
 export const VIDEO_LEVELS = ['auto', 'off', 'audio', 'full'] as const;
 export const TEXT_LEVELS = ['auto', 'off', 'embed', 'chunk'] as const;
 
+/**
+ * Face recognition (#345 env half, operator control added later).
+ *
+ * `modelPath` and `reprocessSyncedImages` are deliberately absent: both are infra-shaped and stay
+ * env/config-only, so the admin API cannot set them and this block does not carry them.
+ */
+export interface FaceRecognitionCfg {
+  enabled?: boolean;
+  confidenceThreshold?: number;
+  minFaceSizeFraction?: number;
+  personEntityTypes?: string[];
+}
+
 export interface MediaCfg {
   enabled?: boolean;
   levels?: MediaLevelCeilings;
+  faceRecognition?: FaceRecognitionCfg;
   visionProvider?: 'local' | 'external';
   sttProvider?: 'local' | 'external';
   vision?: ProviderCfg;

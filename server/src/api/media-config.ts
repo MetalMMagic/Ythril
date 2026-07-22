@@ -109,9 +109,26 @@ const LevelsPatchSchema = z.object({
   text: z.enum(TEXT_LEVELS).optional(),
 }).strict();
 
+/**
+ * Face recognition — the one model in the pipeline an operator could not switch off.
+ *
+ * `modelPath` is deliberately ABSENT and stays env/config-only. It is a filesystem path, and a field
+ * that selects which files the process loads should not be settable from the admin API — the same
+ * reasoning that keeps `allowPrivateModelEndpoints` and the document model endpoints off this route.
+ * `reprocessSyncedImages` is likewise infra-shaped (it decides whether a network peer's images get
+ * re-analysed locally) and is left where it is.
+ */
+const FaceRecognitionPatchSchema = z.object({
+  enabled: z.boolean().optional(),
+  confidenceThreshold: z.number().min(0).max(1).optional(),
+  minFaceSizeFraction: z.number().min(0).max(1).optional(),
+  personEntityTypes: z.array(z.string().min(1).max(64)).max(32).optional(),
+}).strict();
+
 const MediaConfigPatchSchema = z.object({
   enabled: z.boolean().optional(),
   levels: LevelsPatchSchema.optional(),
+  faceRecognition: FaceRecognitionPatchSchema.optional(),
   visionProvider: z.enum(['local', 'external']).optional(),
   sttProvider: z.enum(['local', 'external']).optional(),
   vision: ProviderPatchSchema.optional(),
@@ -158,9 +175,7 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
 
   const locked = new Set(activeCfg.lockedByInfra ?? []);
 
-  // Reject attempts to overwrite locked fields
-  const attempted = Object.keys(parsed.data);
-  const blocked = attempted.filter(k => locked.has(k));
+  const blocked = blockedByInfra(parsed.data, locked);
   if (blocked.length > 0) {
     res.status(403).json({
       error: 'Fields are locked by infrastructure env vars and cannot be changed via the UI',
@@ -291,6 +306,15 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
       merged['stt'] = s;
     }
     if (parsed.data.levels) merged['levels'] = mergeLevelCeilings(existing.levels, parsed.data.levels);
+    // Face recognition: merge per field for the same reason as the ceilings, and additionally because
+    // the block the client sees is RESOLVED (env → config → default). Writing it back wholesale would
+    // bake a defaulted or env-derived value into config.json as though an operator had chosen it.
+    if (parsed.data.faceRecognition) {
+      merged['faceRecognition'] = {
+        ...(existing.faceRecognition as Record<string, unknown> ?? {}),
+        ...parsed.data.faceRecognition,
+      };
+    }
     // F11-b — DEEP-merge documentProcessing so a patch that omits `assistModel` (e.g. just changing `mode`)
     // does NOT wipe the stored external-assist config, and strip its apiKey out to secrets.json.
     if (parsed.data.documentProcessing) {
@@ -389,6 +413,32 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Which fields of a patch an env pin forbids.
+ *
+ * Most locks are top-level names (`visionProvider`, `maxFileSizeBytes`). Face recognition reports
+ * its locks per FIELD (`faceRecognition.enabled`, …) because each has its own env var — so a scan of
+ * top-level keys alone would let a patch naming the block sail straight past a pin the UI is already
+ * rendering as read-only. Getting that wrong means `FACE_RECOGNITION_ENABLED=false` stops being a
+ * guarantee, on the setting with the clearest privacy weight in the product.
+ *
+ * The nested case is handled explicitly rather than by walking every block: this is the only one
+ * whose locks are namespaced today, and a generic flatten would silently start applying to blocks
+ * that never opted in to being lockable.
+ *
+ * Exported for unit testing.
+ */
+export function blockedByInfra(patch: Record<string, unknown>, locked: Set<string>): string[] {
+  const blocked = Object.keys(patch).filter(k => locked.has(k));
+  const face = patch['faceRecognition'];
+  if (face && typeof face === 'object') {
+    for (const field of Object.keys(face as Record<string, unknown>)) {
+      if (locked.has(`faceRecognition.${field}`)) blocked.push(`faceRecognition.${field}`);
+    }
+  }
+  return blocked;
+}
 
 /**
  * Merge a `levels` patch into the stored ceilings, CLASS BY CLASS.

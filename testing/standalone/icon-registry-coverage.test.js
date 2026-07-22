@@ -40,13 +40,37 @@ function registeredIcons() {
   return new Set([...body.matchAll(/^\s*'([a-z0-9-]+)':/gm)].map(m => m[1]));
 }
 
-/** Icon names referenced by a literal `name="..."` on a `<ph-icon>` element. */
+/**
+ * Every literal icon name the client references, however it reaches `<ph-icon>`.
+ *
+ * The original scan looked only for `<ph-icon name="...">`, and that blind spot has now shipped
+ * three blank icons in three separate PRs:
+ *
+ *   - `text-align-left`, passed as `icon: 'text-align-left'` in a TypeScript object the template
+ *     binds with `[name]="p.icon"`;
+ *   - `file-image` and `user`, passed as `icon="..."` to a WRAPPER component (`app-model-provider-card`,
+ *     `app-settings-card`) which forwards it to `<ph-icon [name]="icon()">`.
+ *
+ * In every case the literal is right there in the source — it just is not spelled `<ph-icon name=`.
+ * So all three shapes are scanned. What genuinely cannot be checked is a name computed at runtime;
+ * that is the residue, and it is much smaller than what was being missed.
+ */
 function usedIcons() {
   const used = new Map(); // name -> first file that uses it
+  const patterns = [
+    // <ph-icon name="foo">
+    /<ph-icon[^>]*\bname="([a-z0-9-]+)"/g,
+    // <app-settings-card icon="foo"> — any component that forwards an `icon` input
+    /\bicon="([a-z0-9-]+)"/g,
+    // { icon: 'foo' } in a TS object the template binds dynamically
+    /\bicon:\s*'([a-z0-9-]+)'/g,
+  ];
   for (const file of walk(CLIENT_SRC)) {
     const src = fs.readFileSync(file, 'utf8');
-    for (const m of src.matchAll(/<ph-icon[^>]*\bname="([a-z0-9-]+)"/g)) {
-      if (!used.has(m[1])) used.set(m[1], path.relative(CLIENT_SRC, file));
+    for (const re of patterns) {
+      for (const m of src.matchAll(re)) {
+        if (!used.has(m[1])) used.set(m[1], path.relative(CLIENT_SRC, file));
+      }
     }
   }
   return used;
@@ -71,11 +95,20 @@ describe('icon registry coverage', () => {
     assert.ok(registeredIcons().size > 20, 'expected a populated registry');
   });
 
-  it('the three that shipped blank are present', () => {
-    // Named explicitly: these are the regression, and a generic assertion would not say so.
+  it('the ones that shipped blank are present', () => {
+    // Named explicitly: these are the regressions, and a generic assertion would not say so.
+    // The first three were found by eye; the last three by widening the scan that missed them.
     const registered = registeredIcons();
-    for (const name of ['broadcast', 'export', 'stack']) {
+    for (const name of ['broadcast', 'export', 'stack', 'text-align-left', 'file-image', 'user']) {
       assert.ok(registered.has(name), `'${name}' must be registered`);
     }
+  });
+
+  it('the scan sees icons passed through a wrapper component, not just <ph-icon> directly', () => {
+    // The specific blind spot that let `file-image` and `user` ship blank. Without this, widening
+    // the regex could be reverted and every test above would still pass.
+    const used = usedIcons();
+    assert.ok(used.has('file-image'), 'icon="..." on a wrapper component is not being scanned');
+    assert.ok(used.has('text-align-left'), "icon: '...' in a TS object is not being scanned");
   });
 });

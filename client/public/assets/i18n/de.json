@@ -1313,7 +1313,6 @@
   "models.face.title": "Gesichtserkennung",
   "models.face.purpose": "Erkennt Gesichter in Bildern und bettet sie ein, damit nach Personen gesucht werden kann.",
   "models.face.actorLabel": "Läuft mit",
-  "models.face.noControlYet": "Dies lässt sich derzeit nur über die Umgebung abschalten. Eine Bedienoberfläche dafür ist in Arbeit — bis dahin ist FACE_RECOGNITION_ENABLED=false der einzige Weg, es auszuschalten.",
   "models.pipelines.documents": "Dokumente",
   "models.pipelines.images": "Bilder",
   "models.pipelines.imagesPurpose": "Was mit einem hochgeladenen Bild passiert.",
@@ -1415,5 +1414,18 @@
   "models.pipelines.ceilingHint": "Das Maximum, das ein Bereich mit dieser Klasse tun darf. Ein Bereich kann weniger wählen, nie mehr — wenn Sie das hier senken, werden alle Bereiche darüber gekappt, und sie behalten ihre eigene Wahl, falls Sie es wieder anheben.",
   "models.pipelines.ceilingOffWarning": "Aus gilt überall — kein Bereich kann diese Klasse verarbeiten.",
   "files.progress.working": "Läuft",
-  "files.progress.stalled": "Kein Fortschritt gemeldet — dieser Auftrag hängt möglicherweise"
+  "files.progress.stalled": "Kein Fortschritt gemeldet — dieser Auftrag hängt möglicherweise",
+  "models.face.pillOn": "An",
+  "models.face.pillOff": "Aus",
+  "models.face.enable": "Gesichter in hochgeladenen Bildern erkennen und einbetten",
+  "models.face.enableHint": "Standardmäßig aus. Setzt voraus, dass die lokalen Modelldateien vorhanden sind.",
+  "models.face.confidence": "Schwelle für automatische Zuordnung",
+  "models.face.confidenceHint": "Ähnlichkeit (0–1), ab der ein Gesicht automatisch zugeordnet wird. Darunter wird das Gesicht eingebettet, aber nicht zugeordnet.",
+  "models.face.minSize": "Mindestgröße des Gesichts",
+  "models.face.minSizeHint": "Als Anteil der kürzeren Bildseite. Kleinere Gesichter werden übersprungen, was Rauschen aus Gruppenaufnahmen vermeidet.",
+  "models.face.personTypes": "Entitätstypen für Personen",
+  "models.face.personTypesHint": "Kommagetrennt. Nur Entitäten dieser Typen kommen in die Gesichtsgalerie — ein Ort oder Gegenstand an einem Foto kann sie also nie verfälschen.",
+  "models.confirm.faceOffTitle": "Gesichtserkennung ausschalten?",
+  "models.confirm.faceOffMessage": "Ab sofort werden keine neuen Gesichter mehr erkannt oder eingebettet.\n\nBereits vorhandene Gesichtsvektoren und Personenzuordnungen werden NICHT entfernt — sie bleiben gespeichert und durchsuchbar, bis die zugehörigen Dateien gelöscht werden. Ausschalten ist nicht dasselbe wie Löschen des bereits Erfassten.",
+  "models.confirm.faceOffConfirm": "Ausschalten — ich habe verstanden"
 }

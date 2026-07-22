@@ -49,6 +49,8 @@ import { TestTarget } from './models.types';
     .checkrow { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px;
       color: var(--text-secondary); font-weight: normal; }
     .checkrow input { margin-top: 2px; flex: none; }
+    .switchrow { margin-bottom: 13px; }
+    .switchrow .hint { margin-left: 22px; }   /* line up under the label, not the checkbox */
     .testrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .testrow .hint { margin: 0; }
   `],
@@ -289,20 +291,57 @@ import { TestTarget } from './models.types';
         }
       </app-model-provider-card>
 
-      <!-- ── Face recognition (infra, no control yet) ───────────────────── -->
+      <!-- ── Face recognition ───────────────────────────────────────────── -->
+      <!-- The one model in the pipeline an operator could not switch off: it was absent from the
+           client entirely and from the PATCH schema, so opting out meant filesystem access. For a
+           feature that detects and embeds people's faces that was the wrong default. -->
       <app-model-provider-card id="face" icon="user"
         [heading]="'models.face.title' | transloco"
         [purpose]="'models.face.purpose' | transloco"
         [health]="faceState()"
-        [infra]="true" envVar="FACE_RECOGNITION_ENABLED">
+        [infra]="s.faceLocked('enabled')" envVar="FACE_RECOGNITION_ENABLED">
+        <app-status-pill pill [variant]="s.face.enabled ? 'active' : 'off'">
+          {{ (s.face.enabled ? 'models.face.pillOn' : 'models.face.pillOff') | transloco }}
+        </app-status-pill>
+
+        <!-- Not wrapped in .field: that rule styles a direct child label as a small-caps field
+             caption, which turned the checkbox's own label into what looked like a section header
+             floating above an unlabelled box. -->
+        <div class="switchrow">
+          <label class="checkrow">
+            <input type="checkbox" [(ngModel)]="s.face.enabled" [disabled]="s.faceLocked('enabled') || s.managed" />
+            <span>{{ 'models.face.enable' | transloco }}</span>
+          </label>
+          <div class="hint">{{ 'models.face.enableHint' | transloco }}</div>
+        </div>
+
+        <div class="grid2">
+          <div class="field">
+            <label for="face-conf">{{ 'models.face.confidence' | transloco }}</label>
+            <input id="face-conf" type="number" min="0" max="1" step="0.05"
+              [(ngModel)]="s.face.confidenceThreshold" [disabled]="s.faceLocked('confidenceThreshold') || s.managed" />
+            <div class="hint">{{ 'models.face.confidenceHint' | transloco }}</div>
+          </div>
+          <div class="field">
+            <label for="face-minsize">{{ 'models.face.minSize' | transloco }}</label>
+            <input id="face-minsize" type="number" min="0" max="1" step="0.01"
+              [(ngModel)]="s.face.minFaceSizeFraction" [disabled]="s.faceLocked('minFaceSizeFraction') || s.managed" />
+            <div class="hint">{{ 'models.face.minSizeHint' | transloco }}</div>
+          </div>
+        </div>
+
         <div class="field">
+          <label for="face-types">{{ 'models.face.personTypes' | transloco }}</label>
+          <input id="face-types" data-mono [ngModel]="(s.face.personEntityTypes ?? []).join(', ')"
+            (ngModelChange)="setPersonTypes($any($event))"
+            [disabled]="s.faceLocked('personEntityTypes') || s.managed" placeholder="person" />
+          <div class="hint">{{ 'models.face.personTypesHint' | transloco }}</div>
+        </div>
+
+        <div class="field" style="margin-bottom:0;">
           <label>{{ 'models.face.actorLabel' | transloco }}</label>
           <div class="ro">BlazeFace + FaceRes</div>
         </div>
-        <!-- Honest about the gap rather than silently offering nothing: this is the one model in the
-             pipeline with no operator control at all, and it is the one with the clearest privacy
-             weight. Giving it a real switch is its own tracked item. -->
-        <div class="hint">{{ 'models.face.noControlYet' | transloco }}</div>
       </app-model-provider-card>
     </div>
   `,
@@ -313,6 +352,17 @@ export class ModelsTabComponent {
 
   /** Face recognition runs in-process, so its only health is enabled/disabled. */
   faceState = computed(() => this.pipeline.status()?.faceRecognition.state ?? null);
+
+  /**
+   * Person entity types, edited as a comma-separated line.
+   *
+   * Only entities of these types can enter the face gallery, so an empty list means no face is ever
+   * auto-labelled. Blank entries are dropped rather than stored: a trailing comma is the normal way
+   * to type this field mid-edit, and persisting `''` would add a type nothing can ever match.
+   */
+  setPersonTypes(raw: string): void {
+    this.s.face.personEntityTypes = raw.split(',').map(t => t.trim()).filter(Boolean);
+  }
 
   sidecarUrl(key: string): string { return this.pipeline.bySidecarKey().get(key)?.url ?? '—'; }
   sidecarDetail(key: string): string | null { return this.pipeline.bySidecarKey().get(key)?.detail ?? null; }

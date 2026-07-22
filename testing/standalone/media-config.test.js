@@ -60,6 +60,12 @@ describe('getMediaEmbeddingConfig', () => {
     'YTHRIL_MEDIA_INFRA_MANAGED',
     'DOC_OCR_TIMEOUT_MS',
     'EMBEDDING_PROVIDER', 'EMBEDDING_URL', 'EMBEDDING_MODEL', 'EMBEDDING_DIMENSIONS', 'EMBEDDING_API_KEY',
+    // Added when the face block became operator-settable. These were absent while nothing in this
+    // file set them; a leaked FACE_RECOGNITION_* pin shows up as an unrelated lockedByInfra test
+    // failing several cases later, which is a confusing way to learn about it.
+    'FACE_RECOGNITION_ENABLED', 'FACE_RECOGNITION_CONFIDENCE_THRESHOLD',
+    'FACE_RECOGNITION_MIN_FACE_SIZE_FRACTION', 'FACE_RECOGNITION_MODEL_PATH',
+    'FACE_RECOGNITION_PERSON_ENTITY_TYPES', 'FACE_RECOGNITION_REPROCESS_SYNCED_IMAGES',
   ];
 
   function clearEnv() {
@@ -226,6 +232,30 @@ describe('getMediaEmbeddingConfig', () => {
       writeConfig({ mediaEmbedding: { vision: { baseUrl: 'http://config-url:11434' } } });
       const cfg = getMediaEmbeddingConfig();
       assert.equal(cfg.vision?.baseUrl, 'http://env-url:11434');
+    });
+  });
+
+  describe('face recognition is surfaced, not just locked', () => {
+    it('reports the resolved faceRecognition block so a UI can render a real control', () => {
+      // Before the operator control existed, the API reported which face fields were LOCKED but
+      // never their values — so the Models card could show a padlock and not what it padlocked.
+      writeConfig();
+      const cfg = getMediaEmbeddingConfig();
+      assert.ok(cfg.faceRecognition, 'faceRecognition block missing from the resolved config');
+      for (const field of ['enabled', 'confidenceThreshold', 'minFaceSizeFraction', 'personEntityTypes']) {
+        assert.ok(field in cfg.faceRecognition, `${field} not surfaced`);
+      }
+      assert.ok(Array.isArray(cfg.faceRecognition.personEntityTypes));
+    });
+
+    it('the surfaced value reflects the env pin, not the config file', () => {
+      // The block the UI renders is RESOLVED (env → config → default). If it showed the config-file
+      // value while the env pin won, the control would display the opposite of what actually runs.
+      process.env['FACE_RECOGNITION_ENABLED'] = 'true';
+      writeConfig({ mediaEmbedding: { faceRecognition: { enabled: false } } });
+      const cfg = getMediaEmbeddingConfig();
+      assert.equal(cfg.faceRecognition.enabled, true);
+      assert.ok(cfg.lockedByInfra?.includes('faceRecognition.enabled'));
     });
   });
 

@@ -1313,7 +1313,6 @@
   "models.face.title": "Face recognition",
   "models.face.purpose": "Detects faces in images and embeds them so people can be searched for.",
   "models.face.actorLabel": "Runs",
-  "models.face.noControlYet": "This can only be switched off through the environment today. An operator control is on the way — until then, FACE_RECOGNITION_ENABLED=false is the only way to turn it off.",
   "models.pipelines.documents": "Documents",
   "models.pipelines.images": "Images",
   "models.pipelines.imagesPurpose": "What happens to an uploaded image.",
@@ -1415,5 +1414,18 @@
   "models.pipelines.ceilingHint": "The most any space may do with this class. A space can choose less, never more — lowering this caps every space already above it, and those spaces keep their own choice if you raise it again.",
   "models.pipelines.ceilingOffWarning": "Off applies everywhere — no space can process this class.",
   "files.progress.working": "Working",
-  "files.progress.stalled": "No progress reported — this job may be stuck"
+  "files.progress.stalled": "No progress reported — this job may be stuck",
+  "models.face.pillOn": "On",
+  "models.face.pillOff": "Off",
+  "models.face.enable": "Detect and embed faces in uploaded images",
+  "models.face.enableHint": "Off by default. Requires the local model files to be present.",
+  "models.face.confidence": "Auto-label threshold",
+  "models.face.confidenceHint": "Similarity (0–1) above which a face is labelled automatically. Below it the face is embedded but left unlabelled.",
+  "models.face.minSize": "Minimum face size",
+  "models.face.minSizeHint": "As a fraction of the image’s shorter side. Smaller faces are skipped, which avoids noise from crowd shots.",
+  "models.face.personTypes": "Person entity types",
+  "models.face.personTypesHint": "Comma-separated. Only entities of these types can enter the face gallery, so linking a location or object to a photo can never poison it.",
+  "models.confirm.faceOffTitle": "Turn off face recognition?",
+  "models.confirm.faceOffMessage": "No new faces will be detected or embedded from this point on.\n\nExisting face vectors and person labels are NOT removed — they stay stored and searchable until the files they came from are deleted. Turning this off is not the same as erasing what has already been collected.",
+  "models.confirm.faceOffConfirm": "Turn off — I understand"
 }

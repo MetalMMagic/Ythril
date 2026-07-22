@@ -8,7 +8,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { getDb, col } from '../db/mongo.js';
-import { getConfig, saveConfig, getEmbeddingConfig, getDataRoot } from '../config/loader.js';
+import { getConfig, saveConfig, mutateConfig, getEmbeddingConfig, getDataRoot } from '../config/loader.js';
 import { ensureSpaceFilesDir } from '../files/files.js';
 import { invalidateUsageCache } from '../quota/quota.js';
 import { log } from '../util/log.js';
@@ -114,19 +114,27 @@ export async function initSpace(
 
 /** Initialise all spaces defined in config */
 export async function initAllSpaces(): Promise<void> {
-  const cfg = getConfig();
-  let dirty = false;
-  for (const space of cfg.spaces) {
-    log.debug(`Initialising space: ${space.id}`);
-    await initSpace(space.id);
+  // Collect ids, not space objects: `initSpace` waits for index readiness, so this loop holds its
+  // references across many seconds of awaits. A config reload in that window replaces cfg.spaces and
+  // every held object becomes an orphan — the status flips below would then be written to detached
+  // records and lost, leaving spaces stuck reporting 'building' forever with nothing to explain it.
+  const readyAgain: string[] = [];
+  for (const spaceId of getConfig().spaces.map(s => s.id)) {
+    log.debug(`Initialising space: ${spaceId}`);
+    await initSpace(spaceId);
     // initSpace waited for READY here, so a space left mid-build by a crash during
     // createSpace's async finalize (B1) is now ready — clear the stale marker.
-    if (space.indexStatus === 'building' || space.indexStatus === 'failed') {
-      space.indexStatus = 'ready';
-      dirty = true;
-    }
+    const current = getConfig().spaces.find(s => s.id === spaceId);
+    if (current?.indexStatus === 'building' || current?.indexStatus === 'failed') readyAgain.push(spaceId);
   }
-  if (dirty) saveConfig(cfg);
+  if (readyAgain.length > 0) {
+    mutateConfig(fresh => {
+      for (const spaceId of readyAgain) {
+        const live = fresh.spaces.find(s => s.id === spaceId);
+        if (live) live.indexStatus = 'ready';
+      }
+    });
+  }
 }
 
 /** Ensure the built-in 'general' space exists in config and MongoDB */
@@ -178,6 +186,12 @@ export async function createSpace(opts: {
     await initSpace(opts.id, { waitForVectorReady: false });
     space.indexStatus = 'building';
   }
+  // Safe to commit the `cfg` captured before the await, and worth knowing why, because the same
+  // shape is NOT safe a few functions down: `cfg` is a TOP-LEVEL reference, and a reload refreshes
+  // that object in place, so it stays current. `space` is a newly built object being added — not a
+  // record looked up before the await. The dangerous version is holding a reference INTO the config
+  // (one entry out of `cfg.spaces`) across an await and then mutating it; see `renameSpace` and
+  // `reconcilePendingSpaceOp`, which both re-resolve by id inside the write for that reason.
   cfg.spaces.push(space);
   saveConfig(cfg);
   if (!opts.proxyFor) {
@@ -449,9 +463,19 @@ export async function reconcilePendingSpaceOp(): Promise<void> {
         log.error(`Could not complete pending rename ${target}; marker kept for next restart. Errors: ${errors.join('; ')}`);
         return;
       }
-      applySpaceRenameToConfig(cfg, space, op.spaceId, op.newId);
-      delete cfg.pendingSpaceOp;
-      saveConfig(cfg);
+      // Re-resolve inside the write. `space` was looked up before `moveSpaceData`, which renames
+      // every collection and takes seconds; a config reload in that window replaces cfg.spaces and
+      // leaves it orphaned, so committing it would move the data, clear the marker, and keep the OLD
+      // id — the same silent half-rename this recovery path exists to repair. This one runs ON the
+      // reload path, so a reload is not just possible here, it is nearby by construction.
+      // Capture before the callback: the `op.newId` narrowing from the guard above does not survive
+      // into a closure.
+      const { spaceId: fromId, newId: toId } = { spaceId: op.spaceId, newId: op.newId };
+      mutateConfig(fresh => {
+        const live = fresh.spaces.find(sp => sp.id === fromId);
+        if (live) applySpaceRenameToConfig(fresh, live, fromId, toId);
+        delete fresh.pendingSpaceOp;
+      });
       log.info(`Completed interrupted rename ${target}`);
     } else if (op.type === 'delete') {
       const errors = await dropSpaceData(op.spaceId);
@@ -459,9 +483,12 @@ export async function reconcilePendingSpaceOp(): Promise<void> {
         log.error(`Could not complete pending delete ${target}; marker kept for next restart. Errors: ${errors.join('; ')}`);
         return;
       }
-      cfg.spaces = cfg.spaces.filter(s => s.id !== op.spaceId);
-      delete cfg.pendingSpaceOp;
-      saveConfig(cfg);
+      // Same treatment: `dropSpaceData` is slow, so re-read before committing rather than writing
+      // a spaces array captured before it.
+      mutateConfig(fresh => {
+        fresh.spaces = fresh.spaces.filter(sp => sp.id !== op.spaceId);
+        delete fresh.pendingSpaceOp;
+      });
       log.info(`Completed interrupted deletion ${target}`);
     } else {
       log.error(`Unknown pendingSpaceOp type '${op.type}' — clearing marker`);

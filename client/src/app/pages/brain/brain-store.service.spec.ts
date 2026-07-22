@@ -149,11 +149,25 @@ describe('BrainStore — filteredFileMetas', () => {
 describe('BrainStore — tag suggestions', () => {
   const meta = (tagSuggestions: string[]) => ({ tagSuggestions, typeSchemas: {} } as unknown as SpaceMetaResponse);
 
-  it('unions the space schema suggestions with tags present on loaded records, deduped', () => {
+  // BEHAVIOUR CHANGE, not a test tidy-up. This used to union the space-wide `meta.tagSuggestions`
+  // with the tags on loaded records. That list was retired: it was editable in one place, applied to
+  // every type and every record form in the space, and was easy to set once and forget — a stored
+  // list quietly steering what agents and people tagged with. Suggestions now come from what is
+  // actually in use, which maintains itself and needs no editor.
+  it('suggests the tags present on loaded records, deduped — and ignores the retired space-wide list', () => {
     const c = create();
     c.spaceMeta.set(meta(['schema-tag', 'shared']));
     c.memories.set([mem('a', { tags: ['shared', 'from-record'] })]);
-    expect(c.memoryTagSuggestions()).toEqual(['schema-tag', 'shared', 'from-record']);
+    expect(c.memoryTagSuggestions()).toEqual(['shared', 'from-record']);
+  });
+
+  it('a stored space-wide list contributes nothing, even when no records are loaded', () => {
+    // Pins the retirement itself: the value survives in config.json untouched, but it must not come
+    // back into the UI through this path.
+    const c = create();
+    c.spaceMeta.set(meta(['schema-tag']));
+    c.memories.set([]);
+    expect(c.memoryTagSuggestions()).toEqual([]);
   });
 
   it('works with no schema suggestions at all', () => {

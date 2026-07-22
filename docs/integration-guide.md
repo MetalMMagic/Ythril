@@ -3020,7 +3020,7 @@ What the schema enforces:
 | Field | Description |
 |-------|-------------|
 | `typeSchemas` | Per-type schema definitions (see above). |
-| `tagSuggestions` | Global non-enforced tag hints shown in the UI for all knowledge types (max 200). |
+| `tagSuggestions` | **Retired.** A space-wide list of non-enforced tag hints. It is still accepted and stored (so an existing list is preserved untouched, and the change is reversible) but nothing reads it: it no longer feeds tag autocomplete in the Brain record forms, and no longer appears in the schema guidance returned to MCP clients. It was one list, editable in a single place, applied to every type and every form in the space — easy to set once and forget while quietly steering what got tagged. Autocomplete now comes from the tags actually in use, which maintains itself. Per-type `typeSchemas.<kind>.<type>.tagSuggestions` is a separate field and is unaffected. |
 | `strictLinkage` | When `true`, all reference fields (`from`/`to`, `entityIds`, `memoryIds`) must be valid UUID v4 values, and entity deletion is blocked while inbound backlinks exist. Default: `false`. |
 | `purpose` | Short description of the space (max 4000 chars). Returned by `get_space_meta`. |
 | `usageNotes` | Extended Markdown-formatted guidance for LLM clients (max 50 000 chars). Returned by `get_space_meta`. |

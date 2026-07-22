@@ -75,8 +75,15 @@ export class SpaceSettingsState {
   // ── schema tab ─────────────────────────────────────────────────────────────
   schValidation:     ValidationMode = 'off';
   schStrictLinkage   = false;
+  /**
+   * Space-wide tag suggestions. The editor for this was retired — it was one list applied to every
+   * type and every record form, easy to set once and forget while steering what got tagged.
+   *
+   * The load/save round-trip is KEPT on purpose so an existing list is preserved verbatim in
+   * config.json rather than being erased the first time someone opens this tab and hits save. The
+   * retirement is reversible; silently destroying an operator's data to tidy up a field would not be.
+   */
   schTagSuggestions: string[] = [];
-  schNewTagInput     = '';
   schTypeSchemas:    Partial<Record<KnowledgeType, Record<string, TypeSchemaState>>> = {
     entity: {}, memory: {}, edge: {}, chrono: {},
   };
@@ -118,7 +125,6 @@ export class SpaceSettingsState {
     this.schValidation     = meta.validationMode ?? 'off';
     this.schStrictLinkage  = meta.strictLinkage ?? false;
     this.schTagSuggestions = [...(meta.tagSuggestions ?? [])];
-    this.schNewTagInput    = '';
     this.schNewTypeInputs  = { entity: '', memory: '', edge: '', chrono: '' };
     this.schSelectedType   = null;
     this.schExpandedProps.clear();
@@ -350,13 +356,6 @@ export class SpaceSettingsState {
     if (!raw || state.tagSuggestions.includes(raw)) { state._newTagInput = ''; return; }
     state.tagSuggestions = [...state.tagSuggestions, raw];
     state._newTagInput   = '';
-  }
-
-  addGlobalTag(): void {
-    const raw = this.schNewTagInput.trim();
-    if (!raw || this.schTagSuggestions.includes(raw)) { this.schNewTagInput = ''; return; }
-    this.schTagSuggestions = [...this.schTagSuggestions, raw];
-    this.schNewTagInput    = '';
   }
 
   onEnumKey(e: KeyboardEvent, kt: KnowledgeType, typeName: string, propKey: string): void {

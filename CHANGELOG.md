@@ -2063,6 +2063,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Schema tab: the add-a-type control stopped moving, and the space-wide tag list is retired**
+  (owner requests, 2026-07-21).
+  - **Add-a-type is now `[name ⊕]`, pinned above the list.** It used to sit underneath, so it slid
+    further down the column with every type added — the control you reach for most moved every time
+    you used it. Imports moved to the foot of the column, where the occasional path belongs.
+  - **The space-wide tag-suggestion editor is gone, and so is its effect.** `meta.tagSuggestions` was
+    one list, editable in a single place, that applied to every type and every record form in the
+    space — easy to set once and forget while quietly steering what agents and people tagged with. It
+    no longer feeds tag autocomplete in the Brain record forms, and no longer appears in the schema
+    guidance returned to MCP clients. Autocomplete now comes from the tags actually in use, which
+    maintains itself and needs no editor. **A stored list is preserved verbatim in `config.json`**
+    rather than deleted: the retirement is reversible, and silently destroying an operator's data to
+    tidy up a field would be the worse trade. Per-type `tagSuggestions` is a separate field and is
+    unaffected.
+  - **A typography pass on the detail pane.** Every section now reads the same — `LABEL — hint` —
+    where the delimiter had been an em dash in some places and parentheses in others, and the
+    spacing between sections was whatever each block's own margins happened to add up to.
+    **Property schemas** gained the guidance it was missing: it was the only section that did not
+    explain itself, and it is the one doing the most work. Its hint also names the control that
+    decides enforcement, which sits a whole panel away at the top of the tab.
+
 - **Face recognition can be turned off from the admin UI — it was the one model in the pipeline that
   could not be.** #345 gave every `mediaEmbedding.faceRecognition` field an env var so infra could
   pin it, but an operator had no path at all: the setting was absent from the client entirely and

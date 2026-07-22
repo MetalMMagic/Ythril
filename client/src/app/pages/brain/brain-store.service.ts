@@ -44,23 +44,25 @@ export class BrainStore {
   chronoSearchMode = signal<'text' | 'semantic'>('text');
 
   // ── Tag suggestions + filtered views (per collection) ───────────────────────
+  //
+  // Sourced from the tags ALREADY IN USE in this collection. The space-level
+  // `meta.tagSuggestions` list used to be merged in as well; it was retired because it was
+  // editable in one place, applied everywhere, and easy to forget about — a stored list quietly
+  // steering what agents and people tagged with. What is actually in use is self-maintaining and
+  // needs no editor.
   memoryTagSuggestions = computed(() => [...new Set([
-    ...(this.spaceMeta()?.tagSuggestions ?? []),
     ...this.memories().flatMap(m => m.tags ?? []),
   ])]);
 
   entityTagSuggestions = computed(() => [...new Set([
-    ...(this.spaceMeta()?.tagSuggestions ?? []),
     ...this.entities().flatMap(e => e.tags ?? []),
   ])]);
 
   edgeTagSuggestions = computed(() => [...new Set([
-    ...(this.spaceMeta()?.tagSuggestions ?? []),
     ...this.edges().flatMap(e => e.tags ?? []),
   ])]);
 
   chronoTagSuggestions = computed(() => [...new Set([
-    ...(this.spaceMeta()?.tagSuggestions ?? []),
     ...this.chrono().flatMap(c => c.tags ?? []),
   ])]);
 

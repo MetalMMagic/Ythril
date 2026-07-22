@@ -1331,6 +1331,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Asking recall for a `minScore` silently changed the SHAPE of the response.** File chunk results
+  are normally enriched with their parent file's path, description and tags, so an agent can tell
+  which document a fragment came from. That enrichment ran *after* an early `return` in the
+  `minScore` branch — so any recall that specified a minimum score got file chunks with no parent
+  information at all, while an otherwise identical recall without one got them enriched. Scoring and
+  enrichment are unrelated concerns and were never meant to interact: both landed in the same
+  refactor (#232) and the ordering was incidental. Found while converting the recall simulation
+  tests, which had been "covering" this code with a hand-written copy that did not contain the bug.
+
 - **Three icons rendered as blank space — and nothing could have told you.** `broadcast` (nav →
   Webhooks), `export` and `stack` (Schema library) were used in templates but absent from the icon
   registry. `PhIconComponent` resolves an unknown name to `ICONS[name] ?? ''`, which renders a
@@ -2062,6 +2071,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the migration. Covered by `testing/integration/auth.test.js`.
 
 ### Changed
+
+- **The multi-type recall tests now test multi-type recall.** 1002 lines that re-implemented roughly
+  ten functions and tested the copies. Three different problems, so three different fixes:
+  - `formatRecallSummary` and `toRecallRecord` are real and exported — imported now. The copy of
+    `formatRecallSummary` had already drifted *defensively*, with `?? ''` fallbacks and a `default:`
+    arm, against a production switch that is exhaustive over a discriminated union. Those branches
+    could not be reached even in the copy.
+  - The five `*EmbedText` sections were **deleted rather than converted**: `embed-text-builders.test.js`
+    already tests the real builders and its header documents the very drift incident those copies came
+    from. Converting them would have produced a second copy of a test that already exists.
+  - The recall merge logic had **no seam to test** — it sat between two `await`s into MongoDB, which
+    is why it got hand-copied in the first place. Extracted as `mergeRecallResults`, pure and
+    exported, and now tested for real: floors survive `topK`, a floor result can outrank a global one,
+    duplicates are collapsed, and `minScore` filters last so it can drop even a guaranteed result.
+  Deleted outright as tautologies: `tagsApply()` — a function whose body was `return true`, asserted
+  to return true — and `resolveActiveTypes`, which tested a function production does not have.
+  The suite reports 81 fewer tests. The embed-text coverage is unchanged, because it lives on the real
+  builders in the other file; the rest were exercising copies.
 
 - **The `PropertySchema` request-validation tests now use the real Zod schema.** The file kept a
   hand-copy of `PropertySchemaZ` from `api/spaces.ts`, and it had drifted in the direction hardest to

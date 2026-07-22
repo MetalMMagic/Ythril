@@ -44,9 +44,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outright; the address-class rule stops the pivot without asserting something false about how IdPs
   deploy. A test carries that reasoning so it is not re-litigated later.
 
-  25 new standalone tests against the real exported functions, each rule mutation-checked (remove the
-  flag lookup, the endpoint validation, the §4.3 issuer match — exactly the intended assertions fail
-  and nothing else).
+  **An issuer on `127.0.0.1` / `localhost` is not supported, even with the flag on** — loopback is a
+  crown-jewel address. It could not really work anyway: in the normal Docker deployment the server's
+  loopback is its own container, and the browser is sent to the same `authorization_endpoint`, so the
+  browser's loopback would have to be the server's for the flow to complete. Evaluating on a single
+  machine? Use the host's LAN IP or a hostname (`http://host.docker.internal:8080` from Compose).
+
+  33 new standalone tests against the real exported functions, each rule mutation-checked (remove the
+  flag lookup, the endpoint validation, the §4.3 issuer match, the posture check — exactly the
+  intended assertions fail and nothing else).
+
+- **A whole OIDC end-to-end test suite had been skipped on Windows, and the skip was stale.**
+  `oidc.test.js` carried `skip: process.platform === 'win32'` for an "ESM drive-letter path
+  limitation" that no longer applies — verified by running it unskipped. It hid 17 tests from every
+  local run on Windows, which is precisely how a change that broke them could look green locally and
+  fail in CI. The skip is gone and the suite now runs everywhere; its mock IdP binds to the host's
+  private LAN address (with the opt-in enabled) rather than loopback, so it also serves as a live
+  proof that `allowPrivateIssuer` lets an internal IdP through.
 
 - **Face recognition can now be pinned by infra — it was the one model in the pipeline that could not
   be.** Vision, speech-to-text, embedding, the document assist model and both sidecars all had env

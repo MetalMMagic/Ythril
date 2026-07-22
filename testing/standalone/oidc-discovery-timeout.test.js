@@ -27,7 +27,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import os from 'node:os';
+import { privateHostAddress } from './_private-address.mjs';
 
 let getDiscoveryDoc;
 let clearOidcCache;
@@ -41,16 +41,6 @@ const heldSockets = [];
 
 const ENV_KEY = 'YTHRIL_OIDC_ALLOW_PRIVATE_ISSUER';
 let savedEnv;
-
-/** The host's own non-loopback IPv4 — a private address the guard permits once opted in. */
-function privateHostAddress() {
-  for (const addrs of Object.values(os.networkInterfaces())) {
-    for (const a of addrs ?? []) {
-      if (a.family === 'IPv4' && !a.internal) return a.address;
-    }
-  }
-  return null;
-}
 
 describe('OIDC discovery — timeout', () => {
   before(async () => {

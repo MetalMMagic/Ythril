@@ -6435,13 +6435,19 @@ Turning the flag on does **not** disable the guard:
   every redirect hop — so a hostname that resolves inward, or a redirect that pivots inward, is still
   refused.
 - **Loopback, link-local / cloud metadata (IMDS) and the unspecified address stay blocked regardless**,
-  including when a hostname resolves to one. An issuer on the server's own `127.0.0.1` cannot work as
-  OIDC anyway — the browser is sent to the same `authorization_endpoint`, and the browser's loopback
-  is not the server's.
+  including when a hostname resolves to one.
 - The allowance is scoped to the **issuer's own address class**: a *public* issuer may never hand back
   a private `jwks_uri`, `authorization_endpoint` or `token_endpoint`, flag or no flag. OIDC Discovery
   §4.3 constrains only the document's `issuer` field, so the endpoints beside it are validated
   separately.
+
+> **An issuer on `127.0.0.1` / `localhost` is not supported, even with the flag on.** In the normal
+> Docker deployment the server's loopback is its own container, so an IdP there is unreachable anyway;
+> and the browser is sent to the same `authorization_endpoint`, so the browser's loopback would have
+> to be the server's for the flow to complete at all. If you are evaluating Ythril on a single machine
+> with a local IdP, address it by the host's LAN IP or a hostname (for example
+> `http://host.docker.internal:8080` from Compose) rather than `127.0.0.1`, and set
+> `allowPrivateIssuer`.
 
 Endpoints on a *different public host* than the issuer are fine and common — Google publishes
 `accounts.google.com` with a `jwks_uri` on `www.googleapis.com` and a `token_endpoint` on

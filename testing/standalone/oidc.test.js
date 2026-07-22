@@ -15,6 +15,19 @@
  *  - validateOidcJwt() returns null for invalid / disabled OIDC
  *  - claimMapping.requireMatch: true rejects tokens matching no rule
  *
+ * WHERE THE MOCK IdP LIVES (changed with the SSRF part-2b issuer guard): the mock binds to the host's
+ * **private LAN address**, not `127.0.0.1`, and the suite enables `YTHRIL_OIDC_ALLOW_PRIVATE_ISSUER`.
+ * Loopback is a crown-jewel address that stays blocked even with that opt-in on, so a mock on
+ * 127.0.0.1 is refused before a socket opens and every end-to-end case below would assert on a `null`
+ * that never reached the IdP. Binding to a private address is the supported "internal IdP" shape, so
+ * these tests now also prove the opt-in actually works.
+ *
+ * The suite previously carried `skip: process.platform === 'win32'` for an "ESM drive-letter path
+ * limitation". That was stale — verified by running it unskipped on Windows — and it was actively
+ * harmful: it hid this entire end-to-end suite from every local run on Windows, which is how a
+ * breaking change to it reached CI green-locally. Skipping now depends only on the host having a
+ * non-loopback IPv4.
+ *
  * Run: node --test testing/standalone/oidc.test.js
  */
 
@@ -31,10 +44,16 @@ import { fileURLToPath, pathToFileURL } from 'url';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { privateHostAddress, privateAddressSkipReason } from './_private-address.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_AUTH   = path.resolve(__dirname, '../../server/dist/auth');
 const DIST_CONFIG = path.resolve(__dirname, '../../server/dist/config');
+
+/** Where the mock IdP binds — see the note above on why this is not loopback. */
+const MOCK_IDP_HOST = privateHostAddress() ?? '127.0.0.1';
+// An internal IdP on a private address is exactly what this opt-in exists for.
+process.env['YTHRIL_OIDC_ALLOW_PRIVATE_ISSUER'] = 'true';
 
 // ── Key material ──────────────────────────────────────────────────────────
 
@@ -230,7 +249,7 @@ describe('JWT sign / verify roundtrip', () => {
 // phase — even when pathToFileURL is used.  Skip on Windows; the real CI
 // runs inside a Linux Docker container.
 
-describe('OIDC server module (compiled)', { skip: process.platform === 'win32' && 'Windows ESM drive-letter path limitation' }, () => {
+describe('OIDC server module (compiled)', { skip: privateAddressSkipReason() }, () => {
   let oidcMod, loaderMod;
 
   before(async () => {
@@ -306,10 +325,10 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       if (req.url === '/.well-known/openid-configuration') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          issuer:                  `http://127.0.0.1:${serverPort}`,
-          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
-          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
-          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+          issuer:                  `http://${MOCK_IDP_HOST}:${serverPort}`,
+          authorization_endpoint:  `http://${MOCK_IDP_HOST}:${serverPort}/authorize`,
+          token_endpoint:          `http://${MOCK_IDP_HOST}:${serverPort}/token`,
+          jwks_uri:                `http://${MOCK_IDP_HOST}:${serverPort}/jwks`,
         }));
       } else if (req.url === '/jwks') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -319,13 +338,13 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       }
     });
 
-    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+    await new Promise(resolve => server.listen(0, MOCK_IDP_HOST, () => {
       serverPort = server.address().port;
       resolve();
     }));
 
     try {
-      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      const issuerUrl = `http://${MOCK_IDP_HOST}:${serverPort}`;
 
       writeFullConfig({ ...makeOidcConfig(), issuerUrl, audience: 'ythril' });
       loaderMod.loadConfig();
@@ -371,10 +390,10 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       if (req.url === '/.well-known/openid-configuration') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          issuer:                  `http://127.0.0.1:${serverPort}`,
-          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
-          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
-          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+          issuer:                  `http://${MOCK_IDP_HOST}:${serverPort}`,
+          authorization_endpoint:  `http://${MOCK_IDP_HOST}:${serverPort}/authorize`,
+          token_endpoint:          `http://${MOCK_IDP_HOST}:${serverPort}/token`,
+          jwks_uri:                `http://${MOCK_IDP_HOST}:${serverPort}/jwks`,
         }));
       } else if (req.url === '/jwks') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -382,13 +401,13 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       } else { res.writeHead(404); res.end(); }
     });
 
-    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+    await new Promise(resolve => server.listen(0, MOCK_IDP_HOST, () => {
       serverPort = server.address().port;
       resolve();
     }));
 
     try {
-      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      const issuerUrl = `http://${MOCK_IDP_HOST}:${serverPort}`;
       writeFullConfig({ ...makeOidcConfig(), issuerUrl, audience: 'ythril' });
       loaderMod.loadConfig();
       oidcMod.clearOidcCache();
@@ -454,30 +473,30 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       if (req.url === '/.well-known/openid-configuration') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          issuer:                  `http://127.0.0.1:${serverPort}`,
-          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
-          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
-          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
-          end_session_endpoint:    `http://127.0.0.1:${serverPort}/logout`,
+          issuer:                  `http://${MOCK_IDP_HOST}:${serverPort}`,
+          authorization_endpoint:  `http://${MOCK_IDP_HOST}:${serverPort}/authorize`,
+          token_endpoint:          `http://${MOCK_IDP_HOST}:${serverPort}/token`,
+          jwks_uri:                `http://${MOCK_IDP_HOST}:${serverPort}/jwks`,
+          end_session_endpoint:    `http://${MOCK_IDP_HOST}:${serverPort}/logout`,
         }));
       } else {
         res.writeHead(404); res.end();
       }
     });
 
-    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+    await new Promise(resolve => server.listen(0, MOCK_IDP_HOST, () => {
       serverPort = server.address().port;
       resolve();
     }));
 
     try {
-      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      const issuerUrl = `http://${MOCK_IDP_HOST}:${serverPort}`;
       writeFullConfig({ ...makeOidcConfig(), issuerUrl });
       loaderMod.loadConfig();
       oidcMod.clearOidcCache();
 
       const doc = await oidcMod.getDiscoveryDoc(issuerUrl);
-      assert.equal(doc.end_session_endpoint, `http://127.0.0.1:${serverPort}/logout`,
+      assert.equal(doc.end_session_endpoint, `http://${MOCK_IDP_HOST}:${serverPort}/logout`,
         'end_session_endpoint must be preserved from the discovery document');
     } finally {
       await new Promise(resolve => server.close(resolve));
@@ -498,10 +517,10 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       if (req.url === '/.well-known/openid-configuration') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          issuer:                  `http://127.0.0.1:${serverPort}`,
-          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
-          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
-          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+          issuer:                  `http://${MOCK_IDP_HOST}:${serverPort}`,
+          authorization_endpoint:  `http://${MOCK_IDP_HOST}:${serverPort}/authorize`,
+          token_endpoint:          `http://${MOCK_IDP_HOST}:${serverPort}/token`,
+          jwks_uri:                `http://${MOCK_IDP_HOST}:${serverPort}/jwks`,
         }));
       } else if (req.url === '/jwks') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -509,13 +528,13 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       } else { res.writeHead(404); res.end(); }
     });
 
-    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+    await new Promise(resolve => server.listen(0, MOCK_IDP_HOST, () => {
       serverPort = server.address().port;
       resolve();
     }));
 
     try {
-      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      const issuerUrl = `http://${MOCK_IDP_HOST}:${serverPort}`;
       writeFullConfig({
         ...makeOidcConfig(),
         issuerUrl,
@@ -560,10 +579,10 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       if (req.url === '/.well-known/openid-configuration') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          issuer:                  `http://127.0.0.1:${serverPort}`,
-          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
-          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
-          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+          issuer:                  `http://${MOCK_IDP_HOST}:${serverPort}`,
+          authorization_endpoint:  `http://${MOCK_IDP_HOST}:${serverPort}/authorize`,
+          token_endpoint:          `http://${MOCK_IDP_HOST}:${serverPort}/token`,
+          jwks_uri:                `http://${MOCK_IDP_HOST}:${serverPort}/jwks`,
         }));
       } else if (req.url === '/jwks') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -571,13 +590,13 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       } else { res.writeHead(404); res.end(); }
     });
 
-    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+    await new Promise(resolve => server.listen(0, MOCK_IDP_HOST, () => {
       serverPort = server.address().port;
       resolve();
     }));
 
     try {
-      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      const issuerUrl = `http://${MOCK_IDP_HOST}:${serverPort}`;
       writeFullConfig({
         ...makeOidcConfig(),
         issuerUrl,
@@ -622,10 +641,10 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       if (req.url === '/.well-known/openid-configuration') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          issuer:                  `http://127.0.0.1:${serverPort}`,
-          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
-          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
-          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+          issuer:                  `http://${MOCK_IDP_HOST}:${serverPort}`,
+          authorization_endpoint:  `http://${MOCK_IDP_HOST}:${serverPort}/authorize`,
+          token_endpoint:          `http://${MOCK_IDP_HOST}:${serverPort}/token`,
+          jwks_uri:                `http://${MOCK_IDP_HOST}:${serverPort}/jwks`,
         }));
       } else if (req.url === '/jwks') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -633,13 +652,13 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       } else { res.writeHead(404); res.end(); }
     });
 
-    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+    await new Promise(resolve => server.listen(0, MOCK_IDP_HOST, () => {
       serverPort = server.address().port;
       resolve();
     }));
 
     try {
-      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      const issuerUrl = `http://${MOCK_IDP_HOST}:${serverPort}`;
       writeFullConfig({
         ...makeOidcConfig(),
         issuerUrl,
@@ -684,10 +703,10 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       if (req.url === '/.well-known/openid-configuration') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          issuer:                  `http://127.0.0.1:${serverPort}`,
-          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
-          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
-          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+          issuer:                  `http://${MOCK_IDP_HOST}:${serverPort}`,
+          authorization_endpoint:  `http://${MOCK_IDP_HOST}:${serverPort}/authorize`,
+          token_endpoint:          `http://${MOCK_IDP_HOST}:${serverPort}/token`,
+          jwks_uri:                `http://${MOCK_IDP_HOST}:${serverPort}/jwks`,
         }));
       } else if (req.url === '/jwks') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -695,13 +714,13 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
       } else { res.writeHead(404); res.end(); }
     });
 
-    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+    await new Promise(resolve => server.listen(0, MOCK_IDP_HOST, () => {
       serverPort = server.address().port;
       resolve();
     }));
 
     try {
-      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      const issuerUrl = `http://${MOCK_IDP_HOST}:${serverPort}`;
       // requireMatch absent — unmatched tokens are accepted but fail closed
       writeFullConfig({ ...makeOidcConfig(), issuerUrl, audience: 'ythril' });
       loaderMod.loadConfig();
@@ -742,23 +761,23 @@ describe('OIDC server module (compiled)', { skip: process.platform === 'win32' &
         res.writeHead(200, { 'Content-Type': 'application/json' });
         // Deliberately omit end_session_endpoint
         res.end(JSON.stringify({
-          issuer:                  `http://127.0.0.1:${serverPort}`,
-          authorization_endpoint:  `http://127.0.0.1:${serverPort}/authorize`,
-          token_endpoint:          `http://127.0.0.1:${serverPort}/token`,
-          jwks_uri:                `http://127.0.0.1:${serverPort}/jwks`,
+          issuer:                  `http://${MOCK_IDP_HOST}:${serverPort}`,
+          authorization_endpoint:  `http://${MOCK_IDP_HOST}:${serverPort}/authorize`,
+          token_endpoint:          `http://${MOCK_IDP_HOST}:${serverPort}/token`,
+          jwks_uri:                `http://${MOCK_IDP_HOST}:${serverPort}/jwks`,
         }));
       } else {
         res.writeHead(404); res.end();
       }
     });
 
-    await new Promise(resolve => server.listen(0, '127.0.0.1', () => {
+    await new Promise(resolve => server.listen(0, MOCK_IDP_HOST, () => {
       serverPort = server.address().port;
       resolve();
     }));
 
     try {
-      const issuerUrl = `http://127.0.0.1:${serverPort}`;
+      const issuerUrl = `http://${MOCK_IDP_HOST}:${serverPort}`;
       writeFullConfig({ ...makeOidcConfig(), issuerUrl });
       loaderMod.loadConfig();
       oidcMod.clearOidcCache();

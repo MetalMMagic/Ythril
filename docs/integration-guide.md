@@ -6416,6 +6416,47 @@ Add an `oidc` block to `config.json`:
 | `claimMapping` | No | Maps IdP claims to Ythril permissions (see below). |
 | `enforceForBrowser` | No | When `true`, the browser SPA rejects cached PAT sessions and always forces a fresh OIDC login. PATs continue to work for API / MCP bearer-header requests. Default: `false`. |
 | `postLogoutRedirectUri` | No | URI the IdP should redirect to after `end_session`. Passed as `post_logout_redirect_uri`. Defaults to `{origin}/login`. |
+| `allowPrivateIssuer` | No | Permit an issuer on a **private address** (`10.x`, `192.168.x`, `172.16–31.x`, IPv6 ULA). Default `false` — public issuers only. Env: `YTHRIL_OIDC_ALLOW_PRIVATE_ISSUER=true`. **An internal IdP needs this or nobody can sign in** — see below. |
+
+### Internal IdPs on a private address
+
+> **If your IdP lives on a private address — Keycloak on `http://keycloak.internal:8080`, Authentik on
+> a cluster service, Dex on `10.x` — you must set `oidc.allowPrivateIssuer: true` (or
+> `YTHRIL_OIDC_ALLOW_PRIVATE_ISSUER=true`). Without it, discovery is refused and no one can sign in.**
+
+The server makes two outbound calls on the authentication path: the discovery document at
+`{issuerUrl}/.well-known/openid-configuration`, and the JWKS at whatever `jwks_uri` that document
+names. The second is a URL the server was *told* to fetch, which makes it an SSRF target, so both now
+go through the same egress guard as sync peers and model endpoints. The default is public-only.
+
+Turning the flag on does **not** disable the guard:
+
+- Discovery and JWKS still resolve DNS, **pin the resolved IP** for the connection, and re-validate
+  every redirect hop — so a hostname that resolves inward, or a redirect that pivots inward, is still
+  refused.
+- **Loopback, link-local / cloud metadata (IMDS) and the unspecified address stay blocked regardless**,
+  including when a hostname resolves to one.
+- The allowance is scoped to the **issuer's own address class**: a *public* issuer may never hand back
+  a private `jwks_uri`, `authorization_endpoint` or `token_endpoint`, flag or no flag. OIDC Discovery
+  §4.3 constrains only the document's `issuer` field, so the endpoints beside it are validated
+  separately.
+
+> **An issuer on `127.0.0.1` / `localhost` is not supported, even with the flag on.** In the normal
+> Docker deployment the server's loopback is its own container, so an IdP there is unreachable anyway;
+> and the browser is sent to the same `authorization_endpoint`, so the browser's loopback would have
+> to be the server's for the flow to complete at all. If you are evaluating Ythril on a single machine
+> with a local IdP, address it by the host's LAN IP or a hostname (for example
+> `http://host.docker.internal:8080` from Compose) rather than `127.0.0.1`, and set
+> `allowPrivateIssuer`.
+
+Endpoints on a *different public host* than the issuer are fine and common — Google publishes
+`accounts.google.com` with a `jwks_uri` on `www.googleapis.com` and a `token_endpoint` on
+`oauth2.googleapis.com`.
+
+At boot, an enabled OIDC config with a private issuer literal and no flag is reported as a **FAIL** in
+the security posture (`oidc.issuer`, visible at `GET /api/about/security`), and with
+`security.strict` the server refuses to start — rather than letting you find out from a login page
+that just says "authentication failed".
 
 ### Claim Mapping
 

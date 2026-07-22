@@ -10,7 +10,8 @@
 import { getConfig, getMongoUri, atRestEncryptionActive } from './loader.js';
 import { requireEncryptedTransport, allowInsecurePeersRaw } from './transport-security.js';
 import { allowPrivateModelEndpoints } from './model-egress-policy.js';
-import { modelEndpointExposure, formatExposure } from './model-egress-exposure.js';
+import { allowPrivateOidcIssuer } from './oidc-egress-policy.js';
+import { modelEndpointExposure, formatExposure, classifyEndpoint } from './model-egress-exposure.js';
 
 export type PostureLevel = 'pass' | 'warn' | 'fail';
 
@@ -109,6 +110,28 @@ export function computeSecurityPosture(): SecurityPosture {
         level: 'warn',
         message: `External model endpoint(s) point at addresses this instance will refuse to call: ${formatExposure(stuck)}. Set allowPrivateModelEndpoints (or YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true) for a self-hosted endpoint on a private address; cloud-metadata addresses stay blocked regardless.`,
       });
+    }
+  }
+
+  // ── OIDC issuer egress ───────────────────────────────────────────────────────
+  // The one check here that can be a FAIL rather than a WARN, and deliberately so: an enabled OIDC
+  // config whose issuer sits on a private address with the opt-in absent means NOBODY CAN SIGN IN.
+  // Discovering that from a login page that says "authentication failed" is the bad version of this
+  // change; discovering it from a named line at boot (and, under security.strict, from a refusal to
+  // start at all) is the good one.
+  if (cfg?.oidc?.enabled && cfg.oidc.issuerUrl) {
+    const { host, klass } = classifyEndpoint(cfg.oidc.issuerUrl);
+    const allowPrivate = allowPrivateOidcIssuer();
+    if (klass === 'invalid') {
+      checks.push({ id: 'oidc.issuer', level: 'fail', message: `oidc.enabled is on but issuerUrl (${host}) is unusable — unparseable, or a loopback / link-local / cloud-metadata address that is blocked regardless of oidc.allowPrivateIssuer. No one can sign in.` });
+    } else if (klass === 'private' && !allowPrivate) {
+      checks.push({ id: 'oidc.issuer', level: 'fail', message: `oidc.enabled is on and issuerUrl (${host}) is a private address, but oidc.allowPrivateIssuer is not set — discovery will be refused and no one can sign in. Set oidc.allowPrivateIssuer: true (or YTHRIL_OIDC_ALLOW_PRIVATE_ISSUER=true) for an internal IdP.` });
+    } else if (allowPrivate) {
+      // Report the exposure, not the flag — same rule as the model endpoints above. A hostname is
+      // named as a hostname: only the resolution-time guard knows where it points.
+      checks.push(klass === 'private'
+        ? { id: 'oidc.issuer', level: 'warn', message: `oidc.allowPrivateIssuer is on — issuer ${host} is a private address. SSRF guarding, IP-pinning and redirect re-validation still apply; loopback, link-local/IMDS and cloud-metadata addresses stay blocked, and a public issuer could not name a private jwks_uri.` }
+        : { id: 'oidc.issuer', level: 'warn', message: `oidc.allowPrivateIssuer is on but issuer ${host} is not a private address (${klass}) — nothing is using the permission; unset it.` });
     }
   }
 

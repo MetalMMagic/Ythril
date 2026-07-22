@@ -26,6 +26,10 @@ export interface EndpointExposure {
 
 /**
  * Classify a configured endpoint without resolving it.
+ *
+ * Provider-agnostic despite the module name — the OIDC issuer posture check
+ * (`security-posture.ts`, `oidc.issuer`) uses it too, for the same reason: reporting *which class of
+ * address* a configured URL is, without a DNS round-trip at boot.
  *  - `private`  — an IP literal that only the opt-in permits (10/8, 172.16/12, 192.168/16, CGNAT, ULA…)
  *  - `public`   — passes the guard with the opt-in off
  *  - `hostname` — not an IP literal; where it points is decided at call time

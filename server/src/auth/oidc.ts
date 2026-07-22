@@ -11,10 +11,12 @@
  * are never routed through this module.
  */
 
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, customFetch, jwtVerify } from 'jose';
 import type { JWTPayload } from 'jose';
 import { getConfig } from '../config/loader.js';
+import { allowPrivateOidcIssuer } from '../config/oidc-egress-policy.js';
 import { log } from '../util/log.js';
+import { isSsrfSafeUrl, ssrfSafeFetch, SsrfBlockedError } from '../util/ssrf.js';
 import type { OidcConfig, OidcClaimRule, OidcClaimMapping } from '../config/types.js';
 
 /**
@@ -39,13 +41,24 @@ export const DEFAULT_OIDC_ALGORITHMS = [
 ];
 
 // ── OIDC URL validation ───────────────────────────────────────────────────
-// Unlike the full isSsrfSafeUrl check (designed for user-supplied peer URLs),
-// this allows private IPs and loopback because internal IdPs (e.g. Keycloak on
-// a corporate network) are a legitimate and common deployment pattern.  It
-// blocks cloud instance metadata endpoints — the primary SSRF exfiltration
-// target — and basic URL shape issues.
 
-function validateOidcUrl(raw: string, label: string): void {
+/** Hint appended to every rejection that `oidc.allowPrivateIssuer` would have permitted. */
+export const OIDC_PRIVATE_ISSUER_HINT =
+  'set oidc.allowPrivateIssuer (or YTHRIL_OIDC_ALLOW_PRIVATE_ISSUER=true) to permit an internal IdP on a private address';
+
+/**
+ * Validate a URL this module is about to fetch (or hand to the browser).
+ *
+ * Shape checks first, so the operator gets a specific message; then the address class is delegated
+ * to `isSsrfSafeUrl`, which is the single place that knows every encoding of every blocked range.
+ * This module used to carry its own two-line approximation (`169.254.*`, `metadata.google.internal`,
+ * `0.0.0.0`) that let `10.*`, `192.168.*`, `172.16-31.*`, `127.*` and `::1` straight through.
+ *
+ * @param allowPrivate permit private/reserved ranges. Crown jewels (loopback, link-local / cloud
+ *   IMDS, unspecified) are refused regardless — the flag widens where an IdP may live, it does not
+ *   hand out the one address class SSRF is actually after.
+ */
+export function validateOidcUrl(raw: string, label: string, allowPrivate: boolean): void {
   let parsed: URL;
   try {
     parsed = new URL(raw);
@@ -58,13 +71,26 @@ function validateOidcUrl(raw: string, label: string): void {
   if (parsed.username || parsed.password) {
     throw new Error(`OIDC ${label} must not contain embedded credentials`);
   }
-  const host = parsed.hostname.toLowerCase();
-  if (/^169\.254\./.test(host) || host === 'metadata.google.internal') {
-    throw new Error(`OIDC ${label} must not target cloud metadata endpoints`);
+  if (!isSsrfSafeUrl(raw, allowPrivate)) {
+    throw new Error(allowPrivate
+      ? `OIDC ${label} targets an always-blocked address (${parsed.hostname}): loopback, link-local / cloud metadata, or unspecified. allowPrivateIssuer permits private addresses, never these.`
+      : `OIDC ${label} must be a public http(s) URL — ${parsed.hostname} is a private, loopback or cloud-metadata address. If this is an internal IdP, ${OIDC_PRIVATE_ISSUER_HINT}.`);
   }
-  if (host === '0.0.0.0') {
-    throw new Error(`OIDC ${label} must not target 0.0.0.0`);
-  }
+}
+
+/**
+ * True when `issuerUrl` is reachable ONLY because the opt-in is on — i.e. it is a private address
+ * rather than a public one.
+ *
+ * This is what scopes the allowance for the discovered endpoints. A private issuer may name private
+ * endpoints (an internal Keycloak's `jwks_uri` is on the same internal network, naturally); a
+ * PUBLIC issuer may not, flag or no flag. That asymmetry is the actual guard: the attack worth
+ * stopping is a public — or spoofed — discovery document steering the server at `http://10.0.0.5/`,
+ * and a global "private is fine now" flag would otherwise hand that over as a side effect of an
+ * operator wanting their own Keycloak to work.
+ */
+export function issuerIsPrivate(issuerUrl: string): boolean {
+  return !isSsrfSafeUrl(issuerUrl, false) && isSsrfSafeUrl(issuerUrl, true);
 }
 
 // ── Lightweight synthetic token record ────────────────────────────────────
@@ -103,18 +129,27 @@ let _cachedIssuerUrl = '';
  */
 export const OIDC_HTTP_TIMEOUT_MS = 10_000;
 
-function getJwksHandle(jwksUri: string, issuerUrl: string): JwksHandle {
+function getJwksHandle(jwksUri: string, issuerUrl: string, allowPrivate: boolean): JwksHandle {
   if (_jwksHandle && _cachedIssuerUrl === issuerUrl) return _jwksHandle;
   // jose defaults to 5s; pin it so the budget is explicit policy rather than a library default that
   // could change under us — the same reasoning as DEFAULT_OIDC_ALGORITHMS above.
-  _jwksHandle = createRemoteJWKSet(new URL(jwksUri), { timeoutDuration: OIDC_HTTP_TIMEOUT_MS });
+  //
+  // The JWKS fetch goes through `ssrfSafeFetch` for the same reason discovery does, and more so:
+  // `jwks_uri` is a URL that arrived in a document, so it is the one target here an attacker gets to
+  // choose. Validating the string is half a guard — jose would otherwise resolve and connect on its
+  // own, with no DNS pinning and no redirect re-validation, so a name that passes the string check
+  // and then resolves inward would sail through.
+  _jwksHandle = createRemoteJWKSet(new URL(jwksUri), {
+    timeoutDuration: OIDC_HTTP_TIMEOUT_MS,
+    [customFetch]: (url, options) => ssrfSafeFetch(url, options as RequestInit, { allowPrivate }),
+  });
   _cachedIssuerUrl = issuerUrl;
   return _jwksHandle;
 }
 
 // ── Discovery document cache ───────────────────────────────────────────────
 
-interface DiscoveryDoc {
+export interface DiscoveryDoc {
   issuer: string;
   jwks_uri: string;
   authorization_endpoint: string;
@@ -127,6 +162,61 @@ let _discoveryIssuerUrl = '';
 let _discoveryFetchedAt = 0;
 const DISCOVERY_TTL_MS = 5 * 60 * 1000; // re-fetch every 5 minutes
 
+/**
+ * Validate a fetched discovery document against the configured issuer.
+ *
+ * Two separate rules, and it is worth being precise about which one does what:
+ *
+ *  1. **OIDC Discovery §4.3** — the document's own `issuer` MUST equal the configured URL. This is
+ *     the one thing standing between a compromised document and a full takeover, and it predates
+ *     this guard. Keep it first.
+ *  2. **Every endpoint the document names is no more private than the issuer itself.** A discovery
+ *     document is attacker-influenced input the moment the issuer is, and §4.3 constrains only the
+ *     `issuer` field, not the endpoints beside it. So `jwks_uri` and friends go back through
+ *     `validateOidcUrl` with the allowance derived from the *issuer's* address class — never from
+ *     the global flag (see `issuerIsPrivate`).
+ *
+ * **Why not "the endpoints must share the issuer's host":** because that rule is wrong about real
+ * IdPs, not merely strict. Google publishes `issuer: https://accounts.google.com` with
+ * `jwks_uri: https://www.googleapis.com/oauth2/v3/certs` and
+ * `token_endpoint: https://oauth2.googleapis.com/token` — three different origins, and not even a
+ * shared registrable domain (`google.com` vs `googleapis.com`). Same-origin would break Google
+ * Sign-In outright, which is the same class of upgrade outage this whole change exists to avoid.
+ * The address-class rule above stops the attack that host-matching was reaching for — a public
+ * document steering the server at an internal address — without asserting something false about how
+ * IdPs deploy.
+ *
+ * @param allowPrivate whether the ISSUER is private (from `issuerIsPrivate`), not the global flag.
+ */
+export function validateDiscoveryDocument(
+  doc: DiscoveryDoc,
+  issuerUrl: string,
+  allowPrivate: boolean,
+): void {
+  // OIDC Discovery §4.3: issuer in the document MUST match the configured URL.
+  const normCfg = issuerUrl.replace(/\/$/, '');
+  const normDoc = String(doc.issuer ?? '').replace(/\/$/, '');
+  if (normDoc !== normCfg) {
+    throw new Error(
+      `OIDC discovery issuer (${doc.issuer}) does not match configured issuerUrl (${issuerUrl})`,
+    );
+  }
+
+  // `jwks_uri` is REQUIRED by the spec and the server fetches it directly — no document without it
+  // is usable, and an absent value must not fall through the checks below as `undefined`.
+  if (!doc.jwks_uri) {
+    throw new Error(`OIDC discovery document for ${issuerUrl} has no jwks_uri`);
+  }
+
+  // The endpoints the server fetches, plus the two the browser is sent to. All four are read out of
+  // the same attacker-influenceable document, so all four are validated; the optional ones only when
+  // present (omitting one breaks the flow, it does not evade anything).
+  validateOidcUrl(doc.jwks_uri, 'jwks_uri', allowPrivate);
+  if (doc.authorization_endpoint) validateOidcUrl(doc.authorization_endpoint, 'authorization_endpoint', allowPrivate);
+  if (doc.token_endpoint) validateOidcUrl(doc.token_endpoint, 'token_endpoint', allowPrivate);
+  if (doc.end_session_endpoint) validateOidcUrl(doc.end_session_endpoint, 'end_session_endpoint', allowPrivate);
+}
+
 export async function getDiscoveryDoc(issuerUrl: string): Promise<DiscoveryDoc> {
   const now = Date.now();
   if (
@@ -137,12 +227,23 @@ export async function getDiscoveryDoc(issuerUrl: string): Promise<DiscoveryDoc> 
     return _discoveryDoc;
   }
 
-  validateOidcUrl(issuerUrl, 'issuerUrl');
+  const allowPrivate = allowPrivateOidcIssuer();
+  validateOidcUrl(issuerUrl, 'issuerUrl', allowPrivate);
+  // Scope what the DOCUMENT may name to the issuer's own address class, not to the flag.
+  const endpointsMayBePrivate = issuerIsPrivate(issuerUrl);
+
   const url = issuerUrl.replace(/\/$/, '') + '/.well-known/openid-configuration';
   let res: Response;
   try {
-    res = await fetch(url, { signal: AbortSignal.timeout(OIDC_HTTP_TIMEOUT_MS) });
+    // `ssrfSafeFetch`, not `fetch`: the string check above cannot see where a hostname resolves, and
+    // this call sits on the authentication path where a rebind would be repeated every TTL.
+    res = await ssrfSafeFetch(url, { signal: AbortSignal.timeout(OIDC_HTTP_TIMEOUT_MS) }, { allowPrivate });
   } catch (err) {
+    // A blocked target is not "the IdP is down" — say which it was, and name the flag that would
+    // permit it, so an operator whose Keycloak just stopped answering knows why in one line.
+    if (err instanceof SsrfBlockedError) {
+      throw new Error(`OIDC discovery blocked: ${err.message}${allowPrivate ? '' : ` — if this is an internal IdP, ${OIDC_PRIVATE_ISSUER_HINT}`}`);
+    }
     // An unreachable IdP and one that hangs are the same failure to the caller, and both must be
     // reported as such rather than surfacing an opaque AbortError from deep in the auth path.
     const reason = err instanceof Error && err.name === 'TimeoutError'
@@ -155,17 +256,7 @@ export async function getDiscoveryDoc(issuerUrl: string): Promise<DiscoveryDoc> 
   }
   const doc = await res.json() as DiscoveryDoc;
 
-  // OIDC Discovery §4.3: issuer in the document MUST match the configured URL.
-  const normCfg = issuerUrl.replace(/\/$/, '');
-  const normDoc = doc.issuer.replace(/\/$/, '');
-  if (normDoc !== normCfg) {
-    throw new Error(
-      `OIDC discovery issuer (${doc.issuer}) does not match configured issuerUrl (${issuerUrl})`,
-    );
-  }
-
-  // Validate derived URLs before the server fetches them (defence-in-depth).
-  validateOidcUrl(doc.jwks_uri, 'jwks_uri');
+  validateDiscoveryDocument(doc, issuerUrl, endpointsMayBePrivate);
 
   _discoveryDoc = doc;
   _discoveryIssuerUrl = issuerUrl;
@@ -282,7 +373,8 @@ export async function validateOidcJwt(bearer: string): Promise<OidcTokenRecord |
 
   try {
     const discovery = await getDiscoveryDoc(oidcCfg.issuerUrl);
-    const jwks = getJwksHandle(discovery.jwks_uri, oidcCfg.issuerUrl);
+    // Same allowance as the discovery fetch: the issuer's own class, not the global flag.
+    const jwks = getJwksHandle(discovery.jwks_uri, oidcCfg.issuerUrl, issuerIsPrivate(oidcCfg.issuerUrl));
 
     const audience = oidcCfg.audience ?? oidcCfg.clientId;
 

@@ -743,6 +743,23 @@ export interface OidcConfig {
    * Defaults to the instance origin (i.e. the login page).
    */
   postLogoutRedirectUri?: string;
+  /**
+   * Allow the issuer — and the endpoints its discovery document names — to live on a
+   * private/reserved address. An internal IdP is a normal deployment (Keycloak on
+   * `http://keycloak.internal:8080`, Authentik on a cluster service, Dex on `10.x`), and the
+   * default is public-only, so **that deployment needs this flag or nobody can sign in**.
+   *
+   * Enabling it does NOT drop the egress guard: discovery and JWKS still go through
+   * `ssrfSafeFetch`, which DNS-resolves, pins the resolved IP for the connection and re-validates
+   * every redirect — only the private-address rejection relaxes. Crown-jewel addresses (loopback,
+   * link-local / cloud IMDS, unspecified) stay blocked either way, including when a hostname
+   * resolves to one.
+   *
+   * The allowance is scoped to the issuer's own address class: a PUBLIC issuer may never hand back
+   * a private `jwks_uri`, flag or no flag. Mirrors `allowPrivateModelEndpoints`.
+   * Overridable via YTHRIL_OIDC_ALLOW_PRIVATE_ISSUER.
+   */
+  allowPrivateIssuer?: boolean;
 }
 
 // ── Audit log types ────────────────────────────────────────────────────────

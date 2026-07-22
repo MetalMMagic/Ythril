@@ -26,7 +26,12 @@ import { writeFile as writeSpaceFile } from '../files/files.js';
 export const spacesRouter = Router();
 
 // ── Zod schema for PropertySchema ──────────────────────────────────────────
-const PropertySchemaZ = z.object({
+/**
+ * Exported for the standalone tests, which used to keep a hand-copy of this schema and drifted:
+ * the copy was missing `required`, `default` and `type: "date"`, so it REJECTED bodies this accepts —
+ * including every property the Schema tab sends, since `required` is an inline flag on the property.
+ */
+export const PropertySchemaZ = z.object({
   type: z.enum(['string', 'number', 'boolean', 'date']).optional(),
   enum: z.array(z.union([z.string(), z.number(), z.boolean()])).optional(),
   minimum: z.number().optional(),

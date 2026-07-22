@@ -2063,6 +2063,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The `PropertySchema` request-validation tests now use the real Zod schema.** The file kept a
+  hand-copy of `PropertySchemaZ` from `api/spaces.ts`, and it had drifted in the direction hardest to
+  notice: **stricter than production**. Because the schema is `.strict()`, three fields production
+  accepts were missing from the copy and were therefore *rejected* by it — `required` (the inline
+  flag the Schema tab sends for every property an operator marks required, so the copy rejected the
+  most ordinary body the product produces), `default`, and `type: 'date'`.
+  A suite that rejects what production accepts cannot catch a real regression: it fails only on
+  bodies the product never sends, and stays silent on the ones it does. `PropertySchemaZ` is exported
+  now and imported directly, so there is nothing left to drift. The `date` branch of the mergeFn
+  compatibility rule gains coverage it never had, since that type did not exist in the copy.
+  Mutation-checked: disabling the type/mergeFn refine fails exactly the four compatibility cases, and
+  dropping `.strict()` fails only the unrecognised-key case.
+
 - **The schema-validation tests now test the schema validator.** `schema-validation.test.js` was
   ~20 KB that re-implemented nine functions — `validateEntity`, `validateEdge`, `validateMemory`,
   `validateChrono`, `validateValue`, `safeRegexTest`, `hasReDoSRisk` and two more — and then tested

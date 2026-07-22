@@ -23,14 +23,7 @@ import assert from 'node:assert/strict';
 
 // ── Logic under test (mirrored from server/src/db/db-name.ts) ────────────────
 
-/**
- * Extract the database name from a MongoDB URI.
- * Falls back to 'ythril' when the URI has no explicit database path component.
- */
-function dbNameFromUri(uri) {
-  const match = /^mongodb(?:\+srv)?:\/\/[^/]*\/([^/?]+)/.exec(uri);
-  return match?.[1] ?? 'ythril';
-}
+const { dbNameFromUri } = await import('../../server/dist/db/db-name.js');
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 

@@ -13,8 +13,8 @@
  */
 import { getConfig, getMediaEmbeddingConfig } from '../../config/loader.js';
 import {
-  IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS,
-  type ImageLevel, type AudioLevel, type VideoLevel,
+  IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS,
+  type ImageLevel, type AudioLevel, type VideoLevel, type TextLevel,
 } from '../../config/types.js';
 
 /** Ladders low to high. `auto` is deliberately excluded — it resolves, it does not rank. */
@@ -22,6 +22,9 @@ const LADDERS = {
   images: IMAGE_LEVELS.filter(l => l !== 'auto'),
   audio: AUDIO_LEVELS.filter(l => l !== 'auto'),
   video: VIDEO_LEVELS.filter(l => l !== 'auto'),
+  // Text is not a media type, but it is the same policy question — how much of this class do we
+  // process — so it shares the ceiling machinery rather than growing a parallel copy of it.
+  text: TEXT_LEVELS.filter(l => l !== 'auto'),
 } as const;
 
 export type MediaClass = keyof typeof LADDERS;
@@ -54,7 +57,9 @@ function ceilingFor(cls: MediaClass): string {
 function spaceChoiceFor(cls: MediaClass, spaceId: string): string {
   const space = getConfig().spaces.find(s => s.id === spaceId);
   if (!space) return 'auto';
-  const field = ({ images: 'imageAnalysis', audio: 'audioAnalysis', video: 'videoAnalysis' } as const)[cls];
+  const field = ({
+    images: 'imageAnalysis', audio: 'audioAnalysis', video: 'videoAnalysis', text: 'textAnalysis',
+  } as const)[cls];
   return (space as unknown as Record<string, string | undefined>)[field] ?? 'auto';
 }
 
@@ -68,6 +73,21 @@ export function effectiveAudioLevel(spaceId: string): AudioLevel {
 
 export function effectiveVideoLevel(spaceId: string): VideoLevel {
   return capMediaLevel('video', ceilingFor('video'), spaceChoiceFor('video', spaceId)) as VideoLevel;
+}
+
+/**
+ * How text content is indexed for this space, low to high:
+ *
+ *   off    stored, never indexed — nothing in it is findable by search
+ *   embed  one vector for the whole document: cheap, and enough to find the FILE
+ *   chunk  a vector per section: finds the PASSAGE, which is what makes recall quotable
+ *   auto   as much as possible, i.e. chunk
+ *
+ * Applies to converted documents and plain text alike — Documents governs how a file is READ,
+ * this governs what is done with the text that comes out.
+ */
+export function effectiveTextLevel(spaceId: string): TextLevel {
+  return capMediaLevel('text', ceilingFor('text'), spaceChoiceFor('text', spaceId)) as TextLevel;
 }
 
 /**

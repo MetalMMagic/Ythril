@@ -52,6 +52,7 @@ import {
 import type { ResolvedFormat } from '../converters/pipeline.js';
 import { ConversionUnavailableError } from '../converters/types.js';
 import { effectiveDocExtractionMode } from '../converters/extraction-level.js';
+import { effectiveTextLevel } from '../converters/media-level.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { spaceRoot } from '../sandbox.js';
@@ -325,8 +326,11 @@ async function processJob(
         // F11-c: a per-space extraction-mode override wins over the instance-wide default (pipeline
         // falls back to `documentProcessing.mode` when this is undefined).
         const spaceMode = effectiveDocExtractionMode(spaceId);
+        // Documents governs how the file is READ; text governs what happens to the text that
+        // comes out of it. Two ladders, two decisions, one job.
+        const spaceTextLevel = effectiveTextLevel(spaceId);
         const { chunks, convertedMarkdown, extractedImages } = await runConversionPipeline(
-          fileBytes, filePath, resolvedFmt, { mode: spaceMode },
+          fileBytes, filePath, resolvedFmt, { mode: spaceMode, textLevel: spaceTextLevel },
         );
         if (chunks.length > 0 || extractedImages.length > 0) {
           const { chunkCount, convertedFileId, embedFailures } = await storeConversionResults(

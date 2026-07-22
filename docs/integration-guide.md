@@ -2093,11 +2093,18 @@ ceiling under `mediaEmbedding.levels`:
 | `imageAnalysis` | `off` · `caption` · `recognition` · `auto` | no caption, no image embedding, no face detection |
 | `audioAnalysis` | `off` · `on` · `auto` | no transcription |
 | `videoAnalysis` | `off` · `audio` · `full` · `auto` | no audio extraction, no transcription |
+| `textAnalysis` | `off` · `embed` · `chunk` · `auto` | text is never indexed — nothing in the file is findable by search |
 
 `recognition` is the rung that permits **face detection and embedding**, and it is gated twice: the
 instance-wide `mediaEmbedding.faceRecognition.enabled` must allow it *and* the space must be at
 `recognition`. A space on `caption` gets described images and no face data — which is the reason
 images have their own ladder rather than riding on the master media switch.
+
+`textAnalysis` decides what happens to text AFTER a document is read, which is a separate question
+from how it was read (`documentExtraction`). `chunk` stores a vector per section, so a recall can
+quote the passage; `embed` stores one vector for the whole document, which still finds the FILE but
+no longer answers "where does it say that?" — a real trade on long documents, and close to free on
+short notes. `off` stores the file and indexes nothing.
 
 `videoAnalysis: "full"` (keyframes analysed as images) is **reserved and not implemented**. The API
 **rejects it with 400** rather than accepting it and behaving like `audio`, so an operator is never

@@ -204,6 +204,7 @@ export interface SpaceConfig {
   imageAnalysis?: ImageLevel;
   audioAnalysis?: AudioLevel;
   videoAnalysis?: VideoLevel;
+  textAnalysis?: TextLevel;
   /** Auto-TTL (F10): when set (> 0), every new/updated record in this space is stamped with an expiry
    *  `now + recordTtlDays` and deleted by the TTL sweep once it lapses (through the normal delete path,
    *  so it tombstones + syncs). A per-record `ttlDays` on a write overrides this. Absent = no auto-TTL. */

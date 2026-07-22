@@ -28,7 +28,7 @@ import { col, asFilter, asDoc } from '../../db/mongo.js';
 import { embed } from '../../brain/embedding.js';
 import { getConfig, getDocumentProcessingConfig } from '../../config/loader.js';
 import { vlmExtractDocument } from './vlm-extract.js';
-import type { FileMetaDoc, AuthorRef, DocExtractionMode } from '../../config/types.js';
+import type { FileMetaDoc, AuthorRef, DocExtractionMode, TextLevel } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { enqueueMediaJob } from '../media/job-queue.js';
 
@@ -136,6 +136,10 @@ export interface ConversionPipelineOptions {
   /** F11-c: per-space document-extraction mode override. When set, it wins over the instance-wide
    *  `documentProcessing.mode`; when absent, the instance default applies. */
   mode?: DocExtractionMode;
+  /** Per-space text level. Governs what happens to the text that comes OUT of conversion, which is a
+   *  separate question from how the document was read: `chunk` splits it into passages, `embed`
+   *  keeps it whole, `off` indexes nothing. Absent = the instance level applies. */
+  textLevel?: TextLevel;
 }
 
 export interface ConversionResult {
@@ -156,6 +160,32 @@ export interface ConversionResult {
 // sidecar — an unbounded input pins CPU/RAM for the duration. Documents over
 // the cap are rejected up front with reason 'too_large' (never retried).
 const DEFAULT_MAX_CONVERSION_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Turn converted text into the units that get embedded, per the space's text level.
+ *
+ *   off    nothing — the file is stored and its content is never findable by search
+ *   embed  ONE unit for the whole document: cheaper, and enough to find the FILE
+ *   chunk  a unit per section/paragraph: finds the PASSAGE, which is what makes a recall quotable
+ *   auto   as much as possible, i.e. chunk
+ *
+ * `embed` is not a degraded `chunk` — it is a real trade. One vector per document costs a fraction
+ * of the storage and index time, and for a space full of short notes it loses almost nothing. It
+ * matters for long documents, where a single averaged vector answers "which file mentions this?" but
+ * can no longer answer "where does it say that?".
+ */
+function chunkForLevel(normalised: string, format: ResolvedFormat, opts: ConversionPipelineOptions): Chunk[] {
+  const level = opts.textLevel ?? 'auto';
+  if (level === 'off') return [];
+  if (level === 'embed') {
+    // Whole document as a single unit. An empty body would produce a vector of nothing, so treat it
+    // as having no content rather than storing an embedding that matches everything weakly.
+    return normalised.trim() ? [{ headingText: null, content: normalised, chunkIndex: 0 }] : [];
+  }
+  return format === 'txt'
+    ? paragraphChunk(normalised, { maxChunkLength: opts.maxParagraphChunkLength })
+    : sectionChunk(normalised, { minBodyLength: opts.minChunkBodyLength });
+}
 
 export async function runConversionPipeline(
   fileBytes: Buffer,
@@ -229,7 +259,7 @@ export async function runConversionPipeline(
         extractionPath = result.extractionPath;
       }
       return {
-        chunks: sectionChunk(normaliseMarkdown(richMarkdown), { minBodyLength: opts.minChunkBodyLength }),
+        chunks: chunkForLevel(normaliseMarkdown(richMarkdown), format, opts),
         convertedMarkdown: richMarkdown,
         extractedImages: images,
         ...(extractionPath ? { extractionPath } : {}),
@@ -238,10 +268,7 @@ export async function runConversionPipeline(
   }
 
   const normalised = normaliseMarkdown(markdown);
-
-  const chunks = format === 'txt'
-    ? paragraphChunk(normalised, { maxChunkLength: opts.maxParagraphChunkLength })
-    : sectionChunk(normalised, { minBodyLength: opts.minChunkBodyLength });
+  const chunks = chunkForLevel(normalised, format, opts);
 
   return { chunks, convertedMarkdown, extractedImages: [] };
 }

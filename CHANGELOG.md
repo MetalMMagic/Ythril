@@ -735,6 +735,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`GET /api/admin/pipeline-status` — one read-only answer to "is any of this actually working?"**
+  Every model, sidecar and vector index in the pipeline could previously only be inspected one at a
+  time, and only by asking it to do work. The new endpoint reports all of them in a single payload:
+  sidecar reachability (converter, page renderer, office renderer), the configured model per stage
+  with whether its endpoint both responds *and* lists that model, and the live `$vectorSearch` index
+  state per space and collection.
+  Three properties are deliberate rather than incidental:
+  - **The index state is read from MongoDB, not from `space.indexStatus`.** The stored status is
+    written once when a space is built and never revisited, so an index that later disappears leaves
+    `indexStatus: 'ready'` behind it while recall quietly returns nothing — which is exactly how that
+    failure hid for months. Both values are reported side by side and a `drifted` flag is raised when
+    the claim and the database disagree. It is deliberately one-directional: a stored `building` with
+    a live `ready` is the normal creation race, and flagging it would train an operator to ignore the
+    badge that matters.
+  - **"Not configured", "unreachable" and "reachable but not serving that model" are three separate
+    states**, because they have one symptom (nothing gets extracted) and three different fixes. An
+    optional stage with nothing set reports `unconfigured`, not a fault — a screen that shows red for
+    an unset verify model teaches operators to ignore red.
+  - **One probe per distinct endpoint, not per stage**, cached for 20s and single-flighted. The
+    document VLM, repair and verify stages normally share one Ollama, and that Ollama is the process
+    also transcribing pages; a poll per step per admin would put the status screen's load onto the
+    thing it is reporting on. API keys authenticate the probes and never appear in the response, which
+    a test pins directly.
+  This is the data behind the per-step health dots on the rebuilt Models & Pipelines screen.
+
 - **A processing job now reports which step it is on, so progress can be shown as sections rather than
   a spinner.** The stall heartbeat already fired as each unit of work landed but carried no identity —
   it said *something happened*, not *what*. Each report now carries the current step, the full route

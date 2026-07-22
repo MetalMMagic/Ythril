@@ -766,6 +766,10 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
     // Surface the resolved document-processing/extraction settings (F11) so the admin API GET and the
     // Models UI can read them back (the worker ignores this block).
     documentProcessing: getDocumentProcessingConfig(),
+    // Surface the resolved face-recognition settings so the admin API can return them and the UI can
+    // render a real control. Reported here rather than left to the caller because the resolution is
+    // env → config → default and only this module knows which tier won.
+    faceRecognition: getFaceRecognitionConfig(),
     lockedByInfra: [...locked, ...lockedFaceRecognitionFields()],
     // F11 — infra-managed lock (like YTHRIL_MONGO_INFRA_MANAGED): env OR config marks the whole media/model
     // config as managed by infrastructure, so the admin API refuses edits and the UI is read-only.

@@ -285,6 +285,65 @@ describe('ModelsStateService — the two confirmations', () => {
   });
 });
 
+/**
+ * Face recognition became operator-settable here. The confirmation is the point of the feature, not
+ * decoration: someone switching this off is acting on a privacy decision, and the one thing the
+ * product must not do is let them believe the stored face vectors went away with it.
+ */
+describe('ModelsStateService — turning face recognition off', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const withFace = (enabled: boolean) => cfgFixture({ faceRecognition: { enabled, confidenceThreshold: 0.6, minFaceSizeFraction: 0.05, personEntityTypes: ['person'] } });
+
+  it('prompts when it was on and is being turned off, and aborts the WHOLE save if declined', async () => {
+    const { c, confirm, patch } = make(withFace(true), false);
+    c.face.enabled = false;
+    expect(c.faceBeingDisabled()).toBe(true);
+    await c.save();
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('does NOT prompt when turning it on — that direction collects nothing retroactively', async () => {
+    const { c, confirm } = make(withFace(false));
+    c.face.enabled = true;
+    expect(c.faceBeingDisabled()).toBe(false);
+    await c.save();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('does not prompt when it was already off', async () => {
+    const { c, confirm } = make(withFace(false));
+    c.face.enabled = false;
+    await c.save();
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('re-baselines after saving, so a second save does not prompt again', async () => {
+    const { c, confirm } = make(withFace(true));
+    c.face.enabled = false;
+    await c.save();
+    expect(confirm).toHaveBeenCalledOnce();
+    await c.save();
+    expect(confirm).toHaveBeenCalledOnce(); // still once
+  });
+
+  it('sends only the PATCH-writable face fields', async () => {
+    // modelPath selects which files the process loads and reprocessSyncedImages decides whether a
+    // peer's images are re-analysed locally — both stay env/config-only, so neither may appear here.
+    const { c, patch } = make(withFace(true));
+    await c.save();
+    const face = sent(patch)['faceRecognition'] as Record<string, unknown>;
+    expect(Object.keys(face).sort()).toEqual(['confidenceThreshold', 'enabled', 'minFaceSizeFraction', 'personEntityTypes']);
+  });
+
+  it('reports env-pinned face fields as locked', () => {
+    const { c } = make(cfgFixture({ lockedByInfra: ['faceRecognition.enabled'] }));
+    expect(c.faceLocked('enabled')).toBe(true);
+    expect(c.faceLocked('confidenceThreshold')).toBe(false);
+  });
+});
+
 describe('ModelsStateService — derived display state', () => {
   beforeEach(() => TestBed.resetTestingModule());
 

@@ -2063,6 +2063,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Face recognition can be turned off from the admin UI — it was the one model in the pipeline that
+  could not be.** #345 gave every `mediaEmbedding.faceRecognition` field an env var so infra could
+  pin it, but an operator had no path at all: the setting was absent from the client entirely and
+  from the `PATCH /api/admin/media-config` schema. For a feature that detects and embeds people's
+  faces, "requires filesystem access to disable" was the wrong default. **Settings → Models → Face
+  recognition** now carries the switch plus the auto-label threshold, minimum face size, and the
+  person entity types that gate what may enter the gallery.
+  - **Turning it off states what it does not do.** New faces stop being detected and embedded;
+    existing face vectors and person labels are **not** removed, and stay searchable until the files
+    they came from are deleted. Someone disabling this is usually acting on a privacy decision, and
+    letting them believe the stored data went away with the switch would tell them the opposite of
+    what happened. The confirmation is one-directional — turning it *on* collects nothing
+    retroactively and needs no ceremony.
+  - **`modelPath` and `reprocessSyncedImages` stay env/config-only.** The first selects which files
+    the process loads, and a field that chooses what gets loaded from disk has no business being
+    settable through the admin API; the second is an infra-shaped decision about a peer's images.
+  - **Env pins still win.** Face locks are reported per field (`faceRecognition.enabled`, …), and the
+    route's lock check scanned only top-level keys — so a patch naming the block would have sailed
+    straight past a pin the UI was already rendering read-only. `FACE_RECOGNITION_ENABLED=false`
+    remains a guarantee, and there is a test that fails if the top-level-only scan comes back.
+
+- **Three more icons were rendering as blank space, and the guard that exists to catch that could not
+  see them.** `user` and `file-image` (the latter shipped blank with the Models rebuild and survived
+  a screenshot review), plus `text-align-left` found earlier. The coverage test matched only
+  `<ph-icon name="...">`, so it missed both an `icon="..."` passed to a *wrapper* component and an
+  `icon: '...'` string in a TypeScript object the template binds dynamically — in every case the
+  literal is right there in the source, just not spelled the one way the scan knew. It now reads all
+  three shapes; what remains unscannable is a name computed at runtime, which is a far smaller
+  residue than what was being missed.
+
 - **A file being processed now shows which stage it is on, as sections of a bar, instead of a
   spinner.** The badge said "something is happening" for as long as the job ran, and looked exactly
   the same whether the job was working or wedged. Each section is a stage of *that document's* route

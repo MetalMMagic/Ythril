@@ -2399,7 +2399,9 @@ When `visionProvider: external` or `sttProvider: external`, file bytes (image fr
 
 The face recognition pipeline detects and embeds faces in uploaded images, builds a per-space face gallery, and automatically links images to person entities when a match exceeds a configurable confidence threshold. It runs **entirely in-process** on the CPU — no GPU, no sidecar, no Python — using `@vladmandic/human` (TF.js CPU backend).
 
-**Opt-in** — disabled by default. Enable via `mediaEmbedding.faceRecognition.enabled: true` in `config.json`.
+**Opt-in** — disabled by default. Enable it on **Settings → Models → Face recognition**, via `PATCH /api/admin/media-config` with a `faceRecognition` block, or by setting `mediaEmbedding.faceRecognition.enabled: true` in `config.json`.
+
+**Turning it off stops new detection; it does not erase what was collected.** Existing face vectors and person labels stay stored and searchable until the files they came from are deleted. The admin UI states this in a confirmation before saving, because switching this off is usually a privacy decision and the two are easy to confuse.
 
 #### Prerequisites: Model Files
 
@@ -2455,7 +2457,9 @@ When the face recognition feature is first enabled, any existing `initSpace` cal
 
 #### Configuration Reference
 
-All settings live under `mediaEmbedding.faceRecognition` in `config.json`. None are controllable via the `PATCH /api/admin/media-config` endpoint (face recognition is a local-only feature; no external service is involved).
+All settings live under `mediaEmbedding.faceRecognition` in `config.json`. `enabled`, `confidenceThreshold`, `minFaceSizeFraction` and `personEntityTypes` are also settable through `PATCH /api/admin/media-config` (merged per field, so a patch naming one leaves the rest alone).
+
+**`modelPath` and `reprocessSyncedImages` are deliberately NOT on that route** and stay config/env-only. `modelPath` selects which files the process loads from disk, and a field that chooses what gets loaded has no business being settable from the admin API — the same reasoning that keeps `allowPrivateModelEndpoints` and the document model endpoints off it. `reprocessSyncedImages` decides whether a network peer’s images are re-analysed locally, which is an infra-shaped call.
 
 Each field can also be **pinned by an infra admin** through the env var below, with the same precedence as every other media setting: **env → `config.json` → default**. A pinned field is reported in `lockedByInfra` on `GET /api/admin/media-config`, so the Settings UI renders it read-only rather than offering a control that silently does nothing. This is why the env vars exist at all: every other model in the pipeline (vision, speech-to-text, embedding, the assist model, both sidecars) could already be pinned, so an infra-managed deployment could fix every model *except* whether faces are detected and embedded — the setting with the clearest privacy weight of the lot.
 

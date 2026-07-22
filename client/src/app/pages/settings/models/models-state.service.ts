@@ -18,7 +18,7 @@ import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 import { StatusVariant } from '../../../shared/status-pill.component';
 import {
   MediaCfg, DocProcCfg, DocAssistCfg, DocAssistUse, DocMode, EmbeddingCfg,
-  TestResult, TestTarget, MODE_STAGES,
+  TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES,
 } from './models.types';
 
 @Injectable()
@@ -49,6 +49,15 @@ export class ModelsStateService {
   private savedSnapshot = '';
   /** Flipped by a delegated input/change listener on the page. See `isDirty`. */
   touched = signal(false);
+
+  // ── Face recognition ──
+  /** Live handle to the editable face block, lazily initialised so the template can bind fields. */
+  get face(): FaceRecognitionCfg { return (this.form.faceRecognition ??= {}); }
+  faceLocked(field: string): boolean { return this.isLocked(`faceRecognition.${field}`); }
+  /** What face recognition was set to at load — the disable confirmation fires on the transition. */
+  private faceEnabledBaseline = false;
+  /** True when this save turns face recognition OFF, which is the direction with consequences. */
+  faceBeingDisabled(): boolean { return this.faceEnabledBaseline && this.face.enabled === false; }
 
   // ── Text embedding ──
   get embedding(): EmbeddingCfg { return (this.form.embedding ??= {}); }
@@ -112,6 +121,8 @@ export class ModelsStateService {
         this.form.vision = { ...cfg.vision, apiKey: undefined };
         this.form.stt = { ...cfg.stt, apiKey: undefined };
         this.form.embedding = { provider: 'local', ...cfg.embedding };
+        this.form.faceRecognition = { ...cfg.faceRecognition };
+        this.faceEnabledBaseline = cfg.faceRecognition?.enabled === true;
         this.embeddingReindexBaseline = this.reindexKey();
         this.assistApiKeyInput = '';
         this.embeddingApiKeyInput = '';
@@ -225,6 +236,13 @@ export class ModelsStateService {
         mode: dp.mode, renderDpi: dp.renderDpi, maxPages: dp.maxPages, pageTimeoutMs: dp.pageTimeoutMs,
         concurrency: dp.concurrency, ocrTimeoutMs: dp.ocrTimeoutMs,
       },
+      // Only the PATCH-writable face fields. modelPath / reprocessSyncedImages are env-only.
+      faceRecognition: {
+        enabled: this.face.enabled,
+        confidenceThreshold: this.face.confidenceThreshold,
+        minFaceSizeFraction: this.face.minFaceSizeFraction,
+        personEntityTypes: this.face.personEntityTypes,
+      },
       fallbackToExternal: this.form.fallbackToExternal,
       maxFileSizeBytes: this.form.maxFileSizeBytes,
       workerConcurrency: this.form.workerConcurrency,
@@ -250,6 +268,21 @@ export class ModelsStateService {
       });
       if (!ok) return;              // not acknowledged → abort the whole save
       assist.acknowledgedHost = host;
+    }
+
+    // Turning face recognition OFF stops new faces being detected — it does NOT remove the face
+    // vectors and person links already stored. An operator disabling this is usually acting on a
+    // privacy decision, so letting them believe the existing data went away would be the worst kind
+    // of quiet failure: they would have been told the opposite of what happened.
+    if (this.faceBeingDisabled()) {
+      const ok = await this.confirmDialog.confirm({
+        title: this.transloco.translate('models.confirm.faceOffTitle'),
+        message: this.transloco.translate('models.confirm.faceOffMessage'),
+        confirmLabel: this.transloco.translate('models.confirm.faceOffConfirm'),
+        cancelLabel: this.transloco.translate('common.cancel'),
+        danger: true,
+      });
+      if (!ok) return;
     }
 
     // Reindex confirmation: changing the embedding model / dimensions / similarity re-embeds EVERY
@@ -295,6 +328,7 @@ export class ModelsStateService {
         this.embeddingApiKeyInput = '';
         this.embeddingReindexBaseline = this.reindexKey(); // re-baseline so a second save won't re-prompt
         this.savedSnapshot = this.snapshot();
+        this.faceEnabledBaseline = this.face.enabled === true;
         this.touched.set(false);
         this.saving.set(false);
         setTimeout(() => this.saveOk.set(''), 3000);

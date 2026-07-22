@@ -1313,7 +1313,6 @@
   "models.face.title": "Rozpoznawanie twarzy",
   "models.face.purpose": "Wykrywa twarze na obrazach i osadza je, aby można było wyszukiwać osoby.",
   "models.face.actorLabel": "Działa na",
-  "models.face.noControlYet": "Obecnie można to wyłączyć wyłącznie przez środowisko. Sterowanie z poziomu interfejsu jest w przygotowaniu — do tego czasu FACE_RECOGNITION_ENABLED=false to jedyny sposób wyłączenia.",
   "models.pipelines.documents": "Dokumenty",
   "models.pipelines.images": "Obrazy",
   "models.pipelines.imagesPurpose": "Co dzieje się z przesłanym obrazem.",
@@ -1415,5 +1414,18 @@
   "models.pipelines.ceilingHint": "Najwięcej, co przestrzeń może zrobić z tą klasą. Przestrzeń może wybrać mniej, nigdy więcej — obniżenie tego limitu ogranicza każdą przestrzeń powyżej, a te zachowują swój wybór, jeśli limit znów podniesiesz.",
   "models.pipelines.ceilingOffWarning": "Wyłączenie obowiązuje wszędzie — żadna przestrzeń nie przetworzy tej klasy.",
   "files.progress.working": "W toku",
-  "files.progress.stalled": "Brak zgłoszonego postępu — to zadanie mogło się zaciąć"
+  "files.progress.stalled": "Brak zgłoszonego postępu — to zadanie mogło się zaciąć",
+  "models.face.pillOn": "Włączone",
+  "models.face.pillOff": "Wyłączone",
+  "models.face.enable": "Wykrywaj i osadzaj twarze w przesyłanych obrazach",
+  "models.face.enableHint": "Domyślnie wyłączone. Wymaga obecności lokalnych plików modelu.",
+  "models.face.confidence": "Próg automatycznego oznaczania",
+  "models.face.confidenceHint": "Podobieństwo (0–1), powyżej którego twarz jest oznaczana automatycznie. Poniżej twarz zostaje osadzona, ale bez oznaczenia.",
+  "models.face.minSize": "Minimalny rozmiar twarzy",
+  "models.face.minSizeHint": "Jako ułamek krótszego boku obrazu. Mniejsze twarze są pomijane, co ogranicza szum ze zdjęć tłumu.",
+  "models.face.personTypes": "Typy encji oznaczające osoby",
+  "models.face.personTypesHint": "Rozdzielone przecinkami. Tylko encje tych typów trafiają do galerii twarzy, więc powiązanie miejsca lub przedmiotu ze zdjęciem nigdy jej nie zaburzy.",
+  "models.confirm.faceOffTitle": "Wyłączyć rozpoznawanie twarzy?",
+  "models.confirm.faceOffMessage": "Od tej chwili żadne nowe twarze nie będą wykrywane ani osadzane.\n\nIstniejące wektory twarzy i oznaczenia osób NIE zostaną usunięte — pozostaną zapisane i wyszukiwalne, dopóki nie usuniesz plików, z których pochodzą. Wyłączenie to nie to samo co skasowanie już zebranych danych.",
+  "models.confirm.faceOffConfirm": "Wyłącz — rozumiem"
 }

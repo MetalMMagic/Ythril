@@ -10,12 +10,53 @@ import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { applyDeleteFields } from './delete-fields.js';
 import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
-import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc } from '../config/types.js';
+import { log } from '../util/log.js';
+import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc, FileMetaDoc } from '../config/types.js';
 
 /** A backlink entry describing an item that references a given entity. */
 export interface BacklinkEntry {
-  type: 'edge' | 'memory' | 'chrono';
+  type: 'edge' | 'memory' | 'chrono' | 'face';
   _id: string;
+}
+
+/**
+ * Strip a deleted person's label from every face record that pointed at them.
+ *
+ * Face descriptors are not stored in a face collection — they are filemeta records
+ * (`{fileId}#face-chunk{N}`) carrying `faceEmbedding` and, once labelled, `faceEntityId`. So deleting
+ * the entity used to leave the biometric descriptor on disk still tagged with the identifier that was
+ * just erased, and `gallerySearch` kept matching new uploads against it — the dangling label
+ * propagated forward instead of decaying.
+ *
+ * **Unlabel, never delete.** The face record belongs to the *file*, which the operator did not
+ * delete; removing it would destroy someone's image metadata as a side effect of deleting a contact.
+ * "Delete this person" means we stop claiming to know whose face it is, not that the photo loses its
+ * face. An operator who wants the descriptors gone deletes the file — that path already cascades
+ * correctly, because `deleteConversionArtifacts` matches on `parentFileId`.
+ *
+ * Shared by every delete path (single, bulk, TTL sweep) on purpose: this being fixed in one caller
+ * only is the exact shape of the original bug.
+ *
+ * @returns how many face records were unlabelled.
+ */
+export async function unlabelFacesForEntities(spaceId: string, entityIds: string[]): Promise<number> {
+  if (entityIds.length === 0) return 0;
+  return unlabelFacesWhere(spaceId, { faceEntityId: { $in: entityIds } });
+}
+
+/** Clear every face label in a space — for the bulk wipe, where all entities are gone by definition. */
+export async function unlabelAllFaces(spaceId: string): Promise<number> {
+  return unlabelFacesWhere(spaceId, { faceEntityId: { $exists: true } });
+}
+
+async function unlabelFacesWhere(spaceId: string, match: Record<string, unknown>): Promise<number> {
+  const res = await col<FileMetaDoc>(`${spaceId}_files`).updateMany(
+    asFilter<FileMetaDoc>(match),
+    asUpdate<FileMetaDoc>({ $unset: { faceEntityId: '', faceScore: '' } }),
+  );
+  const n = res.modifiedCount ?? 0;
+  if (n > 0) log.info(`Unlabelled ${n} face record(s) in '${spaceId}' after entity deletion`);
+  return n;
 }
 
 export interface UpsertResult {
@@ -305,6 +346,8 @@ export async function deleteEntity(
     asDoc<TombstoneDoc>(tombstone),
     { upsert: true },
   );
+  // Erasure has to reach the biometric copy too — see unlabelFacesForEntities.
+  await unlabelFacesForEntities(spaceId, [entityId]);
   if (actor) emitWebhookEvent({ event: 'entity.deleted', spaceId, entry: { _id: entityId }, ...actor });
   return true;
 }
@@ -344,13 +387,25 @@ export async function bulkDeleteEntities(spaceId: string): Promise<number> {
   }));
   await col<TombstoneDoc>(`${spaceId}_tombstones`).bulkWrite(asBulk<TombstoneDoc>(ops));
   await coll.deleteMany({});
+  // Same cascade as the single delete — a bulk wipe must not be the path that leaves labels behind.
+  // Every entity in the space is gone, so every face label is dangling by definition: clear them
+  // wholesale rather than passing `ids` to a `$in`, which on a 100k-entity wipe would build a 100k
+  // element query for a filter that means "all of them" — the same round-trip trap the seq-block
+  // reservation above exists to avoid.
+  await unlabelAllFaces(spaceId);
   return ids.length;
 }
 
 /**
  * Find all items in a space that hold inbound references to the given entity ID.
- * Checks edges (from/to), memories (entityIds), and chrono entries (entityIds).
+ * Checks edges (from/to), memories (entityIds), chrono entries (entityIds), and labelled face
+ * records (`faceEntityId`).
  * Returns a (possibly empty) list of backlink entries.
+ *
+ * Faces were the gap: this scanned `_edges` / `_memories` / `_chrono` and not `_files`, so under
+ * `strictLinkage` — the strongest setting available — a person referenced *only* by their face
+ * labels deleted cleanly, and the 409 that exists to say "something still points at this" stayed
+ * silent about the one reference class holding biometric data.
  */
 export async function findEntityBacklinks(spaceId: string, entityId: string): Promise<BacklinkEntry[]> {
   const backlinks: BacklinkEntry[] = [];
@@ -372,6 +427,13 @@ export async function findEntityBacklinks(spaceId: string, entityId: string): Pr
     .find(asFilter<ChronoEntry>({ spaceId, entityIds: entityId }), { projection: { _id: 1 } })
     .toArray() as Array<{ _id: string }>;
   for (const c of chronos) backlinks.push({ type: 'chrono', _id: c._id });
+
+  // Face records labelled with this entity. These live in `${spaceId}_files` as face-chunk filemeta
+  // docs, which is why the other three scans missed them.
+  const faces = await col<FileMetaDoc>(`${spaceId}_files`)
+    .find(asFilter<FileMetaDoc>({ faceEntityId: entityId }), { projection: { _id: 1 } })
+    .toArray() as Array<{ _id: string }>;
+  for (const f of faces) backlinks.push({ type: 'face', _id: f._id });
 
   return backlinks;
 }

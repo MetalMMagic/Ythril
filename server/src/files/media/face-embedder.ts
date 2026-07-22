@@ -36,7 +36,7 @@ import { getConfig, getDataRoot, getFaceRecognitionConfig } from '../../config/l
 import { faceRecognitionAllowed } from '../converters/media-level.js';
 import { updateFileMeta } from '../file-meta.js';
 import { log } from '../../util/log.js';
-import type { FileMetaDoc, AuthorRef } from '../../config/types.js';
+import type { FileMetaDoc, AuthorRef, EntityDoc } from '../../config/types.js';
 import type { Config as HumanConfig, Result } from '@vladmandic/human';
 
 // ── Singleton Human instance (lazy init) ──────────────────────────────────
@@ -126,6 +126,26 @@ async function getHuman(): Promise<HumanInstance> {
 // ── Gallery search ─────────────────────────────────────────────────────────
 
 /**
+ * Does this face label still point at an entity that exists?
+ *
+ * Fail closed when it does not. `deleteEntity` unlabels faces as it deletes, but that cascade cannot
+ * reach records orphaned by a delete that happened BEFORE it shipped — and without this check those
+ * records keep seeding new auto-labels with a dead id, so the dangling reference grows instead of
+ * decaying. Cheap: one `_id` lookup, and only for a match that already cleared the threshold.
+ *
+ * Exported as its own seam so it can be tested without standing up a `$vectorSearch` index — the
+ * gallery query around it needs one, this rule does not, and a rule that can only be exercised
+ * through slow infrastructure tends to end up untested.
+ */
+export async function labelStillResolves(spaceId: string, entityId: string): Promise<boolean> {
+  const person = await col<EntityDoc>(`${spaceId}_entities`)
+    .findOne(asFilter<EntityDoc>({ _id: entityId }), { projection: { _id: 1 } });
+  if (person) return true;
+  log.debug(`Face gallery match in ${spaceId} points at deleted entity ${entityId} — ignoring`);
+  return false;
+}
+
+/**
  * Search the face gallery (labeled face-chunk records in the space) for the
  * closest match to the given 128d descriptor.
  *
@@ -173,7 +193,10 @@ async function gallerySearch(
     if (typeof top._score !== 'number' || top._score < threshold) return null;
     if (!top.faceEntityId) return null;
 
-    return { entityId: top.faceEntityId as string, score: top._score };
+    const entityId = top.faceEntityId as string;
+    if (!await labelStillResolves(spaceId, entityId)) return null;
+
+    return { entityId, score: top._score };
   } catch (err) {
     // The face index may not exist yet (feature just enabled, initSpace pending)
     log.debug(`Face gallery search failed for ${spaceId}: ${err instanceof Error ? err.message : String(err)}`);

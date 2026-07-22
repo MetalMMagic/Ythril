@@ -1288,6 +1288,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two test files were checking a copy of the product instead of the product — and both copies had
+  drifted.** A sweep prompted by two defects their suites could not see found eight standalone files
+  that re-implement production logic locally and assert against the re-implementation. Such a test
+  passes whatever the product does, including after the product changes or deletes the code entirely.
+  First two converted, chosen because their mirrored rules are **security guards**, where silent drift
+  costs most:
+  - `delete-fields.test.js` copied the path validator **without production's empty-segment rejection**,
+    so `properties..key` behaved differently in the test than in the product, and deleting that
+    traversal guard from production would have failed **nothing**. Now imports the real
+    `validateDeleteFields`/`applyDeleteFields`, with four cases for the missing rule.
+  - `entity-merge.test.js` copied `applyResolutions` **without the prototype-pollution guard**, so the
+    copy wrote `__proto__` where the product refuses to. Now imports the real functions, with the
+    guard pinned.
+
+  Both verified by mutation: disabling the guard in production fails exactly the intended assertions
+  and nothing else — where previously it would have failed none. Writing the second one produced its
+  own miniature of the problem worth recording: the first draft asserted
+  `out['__proto__'] === undefined`, which is true of *any* plain object because the read walks the
+  prototype chain, so it would have been green with or without the guard. It now uses
+  `hasOwnProperty`.
+  `computeConflicts` is deliberately left as a labelled local simplification — the real
+  `computeMergePlan` is async and reads schemas from Mongo — so it is explicitly *not* evidence about
+  that function, which still has no test importing it. The remaining six files are tracked, the
+  largest being a validation-engine copy that tests a data model production no longer has.
+
 - **The crash-recovery and boot paths carried the same detached-reference defect as the rename.**
   Follow-on hardening, in the two places where it matters most because they run *on* the config-reload
   path, so a reload is not merely possible nearby — it is what invoked them.

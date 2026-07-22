@@ -1288,6 +1288,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The crash-recovery and boot paths carried the same detached-reference defect as the rename.**
+  Follow-on hardening, in the two places where it matters most because they run *on* the config-reload
+  path, so a reload is not merely possible nearby — it is what invoked them.
+  - `reconcilePendingSpaceOp` held the space object across `await moveSpaceData` and then committed
+    it. This is the code that repairs a half-finished rename, so a reload landing mid-recovery
+    produced **exactly the half-finished rename it exists to fix** — and cleared the pending-op marker
+    on the way out, destroying the record a later retry needed.
+  - The delete branch rebuilt `cfg.spaces` from an array captured before `dropSpaceData`.
+  - `initAllSpaces` held every space object across a loop of `initSpace` calls, each of which waits
+    for index readiness. The `indexStatus` flips afterwards were written to orphans, so a space could
+    stay stuck reporting `building` forever with nothing to explain it.
+
+  All three re-resolve by id inside the write. `createSpace` is deliberately unchanged and now carries
+  a comment saying why, because the distinction is the whole bug class: it holds a **top-level** `cfg`
+  reference (refreshed in place by a reload, so still current) and pushes a **newly built** object —
+  not a record looked up before an await.
+
 - **A space rename could silently not happen — collections moved, API returned 200, config kept the
   old id.** `renameSpace` looked the space up, then awaited `moveSpaceData`, which renames every
   collection and takes seconds. A config reload landing in that window replaces `cfg.spaces` wholesale

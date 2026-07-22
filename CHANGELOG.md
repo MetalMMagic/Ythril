@@ -2063,6 +2063,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A file being processed now shows which stage it is on, as sections of a bar, instead of a
+  spinner.** The badge said "something is happening" for as long as the job ran, and looked exactly
+  the same whether the job was working or wedged. Each section is a stage of *that document's* route
+  — routes differ per file and per extraction level — with the active one filling as its pages land.
+  The data already existed: #357 gave the job a heartbeat and #358 gave that heartbeat identity; what
+  was missing was the wire (`progress` lives on the media job, the file listing reads the files
+  collection) and the drawing.
+  Four things are deliberate rather than incidental:
+  - **The sections are weighted, not equal.** On a 40-page PDF the vision pass is minutes and
+    `validate` is milliseconds, so equal widths would sit at a third for the whole job and then leap
+    to done. The weights are an honest display heuristic and are named as one — nothing treats them
+    as an estimate of time remaining.
+  - **A one-stage route degrades to a plain bar.** The OCR route really is a single stage, and a
+    lone bordered box reads as "step 1 of several" — a claim about work that does not exist.
+  - **A stage that cannot count its work is not drawn half-finished.** No `done`/`total` means one
+    indivisible call; inventing 50 % would be fabricated progress. The bar shows what the completed
+    stages earned and nothing more.
+  - **A stalled job stops looking like a working one.** If nothing has been reported for longer than
+    the stall timeout the bar says so, rather than holding a frozen section that is indistinguishable
+    from a moving one — the #357 failure viewed from the UI side.
+  The bar carries `role="progressbar"` with real values and a translated text label naming the stage
+  and position, because a bar that communicates only by width answers "is this file done?" for
+  nobody using a screen reader.
+  The listing pays nothing for this when nothing is in flight: the join is one `$in` per member
+  space, issued only for files in `pending`/`processing`, and skipped entirely otherwise.
+
 - **The four instance ceilings are editable now — Images, Audio, Video and Text.** #356 gave each
   media class a real ladder and the resolution rule; the Pipelines tab drew all four, read-only,
   because `PATCH /api/admin/media-config` had no `levels` schema. It does now, built from the same

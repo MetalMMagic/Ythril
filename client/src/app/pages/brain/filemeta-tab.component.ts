@@ -10,6 +10,7 @@ import { TagInputComponent } from '../../shared/tag-input.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
+import { StepProgressBarComponent } from '../../shared/step-progress-bar.component';
 import { RecordTabBase } from './record-tab-base';
 import { RecordSearchBarComponent } from './record-search-bar.component';
 import { fmtApiError } from './brain-format';
@@ -30,7 +31,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-filemeta-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, StepProgressBarComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
           <div class="content-header">
@@ -161,7 +162,14 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                               <span class="badge badge-red" style="font-size:10px;" [title]="'Deleted ' + (fm.deletedAt | date:'dd.MM.yyyy HH:mm')">{{ 'brain.fileMeta.deleted' | transloco }}</span>
                             }
                             @if (fm.embeddingStatus === 'pending' || fm.embeddingStatus === 'processing') {
-                              <span class="badge badge-blue" style="font-size:10px;" title="Embedding in progress…"><span class="spinner" style="width:8px;height:8px;border-width:1.5px;display:inline-block;vertical-align:middle;margin-right:3px;"></span>{{ 'brain.fileMeta.embedding' | transloco }}</span>
+                              @if (fm.progress) {
+                                <!-- The route is known, so show WHICH stage is running rather than
+                                     that something is. The spinner below is the fallback for a job
+                                     that has been claimed but has not reported its first step. -->
+                                <app-step-progress-bar [progress]="fm.progress" [progressAt]="fm.progressAt"/>
+                              } @else {
+                                <span class="badge badge-blue" style="font-size:10px;" [attr.title]="'brain.fileMeta.embedding' | transloco"><span class="spinner" style="width:8px;height:8px;border-width:1.5px;display:inline-block;vertical-align:middle;margin-right:3px;"></span>{{ 'brain.fileMeta.embedding' | transloco }}</span>
+                              }
                             } @else if (fm.embeddingStatus === 'failed') {
                               <span class="badge badge-red" style="font-size:10px;" [title]="fm.mediaJobError || 'Embedding failed'">{{ 'brain.fileMeta.embeddingFailed' | transloco }}</span>
                             } @else if (fm.embeddingStatus === 'partial') {

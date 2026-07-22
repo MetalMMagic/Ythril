@@ -1963,6 +1963,24 @@ retries are exhausted). Once complete, the record carries `chunkCount` and (for 
 `convertedFileId`, and the chunk records are recall-searchable. To see the chunks themselves, pass
 `?includeChunks=true` — they are hidden by default (see below).
 
+**While a file is in flight the record also carries step progress**, so a caller can report *which
+stage* is running rather than just that something is:
+
+```json
+{
+  "embeddingStatus": "processing",
+  "progress": { "step": "vlm", "steps": ["ocr", "render", "vlm", "validate"], "done": 12, "total": 40 },
+  "progressAt": "2026-07-22T12:00:00.000Z"
+}
+```
+
+`steps` is the resolved route for **that document** — it differs per file and per extraction level, so
+do not treat it as a fixed list. `done`/`total` are present only for stages that can count their work;
+a stage that is one indivisible call reports neither, and inventing a midpoint for it would be
+fabricated progress. `progressAt` is the last report, which is what distinguishes a slow job from a
+wedged one — compare it against `stalledJobTimeoutMs`. Both fields are absent once the job finishes,
+and while a claimed job has not yet reported its first step.
+
 Media files (image/audio/video) are likewise queued and report `embeddingStatus` of `pending`,
 `disabled` (media embedding turned off) or `skipped` (over `maxFileSizeBytes`). Only the `"text"`
 bypass is fully synchronous: it stores a single flat embedding with no chunking and no job.

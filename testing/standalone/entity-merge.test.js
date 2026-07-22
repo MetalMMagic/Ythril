@@ -35,56 +35,18 @@ const BOOLEAN_FNS = {
 const VALID_NUMERIC_FNS = new Set(['avg', 'min', 'max', 'sum']);
 const VALID_BOOLEAN_FNS = new Set(['and', 'or', 'xor']);
 
-function validateResolution(resolution, type, hasCustomValue) {
-  if (resolution === 'survivor' || resolution === 'absorbed') return null;
-  if (resolution === 'custom') {
-    if (!hasCustomValue) return 'resolution "custom" requires a customValue';
-    return null;
-  }
-  if (resolution.startsWith('fn:')) {
-    const fnName = resolution.slice(3);
-    if (type === 'number') {
-      if (!VALID_NUMERIC_FNS.has(fnName)) return `unknown numeric merge function: ${fnName}`;
-      return null;
-    }
-    if (type === 'boolean') {
-      if (!VALID_BOOLEAN_FNS.has(fnName)) return `unknown boolean merge function: ${fnName}`;
-      return null;
-    }
-    return `fn: resolutions require type "number" or "boolean", got "${type}"`;
-  }
-  return `unknown resolution: ${resolution}`;
-}
-
-function applyResolutions(survivorProps, absorbedProps, conflicts, absorbedOnly) {
-  const result = { ...survivorProps };
-
-  for (const p of absorbedOnly) {
-    result[p.key] = p.value;
-  }
-
-  for (const c of conflicts) {
-    const resolution = c.resolution;
-    if (resolution === 'survivor') {
-      continue;
-    } else if (resolution === 'absorbed') {
-      result[c.key] = c.absorbedValue;
-    } else if (resolution === 'custom') {
-      if (c.customValue !== undefined) {
-        result[c.key] = c.customValue;
-      }
-    } else if (resolution.startsWith('fn:')) {
-      const fnName = resolution.slice(3);
-      if (c.type === 'number' && NUMERIC_FNS[fnName]) {
-        result[c.key] = NUMERIC_FNS[fnName](c.survivorValue, c.absorbedValue);
-      } else if (c.type === 'boolean' && BOOLEAN_FNS[fnName]) {
-        result[c.key] = BOOLEAN_FNS[fnName](c.survivorValue, c.absorbedValue);
-      }
-    }
-  }
-
-  return result;
-}
+// The real implementations — imported, not re-implemented.
+//
+// `applyResolutions` was mirrored here WITHOUT production's prototype-pollution guard
+// (`merge.ts`: `if (!isSafeKey(p.key)) continue`), so the copy happily wrote `__proto__` where the
+// product refuses to. `validateResolution` was a byte-identical copy — no drift yet, but no way to
+// notice one either, since asserting a copy against itself always passes.
+//
+// NOTE: `computeConflicts` below is deliberately NOT the product. The real `computeMergePlan` is
+// async and reads the space's schemas from Mongo, so it cannot run here; this is a simplification
+// used to build fixtures. It is therefore NOT evidence about `computeMergePlan`, which currently has
+// no test that imports it at all — tracked in QA-TODO.
+const { validateResolution, applyResolutions } = await import('../../server/dist/brain/merge.js');
 
 function resolvePropertyType(key, value, schemas) {
   const schema = schemas?.[key];
@@ -340,6 +302,24 @@ describe('Entity merge — resolution application', () => {
     assert.equal(result.score, 90);
     assert.equal(result.name, 'Bob');
     assert.equal(result.extra, true);
+  });
+});
+
+describe('Entity merge — the guard the mirrored copy omitted', () => {
+  it('refuses to write a prototype-polluting key from absorbed-only properties', () => {
+    const out = applyResolutions({ safe: 1 }, {}, [], [
+      { key: '__proto__', value: 'polluted' },
+      { key: 'constructor', value: 'polluted' },
+      { key: 'legit', value: 'kept' },
+    ]);
+    // Own-property checks, not value checks: `out['__proto__']` reads Object.prototype through the
+    // chain and `out['constructor']` reads Object, so both are non-undefined on any plain object.
+    // Asserting on the value would pass whether or not the guard exists.
+    const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+    assert.equal(own(out, '__proto__'), false, 'must not write __proto__ as an own property');
+    assert.equal(own(out, 'constructor'), false, 'must not write constructor as an own property');
+    assert.equal(out['legit'], 'kept', 'ordinary keys still apply');
+    assert.equal(({}).polluted, undefined, 'the global prototype must be untouched');
   });
 });
 

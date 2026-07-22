@@ -1,99 +1,125 @@
 /**
- * Unit tests: mergeFn validation in PropertySchema Zod schema
+ * `PropertySchema` request validation — against the REAL Zod schema.
  *
- * Covers:
- *  - Valid mergeFn for number type (avg, min, max, sum, first, last)
- *  - Valid mergeFn for boolean type (and, or, xor)
- *  - Rejected: numeric mergeFn on boolean type
- *  - Rejected: boolean mergeFn on number type
- *  - Rejected: mergeFn on string type
- *  - Allowed: mergeFn without type declaration (type-agnostic)
+ * This file used to keep a hand-copy of `PropertySchemaZ` from `api/spaces.ts` and test that. The
+ * copy drifted, and it drifted in the direction that is hardest to notice: it became **stricter than
+ * production**, so every test passed while the schema under test accepted less than the real one.
  *
- * Run with:
- *   node --test testing/standalone/mergefn-schema.test.js
+ * Three fields production accepts were missing from the copy, and because the schema is `.strict()`
+ * their absence meant *rejection*, not laxity:
+ *
+ *   - `required` — an inline boolean on the property. This is the one that matters: it is what the
+ *     Schema tab sends for every property an operator marks required, so the copy rejected the most
+ *     ordinary body the product produces.
+ *   - `default` — the seed value used when a record omits the property.
+ *   - `type: 'date'` — a fourth declared type, stored as an ISO string.
+ *
+ * A test suite that rejects what production accepts cannot catch a real regression: it fails only on
+ * bodies the product never sends, and stays silent on the ones it does. Importing the real schema
+ * removes the whole class of problem — there is nothing left to drift.
+ *
+ * Run: node --test testing/standalone/mergefn-schema.test.js
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { z } from 'zod';
 
-// ── Replicated Zod schema from spaces.ts ──
+const { PropertySchemaZ } = await import('../../server/dist/api/spaces.js');
 
-const PropertySchemaZ = z.object({
-  type: z.enum(['string', 'number', 'boolean']).optional(),
-  enum: z.array(z.union([z.string(), z.number(), z.boolean()])).optional(),
-  minimum: z.number().optional(),
-  maximum: z.number().optional(),
-  pattern: z.string().max(500).optional(),
-  mergeFn: z.enum(['avg', 'min', 'max', 'sum', 'and', 'or', 'xor']).optional(),
-}).strict().refine(data => {
-  if (!data.mergeFn) return true;
-  const numericFns = new Set(['avg', 'min', 'max', 'sum']);
-  const booleanFns = new Set(['and', 'or', 'xor']);
-  if (data.type === 'number') return numericFns.has(data.mergeFn);
-  if (data.type === 'boolean') return booleanFns.has(data.mergeFn);
-  if (data.type === 'string') return false;
-  return numericFns.has(data.mergeFn) || booleanFns.has(data.mergeFn);
-}, {
-  message: 'mergeFn is incompatible with the declared type',
+const accepts = (input, why = '') => assert.ok(
+  PropertySchemaZ.safeParse(input).success,
+  `expected accepted${why ? ' (' + why + ')' : ''}: ${JSON.stringify(input)}`,
+);
+const rejects = (input, why = '') => assert.ok(
+  !PropertySchemaZ.safeParse(input).success,
+  `expected rejected${why ? ' (' + why + ')' : ''}: ${JSON.stringify(input)}`,
+);
+
+const NUMERIC = ['avg', 'min', 'max', 'sum'];
+const BOOLEAN = ['and', 'or', 'xor'];
+
+describe('mergeFn must match the declared type', () => {
+  it('numeric mergeFns are accepted on a number', () => {
+    for (const mergeFn of NUMERIC) accepts({ type: 'number', mergeFn });
+  });
+
+  it('boolean mergeFns are accepted on a boolean', () => {
+    for (const mergeFn of BOOLEAN) accepts({ type: 'boolean', mergeFn });
+  });
+
+  it('numeric mergeFns are rejected on a boolean', () => {
+    for (const mergeFn of NUMERIC) rejects({ type: 'boolean', mergeFn });
+  });
+
+  it('boolean mergeFns are rejected on a number', () => {
+    for (const mergeFn of BOOLEAN) rejects({ type: 'number', mergeFn });
+  });
+
+  it('no mergeFn is valid on a string — there is nothing to merge numerically or logically', () => {
+    for (const mergeFn of [...NUMERIC, ...BOOLEAN]) rejects({ type: 'string', mergeFn });
+  });
+
+  it('no mergeFn is valid on a date either', () => {
+    // `date` did not exist in the hand-copy at all, so this branch of the refine was never exercised.
+    for (const mergeFn of [...NUMERIC, ...BOOLEAN]) rejects({ type: 'date', mergeFn });
+  });
+
+  it('a mergeFn with no declared type is allowed, so long as it is a real one', () => {
+    for (const mergeFn of [...NUMERIC, ...BOOLEAN]) accepts({ mergeFn });
+  });
+
+  it('an unknown mergeFn is rejected however it is declared', () => {
+    rejects({ mergeFn: 'frobnicate' });
+    rejects({ type: 'number', mergeFn: 'concat' });
+    rejects({ type: 'number', mergeFn: '' });
+  });
+
+  it('a schema with no mergeFn is fine', () => {
+    accepts({ type: 'number' });
+    accepts({});
+  });
 });
 
-// ── Tests ──
-
-describe('PropertySchema Zod — mergeFn validation', () => {
-  it('accepts number type with numeric mergeFns', () => {
-    for (const fn of ['avg', 'min', 'max', 'sum']) {
-      const result = PropertySchemaZ.safeParse({ type: 'number', mergeFn: fn });
-      assert.ok(result.success, `type: number + mergeFn: ${fn} should be valid`);
-    }
+describe('the fields the hand-copy was missing — the drift this file existed to have caught', () => {
+  it('accepts `required`, which is what the Schema tab sends for every required property', () => {
+    // The copy was .strict() without this key, so it rejected the most ordinary body in the product.
+    accepts({ type: 'string', required: true }, 'required is an inline flag on the property');
+    accepts({ required: false });
   });
 
-  it('accepts boolean type with boolean mergeFns', () => {
-    for (const fn of ['and', 'or', 'xor']) {
-      const result = PropertySchemaZ.safeParse({ type: 'boolean', mergeFn: fn });
-      assert.ok(result.success, `type: boolean + mergeFn: ${fn} should be valid`);
-    }
+  it('accepts `default`', () => {
+    accepts({ type: 'string', default: 'unset' });
+    accepts({ type: 'number', default: 0 });
+    accepts({ type: 'boolean', default: false });
   });
 
-  it('rejects numeric mergeFns on boolean type', () => {
-    for (const fn of ['avg', 'min', 'max', 'sum']) {
-      const result = PropertySchemaZ.safeParse({ type: 'boolean', mergeFn: fn });
-      assert.ok(!result.success, `type: boolean + mergeFn: ${fn} should be rejected`);
-    }
+  it("accepts type 'date'", () => {
+    accepts({ type: 'date' });
+    accepts({ type: 'date', pattern: '^\\d{4}-\\d{2}-\\d{2}' });
   });
 
-  it('rejects boolean mergeFns on number type', () => {
-    for (const fn of ['and', 'or', 'xor']) {
-      const result = PropertySchemaZ.safeParse({ type: 'number', mergeFn: fn });
-      assert.ok(!result.success, `type: number + mergeFn: ${fn} should be rejected`);
-    }
+  it('a realistic property from the Schema tab round-trips', () => {
+    accepts({ type: 'string', enum: ['active', 'deprecated'], required: true, default: 'active' });
+    accepts({ type: 'number', minimum: 0, maximum: 100, mergeFn: 'avg', required: false });
+  });
+});
+
+describe('the schema is still strict about what it does not know', () => {
+  it('rejects an unrecognised key rather than ignoring it', () => {
+    // .strict() is deliberate: a typo like `requried` must be an error, not a silently dropped
+    // constraint that leaves the operator believing the property is required.
+    rejects({ type: 'string', requried: true }, 'typo must not be silently dropped');
+    rejects({ type: 'string', unknownThing: 1 });
   });
 
-  it('rejects any mergeFn on string type', () => {
-    for (const fn of ['avg', 'min', 'max', 'sum', 'first', 'last', 'and', 'or', 'xor']) {
-      const result = PropertySchemaZ.safeParse({ type: 'string', mergeFn: fn });
-      assert.ok(!result.success, `type: string + mergeFn: ${fn} should be rejected`);
-    }
+  it('rejects a wrong-typed value for a known key', () => {
+    rejects({ type: 'number', minimum: 'zero' });
+    rejects({ required: 'yes' });
+    rejects({ type: 'nonsense' });
   });
 
-  it('accepts mergeFn without type declaration', () => {
-    // This is allowed because the type can be inferred at runtime
-    const result = PropertySchemaZ.safeParse({ mergeFn: 'avg' });
-    assert.ok(result.success, 'mergeFn without type should be allowed');
-  });
-
-  it('accepts schema without mergeFn', () => {
-    const result = PropertySchemaZ.safeParse({ type: 'number', minimum: 0, maximum: 100 });
-    assert.ok(result.success, 'schema without mergeFn should be valid');
-  });
-
-  it('accepts empty schema', () => {
-    const result = PropertySchemaZ.safeParse({});
-    assert.ok(result.success, 'empty schema should be valid');
-  });
-
-  it('rejects unknown mergeFn values', () => {
-    const result = PropertySchemaZ.safeParse({ type: 'number', mergeFn: 'bogus' });
-    assert.ok(!result.success, 'unknown mergeFn should be rejected');
+  it('caps the pattern length, which is the ReDoS-adjacent input', () => {
+    accepts({ type: 'string', pattern: 'a'.repeat(500) });
+    rejects({ type: 'string', pattern: 'a'.repeat(501) });
   });
 });

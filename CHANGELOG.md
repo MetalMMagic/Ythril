@@ -1306,6 +1306,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three icons rendered as blank space — and nothing could have told you.** `broadcast` (nav →
+  Webhooks), `export` and `stack` (Schema library) were used in templates but absent from the icon
+  registry. `PhIconComponent` resolves an unknown name to `ICONS[name] ?? ''`, which renders a
+  correctly-sized, completely empty element: no console error, no fallback glyph, no build failure —
+  and `ng build` cannot catch it because the name is a template string, not a symbol. They were found
+  by the owner noticing a gap in the nav.
+  All three are added, and a new standalone test scans the real templates against the real registry so
+  a fourth fails a test instead of shipping. The guard carries its own guard: a second assertion checks
+  the scan still *finds* icons, because if the regex or the directory walk broke, "no missing icons"
+  would be vacuously true and the test would go quiet in exactly the situation it exists for.
+  Verified by mutation — removing an icon fails it.
+
 - **A long document could never finish: the stall timeout reaped jobs for being slow, then killed
   every retry at the same point.** `stalledJobTimeoutMs` was a wall-clock deadline measured from
   `claimedAt`, which cannot distinguish *wedged* from *working*. A 400-page PDF transcribed a page at

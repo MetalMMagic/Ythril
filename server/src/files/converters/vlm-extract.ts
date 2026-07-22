@@ -18,6 +18,7 @@ import type { DocExtractionMode } from '../../config/types.js';
 import { UnstructuredConverter, type UnstructuredResult } from './unstructured.js';
 import { renderDocumentPages, isRenderAvailableFor } from './renderer.js';
 import { transcribePageImage, repairMarkdown, repairMarkdownExternal, reconcileConsensus } from './vlm-client.js';
+import type { StepProgress } from './types.js';
 import { decideRoute, validateExtraction, bestByEvidence } from './extraction-policy.js';
 
 const TRANSCRIBE_PROMPT =
@@ -37,7 +38,7 @@ export async function vlmExtractDocument(
   fileBytes: Buffer,
   fileName: string,
   modeOverride?: DocExtractionMode,
-  onProgress?: () => void,
+  onProgress?: (p: StepProgress) => void,
 ): Promise<VlmExtractResult> {
   const cfg = getDocumentProcessingConfig();
   const mode = modeOverride ?? cfg.mode;
@@ -45,6 +46,8 @@ export async function vlmExtractDocument(
   // `repair` reuses the VLM (or a wired-in repairModel), so it's available whenever the VLM is; decideRoute
   // only actually schedules the repair stage for `max` mode.
   const route = decideRoute(mode, { ocr: true, render, vlm: !!cfg.vlmModel, repair: !!cfg.vlmModel, verify: !!cfg.verifyModel });
+  // The sections of the bar: this document's actual route, so nothing is drawn that will not run.
+  const steps = route.stages as string[];
 
   // OCR is evidence + fallback. Tolerate it being down IF the VLM path can still run (ungrounded).
   let ocr: UnstructuredResult | null = null;
@@ -70,14 +73,18 @@ export async function vlmExtractDocument(
       timeoutMs: cfg.pageTimeoutMs * Math.min(cfg.maxPages, 20),
     });
     if (pages.length === 0) throw new Error('render produced no pages');
+    onProgress?.({ step: 'render', steps, done: pages.length, total: pages.length });
+    let pagesDone = 0;
 
     const parts = await mapLimit(pages, cfg.concurrency, async (img) => {
       const t = await transcribePageImage(img, {
         baseUrl, model: cfg.vlmModel, prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
       });
       // A finished page is the smallest honest unit of progress on this path — it is what makes a
-      // long document slow rather than wedged.
-      onProgress?.();
+      // long document slow rather than wedged. Counting completions rather than using the map index
+      // keeps the number monotonic: pages run concurrently, so index order is not completion order
+      // and a bar driven by it would jump backwards.
+      onProgress?.({ step: 'vlm', steps, done: ++pagesDone, total: pages.length });
       return t.text.trim();
     });
     let markdown = parts.filter(Boolean).join('\n\n---\n\n').trim();
@@ -117,7 +124,9 @@ export async function vlmExtractDocument(
     // ── max-mode repair: ONE bounded reconciliation pass against the OCR evidence before giving up ──
     // Only for `max` (route has the repair stage) and only when we have OCR evidence to reconcile against.
     // Repair can only turn a fallback into an acceptance — it never degrades a result that already passed.
+    onProgress?.({ step: 'validate', steps });
     if (route.stages.includes('repair') && ocr && evidence.trim()) {
+      onProgress?.({ step: 'repair', steps });
       // F11-b — route repair to the external assist model when it's configured for `repair` AND its egress
       // host has been acknowledged. The host-match is re-checked HERE so document content never leaves the
       // instance without recorded consent, even if config.json were hand-edited to add `uses` without an ack.

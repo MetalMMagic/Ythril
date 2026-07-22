@@ -337,7 +337,7 @@ async function processJob(
           {
             mode: spaceMode,
             textLevel: spaceTextLevel,
-            onProgress: () => { void touchJobProgress(spaceId, String(fileId)); },
+            onProgress: (p) => { void touchJobProgress(spaceId, String(fileId), p); },
           },
         );
         if (chunks.length > 0 || extractedImages.length > 0) {

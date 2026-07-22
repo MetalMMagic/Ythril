@@ -1334,6 +1334,12 @@ export interface MediaJobDoc {
    */
   progressAt?: string | null;
   /**
+   * The last step report from the worker: which stage is running, the full route this document
+   * takes, and how far through the current stage it is. Written in the same update as the
+   * heartbeat, so surfacing progress costs no extra writes.
+   */
+  progress?: { step: string; steps: string[]; done?: number; total?: number };
+  /**
    * ISO8601 — when set on a `pending` job, the worker MUST NOT claim it
    * until this timestamp has passed. Used for exponential retry backoff so
    * a fast-failing "poison pill" job can’t monopolise the queue and starve

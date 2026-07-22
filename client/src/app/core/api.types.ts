@@ -291,6 +291,11 @@ export interface FileMeta {
    *  "partial" → stored but some chunks failed to embed (retry-eligible);
    *  "failed" → all retries exhausted; "skipped" / "disabled" → media-only states. */
   embeddingStatus?: 'pending' | 'processing' | 'complete' | 'partial' | 'failed' | 'skipped' | 'disabled';
+  /** The running stage and this document's full route, joined from its media job while it is in
+   *  flight (absent once the job finishes, and while a claimed job has not reported a step yet). */
+  progress?: { step: string; steps: string[]; done?: number; total?: number };
+  /** ISO8601 of the job's last report — lets the UI tell "working" from "wedged". */
+  progressAt?: string | null;
   /** Error message when embeddingStatus is "failed". */
   mediaJobError?: string;
   chunkCount?: number;

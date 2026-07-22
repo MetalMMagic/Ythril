@@ -423,6 +423,40 @@ export function stalledJobFilter(cutoff: string): Record<string, unknown> {
   };
 }
 
+/** What the file list needs to draw a progress bar for one in-flight file. */
+export interface JobProgressView {
+  progress?: { step: string; steps: string[]; done?: number; total?: number };
+  /** ISO8601 of the last sign of life, so the UI can tell "working" from "wedged". */
+  progressAt?: string | null;
+}
+
+/**
+ * Look up step progress for a set of files, in ONE query.
+ *
+ * `MediaJobDoc._id` is the file `_id` — one job per file — so this is an `$in`, not an N+1 walk. It
+ * is called per member space rather than per file, and only with the ids that are actually in
+ * flight: a completed file has nothing to draw, and querying for it would make the common case
+ * (a page of finished files) pay for the rare one.
+ *
+ * Best-effort like the heartbeat that writes the data: a failed lookup returns an empty map and the
+ * UI falls back to the plain spinner. A progress bar is not worth failing a file listing over.
+ */
+export async function fetchJobProgress(
+  spaceId: string,
+  fileIds: string[],
+): Promise<Map<string, JobProgressView>> {
+  const out = new Map<string, JobProgressView>();
+  if (fileIds.length === 0) return out;   // never issue an empty $in
+  try {
+    const docs = await jobCollection(spaceId)
+      .find(asFilter<MediaJobDoc>({ _id: { $in: fileIds } }))
+      .project({ progress: 1, progressAt: 1 })
+      .toArray() as Array<{ _id: string } & JobProgressView>;
+    for (const d of docs) out.set(d._id, { progress: d.progress, progressAt: d.progressAt });
+  } catch { /* best-effort — the listing matters, the bar does not */ }
+  return out;
+}
+
 /**
  * Record that a claimed job is still doing something.
  *

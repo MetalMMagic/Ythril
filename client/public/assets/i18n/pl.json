@@ -1413,5 +1413,7 @@
   "models.class.video": "Wideo",
   "models.class.text": "Tekst",
   "models.pipelines.ceilingHint": "Najwięcej, co przestrzeń może zrobić z tą klasą. Przestrzeń może wybrać mniej, nigdy więcej — obniżenie tego limitu ogranicza każdą przestrzeń powyżej, a te zachowują swój wybór, jeśli limit znów podniesiesz.",
-  "models.pipelines.ceilingOffWarning": "Wyłączenie obowiązuje wszędzie — żadna przestrzeń nie przetworzy tej klasy."
+  "models.pipelines.ceilingOffWarning": "Wyłączenie obowiązuje wszędzie — żadna przestrzeń nie przetworzy tej klasy.",
+  "files.progress.working": "W toku",
+  "files.progress.stalled": "Brak zgłoszonego postępu — to zadanie mogło się zaciąć"
 }

@@ -1413,5 +1413,7 @@
   "models.class.video": "Video",
   "models.class.text": "Text",
   "models.pipelines.ceilingHint": "Das Maximum, das ein Bereich mit dieser Klasse tun darf. Ein Bereich kann weniger wählen, nie mehr — wenn Sie das hier senken, werden alle Bereiche darüber gekappt, und sie behalten ihre eigene Wahl, falls Sie es wieder anheben.",
-  "models.pipelines.ceilingOffWarning": "Aus gilt überall — kein Bereich kann diese Klasse verarbeiten."
+  "models.pipelines.ceilingOffWarning": "Aus gilt überall — kein Bereich kann diese Klasse verarbeiten.",
+  "files.progress.working": "Läuft",
+  "files.progress.stalled": "Kein Fortschritt gemeldet — dieser Auftrag hängt möglicherweise"
 }

@@ -21,8 +21,38 @@ import { col, asFilter } from '../../db/mongo.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
 import { resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
 import type { FileMetaDoc } from '../../config/types.js';
+import { fetchJobProgress } from '../../files/media/job-queue.js';
 
 export const fileMetaRouter = Router();
+
+/** Statuses worth a progress lookup. Anything else is finished and has nothing left to draw. */
+const IN_FLIGHT = new Set(['pending', 'processing']);
+
+/**
+ * Decorate a page of file records with their job's step progress.
+ *
+ * The rule worth pinning is that a page with nothing in flight issues **no query at all**, so the
+ * common case — a listing of finished files, which is most listings — does not pay for the rare one.
+ * `lookup` is injectable purely so a test can observe that: asserting on the returned records cannot
+ * distinguish "did not query" from "queried and got nothing", which is exactly the regression this
+ * guards against.
+ */
+export async function attachJobProgress(
+  memberId: string,
+  files: Array<Record<string, unknown>>,
+  lookup: typeof fetchJobProgress = fetchJobProgress,
+): Promise<Array<Record<string, unknown>>> {
+  const inFlight = files.filter(f => IN_FLIGHT.has(String(f['embeddingStatus'] ?? '')));
+  if (inFlight.length === 0) return files;
+  const byId = await lookup(memberId, inFlight.map(f => String(f['_id'])));
+  if (byId.size === 0) return files;
+  return files.map(f => {
+    const view = byId.get(String(f['_id']));
+    // A job row with no `progress` yet (claimed, first step not reported) adds nothing — leaving the
+    // field absent keeps "we do not know yet" distinct from "the route has no steps".
+    return view?.progress ? { ...f, progress: view.progress, progressAt: view.progressAt } : f;
+  });
+}
 
 
 // GET /api/brain/spaces/:spaceId/files — list file metadata records
@@ -42,14 +72,18 @@ fileMetaRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, 
   if (!includeChunks) filter['parentFileId'] = { $exists: false };
   if (typeof req.query['tag'] === 'string') filter['tags'] = req.query['tag'];
   if (typeof req.query['path'] === 'string') filter['path'] = toDocId(req.query['path']);
-  const all = await collectAcrossMembers(spaceId, mid =>
-    col(`${mid}_files`)
+  const all = await collectAcrossMembers(spaceId, async mid => {
+    const files = await col(`${mid}_files`)
       .find(asFilter(filter))
       .sort({ updatedAt: -1 })
       .skip(skip)
       .limit(limit)
-      .toArray(),
-  );
+      .toArray();
+    // Attach step progress for files still in flight, so the UI can draw which stage is running
+    // instead of a spinner that never resolves. Joined per MEMBER: on a proxy space the ids belong
+    // to that member's job collection, and looking them up in another's would silently find nothing.
+    return attachJobProgress(mid, files as Array<Record<string, unknown>>);
+  });
   res.json({ files: capPage(all, limit), limit, skip });
 });
 

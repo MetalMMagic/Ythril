@@ -1412,6 +1412,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A network join or reparent could return `200` with the membership change silently absent.**
+  `POST /api/invite/finalize` looked up `net = cfg.networks.find(...)`, then `await bcrypt.hash(...)`,
+  then mutated `net` and called `saveConfig(cfg)`. The config object's nested arrays are replaced
+  wholesale on a reload, so if the config watcher fired during the hash, every mutation landed on an
+  orphaned object and the save persisted the **pre-reload** snapshot — reverting the join and
+  clobbering any unrelated config edit made in the same window. The window is not incidental:
+  `bcrypt.hash` is deliberately slow, which makes this one of the widest reload windows in the
+  codebase. Same silent-success shape as the space rename (#353) and the config clobber (#346).
+
+  Finalize now re-reads the live config immediately before mutating — after the last `await`, with no
+  awaits between the re-read and the save — mirroring what `api/networks/join.ts` already does. A
+  network deleted during the handshake now returns a clean `409` instead of being resurrected from the
+  stale snapshot. The same re-read was applied to `PUT /api/spaces/:id/schema`, which held a `space`
+  reference across the `await` that writes the schema backup and would drop a concurrent edit to that
+  space's `purpose` / `usageNotes` / `validationMode` on a schema save.
+
+  Pinned by new cases in `config-detached-refs.test.js` for the networks array specifically (the old
+  coverage only demonstrated spaces); mutation-checked against the loader's detach behaviour. Fixing
+  the remaining sites and the ~2s watcher-lag window are tracked separately.
+
 - **Deleting a person did not unlink their face vectors — the biometric link outlived the erasure.**
   Face descriptors are not stored in a face collection; they are **filemeta** records
   (`{fileId}#face-chunk{N}`) carrying `faceEmbedding` and, once labelled, `faceEntityId`.

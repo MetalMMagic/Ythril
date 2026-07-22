@@ -372,10 +372,12 @@ inviteRouter.post('/finalize', authRateLimit, async (req, res) => {
 
   const { instanceId, instanceLabel, instanceUrl } = session.pendingMember;
 
-  // Commit to config
-  const cfg = getConfig();
-  const net = cfg.networks.find(n => n.id === session.networkId);
-  if (!net) { res.status(404).json({ error: 'Network not found' }); return; }
+  // Fail fast on a network that does not exist, before doing expensive work. This read is only a
+  // guard — the object it returns must NOT be carried across the await below (see the re-read after).
+  if (!getConfig().networks.some(n => n.id === session.networkId)) {
+    res.status(404).json({ error: 'Network not found' });
+    return;
+  }
 
   // Hash B's token for inbound validation (stored in member record)
   const tokenHash = await bcrypt.hash(peerToken, BCRYPT_ROUNDS);
@@ -384,6 +386,29 @@ inviteRouter.post('/finalize', authRateLimit, async (req, res) => {
   const secrets = getSecrets();
   secrets.peerTokens[instanceId] = peerToken;
   saveSecrets(secrets);
+
+  // ── Re-read AFTER the last await, immediately before mutating ────────────────────────────────
+  //
+  // `getConfig()` returns the live object, and the config watcher replaces its nested contents on
+  // reload. A reference taken before an await is therefore orphaned if a reload lands during it —
+  // the mutations below would apply to a detached object and `saveConfig(cfg)` at the end would
+  // persist the PRE-reload snapshot, silently reverting whatever else changed and losing this join.
+  //
+  // The window here is not theoretical: `bcrypt.hash` is *deliberately* slow (that is its whole
+  // purpose), which makes this one of the widest reload windows in the codebase. The failure is
+  // silent in the worst way — the caller gets 200 and the membership change simply is not there.
+  // Same shape as the silent rename (#353) and the config clobber (#346).
+  //
+  // Mirrors what `api/networks/join.ts` already does (`freshCfg`); a second spelling of the same
+  // idea would be its own kind of bug.
+  const cfg = getConfig();
+  const net = cfg.networks.find(n => n.id === session.networkId);
+  if (!net) {
+    // The network was deleted while we hashed. Do NOT recreate it from the stale snapshot — a join
+    // must never resurrect a network an admin just removed.
+    res.status(409).json({ error: 'Network was removed while the handshake was in flight' });
+    return;
+  }
 
   let responseStatus: 'joined' | 'reparented' | 'vote_pending';
   let pendingRoundId: string | undefined;

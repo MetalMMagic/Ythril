@@ -239,9 +239,11 @@ export function buildSchemaSummary(meta: SpaceMeta): string {
   if (ts?.chrono && Object.keys(ts.chrono).length > 0) {
     parts.push(`Chrono types: ${Object.keys(ts.chrono).join(', ')}`);
   }
-  if (meta.tagSuggestions?.length) {
-    parts.push(`Suggested tags: ${meta.tagSuggestions.join(', ')}`);
-  }
+  // `meta.tagSuggestions` used to be summarised here. It was retired: it was one editable list that
+  // applied to every type in the space, so it steered what agents tagged with while being easy to
+  // set once and forget. Any stored value is left untouched in config.json rather than deleted — the
+  // retirement is reversible, and silently destroying an operator's list would be a worse trade than
+  // leaving an unused field behind.
   if (parts.length > 0) {
     parts.push('Call get_space_meta for full schema and usage notes.');
   }

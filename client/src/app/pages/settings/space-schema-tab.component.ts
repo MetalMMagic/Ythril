@@ -56,12 +56,31 @@ const SCHEMA_MD_STYLES = `
 .sch-detail-head .dt { font-family:var(--font-mono); font-size:15px; color:var(--accent); font-weight:600; flex:1; min-width:0;
   overflow:hidden; text-overflow:ellipsis; }
 .sch-detail-head .acts { display:flex; gap:4px; flex-shrink:0; }
-.sch-add-row { display:flex; gap:6px; align-items:center; margin-top:12px; padding-top:10px; border-top:1px solid var(--border); flex-wrap:wrap; }
-.sch-add-row .sch-add-imports { display:flex; gap:6px; flex-wrap:wrap; }
+/* Pinned above the list: a bottom rule, not a top one, because it now heads the column. */
+.sch-add-row { display:flex; gap:6px; align-items:center; margin-bottom:8px; padding-bottom:8px;
+  border-bottom:1px solid var(--border); }
+.sch-add-row input { flex:1; min-width:0; }
+.sch-add-btn { display:grid; place-items:center; flex:none; width:30px; height:30px; padding:0;
+  border:1px solid var(--border); border-radius:8px; background:var(--bg-primary);
+  color:var(--accent); cursor:pointer; }
+.sch-add-btn:hover:not(:disabled) { border-color:var(--accent); }
+.sch-add-btn:disabled { color:var(--text-muted); cursor:not-allowed; opacity:.6; }
+.sch-add-btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.sch-add-imports { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; padding-top:8px;
+  border-top:1px solid var(--border-muted); }
 .prop-caret { color:var(--text-muted); flex-shrink:0; display:inline-flex; }
-/* One coherent text scale for the tab: guidance, section labels, inline messages. */
+/* One coherent text scale for the tab: guidance, section labels, inline messages.
+   Every section label reads the same and every hint hangs off it the same way — the delimiter is an
+   em dash in all of them, where it used to be parentheses in some and a dash in others. */
 .sch-hint { font-size:11px; font-weight:400; text-transform:none; letter-spacing:0; color:var(--text-muted); }
 .sch-section-label { font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px; }
+/* One rhythm between sections of the detail pane. They were spaced by whatever each block's own
+   margins happened to add up to, so the gaps above "Tag suggestions" and "Property schemas" differed
+   by several pixels for no reason a reader could infer. */
+.sch-detail .sch-section-label,
+.sch-detail > .field > label { margin-top:16px; }
+.sch-detail > .field:first-of-type > label,
+.sch-detail .sch-section-label:first-of-type { margin-top:0; }
 .sch-msg { font-size:12px; margin-top:6px; }
 .sch-msg.err { color:var(--error); }
 .sch-msg.ok  { color:var(--success); }
@@ -142,18 +161,11 @@ const SCHEMA_MD_STYLES = `
   <!-- master / detail -->
   <ng-container *ngTemplateOutlet="masterDetail; context: { kt: state.schemaCollTab() }"></ng-container>
 
-  <!-- Global tag suggestions (entity tab) -->
-  @if (state.schemaCollTab() === 'entity') {
-    <div class="sch-sub" style="margin-top:28px;">{{ 'spaces.schema.globalTagSuggestions' | transloco }} <span class="sch-hint">{{ 'spaces.schema.globalTagSuggestionsHint' | transloco }}</span></div>
-    <div class="chip-wrap">
-      @for (t of state.schTagSuggestions; track t) {
-        <span class="chip">{{ t }}<button type="button" class="chip-rm" (click)="state.schTagSuggestions=state.schTagSuggestions.filter(x=>x!==t)"><ph-icon name="x" [size]="12"/></button></span>
-      }
-      <input type="text" class="chip-field" [(ngModel)]="state.schNewTagInput"
-        [placeholder]="state.schTagSuggestions.length ? '' : ('spaces.schema.addTagSuggestionPlaceholder' | transloco)"
-        (keydown.enter)="$event.preventDefault();state.addGlobalTag()" />
-    </div>
-  }
+  <!-- The space-wide tag-suggestion editor stood here. Retired: one list, editable in a single
+       place, applied to every type and every record form in the space — so it steered what agents
+       and people tagged with while being easy to set once and never revisit. Tag autocomplete now
+       comes from the tags actually in use, which maintains itself. Any stored list is preserved in
+       config.json untouched (see space-settings-state.service). -->
 
 </div><!-- sch-coll-body -->
 
@@ -162,6 +174,22 @@ const SCHEMA_MD_STYLES = `
   <div class="sch-md">
     <!-- MASTER: selectable type list -->
     <div class="sch-master">
+      <!-- Pinned ABOVE the list on purpose. It used to sit underneath, so it slid further down the
+           column with every type added — the control you reach for most moved every time you used
+           it. Fixed position, one line: type a name, press Enter or the plus. -->
+      <div class="sch-add-row">
+        <input type="text" [(ngModel)]="state.schNewTypeInputs[kt]"
+          [placeholder]="kt === 'edge' ? ('spaces.schema.newLabelPlaceholder' | transloco) : ('spaces.schema.newTypeNamePlaceholder' | transloco)"
+          [attr.aria-label]="kt === 'edge' ? ('spaces.schema.addLabelButton' | transloco) : ('spaces.schema.addTypeButton' | transloco)"
+          (keydown.enter)="$event.preventDefault();state.addType(kt)" />
+        <button class="sch-add-btn" type="button" (click)="state.addType(kt)"
+          [disabled]="!state.schNewTypeInputs[kt]?.trim()"
+          [attr.title]="kt === 'edge' ? ('spaces.schema.addLabelButton' | transloco) : ('spaces.schema.addTypeButton' | transloco)"
+          [attr.aria-label]="kt === 'edge' ? ('spaces.schema.addLabelButton' | transloco) : ('spaces.schema.addTypeButton' | transloco)">
+          <ph-icon name="plus-circle" [size]="18"/>
+        </button>
+      </div>
+
       @for (name of state.typeNames(kt); track name) {
         <button type="button" class="sch-type-item" [class.sel]="state.isTypeSelected(kt,name)" (click)="state.selectType(kt,name)">
           <span class="nm">{{ name }}</span>
@@ -182,15 +210,9 @@ const SCHEMA_MD_STYLES = `
         <div class="sch-empty-list">{{ kt === 'edge' ? ('spaces.schema.noEdgeLabels' | transloco) : ('spaces.schema.noTypes' | transloco) }}</div>
       }
 
-      <!-- add type/label + import -->
-      <div class="sch-add-row">
-        <input type="text" [(ngModel)]="state.schNewTypeInputs[kt]" [placeholder]="kt === 'edge' ? ('spaces.schema.newLabelPlaceholder' | transloco) : ('spaces.schema.newTypeNamePlaceholder' | transloco)"
-          style="flex:1;min-width:110px;"
-          (keydown.enter)="$event.preventDefault();state.addType(kt)" />
-        <button class="btn btn-secondary btn-sm" type="button"
-          (click)="state.addType(kt)" [disabled]="!state.schNewTypeInputs[kt]?.trim()">{{ kt === 'edge' ? ('spaces.schema.addLabelButton' | transloco) : ('spaces.schema.addTypeButton' | transloco) }}</button>
-      </div>
-      <div class="sch-add-imports" style="margin-top:6px;">
+      <!-- Imports stay at the bottom: they are the occasional path, and putting them beside the
+           everyday control is what made the top of this column busy. -->
+      <div class="sch-add-imports">
         <button class="btn btn-ghost btn-sm" type="button"
           (click)="triggerImportTypeSchemaNew(kt)"
           [attr.title]="'spaces.schema.importFromFileButton' | transloco"><ph-icon name="download-simple" [size]="12" style="margin-right:3px;vertical-align:-2px;"/>{{ 'spaces.schema.importFromFileButton' | transloco }}</button>
@@ -249,7 +271,11 @@ const SCHEMA_MD_STYLES = `
             </div>
           </div>
           <!-- Property schemas -->
-          <div class="sch-section-label">{{ 'spaces.schema.propertySchemas' | transloco }}</div>
+          <!-- Every other section in this pane explains itself; this one did not, and it is the one
+               doing the most work. The hint also points at the control that decides enforcement,
+               which is a whole panel away at the top of the tab. -->
+          <div class="sch-section-label">{{ 'spaces.schema.propertySchemas' | transloco }}
+            <span class="sch-hint">{{ 'spaces.schema.propertySchemasHint' | transloco }}</span></div>
           <div class="table-wrapper" style="margin-bottom:0;">
             <table class="prop-table" style="margin-bottom:0;">
               <thead>

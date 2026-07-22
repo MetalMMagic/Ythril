@@ -1288,6 +1288,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A long document could never finish: the stall timeout reaped jobs for being slow, then killed
+  every retry at the same point.** `stalledJobTimeoutMs` was a wall-clock deadline measured from
+  `claimedAt`, which cannot distinguish *wedged* from *working*. A 400-page PDF transcribed a page at
+  a time blew through the 5-minute default, was requeued mid-flight, re-claimed, and killed again at
+  the same page — not a lost job but an **infinite loop** that burns model calls forever while the
+  file sits at `pending`, looking like it is still being worked on. Jobs now carry `progressAt`,
+  advanced as each page completes, and stall detection measures from the last sign of life. The
+  timeout now means what its name says: nothing has happened for N ms.
+  Jobs claimed by an older build carry no `progressAt`, so the rule falls back to `claimedAt` for
+  those — without that they would never be recovered at all, which is the opposite failure and easy
+  to miss. The rule is extracted as `stalledJobFilter` and tested against document fixtures, verified
+  by mutation in both directions: reverting to the wall-clock rule fails the "still working" cases,
+  and dropping the fallback fails the pre-heartbeat ones.
+
+- **Page truncation on long documents is no longer silent.** The VLM path caps rendering at
+  `documentProcessing.maxPages` (default 50). Beyond that it truncated and reported **success**, with
+  the only trace an HTML comment buried in the converted markdown — not logged, not stored, and the
+  file marked `complete`. A 400-page document silently became its first 50 pages and recall then
+  answered confidently from a tenth of it. Truncation now logs a warning naming the file and both
+  page counts, and the marker records how many of how many pages were read. Note this matters more
+  since `auto` began resolving up to the VLM path whenever a vision model exists: more instances are
+  on the capped path than were before.
+
 - **Two test files were checking a copy of the product instead of the product — and both copies had
   drifted.** A sweep prompted by two defects their suites could not see found eight standalone files
   that re-implement production logic locally and assert against the re-implementation. Such a test

@@ -140,6 +140,9 @@ export interface ConversionPipelineOptions {
    *  separate question from how the document was read: `chunk` splits it into passages, `embed`
    *  keeps it whole, `off` indexes nothing. Absent = the instance level applies. */
   textLevel?: TextLevel;
+  /** Called as each unit of work completes, so a long conversion reads as slow rather than wedged.
+   *  The worker uses it to advance the job's stall heartbeat. */
+  onProgress?: () => void;
 }
 
 export interface ConversionResult {
@@ -253,7 +256,7 @@ export async function runConversionPipeline(
         richMarkdown = result.markdown;
         images = result.extractedImages;
       } else {
-        const result = await vlmExtractDocument(fileBytes, fileName, mode);
+        const result = await vlmExtractDocument(fileBytes, fileName, mode, opts.onProgress);
         richMarkdown = result.markdown;
         images = result.extractedImages;
         extractionPath = result.extractionPath;

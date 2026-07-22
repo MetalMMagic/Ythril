@@ -37,7 +37,7 @@ import type { MediaJobDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { createMediaProviders } from './providers.js';
 import type { MediaProviderBundle } from './providers.js';
-import { claimNextJob, completeJob, failJob, resetStalledJobs, cancelMediaJob, currentWorkEpoch, waitForWork, wakeWorkers } from './job-queue.js';
+import { claimNextJob, completeJob, failJob, resetStalledJobs, cancelMediaJob, currentWorkEpoch, waitForWork, wakeWorkers, touchJobProgress } from './job-queue.js';
 import { embedImage } from './image-embedder.js';
 import { embedAudio } from './audio-embedder.js';
 import { embedVideo } from './video-embedder.js';
@@ -329,8 +329,16 @@ async function processJob(
         // Documents governs how the file is READ; text governs what happens to the text that
         // comes out of it. Two ladders, two decisions, one job.
         const spaceTextLevel = effectiveTextLevel(spaceId);
+        // Advance the stall heartbeat as each page lands. Without this the timeout measures wall
+        // clock from the claim, so a long document is indistinguishable from a wedged one: it gets
+        // requeued mid-flight, re-claimed, and killed again at the same page — forever.
         const { chunks, convertedMarkdown, extractedImages } = await runConversionPipeline(
-          fileBytes, filePath, resolvedFmt, { mode: spaceMode, textLevel: spaceTextLevel },
+          fileBytes, filePath, resolvedFmt,
+          {
+            mode: spaceMode,
+            textLevel: spaceTextLevel,
+            onProgress: () => { void touchJobProgress(spaceId, String(fileId)); },
+          },
         );
         if (chunks.length > 0 || extractedImages.length > 0) {
           const { chunkCount, convertedFileId, embedFailures } = await storeConversionResults(

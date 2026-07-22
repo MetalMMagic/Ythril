@@ -57,70 +57,79 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
 
           @if (showChronoForm()) {
             <form class="create-form" (ngSubmit)="createChrono()">
-              <div class="field" style="flex:2; min-width:200px;">
-                <label>{{ 'common.form.title' | transloco }}</label>
-                <input type="text" [(ngModel)]="chronoForm.title" name="title" required />
-              </div>
-              <div class="field" style="width:160px;">
-                <label>{{ 'brain.chrono.form.kind' | transloco }}</label>
-                @if (chronoForm.kind !== '__custom__') {
-                  <select [(ngModel)]="chronoForm.kind" name="kind">
-                    @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
-                    <option value="__custom__">{{ 'brain.chrono.form.customKind' | transloco }}</option>
-                  </select>
-                } @else {
-                  <div style="display:flex; gap:4px;">
-                    <input type="text" [(ngModel)]="chronoForm.customKind" name="customKind" style="flex:1;" />
-                    <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="chronoForm.kind = 'event'; chronoForm.customKind = ''" [attr.title]="'brain.chrono.form.backToPresets' | transloco"><ph-icon name="x" [size]="14"/></button>
-                  </div>
-                }
-              </div>
-              <div class="field" style="width:200px;">
-                <label>{{ 'brain.chrono.form.startsAt' | transloco }}</label>
-                <input type="datetime-local" [(ngModel)]="chronoForm.startsAt" name="startsAt" required />
-              </div>
-              <div class="field" style="width:200px;">
-                <label>{{ 'brain.chrono.form.endsAt' | transloco }}</label>
-                <input type="datetime-local" [(ngModel)]="chronoForm.endsAt" name="endsAt" />
-              </div>
-              <div class="field" style="flex:1; min-width:200px;">
-                <label>{{ 'brain.chrono.table.description' | transloco }}</label>
-                <textarea [(ngModel)]="chronoForm.description" name="description" rows="3" style="resize:vertical;"></textarea>
-              </div>
-              <div class="field" style="flex:1; min-width:180px;">
-                <label>{{ 'brain.chrono.table.tags' | transloco }}</label>
-                <app-tag-input [(value)]="chronoForm.tags" [suggestions]="store.chronoTagSuggestions()" inputName="chronoFormTags" />
-              </div>
-              <div class="field" style="flex:1; min-width:140px;">
-                <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
-                <div class="flyout-wrap">
-                  <div class="entity-multi">
-                    @for (chip of picker.entityChips(chronoForm.entityIds); track chip.id) {
-                      <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(chronoForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                    }
-                    <button type="button" class="chip-add" (click)="picker.openFlyout('create-chrono-entityIds', chronoForm)">{{ 'common.addMore' | transloco }}</button>
-                  </div>
-                  @if (picker.flyoutField() === 'create-chrono-entityIds') {
-                    <div class="flyout-panel">
-                      <app-entity-search
-                        mode="picker"
-                        [spaceId]="spaceId()"
-                        placeholder="common.searchEntitiesPlaceholder"
-
-                        (selected)="picker.pickEntity($event, chronoForm)"
-                      />
-                      <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                        <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                      </div>
+              <!-- Order follows the feedback (Title, Description, tags, entities) while keeping chrono's
+                   required kind/start/end. Single-line fields share one height; description grows. -->
+              <div class="form-row">
+                <div class="field" style="flex:2; min-width:200px;">
+                  <label>{{ 'common.form.title' | transloco }}</label>
+                  <input type="text" [(ngModel)]="chronoForm.title" name="title" required />
+                </div>
+                <div class="field" style="width:160px;">
+                  <label>{{ 'brain.chrono.form.kind' | transloco }}</label>
+                  @if (chronoForm.kind !== '__custom__') {
+                    <select [(ngModel)]="chronoForm.kind" name="kind">
+                      @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
+                      <option value="__custom__">{{ 'brain.chrono.form.customKind' | transloco }}</option>
+                    </select>
+                  } @else {
+                    <div style="display:flex; gap:4px;">
+                      <input type="text" [(ngModel)]="chronoForm.customKind" name="customKind" style="flex:1;" />
+                      <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="chronoForm.kind = 'event'; chronoForm.customKind = ''" [attr.title]="'brain.chrono.form.backToPresets' | transloco"><ph-icon name="x" [size]="14"/></button>
                     </div>
                   }
                 </div>
+                <div class="field" style="width:200px;">
+                  <label>{{ 'brain.chrono.form.startsAt' | transloco }}</label>
+                  <input type="datetime-local" [(ngModel)]="chronoForm.startsAt" name="startsAt" required />
+                </div>
+                <div class="field" style="width:200px;">
+                  <label>{{ 'brain.chrono.form.endsAt' | transloco }}</label>
+                  <input type="datetime-local" [(ngModel)]="chronoForm.endsAt" name="endsAt" />
+                </div>
               </div>
-              <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingChrono() || !chronoForm.title.trim() || !chronoForm.startsAt || (chronoForm.kind === '__custom__' && !chronoForm.customKind.trim())">
-                @if (creatingChrono()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
-                {{ 'common.save' | transloco }}
-              </button>
-              <button class="btn-secondary btn btn-sm" type="button" (click)="showChronoForm.set(false)">{{ 'common.cancel' | transloco }}</button>
+              <div class="form-row rich">
+                <div class="field">
+                  <label>{{ 'brain.chrono.table.description' | transloco }}</label>
+                  <textarea [(ngModel)]="chronoForm.description" name="description" rows="3"></textarea>
+                </div>
+              </div>
+              <div class="form-row rich">
+                <div class="field">
+                  <label>{{ 'brain.chrono.table.tags' | transloco }}</label>
+                  <app-tag-input [(value)]="chronoForm.tags" [suggestions]="store.chronoTagSuggestions()" inputName="chronoFormTags" />
+                </div>
+                <div class="field">
+                  <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
+                  <div class="flyout-wrap">
+                    <div class="entity-multi">
+                      @for (chip of picker.entityChips(chronoForm.entityIds); track chip.id) {
+                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(chronoForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
+                      }
+                      <button type="button" class="chip-add" (click)="picker.openFlyout('create-chrono-entityIds', chronoForm)">{{ 'common.addMore' | transloco }}</button>
+                    </div>
+                    @if (picker.flyoutField() === 'create-chrono-entityIds') {
+                      <div class="flyout-panel">
+                        <app-entity-search
+                          mode="picker"
+                          [spaceId]="spaceId()"
+                          placeholder="common.searchEntitiesPlaceholder"
+                          (selected)="picker.pickEntity($event, chronoForm)"
+                        />
+                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
+                          <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex; gap:8px;">
+                <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingChrono() || !chronoForm.title.trim() || !chronoForm.startsAt || (chronoForm.kind === '__custom__' && !chronoForm.customKind.trim())">
+                  @if (creatingChrono()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                  {{ 'common.save' | transloco }}
+                </button>
+                <button class="btn-secondary btn btn-sm" type="button" (click)="showChronoForm.set(false)">{{ 'common.cancel' | transloco }}</button>
+              </div>
             </form>
           }
 

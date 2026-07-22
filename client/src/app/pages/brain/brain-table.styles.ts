@@ -65,28 +65,49 @@ export const BRAIN_RECORD_TABLE_STYLES = `
       transition: opacity var(--transition);
     }
     .tag-clickable:hover, .entity-clickable:hover { opacity: 0.7; }
+    /* Uniform control height across every brain form control. 34px matches app-tag-input's wrap —
+       the tallest single-line control — so aligning to it lifts the plain inputs/selects up to a
+       shared height instead of leaving four different ones on the page (search 5/10, filter 30,
+       create 5/8, global 8/12). Single-line fields become identical; textarea/properties grow. */
+    .create-form { --brain-control-h: 34px; }
     .create-form {
       display: flex;
-      gap: 10px;
-      align-items: flex-start;
-      flex-wrap: wrap;
+      flex-direction: column;
+      gap: 12px;
       padding: 12px 14px;
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
       background: var(--bg-surface);
       margin-bottom: 12px;
     }
-    .create-form .field { margin-bottom: 0; }
+    /* The form is a vertical stack of .form-row blocks. Each tab composes its own rows in
+       table-column order: single-line fields (name/type/tags, from/to/label/weight) go in a plain
+       row at one uniform height; the tall fields (description then properties, or fact then
+       description) go in a .form-row.rich where each field flexes and grows, tops aligned. This makes
+       the feedback's "same input height … description the current height as baseline but expands with
+       properties container" a structure rather than a pile of per-field inline widths. */
+    .create-form .form-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .create-form .form-row.rich > .field { flex: 1; min-width: 220px; }
+    .create-form .field { margin-bottom: 0; display: flex; flex-direction: column; }
     .create-form label { font-size: 11px; color: var(--text-muted); display: block; margin-bottom: 2px; }
-    .create-form input, .create-form textarea {
-      padding: 5px 8px;
+    .create-form input, .create-form select, .create-form textarea {
+      padding: 6px 8px;
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       font-size: 13px;
       background: var(--bg-primary);
       color: var(--text-primary);
+      box-sizing: border-box;
     }
-    .create-form textarea { resize: vertical; }
+    /* Single-line controls (and app-tag-input's wrap, already 34px) share the one height. */
+    .create-form input:not([type=checkbox]), .create-form select { min-height: var(--brain-control-h); }
+    /* Description starts at the single-line height as its baseline and grows from there. */
+    .create-form textarea { resize: vertical; min-height: var(--brain-control-h); }
     .inline-confirm {
       display: inline-flex;
       align-items: center;

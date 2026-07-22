@@ -552,18 +552,10 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
             </div>
           }
 
-          <div style="margin-bottom:16px;">
-            <div class="sch-sub">{{ 'spaces.schema.tagSuggestions' | transloco }} <span style="font-size:10px;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted);">{{ 'spaces.schema.tagSuggestionsHint' | transloco }}</span></div>
-            <div class="chip-wrap" (click)="tagChipInput?.focus()">
-              @for (tag of form.schemaState.tagSuggestions; track tag) {
-                <span class="chip">{{ tag }} <button class="chip-rm" type="button" (mousedown)="removeTag(tag)"><ph-icon name="x" [size]="12"/></button></span>
-              }
-              <input #tagChipInput class="chip-field" [(ngModel)]="form.schemaState._newTagInput"
-                     [placeholder]="form.schemaState.tagSuggestions.length ? '' : ('spaces.schema.addTagPlaceholder' | transloco)"
-                     (keydown.enter)="addTag(); $event.preventDefault()"
-                     (keydown.comma)="addTag(); $event.preventDefault()" />
-            </div>
-          </div>
+          <!-- The tag-suggestion editor was retired here for the same reason as on the space Schema
+               tab: a library entry's suggestions are expanded into a type schema by a $ref, and that
+               field reaches nothing — not the Brain record forms, not the MCP schema guidance. Stored
+               values round-trip untouched. -->
 
           <!-- Property schemas -->
           <div>
@@ -876,20 +868,10 @@ export class SchemaLibraryComponent implements OnInit {
   }
 
   // ── Tag suggestions ────────────────────────────────────────────────────────
-
-  addTag(): void {
-    const raw = (this.form.schemaState._newTagInput ?? '').trim();
-    if (!raw || this.form.schemaState.tagSuggestions.includes(raw)) {
-      this.form.schemaState._newTagInput = '';
-      return;
-    }
-    this.form.schemaState.tagSuggestions = [...this.form.schemaState.tagSuggestions, raw];
-    this.form.schemaState._newTagInput = '';
-  }
-
-  removeTag(tag: string): void {
-    this.form.schemaState.tagSuggestions = this.form.schemaState.tagSuggestions.filter(t => t !== tag);
-  }
+  // `addTag`/`removeTag` went with the editor. `schemaState.tagSuggestions` deliberately stays: it is
+  // loaded from the stored entry and written back on save, so retiring the control does not delete an
+  // operator's list. Same trade as the space-wide list in #365 — an unused field is a smaller cost
+  // than silently destroying data on the next save.
 
   // ── Save ───────────────────────────────────────────────────────────────────
 

@@ -258,18 +258,11 @@ const SCHEMA_MD_STYLES = `
               <input type="text" [(ngModel)]="state.typeState(kt,name).namingPattern" [placeholder]="'spaces.schema.namingPatternPlaceholder' | transloco" style="max-width:320px;" />
             </div>
           }
-          <!-- Tag suggestions per type -->
-          <div class="field" style="margin:0 0 12px;">
-            <label>{{ 'spaces.schema.tagSuggestions' | transloco }} <span class="sch-hint">{{ 'spaces.schema.tagSuggestionsHint' | transloco }}</span></label>
-            <div class="chip-wrap">
-              @for (tag of state.typeState(kt,name).tagSuggestions; track tag) {
-                <span class="chip">{{ tag }}<button type="button" class="chip-rm" (click)="state.typeState(kt,name).tagSuggestions=state.typeState(kt,name).tagSuggestions.filter(x=>x!==tag)"><ph-icon name="x" [size]="12"/></button></span>
-              }
-              <input type="text" class="chip-field" [(ngModel)]="state.typeState(kt,name)._newTagInput"
-                [placeholder]="state.typeState(kt,name).tagSuggestions.length ? '' : ('spaces.schema.addTagPlaceholder' | transloco)"
-                (keydown.enter)="$event.preventDefault();state.addTypeTag(kt,name)" />
-            </div>
-          </div>
+          <!-- Per-type tag suggestions were retired here. The editor reached nothing: not the Brain
+               record forms (they suggest from tags already in use) and not the schema guidance sent to
+               MCP clients. Offering a control that does nothing is the dishonesty the Models rebuild
+               spent four PRs removing, and it is the same reasoning that retired the space-wide list
+               in #365. Stored values are preserved — see the note on TypeSchema.tagSuggestions. -->
           <!-- Property schemas -->
           <!-- Every other section in this pane explains itself; this one did not, and it is the one
                doing the most work. The hint also points at the control that decides enforcement,

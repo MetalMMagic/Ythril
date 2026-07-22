@@ -60,7 +60,21 @@ export interface TypeSchema {
   _unresolvedRef?: string;
   /** Regex pattern for entity.name validation (entity collection only). */
   namingPattern?: string;
-  /** Non-enforced tag hints surfaced in UI autocomplete for items of this type. */
+  /**
+   * **RETIRED — read and written, consumed by nothing.** Stored values are preserved; there is no
+   * longer an editor for this field on the space Schema tab or in the Schema Library.
+   *
+   * It never reached anything. The Brain record forms suggest from the tags **already in use** in
+   * each collection (self-maintaining, no editor needed), and the schema guidance sent to MCP clients
+   * only ever summarised the space-wide list — which was itself retired in #365, for the same reason.
+   * So this was an editor for a field with no consumer, which is precisely the dishonesty the Models
+   * rebuild spent four PRs removing.
+   *
+   * The field stays in the type, in the Zod schemas and in the client's load/save round-trip **on
+   * purpose**: silently destroying an operator's stored list on their next save would be a worse
+   * trade than leaving an unused field behind, and it keeps the retirement reversible. Same call as
+   * `SpaceMeta.tagSuggestions` below.
+   */
   tagSuggestions?: string[];
   /** Property key → JSON Schema subset for value validation and merge hints. */
   propertySchemas?: Record<string, PropertySchema>;
@@ -164,7 +178,13 @@ export interface SpaceMeta {
    * When a collection's map is empty, all type/label values are accepted.
    */
   typeSchemas?: Partial<Record<KnowledgeType, Record<string, TypeSchema>>>;
-  /** Non-enforced global tag hints — fallback when no per-type tagSuggestions match. */
+  /**
+   * **RETIRED in #365 — stored values preserved, consumed by nothing.**
+   *
+   * The old docstring called this a "fallback when no per-type tagSuggestions match", which described
+   * behaviour that never existed — nothing consulted either list at write time. Both are now retired;
+   * see `TypeSchema.tagSuggestions` for the reasoning and why the field is deliberately still here.
+   */
   tagSuggestions?: string[];
   /** When true, all reference fields (edge from/to, entityIds, memoryIds) must be
    *  valid UUID v4 values, and entity deletion is blocked while inbound backlinks exist. */

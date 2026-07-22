@@ -350,13 +350,10 @@ export class SpaceSettingsState {
     this.schExpandedProps.delete(this.propKey(kt, typeName, propKey));
   }
 
-  addTypeTag(kt: KnowledgeType, typeName: string): void {
-    const state = this.typeState(kt, typeName);
-    const raw = (state._newTagInput ?? '').trim();
-    if (!raw || state.tagSuggestions.includes(raw)) { state._newTagInput = ''; return; }
-    state.tagSuggestions = [...state.tagSuggestions, raw];
-    state._newTagInput   = '';
-  }
+  // `addTypeTag` was removed with the per-type tag-suggestion editor: the list it edited reached
+  // neither the Brain record forms nor the MCP schema guidance, so the control did nothing. Stored
+  // values are still loaded into `tagSuggestions` and written back on save — the retirement removes
+  // the editor, not the data.
 
   onEnumKey(e: KeyboardEvent, kt: KnowledgeType, typeName: string, propKey: string): void {
     if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); this.addEnumVal(kt, typeName, propKey); }

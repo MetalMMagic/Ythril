@@ -183,6 +183,23 @@ describe('ModelsStateService — save payload', () => {
     expect(sent(patch)['documentProcessing']).not.toHaveProperty('assistModel');
   });
 
+  // Instance ceilings became editable here. The rule that matters is that ALL FOUR classes are sent,
+  // every time: the server merges per class, but a client that sent only the class it changed would
+  // still be correct only by accident — and the loader reads an absent class as `auto`, so any path
+  // that drops one raises that ceiling to the top rung with nothing reporting it.
+  it('sends every media-class ceiling, not just the one that changed', async () => {
+    const { c, patch } = make(cfgFixture({ levels: { images: 'caption', audio: 'off', video: 'audio', text: 'embed' } }));
+    await c.save();
+    expect(sent(patch)['levels']).toEqual({ images: 'caption', audio: 'off', video: 'audio', text: 'embed' });
+  });
+
+  it('carries an edited ceiling through to the payload without disturbing the others', async () => {
+    const { c, patch } = make(cfgFixture({ levels: { images: 'recognition', audio: 'on', video: 'audio', text: 'chunk' } }));
+    c.form.levels = { ...c.form.levels, images: 'off' };
+    await c.save();
+    expect(sent(patch)['levels']).toEqual({ images: 'off', audio: 'on', video: 'audio', text: 'chunk' });
+  });
+
   it('clears the typed key inputs after a successful save so a re-save cannot resend them', async () => {
     const { c } = make();
     c.visionApiKeyInput = 'sk-1';

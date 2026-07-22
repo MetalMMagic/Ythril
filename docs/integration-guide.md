@@ -2073,7 +2073,7 @@ The unstructured sidecar strategy and image extraction behaviour can be tuned un
 **The admin page has three tabs**, one route:
 
 - **Models** — every model you or infra can set: text embedding, vision, speech-to-text, the assist model, and read-only cards for the page renderer, document converter and face recognition. One shape per card (provider → endpoint → model → credential → test); infra-owned cards are dashed and name the env var that owns them.
-- **Pipelines** — Documents, Images, Audio & video and Text drawn as their real step chains, with the model doing the work named under each step and a health indicator fed by `GET /api/admin/pipeline-status`. Conditional steps (VLM fallback, repair, face vectors) are dashed. Each pipeline's knobs hang off that pipeline. The per-class ceilings for Images/Audio/Video/Text are shown **read-only** — `PATCH /api/admin/media-config` has no `levels` schema, so they are config/env-owned; Documents' `mode` is editable because it is PATCH-writable.
+- **Pipelines** — Documents, Images, Audio & video and Text drawn as their real step chains, with the model doing the work named under each step and a health indicator fed by `GET /api/admin/pipeline-status`. Conditional steps (VLM fallback, repair, face vectors) are dashed. Each pipeline's knobs hang off that pipeline, and each carries its own **instance ceiling** picker (see below). Audio and video share a card but have separate ceilings, because they have separate ladders.
 - **Tools** — the components that run but have nothing to set: media splitter (ffmpeg), text chunker, and the vector index. The index is **status-only** (readiness per space and collection); rebuilding is a Danger Zone action, not a button here.
 
 Switching tabs with unsaved changes prompts rather than discarding them.
@@ -2110,6 +2110,14 @@ ceiling under `mediaEmbedding.levels`:
 | `audioAnalysis` | `off` · `on` · `auto` | no transcription |
 | `videoAnalysis` | `off` · `audio` · `full` · `auto` | no audio extraction, no transcription |
 | `textAnalysis` | `off` · `embed` · `chunk` · `auto` | text is never indexed — nothing in the file is findable by search |
+
+**Setting the ceilings.** `PATCH /api/admin/media-config` accepts a `levels` block — `{ "levels": { "images": "caption" } }` — or use the pickers on **Settings → Models → Pipelines**. Three things about it are deliberate:
+
+- **Each class is merged independently.** A patch naming only `images` leaves the other three exactly as they were. This matters more than it looks: an absent class reads back as `auto`, so a whole-object replace would silently *raise* the ceiling on every class the request did not mention.
+- **`video: "full"` is rejected** with `400`, on this route and on `PATCH /api/spaces/:id` alike. The rung is reserved so the ladder reads complete, but keyframe analysis is not built — accepting it as a ceiling would let every `auto` space resolve to a level that does nothing. The Pipelines picker renders it disabled rather than hiding it.
+- **Env-pinned levels are refused** with `403` and reported in `lockedByInfra`, like every other media field.
+
+Remember what a ceiling does before lowering one: it caps every space already above it (those spaces keep their stored choice and return to it if you raise the ceiling again), and `off` is a floor as well as a ceiling — the class is not processed anywhere, whatever a space asked for.
 
 `recognition` is the rung that permits **face detection and embedding**, and it is gated twice: the
 instance-wide `mediaEmbedding.faceRecognition.enabled` must allow it *and* the space must be at

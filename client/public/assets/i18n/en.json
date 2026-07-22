@@ -1323,7 +1323,6 @@
   "models.pipelines.textPurpose": "What happens to the text that comes out of every other pipeline.",
   "models.pipelines.extractionMode": "Extraction mode",
   "models.pipelines.ceiling": "Instance ceiling",
-  "models.pipelines.ceilingReadOnly": "The most any space may do. Set in configuration, not here.",
   "models.pipelines.statusUnavailable": "Could not read live status, so the health indicators are unknown rather than off: {{detail}}",
   "models.step.ocr": "OCR",
   "models.step.render": "Render",
@@ -1408,5 +1407,11 @@
   "models.confirm.discardTitle": "Discard unsaved changes?",
   "models.confirm.discardMessage": "You have unsaved changes on this tab. Switching tabs discards them.",
   "models.confirm.discardConfirm": "Discard",
-  "models.confirm.discardCancel": "Stay here"
+  "models.confirm.discardCancel": "Stay here",
+  "models.class.images": "Images",
+  "models.class.audio": "Audio",
+  "models.class.video": "Video",
+  "models.class.text": "Text",
+  "models.pipelines.ceilingHint": "The most any space may do with this class. A space can choose less, never more — lowering this caps every space already above it, and those spaces keep their own choice if you raise it again.",
+  "models.pipelines.ceilingOffWarning": "Off applies everywhere — no space can process this class."
 }

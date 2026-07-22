@@ -203,8 +203,12 @@ export class ModelsStateService {
    */
   private payload(): MediaCfg {
     const dp = this.form.documentProcessing ?? {};
+    const levels = this.form.levels ?? {};
     return {
       enabled: this.form.enabled,
+      // Instance ceilings, sent per class. The server merges class by class for the same reason this
+      // sends all four: a partial block would let the classes it omits default back up to `auto`.
+      levels: { images: levels.images, audio: levels.audio, video: levels.video, text: levels.text },
       visionProvider: this.form.visionProvider,
       sttProvider: this.form.sttProvider,
       vision: { baseUrl: this.form.vision?.baseUrl, model: this.form.vision?.model },

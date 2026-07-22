@@ -13,10 +13,9 @@
  *     is how an operator concludes a stage ran when it never could.
  *   - **The actor names the model, never the state — the dot is the state.** Writing "off" where a
  *     model name belongs conflates what a step *is* with whether it is *working*.
- *   - **The ceilings for Images/Audio/Video/Text are read-only** and name the config key that owns
- *     them. `PATCH /api/admin/media-config` has no schema for `levels`, so a picker here would be a
- *     control that silently does nothing — the exact dishonesty this rebuild is meant to remove.
- *     Documents keeps its editable mode, because that one really is PATCH-writable.
+ *   - **Each pipeline carries its own instance ceiling** — the most any space may do with that class,
+ *     not a default a space inherits. Lowering one silently caps every space above it, and "off"
+ *     takes the class offline everywhere — so both facts are stated at the control, not in a doc.
  */
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -26,7 +25,7 @@ import { StatusPillComponent } from '../../../shared/status-pill.component';
 import { HealthDotComponent } from './health-dot.component';
 import { ModelsStateService } from './models-state.service';
 import { PipelineStatusService } from './pipeline-status.service';
-import { HealthState, MODE_STAGES } from './models.types';
+import { HealthState, MODE_STAGES, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, MediaClass } from './models.types';
 
 /** One drawn step. `actor` is a model or tool name; `health` is looked up from the status payload. */
 interface Step {
@@ -86,8 +85,19 @@ interface Step {
     .modedesc ::ng-deep b { color: var(--text-primary); }
 
     .ceiling { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px;
-      color: var(--text-secondary); }
-    .ceiling code { font-family: var(--font-mono, monospace); font-size: 11.5px; color: var(--text-muted); }
+      color: var(--text-secondary); margin-bottom: 9px; }
+    .ceiling:last-child { margin-bottom: 0; }
+    .ceiling > label { min-width: 108px; font-weight: 500; }
+    /* The global select rule sets width:100%, which would take the whole row and wrap the label above
+       it — these read as a labelled row, not a stack of full-width fields. */
+    .ceiling select { background: var(--bg-primary); color: var(--text-primary); font-size: 13px;
+      border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
+      width: auto; min-width: 190px; max-width: 260px; }
+    .ceiling select:disabled { opacity: .6; cursor: not-allowed; }
+    .ceiling-hint { font-size: 12px; color: var(--text-muted); margin: 0 0 11px; max-width: 70ch; }
+    /* Not a warning box: choosing "off" is legitimate. It states the blast radius, which is easy to
+       miss when the control sits next to three that only affect thoroughness. */
+    .ceiling-warn { color: var(--warning); font-size: 11.5px; }
 
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px 16px; margin-top: 14px; }
     .field > label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 5px; font-weight: 500; }
@@ -199,13 +209,29 @@ interface Step {
 
         <div class="knobs">
           <div class="knobs-h">{{ 'models.pipelines.ceiling' | transloco }}</div>
-          <div class="ceiling">
-            <app-status-pill [variant]="p.ceiling === 'off' ? 'off' : 'active'">
-              {{ 'models.level.' + p.ceiling | transloco }}
-            </app-status-pill>
-            <span>{{ 'models.pipelines.ceilingReadOnly' | transloco }}</span>
-            <code>mediaEmbedding.levels.{{ p.id }}</code>
-          </div>
+          <p class="ceiling-hint">{{ 'models.pipelines.ceilingHint' | transloco }}</p>
+          @for (c of p.ceilings; track c.cls) {
+            <div class="ceiling">
+              <label [attr.for]="'ceiling-' + c.cls">{{ 'models.class.' + c.cls | transloco }}</label>
+              <select [attr.id]="'ceiling-' + c.cls" [ngModel]="ceilingOf(c.cls)"
+                (ngModelChange)="setCeiling(c.cls, $any($event))" [disabled]="s.isLocked('levels.' + c.cls) || s.managed"
+                [name]="'ceiling-' + c.cls">
+                @for (rung of c.ladder; track rung) {
+                  <!-- Video "full" is reserved and not built. Rendered disabled rather than omitted
+                       so the ladder reads complete — and the server rejects it either way. -->
+                  <option [value]="rung" [disabled]="c.cls === 'video' && rung === 'full'">
+                    {{ 'models.level.' + rung | transloco }}{{ c.cls === 'video' && rung === 'full' ? notYet : '' }}
+                  </option>
+                }
+              </select>
+              @if (s.isLocked('levels.' + c.cls)) { <app-status-pill variant="env">{{ 'models.pill.env' | transloco }}</app-status-pill> }
+              @if (ceilingOf(c.cls) === 'off') {
+                <!-- "off" is a floor as well as a ceiling: it takes the class offline for every space,
+                     whatever that space asked for. Worth saying where it is chosen, not in a doc. -->
+                <span class="ceiling-warn">{{ 'models.pipelines.ceilingOffWarning' | transloco }}</span>
+              }
+            </div>
+          }
         </div>
       </section>
     }
@@ -234,6 +260,22 @@ export class PipelinesTabComponent {
 
   private notSet = '—';
 
+  /** Suffix on the reserved video rung. A disabled option with no explanation reads as a bug. */
+  readonly notYet = ' — not built yet';
+
+  /** The stored ceiling for a class, defaulting to `auto` (no policy limit of its own). */
+  ceilingOf(cls: MediaClass): string { return (this.s.form.levels ?? {})[cls] ?? 'auto'; }
+
+  /**
+   * Set one class's ceiling. Writes only that class, mirroring the server's per-class merge — the
+   * whole `levels` block is sent on save, so replacing the object here would be harmless, but keeping
+   * the two sides shaped the same way is what stops them drifting apart later.
+   */
+  setCeiling(cls: MediaClass, value: string): void {
+    this.s.form.levels = { ...(this.s.form.levels ?? {}), [cls]: value };
+    this.s.touched.set(true);
+  }
+
   documentSteps = computed<Step[]>(() => {
     const doc = this.s.docCfg();
     const ps = this.pipeline;
@@ -252,12 +294,11 @@ export class PipelinesTabComponent {
 
   mediaPipelines = computed(() => {
     const ps = this.pipeline;
-    const levels = this.s.form.levels ?? {};
     const embedModel = this.s.embedding.model || this.notSet;
     return [
       {
         id: 'images', icon: 'image', title: 'models.pipelines.images', purpose: 'models.pipelines.imagesPurpose',
-        ceiling: levels.images ?? 'auto',
+        ceilings: [{ cls: 'images' as MediaClass, ladder: IMAGE_LEVELS }],
         steps: [
           { key: 'caption', name: 'models.step.caption', actor: this.s.form.vision?.model || this.notSet, health: ps.modelState('vision'), conditional: false, cardId: 'vision' },
           { key: 'img-embed', name: 'models.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
@@ -267,7 +308,8 @@ export class PipelinesTabComponent {
       },
       {
         id: 'audio', icon: 'microphone', title: 'models.pipelines.audio', purpose: 'models.pipelines.audioPurpose',
-        ceiling: levels.audio ?? 'auto',
+        // This card covers TWO classes: audio files and video files have separate ladders.
+        ceilings: [{ cls: 'audio' as MediaClass, ladder: AUDIO_LEVELS }, { cls: 'video' as MediaClass, ladder: VIDEO_LEVELS }],
         steps: [
           // Video only: audio files skip straight to transcription.
           { key: 'split', name: 'models.step.split', actor: 'ffmpeg', health: null, conditional: true },
@@ -277,7 +319,7 @@ export class PipelinesTabComponent {
       },
       {
         id: 'text', icon: 'text-align-left', title: 'models.pipelines.text', purpose: 'models.pipelines.textPurpose',
-        ceiling: levels.text ?? 'auto',
+        ceilings: [{ cls: 'text' as MediaClass, ladder: TEXT_LEVELS }],
         steps: [
           // Chunking only happens at the `chunk` rung; `embed` produces one vector for the whole document.
           { key: 'chunk', name: 'models.step.chunk', actor: 'text chunker', health: null, conditional: true },

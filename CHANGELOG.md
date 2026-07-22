@@ -2063,6 +2063,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The four instance ceilings are editable now — Images, Audio, Video and Text.** #356 gave each
+  media class a real ladder and the resolution rule; the Pipelines tab drew all four, read-only,
+  because `PATCH /api/admin/media-config` had no `levels` schema. It does now, built from the same
+  `*_LEVELS` constants the resolver uses so the API and the ladder cannot drift apart, with a picker
+  per class on **Settings → Models → Pipelines**. Audio and video share a card but get separate
+  controls, because they have separate ladders.
+  - **Each class merges independently**, and that is the load-bearing part. An absent class reads
+    back as `auto`, so the obvious whole-object replace would have silently *raised* the ceiling on
+    every class a request did not mention — a capability grant nobody asked for, on the one setting
+    whose entire job is to withhold capability, with nothing reporting it. A unit test pins it and
+    the mutation was checked: the naive replace fails exactly the three intended assertions.
+  - **`video: "full"` is rejected** with `400` here as well as on `PATCH /api/spaces/:id`. The rung
+    stays visible-but-disabled so the ladder reads complete, but accepting it as a ceiling would let
+    every `auto` space resolve to a level that does nothing.
+  - The consequences are stated **at the control** rather than in a doc: the hint says a space may
+    choose less but never more, and that lowering a ceiling caps spaces already above it while
+    leaving their stored choice intact. Choosing `off` adds a line saying it applies everywhere —
+    `off` is a floor as well as a ceiling, and that is easy to miss next to three controls that only
+    affect thoroughness.
+
 - **Settings → Models is three tabs now — Models · Pipelines · Tools.** The page was 656 lines with six
   cards in the order they were added rather than any order a reader would choose. The layout complaint
   was mostly a missing component: four provider cards written inline in one file each invented their

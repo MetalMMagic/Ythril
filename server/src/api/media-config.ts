@@ -11,7 +11,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey, getEmbeddingConfig, getEmbeddingApiKey } from '../config/loader.js';
-import { DOC_EXTRACTION_MODES_IN, normalizeDocExtractionMode } from '../config/types.js';
+import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
+import type { MediaLevelCeilings } from '../config/types.js';
 import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl, ssrfSafeFetch } from '../util/ssrf.js';
@@ -89,8 +90,28 @@ const EmbeddingPatchSchema = z.object({
   apiKey: z.string().max(512).optional().nullable(),
 }).strict();
 
+/**
+ * Instance CEILINGS per media class — the most any space is allowed to do, not a default it inherits.
+ *
+ * Built from the same `*_LEVELS` constants the lattice in `files/converters/media-level.ts` uses, so
+ * the API and the ladder cannot drift apart. Four hand-written enums here is exactly how one class
+ * quietly acquires a rung the resolver has never heard of.
+ *
+ * Each field is independently optional and the handler merges per class: a patch that names only
+ * `images` must not drop `audio`/`video`/`text`. They would not stay dropped either — the loader
+ * defaults an absent class to `auto` — so a whole-object replace would silently RAISE the ceiling on
+ * every class the client did not mention.
+ */
+const LevelsPatchSchema = z.object({
+  images: z.enum(IMAGE_LEVELS).optional(),
+  audio: z.enum(AUDIO_LEVELS).optional(),
+  video: z.enum(VIDEO_LEVELS).optional(),
+  text: z.enum(TEXT_LEVELS).optional(),
+}).strict();
+
 const MediaConfigPatchSchema = z.object({
   enabled: z.boolean().optional(),
+  levels: LevelsPatchSchema.optional(),
   visionProvider: z.enum(['local', 'external']).optional(),
   sttProvider: z.enum(['local', 'external']).optional(),
   vision: ProviderPatchSchema.optional(),
@@ -120,6 +141,17 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     res.status(409).json({
       error: 'Media & model configuration is infra-managed on this instance (YTHRIL_MEDIA_INFRA_MANAGED=true or mediaEmbedding.infraManaged). Update it in your infrastructure config (config.json / environment) instead.',
       code: 'INFRA_MANAGED',
+    });
+    return;
+  }
+
+  // Video `full` (keyframes as images) is a reserved rung with no implementation behind it. Rejected
+  // rather than silently treated as `audio`, and rejected here as well as on the per-space route —
+  // accepting it as a CEILING would let every `auto` space resolve to a level that does nothing.
+  if (parsed.data.levels?.video === 'full') {
+    res.status(400).json({
+      error: "video level 'full' is reserved but not implemented yet — keyframe analysis is not built. " +
+             "Use 'audio' to transcribe the audio track, or 'auto'.",
     });
     return;
   }
@@ -258,6 +290,7 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
       delete s['apiKey'];
       merged['stt'] = s;
     }
+    if (parsed.data.levels) merged['levels'] = mergeLevelCeilings(existing.levels, parsed.data.levels);
     // F11-b — DEEP-merge documentProcessing so a patch that omits `assistModel` (e.g. just changing `mode`)
     // does NOT wipe the stored external-assist config, and strip its apiKey out to secrets.json.
     if (parsed.data.documentProcessing) {
@@ -356,6 +389,28 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/**
+ * Merge a `levels` patch into the stored ceilings, CLASS BY CLASS.
+ *
+ * The obvious `{...existing, ...patch}` at the top level of the config would replace the whole
+ * `levels` object — and because `getMediaEmbeddingConfig()` defaults an absent class to `auto`, the
+ * classes the patch did not mention would not merely be forgotten, they would come back as **`auto`**.
+ * Saving a change to `images` alone would silently RAISE the ceiling on audio, video and text: a
+ * capability grant nobody asked for, on the one setting whose entire job is to withhold capability.
+ *
+ * Exported for unit testing — this rule is the reason the function exists.
+ */
+export function mergeLevelCeilings(
+  existing: MediaLevelCeilings | undefined,
+  patch: Partial<MediaLevelCeilings>,
+): MediaLevelCeilings {
+  const out = { ...(existing ?? {}) } as Record<string, unknown>;
+  // Only keys actually present in the patch overwrite — an explicit `undefined` is not a value, and
+  // treating it as one would clear a ceiling the client never mentioned.
+  for (const [k, v] of Object.entries(patch)) if (v !== undefined) out[k] = v;
+  return out as MediaLevelCeilings;
+}
 
 interface ProbeResult {
   ok: boolean;

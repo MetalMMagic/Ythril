@@ -161,11 +161,20 @@ entitiesRouter.delete('/spaces/:spaceId/entities/:id', globalRateLimit, requireS
   for (const mid of memberIds) {
     const entity = await getEntityById(mid, id);
     if (!entity) continue;
-    // Check for inbound references before allowing deletion (only when strictLinkage is on)
+    // Check for inbound references before allowing deletion (only when strictLinkage is on).
+    //
+    // Face labels are deliberately NOT blocking, even though findEntityBacklinks now reports them.
+    // strictLinkage exists to stop a delete that would leave a DANGLING reference behind — and a face
+    // label can no longer dangle, because deleteEntity unlabels it in the same operation. Blocking on
+    // them would be actively harmful: face labels are written by the recognition pipeline, not by a
+    // person, so an admin would face a 409 they never created and could only clear by hand-unlabelling
+    // every photo — turning "delete this person" into the one thing you cannot do for the subject whose
+    // data is biometric. Reported (so the UI can warn "this will unlabel N faces"), never blocking.
     if (isStrictLinkage(mid)) {
       const backlinks = await findEntityBacklinks(mid, id);
-      if (backlinks.length > 0) {
-        res.status(409).json({ error: 'Cannot delete: entity has inbound references', backlinks });
+      const blocking = backlinks.filter(b => b.type !== 'face');
+      if (blocking.length > 0) {
+        res.status(409).json({ error: 'Cannot delete: entity has inbound references', backlinks: blocking });
         return;
       }
     }

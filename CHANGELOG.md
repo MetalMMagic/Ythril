@@ -1412,6 +1412,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Deleting a person did not unlink their face vectors — the biometric link outlived the erasure.**
+  Face descriptors are not stored in a face collection; they are **filemeta** records
+  (`{fileId}#face-chunk{N}`) carrying `faceEmbedding` and, once labelled, `faceEntityId`.
+  `deleteEntity` removed the entity and wrote a tombstone but never touched `${spaceId}_files`, so the
+  only "delete this person" action the product offers left their face descriptors on disk still tagged
+  with the identifier that had just been erased.
+
+  Three things made it worse than a stale pointer. **`strictLinkage` was blind to it** —
+  `findEntityBacklinks` scanned `_edges`, `_memories` and `_chrono` but not `_files`, so the strongest
+  setting available did not look at the one reference class holding biometric data, and a person
+  referenced *only* by faces deleted cleanly. **It propagated rather than decayed** — the gallery
+  search matched new uploads against those orphaned records and returned the dead id, so the next
+  photo of that person was auto-labelled with it too. And **no human action was required**: the TTL
+  sweep routes entity expiry through the same `deleteEntity`, so a person record aging out detached
+  its faces silently.
+
+  Deleting a person now clears `faceEntityId`/`faceScore` from every face that pointed at them, on
+  every path (single delete, bulk wipe, TTL expiry — one shared helper, because being fixed in one
+  caller only is the shape of the original bug). The face record and its descriptor are **kept**: the
+  face belongs to the *file*, which the operator did not delete, so removing it would destroy image
+  metadata as a side effect of deleting a contact. Deleting the image still removes its face records,
+  as it always did. A gallery match whose entity no longer exists is now ignored, which is the only
+  thing that can help records already orphaned before this shipped. Face labels are reported by
+  `findEntityBacklinks` but deliberately do **not** block deletion under `strictLinkage` — they are
+  written by the recogniser rather than by a person and are cleared safely by the delete itself, so
+  blocking would make the subject whose data is biometric the one you cannot remove.
+
+  12 new tests against a **real MongoDB** (the harness this needed shipped first): the cascade is an
+  `updateMany`/`$unset`, and a hand-written fake collection that got either subtly wrong would pass
+  while production kept the labels. Each rule mutation-checked — remove the cascade, the bulk cascade,
+  the `_files` backlink scan, or the gallery existence check, and exactly the intended assertions fail.
+
 - **Asking recall for a `minScore` silently changed the SHAPE of the response.** File chunk results
   are normally enriched with their parent file's path, description and tags, so an agent can tell
   which document a fragment came from. That enrichment ran *after* an early `return` in the

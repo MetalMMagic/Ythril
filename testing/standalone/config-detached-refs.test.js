@@ -37,7 +37,9 @@ const readDisk = () => JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
 
 function seed() {
   fs.writeFileSync(CONFIG_PATH, JSON.stringify({
-    instanceId: 'test-instance', instanceLabel: 'test', tokens: [], networks: [],
+    instanceId: 'test-instance', instanceLabel: 'test', tokens: [], networks: [
+      { id: 'net1', label: 'Net 1', type: 'club', spaces: [], members: [], pendingRounds: [], createdAt: '2026-01-01T00:00:00Z' },
+    ],
     spaces: [{ id: 'alpha', label: 'Alpha', builtIn: false, folders: [] }],
   }, null, 2), { mode: 0o600 });
   loader.loadConfig();
@@ -108,5 +110,64 @@ describe('a reload detaches nested references', () => {
     const disk = readDisk();
     assert.equal(disk.spaces.find(s => s.id === 'alpha').label, 'Alpha Renamed');
     assert.ok(disk.spaces.some(s => s.id === 'beta'), 'the other writer\'s space must survive');
+  });
+
+  // ── The invite finalize shape: push into a nested array across a slow await ──────────────────
+  //
+  // `POST /api/invite/finalize` looks up `net = cfg.networks.find(...)`, then `await bcrypt.hash`
+  // (deliberately slow), then pushes the new member into `net.members` and saves. If the watcher
+  // reloads during the hash, `net` is an orphan and the join is written to nowhere — the caller gets
+  // 200 with the membership silently absent. Same failure as the rename above; this pins it for the
+  // networks array specifically, which is the collection the invite path mutates.
+
+  it('a network member pushed through a pre-reload reference is lost — and reports success', () => {
+    const cfg = loader.getConfig();
+    const net = cfg.networks.find(n => n.id === 'net1');   // taken BEFORE the (simulated) await
+
+    loader.reloadConfig();                                  // watcher fires during bcrypt
+
+    net.members.push({ instanceId: 'joiner', label: 'Joiner' }); // mutating the orphan
+    loader.saveConfig(cfg);
+
+    assert.equal(
+      readDisk().networks.find(n => n.id === 'net1').members.length, 0,
+      'the join was lost: saveConfig persisted the pre-reload snapshot',
+    );
+  });
+
+  it('re-finding the network AFTER the reload commits the join — the finalize fix', () => {
+    const cfg = loader.getConfig();
+    cfg.networks.find(n => n.id === 'net1');                // the stale lookup the old code kept
+
+    loader.reloadConfig();                                  // watcher fires during bcrypt
+
+    // The fix: re-read and re-find immediately before mutating, exactly as invite.ts now does.
+    const fresh = loader.getConfig();
+    const liveNet = fresh.networks.find(n => n.id === 'net1');
+    liveNet.members.push({ instanceId: 'joiner', label: 'Joiner' });
+    loader.saveConfig(fresh);
+
+    const persisted = readDisk().networks.find(n => n.id === 'net1').members;
+    assert.equal(persisted.length, 1, 'the join lands');
+    assert.equal(persisted[0].instanceId, 'joiner');
+  });
+
+  it('a network deleted during the window is not resurrected by the fresh re-find', () => {
+    // invite.ts returns 409 rather than recreating the network from a stale snapshot. The primitive
+    // that makes that possible: after a reload that removed the network, re-finding it yields
+    // undefined, so the handler can detect the deletion instead of pushing into a ghost.
+    const cfg = loader.getConfig();
+    cfg.networks.find(n => n.id === 'net1');
+
+    // Another writer deletes the network, then the watcher reloads our view from that new state.
+    const other = loader.getConfig();
+    other.networks = other.networks.filter(n => n.id !== 'net1');
+    loader.saveConfig(other);
+    loader.reloadConfig();
+
+    assert.equal(
+      loader.getConfig().networks.find(n => n.id === 'net1'), undefined,
+      'the fresh re-find must report the network gone, so finalize can 409 instead of resurrecting it',
+    );
   });
 });

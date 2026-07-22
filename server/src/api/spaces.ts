@@ -589,9 +589,19 @@ spacesRouter.put('/:id/schema', globalRateLimit, requireAdminMfaScoped('id'), as
     }
   }
 
+  // Re-read AFTER the backup write. `space` was found before `await writeSpaceFile` above, and a
+  // config reload during that write orphans it — the spread below would then carry the PRE-reload
+  // meta, so any concurrent edit to this space's purpose / usageNotes / validationMode is silently
+  // dropped on a schema save. Same class as the invite finalize path and #353; cheap to avoid.
+  const freshSpace = getConfig().spaces.find(s => s.id === id);
+  if (!freshSpace) {
+    res.status(409).json({ error: `Space '${id}' was removed while the schema backup was being written` });
+    return;
+  }
+
   // Replace the entire typeSchemas (full-replace semantics)
   const newMeta: SpaceMeta = {
-    ...(space.meta ?? {}),
+    ...(freshSpace.meta ?? {}),
     typeSchemas: parsed.data.typeSchemas as SpaceMeta['typeSchemas'],
   };
 

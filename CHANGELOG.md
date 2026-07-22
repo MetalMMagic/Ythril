@@ -2063,6 +2063,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The schema-validation tests now test the schema validator.** `schema-validation.test.js` was
+  ~20 KB that re-implemented nine functions — `validateEntity`, `validateEdge`, `validateMemory`,
+  `validateChrono`, `validateValue`, `safeRegexTest`, `hasReDoSRisk` and two more — and then tested
+  the copies. It passed continuously while asserting nothing about the product.
+  **The copies had drifted past the point of meaning anything:** the fixtures used `entityTypes`,
+  `namingPatterns` and `requiredProperties` at the root of `meta`, a data model with **zero
+  occurrences anywhere in `server/src`**. Production had long since moved to per-type `typeSchemas`,
+  where each entity type / edge label / memory type / chrono type owns its naming pattern and
+  property schemas and `required` is an inline flag on the property. No regression in any of that
+  was catchable, because none of it was what the file ran.
+  Rewritten onto the real API, importing the real functions. Two things the simulation never covered
+  are now pinned, both cases where a silent pass is the dangerous outcome: an **unresolvable `$ref`**
+  must produce a violation rather than behaving like "no schema, nothing to check" (a renamed library
+  entry would otherwise make a space quietly accept anything), and the **ReDoS guard** on
+  operator-supplied patterns must decline to run a dangerous pattern rather than executing it.
+  Mutation-checked, each catching exactly its intended assertions: disabling the required check fails
+  the six required cases across all four record kinds; disabling the ReDoS guard, the entity
+  allowlist, or the unresolved-`$ref` stamp each fail only their own.
+  The file is 181 lines where it was 491, and the suite reports 11 fewer tests — **fewer tests,
+  covering vastly more of the product**, since the ones removed were exercising a local copy.
+
 - **Schema tab: the add-a-type control stopped moving, and the space-wide tag list is retired**
   (owner requests, 2026-07-21).
   - **Add-a-type is now `[name ⊕]`, pinned above the list.** It used to sit underneath, so it slid

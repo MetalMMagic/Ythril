@@ -149,7 +149,40 @@ export async function recall(
   const allResults = (await Promise.all(searches)).flat();
   allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
-  // Fill remaining slots (topK - guaranteedCount) from global results, skipping already-guaranteed
+  const final = mergeRecallResults(guaranteed, allResults, topK, minScore);
+
+  // Enrich file chunk results with inline parent metadata.
+  //
+  // This used to sit AFTER an early `return` in the minScore branch, so asking for a minimum score
+  // silently changed the SHAPE of the response: file chunks came back without their parent's path,
+  // description and tags. Scoring and enrichment are unrelated concerns, and nothing ever meant them
+  // to interact — the two landed in the same refactor and the ordering was never deliberate.
+  await enrichFileChunksWithParent(spaceId, final);
+
+  return final;
+}
+
+/**
+ * Combine the floor-guaranteed results with the global ones, honour `topK`, and apply `minScore`.
+ *
+ * Pure, and extracted so it can be tested at all: the surrounding function is two `await`s into
+ * MongoDB on either side, so this logic previously had no reachable seam — which is exactly why the
+ * standalone test that "covered" it was a hand-written copy that had drifted from it.
+ *
+ * The order matters and is easy to get subtly wrong:
+ *   1. guaranteed results are already deduped by the caller and always survive `topK`;
+ *   2. the global results fill whatever slots remain, skipping anything already guaranteed;
+ *   3. the combined list is sorted by score — a floor result may legitimately outrank a global one;
+ *   4. `minScore` filters LAST, so it can drop a guaranteed result. That is deliberate: a floor is a
+ *      request for coverage, not a licence to return matches the caller called too weak to want.
+ */
+export function mergeRecallResults(
+  guaranteed: RecallResult[],
+  allResults: RecallResult[],
+  topK: number,
+  minScore?: number | null,
+): RecallResult[] {
+  const guaranteedIds = new Set(guaranteed.map(r => r._id));
   const fillSlots = Math.max(0, topK - guaranteed.length);
   const fill: RecallResult[] = [];
   for (const r of allResults) {
@@ -157,17 +190,11 @@ export async function recall(
     if (!guaranteedIds.has(r._id)) fill.push(r);
   }
 
-  // Combine guaranteed + fill, sort by score, apply minScore filter, return
   const final = [...guaranteed, ...fill];
   final.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  if (minScore != null && minScore > 0) {
-    return final.filter(r => (r.score ?? 0) >= minScore);
-  }
-
-  // Enrich file chunk results with inline parent metadata
-  await enrichFileChunksWithParent(spaceId, final);
-
-  return final;
+  return (minScore != null && minScore > 0)
+    ? final.filter(r => (r.score ?? 0) >= minScore)
+    : final;
 }
 
 // ── Insert-time duplicate detection ──────────────────────────────────────────

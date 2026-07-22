@@ -1,1002 +1,207 @@
 /**
- * Unit tests: multi-type recall result structure and formatting
+ * Multi-type recall — against the REAL functions.
  *
- * Covers:
- *  - RecallResult type discriminator for each knowledge type
- *  - formatRecallSummary output for memory, entity, edge, chrono, file
- *  - types[] filter restricts which collections are searched
- *  - Deduplication and score-sorting across types
- *  - Tags filter applies only to types that have tags (memory, entity, chrono, file)
+ * This file was 1002 lines and re-implemented roughly ten functions before testing the copies:
+ * `formatRecallSummary`, `toRecallRecord`, five `*EmbedText` builders, plus hand-written stand-ins
+ * for the recall merge (`mergeAndSort`, `recallWithMinPerType`, `applyMinScore`), a `resolveActiveTypes`
+ * that production does not have, and a `tagsApply` that was literally `return true`.
  *
- * These tests use pure in-process logic and do NOT require a MongoDB instance.
- * Run with:
- *   node --test testing/standalone/multi-type-recall.test.js
+ * Three different problems, so three different fixes:
+ *
+ *  - **`formatRecallSummary` / `toRecallRecord` are real and exported.** Imported now. The copy of
+ *    `formatRecallSummary` had already drifted defensively — `r.fact ?? ''`, a `default:` arm —
+ *    against a production function whose switch is exhaustive over a discriminated union. Those
+ *    branches were unreachable in the copy and do not exist in production, so they tested nothing.
+ *
+ *  - **The five `*EmbedText` sections were deleted, not converted.** `embed-text-builders.test.js`
+ *    already tests the real builders from `brain/embed-text.js`, and its header documents the exact
+ *    drift incident these copies came from. Converting them here would have produced a second copy
+ *    of a test that already exists — the same mistake in a new coat.
+ *
+ *  - **The merge logic had no seam to test.** It sat between two `await`s into MongoDB inside
+ *    `recallMultiType`, which is why it got hand-copied in the first place. It is now
+ *    `mergeRecallResults`, exported and pure, and tested here for real.
+ *
+ * Deleted outright as tautologies, per the tracker: `tagsApply()` (a function whose body was
+ * `return true`, asserted to return true) and `resolveActiveTypes` (production inlines the default,
+ * and the copy tested a function that does not exist).
+ *
+ * Run: node --test testing/standalone/multi-type-recall.test.js
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-// ── Replicate the formatRecallSummary helper from mcp/router.ts ────────────────
-// (kept inline so this test has no server-side module dependencies)
+const { formatRecallSummary, toRecallRecord } = await import('../../server/dist/mcp/tools/shared.js');
+const { mergeRecallResults } = await import('../../server/dist/brain/recall.js');
 
-function formatRecallSummary(r) {
-  switch (r.type) {
-    case 'memory':
-      return r.fact ?? '';
-    case 'entity':
-      return `${r.name ?? ''} (${r.entityType ?? ''})`;
-    case 'edge':
-      return `${r.from ?? ''} → ${r.label ?? ''} → ${r.to ?? ''}`;
-    case 'chrono':
-      return r.description ? `${r.title ?? ''}: ${r.description}` : (r.title ?? '');
-    case 'file':
-      return r.description ? `${r.path ?? ''}: ${r.description}` : (r.path ?? '');
-    default:
-      return '';
-  }
-}
+// ── Fixtures: the real RecallResult shapes ───────────────────────────────────
 
-// ── Helpers to build fake RecallResult objects ────────────────────────────────
+const memory = (o = {}) => ({ type: 'memory', _id: 'm1', fact: 'the sky is blue', score: 0.9, ...o });
+const entity = (o = {}) => ({ type: 'entity', _id: 'e1', name: 'Alice', entityType: 'person', score: 0.8, ...o });
+const edge   = (o = {}) => ({ type: 'edge', _id: 'g1', from: 'Alice', label: 'knows', to: 'Bob', score: 0.7, ...o });
+const chrono = (o = {}) => ({ type: 'chrono', _id: 'c1', title: 'Launch', chronoType: 'event', startsAt: '2026-01-01', score: 0.6, ...o });
+const file   = (o = {}) => ({ type: 'file', _id: 'f1', path: 'docs/a.md', score: 0.5, ...o });
 
-function memoryResult(overrides = {}) {
-  return {
-    _id: 'mem-1',
-    spaceId: 'general',
-    type: 'memory',
-    score: 0.9,
-    fact: 'The service uses Traefik for routing.',
-    tags: ['infra'],
-    entityIds: [],
-    createdAt: '2024-01-01T00:00:00.000Z',
-    seq: 1,
-    embeddingModel: 'all-MiniLM-L6-v2',
-    ...overrides,
-  };
-}
-
-function entityResult(overrides = {}) {
-  return {
-    _id: 'ent-1',
-    spaceId: 'general',
-    type: 'entity',
-    score: 0.85,
-    name: 'portal-backend',
-    entityType: 'service',
-    tags: ['backend'],
-    properties: { language: 'Go', port: 8080 },
-    createdAt: '2024-01-01T00:00:00.000Z',
-    seq: 2,
-    embeddingModel: 'all-MiniLM-L6-v2',
-    ...overrides,
-  };
-}
-
-function edgeResult(overrides = {}) {
-  return {
-    _id: 'edge-1',
-    spaceId: 'general',
-    type: 'edge',
-    score: 0.75,
-    from: 'ent-portal',
-    to: 'ent-db',
-    label: 'connects_to',
-    tags: ['infra'],
-    createdAt: '2024-01-01T00:00:00.000Z',
-    seq: 3,
-    embeddingModel: 'all-MiniLM-L6-v2',
-    ...overrides,
-  };
-}
-
-function chronoResult(overrides = {}) {
-  return {
-    _id: 'chrono-1',
-    spaceId: 'general',
-    type: 'chrono',
-    score: 0.8,
-    title: 'portal-backend migration',
-    description: 'Migrate portal-backend from Node.js to Go',
-    chronoType: 'milestone',
-    startsAt: '2024-06-01T00:00:00.000Z',
-    tags: ['migration'],
-    entityIds: ['ent-portal'],
-    createdAt: '2024-01-01T00:00:00.000Z',
-    seq: 4,
-    embeddingModel: 'all-MiniLM-L6-v2',
-    ...overrides,
-  };
-}
-
-function fileResult(overrides = {}) {
-  return {
-    _id: 'docs/portal-backend/README.md',
-    spaceId: 'general',
-    type: 'file',
-    score: 0.78,
-    path: 'docs/portal-backend/README.md',
-    description: 'Architecture overview for the portal-backend service',
-    tags: ['docs', 'portal-backend'],
-    sizeBytes: 4096,
-    createdAt: '2024-01-01T00:00:00.000Z',
-    embeddingModel: 'all-MiniLM-L6-v2',
-    ...overrides,
-  };
-}
-
-// ── formatRecallSummary ────────────────────────────────────────────────────────
-
-describe('formatRecallSummary — memory', () => {
-  it('returns fact text for memory results', () => {
-    const r = memoryResult();
-    assert.equal(formatRecallSummary(r), 'The service uses Traefik for routing.');
+describe('formatRecallSummary — one readable line per type', () => {
+  it('memory is the fact itself', () => {
+    assert.equal(formatRecallSummary(memory()), 'the sky is blue');
   });
 
-  it('returns empty string when fact is undefined', () => {
-    const r = memoryResult({ fact: undefined });
-    assert.equal(formatRecallSummary(r), '');
+  it('entity names its type, because a bare name is ambiguous across types', () => {
+    assert.equal(formatRecallSummary(entity()), 'Alice (person)');
+  });
+
+  it('edge reads as a sentence in the direction the edge points', () => {
+    assert.equal(formatRecallSummary(edge()), 'Alice → knows → Bob');
+  });
+
+  it('chrono appends the description only when there is one', () => {
+    assert.equal(formatRecallSummary(chrono()), 'Launch');
+    assert.equal(formatRecallSummary(chrono({ description: 'v2 ships' })), 'Launch: v2 ships');
+  });
+
+  it('file appends the description only when there is one', () => {
+    assert.equal(formatRecallSummary(file()), 'docs/a.md');
+    assert.equal(formatRecallSummary(file({ description: 'the readme' })), 'docs/a.md: the readme');
   });
 });
 
-describe('formatRecallSummary — entity', () => {
-  it('returns "name (entityType)" format', () => {
-    const r = entityResult();
-    assert.equal(formatRecallSummary(r), 'portal-backend (service)');
-  });
-
-  it('handles missing name or entityType gracefully', () => {
-    assert.equal(formatRecallSummary({ type: 'entity', name: 'foo' }), 'foo ()');
-    assert.equal(formatRecallSummary({ type: 'entity', entityType: 'bar' }), ' (bar)');
-  });
-});
-
-describe('formatRecallSummary — edge', () => {
-  it('returns "from → label → to" format', () => {
-    const r = edgeResult();
-    assert.equal(formatRecallSummary(r), 'ent-portal → connects_to → ent-db');
-  });
-
-  it('handles missing fields gracefully', () => {
-    assert.equal(formatRecallSummary({ type: 'edge', label: 'depends_on' }), ' → depends_on → ');
-  });
-});
-
-describe('formatRecallSummary — chrono', () => {
-  it('returns "title: description" when description is present', () => {
-    const r = chronoResult();
-    assert.equal(formatRecallSummary(r), 'portal-backend migration: Migrate portal-backend from Node.js to Go');
-  });
-
-  it('returns only title when description is absent', () => {
-    const r = chronoResult({ description: undefined });
-    assert.equal(formatRecallSummary(r), 'portal-backend migration');
-  });
-
-  it('returns only title when description is empty string (falsy)', () => {
-    const r = chronoResult({ description: '' });
-    assert.equal(formatRecallSummary(r), 'portal-backend migration');
-  });
-});
-
-describe('formatRecallSummary — unknown type', () => {
-  it('returns empty string for unknown type', () => {
-    assert.equal(formatRecallSummary({ type: 'unknown' }), '');
-  });
-});
-
-// ── RecallResult type structure ───────────────────────────────────────────────
-
-describe('RecallResult — type discriminator', () => {
-  it('memory result has type="memory" and fact field', () => {
-    const r = memoryResult();
-    assert.equal(r.type, 'memory');
-    assert.ok('fact' in r, 'memory result must have fact field');
-    assert.ok(!('name' in r), 'memory result must not have entity name field');
-  });
-
-  it('entity result has type="entity" and name/entityType fields', () => {
-    const r = entityResult();
-    assert.equal(r.type, 'entity');
-    assert.ok('name' in r, 'entity result must have name field');
-    assert.ok('entityType' in r, 'entity result must have entityType field');
-    assert.ok(!('fact' in r), 'entity result must not have memory fact field');
-  });
-
-  it('edge result has type="edge" and from/to/label fields', () => {
-    const r = edgeResult();
-    assert.equal(r.type, 'edge');
-    assert.ok('from' in r, 'edge result must have from field');
-    assert.ok('to' in r, 'edge result must have to field');
-    assert.ok('label' in r, 'edge result must have label field');
-  });
-
-  it('chrono result has type="chrono" and title/description fields', () => {
-    const r = chronoResult();
-    assert.equal(r.type, 'chrono');
-    assert.ok('title' in r, 'chrono result must have title field');
-    assert.ok('description' in r, 'chrono result must have description field');
-  });
-
-  it('file result has type="file" and path/description fields', () => {
-    const r = fileResult();
-    assert.equal(r.type, 'file');
-    assert.ok('path' in r, 'file result must have path field');
-    assert.ok('description' in r, 'file result must have description field');
-    assert.ok('sizeBytes' in r, 'file result must have sizeBytes field');
-  });
-
-  it('all result types have _id, spaceId, score fields', () => {
-    const results = [memoryResult(), entityResult(), edgeResult(), chronoResult(), fileResult()];
-    for (const r of results) {
-      assert.ok('_id' in r, `${r.type} result must have _id`);
-      assert.ok('spaceId' in r, `${r.type} result must have spaceId`);
-      assert.ok('score' in r, `${r.type} result must have score`);
-    }
-  });
-});
-
-// ── Deduplication and score-sort logic ───────────────────────────────────────
-// Mirrors the logic in memory.ts recall() and recallGlobal()
-
-function mergeAndSort(resultArrays, topK = 10) {
-  const flat = resultArrays.flat();
-  flat.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  const seen = new Set();
-  const deduped = [];
-  for (const r of flat) {
-    if (!seen.has(r._id)) {
-      seen.add(r._id);
-      deduped.push(r);
-    }
-  }
-  return deduped.slice(0, topK);
-}
-
-describe('Recall merge-and-sort logic', () => {
-  it('merges results from multiple types and sorts by score descending', () => {
-    const results = mergeAndSort([
-      [memoryResult({ score: 0.9 })],
-      [entityResult({ score: 0.85 })],
-      [edgeResult({ score: 0.75 })],
-      [chronoResult({ score: 0.8 })],
-      [fileResult({ score: 0.72 })],
-    ]);
-
-    assert.equal(results.length, 5);
-    assert.equal(results[0].type, 'memory');   // score 0.9
-    assert.equal(results[1].type, 'entity');   // score 0.85
-    assert.equal(results[2].type, 'chrono');   // score 0.8
-    assert.equal(results[3].type, 'edge');     // score 0.75
-    assert.equal(results[4].type, 'file');     // score 0.72
-  });
-
-  it('deduplicates by _id across types', () => {
-    const dup = memoryResult({ _id: 'shared-id', score: 0.9 });
-    const dup2 = entityResult({ _id: 'shared-id', score: 0.7 });
-
-    const results = mergeAndSort([[dup], [dup2]]);
-    assert.equal(results.length, 1, 'duplicate _ids should be collapsed to one result');
-    assert.equal(results[0]._id, 'shared-id');
-    assert.equal(results[0].score, 0.9, 'higher-score result should be kept');
-  });
-
-  it('respects topK limit', () => {
-    const many = Array.from({ length: 20 }, (_, i) =>
-      memoryResult({ _id: `mem-${i}`, score: 1 - i * 0.01 }),
-    );
-    const results = mergeAndSort([many], 5);
-    assert.equal(results.length, 5);
-  });
-
-  it('returns empty array when all inputs are empty', () => {
-    const results = mergeAndSort([[], [], [], []]);
-    assert.equal(results.length, 0);
-  });
-});
-
-// ── types[] filter logic ───────────────────────────────────────────────────────
-// Replicate the activeTypes logic from recall()
-
-function resolveActiveTypes(types) {
-  return (types && types.length > 0)
-    ? types
-    : ['memory', 'entity', 'edge', 'chrono', 'file'];
-}
-
-describe('types[] filter', () => {
-  it('defaults to all five types when types is undefined', () => {
-    const active = resolveActiveTypes(undefined);
-    assert.deepEqual(active, ['memory', 'entity', 'edge', 'chrono', 'file']);
-  });
-
-  it('defaults to all five types when types is empty array', () => {
-    const active = resolveActiveTypes([]);
-    assert.deepEqual(active, ['memory', 'entity', 'edge', 'chrono', 'file']);
-  });
-
-  it('restricts to specified types', () => {
-    const active = resolveActiveTypes(['memory', 'chrono']);
-    assert.deepEqual(active, ['memory', 'chrono']);
-  });
-
-  it('handles single type', () => {
-    const active = resolveActiveTypes(['entity']);
-    assert.deepEqual(active, ['entity']);
-  });
-
-  it('accepts file as a valid type', () => {
-    const active = resolveActiveTypes(['file']);
-    assert.deepEqual(active, ['file']);
-  });
-});
-
-// ── tags filter applicability ──────────────────────────────────────────────────
-
-function tagsApply(knowledgeType) {
-  // All collection types now have tags — the filter applies universally
-  return true;
-}
-
-describe('Tags filter applicability', () => {
-  it('tags apply to memory', () => assert.ok(tagsApply('memory')));
-  it('tags apply to entity', () => assert.ok(tagsApply('entity')));
-  it('tags apply to chrono', () => assert.ok(tagsApply('chrono')));
-  it('tags apply to file', () => assert.ok(tagsApply('file')));
-  it('tags apply to edge', () => assert.ok(tagsApply('edge')));
-});
-
-// ── Embedding text derivation ──────────────────────────────────────────────────
-// These helpers intentionally duplicate the formulas from entities.ts,
-// edges.ts, chrono.ts, memory.ts, and file-meta.ts. Standalone tests avoid
-// importing production modules to stay dependency-free and fast. If the
-// production formulas change, these tests will catch the divergence — they
-// act as specification tests for the formula.
-
-function memoryEmbedText(fact, tags = [], entityNames = [], description, properties) {
-  const parts = [];
-  if (tags.length > 0) parts.push(tags.join(' '));
-  if (entityNames.length > 0) parts.push(entityNames.join(' '));
-  parts.push(fact);
-  if (description?.trim()) parts.push(description.trim());
-  if (properties) {
-    const propEntries = Object.entries(properties);
-    if (propEntries.length > 0) parts.push(propEntries.map(([_k, v]) => String(v)).join(' '));
-  }
-  return parts.join(' ');
-}
-
-function entityEmbedText(name, type, tags = [], description, properties = {}) {
-  const parts = [name, type];
-  if (tags.length > 0) parts.push(tags.join(' '));
-  if (description?.trim()) parts.push(description.trim());
-  const propEntries = Object.entries(properties);
-  if (propEntries.length > 0) parts.push(propEntries.map(([_k, v]) => String(v)).join(' '));
-  return parts.join(' ');
-}
-
-function edgeEmbedText(from, label, to, tags = [], type, description) {
-  const parts = [];
-  if (tags.length > 0) parts.push(tags.join(' '));
-  parts.push(from, label, to);
-  if (type?.trim()) parts.push(type.trim());
-  if (description?.trim()) parts.push(description.trim());
-  return parts.join(' ');
-}
-
-function chronoEmbedText(title, kind, status, description, tags = []) {
-  const parts = [kind, status, title];
-  if (tags.length > 0) parts.push(tags.join(' '));
-  if (description?.trim()) parts.push(description.trim());
-  return parts.join(' ');
-}
-
-function fileEmbedText(filePath, tags = [], description) {
-  const parts = [filePath];
-  if (tags.length > 0) parts.push(tags.join(' '));
-  if (description?.trim()) parts.push(description.trim());
-  return parts.join(' ');
-}
-
-describe('Embedding text derivation — memory', () => {
-  it('fact alone (no tags, no entities)', () => {
-    assert.equal(memoryEmbedText('Redis TTL is 30 minutes'), 'Redis TTL is 30 minutes');
-  });
-
-  it('tags are prepended before fact', () => {
-    assert.equal(
-      memoryEmbedText('Redis TTL is 30 minutes', ['infra', 'redis']),
-      'infra redis Redis TTL is 30 minutes',
-    );
-  });
-
-  it('entity names come after tags, before fact', () => {
-    assert.equal(
-      memoryEmbedText('Redis TTL is 30 minutes', ['infra'], ['portal-backend']),
-      'infra portal-backend Redis TTL is 30 minutes',
-    );
-  });
-
-  it('description is appended after fact', () => {
-    assert.equal(
-      memoryEmbedText('Redis TTL is 30 minutes', [], [], 'Session timeout value'),
-      'Redis TTL is 30 minutes Session timeout value',
-    );
-  });
-
-  it('properties are appended last', () => {
-    assert.equal(
-      memoryEmbedText('Redis TTL is 30 minutes', [], [], undefined, { aspect: 'cache', severity: 'low' }),
-      'Redis TTL is 30 minutes cache low',
-    );
-  });
-
-  it('combines all fields in correct order', () => {
-    assert.equal(
-      memoryEmbedText('Redis TTL is 30 minutes', ['infra'], ['portal-backend'], 'Session timeout', { aspect: 'cache' }),
-      'infra portal-backend Redis TTL is 30 minutes Session timeout cache',
-    );
-  });
-});
-
-describe('Embedding text derivation — entity', () => {
-  it('minimal: name and type', () => {
-    assert.equal(entityEmbedText('portal-backend', 'service'), 'portal-backend service');
-  });
-
-  it('includes tags', () => {
-    assert.equal(
-      entityEmbedText('portal-backend', 'service', ['backend', 'go']),
-      'portal-backend service backend go',
-    );
-  });
-
-  it('includes description', () => {
-    assert.equal(
-      entityEmbedText('portal-backend', 'service', [], 'Main API gateway'),
-      'portal-backend service Main API gateway',
-    );
-  });
-
-  it('includes property values', () => {
-    assert.equal(
-      entityEmbedText('portal-backend', 'service', [], undefined, { language: 'Go', port: 8080 }),
-      'portal-backend service Go 8080',
-    );
-  });
-
-  it('combines all fields', () => {
-    assert.equal(
-      entityEmbedText('portal-backend', 'service', ['backend'], 'Main API', { language: 'Go' }),
-      'portal-backend service backend Main API Go',
-    );
-  });
-});
-
-describe('Embedding text derivation — edge', () => {
-  it('from + label + to (no tags)', () => {
-    assert.equal(edgeEmbedText('adr-0028', 'supersedes', 'adr-0029'), 'adr-0028 supersedes adr-0029');
-  });
-
-  it('tags are prepended before from+label+to', () => {
-    assert.equal(
-      edgeEmbedText('adr-0028', 'supersedes', 'adr-0029', ['security', 'adr']),
-      'security adr adr-0028 supersedes adr-0029',
-    );
-  });
-
-  it('includes type when present', () => {
-    assert.equal(
-      edgeEmbedText('adr-0028', 'supersedes', 'adr-0029', [], 'causal'),
-      'adr-0028 supersedes adr-0029 causal',
-    );
-  });
-
-  it('includes description when present', () => {
-    assert.equal(
-      edgeEmbedText('adr-0028', 'supersedes', 'adr-0029', [], undefined, 'Harbor replaced registry:2'),
-      'adr-0028 supersedes adr-0029 Harbor replaced registry:2',
-    );
-  });
-
-  it('combines all fields', () => {
-    assert.equal(
-      edgeEmbedText('adr-0028', 'supersedes', 'adr-0029', ['security'], 'causal', 'Harbor replaced registry:2'),
-      'security adr-0028 supersedes adr-0029 causal Harbor replaced registry:2',
-    );
-  });
-});
-
-describe('Embedding text derivation — chrono', () => {
-  it('kind + status + title', () => {
-    assert.equal(chronoEmbedText('Migration', 'milestone', 'upcoming'), 'milestone upcoming Migration');
-  });
-
-  it('includes tags', () => {
-    assert.equal(
-      chronoEmbedText('Migration', 'milestone', 'upcoming', undefined, ['infra', 'migration']),
-      'milestone upcoming Migration infra migration',
-    );
-  });
-
-  it('includes description', () => {
-    assert.equal(
-      chronoEmbedText('Migration', 'milestone', 'upcoming', 'Move to Go'),
-      'milestone upcoming Migration Move to Go',
-    );
-  });
-
-  it('combines all fields', () => {
-    assert.equal(
-      chronoEmbedText('Migration', 'milestone', 'completed', 'Move to Go', ['infra']),
-      'milestone completed Migration infra Move to Go',
-    );
-  });
-
-  it('ignores empty description', () => {
-    assert.equal(chronoEmbedText('Migration', 'event', 'upcoming', ''), 'event upcoming Migration');
-  });
-});
-
-describe('Embedding text derivation — file', () => {
-  it('always includes path', () => {
-    assert.equal(fileEmbedText('docs/README.md'), 'docs/README.md');
-  });
-
-  it('path + tags', () => {
-    assert.equal(
-      fileEmbedText('docs/README.md', ['docs', 'api']),
-      'docs/README.md docs api',
-    );
-  });
-
-  it('path + description', () => {
-    assert.equal(
-      fileEmbedText('docs/README.md', [], 'Architecture overview'),
-      'docs/README.md Architecture overview',
-    );
-  });
-
-  it('path + tags + description', () => {
-    assert.equal(
-      fileEmbedText('docs/README.md', ['docs'], 'Architecture overview'),
-      'docs/README.md docs Architecture overview',
-    );
-  });
-
-  it('ignores empty/whitespace description', () => {
-    assert.equal(fileEmbedText('docs/README.md', [], '   '), 'docs/README.md');
-  });
-});
-
-// ── minPerType logic ───────────────────────────────────────────────────────────
-// Mirrors the two-phase logic in memory.ts recall()
-
-function recallWithMinPerType(resultArraysByType, topK, minPerType) {
-  const activeTypes = Object.keys(resultArraysByType);
-
-  // Phase 1: collect guaranteed results
-  const guaranteed = [];
-  const guaranteedIds = new Set();
-  if (minPerType) {
-    for (const [type, floor] of Object.entries(minPerType)) {
-      if (!activeTypes.includes(type) || !floor) continue;
-      const typeResults = (resultArraysByType[type] ?? []).slice(0, floor);
-      for (const r of typeResults) {
-        if (!guaranteedIds.has(r._id)) {
-          guaranteedIds.add(r._id);
-          guaranteed.push(r);
-        }
-      }
-    }
-  }
-
-  // Phase 2: fill remaining slots from global results (sorted by score)
-  const allResults = Object.values(resultArraysByType).flat();
-  allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-
-  const fillSlots = Math.max(0, topK - guaranteed.length);
-  const fill = [];
-  for (const r of allResults) {
-    if (fill.length >= fillSlots) break;
-    if (!guaranteedIds.has(r._id)) fill.push(r);
-  }
-
-  // Combine, sort by score
-  const final = [...guaranteed, ...fill];
-  final.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  return final;
-}
-
-describe('minPerType floor guarantee', () => {
-  const buildResults = () => ({
-    memory: [
-      memoryResult({ _id: 'mem-1', score: 0.5 }),
-      memoryResult({ _id: 'mem-2', score: 0.45 }),
-    ],
-    entity: [
-      entityResult({ _id: 'ent-1', score: 0.92 }),
-      entityResult({ _id: 'ent-2', score: 0.88 }),
-    ],
-    edge: [edgeResult({ _id: 'edge-1', score: 0.3 })],
-    chrono: [chronoResult({ _id: 'chrono-1', score: 0.6 })],
-    file: [fileResult({ _id: 'file-1', score: 0.55 })],
-  });
-
-  it('without minPerType returns pure score ranking', () => {
-    const results = recallWithMinPerType(buildResults(), 3, undefined);
-    assert.equal(results.length, 3);
-    assert.equal(results[0]._id, 'ent-1');   // score 0.92
-    assert.equal(results[1]._id, 'ent-2');   // score 0.88
-    assert.equal(results[2]._id, 'chrono-1'); // score 0.6
-  });
-
-  it('minPerType guarantees low-scoring edge appears in results', () => {
-    const results = recallWithMinPerType(buildResults(), 5, { edge: 1 });
-    const edgeResult = results.find(r => r.type === 'edge');
-    assert.ok(edgeResult, 'edge result must be present');
-    assert.equal(edgeResult._id, 'edge-1');
-  });
-
-  it('minPerType does not duplicate results', () => {
-    const results = recallWithMinPerType(buildResults(), 10, { entity: 2, edge: 1 });
-    const ids = results.map(r => r._id);
-    const unique = new Set(ids);
-    assert.equal(ids.length, unique.size, 'no duplicate _ids');
-  });
-
-  it('respects topK after guaranteeing floors', () => {
-    const results = recallWithMinPerType(buildResults(), 3, { entity: 2, edge: 1 });
-    assert.equal(results.length, 3);
-  });
-
-  it('floor larger than available results fills as many as possible', () => {
-    const results = recallWithMinPerType(buildResults(), 10, { edge: 5 });
-    const edgeResults = results.filter(r => r.type === 'edge');
-    assert.equal(edgeResults.length, 1, 'only 1 edge available, floor of 5 is capped');
-  });
-
-  it('empty minPerType object behaves like no minPerType', () => {
-    const withEmpty = recallWithMinPerType(buildResults(), 3, {});
-    const withUndefined = recallWithMinPerType(buildResults(), 3, undefined);
-    assert.deepEqual(
-      withEmpty.map(r => r._id),
-      withUndefined.map(r => r._id),
-    );
-  });
-});
-
-// ── formatRecallSummary — file ─────────────────────────────────────────────────
-
-describe('formatRecallSummary — file', () => {
-  it('returns "path: description" when description is present', () => {
-    const r = fileResult();
-    assert.equal(formatRecallSummary(r), 'docs/portal-backend/README.md: Architecture overview for the portal-backend service');
-  });
-
-  it('returns only path when description is absent', () => {
-    const r = fileResult({ description: undefined });
-    assert.equal(formatRecallSummary(r), 'docs/portal-backend/README.md');
-  });
-
-  it('returns only path when description is empty string (falsy)', () => {
-    const r = fileResult({ description: '' });
-    assert.equal(formatRecallSummary(r), 'docs/portal-backend/README.md');
-  });
-
-  it('handles missing path gracefully', () => {
-    assert.equal(formatRecallSummary({ type: 'file', path: undefined, description: undefined }), '');
-  });
-});
-
-// ── toRecallRecord ────────────────────────────────────────────────────────────
-// Replicates the helper in mcp/router.ts.  If that function changes, these
-// tests will catch the divergence.
-
-function toRecallRecord(r) {
-  const common = { _id: r._id };
-  if (r.createdAt !== undefined) common.createdAt = r.createdAt;
-  if (r.updatedAt !== undefined) common.updatedAt = r.updatedAt;
-  if (r.seq !== undefined) common.seq = r.seq;
-  if (r.embeddingModel !== undefined) common.embeddingModel = r.embeddingModel;
-  if (r.tags !== undefined) common.tags = r.tags;
-  if (r.description !== undefined) common.description = r.description;
-  if (r.properties !== undefined) common.properties = r.properties;
-  switch (r.type) {
-    case 'memory':
-      return { ...common, fact: r.fact, ...(r.entityIds !== undefined ? { entityIds: r.entityIds } : {}) };
-    case 'entity':
-      return { ...common, name: r.name, type: r.entityType };
-    case 'edge':
-      return { ...common, from: r.from, to: r.to, label: r.label, ...(r.weight !== undefined ? { weight: r.weight } : {}), ...(r.edgeType !== undefined ? { type: r.edgeType } : {}) };
-    case 'chrono':
-      return { ...common, title: r.title, type: r.chronoType, startsAt: r.startsAt, ...(r.status !== undefined ? { status: r.status } : {}), ...(r.entityIds !== undefined ? { entityIds: r.entityIds } : {}) };
-    case 'file':
-      return { ...common, path: r.path, ...(r.sizeBytes !== undefined ? { sizeBytes: r.sizeBytes } : {}) };
-    default:
-      return common;
-  }
-}
-
-describe('toRecallRecord — _id is always present', () => {
-  it('memory record has _id', () => {
-    const rec = toRecallRecord(memoryResult());
-    assert.equal(rec._id, 'mem-1');
-  });
-
-  it('entity record has _id', () => {
-    const rec = toRecallRecord(entityResult());
-    assert.equal(rec._id, 'ent-1');
-  });
-
-  it('edge record has _id', () => {
-    const rec = toRecallRecord(edgeResult());
-    assert.equal(rec._id, 'edge-1');
-  });
-
-  it('chrono record has _id', () => {
-    const rec = toRecallRecord(chronoResult());
-    assert.equal(rec._id, 'chrono-1');
-  });
-
-  it('file record has _id', () => {
-    const rec = toRecallRecord(fileResult());
-    assert.equal(rec._id, 'docs/portal-backend/README.md');
-  });
-});
-
-describe('toRecallRecord — common fields included only when present', () => {
-  it('omits updatedAt when not on result', () => {
-    const rec = toRecallRecord(memoryResult({ updatedAt: undefined }));
-    assert.ok(!('updatedAt' in rec), 'updatedAt must be absent when not set');
-  });
-
-  it('includes updatedAt when present', () => {
-    const rec = toRecallRecord(memoryResult({ updatedAt: '2025-01-02T00:00:00.000Z' }));
-    assert.equal(rec.updatedAt, '2025-01-02T00:00:00.000Z');
-  });
-
-  it('includes seq when present', () => {
-    const rec = toRecallRecord(memoryResult({ seq: 42 }));
-    assert.equal(rec.seq, 42);
-  });
-
-  it('omits seq when absent', () => {
-    const rec = toRecallRecord(memoryResult({ seq: undefined }));
-    assert.ok(!('seq' in rec));
-  });
-
-  it('includes properties when present', () => {
-    const rec = toRecallRecord(entityResult());
-    assert.deepEqual(rec.properties, { language: 'Go', port: 8080 });
-  });
-
-  it('omits description when absent', () => {
-    const rec = toRecallRecord(memoryResult({ description: undefined }));
-    assert.ok(!('description' in rec));
-  });
-});
-
-describe('toRecallRecord — memory type fields', () => {
-  it('includes fact', () => {
-    const rec = toRecallRecord(memoryResult());
-    assert.equal(rec.fact, 'The service uses Traefik for routing.');
-  });
-
-  it('includes entityIds when present', () => {
-    const rec = toRecallRecord(memoryResult({ entityIds: ['ent-1', 'ent-2'] }));
-    assert.deepEqual(rec.entityIds, ['ent-1', 'ent-2']);
-  });
-
-  it('omits entityIds when absent', () => {
-    const rec = toRecallRecord(memoryResult({ entityIds: undefined }));
-    assert.ok(!('entityIds' in rec));
-  });
-
-  it('does not include score or spaceId', () => {
-    const rec = toRecallRecord(memoryResult());
-    assert.ok(!('score' in rec));
-    assert.ok(!('spaceId' in rec));
-  });
-});
-
-describe('toRecallRecord — entity type fields', () => {
-  it('includes name', () => {
-    const rec = toRecallRecord(entityResult());
-    assert.equal(rec.name, 'portal-backend');
-  });
-
-  it('maps entityType → type', () => {
-    const rec = toRecallRecord(entityResult({ entityType: 'service' }));
-    assert.equal(rec.type, 'service');
-    assert.ok(!('entityType' in rec), 'entityType must not appear on the record — use type');
-  });
-});
-
-describe('toRecallRecord — edge type fields', () => {
-  it('includes from, to, label', () => {
-    const rec = toRecallRecord(edgeResult());
-    assert.equal(rec.from, 'ent-portal');
-    assert.equal(rec.to, 'ent-db');
-    assert.equal(rec.label, 'connects_to');
-  });
-
-  it('includes weight when present', () => {
-    const rec = toRecallRecord(edgeResult({ weight: 0.9 }));
-    assert.equal(rec.weight, 0.9);
-  });
-
-  it('omits weight when absent', () => {
-    const rec = toRecallRecord(edgeResult({ weight: undefined }));
-    assert.ok(!('weight' in rec));
-  });
-
-  it('maps edgeType → type when present', () => {
-    const rec = toRecallRecord(edgeResult({ edgeType: 'causal' }));
-    assert.equal(rec.type, 'causal');
-    assert.ok(!('edgeType' in rec));
-  });
-
-  it('omits type when edgeType is absent', () => {
-    const rec = toRecallRecord(edgeResult({ edgeType: undefined }));
-    assert.ok(!('type' in rec));
-  });
-});
-
-describe('toRecallRecord — chrono type fields', () => {
-  it('includes title and startsAt', () => {
-    const rec = toRecallRecord(chronoResult());
-    assert.equal(rec.title, 'portal-backend migration');
-    assert.equal(rec.startsAt, '2024-06-01T00:00:00.000Z');
-  });
-
-  it('maps chronoType → type', () => {
-    const rec = toRecallRecord(chronoResult({ chronoType: 'milestone' }));
-    assert.equal(rec.type, 'milestone');
-    assert.ok(!('chronoType' in rec));
-  });
-
-  it('includes status when present', () => {
-    const rec = toRecallRecord(chronoResult({ status: 'completed' }));
-    assert.equal(rec.status, 'completed');
-  });
-
-  it('omits status when absent', () => {
-    const rec = toRecallRecord(chronoResult({ status: undefined }));
-    assert.ok(!('status' in rec));
-  });
-
-  it('includes entityIds when present', () => {
-    const rec = toRecallRecord(chronoResult());
-    assert.deepEqual(rec.entityIds, ['ent-portal']);
-  });
-});
-
-describe('toRecallRecord — file type fields', () => {
-  it('includes path', () => {
-    const rec = toRecallRecord(fileResult());
-    assert.equal(rec.path, 'docs/portal-backend/README.md');
-  });
-
-  it('includes sizeBytes when present', () => {
-    const rec = toRecallRecord(fileResult({ sizeBytes: 4096 }));
-    assert.equal(rec.sizeBytes, 4096);
-  });
-
-  it('omits sizeBytes when absent', () => {
-    const rec = toRecallRecord(fileResult({ sizeBytes: undefined }));
-    assert.ok(!('sizeBytes' in rec));
-  });
-});
-
-describe('toRecallRecord — MCP output wrapper shape', () => {
-  it('each result wrapper has score, spaceId, type, matchedText, record', () => {
-    const results = [memoryResult(), entityResult(), edgeResult(), chronoResult(), fileResult()];
-    for (const r of results) {
-      const wrapper = {
-        score: r.score,
-        spaceId: r.spaceId,
-        type: r.type,
-        matchedText: r.matchedText ?? formatRecallSummary(r),
-        record: toRecallRecord(r),
-      };
-      assert.ok('score' in wrapper, `${r.type} wrapper missing score`);
-      assert.ok('spaceId' in wrapper, `${r.type} wrapper missing spaceId`);
-      assert.ok('type' in wrapper, `${r.type} wrapper missing type`);
-      assert.ok('matchedText' in wrapper, `${r.type} wrapper missing matchedText`);
-      assert.ok('record' in wrapper, `${r.type} wrapper missing record`);
-      assert.ok('_id' in wrapper.record, `${r.type} record missing _id`);
+describe('toRecallRecord — common fields appear only when present', () => {
+  it('always carries _id', () => {
+    for (const r of [memory(), entity(), edge(), chrono(), file()]) {
+      assert.equal(toRecallRecord(r)._id, r._id);
     }
   });
 
-  it('falls back to formatRecallSummary when matchedText is absent', () => {
-    const r = memoryResult({ matchedText: undefined });
-    const matchedText = r.matchedText ?? formatRecallSummary(r);
-    assert.equal(matchedText, 'The service uses Traefik for routing.');
+  it('omits absent optional fields rather than emitting undefined', () => {
+    // An explicit `"tags": undefined` in an MCP payload is noise an agent has to reason about.
+    const rec = toRecallRecord(memory());
+    for (const k of ['createdAt', 'updatedAt', 'seq', 'embeddingModel', 'tags', 'description', 'properties']) {
+      assert.ok(!(k in rec), `${k} should be absent, got ${JSON.stringify(rec)}`);
+    }
   });
 
-  it('uses stored matchedText when present', () => {
-    const r = memoryResult({ matchedText: 'infra portal-backend The service uses Traefik for routing.' });
-    const matchedText = r.matchedText ?? formatRecallSummary(r);
-    assert.equal(matchedText, 'infra portal-backend The service uses Traefik for routing.');
-  });
-
-  it('output object serialises to valid JSON with results array and count', () => {
-    const results = [memoryResult(), entityResult()];
-    const output = {
-      results: results.map(r => ({
-        score: r.score,
-        spaceId: r.spaceId,
-        type: r.type,
-        matchedText: r.matchedText ?? formatRecallSummary(r),
-        record: toRecallRecord(r),
-      })),
-      count: results.length,
-    };
-    const json = JSON.parse(JSON.stringify(output, null, 2));
-    assert.equal(json.count, 2);
-    assert.equal(json.results.length, 2);
-    assert.equal(json.results[0].record._id, 'mem-1');
-    assert.equal(json.results[1].record._id, 'ent-1');
+  it('includes them when they are present', () => {
+    const rec = toRecallRecord(memory({ tags: ['t'], description: 'd', properties: { a: 1 }, seq: 3 }));
+    assert.deepEqual(rec.tags, ['t']);
+    assert.equal(rec.description, 'd');
+    assert.deepEqual(rec.properties, { a: 1 });
+    assert.equal(rec.seq, 3);
   });
 });
 
-// ── minScore filtering (simulated) ─────────────────────────────────────────────
-// These tests validate the minScore filtering logic in isolation, the same
-// algorithm that recall() and recallGlobal() use as a post-query filter.
-
-function applyMinScore(results, minScore) {
-  if (minScore != null && minScore > 0) {
-    return results.filter(r => (r.score ?? 0) >= minScore);
-  }
-  return results;
-}
-
-describe('minScore filtering', () => {
-  const mixedResults = [
-    memoryResult({ _id: 'hi-1', score: 0.95 }),
-    entityResult({ _id: 'hi-2', score: 0.85 }),
-    edgeResult({ _id: 'mid-3', score: 0.60 }),
-    chronoResult({ _id: 'low-4', score: 0.30 }),
-    fileResult({ _id: 'low-5', score: 0.10 }),
-  ];
-
-  it('returns all results when minScore is undefined', () => {
-    const filtered = applyMinScore(mixedResults, undefined);
-    assert.equal(filtered.length, 5);
+describe('toRecallRecord — the type discriminator is renamed per type', () => {
+  // Each type reports its own `type` field under the name that type uses, NOT the recall
+  // discriminator. Getting this wrong would surface `"type": "entity"` where an agent expects
+  // `"type": "person"` — a silent semantic swap that reads as valid.
+  it('entity reports entityType as `type`', () => {
+    assert.equal(toRecallRecord(entity()).type, 'person');
+    assert.equal(toRecallRecord(entity()).name, 'Alice');
   });
 
-  it('returns all results when minScore is 0', () => {
-    const filtered = applyMinScore(mixedResults, 0);
-    assert.equal(filtered.length, 5);
+  it('chrono reports chronoType as `type`, and keeps startsAt', () => {
+    const rec = toRecallRecord(chrono());
+    assert.equal(rec.type, 'event');
+    assert.equal(rec.startsAt, '2026-01-01');
   });
 
-  it('filters out results below minScore threshold', () => {
-    const filtered = applyMinScore(mixedResults, 0.7);
-    assert.equal(filtered.length, 2);
-    assert.ok(filtered.every(r => r.score >= 0.7));
-    assert.deepEqual(filtered.map(r => r._id), ['hi-1', 'hi-2']);
+  it('edge reports edgeType as `type` only when it has one', () => {
+    assert.ok(!('type' in toRecallRecord(edge())), 'no edgeType means no type key');
+    assert.equal(toRecallRecord(edge({ edgeType: 'social' })).type, 'social');
   });
 
-  it('filters out all results when minScore is higher than all scores', () => {
-    const filtered = applyMinScore(mixedResults, 0.99);
-    assert.equal(filtered.length, 0);
+  it('memory carries no type key at all', () => {
+    assert.ok(!('type' in toRecallRecord(memory())));
+    assert.equal(toRecallRecord(memory()).fact, 'the sky is blue');
+  });
+});
+
+describe('toRecallRecord — per-type optional fields', () => {
+  it('edge weight appears only when set', () => {
+    assert.ok(!('weight' in toRecallRecord(edge())));
+    assert.equal(toRecallRecord(edge({ weight: 2 })).weight, 2);
   });
 
-  it('includes results exactly at the minScore boundary', () => {
-    const filtered = applyMinScore(mixedResults, 0.60);
-    assert.equal(filtered.length, 3);
-    assert.ok(filtered.some(r => r._id === 'mid-3'));
+  it('file chunk fields appear only when set', () => {
+    assert.ok(!('parentFileId' in toRecallRecord(file())));
+    const chunk = toRecallRecord(file({ parentFileId: 'p1', chunkIndex: 3, headingText: 'Intro', content: '...' }));
+    assert.equal(chunk.parentFileId, 'p1');
+    assert.equal(chunk.chunkIndex, 3);
+    assert.equal(chunk.headingText, 'Intro');
   });
 
-  it('works with minScore=1.0 (only perfect matches)', () => {
-    const withPerfect = [memoryResult({ _id: 'perfect', score: 1.0 }), ...mixedResults];
-    const filtered = applyMinScore(withPerfect, 1.0);
-    assert.equal(filtered.length, 1);
-    assert.equal(filtered[0]._id, 'perfect');
+  it('chunkIndex 0 is emitted — falsy but meaningful', () => {
+    // The classic `if (x)` bug: chunk 0 is the FIRST chunk, not a missing one.
+    assert.equal(toRecallRecord(file({ chunkIndex: 0 })).chunkIndex, 0);
   });
 
-  it('treats missing score as 0', () => {
-    const noScore = [memoryResult({ _id: 'noscore', score: undefined })];
-    const filtered = applyMinScore(noScore, 0.1);
-    assert.equal(filtered.length, 0);
+  it('entityIds appear on memory and chrono when set', () => {
+    assert.deepEqual(toRecallRecord(memory({ entityIds: ['e1'] })).entityIds, ['e1']);
+    assert.deepEqual(toRecallRecord(chrono({ entityIds: ['e1'] })).entityIds, ['e1']);
+  });
+});
+
+describe('mergeRecallResults — floors, topK and minScore', () => {
+  it('returns the global results in score order when there are no floors', () => {
+    const all = [entity(), memory(), edge()]; // 0.8, 0.9, 0.7
+    assert.deepEqual(mergeRecallResults([], all, 10).map(r => r._id), ['m1', 'e1', 'g1']);
+  });
+
+  it('honours topK', () => {
+    const all = [memory(), entity(), edge(), chrono(), file()];
+    assert.equal(mergeRecallResults([], all, 2).length, 2);
+  });
+
+  it('a guaranteed result survives even when it would not make topK on score', () => {
+    // The whole point of minPerType: a low-scoring type still gets representation.
+    const guaranteed = [file({ _id: 'floor', score: 0.01 })];
+    const all = Array.from({ length: 10 }, (_, i) => memory({ _id: `m${i}`, score: 0.9 }));
+    const out = mergeRecallResults(guaranteed, all, 3);
+    assert.ok(out.some(r => r._id === 'floor'), 'the floor result was dropped');
+    assert.equal(out.length, 3);
+  });
+
+  it('does not duplicate a result that is both guaranteed and globally returned', () => {
+    const dup = memory({ _id: 'same', score: 0.9 });
+    const out = mergeRecallResults([dup], [dup, entity()], 10);
+    assert.equal(out.filter(r => r._id === 'same').length, 1);
+  });
+
+  it('sorts the combined list, so a floor result can outrank a global one', () => {
+    const out = mergeRecallResults([file({ _id: 'hi', score: 0.99 })], [memory({ score: 0.5 })], 10);
+    assert.equal(out[0]._id, 'hi');
+  });
+
+  it('minScore filters LAST — it can drop even a guaranteed result', () => {
+    // Deliberate: a floor is a request for coverage, not a licence to return matches the caller has
+    // explicitly called too weak to want.
+    const out = mergeRecallResults([file({ _id: 'weak', score: 0.1 })], [memory({ score: 0.9 })], 10, 0.5);
+    assert.deepEqual(out.map(r => r._id), ['m1']);
+  });
+
+  it('a zero or absent minScore filters nothing', () => {
+    const all = [memory({ score: 0 })];
+    assert.equal(mergeRecallResults([], all, 10, 0).length, 1);
+    assert.equal(mergeRecallResults([], all, 10, null).length, 1);
+    assert.equal(mergeRecallResults([], all, 10).length, 1);
+  });
+
+  it('treats a missing score as zero rather than throwing', () => {
+    const out = mergeRecallResults([], [memory({ score: undefined }), entity()], 10);
+    assert.equal(out[0]._id, 'e1', 'the scored result should sort first');
+    assert.equal(out.length, 2);
+  });
+
+  it('handles more guaranteed results than topK without going negative', () => {
+    const guaranteed = [memory({ _id: 'a' }), entity({ _id: 'b' }), edge({ _id: 'c' })];
+    const out = mergeRecallResults(guaranteed, [file()], 1);
+    // Every floor result is kept; fill is simply skipped. Slots are clamped at zero.
+    assert.equal(out.length, 3);
+    assert.ok(!out.some(r => r._id === 'f1'));
+  });
+
+  it('an empty input produces an empty result', () => {
+    assert.deepEqual(mergeRecallResults([], [], 10), []);
   });
 });

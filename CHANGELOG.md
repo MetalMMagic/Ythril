@@ -2072,6 +2072,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The last two simulation test files now test the product — the batch is closed.** All six files
+  flagged as testing a copy of Ythril rather than Ythril now import from the compiled build.
+  - **`vector-search-check` was the deepest drift of the six.** It did not merely copy the production
+    code, it tested a **different algorithm that no longer exists**: its subject was
+    `checkVectorSearch` / `isVectorSearchAvailable`, neither of which appears anywhere in `server/src`,
+    and its premise was that the probe runs a `$vectorSearch` aggregate and classifies the error —
+    "unknown stage" meaning unsupported. Production instead calls `listSearchIndexes()` on a throwaway
+    collection and retries six times with a 2s backoff; it does not distinguish error kinds at all.
+    Every assertion described behaviour the product had stopped having, and it passed throughout.
+    The real probe is now testable — its `probe` and `sleep` are injectable, defaulting to the
+    production ones — so the contract that matters can be pinned without a database or 12 seconds of
+    real backoff: it **memoises**, including a negative answer. That cache has an incident behind it
+    (`ensureVectorSearchIndex` awaits it once per collection per space, so an unmemoised probe made a
+    cold boot pay the full backoff five times per space and delayed startup past the point where
+    crash recovery worked).
+  - **`mongo-db-name`** kept a byte-identical copy of `dbNameFromUri`, which production had already
+    extracted into its own module. No drift yet — just an unnecessary second copy waiting to acquire
+    some. It imports the real one now; the cases are unchanged.
+
 - **The multi-type recall tests now test multi-type recall.** 1002 lines that re-implemented roughly
   ten functions and tested the copies. Three different problems, so three different fixes:
   - `formatRecallSummary` and `toRecallRecord` are real and exported — imported now. The copy of

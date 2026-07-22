@@ -97,7 +97,22 @@ let searchReadyProbe: Promise<boolean> | null = null;
 
 export function resetSearchReadyProbe(): void { searchReadyProbe = null; }
 
-async function searchAvailable(): Promise<boolean> {
+/**
+ * Ask the database whether search is answering, retrying past a cold start.
+ *
+ * `probe` and `sleep` are injectable so the retry-and-cache contract can be tested without a
+ * database and without waiting out 12 seconds of real backoff. Defaults are the production ones —
+ * callers pass nothing.
+ *
+ * Exported for that test. The behaviour worth pinning is the CACHE: this used to be awaited from
+ * `ensureVectorSearchIndex`, which runs once per collection per space, so an unmemoised probe made a
+ * cold boot pay the full backoff five times per space and delayed startup enough to break crash
+ * recovery. One probe per process, whatever the answer.
+ */
+export async function searchAvailable(
+  probe: () => Promise<unknown> = () => getDb().collection('_vectorsearch_probe').listSearchIndexes().toArray(),
+  sleep: (ms: number) => Promise<void> = ms => new Promise(r => setTimeout(r, ms)),
+): Promise<boolean> {
   if (searchReadyProbe) return searchReadyProbe;
   searchReadyProbe = (async () => {
     const ATTEMPTS = 6;
@@ -106,11 +121,11 @@ async function searchAvailable(): Promise<boolean> {
     for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
       try {
         // Any collection will do — this asks "is search answering at all?", not "does this index exist".
-        await getDb().collection('_vectorsearch_probe').listSearchIndexes().toArray();
+        await probe();
         return true;
       } catch (err) {
         lastErr = err;
-        if (attempt < ATTEMPTS) await new Promise(r => setTimeout(r, BACKOFF_MS));
+        if (attempt < ATTEMPTS) await sleep(BACKOFF_MS);
       }
     }
     log.warn(

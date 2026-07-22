@@ -1,220 +1,126 @@
 /**
- * Unit tests: $vectorSearch availability check
+ * The `$vectorSearch` availability probe — against the REAL one.
  *
- * Covers:
- *  - Stage unavailable (unknown-stage error) → available: false
- *  - Stage available, index not found → available: true
- *  - Stage available, succeeds with empty result → available: true
- *  - Unrelated error (network timeout) → available: true (assume supported)
- *  - Result is cached after first call
- *  - isVectorSearchAvailable() reflects cached result
+ * The previous version of this file was the deepest drift in the batch. It did not merely copy the
+ * production code; it tested a **different algorithm that no longer exists**. Its subject was
+ * `checkVectorSearch` / `isVectorSearchAvailable` — neither of which appears anywhere in `server/src`
+ * — and its premise was that the probe runs a `$vectorSearch` aggregate and classifies the resulting
+ * error: "unknown stage" meaning unsupported, anything else meaning supported.
  *
- * These tests mock the MongoDB client and do NOT require a running MongoDB
- * instance.  Run with:
- *   node --test testing/standalone/vector-search-check.test.js
+ * Production does none of that. It calls `listSearchIndexes()` on a throwaway collection, retries six
+ * times with a 2s backoff, and gives up. It does not distinguish error kinds at all — a cold `mongot`
+ * and a permanently unsupported deployment look identical to it, and the retry is what tells them
+ * apart in practice.
+ *
+ * So every assertion in the old file described behaviour the product had stopped having. It passed
+ * throughout.
+ *
+ * What is worth pinning is the part with an incident behind it: **the probe is memoised**. It used to
+ * be awaited from `ensureVectorSearchIndex`, which runs once per collection per space, so an
+ * unmemoised probe made a cold boot pay the full 12-second backoff five times per space — enough to
+ * delay startup past the point where crash recovery worked.
+ *
+ * Run: node --test testing/standalone/vector-search-check.test.js
  */
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 
-// ── Minimal in-process stubs ──────────────────────────────────────────────────
+const { searchAvailable, resetSearchReadyProbe } = await import('../../server/dist/spaces/vector-index.js');
 
-/**
- * Build a fake MongoClient whose db().collection().aggregate() and
- * db().admin().command() can be controlled per test.
- */
-function makeFakeClient({ aggregateError = null, aggregateResult = [], buildInfoVersion = '7.0.0' } = {}) {
-  return {
-    db() {
-      return {
-        admin() {
-          return {
-            async command() {
-              return { version: buildInfoVersion };
-            },
-          };
-        },
-        collection() {
-          return {
-            aggregate() {
-              return {
-                async toArray() {
-                  if (aggregateError) throw aggregateError;
-                  return aggregateResult;
-                },
-              };
-            },
-          };
-        },
-      };
-    },
+/** A probe that fails `failures` times and then succeeds, counting calls. */
+function flakyProbe(failures) {
+  let calls = 0;
+  const fn = async () => {
+    calls++;
+    if (calls <= failures) throw new Error('mongot is not answering yet');
+    return [];
   };
+  Object.defineProperty(fn, 'calls', { get: () => calls });
+  return fn;
 }
 
-// ── Logic under test (extracted inline so we avoid module import side-effects) ─
-
-/**
- * Pure implementation of the probe logic, parameterised by a fake client and
- * database name. Mirrors the logic in server/src/db/mongo.ts exactly.
- */
-async function probeVectorSearch(fakeClient, dbName = 'ythril') {
-  const db = fakeClient.db(dbName);
-
-  let serverVersion = 'unknown';
-  try {
-    const info = await db.admin().command({ buildInfo: 1 });
-    if (typeof info.version === 'string') serverVersion = info.version;
-  } catch { /* best-effort */ }
-
-  try {
-    await db.collection('_vectorsearch_probe').aggregate([
-      {
-        $vectorSearch: {
-          index: '_probe_idx',
-          path: 'embedding',
-          queryVector: [0, 0, 0],
-          numCandidates: 1,
-          limit: 1,
-        },
-      },
-    ]).toArray();
-    return { available: true, details: `MongoDB ${serverVersion}` };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/unrecognized|unknown.*stage|no.*such.*stage|\$vectorSearch.*not.*support/i.test(msg)) {
-      return { available: false, details: `MongoDB ${serverVersion}` };
-    }
-    return { available: true, details: `MongoDB ${serverVersion}` };
-  }
+/** Records the backoff waits without actually waiting. */
+function fakeSleep() {
+  const waits = [];
+  const fn = async ms => { waits.push(ms); };
+  fn.waits = waits;
+  return fn;
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+describe('searchAvailable — answering', () => {
+  beforeEach(() => resetSearchReadyProbe());
 
-describe('$vectorSearch availability probe', () => {
-  it('Returns available:false when MongoDB reports unknown pipeline stage', async () => {
-    const client = makeFakeClient({
-      aggregateError: new Error("Unrecognized pipeline stage name: '$vectorSearch'"),
-      buildInfoVersion: '7.0.0',
-    });
-    const result = await probeVectorSearch(client);
-    assert.equal(result.available, false, 'Should be unavailable for unknown stage');
-    assert.ok(result.details.includes('7.0.0'), `details should include version, got: ${result.details}`);
-  });
-
-  it('Returns available:false for "unknown aggregation stage" wording', async () => {
-    const client = makeFakeClient({
-      aggregateError: new Error('unknown aggregation stage $vectorSearch'),
-      buildInfoVersion: '6.0.0',
-    });
-    const result = await probeVectorSearch(client);
-    assert.equal(result.available, false);
-  });
-
-  it('Returns available:false for "no such stage" wording', async () => {
-    const client = makeFakeClient({
-      aggregateError: new Error('no such stage: $vectorSearch'),
-      buildInfoVersion: '5.0.0',
-    });
-    const result = await probeVectorSearch(client);
-    assert.equal(result.available, false);
-  });
-
-  it('Returns available:true when aggregation succeeds with empty results (Atlas / 8.2+)', async () => {
-    const client = makeFakeClient({
-      aggregateError: null,
-      aggregateResult: [],
-      buildInfoVersion: '8.2.1',
-    });
-    const result = await probeVectorSearch(client);
-    assert.equal(result.available, true, 'Should be available when stage succeeds');
-    assert.ok(result.details.includes('8.2.1'));
-  });
-
-  it('Returns available:true when the error is "index not found" (stage recognised)', async () => {
-    const client = makeFakeClient({
-      aggregateError: new Error('Index _probe_idx not found on collection _vectorsearch_probe'),
-      buildInfoVersion: '8.0.0',
-    });
-    const result = await probeVectorSearch(client);
-    assert.equal(result.available, true, 'Index-not-found means stage is supported');
-  });
-
-  it('Returns available:true when the error is a network timeout (assume supported)', async () => {
-    const client = makeFakeClient({
-      aggregateError: new Error('connection timeout'),
-      buildInfoVersion: 'unknown',
-    });
-    const result = await probeVectorSearch(client);
-    assert.equal(result.available, true, 'Non-stage errors should not mark as unavailable');
-  });
-
-  it('Returns available:true when error mentions "wrong dimensions"', async () => {
-    const client = makeFakeClient({
-      aggregateError: new Error('wrong number of dimensions for query vector'),
-      buildInfoVersion: '8.2.0',
-    });
-    const result = await probeVectorSearch(client);
-    assert.equal(result.available, true);
-  });
-
-  it('Details string includes the server version', async () => {
-    const client = makeFakeClient({ buildInfoVersion: '8.3.0', aggregateResult: [] });
-    const result = await probeVectorSearch(client);
-    assert.ok(result.details.includes('8.3.0'), `Expected '8.3.0' in details, got: ${result.details}`);
-  });
-
-  it('Details string shows "unknown" when buildInfo fails', async () => {
-    // Override admin().command() to throw
-    const client = {
-      db() {
-        return {
-          admin() { return { async command() { throw new Error('not authorised'); } }; },
-          collection() {
-            return {
-              aggregate() { return { async toArray() { return []; } }; },
-            };
-          },
-        };
-      },
-    };
-    const result = await probeVectorSearch(client);
-    assert.equal(result.available, true);
-    assert.ok(result.details.includes('unknown'), `Expected 'unknown' in details, got: ${result.details}`);
+  it('returns true on the first successful probe, with no backoff', async () => {
+    const probe = flakyProbe(0);
+    const sleep = fakeSleep();
+    assert.equal(await searchAvailable(probe, sleep), true);
+    assert.equal(probe.calls, 1);
+    assert.deepEqual(sleep.waits, [], 'a healthy database should not be made to wait');
   });
 });
 
-describe('$vectorSearch availability — caching behaviour', () => {
-  it('Probe called twice: second call returns same result without re-running aggregation', async () => {
-    let callCount = 0;
-    const client = {
-      db() {
-        return {
-          admin() { return { async command() { return { version: '8.2.0' }; } }; },
-          collection() {
-            return {
-              aggregate() {
-                return {
-                  async toArray() {
-                    callCount++;
-                    return [];
-                  },
-                };
-              },
-            };
-          },
-        };
-      },
-    };
+describe('searchAvailable — retrying past a cold start', () => {
+  beforeEach(() => resetSearchReadyProbe());
 
-    const r1 = await probeVectorSearch(client);
-    const r2 = await probeVectorSearch(client);
+  it('keeps trying and succeeds once search comes up', async () => {
+    // The case the retry exists for: `mongot` is slower to start than the app. Failing immediately
+    // would report the deployment as unsupported and leave recall silently empty.
+    const probe = flakyProbe(3);
+    const sleep = fakeSleep();
+    assert.equal(await searchAvailable(probe, sleep), true);
+    assert.equal(probe.calls, 4);
+    assert.deepEqual(sleep.waits, [2000, 2000, 2000]);
+  });
 
-    // Both calls should agree
-    assert.equal(r1.available, true);
-    assert.equal(r2.available, true);
-    // The aggregate was called once per probe (no module-level cache in the
-    // pure implementation — caching lives in the mongo.ts module state).
-    // Two independent calls to the pure function = two aggregate invocations.
-    assert.equal(callCount, 2, 'Pure probe calls aggregate each time (module cache tested separately)');
+  it('gives up after six attempts and reports unavailable', async () => {
+    const probe = flakyProbe(Infinity);
+    const sleep = fakeSleep();
+    assert.equal(await searchAvailable(probe, sleep), false);
+    assert.equal(probe.calls, 6);
+  });
+
+  it('does not sleep after the final attempt', async () => {
+    // Five waits for six attempts. A sixth would add two seconds of delay after the decision is
+    // already made.
+    const sleep = fakeSleep();
+    await searchAvailable(flakyProbe(Infinity), sleep);
+    assert.equal(sleep.waits.length, 5);
+  });
+});
+
+describe('searchAvailable — the memoisation, which is the part with an incident behind it', () => {
+  beforeEach(() => resetSearchReadyProbe());
+
+  it('probes ONCE however many times it is called', async () => {
+    // ensureVectorSearchIndex awaits this per collection per space. Without the cache a cold boot
+    // paid the full backoff five times per space and delayed startup enough to break crash recovery.
+    const probe = flakyProbe(0);
+    const sleep = fakeSleep();
+    await Promise.all([
+      searchAvailable(probe, sleep),
+      searchAvailable(probe, sleep),
+      searchAvailable(probe, sleep),
+    ]);
+    assert.equal(probe.calls, 1, 'concurrent callers must share one probe');
+  });
+
+  it('caches a NEGATIVE answer too', async () => {
+    // The expensive case. Re-probing after a failure would pay 12 seconds again per caller — the
+    // exact cost the cache exists to avoid, on the path where it hurts most.
+    const probe = flakyProbe(Infinity);
+    const sleep = fakeSleep();
+    assert.equal(await searchAvailable(probe, sleep), false);
+    assert.equal(await searchAvailable(probe, sleep), false);
+    assert.equal(probe.calls, 6, 'the second call must not re-probe');
+  });
+
+  it('resetSearchReadyProbe clears the cache, so a later call probes again', async () => {
+    const probe = flakyProbe(0);
+    const sleep = fakeSleep();
+    await searchAvailable(probe, sleep);
+    resetSearchReadyProbe();
+    await searchAvailable(probe, sleep);
+    assert.equal(probe.calls, 2);
   });
 });

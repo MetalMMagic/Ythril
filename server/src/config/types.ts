@@ -1323,6 +1323,17 @@ export interface MediaJobDoc {
   lastError: string | null;
   claimedAt: string | null;   // ISO8601 — set when a worker claims this job
   /**
+   * ISO8601 — last time this job did something. Set when claimed, then advanced by the worker every
+   * time a unit of work completes (a page rendered, a page transcribed, a stage finished).
+   *
+   * Stall detection reads THIS, not `claimedAt`. A wall-clock deadline measured from the claim
+   * cannot tell "wedged" from "slow", so a genuinely long job — a 400-page PDF being transcribed a
+   * page at a time — was requeued mid-flight for the crime of taking a while, then re-claimed and
+   * killed again at the same point: an infinite loop that burns the model budget and never finishes.
+   * Measuring from the last sign of life means the timeout fires only when nothing is happening.
+   */
+  progressAt?: string | null;
+  /**
    * ISO8601 — when set on a `pending` job, the worker MUST NOT claim it
    * until this timestamp has passed. Used for exponential retry backoff so
    * a fast-failing "poison pill" job can’t monopolise the queue and starve

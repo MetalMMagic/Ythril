@@ -37,6 +37,7 @@ export async function vlmExtractDocument(
   fileBytes: Buffer,
   fileName: string,
   modeOverride?: DocExtractionMode,
+  onProgress?: () => void,
 ): Promise<VlmExtractResult> {
   const cfg = getDocumentProcessingConfig();
   const mode = modeOverride ?? cfg.mode;
@@ -62,7 +63,7 @@ export async function vlmExtractDocument(
   // ── VLM path ────────────────────────────────────────────────────────────────
   const baseUrl = cfg.vlmBaseUrl || getMediaEmbeddingConfig().vision?.baseUrl || 'http://ollama:11434';
   try {
-    const { pages, truncated } = await renderDocumentPages(fileBytes, {
+    const { pages, truncated, total: totalPages } = await renderDocumentPages(fileBytes, {
       fileName,
       dpi: cfg.renderDpi,
       maxPages: cfg.maxPages,
@@ -74,10 +75,22 @@ export async function vlmExtractDocument(
       const t = await transcribePageImage(img, {
         baseUrl, model: cfg.vlmModel, prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
       });
+      // A finished page is the smallest honest unit of progress on this path — it is what makes a
+      // long document slow rather than wedged.
+      onProgress?.();
       return t.text.trim();
     });
     let markdown = parts.filter(Boolean).join('\n\n---\n\n').trim();
-    if (truncated) markdown += `\n\n<!-- document truncated to ${pages.length} pages -->`;
+    if (truncated) {
+      // Truncation used to leave ONLY this HTML comment buried in the converted markdown: not
+      // logged, not stored, and the file still reported success. A 400-page document silently
+      // became its first 50 pages, and recall then answered confidently from a tenth of it.
+      markdown += `\n\n<!-- document truncated to ${pages.length} of ${totalPages} pages -->`;
+      log.warn(
+        `VLM extract: '${fileName}' truncated — read ${pages.length} of ${totalPages} pages ` +
+        `(documentProcessing.maxPages = ${cfg.maxPages}). The rest was NOT indexed.`,
+      );
+    }
 
     // Validate against OCR evidence when we have it; otherwise just require non-empty output.
     const evidence = ocr?.markdown ?? '';

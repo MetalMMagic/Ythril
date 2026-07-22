@@ -295,7 +295,7 @@ export async function claimNextJob(
         ],
       }),
       asUpdate<MediaJobDoc>({
-        $set: { status: 'processing', claimedAt: now, claimableAfter: null, updatedAt: now },
+        $set: { status: 'processing', claimedAt: now, progressAt: now, claimableAfter: null, updatedAt: now },
         $inc: { attempts: 1 },
       }),
       { returnDocument: 'after', sort: { createdAt: 1 } },
@@ -400,11 +400,53 @@ export async function failJob(
  * Each call resets at most `maxPerSpace` stalled jobs per space; the loop
  * runs again on the next tick if more remain.
  */
+/**
+ * Which processing jobs count as stalled at `cutoff`.
+ *
+ * Separated from the query so the rule is checkable without a database — the interesting part is not
+ * "does Mongo work" but which of three cases a job falls into, and the third is easy to forget:
+ *
+ *   1. it ticked recently          → still working, leave it
+ *   2. it has not ticked since the cutoff → stalled, recover it
+ *   3. it has NO tick at all (claimed by a build older than the heartbeat) → fall back to the claim
+ *      time, or those jobs become immortal and nothing ever recovers them
+ */
+export function stalledJobFilter(cutoff: string): Record<string, unknown> {
+  return {
+    status: 'processing',
+    $or: [
+      { progressAt: { $lt: cutoff } },
+      { progressAt: { $exists: false }, claimedAt: { $lt: cutoff } },
+      { progressAt: null, claimedAt: { $lt: cutoff } },
+    ],
+  };
+}
+
+/**
+ * Record that a claimed job is still doing something.
+ *
+ * Called by the worker as each unit of work lands. Deliberately best-effort and fire-and-forget: a
+ * failed heartbeat must never fail the job it is reporting on — the worst case is that stall
+ * detection falls back to the previous tick, which is exactly the behaviour without heartbeats.
+ */
+export async function touchJobProgress(spaceId: string, jobId: string): Promise<void> {
+  const now = new Date().toISOString();
+  try {
+    await jobCollection(spaceId).updateOne(
+      asFilter<MediaJobDoc>({ _id: jobId, status: 'processing' }),
+      asUpdate<MediaJobDoc>({ $set: { progressAt: now } }),
+    );
+  } catch { /* best-effort — see above */ }
+}
+
 export async function resetStalledJobs(
   spaceIds: string[],
   stalledJobTimeoutMs: number,
   maxPerSpace = 100,
 ): Promise<void> {
+  // Measured from the last progress tick. `progressAt` is seeded at claim time, so a job that
+  // dies immediately is still reaped after the timeout; `claimedAt` remains the fallback for jobs
+  // claimed by an older build that predates the field.
   const cutoff = new Date(Date.now() - stalledJobTimeoutMs).toISOString();
   let reset = 0;
 
@@ -412,10 +454,7 @@ export async function resetStalledJobs(
     for (let i = 0; i < maxPerSpace; i++) {
       const now = new Date().toISOString();
       const claimed = await jobCollection(spaceId).findOneAndUpdate(
-        asFilter<MediaJobDoc>({
-          status: 'processing',
-          claimedAt: { $lt: cutoff } as unknown as string,
-        }),
+        asFilter<MediaJobDoc>(stalledJobFilter(cutoff) as unknown as Partial<MediaJobDoc>),
         {
           // Crash-recovery: clear the backoff guard so the recovered job is
           // immediately re-claimable. Without this, a job that crashed mid-

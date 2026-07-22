@@ -8,7 +8,7 @@ import { escapeRegex } from '../util/redos.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { getDb, col, asDoc, asFilter } from '../db/mongo.js';
-import { getConfig, saveConfig, getDataRoot } from '../config/loader.js';
+import { getConfig, saveConfig, getDataRoot, mutateConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { Config, SpaceConfig } from '../config/types.js';
 import { repairStaleSpaceIds, pendingOpConflictMessage } from './_shared.js';
@@ -237,11 +237,31 @@ export async function renameSpace(oldId: string, newId: string): Promise<SpaceCo
     );
   }
 
-  // Commit: physical move done — apply the logical config change and clear the
-  // marker in one atomic write.
-  applySpaceRenameToConfig(cfg, space, oldId, newId);
-  delete cfg.pendingSpaceOp;
-  saveConfig(cfg);
+  // Commit: physical move done — apply the logical config change and clear the marker in one
+  // atomic write.
+  //
+  // Re-resolve the space by id inside the write instead of committing the `space` object looked up
+  // at the top. That lookup happened before `moveSpaceData`, which renames every collection and takes
+  // seconds; a config reload landing in that window replaces `cfg.spaces` wholesale and leaves the
+  // reference orphaned. Mutating the orphan and saving produced the worst possible outcome: the API
+  // returned 200, the collections had moved, and config still carried the OLD id — so the rename
+  // silently did not happen and every lookup under the new id 404'd.
+  let renamed: SpaceConfig | undefined;
+  mutateConfig(fresh => {
+    const live = fresh.spaces.find(s => s.id === oldId);
+    if (!live) return; // already committed by a concurrent resume — nothing left to do
+    applySpaceRenameToConfig(fresh, live, oldId, newId);
+    delete fresh.pendingSpaceOp;
+    renamed = live;
+  });
+  if (!renamed) {
+    // The physical move succeeded, so treat an already-committed config as success rather than
+    // failing a rename that has, in fact, happened.
+    const committed = getConfig().spaces.find(s => s.id === newId);
+    if (!committed) throw new Error(`Space '${oldId}' rename committed no config change — refusing to report success`);
+    log.info(`Renamed space '${oldId}' → '${newId}' (config already committed)`);
+    return committed;
+  }
   log.info(`Renamed space '${oldId}' → '${newId}'`);
-  return space;
+  return renamed;
 }

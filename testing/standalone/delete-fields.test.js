@@ -14,70 +14,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-// ── Replicated logic (matches server/src/brain/delete-fields.ts) ──────────
-
-const SYSTEM_FIELDS = new Set([
-  'id', '_id', 'name', 'type', 'spaceId', 'createdAt', 'updatedAt',
-]);
-
-const PROTO_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-
-function validateDeleteFields(deleteFields) {
-  if (deleteFields === undefined || deleteFields === null) return { ok: true };
-  if (!Array.isArray(deleteFields)) {
-    return { ok: false, error: '`deleteFields` must be an array of strings' };
-  }
-  for (const p of deleteFields) {
-    if (typeof p !== 'string' || !p.trim()) {
-      return { ok: false, error: '`deleteFields` entries must be non-empty strings' };
-    }
-    const segments = p.split('.');
-    for (const seg of segments) {
-      if (PROTO_KEYS.has(seg)) {
-        return { ok: false, error: `Invalid deleteFields path segment '${seg}'` };
-      }
-    }
-    const topLevel = segments[0] ?? '';
-    if (SYSTEM_FIELDS.has(topLevel)) {
-      return { ok: false, error: `Cannot delete system field '${topLevel}' via deleteFields` };
-    }
-  }
-  return { ok: true };
-}
-
-function applyDeleteFields(obj, deleteFields) {
-  const affected = new Set();
-  for (const path of deleteFields) {
-    const segments = path.split('.');
-    if (segments.length === 0) continue;
-    const firstSeg = segments[0] ?? '';
-    affected.add(firstSeg);
-    if (segments.length === 1) {
-      if (!PROTO_KEYS.has(firstSeg)) {
-        delete obj[firstSeg];
-      }
-    } else {
-      let current = obj;
-      let safe = true;
-      for (let i = 0; i < segments.length - 1; i++) {
-        const seg = segments[i] ?? '';
-        if (PROTO_KEYS.has(seg)) { safe = false; break; }
-        if (current == null || typeof current !== 'object' || Array.isArray(current)) {
-          current = undefined;
-          break;
-        }
-        current = current[seg];
-      }
-      const leafSeg = segments[segments.length - 1] ?? '';
-      if (safe && !PROTO_KEYS.has(leafSeg) && current != null && typeof current === 'object' && !Array.isArray(current)) {
-        delete current[leafSeg];
-      }
-    }
-  }
-  return affected;
-}
-
-// ── Tests ──────────────────────────────────────────────────────────────────
+// The real implementation — imported, not re-implemented.
+//
+// This file used to carry a local copy of both functions, and the copy had already DRIFTED: it was
+// missing production's empty-segment rejection (`delete-fields.ts`, "contains empty segments"), so
+// `properties..key` behaved differently here than in the product and removing that traversal guard
+// from production would not have failed anything. A test that asserts a copy agrees with itself
+// cannot notice the copy going stale — which is the entire reason it went stale.
+const { validateDeleteFields, applyDeleteFields } = await import('../../server/dist/brain/delete-fields.js');
 
 describe('validateDeleteFields', () => {
   it('accepts undefined (no deleteFields)', () => {
@@ -187,6 +131,27 @@ describe('validateDeleteFields', () => {
     const r = validateDeleteFields(['prototype']);
     assert.equal(r.ok, false);
     assert.ok(r.error.includes('prototype'));
+  });
+});
+
+describe('validateDeleteFields — rules the previous local copy did not have', () => {
+  it('rejects a path with an empty segment', () => {
+    // 'properties..key' — the copy in this file omitted this branch entirely.
+    const r = validateDeleteFields(['properties..key']);
+    assert.equal(r.ok, false);
+    assert.match(r.error, /empty segment/i);
+  });
+
+  it('rejects a leading empty segment', () => {
+    assert.equal(validateDeleteFields(['.key']).ok, false);
+  });
+
+  it('rejects a trailing empty segment', () => {
+    assert.equal(validateDeleteFields(['key.']).ok, false);
+  });
+
+  it('still accepts a well-formed nested path', () => {
+    assert.equal(validateDeleteFields(['properties.key']).ok, true);
   });
 });
 

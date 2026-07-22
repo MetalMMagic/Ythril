@@ -1985,6 +1985,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Text completes the analysis ladders — all five media classes can now be turned down or off per
+  space.** `textAnalysis` (`off · embed · chunk · auto`) joins documents, images, audio and video,
+  capped by the same instance ceiling. Behaviour is unchanged until an operator sets one.
+  It answers a *different* question from `documentExtraction`: that one governs how a file is **read**,
+  this governs what happens to the text that comes out.
+  - **`chunk`** stores a vector per section, so a recall can quote the passage.
+  - **`embed`** stores one vector for the whole document. It still finds the **file**, but no longer
+    answers "where does it say that?" — a real trade on long documents, and close to free on a space
+    full of short notes. It is deliberately **one** unit rather than zero: producing nothing would make
+    `embed` indistinguishable from `off` and silently cost a space its search, which the tests pin.
+  - **`off`** indexes nothing. The file is still stored and still retrievable — this is about what is
+    findable, not about deleting anything — and the record reaches a terminal state rather than sitting
+    at `pending` forever.
+
 - **BREAKING: every reference between brain records is now a UUID, and one that cannot resolve is
   refused instead of silently stored.** Reported by the owner: `remember` took entity *names* and
   stored the memory **unlinked** when a name did not resolve, `upsert_edge` demanded a UUID v4 and

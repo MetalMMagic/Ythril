@@ -20,7 +20,7 @@ import { buildSpaceVectorIndexes } from '../spaces/vector-index.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import { peerSafeFetch } from '../sync/peer-fetch.js';
 import type { SpaceMeta, KnowledgeType, TypeSchema } from '../config/types.js';
-import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
+import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
 import { writeFile as writeSpaceFile } from '../files/files.js';
 
 export const spacesRouter = Router();
@@ -150,8 +150,9 @@ const UpdateSpaceBody = z.object({
   imageAnalysis: z.enum(IMAGE_LEVELS).nullable().optional(),
   audioAnalysis: z.enum(AUDIO_LEVELS).nullable().optional(),
   videoAnalysis: z.enum(VIDEO_LEVELS).nullable().optional(),
-}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined || d.imageAnalysis !== undefined || d.audioAnalysis !== undefined || d.videoAnalysis !== undefined, {
-  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, or videoAnalysis must be provided',
+  textAnalysis: z.enum(TEXT_LEVELS).nullable().optional(),
+}).refine(d => d.label !== undefined || d.description !== undefined || d.meta !== undefined || d.maxGiB !== undefined || d.dupeRules !== undefined || d.dupeMergeSurvivor !== undefined || d.dupeRulesOnInsert !== undefined || d.recordTtlDays !== undefined || d.documentExtraction !== undefined || d.imageAnalysis !== undefined || d.audioAnalysis !== undefined || d.videoAnalysis !== undefined || d.textAnalysis !== undefined, {
+  message: 'At least one of label, description, maxGiB, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, or textAnalysis must be provided',
 });
 
 const ReorderSpacesBody = z.object({
@@ -329,7 +330,7 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     }
   }
 
-  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, indexStatus }, idx) => ({
+  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, textAnalysis, indexStatus }, idx) => ({
     id, label, builtIn, folders, maxGiB, flex, description,
     usageGiB: usageGiBByIdx[idx],
     ...(indexStatus ? { indexStatus } : {}),
@@ -347,6 +348,7 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     ...(imageAnalysis ? { imageAnalysis } : {}),
     ...(audioAnalysis ? { audioAnalysis } : {}),
     ...(videoAnalysis ? { videoAnalysis } : {}),
+    ...(textAnalysis ? { textAnalysis } : {}),
     ...(includeCounts && countsBySpaceId[id] ? { counts: countsBySpaceId[id] } : {}),
   }));
   // Include storage usage summary when quota is configured

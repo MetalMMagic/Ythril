@@ -161,6 +161,27 @@ describe('SpaceSettingsState — buildMeta (what actually gets saved)', () => {
     expect(c.buildMeta()).toMatchObject({ strictLinkage: true, tagSuggestions: ['x'] });
   });
 
+  it('a stored per-type tagSuggestions list survives a load → save round-trip with no editor', () => {
+    // The per-type tag-suggestion EDITOR was retired (it reached neither the Brain record forms nor
+    // the MCP schema guidance), but the DATA was deliberately kept: the save path is a full replace,
+    // so dropping the field from state would silently destroy an operator's stored list on their next
+    // unrelated edit. This is the guard against someone later deleting `tagSuggestions` from the
+    // state as apparently-dead code — it is not dead, it is load-bearing for preservation.
+    const c = make();
+    c.openSettings(space({
+      meta: { typeSchemas: { entity: { person: { namingPattern: '^[A-Z]', tagSuggestions: ['t'] } } } },
+    } as Partial<Space>));
+    const st = c.typeState('entity', 'person');
+    expect(st.tagSuggestions).toEqual(['t']);
+
+    // Edit something else entirely, exactly as an operator would.
+    st.namingPattern = '^[a-z]';
+
+    const saved = c.buildMeta().typeSchemas!.entity!['person']!;
+    expect(saved.tagSuggestions).toEqual(['t']);
+    expect(saved.namingPattern).toBe('^[a-z]');
+  });
+
   it('namingPattern is entity-only — the same state on a memory type is dropped', () => {
     const c = make();
     c.openSettings(space());

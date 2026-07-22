@@ -2185,6 +2185,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Per-type tag suggestions are retired — the editor did nothing.** The Schema tab and the Schema
+  Library both offered a tag-suggestion editor per type, stored under
+  `typeSchemas.<kind>.<type>.tagSuggestions`. It reached **nothing**: the Brain record forms suggest
+  from the tags **already in use** in each collection, and the schema guidance sent to MCP clients
+  only ever summarised the space-wide list — which was itself retired in #365 for the same reason. So
+  two screens offered a control with no effect, which is exactly the dishonesty the Models rebuild
+  spent four PRs removing. Owner's call between wiring it up and retiring it; retired.
+
+  **Stored values are preserved, deliberately.** The field stays in the type, in the Zod schemas and
+  in the client's load → save round-trip, so an operator's existing list is not destroyed on their
+  next unrelated edit — the save path is a full replace, so dropping it from state would have done
+  exactly that. Same trade as #365: an unused field is a smaller cost than silently deleting data, and
+  it keeps the retirement reversible. A regression test pins that round-trip, because the field now
+  *looks* like dead code and the next reader's instinct will be to delete it.
+
+  Also corrected a docstring that described behaviour which never existed: `SpaceMeta.tagSuggestions`
+  claimed to be a "fallback when no per-type tagSuggestions match" — nothing ever consulted either
+  list at write time. Three now-unused i18n keys removed from en/de/pl together.
+
 - **The last two simulation test files now test the product — the batch is closed.** All six files
   flagged as testing a copy of Ythril rather than Ythril now import from the compiled build.
   - **`vector-search-check` was the deepest drift of the six.** It did not merely copy the production

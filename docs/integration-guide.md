@@ -2954,7 +2954,7 @@ The schema is expressed as a single `typeSchemas` object on the space `meta`. It
 ```typescript
 interface TypeSchema {
   namingPattern?: string;                         // entity only — regex for name validation
-  tagSuggestions?: string[];                      // non-enforced tag hints for this type
+  tagSuggestions?: string[];                      // RETIRED — accepted and stored, consumed by nothing
   propertySchemas?: Record<string, PropertySchema>;
 }
 interface PropertySchema {
@@ -3013,7 +3013,13 @@ What the schema enforces:
 - **Memory type allowlist** — the keys of `typeSchemas.memory` define the allowed `type` values.
 - **Naming patterns** (`namingPattern`) — per entity type, a regex for validating `name` (max 500 chars, ReDoS-protected).
 - **Property value constraints** (`propertySchemas`) — per type, define `type` (string/number/boolean/date), `enum`, `minimum`/`maximum`, `pattern` (regex, ReDoS-protected), `required`, `default`, and `mergeFn`.
-- **Tag suggestions** (`tagSuggestions`) — non-enforced hints shown in the UI, per type or globally.
+- **Tag suggestions** (`tagSuggestions`) — **retired.** Both the per-type and the space-wide list are
+  still accepted, stored and returned unchanged, but nothing consumes them: the Brain record forms
+  suggest from the tags already in use in each collection, and the schema guidance sent to MCP clients
+  no longer summarises them. There is no longer an editor for either on the Schema tab or in the
+  Schema Library. Existing values are left in place rather than deleted, so the retirement is
+  reversible and no operator's list is destroyed on their next save — but do not expect writing one to
+  have any effect.
 
 **Top-level `meta` fields:**
 

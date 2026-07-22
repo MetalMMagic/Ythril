@@ -320,7 +320,6 @@ This tab lists all schema definitions on this instance.
 - **Knowledge Type** — which kind of data this schema applies to.
 - **Description** — optional, surfaced to AI assistants.
 - **Naming pattern** — an optional regular expression that entity names must match.
-- **Tag suggestions** — hints shown to users when entering tags.
 - **Property schemas** — click **+ Add property** to define properties with optional type, constraints, and whether they are required.
 
 Click anywhere on a card to open and edit it. Changes save and close automatically.
@@ -381,7 +380,6 @@ Click the gear icon on any space row to open its settings panel. Changes save an
 - **Strict linkage** — when on, references between items must be valid IDs and deletion of referenced items is blocked.
 - **Type schemas** — define per-type rules under each knowledge type (entity, memory, edge, chrono). For each named type you can set:
   - **Naming pattern** — a regex the name must match.
-  - **Tag suggestions** — hints shown in the tag input.
   - **Property schemas** — rules for each property field (type, allowed values, min/max, pattern, required, default).
 - **From Lib** — import a schema from the Schema Library. The type row shows a badge and stays in sync with the library automatically.
 - **From File** — import a schema from a previously exported JSON file.

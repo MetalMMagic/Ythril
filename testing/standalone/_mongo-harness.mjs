@@ -1,0 +1,120 @@
+/**
+ * Database-level test harness — run a standalone test against a REAL MongoDB.
+ *
+ * ## Why this exists
+ *
+ * Standalone tests could not reach a database. The test stack published no Mongo port and nothing
+ * connected to one, so every query rule in the codebase was only ever checked against hand-built
+ * document fixtures and a minimal JS matcher. That checks *the rule as the author imagined it*, not
+ * that MongoDB agrees — and those two things genuinely differ. The canonical example, live in this
+ * repo: `{ progressAt: null }` matches documents where the field is **missing** in MongoDB, but a JS
+ * matcher written the obvious way (`doc.progressAt === null`) does not. A fixture test cannot see
+ * that; a database test cannot miss it.
+ *
+ * It is the same failure shape as the 204-null-body bug — a stand-in that passed while the real path
+ * was broken. `_AUDIT-ANGLES.md §10` names it: "a mock that would pass even if the real code is
+ * broken".
+ *
+ * ## What it connects to
+ *
+ * `ythril-mongo-a` from `testing/docker-compose.test.yml`, published on **127.0.0.1:27117**. Bring it
+ * up with `npm run test:up`. CI already has the stack running when it invokes `test:standalone`, so
+ * these tests execute there on every run.
+ *
+ * ## What it does NOT do
+ *
+ * It does not stub, wrap or re-implement the data layer. `withMongo()` points the server's own
+ * `getMongoUri()` at the test database and calls the server's own `connectMongo()`, so the code under
+ * test is the real `col()` / `asFilter()` / `asUpdate()` — production's Mongo layer, against
+ * production's driver, against a real server. A harness that faked any of that would reintroduce the
+ * exact gap it was built to close.
+ *
+ * Each caller gets its own database (`ythril_harness_<suite>`), dropped on entry and exit, so the
+ * harness can never see or corrupt the data the integration/sync suites are using on the same server.
+ */
+
+import net from 'node:net';
+
+/** Host/port of the published test Mongo. Override for a non-default stack. */
+export const TEST_MONGO_HOST = process.env['YTHRIL_TEST_MONGO_HOST'] ?? '127.0.0.1';
+export const TEST_MONGO_PORT = Number(process.env['YTHRIL_TEST_MONGO_PORT'] ?? 27117);
+
+const CREDS = 'ythril:ythril-test-pw';
+
+/** Connection URI for a dedicated harness database. */
+export function testMongoUri(dbName) {
+  return `mongodb://${CREDS}@${TEST_MONGO_HOST}:${TEST_MONGO_PORT}/${dbName}` +
+    '?directConnection=true&authSource=admin';
+}
+
+/**
+ * Fast reachability probe. `connectMongo()` waits 10s on server selection, which is a long time to
+ * spend discovering that a developer simply has not run `npm run test:up`.
+ */
+export async function isTestMongoUp(timeoutMs = 1500) {
+  return new Promise(resolve => {
+    const sock = new net.Socket();
+    const done = (ok) => { sock.destroy(); resolve(ok); };
+    sock.setTimeout(timeoutMs);
+    sock.once('connect', () => done(true));
+    sock.once('timeout', () => done(false));
+    sock.once('error', () => done(false));
+    sock.connect(TEST_MONGO_PORT, TEST_MONGO_HOST);
+  });
+}
+
+/**
+ * Reason to pass to `describe(..., { skip })`, or `false` when the database is available.
+ *
+ * **In CI this never skips — it throws.** A database test that silently turns into a no-op on the one
+ * machine that gates merges is worse than no test at all: the suite still reports green, and the
+ * coverage it claims does not exist. Locally, skipping with an actionable message is the right
+ * behaviour; on CI, an unreachable database is a broken harness and must fail loudly.
+ */
+export async function mongoSkipReason() {
+  if (await isTestMongoUp()) return false;
+  const where = `${TEST_MONGO_HOST}:${TEST_MONGO_PORT}`;
+  if (process.env['CI']) {
+    throw new Error(
+      `Database-level test harness cannot reach MongoDB at ${where}, but CI is set. ` +
+      'The test stack must be up for standalone tests in CI — refusing to skip and report green. ' +
+      'Check that testing/docker-compose.test.yml still publishes the ythril-mongo-a port.',
+    );
+  }
+  return `needs the test MongoDB at ${where} — run \`npm run test:up\``;
+}
+
+let _mongo = null;
+
+/**
+ * Connect the server's real Mongo layer to a dedicated harness database. Call from `before()`.
+ *
+ * `MONGO_URI` is set before importing `db/mongo.js` because `getMongoUri()` reads the environment
+ * first — that is the documented override for infra-managed deployments, and reusing it here means
+ * the harness needs no test-only branch inside production code.
+ *
+ * @param suite short slug — becomes the database name, so two suites never share state.
+ * @returns the live `db/mongo.js` module namespace (`col`, `asFilter`, `asUpdate`, `getDb`, …).
+ */
+export async function openTestMongo(suite) {
+  process.env['MONGO_URI'] = testMongoUri(`ythril_harness_${suite}`);
+
+  const mongo = await import('../../server/dist/db/mongo.js');
+  mongo._resetDbName?.();
+  await mongo.connectMongo();
+
+  // Drop on ENTRY as well as exit: a previous run killed mid-test (Ctrl-C, CI timeout) would
+  // otherwise leave documents behind and the next run would inherit them, which is how a
+  // database-backed suite starts passing for the wrong reason.
+  await mongo.getDb().dropDatabase();
+  _mongo = mongo;
+  return mongo;
+}
+
+/** Drop the harness database and disconnect. Call from `after()`. */
+export async function closeTestMongo() {
+  if (!_mongo) return;
+  try { await _mongo.getDb().dropDatabase(); } catch { /* best-effort */ }
+  await _mongo.closeMongo();
+  _mongo = null;
+}

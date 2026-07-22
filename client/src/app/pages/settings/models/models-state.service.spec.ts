@@ -1,33 +1,43 @@
 /**
- * ModelsComponent — CHARACTERIZATION tests.
+ * ModelsStateService — the CHARACTERIZATION tests from #347, ported to the extracted service.
  *
- * Settings → Models is 643 lines and shipped with NO coverage, and it is about to be split into three
- * tabs (Models · Pipelines · Tools) with a per-space pipeline surface behind it. Per
- * characterization-tests-before-refactor these are written and proven green against the ORIGINAL code,
- * so the rebuild has a safety net — a test written after the change only proves the new code agrees
- * with itself.
+ * These were written against the original 656-line `models.component.ts` and proven green there
+ * BEFORE the split, per characterization-tests-before-refactor. The page has since been rebuilt into
+ * three tabs; all of the behaviour they pin moved into this service, and every assertion about
+ * *behaviour* is unchanged — the save payload, the locks, both confirmations, the derived states.
  *
- * They pin the contracts the rebuild MUST preserve, chosen for consequence rather than coverage:
+ * **One category of assertion was rewritten, deliberately and visibly:** the display helpers used to
+ * return English prose (`'OCR fallback'`, `'Read by OCR only'`) and now return i18n keys
+ * (`'models.docPill.fallback'`). Prose in a service is prose no transloco pipe can reach, which is
+ * exactly how the rebuilt page rendered "As much as this instance can do…" underneath a fully German
+ * heading. The states reported are identical and the branch conditions are untouched; only the
+ * representation moved. That is the one kind of edit these tests permit, and it is called out here
+ * rather than quietly folded in — an assertion changed to make a test pass is otherwise a behaviour
+ * change wearing a refactor's clothes.
+ *
+ * What they pin, chosen for consequence rather than coverage:
  *
  *  - **A masked API key is never echoed back.** GET returns keys masked; sending the mask would
- *    overwrite a real credential with asterisks. `apiKey` is only ever in the payload when the operator
+ *    overwrite a real credential with asterisks. `apiKey` is in the payload only when the operator
  *    typed a new one.
  *  - **Only PATCH-writable document fields are sent.** `vlmModel` / `repairModel` / sidecar URLs are
  *    env-only; including them makes the API reject the whole save.
  *  - **Both confirmations abort the entire save when declined** — egress acknowledgment (document
- *    content leaving the instance) and re-index (every vector in every space re-embedded). A rebuild
- *    that turned either into a fire-and-forget toast would be a silent data/privacy regression.
+ *    content leaving the instance) and re-index (every vector in every space re-embedded). Turning
+ *    either into a fire-and-forget toast would be a silent privacy/data regression.
  *  - **Infra-managed short-circuits everything**, since the API refuses those edits anyway.
- *  - The derived display state (fallback warnings, summaries, stage classes) that tells an operator
- *    whether the pipeline is actually doing what the mode claims.
+ *  - The derived display state that tells an operator whether the pipeline is doing what the mode
+ *    claims (fallback warnings, summaries, stage classes).
+ *
+ * New here, for behaviour the split introduced: the unsaved-changes guard that spans the tabs.
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { of, throwError } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
-import { getTranslocoModule } from '../../testing/transloco-testing';
-import { ModelsComponent } from './models.component';
-import { ConfirmDialogService } from '../../core/confirm-dialog.service';
+import { getTranslocoModule } from '../../../testing/transloco-testing';
+import { ModelsStateService } from './models-state.service';
+import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 
 /** The shape GET /api/admin/media-config returns, with keys masked as the server masks them. */
 function cfgFixture(over: Record<string, unknown> = {}) {
@@ -59,22 +69,22 @@ function make(cfg: Record<string, unknown> = cfgFixture(), confirmResult = true)
   const post = vi.fn().mockReturnValue(of({ reachable: true, modelPresent: true }));
   const http = { get: vi.fn().mockReturnValue(of(cfg)), patch, post } as unknown as HttpClient;
   TestBed.configureTestingModule({
-    imports: [ModelsComponent, getTranslocoModule()],
+    imports: [getTranslocoModule()],
     providers: [
+      ModelsStateService,
       { provide: HttpClient, useValue: http },
       { provide: ConfirmDialogService, useValue: { confirm } },
     ],
   });
-  const fixture = TestBed.createComponent(ModelsComponent);
-  const c = fixture.componentInstance;
-  c.ngOnInit();
-  return { c, confirm, patch, post, http, fixture };
+  const c = TestBed.inject(ModelsStateService);
+  c.load();
+  return { c, confirm, patch, post, http };
 }
 
 /** The body handed to PATCH by the most recent save(). */
 const sent = (patch: ReturnType<typeof vi.fn>) => patch.mock.calls.at(-1)?.[1] as Record<string, never>;
 
-describe('ModelsComponent — load', () => {
+describe('ModelsStateService — load', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('drops the masked API keys from the form so they can never be sent back', () => {
@@ -100,20 +110,21 @@ describe('ModelsComponent — load', () => {
     TestBed.resetTestingModule();
     const http = { get: vi.fn().mockReturnValue(throwError(() => new Error('boom'))) } as unknown as HttpClient;
     TestBed.configureTestingModule({
-      imports: [ModelsComponent, getTranslocoModule()],
+      imports: [getTranslocoModule()],
       providers: [
+        ModelsStateService,
         { provide: HttpClient, useValue: http },
         { provide: ConfirmDialogService, useValue: { confirm: vi.fn() } },
       ],
     });
-    const c = TestBed.createComponent(ModelsComponent).componentInstance;
-    c.ngOnInit();
+    const c = TestBed.inject(ModelsStateService);
+    c.load();
     expect(c.loadError()).toContain('boom');
     expect(c.loading()).toBe(false);
   });
 });
 
-describe('ModelsComponent — infra locks', () => {
+describe('ModelsStateService — infra locks', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('locks every field when the whole config is infra-managed', () => {
@@ -137,7 +148,7 @@ describe('ModelsComponent — infra locks', () => {
   });
 });
 
-describe('ModelsComponent — save payload', () => {
+describe('ModelsStateService — save payload', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('omits apiKey entirely unless the operator typed a new one', async () => {
@@ -179,7 +190,7 @@ describe('ModelsComponent — save payload', () => {
     await c.save();
     expect(c.visionApiKeyInput).toBe('');
     expect(c.embeddingApiKeyInput).toBe('');
-    expect(c.saveOk()).toBe('Saved');
+    expect(c.saveOk()).toBe('models.saved');
   });
 
   it('surfaces the server error rather than reporting success', async () => {
@@ -192,7 +203,7 @@ describe('ModelsComponent — save payload', () => {
   });
 });
 
-describe('ModelsComponent — the two confirmations', () => {
+describe('ModelsStateService — the two confirmations', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('re-index: prompts when the embedding model changes, and aborts the WHOLE save if declined', async () => {
@@ -257,17 +268,17 @@ describe('ModelsComponent — the two confirmations', () => {
   });
 });
 
-describe('ModelsComponent — derived display state', () => {
+describe('ModelsStateService — derived display state', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('warns that a VLM mode silently falls back to OCR when no vision model is set', () => {
     const { c } = make();
     c.setMode('vlm');
     expect(c.vlmNeededButMissing()).toBe(true);
-    expect(c.docPillLabel()).toBe('OCR fallback');
+    expect(c.docPillLabelKey()).toBe('models.docPill.fallback');
     expect(c.docVariant()).toBe('warn');
-    expect(c.runLine()).toContain('falls back to OCR');
-    expect(c.docSummary()).toContain('falls back to OCR');
+    expect(c.runLineKey()).toBe('models.runLine.fallback');
+    expect(c.docSummary().key).toBe('models.docSummary.fallback');
     // The affected stages are flagged rather than shown as running normally.
     expect(c.stageClass('vlm')).toBe('warn');
   });
@@ -275,8 +286,8 @@ describe('ModelsComponent — derived display state', () => {
   it('describes a configured VLM mode as actually running', () => {
     const { c } = make(cfgFixture({ documentProcessing: { mode: 'vlm', vlmModel: 'llava' } }));
     expect(c.vlmNeededButMissing()).toBe(false);
-    expect(c.docPillLabel()).toBe('Active');
-    expect(c.docSummary()).toContain('llava');
+    expect(c.docPillLabelKey()).toBe('models.docPill.active');
+    expect(c.docSummary().params['model']).toBe('llava');
     expect(c.stageClass('vlm')).toBe('on');
   });
 
@@ -284,17 +295,17 @@ describe('ModelsComponent — derived display state', () => {
     const { c } = make();
     c.setMode('ocr');
     expect(c.vlmNeededButMissing()).toBe(false);
-    expect(c.docSummary()).toBe('Read by OCR only');
+    expect(c.docSummary().key).toBe('models.docSummary.ocr');
   });
 
   it('capability pills distinguish off / no-model / active', () => {
     const { c } = make();
-    expect(c.capLabel('llava')).toBe('Active');
+    expect(c.capLabelKey('llava')).toBe('models.cap.active');
     expect(c.capVariant('llava')).toBe('active');
-    expect(c.capLabel(undefined)).toBe('No model');
+    expect(c.capLabelKey(undefined)).toBe('models.cap.noModel');
     expect(c.capVariant(undefined)).toBe('warn');
     c.form.enabled = false;
-    expect(c.capLabel('llava')).toBe('Off');
+    expect(c.capLabelKey('llava')).toBe('models.cap.off');
     expect(c.capVariant('llava')).toBe('off');
   });
 
@@ -305,34 +316,34 @@ describe('ModelsComponent — derived display state', () => {
     expect(c.form.documentProcessing?.mode).toBe('repair');
   });
 
-  // The ladder gained `off` and renamed `max` to `repair` (owner, 2026-07-21). `off` is the rung
-  // with consequences: it must read as a deliberate choice, not as a degraded or broken pipeline.
+  // The ladder gained `off` and renamed `max` to `repair` (owner, 2026-07-21). `off` is the rung with
+  // consequences: it must read as a deliberate choice, not as a degraded or broken pipeline.
   it("'off' reads as off, not as a missing model or a fallback", () => {
     const { c } = make();
     c.setMode('off');
-    expect(c.docPillLabel()).toBe('Off');
+    expect(c.docPillLabelKey()).toBe('models.docPill.off');
     expect(c.docVariant()).toBe('off');
     expect(c.vlmNeededButMissing()).toBe(false); // nothing runs, so nothing can be missing
-    expect(c.docSummary()).toContain('never analysed');
-    expect(c.runLine()).toContain('Nothing runs');
+    expect(c.docSummary().key).toBe('models.docSummary.off');
+    expect(c.runLineKey()).toBe('models.runLine.off');
     expect(c.stageClass('ocr')).toBe('dim');
   });
 
   it("'auto' shows the full chain, because it means the most this instance can do", () => {
     const { c } = make(cfgFixture({ documentProcessing: { mode: 'auto', vlmModel: 'llava' } }));
     expect(c.stageClass('repair')).toBe('on');
-    expect(c.docSummary()).toContain('llava');
+    expect(c.docSummary().params['model']).toBe('llava');
   });
 });
 
-describe('ModelsComponent — test connection', () => {
+describe('ModelsStateService — test connection', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('distinguishes unreachable from reachable-but-missing-model', () => {
     const { c } = make();
-    expect(c.testPillVariant({ reachable: false })).toBe('error');
-    expect(c.testPillVariant({ reachable: true, modelPresent: false })).toBe('warn');
-    expect(c.testPillVariant({ reachable: true, modelPresent: true })).toBe('ok');
+    expect(c.testPillVariant({ reachable: false } as never)).toBe('error');
+    expect(c.testPillVariant({ reachable: true, modelPresent: false } as never)).toBe('warn');
+    expect(c.testPillVariant({ reachable: true, modelPresent: true } as never)).toBe('ok');
   });
 
   it('records the result against the target that was tested', () => {
@@ -341,5 +352,58 @@ describe('ModelsComponent — test connection', () => {
     expect(post).toHaveBeenCalledWith('/api/admin/media-config/test-connection', { target: 'vision' });
     expect(c.testOf('vision')?.res?.reachable).toBe(true);
     expect(c.testOf('stt')).toBeUndefined();
+  });
+});
+
+/**
+ * NEW — behaviour the three-tab split introduced.
+ *
+ * The tabs share one form, so switching tabs must not silently discard edits. The guard has to fire
+ * on a real change and stay quiet otherwise: a prompt that appears every time you look at another tab
+ * is one an operator learns to dismiss without reading, which is worse than no prompt at all.
+ */
+describe('ModelsStateService — the cross-tab unsaved-changes guard', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('is clean immediately after load', () => {
+    const { c } = make();
+    expect(c.isDirty()).toBe(false);
+  });
+
+  it('is clean when the form was touched but nothing actually changed', () => {
+    // Focusing a field, or typing and undoing, must not cost a confirmation dialog.
+    const { c } = make();
+    c.touched.set(true);
+    expect(c.isDirty()).toBe(false);
+  });
+
+  it('is dirty once a persisted field actually changes', () => {
+    const { c } = make();
+    c.touched.set(true);
+    c.form.documentProcessing!.renderDpi = 300;
+    expect(c.isDirty()).toBe(true);
+  });
+
+  it('is dirty on a typed API key, which never appears in the payload comparison', () => {
+    // The key is deliberately absent from the snapshot (masks must not be echoed back), so a
+    // snapshot-only check would let a typed credential be discarded without warning.
+    const { c } = make();
+    c.visionApiKeyInput = 'sk-typed-but-unsaved';
+    expect(c.isDirty()).toBe(true);
+  });
+
+  it('is clean again after a successful save', () => {
+    const { c } = make();
+    c.touched.set(true);
+    c.form.documentProcessing!.renderDpi = 300;
+    expect(c.isDirty()).toBe(true);
+    return c.save().then(() => expect(c.isDirty()).toBe(false));
+  });
+
+  it('never prompts on an infra-managed instance, where nothing is editable', () => {
+    const { c } = make(cfgFixture({ infraManaged: true }));
+    c.touched.set(true);
+    c.form.documentProcessing!.renderDpi = 300;
+    expect(c.isDirty()).toBe(false);
   });
 });

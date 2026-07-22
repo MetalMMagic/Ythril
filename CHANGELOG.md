@@ -2063,6 +2063,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Models is three tabs now — Models · Pipelines · Tools.** The page was 656 lines with six
+  cards in the order they were added rather than any order a reader would choose. The layout complaint
+  was mostly a missing component: four provider cards written inline in one file each invented their
+  own field order, their own way of showing "env-locked" and their own footer. There is now **one card
+  shape used seven times** — provider → endpoint → model → credential → test — with uniform height and
+  a pinned footer, so every *Test connection* sits on one baseline. Rows that do not apply are omitted
+  rather than dashed; infra-owned cards are dashed, dimmed, and name the env var that owns them.
+  - **Pipelines** draws Documents, Images, Audio & video and Text as their real step chains, with the
+    model doing the work named under each step and that pipeline's knobs attached to it instead of
+    pooled in one "Advanced" block where a render-DPI field sat next to a worker-concurrency field
+    telling you nothing about which pipeline either belonged to. Conditional steps are dashed;
+    always-run steps are solid. Each step carries a health indicator fed by `pipeline-status` — and
+    the actor names the *model* while the dot carries the *state*, never both in one place.
+  - **Tools** is "is it working?" for the components with no settings: media splitter, text chunker,
+    vector index. Status-only by design — no rebuild button, because that is a Danger Zone action and
+    a one-click version here would be the same destructive operation stripped of its framing. It
+    surfaces index **drift**, where `config.json` records a space as ready and the database has no
+    such index: the failure that returns nothing from recall, forever, with no error anywhere.
+  - The four instance ceilings (Images/Audio/Video/Text) are drawn **read-only** and name the config
+    key that owns them, because `PATCH /api/admin/media-config` has no `levels` schema. A picker would
+    be a control that silently does nothing. Making them writable is deliberately its own change.
+  - Switching tabs with unsaved changes now prompts instead of discarding — the tabs read as
+    navigation, and a typed API key cannot be recovered by remembering what was in the box.
+  - **The page is now translated.** It had 2 transloco references against 79 on the data page, and the
+    display strings lived as prose *inside a service*, where no transloco pipe could reach them — so
+    English sentences rendered under a fully German heading. Those helpers return i18n keys now;
+    en/de/pl gained 168 keys. Health indicators carry an accessible name in every language, because a
+    status a screen-reader user cannot hear is not reported, and reporting status is this page's job.
+
 - **Text completes the analysis ladders — all five media classes can now be turned down or off per
   space.** `textAnalysis` (`off · embed · chunk · auto`) joins documents, images, audio and video,
   capped by the same instance ceiling. Behaviour is unchanged until an operator sets one.

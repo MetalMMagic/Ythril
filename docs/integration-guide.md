@@ -2068,7 +2068,15 @@ runs as a separate process, so it does not affect Ythril's licensing.
 
 #### Document Processing Configuration
 
-The unstructured sidecar strategy and image extraction behaviour can be tuned under `mediaEmbedding.documentProcessing` in `config.json`. All settings are optional — the defaults are designed for maximum data extraction out of the box. The extraction `mode` and the render DPI / max-pages / timeout / concurrency knobs are also editable in the admin UI under **Settings → Models** (the `vlmModel` / `repairModel` / `verifyModel` endpoints stay environment-only and are shown read-only there).
+The unstructured sidecar strategy and image extraction behaviour can be tuned under `mediaEmbedding.documentProcessing` in `config.json`. All settings are optional — the defaults are designed for maximum data extraction out of the box. The extraction `mode` and the render DPI / max-pages / timeout / concurrency knobs are also editable in the admin UI under **Settings → Models → Pipelines**, attached to the Documents pipeline they govern (the `vlmModel` / `repairModel` / `verifyModel` endpoints stay environment-only and are shown read-only there).
+
+**The admin page has three tabs**, one route:
+
+- **Models** — every model you or infra can set: text embedding, vision, speech-to-text, the assist model, and read-only cards for the page renderer, document converter and face recognition. One shape per card (provider → endpoint → model → credential → test); infra-owned cards are dashed and name the env var that owns them.
+- **Pipelines** — Documents, Images, Audio & video and Text drawn as their real step chains, with the model doing the work named under each step and a health indicator fed by `GET /api/admin/pipeline-status`. Conditional steps (VLM fallback, repair, face vectors) are dashed. Each pipeline's knobs hang off that pipeline. The per-class ceilings for Images/Audio/Video/Text are shown **read-only** — `PATCH /api/admin/media-config` has no `levels` schema, so they are config/env-owned; Documents' `mode` is editable because it is PATCH-writable.
+- **Tools** — the components that run but have nothing to set: media splitter (ffmpeg), text chunker, and the vector index. The index is **status-only** (readiness per space and collection); rebuilding is a Danger Zone action, not a button here.
+
+Switching tabs with unsaved changes prompts rather than discarding them.
 
 **Infra-managed lock (F11).** On managed infrastructure you can set every media/model value in `config.json` (or the environment) and forbid changes through the admin UI/API — the same posture as `YTHRIL_MONGO_INFRA_MANAGED` for the database. Set `mediaEmbedding.infraManaged: true` in `config.json`, **or** `YTHRIL_MEDIA_INFRA_MANAGED=true` in the environment. When active, `PATCH /api/admin/media-config` returns **409** with `code: "INFRA_MANAGED"` and **Settings → Models** renders read-only (a "managed by infrastructure" banner is shown; *Test connection* still works). Individual fields can instead be pinned one at a time by setting their env var (e.g. `VISION_MODEL`, `DOC_ASSIST_URL`) — those appear in `lockedByInfra` and are locked individually. Use `infraManaged` when the whole block is owned by infrastructure.
 

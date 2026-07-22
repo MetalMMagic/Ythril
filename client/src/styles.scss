@@ -51,6 +51,9 @@
   --warning-bg:     color-mix(in srgb, var(--warning) 15%, transparent);
   --warning-border: color-mix(in srgb, var(--warning) 30%, transparent);
   --error-bg:       color-mix(in srgb, var(--error)   15%, transparent);
+  /* success and warning had a matching -border; error did not, so callers hardcoded an rgba() and
+     stopped following the theme. Same 30% mix as its siblings. */
+  --error-border:   color-mix(in srgb, var(--error)   30%, transparent);
 
   /* ── Status badge pairs (dark-mode) ──────────────────────────────── */
   --status-success-bg: color-mix(in srgb, var(--success) 12%, transparent);

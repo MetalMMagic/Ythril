@@ -353,6 +353,7 @@
   "brain.filter.label": "Filter:",
   "brain.filter.aria": "Datensätze filtern",
   "brain.filter.tagPlaceholder": "Tag…",
+  "brain.filter.searchPlaceholder": "suchen…",
   "brain.filter.allTypes": "Alle Typen",
   "brain.filter.allKinds": "Alle Arten",
   "brain.entities.addButton": "+ Entität hinzufügen",

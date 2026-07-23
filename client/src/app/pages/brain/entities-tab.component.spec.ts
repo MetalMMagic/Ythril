@@ -48,7 +48,7 @@ describe('EntitiesTabComponent', () => {
 
   it('self-loads on the spaceId input (page size + skip 0 + no filter)', () => {
     make();
-    expect(api.listEntities).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
+    expect(api.listEntities).toHaveBeenCalledWith('work', 20, 0, {}, undefined, undefined);
   });
 
   it('self-load effect depends on spaceId ONLY — no reload on plain change detection', () => {
@@ -122,10 +122,10 @@ describe('EntitiesTabComponent', () => {
     const c = fixture.componentInstance;
     api.listEntities.mockClear();
     c.onEntitySearchChange('ali');
-    expect(api.listEntities).toHaveBeenCalledWith('work', 20, 0, { search: 'ali' }, undefined);
+    expect(api.listEntities).toHaveBeenCalledWith('work', 20, 0, { search: 'ali' }, undefined, undefined);
     c.nextPage();
     expect(c.skip()).toBe(20);
-    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 20, { search: 'ali' }, undefined);
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 20, { search: 'ali' }, undefined, undefined);
   });
 
   it('setSort cycles a column desc → asc → back to default, passing the sort to the API each time', () => {
@@ -135,16 +135,16 @@ describe('EntitiesTabComponent', () => {
 
     c.setSort('name');
     expect(c.sortState('name')).toBe('desc');
-    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, { field: 'name', dir: 'desc' });
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, { field: 'name', dir: 'desc' }, undefined);
 
     c.setSort('name');
     expect(c.sortState('name')).toBe('asc');
-    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, { field: 'name', dir: 'asc' });
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, { field: 'name', dir: 'asc' }, undefined);
 
     c.setSort('name');
     expect(c.sortState('name')).toBeNull();
     // Back to the endpoint's default order — no sort param.
-    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, undefined);
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, undefined, undefined);
   });
 
   it('sorting a different column starts it at desc and drops the previous column', () => {
@@ -171,7 +171,7 @@ describe('EntitiesTabComponent', () => {
     c.setTypeFilter('person');
     expect(c.recordFilter().type).toBe('person');
     expect(c.skip()).toBe(0);
-    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, { type: 'person' }, undefined);
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, { type: 'person' }, undefined, undefined);
   });
 
   it('the docked Tags header filter trims and narrows the list from page 1 (server tag param)', () => {
@@ -179,7 +179,7 @@ describe('EntitiesTabComponent', () => {
     api.listEntities.mockClear();
     c.setTagFilter('  urgent  ');
     expect(c.recordFilter().tag).toBe('urgent');
-    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, { tag: 'urgent' }, undefined);
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, { tag: 'urgent' }, undefined, undefined);
   });
 
   it('clearing the docked Type filter drops the param (empty string = no filter)', () => {
@@ -188,6 +188,45 @@ describe('EntitiesTabComponent', () => {
     api.listEntities.mockClear();
     c.setTypeFilter('');
     expect(c.recordFilter().type).toBe('');
-    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, undefined);
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, undefined, undefined);
+  });
+
+  it('the docked freetext filter updates immediately but DEBOUNCES the reload, then sends ?search= from page 1', () => {
+    vi.useFakeTimers();
+    try {
+      const c = make().componentInstance;
+      c.nextPage();
+      api.listEntities.mockClear();
+      c.setSearchFilter('kuber');
+      expect(c.search()).toBe('kuber');                 // value is immediate
+      expect(api.listEntities).not.toHaveBeenCalled();  // reload is debounced
+      vi.advanceTimersByTime(250);
+      expect(c.skip()).toBe(0);                          // paging reset
+      expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, undefined, 'kuber');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('rapid typing collapses to a single reload with the final term (debounce)', () => {
+    vi.useFakeTimers();
+    try {
+      const c = make().componentInstance;
+      api.listEntities.mockClear();
+      c.setSearchFilter('k'); vi.advanceTimersByTime(100);
+      c.setSearchFilter('ku'); vi.advanceTimersByTime(100);
+      c.setSearchFilter('kub'); vi.advanceTimersByTime(250);
+      expect(api.listEntities).toHaveBeenCalledTimes(1);
+      expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, undefined, 'kub');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a blank/whitespace freetext filter sends no ?search= param', () => {
+    vi.useFakeTimers();
+    try {
+      const c = make().componentInstance;
+      api.listEntities.mockClear();
+      c.setSearchFilter('   ');
+      vi.advanceTimersByTime(250);
+      expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, undefined, undefined);
+    } finally { vi.useRealTimers(); }
   });
 });

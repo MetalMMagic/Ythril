@@ -58,6 +58,20 @@ export abstract class RecordTabBase {
   readonly tagListId = `brain-tag-filter-${RecordTabBase._tagSeq++}`;
   private static _tagSeq = 0;
 
+  /**
+   * Docked freetext column filter (2b-iii-b), wired to the server's substring `?search=` (2b-iii-a).
+   * A column input (Name / Fact / Relation) feeds this; the reload is DEBOUNCED so it doesn't hit the
+   * server on every keystroke — the one thing the retired top filter bar got wrong. Distinct from the
+   * top bar's semantic search, which is untouched here.
+   */
+  search = signal('');
+  private _searchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** The `?search=` value to hand the API, or `undefined` when the freetext filter is empty. */
+  protected searchParam(): string | undefined {
+    return this.search().trim() || undefined;
+  }
+
   constructor() {
     // Self-load on creation (tab activation via the shell's gated @if) and on a space switch while
     // mounted. This effect must depend on `spaceId` ONLY. The reset + load are wrapped in `untracked`
@@ -72,6 +86,7 @@ export abstract class RecordTabBase {
         this.skip.set(0);
         this.sortField.set('');
         this.sortDir.set('desc');
+        this.search.set('');
         this.resetOnSpaceChange();
         if (id) this.load();
       });
@@ -137,6 +152,20 @@ export abstract class RecordTabBase {
     this.recordFilter.update(f => ({ ...f, tag: value.trim() }));
     this.skip.set(0);
     this.load();
+  }
+
+  /**
+   * Docked freetext header filter changed. Updates the value immediately (so the input stays
+   * responsive) but debounces the server reload by 250ms, so typing "kubernetes" is one request, not
+   * ten. Resets paging to the first page.
+   */
+  setSearchFilter(value: string): void {
+    this.search.set(value);
+    if (this._searchTimer) clearTimeout(this._searchTimer);
+    this._searchTimer = setTimeout(() => {
+      this.skip.set(0);
+      this.load();
+    }, 250);
   }
 
   /** The `ListSort` to hand the API, or `undefined` when no column sort is active. */

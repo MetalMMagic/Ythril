@@ -64,4 +64,34 @@ describe('BrainApi — list sort params (2b)', () => {
     expect(r.request.params.get('sort')).toBe('createdAt');
     r.flush({ entities: [] });
   });
+
+  it('the docked freetext filter sends ?search= on entities/edges/memories, omitted when empty', () => {
+    api.listEntities('work', 50, 0, undefined, undefined, 'kuber').subscribe();
+    const e = http.expectOne(req => req.url === '/api/brain/spaces/work/entities');
+    expect(e.request.params.get('search')).toBe('kuber');
+    e.flush({ entities: [] });
+
+    api.listEdges('work', 50, 0, undefined, undefined, 'mentor').subscribe();
+    const g = http.expectOne(req => req.url === '/api/brain/spaces/work/edges');
+    expect(g.request.params.get('search')).toBe('mentor');
+    g.flush({ edges: [] });
+
+    api.listMemories('work', 20, 0, undefined, undefined, 'deadline').subscribe();
+    const m = http.expectOne(req => req.url === '/api/brain/spaces/work/memories');
+    expect(m.request.params.get('search')).toBe('deadline');
+    m.flush({ memories: [], limit: 20, skip: 0 });
+
+    api.listEntities('work', 50, 0).subscribe();
+    const none = http.expectOne(req => req.url === '/api/brain/spaces/work/entities');
+    expect(none.request.params.has('search')).toBe(false);
+    none.flush({ entities: [] });
+  });
+
+  it('entities keeps the exact `name` lookup (entity-search) distinct from the freetext `search`', () => {
+    api.listEntities('work', 50, 0, { search: 'Alice' }, undefined, 'ali').subscribe();
+    const r = http.expectOne(req => req.url === '/api/brain/spaces/work/entities');
+    expect(r.request.params.get('name')).toBe('Alice'); // exact, from the entity-search bar
+    expect(r.request.params.get('search')).toBe('ali');  // substring, from the column freetext filter
+    r.flush({ entities: [] });
+  });
 });

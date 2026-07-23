@@ -49,7 +49,7 @@ describe('EdgesTabComponent', () => {
 
   it('self-loads on the spaceId input', () => {
     make();
-    expect(api.listEdges).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
+    expect(api.listEdges).toHaveBeenCalledWith('work', 20, 0, {}, undefined, undefined);
   });
 
   // CHARACTERIZATION (pins semantic recall before slice 2b-iii-b touches the search bars): switching

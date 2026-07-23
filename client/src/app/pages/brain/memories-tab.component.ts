@@ -128,7 +128,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <table>
               <thead>
                 <tr>
-                  <th>{{ 'brain.memories.table.fact' | transloco }}</th><th>{{ 'brain.memories.table.description' | transloco }}</th><th app-sort-th label="brain.memories.table.tags">
+                  <th app-sort-th label="brain.memories.table.fact">
+                    <input class="col-filter-input" type="text" [ngModel]="search()" (ngModelChange)="setSearchFilter($event)"
+                      [placeholder]="'brain.filter.searchPlaceholder' | transloco" [attr.aria-label]="'brain.filter.searchPlaceholder' | transloco" />
+                  </th><th>{{ 'brain.memories.table.description' | transloco }}</th><th app-sort-th label="brain.memories.table.tags">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
                     <datalist [id]="tagListId">@for (s of store.memoryTagSuggestions(); track s) { <option [value]="s"></option> }</datalist>
@@ -293,7 +296,7 @@ export class MemoriesTabComponent extends RecordTabBase {
     if (this.recordFilter().tag) filters.tag = this.recordFilter().tag;
     if (this.filterEntity()) filters.entity = this.filterEntity();
     if (this.recordFilter().type) filters.type = this.recordFilter().type;
-    this.brainApi.listMemories(spaceId, this.pageSize, this.skip(), filters, this.sortParam()).subscribe({
+    this.brainApi.listMemories(spaceId, this.pageSize, this.skip(), filters, this.sortParam(), this.searchParam()).subscribe({
       next: ({ memories }) => {
         this.store.memories.set(memories);
         const ids = [...new Set(memories.flatMap(m => m.entityIds ?? []))];

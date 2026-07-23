@@ -19,6 +19,7 @@ import { fileExists } from '../../files/files.js';
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
+import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
 import type { FileMetaDoc } from '../../config/types.js';
 import { fetchJobProgress } from '../../files/media/job-queue.js';
@@ -65,6 +66,12 @@ fileMetaRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, 
   }
   const limit = parseLimit(req.query['limit'], 50, 200);
   const skip = parseSkip(req.query['skip']);
+  const sortParse = parseSortParam(req.query['sort'], req.query['dir'], SORTABLE_FIELDS.files);
+  if ('error' in sortParse) {
+    res.status(400).json({ error: sortParse.error });
+    return;
+  }
+  const mongoSort = sortParse.sort ? toMongoSort(sortParse.sort) : { updatedAt: -1 as const };
   // By default exclude chunk records (parentFileId set) so the file manager only shows
   // top-level files. Pass ?includeChunks=true to see all records (e.g. for debugging).
   const includeChunks = req.query['includeChunks'] === 'true';
@@ -75,7 +82,7 @@ fileMetaRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, 
   const all = await collectAcrossMembers(spaceId, async mid => {
     const files = await col(`${mid}_files`)
       .find(asFilter(filter))
-      .sort({ updatedAt: -1 })
+      .sort(mongoSort)
       .skip(skip)
       .limit(limit)
       .toArray();
@@ -84,7 +91,7 @@ fileMetaRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, 
     // to that member's job collection, and looking them up in another's would silently find nothing.
     return attachJobProgress(mid, files as Array<Record<string, unknown>>);
   });
-  res.json({ files: capPage(all, limit), limit, skip });
+  res.json({ files: capPage(all, limit, sortParse.sort), limit, skip });
 });
 
 

@@ -12,6 +12,7 @@ import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } fro
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
+import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { checkQuota, QuotaError } from '../../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateMemory } from '../../spaces/schema-validation.js';
@@ -130,9 +131,14 @@ memoriesRouter.get('/spaces/:spaceId/memories', globalRateLimit, requireSpaceAut
   }
   const limit = parseLimit(req.query['limit'], 100, 500);
   const skip = parseSkip(req.query['skip']);
+  const sortParse = parseSortParam(req.query['sort'], req.query['dir'], SORTABLE_FIELDS.memories);
+  if ('error' in sortParse) {
+    res.status(400).json({ error: sortParse.error });
+    return;
+  }
   const filter = buildMemoryFilter(req.query as Record<string, unknown>);
-  const all = await collectAcrossMembers(spaceId, mid => listMemories(mid, filter, limit, skip));
-  res.json({ memories: capPage(all, limit), limit, skip });
+  const all = await collectAcrossMembers(spaceId, mid => listMemories(mid, filter, limit, skip, sortParse.sort));
+  res.json({ memories: capPage(all, limit, sortParse.sort), limit, skip });
 });
 
 

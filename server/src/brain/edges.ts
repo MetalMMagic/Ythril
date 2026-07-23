@@ -3,6 +3,7 @@ import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
+import { toMongoSort, type SortSpec } from './list-sort.js';
 import { embed } from './embedding.js';
 import { edgeEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
@@ -148,6 +149,7 @@ export async function listEdges(
   filter: { from?: string; to?: string; label?: string; type?: string; tag?: string } = {},
   limit = 50,
   skip = 0,
+  sort?: SortSpec,
 ): Promise<EdgeDoc[]> {
   const q: Record<string, string> = { spaceId };
   if (filter.from) q['from'] = filter.from;
@@ -158,7 +160,7 @@ export async function listEdges(
   if (filter.tag) q['tags'] = filter.tag;
   return col<EdgeDoc>(`${spaceId}_edges`)
     .find(asFilter<EdgeDoc>(q))
-    .sort({ seq: -1, createdAt: -1, _id: -1 })
+    .sort(sort ? toMongoSort(sort) : { seq: -1, createdAt: -1, _id: -1 })
     .skip(parseSkip(skip))
     .limit(parseLimit(limit, 20, 1000))
     .toArray() as Promise<EdgeDoc[]>;

@@ -13,6 +13,7 @@ import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } fro
 import { getConfig } from '../../config/loader.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
 import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
+import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEntity } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
@@ -104,6 +105,8 @@ entitiesRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAut
   if (typeof req.query['name'] === 'string') filter['name'] = req.query['name'];
   if (typeof req.query['type'] === 'string') filter['type'] = req.query['type'];
   if (typeof req.query['tag'] === 'string') filter['tags'] = req.query['tag'];
+  const search = textSearchOr(req.query['search'] as string | undefined, SEARCHABLE_FIELDS.entities);
+  if (search) Object.assign(filter, search);
   const all = await collectAcrossMembers(spaceId, mid => listEntities(mid, filter, limit, skip, sortParse.sort));
   res.json({ entities: capPage(all, limit, sortParse.sort), limit, skip });
 });

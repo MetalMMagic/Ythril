@@ -1199,6 +1199,23 @@ fall-back to the default order:
 With no `sort` the endpoint keeps its existing default order (entities: insertion order; the others:
 `createdAt` desc; files: `updatedAt` desc).
 
+#### Freetext search (`?search=`)
+
+The entities, edges, memories and chrono list endpoints accept an optional `?search=<text>` that
+matches a **case-insensitive substring** of the record's text fields, applied server-side before
+pagination (so it spans the whole set, like sort). The value is treated as a **literal** — regex
+metacharacters are escaped, so `a.b` matches the three characters `a.b`, not "a, any char, b".
+
+| Collection | Searched fields |
+|------------|-----------------|
+| entities | `name`, `description` |
+| edges | `label`, `description` |
+| memories | `fact`, `description` |
+| chrono | `title`, `description` |
+
+(Files use their own `path` filter; entities also keep the exact `?name=` filter and the semantic
+`/entities/by-name` endpoint.)
+
 ---
 
 ### Delete an Entity

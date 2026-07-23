@@ -113,12 +113,13 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
     res.status(400).json({ error: sortParse.error });
     return;
   }
-  const filter: { from?: string; to?: string; label?: string; type?: string; tag?: string } = {};
+  const filter: { from?: string; to?: string; label?: string; type?: string; tag?: string; search?: string } = {};
   if (typeof req.query['from'] === 'string') filter.from = req.query['from'];
   if (typeof req.query['to'] === 'string') filter.to = req.query['to'];
   if (typeof req.query['label'] === 'string') filter.label = req.query['label'];
   if (typeof req.query['type'] === 'string') filter.type = req.query['type'];
   if (typeof req.query['tag'] === 'string') filter.tag = req.query['tag'];
+  if (typeof req.query['search'] === 'string') filter.search = req.query['search'];
   const all = await collectAcrossMembers(spaceId, mid => listEdges(mid, filter, limit, skip, sortParse.sort));
   // Batch-resolve entity names for from/to so the client can display names instead of raw UUIDs
   const allEntityIds = [...new Set(all.flatMap(e => [e.from, e.to]))];

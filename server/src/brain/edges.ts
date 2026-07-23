@@ -4,6 +4,7 @@ import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
+import { textSearchOr, SEARCHABLE_FIELDS } from './text-search.js';
 import { embed } from './embedding.js';
 import { edgeEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
@@ -146,18 +147,21 @@ export async function upsertEdge(
 /** List edges for a space, optionally filtering by from/to entity */
 export async function listEdges(
   spaceId: string,
-  filter: { from?: string; to?: string; label?: string; type?: string; tag?: string } = {},
+  filter: { from?: string; to?: string; label?: string; type?: string; tag?: string; search?: string } = {},
   limit = 50,
   skip = 0,
   sort?: SortSpec,
 ): Promise<EdgeDoc[]> {
-  const q: Record<string, string> = { spaceId };
+  const q: Record<string, unknown> = { spaceId };
   if (filter.from) q['from'] = filter.from;
   if (filter.to) q['to'] = filter.to;
   if (filter.label) q['label'] = filter.label;
   if (filter.type) q['type'] = filter.type;
   // `tags` is an array field; a scalar match is Mongo array-contains (edge HAS this tag).
   if (filter.tag) q['tags'] = filter.tag;
+  // Freetext substring over the edge's text fields (2b-iii-a).
+  const search = textSearchOr(filter.search, SEARCHABLE_FIELDS.edges);
+  if (search) Object.assign(q, search);
   return col<EdgeDoc>(`${spaceId}_edges`)
     .find(asFilter<EdgeDoc>(q))
     .sort(sort ? toMongoSort(sort) : { seq: -1, createdAt: -1, _id: -1 })

@@ -483,3 +483,39 @@ describe('ModelsStateService — the cross-tab unsaved-changes guard', () => {
     expect(c.isDirty()).toBe(false);
   });
 });
+
+describe('ModelsStateService — assist "in use" reflects real configuration (repair-pass pill bug)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const withAssist = (assist: Record<string, unknown>) =>
+    make(cfgFixture({
+      documentProcessing: {
+        mode: 'ocr', renderDpi: 150, maxPages: 50, pageTimeoutMs: 60000, concurrency: 2, ocrTimeoutMs: 120000,
+        assistModel: { uses: [], baseUrl: '', model: '', ...assist },
+      },
+    })).c;
+
+  it('is NOT in use when repair is toggled on but no assist model is configured (the reported bug)', () => {
+    const c = withAssist({ uses: ['repair'], baseUrl: '', model: '' });
+    expect(c.assistUses('repair')).toBe(true);       // the toggle is on…
+    expect(c.assistConfigured()).toBe(false);        // …but there is no endpoint
+    expect(c.assistInUse('repair')).toBe(false);     // so the pill must not say "in use"
+  });
+
+  it('is NOT in use when configured but repair is not toggled on', () => {
+    const c = withAssist({ uses: [], baseUrl: 'https://api.example.com/v1', model: 'gpt-4o' });
+    expect(c.assistConfigured()).toBe(true);
+    expect(c.assistInUse('repair')).toBe(false);
+  });
+
+  it('IS in use only when repair is toggled AND a base URL + model are set', () => {
+    const c = withAssist({ uses: ['repair'], baseUrl: 'https://api.example.com/v1', model: 'gpt-4o' });
+    expect(c.assistInUse('repair')).toBe(true);
+  });
+
+  it('a base URL without a model is not configured (both are required to call an endpoint)', () => {
+    const c = withAssist({ uses: ['repair'], baseUrl: 'https://api.example.com/v1', model: '' });
+    expect(c.assistConfigured()).toBe(false);
+    expect(c.assistInUse('repair')).toBe(false);
+  });
+});

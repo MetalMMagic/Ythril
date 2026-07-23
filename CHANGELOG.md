@@ -1478,6 +1478,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The external-assist "Document repair pass" pill said "In use" the moment you ticked the task,
+  even with no assist model configured.** The pill keyed off the `uses` toggle alone, so toggling
+  "repair" on with an empty Endpoint/Model still read "In use" — claiming an inoperable feature was
+  active (the repair pass can't run without an endpoint to call). It now shows "In use" only when the
+  task is toggled **and** a base URL + model are set, matching what the user guide already promised
+  ("off unless you both fill in an Endpoint + Model and tick a task"); otherwise it reads "Not
+  configured".
+
 - **A network join or reparent could return `200` with the membership change silently absent.**
   `POST /api/invite/finalize` looked up `net = cfg.networks.find(...)`, then `await bcrypt.hash(...)`,
   then mutated `net` and called `saveConfig(cfg)`. The config object's nested arrays are replaced

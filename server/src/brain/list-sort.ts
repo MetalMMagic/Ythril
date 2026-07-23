@@ -1,0 +1,80 @@
+/**
+ * Server-side sort for the brain list endpoints.
+ *
+ * The brain lists are paginated (`limit`/`skip`), so sorting can never be a client-only header
+ * click: reordering just the visible page would lie about the rest of the set. The sort therefore
+ * has to be a Mongo `.sort()` applied before `.skip().limit()`, threaded from the route into the
+ * list function — which is what this module parses and validates.
+ *
+ * The field set is whitelisted per collection. A Mongo sort key is not injectable the way a
+ * `$where` is, but an unbounded field set invites index misses and surprises, and a silently
+ * ignored sort is the same dishonesty as a no-op control — so an unknown field is a 400, never a
+ * quiet fall-back to natural order.
+ */
+
+/** A validated sort request: a whitelisted field and a direction (1 asc, -1 desc). */
+export interface SortSpec {
+  field: string;
+  dir: 1 | -1;
+}
+
+/**
+ * Sortable fields per collection. `createdAt` everywhere; the human-meaningful columns each tab
+ * shows are added where they exist as stored, comparable fields. Derived values (e.g. chrono's
+ * `overdue` status, which is computed from the due moment and never stored) are deliberately left
+ * out — sorting by a stored `status` that disagrees with the displayed one would mislead.
+ */
+export const SORTABLE_FIELDS = {
+  entities: new Set<string>(['createdAt', 'name', 'type']),
+  edges: new Set<string>(['createdAt', 'label', 'from', 'to', 'type']),
+  memories: new Set<string>(['createdAt', 'type']),
+  chrono: new Set<string>(['createdAt', 'title', 'startsAt', 'type']),
+  files: new Set<string>(['createdAt', 'updatedAt', 'path']),
+} as const;
+
+/** Result of parsing `?sort=&dir=`: a spec, an explicit no-sort, or a client error to 400 on. */
+export type SortParse = { sort: SortSpec } | { sort: undefined } | { error: string };
+
+/** Parse a `dir` query value. Empty/absent defaults to descending (newest-first). */
+function parseDir(raw: unknown): 1 | -1 | null {
+  if (raw === undefined || raw === '') return -1;
+  if (typeof raw !== 'string') return null;
+  const s = raw.toLowerCase();
+  if (s === 'asc' || s === '1') return 1;
+  if (s === 'desc' || s === '-1') return -1;
+  return null;
+}
+
+/**
+ * Parse `?sort=field&dir=asc|desc` against a collection's whitelist.
+ *
+ * No `sort` at all → `{ sort: undefined }`, and the list function keeps its existing default order
+ * (a characterization guarantee: no existing caller shifts). A `sort` outside the whitelist, or a
+ * malformed `dir`, → `{ error }` for the route to answer with 400.
+ */
+export function parseSortParam(
+  rawField: unknown,
+  rawDir: unknown,
+  allowed: ReadonlySet<string>,
+): SortParse {
+  if (rawField === undefined || rawField === '') return { sort: undefined };
+  if (typeof rawField !== 'string') {
+    return { error: '`sort` must be a single field name' };
+  }
+  if (!allowed.has(rawField)) {
+    return { error: `Cannot sort by '${rawField}'. Sortable fields: ${[...allowed].join(', ')}` };
+  }
+  const dir = parseDir(rawDir);
+  if (dir === null) {
+    return { error: "`dir` must be 'asc' or 'desc'" };
+  }
+  return { sort: { field: rawField, dir } };
+}
+
+/**
+ * Build the Mongo sort document for a validated spec, appending `_id` as a stable tiebreaker so
+ * pagination is deterministic across a page boundary when the primary field has ties.
+ */
+export function toMongoSort(sort: SortSpec): Record<string, 1 | -1> {
+  return { [sort.field]: sort.dir, _id: sort.dir };
+}

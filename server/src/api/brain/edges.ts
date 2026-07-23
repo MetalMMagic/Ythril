@@ -12,6 +12,7 @@ import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } fro
 import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
+import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEdge } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
@@ -107,13 +108,18 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
   }
   const limit = parseLimit(req.query['limit'], 50, 200);
   const skip = parseSkip(req.query['skip']);
+  const sortParse = parseSortParam(req.query['sort'], req.query['dir'], SORTABLE_FIELDS.edges);
+  if ('error' in sortParse) {
+    res.status(400).json({ error: sortParse.error });
+    return;
+  }
   const filter: { from?: string; to?: string; label?: string; type?: string; tag?: string } = {};
   if (typeof req.query['from'] === 'string') filter.from = req.query['from'];
   if (typeof req.query['to'] === 'string') filter.to = req.query['to'];
   if (typeof req.query['label'] === 'string') filter.label = req.query['label'];
   if (typeof req.query['type'] === 'string') filter.type = req.query['type'];
   if (typeof req.query['tag'] === 'string') filter.tag = req.query['tag'];
-  const all = await collectAcrossMembers(spaceId, mid => listEdges(mid, filter, limit, skip));
+  const all = await collectAcrossMembers(spaceId, mid => listEdges(mid, filter, limit, skip, sortParse.sort));
   // Batch-resolve entity names for from/to so the client can display names instead of raw UUIDs
   const allEntityIds = [...new Set(all.flatMap(e => [e.from, e.to]))];
   const nameMap = new Map<string, string>();
@@ -125,7 +131,7 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
     for (const d of nameDocs) nameMap.set(String(d._id), d.name);
   }
   const enriched = all.map(e => ({ ...e, fromName: nameMap.get(e.from), toName: nameMap.get(e.to) }));
-  res.json({ edges: capPage(enriched, limit), limit, skip });
+  res.json({ edges: capPage(enriched, limit, sortParse.sort), limit, skip });
 });
 
 

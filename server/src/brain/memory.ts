@@ -10,6 +10,7 @@ import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
+import { toMongoSort, type SortSpec } from './list-sort.js';
 import { embed } from './embedding.js';
 import { memoryEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
@@ -214,11 +215,12 @@ export async function listMemories(
   filter: Record<string, unknown> = {},
   limit = 20,
   skip = 0,
+  sort?: SortSpec,
 ) {
   return col<MemoryDoc>(`${spaceId}_memories`)
     .find(asFilter<MemoryDoc>(filter))
     .project({ embedding: 0 })
-    .sort({ createdAt: -1 })
+    .sort(sort ? toMongoSort(sort) : { createdAt: -1 })
     .skip(parseSkip(skip))
     .limit(parseLimit(limit, 20, 1000))
     .toArray();

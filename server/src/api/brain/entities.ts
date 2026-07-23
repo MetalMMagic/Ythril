@@ -12,6 +12,7 @@ import { computeMergePlan, applyResolutions, executeMerge, validateResolution, t
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { getConfig } from '../../config/loader.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
+import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEntity } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
@@ -94,12 +95,17 @@ entitiesRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAut
   }
   const limit = parseLimit(req.query['limit'], 50, 500);
   const skip = parseSkip(req.query['skip']);
+  const sortParse = parseSortParam(req.query['sort'], req.query['dir'], SORTABLE_FIELDS.entities);
+  if ('error' in sortParse) {
+    res.status(400).json({ error: sortParse.error });
+    return;
+  }
   const filter: Record<string, unknown> = {};
   if (typeof req.query['name'] === 'string') filter['name'] = req.query['name'];
   if (typeof req.query['type'] === 'string') filter['type'] = req.query['type'];
   if (typeof req.query['tag'] === 'string') filter['tags'] = req.query['tag'];
-  const all = await collectAcrossMembers(spaceId, mid => listEntities(mid, filter, limit, skip));
-  res.json({ entities: capPage(all, limit), limit, skip });
+  const all = await collectAcrossMembers(spaceId, mid => listEntities(mid, filter, limit, skip, sortParse.sort));
+  res.json({ entities: capPage(all, limit, sortParse.sort), limit, skip });
 });
 
 

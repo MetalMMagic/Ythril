@@ -740,6 +740,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
+- **The brain list sort is proven against a real MongoDB across a page boundary — the one thing a
+  client-only sort could never do.** `brain-list-sort-db.test.js` seeds records in a deliberately
+  scrambled order, then walks every page of a sorted list and asserts the concatenation is one
+  globally ordered sequence (not a per-page reshuffle), including a `createdAt`-tie case that only the
+  `_id` tiebreaker keeps stable. A characterization test pins that an un-sorted call still returns
+  insertion order, so no existing caller shifted. Mutation-checked: disabling the `.sort()` fails
+  exactly the ordering assertions, and bypassing the field whitelist fails the `400` test.
+  `brain-list-sort-unit.test.js` covers the pure `parseSortParam`/`capPage` validation (whitelist
+  rejection, dir parsing, and the proxy page-cap honoring the requested sort) with no database.
+
 - **Standalone tests can now run against a real MongoDB, and the first one proves the queue's
   recovery rule.** Until now no standalone test could reach a database: the test stack published no
   Mongo port and nothing connected to one. Query rules were therefore only ever checked against
@@ -815,6 +825,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   AGPL PyMuPDF).
 
 ### Added
+
+- **Server-side sort for the brain list endpoints — entities, edges, memories, chrono and files now
+  take `?sort=<field>&dir=asc|desc`.** The lists are paginated, so this could never be a client-only
+  header click: sorting just the visible page would reorder ~20 rows and lie about the rest of the
+  set. The sort is a Mongo `.sort()` applied **before** `skip`/`limit`, so it orders the whole result
+  set across every page. The sortable field is whitelisted per collection (`createdAt` everywhere,
+  plus each tab's human columns — `name`/`type` for entities, `label`/`from`/`to` for edges,
+  `title`/`startsAt` for chrono, `updatedAt`/`path` for files); an unrecognized field is a `400`, not
+  a silent fall-back to the default order — a silently-ignored sort control is the same dishonesty as
+  a no-op one. `dir` defaults to `desc`. With no `sort` param every endpoint keeps its existing
+  default order, so no existing caller is affected. A stable `_id` tiebreaker makes paging
+  deterministic when the primary field ties. This is the server half of the Brain UX "created needs a
+  sort option" ask; the sortable column headers land in a following client change.
 
 - **`GET /api/admin/pipeline-status` — one read-only answer to "is any of this actually working?"**
   Every model, sidecar and vector index in the pipeline could previously only be inspected one at a

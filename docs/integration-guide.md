@@ -1163,7 +1163,7 @@ Returns the single entity, or `404` if no entity with that ID exists in the spac
 ### List Entities
 
 ```http
-GET /api/brain/spaces/:spaceId/entities?limit=50&skip=0
+GET /api/brain/spaces/:spaceId/entities?limit=50&skip=0&sort=name&dir=asc
 ```
 
 **Response** `200`:
@@ -1177,6 +1177,27 @@ GET /api/brain/spaces/:spaceId/entities?limit=50&skip=0
 ```
 
 Default limit: 50, max: 500.
+
+#### Sorting (all brain list endpoints)
+
+`GET` list endpoints — entities, edges, memories, chrono, and files — accept an optional
+`?sort=<field>&dir=asc|desc`. The sort is applied server-side **before** pagination, so it orders the
+entire result set across every page, not just the rows on the page you fetch. `dir` defaults to `desc`
+(newest-first) when omitted.
+
+The sortable field per collection is whitelisted; an unrecognized field is a `400`, never a silent
+fall-back to the default order:
+
+| Collection | Sortable fields |
+|------------|-----------------|
+| entities | `createdAt`, `name`, `type` |
+| edges | `createdAt`, `label`, `from`, `to`, `type` |
+| memories | `createdAt`, `type` |
+| chrono | `createdAt`, `title`, `startsAt`, `type` |
+| files | `createdAt`, `updatedAt`, `path` |
+
+With no `sort` the endpoint keeps its existing default order (entities: insertion order; the others:
+`createdAt` desc; files: `updatedAt` desc).
 
 ---
 
@@ -1470,6 +1491,8 @@ GET /api/brain/spaces/:spaceId/chrono?limit=50&skip=0
 | `type` | string | Filter by type (`event`, `deadline`, `plan`, `prediction`, `milestone`) |
 | `limit` | number | Max entries to return (default 50, max 500) |
 | `skip` | number | Pagination offset (default 0) |
+| `sort` | string | Sort field: `createdAt`, `title`, `startsAt`, or `type` (see [Sorting](#sorting-all-brain-list-endpoints)). Unknown field → `400` |
+| `dir` | string | `asc` or `desc` (default `desc`) |
 
 #### Example queries
 
@@ -1689,6 +1712,8 @@ Returns metadata rows stored in the brain collection for files (`path`, tags, de
 | `skip` | Offset for pagination |
 | `tag` | Exact tag filter |
 | `path` | Exact path filter |
+| `sort` | Sort field: `createdAt`, `updatedAt`, or `path` (see [Sorting](#sorting-all-brain-list-endpoints)). Unknown field → `400` |
+| `dir` | `asc` or `desc` (default `desc`) |
 
 **Response** `200`:
 

@@ -9,6 +9,7 @@ import { globalRateLimit, bulkWipeRateLimit } from '../../rate-limit/middleware.
 import { createChrono, updateChrono, getChronoById, listChrono, deleteChrono, bulkDeleteChrono, parseRecurrence, ChronoFilter } from '../../brain/chrono.js';
 import { getConfig } from '../../config/loader.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
+import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import type { ChronoStatus } from '../../config/types.js';
@@ -250,6 +251,11 @@ chronoRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, a
   }
   const limit = parseLimit(req.query['limit'], 50, 500);
   const skip = parseSkip(req.query['skip']);
+  const sortParse = parseSortParam(req.query['sort'], req.query['dir'], SORTABLE_FIELDS.chrono);
+  if ('error' in sortParse) {
+    res.status(400).json({ error: sortParse.error });
+    return;
+  }
   const filter: ChronoFilter = {};
   if (typeof req.query['status'] === 'string') filter.status = req.query['status'];
   if (typeof req.query['type'] === 'string') filter.type = req.query['type'];
@@ -274,8 +280,8 @@ chronoRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, a
   if (typeof req.query['before'] === 'string') filter.before = req.query['before'];
   if (typeof req.query['search'] === 'string') filter.search = req.query['search'];
 
-  const all = await collectAcrossMembers(spaceId, mid => listChrono(mid, filter, limit, skip));
-  res.json({ chrono: capPage(all, limit), limit, skip });
+  const all = await collectAcrossMembers(spaceId, mid => listChrono(mid, filter, limit, skip, sortParse.sort));
+  res.json({ chrono: capPage(all, limit, sortParse.sort), limit, skip });
 });
 
 

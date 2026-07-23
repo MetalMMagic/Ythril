@@ -2,6 +2,7 @@ import { Directive, effect, inject, input, signal, untracked } from '@angular/co
 import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordListState } from './record-list-state.service';
+import type { ListSort } from '../../core/brain-api.service';
 
 /**
  * Shared machinery for the five record-tab components (memories/entities/edges/chrono/filemeta),
@@ -30,6 +31,15 @@ export abstract class RecordTabBase {
 
   skip = signal(0);
 
+  /**
+   * Column sort state, wired to the server's `?sort=&dir=` (slice 2a). `sortField === ''` means "no
+   * sort" — the endpoint keeps its own default order, exactly as before any header was clicked. Only
+   * fields the server whitelists for the collection are ever set here (the tab only renders a caret on
+   * those columns), so a click can never produce a 400.
+   */
+  sortField = signal('');
+  sortDir = signal<'asc' | 'desc'>('desc');
+
   constructor() {
     // Self-load on creation (tab activation via the shell's gated @if) and on a space switch while
     // mounted. This effect must depend on `spaceId` ONLY. The reset + load are wrapped in `untracked`
@@ -42,6 +52,8 @@ export abstract class RecordTabBase {
       const id = this.spaceId();
       untracked(() => {
         this.skip.set(0);
+        this.sortField.set('');
+        this.sortDir.set('desc');
         this.resetOnSpaceChange();
         if (id) this.load();
       });
@@ -69,6 +81,36 @@ export abstract class RecordTabBase {
 
   prevPage(): void { this.skip.update(s => Math.max(0, s - this.pageSize)); this.load(); }
   nextPage(): void { this.skip.update(s => s + this.pageSize); this.load(); }
+
+  /**
+   * Cycle the sort for a column header: unsorted → desc → asc → back to the endpoint's default.
+   * Clicking a different column starts it at desc. Any change resets paging to the first page — a new
+   * order makes the current `skip` meaningless — and reloads from the server (the whole point: the
+   * sort spans every page, not just the visible rows).
+   */
+  setSort(field: string): void {
+    if (this.sortField() !== field) {
+      this.sortField.set(field);
+      this.sortDir.set('desc');
+    } else if (this.sortDir() === 'desc') {
+      this.sortDir.set('asc');
+    } else {
+      this.sortField.set('');
+      this.sortDir.set('desc');
+    }
+    this.skip.set(0);
+    this.load();
+  }
+
+  /** The active sort for the current column, or `null` when this column is not the sort key. */
+  sortState(field: string): 'asc' | 'desc' | null {
+    return this.sortField() === field ? this.sortDir() : null;
+  }
+
+  /** The `ListSort` to hand the API, or `undefined` when no column sort is active. */
+  protected sortParam(): ListSort | undefined {
+    return this.sortField() ? { field: this.sortField(), dir: this.sortDir() } : undefined;
+  }
 
   requestDelete(id: string): void { this.recordList.confirmDeleteId.set(id); }
   cancelDelete(): void { this.recordList.confirmDeleteId.set(''); }

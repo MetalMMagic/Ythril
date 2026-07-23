@@ -12,6 +12,7 @@ import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
+import { SortableHeaderComponent } from './sortable-header.component';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordTabBase } from './record-tab-base';
 import { fmtApiError } from './brain-format';
@@ -32,7 +33,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-entities-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -115,7 +116,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <table>
               <thead>
                 <tr>
-                  <th>{{ 'brain.entities.table.name' | transloco }}</th><th>{{ 'brain.entities.table.type' | transloco }}</th><th>{{ 'brain.entities.table.description' | transloco }}</th><th>{{ 'brain.entities.table.tags' | transloco }}</th><th>{{ 'brain.entities.table.properties' | transloco }}</th><th>{{ 'brain.entities.table.created' | transloco }}</th><th></th>
+                  <th app-sort-th field="name" label="brain.entities.table.name" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="type" label="brain.entities.table.type" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.entities.table.description' | transloco }}</th><th>{{ 'brain.entities.table.tags' | transloco }}</th><th>{{ 'brain.entities.table.properties' | transloco }}</th><th app-sort-th field="createdAt" label="brain.entities.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -247,7 +248,7 @@ export class EntitiesTabComponent extends RecordTabBase {
     if (this.entitySearch()) ef.search = this.entitySearch();
     if (this.recordFilter().type) ef.type = this.recordFilter().type;
     if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
-    this.brainApi.listEntities(spaceId, this.pageSize, this.skip(), ef).subscribe({
+    this.brainApi.listEntities(spaceId, this.pageSize, this.skip(), ef, this.sortParam()).subscribe({
       next: ({ entities }) => { this.store.entities.set(entities); this.recordList.loading.set(false); },
       error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
     });
@@ -261,7 +262,7 @@ export class EntitiesTabComponent extends RecordTabBase {
     if (this.entitySearch()) ef.search = this.entitySearch();
     if (this.recordFilter().type) ef.type = this.recordFilter().type;
     if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
-    this.brainApi.listEntities(spaceId, this.pageSize, this.skip(), ef).subscribe({
+    this.brainApi.listEntities(spaceId, this.pageSize, this.skip(), ef, this.sortParam()).subscribe({
       next: ({ entities }) => this.store.entities.set(entities),
       error: () => {},
     });

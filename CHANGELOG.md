@@ -826,6 +826,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sortable column headers on the Brain list tabs.** Clicking a column header with a caret sorts
+  the list by that column; clicking again flips the direction, and a third click returns to the
+  default order. The caret fills and points to show the active sort, and `aria-sort` reflects it for
+  assistive tech. It drives the server-side sort added alongside, so the order spans the whole list
+  across every page — not just the visible rows, which a client-only sort under pagination could
+  never do honestly. Sortable columns per tab: Name/Type/Created (entities), From/Relation/To/Created
+  (edges), Created (memories), Title/Kind/Starts (chrono) — exactly the fields the server whitelists,
+  so a header can never request a sort the API would reject. A shared `th[app-sort-th]` primitive
+  keeps all four tables uniform. The existing type/tag filter row is unchanged for now; folding
+  filters into the headers is the next slice.
+
 - **Server-side sort for the brain list endpoints — entities, edges, memories, chrono and files now
   take `?sort=<field>&dir=asc|desc`.** The lists are paginated, so this could never be a client-only
   header click: sorting just the visible page would reorder ~20 rows and lie about the rest of the

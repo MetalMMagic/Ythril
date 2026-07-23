@@ -6,10 +6,25 @@ import type {
   QueryCollection, QueryResult, RecallKnowledgeType, RecallResponse, TraverseResult,
 } from './api.types';
 
+/**
+ * A server-side sort request for a brain list endpoint. `field` must be one the server whitelists
+ * for that collection (see the integration guide); an un-whitelisted field is a 400, so callers pass
+ * only the columns the tab exposes a caret for.
+ */
+export interface ListSort {
+  field: string;
+  dir: 'asc' | 'desc';
+}
+
 /** Brain knowledge graph — memories, entities, edges, chrono, plus query/recall/traverse. */
 @Injectable({ providedIn: 'root' })
 export class BrainApi {
   private http = inject(HttpClient);
+
+  /** Append `sort`/`dir` to a list request when a sort is active; a no-op otherwise. */
+  private withSort(params: HttpParams, sort?: ListSort): HttpParams {
+    return sort ? params.set('sort', sort.field).set('dir', sort.dir) : params;
+  }
 
   /** Mint a single-use ticket to open the live-change SSE stream. EventSource can't send an
    *  Authorization header and a raw token in the URL leaks into logs/history, so the stream is opened
@@ -51,11 +66,12 @@ export class BrainApi {
 
   // ── Brain — memories ──────────────────────────────────────────────────────
 
-  listMemories(spaceId: string, limit = 20, skip = 0, filters?: { tag?: string; entity?: string; type?: string }): Observable<{ memories: Memory[]; limit: number; skip: number }> {
+  listMemories(spaceId: string, limit = 20, skip = 0, filters?: { tag?: string; entity?: string; type?: string }, sort?: ListSort): Observable<{ memories: Memory[]; limit: number; skip: number }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.tag) params = params.set('tag', filters.tag);
     if (filters?.entity) params = params.set('entity', filters.entity);
     if (filters?.type) params = params.set('type', filters.type);
+    params = this.withSort(params, sort);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/memories`, { params });
   }
 
@@ -79,11 +95,12 @@ export class BrainApi {
 
   // ── Brain — entities ──────────────────────────────────────────────────────
 
-  listEntities(spaceId: string, limit = 50, skip = 0, filters?: { search?: string; type?: string; tag?: string }): Observable<{ entities: Entity[] }> {
+  listEntities(spaceId: string, limit = 50, skip = 0, filters?: { search?: string; type?: string; tag?: string }, sort?: ListSort): Observable<{ entities: Entity[] }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.search) params = params.set('name', filters.search);
     if (filters?.type) params = params.set('type', filters.type);
     if (filters?.tag) params = params.set('tag', filters.tag);
+    params = this.withSort(params, sort);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/entities`, { params });
   }
 
@@ -101,10 +118,11 @@ export class BrainApi {
 
   // ── Brain — edges ─────────────────────────────────────────────────────────
 
-  listEdges(spaceId: string, limit = 50, skip = 0, filters?: { type?: string; tag?: string }): Observable<{ edges: Edge[] }> {
+  listEdges(spaceId: string, limit = 50, skip = 0, filters?: { type?: string; tag?: string }, sort?: ListSort): Observable<{ edges: Edge[] }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.type) params = params.set('type', filters.type);
     if (filters?.tag) params = params.set('tag', filters.tag);
+    params = this.withSort(params, sort);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/edges`, { params });
   }
 
@@ -155,7 +173,7 @@ export class BrainApi {
 
   // ── Brain — chrono ──────────────────────────────────────────────────────
 
-  listChrono(spaceId: string, limit = 50, skip = 0, filters?: { tags?: string; tagsAny?: string; tag?: string; type?: string; status?: string; after?: string; before?: string; search?: string }): Observable<{ chrono: ChronoEntry[] }> {
+  listChrono(spaceId: string, limit = 50, skip = 0, filters?: { tags?: string; tagsAny?: string; tag?: string; type?: string; status?: string; after?: string; before?: string; search?: string }, sort?: ListSort): Observable<{ chrono: ChronoEntry[] }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.tags) params = params.set('tags', filters.tags);
     if (filters?.tagsAny) params = params.set('tagsAny', filters.tagsAny);
@@ -167,6 +185,7 @@ export class BrainApi {
     if (filters?.after) params = params.set('after', filters.after);
     if (filters?.before) params = params.set('before', filters.before);
     if (filters?.search) params = params.set('search', filters.search);
+    params = this.withSort(params, sort);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/chrono`, { params });
   }
 

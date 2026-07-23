@@ -49,7 +49,7 @@ describe('EdgesTabComponent', () => {
 
   it('self-loads on the spaceId input', () => {
     make();
-    expect(api.listEdges).toHaveBeenCalledWith('work', 20, 0, {});
+    expect(api.listEdges).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
   });
 
   it('createEdge requires from+to+label, spreads weight only when set, and emits mutated', () => {

@@ -51,7 +51,7 @@ describe('MemoriesTabComponent', () => {
 
   it('self-loads on the spaceId input (sends page size + skip 0 + no filter)', () => {
     make();
-    expect(api.listMemories).toHaveBeenCalledWith('work', 20, 0, {});
+    expect(api.listMemories).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
   });
 
   it('renders the create form when opened (plain ngModel model under OnPush)', () => {
@@ -141,7 +141,7 @@ describe('MemoriesTabComponent', () => {
     api.listMemories.mockClear();
     c.nextPage();
     expect(c.skip()).toBe(20);
-    expect(api.listMemories).toHaveBeenCalledWith('work', 20, 20, { tag: 'urgent', entity: 'e9', type: 'note' });
+    expect(api.listMemories).toHaveBeenCalledWith('work', 20, 20, { tag: 'urgent', entity: 'e9', type: 'note' }, undefined);
     c.prevPage(); c.prevPage(); // clamp at 0
     expect(c.skip()).toBe(0);
   });

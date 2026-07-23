@@ -54,6 +54,19 @@ describe('MemoriesTabComponent', () => {
     expect(api.listMemories).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
   });
 
+  // CHARACTERIZATION (pins semantic recall before slice 2b-iii-b touches the search bars): Semantic
+  // mode must issue recallBrain({types:['memory']}), never the plain list.
+  it('Semantic search mode issues a recall (not a plain list) for memories', () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    api.listMemories.mockClear();
+    api.recallBrain.mockClear();
+    c.store.memorySearch.set('deadline');
+    c.setMemorySearchMode('semantic');
+    expect(api.recallBrain).toHaveBeenCalledWith('work', { query: 'deadline', types: ['memory'], topK: 20 });
+    expect(api.listMemories).not.toHaveBeenCalled();
+  });
+
   it('renders the create form when opened (plain ngModel model under OnPush)', () => {
     const fixture = make();
     fixture.componentInstance.openMemoryForm();

@@ -52,6 +52,19 @@ describe('ChronoTabComponent', () => {
     expect(api.listChrono).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
   });
 
+  // CHARACTERIZATION (pins semantic recall before slice 2b-iii-b touches the search bars): Semantic
+  // mode must issue recallBrain({types:['chrono']}), never the plain list.
+  it('Semantic search mode issues a recall (not a plain list) for chrono', () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    api.listChrono.mockClear();
+    api.recallBrain.mockClear();
+    c.store.chronoSearch.set('launch');
+    c.setChronoSearchMode('semantic');
+    expect(api.recallBrain).toHaveBeenCalledWith('work', { query: 'launch', types: ['chrono'], topK: 20 });
+    expect(api.listChrono).not.toHaveBeenCalled();
+  });
+
   it('createChrono resolves a __custom__ kind to the free-text customKind and ISO-encodes startsAt', () => {
     const c = make().componentInstance;
     c.chronoForm = { title: 'T', kind: '__custom__', customKind: ' launch ', startsAt: '2026-03-04T09:07', endsAt: '', description: '', tags: [], entityIds: '' };

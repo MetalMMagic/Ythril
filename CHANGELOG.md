@@ -826,6 +826,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Brain list filters moved into the column headers.** The type/kind and tag filters that used to
+  sit in a separate row above the table now dock directly under the column they filter — the
+  type/kind dropdown under the **Type**/**Kind** header, the tag box under the **Tags** header — so a
+  column's sort caret and its filter live together (the owner's docked-row layout). The standalone
+  filter bar (`record-filter-bar`) is retired. Server behaviour is unchanged; only where the control
+  lives moved, and clicking a tag/entity badge on a row still fills the matching filter. Two tabs
+  (edges, memories) have no Type column, so their low-value type filter is dropped rather than given
+  an arbitrary home; the memories entity-filter chip stays above the table since it has no column.
+  Freetext name/description column filters and retiring the A–Z search pill are a following change.
+
 - **Sortable column headers on the Brain list tabs.** Clicking a column header with a caret sorts
   the list by that column; clicking again flips the direction, and a third click returns to the
   default order. The caret fills and points to show the active sort, and `aria-sort` reflects it for

@@ -3,17 +3,22 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 
 /**
- * A sortable `<th>` for the Brain list tables (slice 2b-i). Applied as an attribute on the header
- * cell — `<th app-sort-th field="name" label="brain.entities.table.name" …>` — so the table markup
- * stays valid `<thead><tr><th>`.
+ * A Brain list-table column header, applied as an attribute on the `<th>` —
+ * `<th app-sort-th field="name" label="brain.entities.table.name" …>` — so the table markup stays
+ * valid `<thead><tr><th>`.
  *
- * The whole cell is the sort control: clicking it emits `sort(field)`, which the tab base cycles
- * (unsorted → desc → asc → default). A dimmed caret marks a sortable-but-inactive column; the active
- * column shows a full-strength up/down caret matching the current direction. `aria-sort` on the host
- * reflects the state for assistive tech.
+ * It carries two optional affordances, either or both:
  *
- * Only columns backed by a server-whitelisted field (slice 2a) get one of these; the rest stay plain
- * `<th>`, so a click can never ask the server to sort by a field it will 400 on.
+ * - **Sort** (slice 2b-i): when `field` is set, the label becomes a click target that emits
+ *   `sort(field)` and shows a caret + `aria-sort`. Omit `field` for a non-sortable column — the label
+ *   renders as plain text with no caret.
+ * - **Filter** (slice 2b-ii): anything projected into the component docks in a row UNDER the label,
+ *   so a column's filter control sits directly beneath its heading (the owner's docked-row layout).
+ *   The tab supplies the control (a type `<select>`, a tag `<input>`, …); this primitive only places
+ *   it. Sort and filter are independent: clicking the label sorts, using the control below filters.
+ *
+ * Only columns backed by a server-whitelisted field (slice 2a) pass a `field`, so a header can never
+ * ask the server to sort by a field it will 400 on.
  */
 @Component({
   selector: 'th[app-sort-th]',
@@ -25,6 +30,7 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
     'class': 'sort-th',
   },
   styles: [`
+    .col-stack { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
     .sort-btn {
       display: inline-flex;
       align-items: center;
@@ -43,21 +49,32 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
     .sort-caret { display: inline-flex; opacity: 0.3; transition: opacity 0.1s; }
     .sort-btn:hover .sort-caret { opacity: 0.6; }
     .sort-caret.active { opacity: 1; color: var(--accent); }
+    .col-label { font: inherit; white-space: nowrap; }
+    /* The docked filter row: normal-weight, so it reads as a control, not part of the heading. */
+    .col-filter { font-weight: 400; text-transform: none; letter-spacing: normal; width: 100%; }
+    .col-filter:empty { display: none; }
   `],
   template: `
-    <button type="button" class="sort-btn"
-      (click)="sort.emit(field())"
-      [attr.aria-label]="(label() | transloco)">
-      {{ label() | transloco }}
-      <span class="sort-caret" [class.active]="active()">
-        <ph-icon [name]="active() && dir() === 'asc' ? 'caret-up' : 'caret-down'" [size]="12" />
-      </span>
-    </button>
+    <div class="col-stack">
+      @if (field()) {
+        <button type="button" class="sort-btn"
+          (click)="sort.emit(field())"
+          [attr.aria-label]="(label() | transloco)">
+          {{ label() | transloco }}
+          <span class="sort-caret" [class.active]="active()">
+            <ph-icon [name]="active() && dir() === 'asc' ? 'caret-up' : 'caret-down'" [size]="12" />
+          </span>
+        </button>
+      } @else {
+        <span class="col-label">{{ label() | transloco }}</span>
+      }
+      <div class="col-filter"><ng-content /></div>
+    </div>
   `,
 })
 export class SortableHeaderComponent {
-  /** Server sort field this column maps to (must be whitelisted for the collection). */
-  readonly field = input.required<string>();
+  /** Server sort field this column maps to. Omit for a non-sortable column (label only, no caret). */
+  readonly field = input<string>('');
   /** i18n key for the column label. */
   readonly label = input.required<string>();
   /** The currently-sorted field across the table (`''` when nothing is sorted). */
@@ -67,7 +84,7 @@ export class SortableHeaderComponent {
 
   readonly sort = output<string>();
 
-  protected readonly active = computed(() => this.activeField() === this.field());
+  protected readonly active = computed(() => !!this.field() && this.activeField() === this.field());
   protected readonly ariaSort = computed(() =>
     this.active() ? (this.dir() === 'asc' ? 'ascending' : 'descending') : 'none');
 }

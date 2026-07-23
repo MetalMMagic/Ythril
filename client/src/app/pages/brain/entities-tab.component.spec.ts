@@ -162,4 +162,32 @@ describe('EntitiesTabComponent', () => {
     c.setSort('name');
     expect(c.skip()).toBe(0);
   });
+
+  it('the docked Type header filter narrows the list from page 1 (server type param)', () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    c.nextPage();
+    api.listEntities.mockClear();
+    c.setTypeFilter('person');
+    expect(c.recordFilter().type).toBe('person');
+    expect(c.skip()).toBe(0);
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, { type: 'person' }, undefined);
+  });
+
+  it('the docked Tags header filter trims and narrows the list from page 1 (server tag param)', () => {
+    const c = make().componentInstance;
+    api.listEntities.mockClear();
+    c.setTagFilter('  urgent  ');
+    expect(c.recordFilter().tag).toBe('urgent');
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, { tag: 'urgent' }, undefined);
+  });
+
+  it('clearing the docked Type filter drops the param (empty string = no filter)', () => {
+    const c = make().componentInstance;
+    c.setTypeFilter('person');
+    api.listEntities.mockClear();
+    c.setTypeFilter('');
+    expect(c.recordFilter().type).toBe('');
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, undefined);
+  });
 });

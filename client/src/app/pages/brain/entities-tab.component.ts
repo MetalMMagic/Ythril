@@ -11,7 +11,6 @@ import { PropertiesEditorComponent } from '../../shared/properties-editor.compon
 import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
-import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
 import { SortableHeaderComponent } from './sortable-header.component';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordTabBase } from './record-tab-base';
@@ -33,7 +32,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-entities-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -48,14 +47,6 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
               (selected)="onEntitySearchPick($event)"
             />
             <button class="btn-primary btn btn-sm" (click)="openEntityForm()" [disabled]="showEntityForm()">{{ 'brain.entities.addButton' | transloco }}</button>
-          </div>
-          <div class="list-filter-row">
-            <app-record-filter-bar
-              [typeOptions]="store.entityTypeOptions()"
-              [tagSuggestions]="store.entityTagSuggestions()"
-              [value]="recordFilter()"
-              (filterChange)="onFilterChange($event)"
-            />
           </div>
 
           @if (showEntityForm()) {
@@ -116,7 +107,21 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <table>
               <thead>
                 <tr>
-                  <th app-sort-th field="name" label="brain.entities.table.name" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="type" label="brain.entities.table.type" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.entities.table.description' | transloco }}</th><th>{{ 'brain.entities.table.tags' | transloco }}</th><th>{{ 'brain.entities.table.properties' | transloco }}</th><th app-sort-th field="createdAt" label="brain.entities.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
+                  <th app-sort-th field="name" label="brain.entities.table.name" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
+                  <th app-sort-th field="type" label="brain.entities.table.type" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                    <select class="col-filter-select" [ngModel]="recordFilter().type" (ngModelChange)="setTypeFilter($event)" [attr.aria-label]="'brain.filter.label' | transloco">
+                      <option value="">{{ 'brain.filter.allTypes' | transloco }}</option>
+                      @for (t of store.entityTypeOptions(); track t) { <option [value]="t">{{ t }}</option> }
+                    </select>
+                  </th>
+                  <th>{{ 'brain.entities.table.description' | transloco }}</th>
+                  <th app-sort-th label="brain.entities.table.tags">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
+                      [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
+                    <datalist [id]="tagListId">@for (s of store.entityTagSuggestions(); track s) { <option [value]="s"></option> }</datalist>
+                  </th>
+                  <th>{{ 'brain.entities.table.properties' | transloco }}</th>
+                  <th app-sort-th field="createdAt" label="brain.entities.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -226,7 +231,6 @@ export class EntitiesTabComponent extends RecordTabBase {
   readonly mutated = output<void>();
 
   entitySearch = signal('');
-  recordFilter = signal<RecordFilter>({ type: '', tag: '' });
 
   showEntityForm = signal(false);
   creatingEntity = signal(false);
@@ -282,12 +286,6 @@ export class EntitiesTabComponent extends RecordTabBase {
     this.entitySearch.set(ent.name);
     this.skip.set(0);
     this.loadEntitiesSilent();
-  }
-
-  onFilterChange(f: RecordFilter): void {
-    this.recordFilter.set(f);
-    this.skip.set(0);
-    this.load();
   }
 
   openEntityForm(): void {

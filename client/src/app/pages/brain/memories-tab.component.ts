@@ -12,7 +12,6 @@ import { PropertiesEditorComponent } from '../../shared/properties-editor.compon
 import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
-import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordTabBase } from './record-tab-base';
 import { SortableHeaderComponent } from './sortable-header.component';
@@ -41,7 +40,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-memories-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordSearchBarComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -116,24 +115,25 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <div class="alert alert-error" style="margin-bottom:12px;">{{ createMemoryError() }}</div>
           }
 
-          <!-- Shared type/tag filter (F6). Tag-clicks in the table feed this bar too. -->
-          <div class="list-filter-row">
-            <app-record-filter-bar
-              [typeOptions]="store.memoryTypeOptions()"
-              [tagSuggestions]="store.memoryTagSuggestions()"
-              [value]="recordFilter()"
-              (filterChange)="onFilterChange($event)"
-            />
-            @if (filterEntity(); as ent) {
+          <!-- Tag/type filtering now docks in the column headers (2b-ii). The active ENTITY filter —
+               set by clicking an entity chip in a row — stays as an indicator chip here since it has
+               no column of its own. -->
+          @if (filterEntity(); as ent) {
+            <div class="list-filter-row">
               <span class="filter-chip">{{ 'brain.filter.entityPrefix' | transloco }} {{ ent }} <button [attr.aria-label]="'brain.filter.clearEntityAriaLabel' | transloco" (click)="clearFilter('entity')"><ph-icon name="x" [size]="12"/></button></span>
-            }
-          </div>
+            </div>
+          }
 
           <div class="table-wrapper">
             <table>
               <thead>
                 <tr>
-                  <th>{{ 'brain.memories.table.fact' | transloco }}</th><th>{{ 'brain.memories.table.description' | transloco }}</th><th>{{ 'brain.memories.table.tags' | transloco }}</th><th>{{ 'brain.memories.table.entities' | transloco }}</th><th>{{ 'brain.memories.table.properties' | transloco }}</th><th app-sort-th field="createdAt" label="brain.memories.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
+                  <th>{{ 'brain.memories.table.fact' | transloco }}</th><th>{{ 'brain.memories.table.description' | transloco }}</th><th app-sort-th label="brain.memories.table.tags">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
+                      [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
+                    <datalist [id]="tagListId">@for (s of store.memoryTagSuggestions(); track s) { <option [value]="s"></option> }</datalist>
+                  </th>
+                  <th>{{ 'brain.memories.table.entities' | transloco }}</th><th>{{ 'brain.memories.table.properties' | transloco }}</th><th app-sort-th field="createdAt" label="brain.memories.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -269,7 +269,6 @@ export class MemoriesTabComponent extends RecordTabBase {
   /** Emitted after a create/delete so the shell can refresh the space's tab-count stats. */
   readonly mutated = output<void>();
 
-  recordFilter = signal<RecordFilter>({ type: '', tag: '' });
   filterEntity = signal('');
 
   showMemoryForm = signal(false);
@@ -341,12 +340,6 @@ export class MemoriesTabComponent extends RecordTabBase {
         author: r['author'] as { instanceId: string } | undefined,
       } as Memory)));
     });
-  }
-
-  onFilterChange(f: RecordFilter): void {
-    this.recordFilter.set(f);
-    this.skip.set(0);
-    this.load();
   }
 
   applyFilter(type: 'tag' | 'entity', value: string): void {

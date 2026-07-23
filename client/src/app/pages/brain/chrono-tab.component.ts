@@ -10,7 +10,6 @@ import { TagInputComponent } from '../../shared/tag-input.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
-import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordTabBase } from './record-tab-base';
 import { SortableHeaderComponent } from './sortable-header.component';
@@ -34,7 +33,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-chrono-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordSearchBarComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -44,16 +43,6 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
               [mode]="store.chronoSearchMode()" (modeChange)="setChronoSearchMode($event)"
               placeholder="brain.chrono.searchPlaceholder" />
             <button class="btn-primary btn btn-sm" (click)="openChronoForm()" [disabled]="showChronoForm()">{{ 'brain.chrono.addButton' | transloco }}</button>
-          </div>
-          <div class="list-filter-row">
-            <app-record-filter-bar
-              [typeOptions]="store.chronoKinds"
-              [tagSuggestions]="store.chronoTagSuggestions()"
-              typeLabel="common.form.kind"
-              typeAllLabel="brain.filter.allKinds"
-              [value]="recordFilter()"
-              (filterChange)="onFilterChange($event)"
-            />
           </div>
 
           @if (showChronoForm()) {
@@ -142,7 +131,17 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <table>
               <thead>
                 <tr>
-                  <th app-sort-th field="title" label="brain.chrono.table.title" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.chrono.table.description' | transloco }}</th><th app-sort-th field="type" label="brain.chrono.table.kind" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.chrono.table.status' | transloco }}</th><th app-sort-th field="startsAt" label="brain.chrono.table.starts" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.chrono.table.ends' | transloco }}</th><th>{{ 'brain.chrono.table.tags' | transloco }}</th><th>{{ 'brain.chrono.table.entities' | transloco }}</th><th></th>
+                  <th app-sort-th field="title" label="brain.chrono.table.title" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.chrono.table.description' | transloco }}</th><th app-sort-th field="type" label="brain.chrono.table.kind" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                    <select class="col-filter-select" [ngModel]="recordFilter().type" (ngModelChange)="setTypeFilter($event)" [attr.aria-label]="'brain.filter.label' | transloco">
+                      <option value="">{{ 'brain.filter.allKinds' | transloco }}</option>
+                      @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
+                    </select>
+                  </th><th>{{ 'brain.chrono.table.status' | transloco }}</th><th app-sort-th field="startsAt" label="brain.chrono.table.starts" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.chrono.table.ends' | transloco }}</th>
+                  <th app-sort-th label="brain.chrono.table.tags">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
+                      [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
+                    <datalist [id]="tagListId">@for (s of store.chronoTagSuggestions(); track s) { <option [value]="s"></option> }</datalist>
+                  </th><th>{{ 'brain.chrono.table.entities' | transloco }}</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -287,8 +286,6 @@ export class ChronoTabComponent extends RecordTabBase {
   readonly drawerState = inject(RecordDrawerState);
   private brainApi = inject(BrainApi);
 
-  recordFilter = signal<RecordFilter>({ type: '', tag: '' });
-
   showChronoForm = signal(false);
   creatingChrono = signal(false);
   createChronoError = signal('');
@@ -365,12 +362,6 @@ export class ChronoTabComponent extends RecordTabBase {
         seq: (r['seq'] as number) ?? 0,
       } as ChronoEntry)));
     });
-  }
-
-  onFilterChange(f: RecordFilter): void {
-    this.recordFilter.set(f);
-    this.skip.set(0);
-    this.load();
   }
 
   openChronoForm(): void {

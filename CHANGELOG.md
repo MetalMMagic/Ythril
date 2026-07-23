@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The chrono `?search=` filter no longer passes the raw query to a MongoDB `$regex`.** The value was
+  handed to the engine un-escaped, so a crafted input (e.g. `(a+)+$`) was a regex-injection / ReDoS
+  vector against the list endpoint. It is now escaped and matched as a literal substring, the same as
+  the new entities/edges/memories freetext search. Behaviour for ordinary searches is unchanged.
+
 - **⚠️ UPGRADING WITH AN INTERNAL IdP: the OIDC issuer is now public-only by default. If your IdP
   lives on a private address — Keycloak on `http://keycloak.internal:8080`, Authentik on a cluster
   service, Dex on `10.x` — you must set `oidc.allowPrivateIssuer: true` in `config.json` (or
@@ -825,6 +830,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   AGPL PyMuPDF).
 
 ### Added
+
+- **Freetext substring search on the brain list endpoints.** `entities`, `edges` and `memories` now
+  take `?search=<text>` — a case-insensitive substring over the record's text fields (name/description,
+  label/description, fact/description respectively), applied server-side before pagination so it
+  matches across the whole list, not just the visible page. Previously the entities list `name` param
+  was an exact match (substring lived only on `/entities/by-name`) and memories had no text filter at
+  all; chrono already had `search`. The value is escaped and matched literally. This is the server
+  half that lets the Brain tabs put a freetext filter in a column header; the header controls follow.
 
 - **Brain list filters moved into the column headers.** The type/kind and tag filters that used to
   sit in a separate row above the table now dock directly under the column they filter — the

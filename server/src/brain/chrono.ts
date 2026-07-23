@@ -4,6 +4,7 @@ import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
+import { textSearchOr, SEARCHABLE_FIELDS } from './text-search.js';
 import { embed } from './embedding.js';
 import { chronoEmbedText } from './embed-text.js';
 import { getConfig } from '../config/loader.js';
@@ -283,11 +284,10 @@ export async function listChrono(
     query['createdAt'] = range;
   }
 
-  // Full-text substring search on title and/or description
-  if (filter.search && filter.search.trim()) {
-    const regex = { $regex: filter.search.trim(), $options: 'i' };
-    query['$or'] = [{ title: regex }, { description: regex }];
-  }
+  // Full-text substring search on title and/or description. Escaped (2b-iii-a): the raw value used to
+  // reach `$regex` un-escaped, so a value like `(a+)+$` was a ReDoS / regex-injection vector.
+  const search = textSearchOr(filter.search, SEARCHABLE_FIELDS.chrono);
+  if (search) query['$or'] = search.$or;
 
   const entries = await col<ChronoEntry>(`${spaceId}_chrono`)
     .find(asFilter<ChronoEntry>(query))

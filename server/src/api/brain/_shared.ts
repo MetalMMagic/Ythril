@@ -6,6 +6,7 @@
  * validation gate, the memory list filter, and the UUID matcher.
  */
 import { escapeRegex } from '../../util/redos.js';
+import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import type express from 'express';
 import { getConfig } from '../../config/loader.js';
 import { resolveMetaRefs, type SchemaViolation } from '../../spaces/schema-validation.js';
@@ -93,5 +94,9 @@ export function buildMemoryFilter(query: Record<string, unknown>): Record<string
   if (tag) filter['tags'] = { $regex: `^${escapeRegex(tag)}$`, $options: 'i' };
   if (entity) filter['entityIds'] = entity;
   if (type) filter['type'] = type;
+  // Freetext substring over fact + description (2b-iii-a).
+  const search = typeof query['search'] === 'string' ? query['search'] : undefined;
+  const or = textSearchOr(search, SEARCHABLE_FIELDS.memories);
+  if (or) Object.assign(filter, or);
   return filter;
 }

@@ -12,7 +12,6 @@ import { PropertiesEditorComponent } from '../../shared/properties-editor.compon
 import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
-import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
 import { SortableHeaderComponent } from './sortable-header.component';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordTabBase } from './record-tab-base';
@@ -34,7 +33,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-edges-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordSearchBarComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -44,14 +43,6 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
               [mode]="store.edgeSearchMode()" (modeChange)="setEdgeSearchMode($event)"
               placeholder="brain.edges.searchPlaceholder" />
             <button class="btn-primary btn btn-sm" (click)="openEdgeForm()" [disabled]="showEdgeForm()">{{ 'brain.edges.addButton' | transloco }}</button>
-          </div>
-          <div class="list-filter-row">
-            <app-record-filter-bar
-              [typeOptions]="store.edgeTypeOptions()"
-              [tagSuggestions]="store.edgeTagSuggestions()"
-              [value]="recordFilter()"
-              (filterChange)="onFilterChange($event)"
-            />
           </div>
 
           @if (showEdgeForm()) {
@@ -130,7 +121,13 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <table>
               <thead>
                 <tr>
-                  <th app-sort-th field="from" label="brain.edges.table.from" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="label" label="brain.edges.table.relation" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="to" label="brain.edges.table.to" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.edges.table.weight' | transloco }}</th><th>{{ 'brain.edges.table.tags' | transloco }}</th><th>{{ 'brain.edges.table.description' | transloco }}</th><th>{{ 'brain.edges.table.properties' | transloco }}</th><th app-sort-th field="createdAt" label="brain.edges.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
+                  <th app-sort-th field="from" label="brain.edges.table.from" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="label" label="brain.edges.table.relation" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="to" label="brain.edges.table.to" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.edges.table.weight' | transloco }}</th>
+                  <th app-sort-th label="brain.edges.table.tags">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
+                      [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
+                    <datalist [id]="tagListId">@for (s of store.edgeTagSuggestions(); track s) { <option [value]="s"></option> }</datalist>
+                  </th>
+                  <th>{{ 'brain.edges.table.description' | transloco }}</th><th>{{ 'brain.edges.table.properties' | transloco }}</th><th app-sort-th field="createdAt" label="brain.edges.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -252,8 +249,6 @@ export class EdgesTabComponent extends RecordTabBase {
   /** Emitted after a create so the shell can refresh the space's tab-count stats. (Delete does NOT — matches the shell's original edge behaviour.) */
   readonly mutated = output<void>();
 
-  recordFilter = signal<RecordFilter>({ type: '', tag: '' });
-
   showEdgeForm = signal(false);
   creatingEdge = signal(false);
   createEdgeError = signal('');
@@ -318,12 +313,6 @@ export class EdgesTabComponent extends RecordTabBase {
         createdAt: (r['createdAt'] as string) ?? '',
       } as Edge)));
     });
-  }
-
-  onFilterChange(f: RecordFilter): void {
-    this.recordFilter.set(f);
-    this.skip.set(0);
-    this.load();
   }
 
   openEdgeForm(): void {

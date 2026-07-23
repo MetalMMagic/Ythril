@@ -110,7 +110,7 @@ Click **Save**. The memory is indexed immediately and available for search.
 
 **Searching:** Type in the search bar and press Enter. A toggle beside it switches between **text** matching (plain substring/sort) and **Semantic** (meaning-based) search. Semantic mode returns a ranked set and is not paginated.
 
-**Filtering:** Click any tag or entity badge on a memory row to filter the list. Active filters appear as chips above the table. Click **×** on a chip to remove it, or **Clear all** to reset.
+**Filtering:** Each column that can be filtered has its control docked directly under the column header — a type/kind dropdown under the **Type**/**Kind** column, a tag box under the **Tags** column. Clicking a tag or entity badge on a row still fills the matching filter (the active entity filter shows as a chip above the table, with **×** to clear). Filtering happens on the server across the whole list, and clears back to everything when you empty the control.
 
 **Sorting:** Click a column header with a caret (▾) to sort the list by that column — click again to flip the direction, and a third time to return to the default order. The caret fills in and points up or down to show the active sort. Sorting happens on the server, so it orders the **whole** list across every page, not just the rows currently on screen. Sortable columns vary by tab (e.g. Name/Type/Created on Entities; Created on Memories; Title/Kind/Starts on Chrono).
 

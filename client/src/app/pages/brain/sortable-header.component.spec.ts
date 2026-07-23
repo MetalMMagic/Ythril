@@ -83,3 +83,40 @@ describe('SortableHeaderComponent', () => {
     expect(th.getAttribute('aria-sort')).toBe('descending');
   });
 });
+
+@Component({
+  standalone: true,
+  imports: [SortableHeaderComponent],
+  template: `
+    <table><thead><tr>
+      <th app-sort-th label="brain.entities.table.tags">
+        <input class="my-filter" />
+      </th>
+    </tr></thead></table>`,
+})
+class FilterOnlyHost {}
+
+describe('SortableHeaderComponent — filter-only (no field) column', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  function mountFilterOnly() {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ imports: [FilterOnlyHost, getTranslocoModule()] });
+    const fixture = TestBed.createComponent(FilterOnlyHost);
+    fixture.detectChanges();
+    return fixture;
+  }
+
+  it('renders the label as plain text with no sort button when field is omitted', () => {
+    const fixture = mountFilterOnly();
+    expect(fixture.nativeElement.querySelector('.sort-btn')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.col-label')).toBeTruthy();
+  });
+
+  it('is aria-sort=none and projects the docked filter control', () => {
+    const fixture = mountFilterOnly();
+    const th = fixture.nativeElement.querySelector('th') as HTMLElement;
+    expect(th.getAttribute('aria-sort')).toBe('none');
+    expect(fixture.nativeElement.querySelector('.col-filter .my-filter')).toBeTruthy();
+  });
+});

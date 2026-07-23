@@ -32,6 +32,8 @@ export const BRAIN_RECORD_TABLE_STYLES = `
       min-width: 180px;
       max-width: 520px;
     }
+    /* A slim row above the table, now only carrying the memories tab's active ENTITY-filter chip
+       (the type/tag filters moved into the headers in 2b-ii). */
     .list-filter-row {
       display: flex;
       align-items: center;
@@ -39,6 +41,22 @@ export const BRAIN_RECORD_TABLE_STYLES = `
       flex-wrap: wrap;
       margin-bottom: 12px;
     }
+    /* Slice 2b-ii: filters dock UNDER each column label (via th[app-sort-th]'s projected slot).
+       These style the docked controls uniformly across every tab. */
+    .col-filter-select, .col-filter-input {
+      height: 26px;
+      max-width: 100%;
+      box-sizing: border-box;
+      padding: 2px 6px;
+      font-size: 12px;
+      font-weight: 400;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+    }
+    .col-filter-select { min-width: 96px; }
+    .col-filter-input { min-width: 90px; }
     .filter-chip {
       display: inline-flex;
       align-items: center;

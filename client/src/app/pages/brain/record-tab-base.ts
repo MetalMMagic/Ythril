@@ -4,6 +4,12 @@ import { EntityRefPicker } from './entity-ref-picker.service';
 import { RecordListState } from './record-list-state.service';
 import type { ListSort } from '../../core/brain-api.service';
 
+/** The type/tag filter a record list is narrowed by. Empty strings mean "no filter". */
+export interface RecordFilter {
+  type: string;
+  tag: string;
+}
+
 /**
  * Shared machinery for the five record-tab components (memories/entities/edges/chrono/filemeta),
  * extracted after all five landed (A17.9d). Holds ONLY what is provably universal across all of them
@@ -39,6 +45,18 @@ export abstract class RecordTabBase {
    */
   sortField = signal('');
   sortDir = signal<'asc' | 'desc'>('desc');
+
+  /**
+   * The type/tag filter, shared by all four record tabs (2b-ii moved it out of the retired
+   * `record-filter-bar` and into the column headers). The docked header controls bind to it, and the
+   * memories tab's tag-badge click writes it — so pushing a value in still reflects into the header
+   * control, the round-trip the old filter bar's `[value]` gave. Each tab's `load()` reads it.
+   */
+  recordFilter = signal<RecordFilter>({ type: '', tag: '' });
+
+  /** Unique datalist id for a tab's docked tag-filter suggestions (multiple tables on one shell). */
+  readonly tagListId = `brain-tag-filter-${RecordTabBase._tagSeq++}`;
+  private static _tagSeq = 0;
 
   constructor() {
     // Self-load on creation (tab activation via the shell's gated @if) and on a space switch while
@@ -105,6 +123,20 @@ export abstract class RecordTabBase {
   /** The active sort for the current column, or `null` when this column is not the sort key. */
   sortState(field: string): 'asc' | 'desc' | null {
     return this.sortField() === field ? this.sortDir() : null;
+  }
+
+  /** Docked Type/Kind header filter changed → narrow the list from page 1. */
+  setTypeFilter(value: string): void {
+    this.recordFilter.update(f => ({ ...f, type: value }));
+    this.skip.set(0);
+    this.load();
+  }
+
+  /** Docked Tags header filter changed → narrow the list from page 1 (trimmed). */
+  setTagFilter(value: string): void {
+    this.recordFilter.update(f => ({ ...f, tag: value.trim() }));
+    this.skip.set(0);
+    this.load();
   }
 
   /** The `ListSort` to hand the API, or `undefined` when no column sort is active. */

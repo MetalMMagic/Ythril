@@ -91,6 +91,13 @@ export class ModelsStateService {
   get assist(): DocAssistCfg { return (this.form.documentProcessing ??= {}).assistModel ??= {}; }
   assistLocked(): boolean { return this.isLocked('documentProcessing.assistModel'); }
   assistUses(u: DocAssistUse): boolean { return this.assist.uses?.includes(u) ?? false; }
+  /** True when the external assist model is actually configured — a base URL AND a model to call.
+   *  Without both there is no endpoint, so nothing it is "used" for can run. */
+  assistConfigured(): boolean { return !!this.assist.baseUrl?.trim() && !!this.assist.model?.trim(); }
+  /** True when `u` is BOTH toggled on AND the model is configured — i.e. actually operational. The
+   *  "in use" pill keys off this, not the toggle alone: a repair pass toggled on but with no assist
+   *  model configured does not run, so the pill must not claim it is in use. */
+  assistInUse(u: DocAssistUse): boolean { return this.assistUses(u) && this.assistConfigured(); }
   toggleAssistUse(u: DocAssistUse, on: boolean): void {
     const set = new Set(this.assist.uses ?? []);
     if (on) set.add(u); else set.delete(u);

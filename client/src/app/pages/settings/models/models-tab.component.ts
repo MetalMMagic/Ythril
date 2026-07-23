@@ -211,8 +211,8 @@ import { TestTarget } from './models.types';
         [heading]="'models.assist.title' | transloco"
         [purpose]="'models.assist.purpose' | transloco"
         [health]="pipeline.modelState('assist')">
-        <app-status-pill pill [variant]="s.assistLocked() ? 'env' : (s.assistUses('repair') ? 'active' : 'off')">
-          {{ (s.assistLocked() ? 'models.pill.env' : (s.assistUses('repair') ? 'models.assist.pillInUse' : 'models.assist.pillUnset')) | transloco }}
+        <app-status-pill pill [variant]="s.assistLocked() ? 'env' : (s.assistInUse('repair') ? 'active' : 'off')">
+          {{ (s.assistLocked() ? 'models.pill.env' : (s.assistInUse('repair') ? 'models.assist.pillInUse' : 'models.assist.pillUnset')) | transloco }}
         </app-status-pill>
         <!-- Moved out of the footer, where it was effectively invisible. -->
         @if (s.assist.acknowledgedHost && !s.assistNeedsAck()) {

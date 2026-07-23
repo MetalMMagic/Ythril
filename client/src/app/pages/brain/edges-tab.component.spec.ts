@@ -49,7 +49,21 @@ describe('EdgesTabComponent', () => {
 
   it('self-loads on the spaceId input', () => {
     make();
-    expect(api.listEdges).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
+    expect(api.listEdges).toHaveBeenCalledWith('work', 20, 0, {}, undefined, undefined);
+  });
+
+  // CHARACTERIZATION (pins semantic recall before slice 2b-iii-b touches the search bars): switching
+  // to Semantic mode with a query must hit recallBrain({types:['edge']}), NOT the plain list. If a
+  // later freetext-filter change routes semantic through the list endpoint, this fails loudly.
+  it('Semantic search mode issues a recall (not a plain list) for edges', () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    api.listEdges.mockClear();
+    api.recallBrain.mockClear();
+    c.store.edgeSearch.set('mentor');
+    c.setEdgeSearchMode('semantic');
+    expect(api.recallBrain).toHaveBeenCalledWith('work', { query: 'mentor', types: ['edge'], topK: 20 });
+    expect(api.listEdges).not.toHaveBeenCalled();
   });
 
   it('createEdge requires from+to+label, spreads weight only when set, and emits mutated', () => {

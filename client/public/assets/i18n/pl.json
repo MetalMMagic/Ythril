@@ -353,6 +353,7 @@
   "brain.filter.label": "Filtr:",
   "brain.filter.aria": "Filtruj rekordy",
   "brain.filter.tagPlaceholder": "tag…",
+  "brain.filter.searchPlaceholder": "szukaj…",
   "brain.filter.allTypes": "Wszystkie typy",
   "brain.filter.allKinds": "Wszystkie rodzaje",
   "brain.entities.addButton": "+ Dodaj podmiot",

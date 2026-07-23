@@ -831,6 +831,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A freetext filter in the Brain list column headers.** Entities (**Name**), edges (**Relation**)
+  and memories (**Fact**) now have a search box docked under the header that matches a substring of
+  the row's text fields (name/description, label/description, fact/description) via the server's
+  `?search=` — so it filters the whole list, not just the visible page. The reload is **debounced**,
+  so typing doesn't fire a request per keystroke. It sits alongside the existing top search bar (whose
+  A–Z/Semantic pill is unchanged for now); the two are independent — the header filter is a literal
+  substring, the top bar's Semantic mode is meaning-based recall. Chrono already searched from its top
+  bar, so it is unchanged.
+
 - **Freetext substring search on the brain list endpoints.** `entities`, `edges` and `memories` now
   take `?search=<text>` — a case-insensitive substring over the record's text fields (name/description,
   label/description, fact/description respectively), applied server-side before pagination so it

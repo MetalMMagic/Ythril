@@ -107,7 +107,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <table>
               <thead>
                 <tr>
-                  <th app-sort-th field="name" label="brain.entities.table.name" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
+                  <th app-sort-th field="name" label="brain.entities.table.name" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                    <input class="col-filter-input" type="text" [ngModel]="search()" (ngModelChange)="setSearchFilter($event)"
+                      [placeholder]="'brain.filter.searchPlaceholder' | transloco" [attr.aria-label]="'brain.filter.searchPlaceholder' | transloco" />
+                  </th>
                   <th app-sort-th field="type" label="brain.entities.table.type" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
                     <select class="col-filter-select" [ngModel]="recordFilter().type" (ngModelChange)="setTypeFilter($event)" [attr.aria-label]="'brain.filter.label' | transloco">
                       <option value="">{{ 'brain.filter.allTypes' | transloco }}</option>
@@ -252,7 +255,7 @@ export class EntitiesTabComponent extends RecordTabBase {
     if (this.entitySearch()) ef.search = this.entitySearch();
     if (this.recordFilter().type) ef.type = this.recordFilter().type;
     if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
-    this.brainApi.listEntities(spaceId, this.pageSize, this.skip(), ef, this.sortParam()).subscribe({
+    this.brainApi.listEntities(spaceId, this.pageSize, this.skip(), ef, this.sortParam(), this.searchParam()).subscribe({
       next: ({ entities }) => { this.store.entities.set(entities); this.recordList.loading.set(false); },
       error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
     });
@@ -266,7 +269,7 @@ export class EntitiesTabComponent extends RecordTabBase {
     if (this.entitySearch()) ef.search = this.entitySearch();
     if (this.recordFilter().type) ef.type = this.recordFilter().type;
     if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
-    this.brainApi.listEntities(spaceId, this.pageSize, this.skip(), ef, this.sortParam()).subscribe({
+    this.brainApi.listEntities(spaceId, this.pageSize, this.skip(), ef, this.sortParam(), this.searchParam()).subscribe({
       next: ({ entities }) => this.store.entities.set(entities),
       error: () => {},
     });

@@ -121,7 +121,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <table>
               <thead>
                 <tr>
-                  <th app-sort-th field="from" label="brain.edges.table.from" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="label" label="brain.edges.table.relation" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="to" label="brain.edges.table.to" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.edges.table.weight' | transloco }}</th>
+                  <th app-sort-th field="from" label="brain.edges.table.from" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="label" label="brain.edges.table.relation" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                    <input class="col-filter-input" type="text" [ngModel]="search()" (ngModelChange)="setSearchFilter($event)"
+                      [placeholder]="'brain.filter.searchPlaceholder' | transloco" [attr.aria-label]="'brain.filter.searchPlaceholder' | transloco" />
+                  </th><th app-sort-th field="to" label="brain.edges.table.to" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.edges.table.weight' | transloco }}</th>
                   <th app-sort-th label="brain.edges.table.tags">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
@@ -269,7 +272,7 @@ export class EdgesTabComponent extends RecordTabBase {
     const gf: { type?: string; tag?: string } = {};
     if (this.recordFilter().type) gf.type = this.recordFilter().type;
     if (this.recordFilter().tag) gf.tag = this.recordFilter().tag;
-    this.brainApi.listEdges(spaceId, this.pageSize, this.skip(), gf, this.sortParam()).subscribe({
+    this.brainApi.listEdges(spaceId, this.pageSize, this.skip(), gf, this.sortParam(), this.searchParam()).subscribe({
       next: ({ edges }) => { this.store.edges.set(edges); this.recordList.loading.set(false); },
       error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
     });

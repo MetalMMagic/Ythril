@@ -48,7 +48,7 @@ describe('EntitiesTabComponent', () => {
 
   it('self-loads on the spaceId input (page size + skip 0 + no filter)', () => {
     make();
-    expect(api.listEntities).toHaveBeenCalledWith('work', 20, 0, {});
+    expect(api.listEntities).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
   });
 
   it('self-load effect depends on spaceId ONLY — no reload on plain change detection', () => {
@@ -122,9 +122,44 @@ describe('EntitiesTabComponent', () => {
     const c = fixture.componentInstance;
     api.listEntities.mockClear();
     c.onEntitySearchChange('ali');
-    expect(api.listEntities).toHaveBeenCalledWith('work', 20, 0, { search: 'ali' });
+    expect(api.listEntities).toHaveBeenCalledWith('work', 20, 0, { search: 'ali' }, undefined);
     c.nextPage();
     expect(c.skip()).toBe(20);
-    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 20, { search: 'ali' });
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 20, { search: 'ali' }, undefined);
+  });
+
+  it('setSort cycles a column desc → asc → back to default, passing the sort to the API each time', () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    api.listEntities.mockClear();
+
+    c.setSort('name');
+    expect(c.sortState('name')).toBe('desc');
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, { field: 'name', dir: 'desc' });
+
+    c.setSort('name');
+    expect(c.sortState('name')).toBe('asc');
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, { field: 'name', dir: 'asc' });
+
+    c.setSort('name');
+    expect(c.sortState('name')).toBeNull();
+    // Back to the endpoint's default order — no sort param.
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, undefined);
+  });
+
+  it('sorting a different column starts it at desc and drops the previous column', () => {
+    const c = make().componentInstance;
+    c.setSort('name');
+    c.setSort('createdAt');
+    expect(c.sortState('name')).toBeNull();
+    expect(c.sortState('createdAt')).toBe('desc');
+  });
+
+  it('changing the sort resets paging to the first page', () => {
+    const c = make().componentInstance;
+    c.nextPage();
+    expect(c.skip()).toBe(20);
+    c.setSort('name');
+    expect(c.skip()).toBe(0);
   });
 });

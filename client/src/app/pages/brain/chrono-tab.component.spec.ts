@@ -49,7 +49,7 @@ describe('ChronoTabComponent', () => {
 
   it('self-loads on the spaceId input', () => {
     make();
-    expect(api.listChrono).toHaveBeenCalledWith('work', 20, 0, {});
+    expect(api.listChrono).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
   });
 
   it('createChrono resolves a __custom__ kind to the free-text customKind and ISO-encodes startsAt', () => {

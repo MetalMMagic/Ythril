@@ -13,6 +13,7 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
 import { RecordFilterBarComponent, type RecordFilter } from '../../shared/record-filter-bar.component';
 import { RecordDrawerState } from './record-drawer-state.service';
 import { RecordTabBase } from './record-tab-base';
+import { SortableHeaderComponent } from './sortable-header.component';
 import { RecordSearchBarComponent } from './record-search-bar.component';
 import { fmtApiError, toLocalDatetime } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
@@ -33,7 +34,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-chrono-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordSearchBarComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordFilterBarComponent, RecordSearchBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -141,7 +142,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <table>
               <thead>
                 <tr>
-                  <th>{{ 'brain.chrono.table.title' | transloco }}</th><th>{{ 'brain.chrono.table.description' | transloco }}</th><th>{{ 'brain.chrono.table.kind' | transloco }}</th><th>{{ 'brain.chrono.table.status' | transloco }}</th><th>{{ 'brain.chrono.table.starts' | transloco }}</th><th>{{ 'brain.chrono.table.ends' | transloco }}</th><th>{{ 'brain.chrono.table.tags' | transloco }}</th><th>{{ 'brain.chrono.table.entities' | transloco }}</th><th></th>
+                  <th app-sort-th field="title" label="brain.chrono.table.title" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.chrono.table.description' | transloco }}</th><th app-sort-th field="type" label="brain.chrono.table.kind" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.chrono.table.status' | transloco }}</th><th app-sort-th field="startsAt" label="brain.chrono.table.starts" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.chrono.table.ends' | transloco }}</th><th>{{ 'brain.chrono.table.tags' | transloco }}</th><th>{{ 'brain.chrono.table.entities' | transloco }}</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -309,7 +310,7 @@ export class ChronoTabComponent extends RecordTabBase {
     if (this.store.chronoSearch()) cf.search = this.store.chronoSearch();
     if (this.recordFilter().type) cf.type = this.recordFilter().type;
     if (this.recordFilter().tag) cf.tag = this.recordFilter().tag;
-    this.brainApi.listChrono(spaceId, this.pageSize, this.skip(), cf).subscribe({
+    this.brainApi.listChrono(spaceId, this.pageSize, this.skip(), cf, this.sortParam()).subscribe({
       next: ({ chrono }) => {
         this.store.chrono.set(chrono);
         const ids = [...new Set(chrono.flatMap(e => e.entityIds ?? []))];

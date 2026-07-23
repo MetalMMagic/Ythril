@@ -112,6 +112,8 @@ Click **Save**. The memory is indexed immediately and available for search.
 
 **Filtering:** Click any tag or entity badge on a memory row to filter the list. Active filters appear as chips above the table. Click **×** on a chip to remove it, or **Clear all** to reset.
 
+**Sorting:** Click a column header with a caret (▾) to sort the list by that column — click again to flip the direction, and a third time to return to the default order. The caret fills in and points up or down to show the active sort. Sorting happens on the server, so it orders the **whole** list across every page, not just the rows currently on screen. Sortable columns vary by tab (e.g. Name/Type/Created on Entities; Created on Memories; Title/Kind/Starts on Chrono).
+
 **Deleting:** Each row has a **✕** button. A small inline confirmation appears — click **Yes** to confirm, **No** to cancel.
 
 **Wiping everything:** There is no "Wipe all" button on the Brain toolbar. To clear a space's data, go to **Settings → Spaces → (space) → Danger tab** and use **Wipe all data**. You will be asked to type the space ID to confirm.

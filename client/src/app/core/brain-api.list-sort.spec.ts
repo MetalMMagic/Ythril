@@ -1,0 +1,67 @@
+/**
+ * BrainApi list methods thread the slice-2b sort into the request as `?sort=&dir=` — and omit both
+ * when no sort is active. This is the client half of slice 2a's server sort: the tab passes a
+ * `ListSort`, the server orders the full set. If these params silently went missing, the header caret
+ * would spin with no effect.
+ */
+import { TestBed } from '@angular/core/testing';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { BrainApi } from './brain-api.service';
+
+describe('BrainApi — list sort params (2b)', () => {
+  let api: BrainApi;
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [BrainApi, provideHttpClient(), provideHttpClientTesting()] });
+    api = TestBed.inject(BrainApi);
+    http = TestBed.inject(HttpTestingController);
+  });
+  afterEach(() => http.verify());
+
+  it('listEntities appends sort + dir when a sort is given', () => {
+    api.listEntities('work', 50, 0, undefined, { field: 'name', dir: 'asc' }).subscribe();
+    const r = http.expectOne(req => req.url === '/api/brain/spaces/work/entities');
+    expect(r.request.params.get('sort')).toBe('name');
+    expect(r.request.params.get('dir')).toBe('asc');
+    r.flush({ entities: [] });
+  });
+
+  it('listEntities sends NO sort/dir when none is given — the endpoint keeps its default order', () => {
+    api.listEntities('work', 50, 0).subscribe();
+    const r = http.expectOne(req => req.url === '/api/brain/spaces/work/entities');
+    expect(r.request.params.has('sort')).toBe(false);
+    expect(r.request.params.has('dir')).toBe(false);
+    r.flush({ entities: [] });
+  });
+
+  it('listEdges / listMemories / listChrono all carry the sort', () => {
+    api.listEdges('work', 50, 0, undefined, { field: 'label', dir: 'desc' }).subscribe();
+    const e = http.expectOne(req => req.url === '/api/brain/spaces/work/edges');
+    expect(e.request.params.get('sort')).toBe('label');
+    expect(e.request.params.get('dir')).toBe('desc');
+    e.flush({ edges: [] });
+
+    api.listMemories('work', 20, 0, undefined, { field: 'createdAt', dir: 'desc' }).subscribe();
+    const m = http.expectOne(req => req.url === '/api/brain/spaces/work/memories');
+    expect(m.request.params.get('sort')).toBe('createdAt');
+    m.flush({ memories: [], limit: 20, skip: 0 });
+
+    api.listChrono('work', 50, 0, undefined, { field: 'startsAt', dir: 'asc' }).subscribe();
+    const c = http.expectOne(req => req.url === '/api/brain/spaces/work/chrono');
+    expect(c.request.params.get('sort')).toBe('startsAt');
+    expect(c.request.params.get('dir')).toBe('asc');
+    c.flush({ chrono: [] });
+  });
+
+  it('sort composes with existing filters rather than replacing them', () => {
+    api.listEntities('work', 50, 0, { type: 'person', tag: 'vip' }, { field: 'createdAt', dir: 'desc' }).subscribe();
+    const r = http.expectOne(req => req.url === '/api/brain/spaces/work/entities');
+    expect(r.request.params.get('type')).toBe('person');
+    expect(r.request.params.get('tag')).toBe('vip');
+    expect(r.request.params.get('sort')).toBe('createdAt');
+    r.flush({ entities: [] });
+  });
+});

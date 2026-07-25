@@ -47,7 +47,6 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
           <div class="content-header">
             <app-record-search-bar
               [value]="store.memorySearch()" (valueChange)="onMemorySearch($event)"
-              [mode]="store.memorySearchMode()" (modeChange)="setMemorySearchMode($event)"
               placeholder="brain.memories.searchPlaceholder" />
             <button class="btn-primary btn btn-sm" (click)="openMemoryForm()" [disabled]="showMemoryForm()">{{ 'brain.memories.addButton' | transloco }}</button>
           </div>
@@ -140,7 +139,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                 </tr>
               </thead>
               <tbody>
-                @for (mem of store.filteredMemories(); track mem._id) {
+                @for (mem of store.memories(); track mem._id) {
                   @if (recordList.editingId() === mem._id) {
                     <tr>
                       <td colspan="7">
@@ -242,7 +241,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                     } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="brain" [size]="48"/></div>
-                      @if (store.memorySearch() && store.memories().length) {
+                      @if (store.memorySearch()) {
                         <h3>{{ 'common.noMatches' | transloco }}</h3>
                         <p>{{ 'brain.memories.empty.noMatchQuery' | transloco: { query: store.memorySearch() } }}</p>
                       } @else {
@@ -256,10 +255,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
               </tbody>
             </table>
           </div>
-          @if (store.memorySearchMode() !== 'semantic') {
+          @if (!store.memorySearch().trim()) {
             <div class="pagination">
               <button class="btn btn-sm btn-secondary" [disabled]="skip() === 0" (click)="prevPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ store.filteredMemories().length ? (skip() + 1) + '–' + (skip() + store.filteredMemories().length) : '–' }}</span>
+              <span class="pager-info">{{ store.memories().length ? (skip() + 1) + '–' + (skip() + store.memories().length) : '–' }}</span>
               <button class="btn btn-sm btn-secondary" [disabled]="store.memories().length < pageSize" (click)="nextPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
@@ -307,21 +306,16 @@ export class MemoriesTabComponent extends RecordTabBase {
     });
   }
 
+  /**
+   * The top-bar search is SEMANTIC-only (2b-iii-c): typing issues a debounced `recallBrain`. Plain
+   * substring search moved to the docked Fact column freetext filter (server-side, via `load()`).
+   * Clearing the box restores the normal paginated list.
+   */
   onMemorySearch(q: string): void {
     this.store.memorySearch.set(q);
-    if (this.store.memorySearchMode() === 'semantic') {
-      if (this._memSemTimer) clearTimeout(this._memSemTimer);
-      if (!q.trim()) { this.store.memories.set([]); return; }
-      this._memSemTimer = setTimeout(() => this.runSemanticMemorySearch(), 300);
-    }
-  }
-
-  setMemorySearchMode(m: 'text' | 'semantic'): void {
-    this.store.memorySearchMode.set(m);
-    const q = this.store.memorySearch().trim();
-    if (!q) return;
-    if (m === 'semantic') this.runSemanticMemorySearch();
-    else { this.skip.set(0); this.load(); }
+    if (this._memSemTimer) clearTimeout(this._memSemTimer);
+    if (!q.trim()) { this.skip.set(0); this.load(); return; }
+    this._memSemTimer = setTimeout(() => this.runSemanticMemorySearch(), 300);
   }
 
   runSemanticMemorySearch(): void {

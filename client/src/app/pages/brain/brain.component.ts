@@ -420,9 +420,6 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.store.memorySearch.set('');
     this.store.edgeSearch.set('');
     this.store.chronoSearch.set('');
-    this.store.memorySearchMode.set('text');
-    this.store.edgeSearchMode.set('text');
-    this.store.chronoSearchMode.set('text');
     this.recordList.confirmDeleteId.set('');
     this.reindexResult.set('');
     this.loadStats(id);
@@ -435,9 +432,6 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.store.edgeSearch.set('');
     this.store.chronoSearch.set('');
     this.store.fileMetaSearch.set('');
-    this.store.memorySearchMode.set('text');
-    this.store.edgeSearchMode.set('text');
-    this.store.chronoSearchMode.set('text');
     this.recordList.confirmDeleteId.set('');
   }
 

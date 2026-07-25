@@ -54,17 +54,31 @@ describe('MemoriesTabComponent', () => {
     expect(api.listMemories).toHaveBeenCalledWith('work', 20, 0, {}, undefined, undefined);
   });
 
-  // CHARACTERIZATION (pins semantic recall before slice 2b-iii-b touches the search bars): Semantic
-  // mode must issue recallBrain({types:['memory']}), never the plain list.
-  it('Semantic search mode issues a recall (not a plain list) for memories', () => {
+  // CHARACTERIZATION (pins semantic recall through the 2b-iii-c demotion — the top bar is now
+  // semantic-only): typing in the bar must issue recallBrain({types:['memory']}) after the debounce,
+  // never the plain list. If a later change routes the top bar through the list endpoint, this fails.
+  it('the semantic top bar issues a recall (not a plain list) for memories', () => {
     const fixture = make();
     const c = fixture.componentInstance;
     api.listMemories.mockClear();
     api.recallBrain.mockClear();
-    c.store.memorySearch.set('deadline');
-    c.setMemorySearchMode('semantic');
+    vi.useFakeTimers();
+    c.onMemorySearch('deadline');
+    vi.advanceTimersByTime(300);
+    vi.useRealTimers();
     expect(api.recallBrain).toHaveBeenCalledWith('work', { query: 'deadline', types: ['memory'], topK: 20 });
     expect(api.listMemories).not.toHaveBeenCalled();
+  });
+
+  // Clearing the semantic bar restores the normal paginated list (a plain list call, no recall).
+  it('clearing the semantic bar reloads the plain list', () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    api.listMemories.mockClear();
+    api.recallBrain.mockClear();
+    c.onMemorySearch('');
+    expect(api.listMemories).toHaveBeenCalledWith('work', 20, 0, {}, undefined, undefined);
+    expect(api.recallBrain).not.toHaveBeenCalled();
   });
 
   it('renders the create form when opened (plain ngModel model under OnPush)', () => {

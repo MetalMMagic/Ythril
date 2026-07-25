@@ -52,17 +52,44 @@ describe('ChronoTabComponent', () => {
     expect(api.listChrono).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
   });
 
-  // CHARACTERIZATION (pins semantic recall before slice 2b-iii-b touches the search bars): Semantic
-  // mode must issue recallBrain({types:['chrono']}), never the plain list.
-  it('Semantic search mode issues a recall (not a plain list) for chrono', () => {
+  // CHARACTERIZATION (pins semantic recall through the 2b-iii-c demotion — the top bar is now
+  // semantic-only): typing in the bar must issue recallBrain({types:['chrono']}) after the debounce,
+  // never the plain list. If a later change routes the top bar through the list endpoint, this fails.
+  it('the semantic top bar issues a recall (not a plain list) for chrono', () => {
     const fixture = make();
     const c = fixture.componentInstance;
     api.listChrono.mockClear();
     api.recallBrain.mockClear();
-    c.store.chronoSearch.set('launch');
-    c.setChronoSearchMode('semantic');
+    vi.useFakeTimers();
+    c.onChronoSearch('launch');
+    vi.advanceTimersByTime(300);
+    vi.useRealTimers();
     expect(api.recallBrain).toHaveBeenCalledWith('work', { query: 'launch', types: ['chrono'], topK: 20 });
     expect(api.listChrono).not.toHaveBeenCalled();
+  });
+
+  // Clearing the semantic bar restores the normal paginated list (a plain list call, no recall).
+  it('clearing the semantic bar reloads the plain list', () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    api.listChrono.mockClear();
+    api.recallBrain.mockClear();
+    c.onChronoSearch('');
+    expect(api.listChrono).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
+    expect(api.recallBrain).not.toHaveBeenCalled();
+  });
+
+  // 2b-iii-c gave chrono the docked Title column freetext filter (like memories/edges): a debounced
+  // server-side substring via the list endpoint's `search`, NOT the top-bar (which is semantic now).
+  it('the Title column freetext filter feeds the list endpoint search (debounced)', () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    api.listChrono.mockClear();
+    vi.useFakeTimers();
+    c.setSearchFilter('launch');
+    vi.advanceTimersByTime(250);
+    vi.useRealTimers();
+    expect(api.listChrono).toHaveBeenCalledWith('work', 20, 0, { search: 'launch' }, undefined);
   });
 
   it('createChrono resolves a __custom__ kind to the free-text customKind and ISO-encodes startsAt', () => {

@@ -1,20 +1,19 @@
 /**
- * RecordSearchBarComponent — the dumb search bar the record tabs share (A17.9c). Verifies the
- * value/mode inputs, the valueChange/modeChange outputs, and that the pill is shown only when a mode
- * is provided (file-meta omits it).
+ * RecordSearchBarComponent — the dumb search bar the record tabs share (A17.9c). Since 2b-iii-c it is
+ * a single styled search input (the A–Z / Semantic pill was removed when the top bar became
+ * semantic-only). Verifies the value input, the valueChange output, and the aria-label fallback.
  */
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { RecordSearchBarComponent } from './record-search-bar.component';
 
-function create(inputs: { value: string; placeholder: string; mode?: 'text' | 'semantic' | null; ariaLabel?: string }) {
+function create(inputs: { value: string; placeholder: string; ariaLabel?: string }) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({ imports: [RecordSearchBarComponent, getTranslocoModule()] });
   const fixture = TestBed.createComponent(RecordSearchBarComponent);
   fixture.componentRef.setInput('value', inputs.value);
   fixture.componentRef.setInput('placeholder', inputs.placeholder);
-  if ('mode' in inputs) fixture.componentRef.setInput('mode', inputs.mode);
   if (inputs.ariaLabel) fixture.componentRef.setInput('ariaLabel', inputs.ariaLabel);
   fixture.detectChanges();
   return fixture;
@@ -44,27 +43,9 @@ describe('RecordSearchBarComponent', () => {
     expect(emitted).toEqual(['abc']);
   });
 
-  it('hides the mode pill when no mode is given (file-meta case)', () => {
+  it('has no mode pill (removed in 2b-iii-c — the bar is single-purpose now)', () => {
     const fixture = create({ value: '', placeholder: 'ph' });
     expect(fixture.nativeElement.querySelector('.pill-group')).toBeNull();
-  });
-
-  it('shows the pill and marks the active mode when a mode is given', () => {
-    const fixture = create({ value: '', placeholder: 'ph', mode: 'semantic' });
-    const pill = fixture.nativeElement.querySelector('.pill-group');
-    expect(pill).toBeTruthy();
-    const buttons = pill.querySelectorAll('button');
-    expect(buttons[0].classList.contains('active')).toBe(false); // text
-    expect(buttons[1].classList.contains('active')).toBe(true);  // semantic
-  });
-
-  it('emits modeChange when a pill button is clicked', () => {
-    const fixture = create({ value: '', placeholder: 'ph', mode: 'text' });
-    const emitted: string[] = [];
-    fixture.componentInstance.modeChange.subscribe(m => emitted.push(m));
-    const buttons = fixture.nativeElement.querySelectorAll('.pill-group button');
-    (buttons[1] as HTMLButtonElement).click(); // semantic
-    expect(emitted).toEqual(['semantic']);
   });
 
   it('uses a distinct aria-label when provided, else the placeholder', () => {

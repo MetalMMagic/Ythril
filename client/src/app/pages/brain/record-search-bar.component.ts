@@ -1,28 +1,29 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
-import { PhIconComponent } from '../../shared/ph-icon.component';
 
 /**
- * The record tabs' search bar — a text input plus an optional A–Z / Semantic mode pill.
+ * The record tabs' search bar — a single styled search input.
  *
- * Unifies four near-identical inline bars (A17.9c): memories/edges/chrono had byte-identical markup
- * (input + pill) and file-meta a plain input (no pill). It is a DUMB presentational component — the
- * parent owns the state (in `BrainStore`) and passes `value`/`mode` in, receiving `valueChange`/
- * `modeChange` out. Omit `mode` (leave it null) to hide the pill — that is how file-meta reuses it for
- * its client-side filter.
+ * Unifies the four near-identical inline bars (A17.9c). Originally it also carried an A–Z / Semantic
+ * mode pill, but slice 2b-iii docked plain-text (A–Z) search into the column headers as a server-side
+ * freetext filter, which made the pill's A–Z half redundant. The pill was removed (2b-iii-c): the top
+ * bar is now a single-purpose box. Memories/edges/chrono use it for SEMANTIC recall (the parent's
+ * `onXSearch` issues a `recallBrain`); file-meta uses it for its client-side path/description/tag
+ * filter. The component itself is agnostic — it is a DUMB presentational input: the parent owns the
+ * state and passes `value` in, receiving `valueChange` out.
  *
- * NOT here: the entities tab's search, which uses `<app-entity-search>` (entity autocomplete — a richer
- * interaction, intentionally separate), and the semantic-search LOGIC (`onXSearch`/`runSemanticXSearch`),
- * which stays in the tabs because its recall-result mapping is per-collection.
+ * NOT here: the entities tab's search, which uses `<app-entity-search>` (entity autocomplete — a
+ * richer interaction, intentionally separate), and the semantic-search LOGIC (`onXSearch`/
+ * `runSemanticXSearch`), which stays in the tabs because its recall-result mapping is per-collection.
  *
- * `:host { display: contents }` so the input and pill remain direct flex children of the parent's
+ * `:host { display: contents }` so the input remains a direct flex child of the parent's
  * `.content-header`, preserving the original layout exactly.
  */
 @Component({
   selector: 'app-record-search-bar',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TranslocoPipe, PhIconComponent],
+  imports: [TranslocoPipe],
   styles: [`
     :host { display: contents; }
     input[type=search] {
@@ -36,11 +37,6 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
       background: var(--bg-surface);
       color: var(--text-primary);
     }
-    .pill-group { display: flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0; }
-    .pill-group button { padding: 5px 10px; font-size: 11px; background: transparent; border: none; border-right: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; white-space: nowrap; }
-    .pill-group button:last-child { border-right: none; }
-    .pill-group button.active { background: var(--accent-dim); color: var(--accent); }
-    .pill-group button:hover:not(.active) { background: var(--bg-surface); }
   `],
   template: `
     <input type="search"
@@ -48,12 +44,6 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
       (input)="valueChange.emit($any($event.target).value)"
       [placeholder]="placeholder() | transloco"
       [attr.aria-label]="(ariaLabel() ?? placeholder()) | transloco" />
-    @if (mode(); as m) {
-      <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
-        <button [class.active]="m === 'text'" (click)="modeChange.emit('text')">{{ 'common.sortAZ' | transloco }}</button>
-        <button [class.active]="m === 'semantic'" (click)="modeChange.emit('semantic')"><ph-icon name="star-four" [size]="14" style="display:inline-flex;vertical-align:middle;margin-right:3px;"/> {{ 'common.semantic' | transloco }}</button>
-      </div>
-    }
   `,
 })
 export class RecordSearchBarComponent {
@@ -61,9 +51,6 @@ export class RecordSearchBarComponent {
   readonly placeholder = input.required<string>();
   /** Optional distinct aria-label i18n key; falls back to `placeholder` when unset. */
   readonly ariaLabel = input<string | null>(null);
-  /** null/absent hides the pill (e.g. file-meta's client-side filter). */
-  readonly mode = input<'text' | 'semantic' | null>(null);
 
   readonly valueChange = output<string>();
-  readonly modeChange = output<'text' | 'semantic'>();
 }

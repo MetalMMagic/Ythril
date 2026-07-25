@@ -9,10 +9,10 @@
  * It does not touch the pure derived state below — which is precisely what A17.9 relocates when the
  * eight tab-views become child components over a shared BrainState. So this pins:
  *
- *   - the four `filtered*` computeds, including the semantic-mode BYPASS (searching in semantic mode
- *     returns the list untouched) and the fact that files have NO such bypass — an asymmetry that is
- *     easy to "tidy away" during a split
- *   - which fields each search actually looks at (they differ per collection)
+ *   - `filteredFileMetas`: file-meta's client-side filter and the fact that files have NO semantic
+ *     mode — the deliberate asymmetry that survives 2b-iii-c. (memories/edges/chrono no longer have a
+ *     client-side `filtered*` view: their top bar is semantic and their plain-text search is the
+ *     server-side docked column filter, so there is nothing pure left here to pin.)
  *   - the `*TagSuggestions` union of schema suggestions + tags present on loaded records
  *   - `*TypeOptions`: schema names UNION values present, deduped and SORTED
  */
@@ -37,90 +37,6 @@ function create(): BrainStore {
   TestBed.configureTestingModule({ providers: [BrainStore] });
   return TestBed.inject(BrainStore);
 }
-
-describe('BrainStore — filteredMemories', () => {
-  it('no query returns everything', () => {
-    const c = create();
-    c.memories.set([mem('a'), mem('b')]);
-    expect(c.filteredMemories()).toHaveLength(2);
-  });
-
-  it('filters on fact, case-insensitively', () => {
-    const c = create();
-    c.memories.set([mem('the sky is blue'), mem('water is wet')]);
-    c.memorySearch.set('SKY');
-    expect(c.filteredMemories().map(m => m.fact)).toEqual(['the sky is blue']);
-  });
-
-  it('a whitespace-only query is not a filter', () => {
-    const c = create();
-    c.memories.set([mem('a'), mem('b')]);
-    c.memorySearch.set('   ');
-    expect(c.filteredMemories()).toHaveLength(2);
-  });
-
-  it('SEMANTIC mode bypasses the text filter entirely — the server already ranked these', () => {
-    const c = create();
-    c.memories.set([mem('the sky is blue'), mem('water is wet')]);
-    c.memorySearch.set('sky');
-    c.memorySearchMode.set('semantic');
-    expect(c.filteredMemories()).toHaveLength(2);
-  });
-});
-
-describe('BrainStore — filteredChrono', () => {
-  it('searches title, description, type AND tags', () => {
-    const c = create();
-    c.chrono.set([
-      chrono('launch', { description: 'ship it' }),
-      chrono('review', { type: 'deadline' } as Partial<ChronoEntry>),
-      chrono('retro', { tags: ['team'] }),
-      chrono('unrelated'),
-    ]);
-    const found = (q: string) => { c.chronoSearch.set(q); return c.filteredChrono().map(e => e.title); };
-    expect(found('launch')).toEqual(['launch']);   // title
-    expect(found('ship')).toEqual(['launch']);     // description
-    expect(found('deadline')).toEqual(['review']); // type
-    expect(found('team')).toEqual(['retro']);      // tag
-  });
-
-  it('SEMANTIC mode bypasses the text filter', () => {
-    const c = create();
-    c.chrono.set([chrono('launch'), chrono('review')]);
-    c.chronoSearch.set('launch');
-    c.chronoSearchMode.set('semantic');
-    expect(c.filteredChrono()).toHaveLength(2);
-  });
-});
-
-describe('BrainStore — filteredEdges', () => {
-  it('searches label, fromName and toName', () => {
-    const c = create();
-    c.edges.set([
-      edge('owns', { fromName: 'alice', toName: 'car' }),
-      edge('knows', { fromName: 'bob', toName: 'carol' }),
-    ]);
-    const found = (q: string) => { c.edgeSearch.set(q); return c.filteredEdges().map(e => e.label); };
-    expect(found('owns')).toEqual(['owns']);    // label
-    expect(found('alice')).toEqual(['owns']);   // fromName
-    expect(found('carol')).toEqual(['knows']);  // toName
-  });
-
-  it('an edge with no fromName/toName does not throw', () => {
-    const c = create();
-    c.edges.set([edge('owns')]);
-    c.edgeSearch.set('zzz');
-    expect(c.filteredEdges()).toEqual([]);
-  });
-
-  it('SEMANTIC mode bypasses the text filter', () => {
-    const c = create();
-    c.edges.set([edge('owns'), edge('knows')]);
-    c.edgeSearch.set('owns');
-    c.edgeSearchMode.set('semantic');
-    expect(c.filteredEdges()).toHaveLength(2);
-  });
-});
 
 describe('BrainStore — filteredFileMetas', () => {
   it('searches path, description and tags', () => {

@@ -52,18 +52,31 @@ describe('EdgesTabComponent', () => {
     expect(api.listEdges).toHaveBeenCalledWith('work', 20, 0, {}, undefined, undefined);
   });
 
-  // CHARACTERIZATION (pins semantic recall before slice 2b-iii-b touches the search bars): switching
-  // to Semantic mode with a query must hit recallBrain({types:['edge']}), NOT the plain list. If a
-  // later freetext-filter change routes semantic through the list endpoint, this fails loudly.
-  it('Semantic search mode issues a recall (not a plain list) for edges', () => {
+  // CHARACTERIZATION (pins semantic recall through the 2b-iii-c demotion — the top bar is now
+  // semantic-only): typing in the bar must hit recallBrain({types:['edge']}) after the debounce, NOT
+  // the plain list. If a later change routes the top bar through the list endpoint, this fails loudly.
+  it('the semantic top bar issues a recall (not a plain list) for edges', () => {
     const fixture = make();
     const c = fixture.componentInstance;
     api.listEdges.mockClear();
     api.recallBrain.mockClear();
-    c.store.edgeSearch.set('mentor');
-    c.setEdgeSearchMode('semantic');
+    vi.useFakeTimers();
+    c.onEdgeSearch('mentor');
+    vi.advanceTimersByTime(300);
+    vi.useRealTimers();
     expect(api.recallBrain).toHaveBeenCalledWith('work', { query: 'mentor', types: ['edge'], topK: 20 });
     expect(api.listEdges).not.toHaveBeenCalled();
+  });
+
+  // Clearing the semantic bar restores the normal paginated list (a plain list call, no recall).
+  it('clearing the semantic bar reloads the plain list', () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    api.listEdges.mockClear();
+    api.recallBrain.mockClear();
+    c.onEdgeSearch('');
+    expect(api.listEdges).toHaveBeenCalledWith('work', 20, 0, {}, undefined, undefined);
+    expect(api.recallBrain).not.toHaveBeenCalled();
   });
 
   it('createEdge requires from+to+label, spreads weight only when set, and emits mutated', () => {

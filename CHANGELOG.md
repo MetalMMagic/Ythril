@@ -2279,6 +2279,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brain list tabs' top search bar is Semantic-only now — the redundant A–Z half is gone.** Once
+  slice 2b-iii docked a plain-text (substring) freetext filter under each list column, the top bar's
+  A–Z / Semantic pill had two ways to do the same plain-text search. The A–Z half is removed: the
+  memories/edges/chrono top bar is a single **Semantic search** box (typing issues a debounced
+  `recallBrain`; clearing it restores the normal paginated list), and plain substring search is the
+  column freetext filter. **Chrono, which had no column freetext filter yet, gained one** on its Title
+  column (server-side `?search=`, debounced — matching memories' Fact and edges' Relation), so its
+  plain-text search is not lost but improved: it now spans every page server-side instead of filtering
+  only the loaded page. The dead client-side page-filters (`filteredMemories`/`filteredEdges`/
+  `filteredChrono`) and the `{memory,edge,chrono}SearchMode` store signals are removed; file-meta keeps
+  its own client-side filter (it has no semantic mode). Semantic recall is pinned by characterization
+  tests run green before and after the change. The entities tab uses the separate `app-entity-search`
+  component (its own A–Z/Semantic pill, also used in the record pickers) and is unchanged here — its
+  reconciliation is queued with the inline-picker slice. Verified end-to-end on an isolated instance.
 - **Brain add-forms are uniform now — same control heights, table-column field order.** The five
   record tabs had drifted apart: four different control heights on one page (search `5/10`, filter
   `30`, create-form `5/8`, global `8/12`), the memories create-form in a different field order than

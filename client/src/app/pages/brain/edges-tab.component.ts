@@ -22,9 +22,9 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
 
 /**
  * The Edges record tab, extracted from BrainComponent (A17.9b-6f) following the memories pattern.
- * Owns the edge create form, the (drawer-superseded) inline edit, delete, and the tab's own text/
- * semantic search (via `store.edgeSearch`/`edgeSearchMode`, like memories) + type-tag filter +
- * pagination + loader. Self-loads via a `spaceId` effect.
+ * Owns the edge create form, the (drawer-superseded) inline edit, delete, and the tab's own search
+ * (semantic-only top bar via `store.edgeSearch` + the docked Relation column freetext filter, 2b-iii-c)
+ * + type-tag filter + pagination + loader. Self-loads via a `spaceId` effect.
  *
  * Edge deltas: create AND inline-edit strip empty optional props (like entity); `deleteEdge` does NOT
  * refresh the space stats (so it does NOT emit `mutated`) — the asymmetry pinned by the A17.9b-6b tests.
@@ -40,7 +40,6 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
           <div class="content-header">
             <app-record-search-bar
               [value]="store.edgeSearch()" (valueChange)="onEdgeSearch($event)"
-              [mode]="store.edgeSearchMode()" (modeChange)="setEdgeSearchMode($event)"
               placeholder="brain.edges.searchPlaceholder" />
             <button class="btn-primary btn btn-sm" (click)="openEdgeForm()" [disabled]="showEdgeForm()">{{ 'brain.edges.addButton' | transloco }}</button>
           </div>
@@ -134,7 +133,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                 </tr>
               </thead>
               <tbody>
-                @for (edge of store.filteredEdges(); track edge._id) {
+                @for (edge of store.edges(); track edge._id) {
                   @if (recordList.editingId() === edge._id) {
                     <tr>
                       <td colspan="9">
@@ -223,7 +222,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                     } @else {
                     <div class="empty-state" style="padding:32px">
                       <div class="empty-state-icon"><ph-icon name="graph" [size]="48"/></div>
-                      @if (store.edgeSearch() && store.edges().length) {
+                      @if (store.edgeSearch()) {
                         <h3>{{ 'common.noMatches' | transloco }}</h3>
                         <p>{{ 'brain.edges.empty.noMatchQuery' | transloco: { query: store.edgeSearch() } }}</p>
                       } @else {
@@ -236,10 +235,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
               </tbody>
             </table>
           </div>
-          @if (store.edgeSearchMode() !== 'semantic') {
+          @if (!store.edgeSearch().trim()) {
             <div class="pagination">
               <button class="btn btn-sm btn-secondary" [disabled]="skip() === 0" (click)="prevPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
-              <span class="pager-info">{{ store.filteredEdges().length ? (skip() + 1) + '–' + (skip() + store.filteredEdges().length) : '–' }}</span>
+              <span class="pager-info">{{ store.edges().length ? (skip() + 1) + '–' + (skip() + store.edges().length) : '–' }}</span>
               <button class="btn btn-sm btn-secondary" [disabled]="store.edges().length < pageSize" (click)="nextPage()">{{ 'common.next' | transloco }} <ph-icon name="arrow-right" [size]="14" style="display:inline-flex;vertical-align:middle;"/></button>
             </div>
           }
@@ -278,21 +277,16 @@ export class EdgesTabComponent extends RecordTabBase {
     });
   }
 
+  /**
+   * The top-bar search is SEMANTIC-only (2b-iii-c): typing issues a debounced `recallBrain`. Plain
+   * substring search moved to the docked Relation column freetext filter (server-side, via `load()`).
+   * Clearing the box restores the normal paginated list.
+   */
   onEdgeSearch(q: string): void {
     this.store.edgeSearch.set(q);
-    if (this.store.edgeSearchMode() === 'semantic') {
-      if (this._edgeSemTimer) clearTimeout(this._edgeSemTimer);
-      if (!q.trim()) { this.store.edges.set([]); return; }
-      this._edgeSemTimer = setTimeout(() => this.runSemanticEdgeSearch(), 300);
-    }
-  }
-
-  setEdgeSearchMode(m: 'text' | 'semantic'): void {
-    this.store.edgeSearchMode.set(m);
-    const q = this.store.edgeSearch().trim();
-    if (!q) return;
-    if (m === 'semantic') this.runSemanticEdgeSearch();
-    else { this.skip.set(0); this.load(); }
+    if (this._edgeSemTimer) clearTimeout(this._edgeSemTimer);
+    if (!q.trim()) { this.skip.set(0); this.load(); return; }
+    this._edgeSemTimer = setTimeout(() => this.runSemanticEdgeSearch(), 300);
   }
 
   runSemanticEdgeSearch(): void {

@@ -20,9 +20,9 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
 
 /**
  * The Chrono record tab, extracted from BrainComponent (A17.9b-6g) following the memories/edges pattern.
- * Owns the chrono create form, the (drawer-superseded) inline edit, delete, and the tab's own text/
- * semantic search (`store.chronoSearch`/`chronoSearchMode`) + type-tag filter + pagination + loader.
- * Self-loads via a `spaceId` effect.
+ * Owns the chrono create form, the (drawer-superseded) inline edit, delete, and the tab's own search
+ * (semantic-only top bar via `store.chronoSearch` + a docked Title column freetext filter, 2b-iii-c) +
+ * type-tag filter + pagination + loader. Self-loads via a `spaceId` effect.
  *
  * Chrono deltas: create resolves a `__custom__` kind to the free-text `customKind` while inline-edit
  * sends `editChrono.kind` VERBATIM (both pinned by A17.9b-6b). It has NO `mutated` output: chrono
@@ -40,7 +40,6 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
           <div class="content-header">
             <app-record-search-bar
               [value]="store.chronoSearch()" (valueChange)="onChronoSearch($event)"
-              [mode]="store.chronoSearchMode()" (modeChange)="setChronoSearchMode($event)"
               placeholder="brain.chrono.searchPlaceholder" />
             <button class="btn-primary btn btn-sm" (click)="openChronoForm()" [disabled]="showChronoForm()">{{ 'brain.chrono.addButton' | transloco }}</button>
           </div>
@@ -131,7 +130,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <table>
               <thead>
                 <tr>
-                  <th app-sort-th field="title" label="brain.chrono.table.title" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.chrono.table.description' | transloco }}</th><th app-sort-th field="type" label="brain.chrono.table.kind" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                  <th app-sort-th field="title" label="brain.chrono.table.title" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                    <input class="col-filter-input" type="text" [ngModel]="search()" (ngModelChange)="setSearchFilter($event)"
+                      [placeholder]="'brain.filter.searchPlaceholder' | transloco" [attr.aria-label]="'brain.filter.searchPlaceholder' | transloco" />
+                  </th><th>{{ 'brain.chrono.table.description' | transloco }}</th><th app-sort-th field="type" label="brain.chrono.table.kind" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
                     <select class="col-filter-select" [ngModel]="recordFilter().type" (ngModelChange)="setTypeFilter($event)" [attr.aria-label]="'brain.filter.label' | transloco">
                       <option value="">{{ 'brain.filter.allKinds' | transloco }}</option>
                       @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
@@ -145,7 +147,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                 </tr>
               </thead>
               <tbody>
-                @for (entry of store.filteredChrono(); track entry._id) {
+                @for (entry of store.chrono(); track entry._id) {
                   @if (recordList.editingId() === entry._id) {
                     <tr>
                       <td colspan="9">
@@ -273,7 +275,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
               </tbody>
             </table>
           </div>
-          @if (store.chronoSearchMode() !== 'semantic') {
+          @if (!store.chronoSearch().trim()) {
             <div class="pagination">
               <button class="btn btn-sm btn-secondary" [disabled]="skip() === 0" (click)="prevPage()"><ph-icon name="arrow-left" [size]="14" style="display:inline-flex;vertical-align:middle;"/> {{ 'common.prev' | transloco }}</button>
               <span class="pager-info">{{ store.chrono().length ? (skip() + 1) + '–' + (skip() + store.chrono().length) : '–' }}</span>
@@ -304,7 +306,9 @@ export class ChronoTabComponent extends RecordTabBase {
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
     const cf: { search?: string; type?: string; tag?: string } = {};
-    if (this.store.chronoSearch()) cf.search = this.store.chronoSearch();
+    // Docked Title column freetext filter → server-side substring (2b-iii-c), matching memories/edges.
+    // The top bar is semantic-only now and never feeds this.
+    if (this.searchParam()) cf.search = this.searchParam();
     if (this.recordFilter().type) cf.type = this.recordFilter().type;
     if (this.recordFilter().tag) cf.tag = this.recordFilter().tag;
     this.brainApi.listChrono(spaceId, this.pageSize, this.skip(), cf, this.sortParam()).subscribe({
@@ -318,22 +322,16 @@ export class ChronoTabComponent extends RecordTabBase {
     });
   }
 
+  /**
+   * The top-bar search is SEMANTIC-only (2b-iii-c): typing issues a debounced `recallBrain`. Plain
+   * substring search moved to the docked Title column freetext filter (server-side, via `load()`).
+   * Clearing the box restores the normal paginated list.
+   */
   onChronoSearch(q: string): void {
     this.store.chronoSearch.set(q);
-    if (this.store.chronoSearchMode() === 'semantic') {
-      if (this._chronoSemTimer) clearTimeout(this._chronoSemTimer);
-      if (!q.trim()) { this.store.chrono.set([]); return; }
-      this._chronoSemTimer = setTimeout(() => this.runSemanticChronoSearch(), 300);
-    }
-    // text mode: filteredChrono computed() handles filtering automatically
-  }
-
-  setChronoSearchMode(m: 'text' | 'semantic'): void {
-    this.store.chronoSearchMode.set(m);
-    const q = this.store.chronoSearch().trim();
-    if (!q) return;
-    if (m === 'semantic') this.runSemanticChronoSearch();
-    // text mode: filteredChrono computed() handles filtering automatically
+    if (this._chronoSemTimer) clearTimeout(this._chronoSemTimer);
+    if (!q.trim()) { this.skip.set(0); this.load(); return; }
+    this._chronoSemTimer = setTimeout(() => this.runSemanticChronoSearch(), 300);
   }
 
   runSemanticChronoSearch(): void {

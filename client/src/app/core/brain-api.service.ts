@@ -194,11 +194,11 @@ export class BrainApi {
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/chrono`, { params });
   }
 
-  createChrono(spaceId: string, body: { title: string; type: ChronoType; startsAt: string; endsAt?: string; status?: ChronoStatus; confidence?: number; tags?: string[]; entityIds?: string[]; memoryIds?: string[]; description?: string }): Observable<ChronoEntry> {
+  createChrono(spaceId: string, body: { title: string; type: ChronoType; startsAt: string; endsAt?: string; status?: ChronoStatus; confidence?: number; tags?: string[]; entityIds?: string[]; memoryIds?: string[]; description?: string; properties?: Record<string, string | number | boolean> }): Observable<ChronoEntry> {
     return this.http.post<ChronoEntry>(`/api/brain/spaces/${spaceId}/chrono`, body);
   }
 
-  updateChrono(spaceId: string, id: string, body: Partial<{ title: string; type: ChronoType; startsAt: string; endsAt: string; status: ChronoStatus; confidence: number; tags: string[]; entityIds: string[]; memoryIds: string[]; description: string }>): Observable<ChronoEntry> {
+  updateChrono(spaceId: string, id: string, body: Partial<{ title: string; type: ChronoType; startsAt: string; endsAt: string; status: ChronoStatus; confidence: number; tags: string[]; entityIds: string[]; memoryIds: string[]; description: string; properties: Record<string, string | number | boolean> }>): Observable<ChronoEntry> {
     return this.http.post<ChronoEntry>(`/api/brain/spaces/${spaceId}/chrono/${id}`, body);
   }
 

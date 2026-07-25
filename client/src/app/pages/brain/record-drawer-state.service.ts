@@ -37,11 +37,21 @@ export class RecordDrawerState {
   drawerEditMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditEdge = { label: '', type: '', weight: null as number | null, tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
-  drawerEditChrono = { title: '', kind: 'event' as string, customKind: '', status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', confidence: null as number | null, memoryIds: [] as string[] };
+  drawerEditChrono = { title: '', kind: 'event' as string, customKind: '', status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', confidence: null as number | null, memoryIds: [] as string[], properties: {} as Record<string, string | number | boolean> };
 
   /** Re-seed a drawer entity's properties when its type changes (mirrors the create/inline forms). */
   onEntityTypeChange(type: string): void {
     this.drawerEditEntity.properties = this.store.buildPropertiesObject('entity', this.drawerEditEntity.properties, type);
+  }
+
+  /** Effective chrono type for schema lookup: the free-text custom kind, else the selected preset. */
+  drawerChronoKind(): string {
+    return this.drawerEditChrono.kind === '__custom__' ? this.drawerEditChrono.customKind.trim() : this.drawerEditChrono.kind;
+  }
+
+  /** Re-seed the drawer chrono's properties when its kind changes (mirrors the create/inline forms). */
+  onDrawerChronoKindChange(): void {
+    this.drawerEditChrono.properties = this.store.buildPropertiesObject('chrono', this.drawerEditChrono.properties, this.drawerChronoKind());
   }
 
   open(kind: 'memory' | 'entity' | 'edge' | 'chrono', record: any): void {
@@ -89,6 +99,7 @@ export class RecordDrawerState {
         entityIds: (record.entityIds ?? []).join(', '),
         confidence: record.confidence ?? null,
         memoryIds: [...(record.memoryIds ?? [])],
+        properties: this.store.buildPropertiesObject('chrono', record.properties ?? {}, record.type),
       };
       this.picker.resolveMemoryTitles(record.memoryIds ?? []);
     }
@@ -160,6 +171,7 @@ export class RecordDrawerState {
       const resolvedKind = this.drawerEditChrono.kind === '__custom__'
         ? (this.drawerEditChrono.customKind.trim() as ChronoType)
         : this.drawerEditChrono.kind as ChronoType;
+      const chronoProps = this.store.stripEmptyOptionalProps(this.drawerEditChrono.properties, this.store.chronoSchema(resolvedKind));
       this.brainApi.updateChrono(spaceId, id, {
         title: this.drawerEditChrono.title.trim(),
         type: resolvedKind,
@@ -171,6 +183,7 @@ export class RecordDrawerState {
         entityIds: this.drawerEditChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean),
         ...(this.drawerEditChrono.memoryIds.length ? { memoryIds: this.drawerEditChrono.memoryIds } : {}),
         ...(this.drawerEditChrono.confidence != null ? { confidence: this.drawerEditChrono.confidence } : {}),
+        ...(Object.keys(chronoProps).length ? { properties: chronoProps } : {}),
       }).subscribe({
         next: (updated) => {
           this.drawerSaving.set(false);

@@ -831,6 +831,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Chrono entries can now carry schema-defined properties in the UI.** A chrono type's schema could
+  already declare `propertySchemas` and the server validated + persisted a chrono's `properties`, but no
+  client form ever surfaced them — so the field was invisible and effectively unusable. The chrono
+  **create form, inline-edit row, and detail drawer** now all show the same `app-properties-editor` the
+  entity / edge / memory forms use, driven by a new `store.chronoSchema(type)` accessor; switching the
+  chrono kind reseeds the property defaults, and values are stripped of empty optionals before saving
+  (reusing the existing chrono create/update `properties` API field — no route change). Client-only.
 - **The File Meta list endpoint gains a freetext `?search=`.** `GET /api/brain/spaces/:id/files` now
   accepts a `?search=<text>` that matches a case-insensitive **substring** of a file record's `path` +
   `description`, applied server-side before pagination (spans the whole list) and escaped as a literal —

@@ -24,6 +24,7 @@ import { SpaceSettingsTabComponent } from './space-settings-tab.component';
 import { SpaceDuplicatesTabComponent } from './space-duplicates-tab.component';
 import { SpaceDangerTabComponent } from './space-danger-tab.component';
 import { SpaceSchemaTabComponent } from './space-schema-tab.component';
+import { ModalDirective } from '../../shared/modal.directive';
 import { SpaceCreateDialogComponent } from './space-create-dialog.component';
 
 @Component({
@@ -31,7 +32,7 @@ import { SpaceCreateDialogComponent } from './space-create-dialog.component';
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, DragDropModule, PhIconComponent, SummaryStripComponent,
     SpaceSettingsTabComponent, SpaceDuplicatesTabComponent, SpaceDangerTabComponent, SpaceSchemaTabComponent,
-    SpaceCreateDialogComponent],
+    SpaceCreateDialogComponent, ModalDirective],
   // Provided here (not root) so each mount gets its own settings state, with a lifetime tied to
   // this component rather than the app.
   providers: [SpacesStore, SpaceSettingsState],
@@ -45,8 +46,8 @@ import { SpaceCreateDialogComponent } from './space-create-dialog.component';
 
     <!-- SETTINGS POPUP -->
     @if (state.settingsSpace()) {
-      <div class="sp-backdrop" (click)="attemptClose()">
-        <div class="sp-panel" (click)="$event.stopPropagation()">
+      <div class="sp-backdrop">
+        <div class="sp-panel" [appModal]="state.settingsSpace()!.label" (dismiss)="attemptClose()">
           <div class="sp-header">
             <div style="flex:1;min-width:0;">
               <div style="font-weight:600;font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ state.settingsSpace()!.label }}</div>

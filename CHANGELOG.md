@@ -2293,6 +2293,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brain search bars now render identically across all five list tabs.** The entities tab's bar
+  (`app-entity-search`) had drifted from the other four (`record-search-bar`): taller (`6px` vs `5px`
+  vertical padding), a different fill (`--bg-elevated` vs `--bg-surface`), and wider (`520` vs `400px`
+  max). Its input now matches the shared spec exactly — verified in-app, all five bars compute to the
+  same padding / height (32px) / background / font / radius. The duplicate `.content-header
+  input[type=search]` rule was removed so the plain bar has a single self-contained style that can't
+  drift again, and `app-entity-search` carries a note keeping it in lockstep. Pure CSS — no behavior
+  change. (First step of a broader Brain visual-consistency pass.)
 - **The Brain Entities tab's search bar is Semantic-only too — finishing the A–Z demotion across all
   four list tabs.** Entities uses a different component (`app-entity-search`) than the other three, so
   it kept its A–Z / Semantic pill after 2b-iii-c. Its plain-text half was redundant with the docked

@@ -57,15 +57,19 @@ import { TranslocoPipe } from '@jsverse/transloco';
       gap: 8px;
     }
 
+    /* Visual spec kept in lockstep with the record tabs' plain search input
+       (.content-header input[type=search] in brain-table.styles.ts) so the entities bar and the
+       memories/edges/chrono/file-meta bars render identically. Only the layout props (flex/min-width)
+       differ, because this component lives in a .search-row rather than as a display:contents child. */
     input[type="search"],
     input[type="text"] {
       flex: 1;
       min-width: 0;
-      background: var(--bg-elevated);
+      background: var(--bg-surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       color: var(--text-primary);
-      padding: 6px 10px;
+      padding: 5px 10px;
       font-size: 13px;
     }
     input:focus { outline: none; border-color: var(--accent); }

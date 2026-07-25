@@ -16,21 +16,13 @@ export const BRAIN_RECORD_TABLE_STYLES = `
       margin-bottom: 16px;
       flex-wrap: wrap;
     }
-    .content-header input[type=search] {
-      flex: 1;
-      min-width: 180px;
-      max-width: 400px;
-      padding: 5px 10px;
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      font-size: 13px;
-      background: var(--bg-surface);
-      color: var(--text-primary);
-    }
+    /* The plain search input styles itself (record-search-bar.component.ts) and app-entity-search
+       matches that spec — see the note there. Both are capped to the same width here so the entities
+       bar and the other tabs' bars line up. */
     .content-header app-entity-search {
       flex: 1;
       min-width: 180px;
-      max-width: 520px;
+      max-width: 400px; /* match the plain search input above (was 520 — the entities bar rendered wider) */
     }
     /* A slim row above the table, now only carrying the memories tab's active ENTITY-filter chip
        (the type/tag filters moved into the headers in 2b-ii). */

@@ -831,6 +831,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Copy a whole space's schema into the Schema Library in one step — and import an exported space
+  schema file into the library.** Auto-grouping a whole space's `typeSchemas` into reusable library
+  entries already existed, but only on the Schema Library page — so it was easy to miss when looking
+  in a space's own **Schema** tab (which only offered *per-type* export). Two changes close the gap:
+  (1) the space **Schema** tab gains an **Export to library** action — one reusable entry per type,
+  grouped under a name you choose (defaulting to the space's), `$ref`-linked types skipped; and (2) the
+  Schema Library's **Import from file** now accepts a space-schema export envelope
+  (`{ spaceId, spaceLabel, typeSchemas }`, the shape the Schema tab's **Export JSON** produces), not
+  just single library-entry files — it auto-groups every inline type using the same
+  `<prefix>-<kt>-<typeName>` naming as the live export, so a file import and a live-space export produce
+  identical entries. Previously that exported file was importable back into a *space* but not into the
+  *library*; now both round-trip. Client-only (reuses the existing `PUT /schema-library/:name` and
+  `POST /export-space` endpoints); the grouping transform is unit-tested and both paths were
+  verified end-to-end.
 - **A freetext filter in the Brain list column headers.** Entities (**Name**), edges (**Relation**)
   and memories (**Fact**) now have a search box docked under the header that matches a substring of
   the row's text fields (name/description, label/description, fact/description) via the server's

@@ -120,6 +120,7 @@ const SCHEMA_MD_STYLES = `
 <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
   <button class="btn btn-secondary btn-sm" type="button" (click)="exportSchema()" [attr.title]="'spaces.schema.exportTitle' | transloco"><ph-icon name="upload" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.exportJsonButton' | transloco }}</button>
   <button class="btn btn-secondary btn-sm" type="button" (click)="triggerImportSchema()" [attr.title]="'spaces.schema.importTitle' | transloco"><ph-icon name="download-simple" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.importJsonButton' | transloco }}</button>
+  <button class="btn btn-secondary btn-sm" type="button" (click)="openExportToLibrary()" [attr.title]="'spaces.schema.exportToLibraryTitle' | transloco"><ph-icon name="bookmarks" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.exportToLibraryButton' | transloco }}</button>
   <input #schImportInput type="file" accept=".json,application/json" style="display:none" (change)="onImportSchemaFile($event)" />
   <input #schTypeImportInput type="file" accept=".json,application/json" style="display:none" (change)="onImportTypeSchemaFile($event)" />
   <span style="font-size:11px;color:var(--text-muted);margin-left:4px;">{{ 'spaces.schema.autoSyncHint' | transloco }}</span>
@@ -447,6 +448,37 @@ const SCHEMA_MD_STYLES = `
     </div>
   </div>
 }
+
+@if (exportLibDialog(); as d) {
+  <div style="position:fixed;inset:0;background:var(--bg-scrim);display:flex;align-items:center;justify-content:center;z-index:320;">
+    <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;width:480px;max-width:96vw;" [appModal]="'spaces.schema.exportToLibrary.title' | transloco" appModalCloseOnBackdrop (dismiss)="closeExportToLibrary()" (click)="$event.stopPropagation()">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <strong>{{ 'spaces.schema.exportToLibrary.title' | transloco }}</strong>
+        <button class="icon-btn" type="button" [attr.aria-label]="'common.close' | transloco" (click)="closeExportToLibrary()"><ph-icon name="x" [size]="14"/></button>
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);margin:0 0 14px;">{{ 'spaces.schema.exportToLibrary.hint' | transloco }}</p>
+      @if (state.isDirty()) {
+        <div class="alert alert-warning" style="font-size:12px;margin-bottom:12px;">{{ 'spaces.schema.exportToLibrary.dirtyWarning' | transloco }}</div>
+      }
+      <div class="field" style="margin-bottom:10px;">
+        <label style="font-size:12px;">{{ 'spaces.schema.exportToLibrary.groupLabel' | transloco }}</label>
+        <input type="text" [ngModel]="d.groupName" (ngModelChange)="exportLibDialog.set({ ...d, groupName: $event })" style="width:100%;" />
+      </div>
+      <div class="field" style="margin-bottom:14px;">
+        <label style="font-size:12px;">{{ 'spaces.schema.exportToLibrary.prefixLabel' | transloco }}</label>
+        <input type="text" [ngModel]="d.namePrefix" (ngModelChange)="exportLibDialog.set({ ...d, namePrefix: $event })" style="width:100%;" />
+      </div>
+      @if (d.error) { <div class="alert alert-error" style="font-size:12px;margin-bottom:12px;">{{ d.error }}</div> }
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-secondary btn-sm" type="button" (click)="closeExportToLibrary()">{{ 'common.cancel' | transloco }}</button>
+        <button class="btn btn-primary btn-sm" type="button" (click)="doExportToLibrary()" [disabled]="d.saving || state.isDirty() || !d.groupName.trim()">
+          @if (d.saving) { <span class="spinner" style="width:12px;height:12px;border-width:2px;margin-right:5px;"></span> }
+          {{ 'spaces.schema.exportToLibrary.confirm' | transloco }}
+        </button>
+      </div>
+    </div>
+  </div>
+}
   `,
 })
 export class SpaceSchemaTabComponent {
@@ -471,6 +503,9 @@ export class SpaceSchemaTabComponent {
   importConflictAddAsName = signal('');
 
   showLibPickerDialog = signal(false);
+
+  /** "Export whole schema to library" dialog state (null = closed). */
+  exportLibDialog = signal<{ groupName: string; namePrefix: string; saving: boolean; error: string } | null>(null);
 
   libPickerLoading    = signal(false);
 
@@ -504,6 +539,42 @@ export class SpaceSchemaTabComponent {
   triggerImportSchema(): void {
     this.schImportError.set('');
     this.schImportInputRef?.nativeElement.click();
+  }
+
+  /**
+   * Export the WHOLE space schema into the instance schema library as a named, reusable group
+   * (auto-grouped: one entry per inline type, `$ref` types skipped). Reuses the server `export-space`
+   * endpoint, which reads the SAVED space config — so it is disabled while the editor has unsaved
+   * changes (the dialog says so). The Schema-Library page's "apply group" is the reverse.
+   */
+  openExportToLibrary(): void {
+    const space = this.state.settingsSpace();
+    if (!space) return;
+    this.exportLibDialog.set({ groupName: space.label || space.id, namePrefix: space.id, saving: false, error: '' });
+  }
+
+  closeExportToLibrary(): void { this.exportLibDialog.set(null); }
+
+  doExportToLibrary(): void {
+    const d = this.exportLibDialog();
+    const space = this.state.settingsSpace();
+    if (!d || !space || this.state.isDirty() || !d.groupName.trim()) return;
+    this.exportLibDialog.set({ ...d, saving: true, error: '' });
+    this.schemaApi.exportSpaceSchemaToLibrary({
+      spaceId: space.id,
+      groupName: d.groupName.trim(),
+      namePrefix: d.namePrefix.trim() || undefined,
+    }).subscribe({
+      next: (r) => {
+        this.exportLibDialog.set(null);
+        this.toast.success(this.transloco.translate('spaces.schema.exportToLibrary.done', {
+          created: r.created, updated: r.updated, group: d.groupName.trim(),
+        }));
+      },
+      error: (err) => {
+        this.exportLibDialog.set({ ...d, saving: false, error: err?.error?.error ?? this.transloco.translate('spaces.schema.exportToLibrary.failed') });
+      },
+    });
   }
 
   /** Map one raw type-schema object (as exported / stored) into editor state. */

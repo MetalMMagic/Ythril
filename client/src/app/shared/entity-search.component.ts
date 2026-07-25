@@ -12,7 +12,8 @@
  *   spaceId      — Required. Which space to search in.
  *   mode         — 'bar' (default) or 'picker'.
  *   placeholder  — Input placeholder text.
- *   defaultMode  — 'semantic' (default) or 'name'.
+ *   defaultMode  — 'name' (default) or 'semantic'.
+ *   showModeToggle — show the A–Z/Semantic pill (default true; pickers always keep it).
  *   value        — Controlled display value (picker mode).
  *   debounceMs   — Debounce delay (default 280ms).
  *
@@ -200,10 +201,12 @@ import { TranslocoPipe } from '@jsverse/transloco';
         [attr.aria-label]="placeholder | transloco"
         autocomplete="off"
       />
-      <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
-        <button type="button" [class.active]="searchMode() === 'name'"     (click)="setMode('name')">{{ 'common.sortAZ' | transloco }}</button>
-        <button type="button" [class.active]="searchMode() === 'semantic'" (click)="setMode('semantic')">{{ 'entitySearch.semantic' | transloco }}</button>
-      </div>
+      @if (mode !== 'bar' || showModeToggle) {
+        <div class="pill-group" [attr.title]="'common.searchMode.tooltip' | transloco">
+          <button type="button" [class.active]="searchMode() === 'name'"     (click)="setMode('name')">{{ 'common.sortAZ' | transloco }}</button>
+          <button type="button" [class.active]="searchMode() === 'semantic'" (click)="setMode('semantic')">{{ 'entitySearch.semantic' | transloco }}</button>
+        </div>
+      }
       @if (mode === 'bar' && displayValue()) {
         <button type="button" class="btn-clear" (click)="clear()">{{ 'entitySearch.clearButton' | transloco }}</button>
       }
@@ -238,6 +241,14 @@ export class EntitySearchComponent implements OnInit, OnDestroy, OnChanges {
   @Input() mode: 'bar' | 'picker' = 'bar';
   @Input() placeholder = 'entitySearch.defaultPlaceholder';
   @Input() defaultMode: 'name' | 'semantic' = 'name';
+  /**
+   * Show the A–Z / Semantic mode pill. Default true — pickers keep it (exact name lookup matters when
+   * linking a known entity, e.g. "ADR002" among many, where semantic recall struggles). A `bar`-mode
+   * consumer can pass false to become semantic-only (the entities tab, 2b-iii-c/d: its plain-text
+   * lookup is the docked Name column freetext filter now). Ignored in `picker` mode — pickers always
+   * keep the toggle.
+   */
+  @Input() showModeToggle = true;
   /** Controlled display value for picker mode (parent sets this after pick). */
   @Input() value = '';
   @Input() debounceMs = 280;
@@ -267,7 +278,11 @@ export class EntitySearchComponent implements OnInit, OnDestroy, OnChanges {
   }
 
   ngOnInit(): void {
-    this.searchMode.set(this.defaultMode);
+    // The pill is hidden only for a bar with the toggle off — there the user can't switch modes, so
+    // lock to semantic regardless of defaultMode. Pickers always keep the pill, so they honour
+    // defaultMode ('name' by default — exact lookup).
+    const pillHidden = this.mode === 'bar' && !this.showModeToggle;
+    this.searchMode.set(pillHidden ? 'semantic' : this.defaultMode);
 
     this.subs.add(
       this.input$.pipe(

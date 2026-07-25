@@ -2293,6 +2293,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brain Entities tab's search bar is Semantic-only too — finishing the A–Z demotion across all
+  four list tabs.** Entities uses a different component (`app-entity-search`) than the other three, so
+  it kept its A–Z / Semantic pill after 2b-iii-c. Its plain-text half was redundant with the docked
+  **Name** column freetext filter, and it was applying *two* server name filters at once (the bar's
+  exact `?name=` and the column's substring `?search=`). Now: the top bar is a **semantic entity
+  finder** — type for a meaning-ranked dropdown, and **picking a result fills the Name column filter**
+  (the list narrows via the same substring `?search=`), dropping the redundant exact-name list path.
+  **Exact/ID lookups are unaffected** — the **entity pickers** (edge from/to, memory/chrono/file-meta
+  linking) *keep* their A–Z/Semantic toggle and still default to name search, because semantic recall
+  is poor at exact IDs like `ADR002`; a new `showModeToggle` input hides the pill only on the entities
+  bar, never in pickers. Also corrects the user guide, which still described a "text / Semantic" toggle
+  on the Memories/Edges/Chrono bars (removed in 2b-iii-c). Client-only; `app-entity-search` and
+  entities-tab pill/pick behaviour covered by new tests.
 - **The Brain list tabs' top search bar is Semantic-only now — the redundant A–Z half is gone.** Once
   slice 2b-iii docked a plain-text (substring) freetext filter under each list column, the top bar's
   A–Z / Semantic pill had two ways to do the same plain-text search. The A–Z half is removed: the

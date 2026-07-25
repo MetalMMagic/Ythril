@@ -396,8 +396,20 @@ spacesRouter.post('/', globalRateLimit, requireAdminMfa, async (req, res) => {
     }
   }
 
+  // New user-created spaces default to a fully-strict schema posture (owner decision 2026-07-25):
+  // validationMode:'strict' + strictLinkage:true, so a space enforces its schema and referential
+  // integrity from day one. An explicit value in the request wins (spread last). Proxy spaces hold no
+  // data of their own, so they are left un-defaulted. The federation-join path (networks/join) calls
+  // createSpace directly and is intentionally NOT affected — defaulting strict there would reject
+  // incoming off-schema federated records on ingest. With no typeSchemas yet defined, 'strict' still
+  // accepts every type/label (nothing to violate), so this never blocks a brand-new empty space.
+  const requestMeta = meta as SpaceMeta | undefined;
+  const seededMeta: SpaceMeta | undefined = proxyFor
+    ? requestMeta
+    : { validationMode: 'strict', strictLinkage: true, ...(requestMeta ?? {}) };
+
   try {
-    const space = await createSpace({ id, label, description, folders, maxGiB, proxyFor, meta: meta as SpaceMeta | undefined });
+    const space = await createSpace({ id, label, description, folders, maxGiB, proxyFor, meta: seededMeta });
     res.status(201).json({ space });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

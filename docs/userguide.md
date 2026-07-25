@@ -367,6 +367,12 @@ Click **Create New Space**. Fill in:
 - **Proxy for** — optionally mark this as a proxy space standing in for one or more other spaces (tick individual spaces or "all").
 - **Validation mode** — the schema-validation posture for the new space: `off`, `warn`, or `strict`.
 
+> **New spaces start strict.** A freshly created space now defaults to **`strict` validation** *and*
+> **strict linkage** — it enforces its schema and referential integrity from day one. You can relax
+> either from the space's **Schema tab** at any time. (Until you define per-type schemas there's nothing
+> to violate, so a brand-new empty space still accepts anything.) Spaces created by joining a federation
+> network are the exception — they stay lenient so incoming federated records are never rejected.
+
 ### Space settings
 
 Click the gear icon on any space row to open its settings panel. Changes save and close automatically. An accidental click **outside** the panel won't close it (so you can't lose half-typed edits that way) — close it deliberately with **✕**, **Cancel**, or **Escape**; if you have unsaved changes you'll be asked to confirm.

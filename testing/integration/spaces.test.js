@@ -58,6 +58,30 @@ describe('Space management', () => {
     createdSpaceIds.push(`explicit-test-space-${RUN_ID}`);
   });
 
+  it('New space defaults to a fully-strict schema posture (owner decision 2026-07-25)', async () => {
+    const id = `strict-default-space-${RUN_ID}`;
+    const r = await post(INSTANCES.a, tokenA, '/api/spaces', { id, label: 'Strict Default Space' });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    createdSpaceIds.push(id);
+    // New user-created spaces enforce their schema + referential integrity from day one.
+    assert.equal(r.body.space?.meta?.validationMode, 'strict', 'new space should default to strict validation');
+    assert.equal(r.body.space?.meta?.strictLinkage, true, 'new space should default to strict linkage');
+  });
+
+  it('Explicit meta values override the strict defaults', async () => {
+    const id = `lenient-override-space-${RUN_ID}`;
+    const r = await post(INSTANCES.a, tokenA, '/api/spaces', {
+      id,
+      label: 'Lenient Override Space',
+      meta: { validationMode: 'off', strictLinkage: false },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    createdSpaceIds.push(id);
+    // A caller who explicitly asks for a lenient posture gets it — the default only fills the gaps.
+    assert.equal(r.body.space?.meta?.validationMode, 'off', 'explicit validationMode should win');
+    assert.equal(r.body.space?.meta?.strictLinkage, false, 'explicit strictLinkage should win');
+  });
+
   it('Duplicate space ID is rejected', async () => {
     const r = await post(INSTANCES.a, tokenA, '/api/spaces', {
       id: `explicit-test-space-${RUN_ID}`,

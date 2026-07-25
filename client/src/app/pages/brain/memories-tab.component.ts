@@ -9,7 +9,7 @@ import { httpErrorReason } from '../../core/http-error';
 import { TagInputComponent } from '../../shared/tag-input.component';
 import { PropertiesViewComponent } from '../../shared/properties-view.component';
 import { PropertiesEditorComponent } from '../../shared/properties-editor.component';
-import { EntitySearchComponent } from '../../shared/entity-search.component';
+import { EntityRefFieldComponent } from './entity-ref-field.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { RecordDrawerState } from './record-drawer-state.service';
@@ -40,7 +40,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-memories-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntityRefFieldComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -73,14 +73,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                 </div>
                 <div class="field">
                   <label>{{ 'common.form.entities' | transloco }}</label>
-                  @if (picker.entityChips(memoryForm.entityIds).length) {
-                    <div class="entity-multi">
-                      @for (chip of picker.entityChips(memoryForm.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(memoryForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                      }
-                    </div>
-                  }
-                  <app-entity-search mode="picker" [spaceId]="spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, memoryForm)" />
+                  <app-entity-ref-field [target]="memoryForm" [spaceId]="spaceId()" />
                 </div>
                 <div class="field">
                   <label>{{ 'common.form.properties' | transloco }}</label>
@@ -145,14 +138,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                             <label>{{ 'common.form.entities' | transloco }}</label>
-                            @if (picker.entityChips(editMemory.entityIds).length) {
-                              <div class="entity-multi">
-                                @for (chip of picker.entityChips(editMemory.entityIds); track chip.id) {
-                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(editMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                                }
-                              </div>
-                            }
-                            <app-entity-search mode="picker" [spaceId]="spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, editMemory)" />
+                            <app-entity-ref-field [target]="editMemory" [spaceId]="spaceId()" />
                           </div>
                           <div class="field" style="flex:1; min-width:220px; margin-bottom:0;">
                             <label>{{ 'common.form.properties' | transloco }}</label>

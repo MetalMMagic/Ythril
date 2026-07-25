@@ -5,7 +5,7 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { ModalDirective } from '../../shared/modal.directive';
 import { TagInputComponent } from '../../shared/tag-input.component';
 import { PropertiesEditorComponent } from '../../shared/properties-editor.component';
-import { EntitySearchComponent } from '../../shared/entity-search.component';
+import { EntityRefFieldComponent } from './entity-ref-field.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
@@ -26,7 +26,7 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
   selector: 'app-record-drawer',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ModalDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesEditorComponent, EntityRefFieldComponent, PhIconComponent, ModalDirective],
   styles: [BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES],
   template: `
       @if (state.drawerRecord(); as dr) {
@@ -73,14 +73,7 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.entityIds' | transloco }}</div>
-                  @if (picker.entityChips(state.drawerEditMemory.entityIds).length) {
-                    <div class="entity-multi">
-                      @for (chip of picker.entityChips(state.drawerEditMemory.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(state.drawerEditMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                      }
-                    </div>
-                  }
-                  <app-entity-search mode="picker" [spaceId]="state.spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, state.drawerEditMemory)" />
+                  <app-entity-ref-field [target]="state.drawerEditMemory" [spaceId]="state.spaceId()" />
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.properties' | transloco }}</div>
@@ -249,14 +242,7 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.entityIds' | transloco }}</div>
-                  @if (picker.entityChips(state.drawerEditChrono.entityIds).length) {
-                    <div class="entity-multi">
-                      @for (chip of picker.entityChips(state.drawerEditChrono.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(state.drawerEditChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                      }
-                    </div>
-                  }
-                  <app-entity-search mode="picker" [spaceId]="state.spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, state.drawerEditChrono)" />
+                  <app-entity-ref-field [target]="state.drawerEditChrono" [spaceId]="state.spaceId()" />
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.memoryIds' | transloco }}</div>

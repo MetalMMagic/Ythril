@@ -7,7 +7,7 @@ import { ChronoEntry, ChronoType, ChronoStatus } from '../../core/api.types';
 import { BrainApi } from '../../core/brain-api.service';
 import { httpErrorReason } from '../../core/http-error';
 import { TagInputComponent } from '../../shared/tag-input.component';
-import { EntitySearchComponent } from '../../shared/entity-search.component';
+import { EntityRefFieldComponent } from './entity-ref-field.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { RecordDrawerState } from './record-drawer-state.service';
@@ -33,7 +33,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-chrono-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntityRefFieldComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -89,14 +89,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                 </div>
                 <div class="field">
                   <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
-                  @if (picker.entityChips(chronoForm.entityIds).length) {
-                    <div class="entity-multi">
-                      @for (chip of picker.entityChips(chronoForm.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(chronoForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                      }
-                    </div>
-                  }
-                  <app-entity-search mode="picker" [spaceId]="spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, chronoForm)" />
+                  <app-entity-ref-field [target]="chronoForm" [spaceId]="spaceId()" />
                 </div>
                 <div class="field">
                   <label>{{ 'brain.chrono.form.memories' | transloco }}</label>
@@ -193,14 +186,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                             <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
-                            @if (picker.entityChips(editChrono.entityIds).length) {
-                              <div class="entity-multi">
-                                @for (chip of picker.entityChips(editChrono.entityIds); track chip.id) {
-                                  <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(editChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                                }
-                              </div>
-                            }
-                            <app-entity-search mode="picker" [spaceId]="spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, editChrono)" />
+                            <app-entity-ref-field [target]="editChrono" [spaceId]="spaceId()" />
                           </div>
                           <div style="display:flex; gap:6px; align-items:flex-end;">
                             <button class="btn btn-sm btn-primary" [disabled]="recordList.editSaving()" (click)="saveEditChrono(entry._id)">

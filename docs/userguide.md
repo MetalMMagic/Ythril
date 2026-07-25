@@ -108,7 +108,7 @@ Memories are the core knowledge unit — plain-language statements you want to r
 
 Click **Save**. The memory is indexed immediately and available for search.
 
-**Searching:** Type in the search bar and press Enter. A toggle beside it switches between **text** matching (plain substring/sort) and **Semantic** (meaning-based) search. Semantic mode returns a ranked set and is not paginated.
+**Searching:** The top search bar is **Semantic** (meaning-based) — type and it returns a ranked, non-paginated set. Plain-text (substring) search moved into the column headers: use the **freetext box under the Fact column** (see Filtering). Clearing the top bar restores the normal paginated list.
 
 **Filtering:** Each column that can be filtered has its control docked directly under the column header — a **freetext box** under the main text column (Name / Relation / Fact) that matches a substring of the row's text, a type/kind dropdown under the **Type**/**Kind** column, and a tag box under the **Tags** column. Clicking a tag or entity badge on a row still fills the matching filter (the active entity filter shows as a chip above the table, with **×** to clear). Filtering happens on the server across the whole list, and clears back to everything when you empty the control.
 
@@ -134,7 +134,7 @@ When a **type** is selected and the space has a schema defined for that type, th
 - **Optional properties** — shown with a remove (×) button; any field left blank when you click Save is silently omitted from the stored record.
 - Switching the type dropdown **immediately rebuilds** the properties form for the newly selected type; values you have already filled in are preserved where the field name matches.
 
-**Searching:** The search bar above the table filters by name in real time.
+**Searching:** The top search bar is a **semantic entity finder** — type to see meaning-ranked matches in a dropdown, then click one to narrow the list to it (it fills the Name column filter). For an **exact / partial name** lookup (e.g. a specific ID like `ADR002`), use the **freetext box under the Name column** — semantic recall is poor at exact IDs, so the column filter is the reliable path. Column filters and sorting work as on Memories.
 
 **Editing:** Click the ⊙ view-details button on any row to open the full editable drawer.
 
@@ -150,7 +150,7 @@ Edges connect two entities and describe the relationship between them (e.g. *ser
 
 Each edge has a **from** entity, a **to** entity, a **label** (the relationship name), and optional **type**, **weight**, **tags**, **description**, and **properties**.
 
-**Searching:** The search bar has a **text / Semantic** toggle, same as Memories — text matches the label/description, Semantic ranks edges by meaning.
+**Searching:** The top search bar is **Semantic** (ranks edges by meaning), same as Memories. Plain-text matching (label / endpoint names) is the **freetext box under the Relation column**.
 
 **Creating an edge:** Click **+ Add edge**. Use the entity pickers to select the source and target, choose or type a label, and click **Save**.
 
@@ -166,7 +166,7 @@ Chrono stores time-anchored entries: events, deadlines, plans, predictions, and 
 
 **Creating an entry:** Click **+ Add entry**. Required fields are **title**, **type**, and **starts at** (date and time). You can also add a description, tags, status, and linked entities.
 
-**Searching:** The search bar has a **text / Semantic** toggle — text matches title/description, Semantic ranks entries by meaning.
+**Searching:** The top search bar is **Semantic** (ranks entries by meaning). Plain-text matching (title / description) is the **freetext box under the Title column**.
 
 **Filtering:** The filter bar above the table lets you narrow by tag text and status. Filters apply immediately.
 

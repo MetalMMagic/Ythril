@@ -117,15 +117,37 @@ describe('EntitiesTabComponent', () => {
     expect(mutated).toHaveBeenCalled();
   });
 
-  it('the search bar reloads silently with the search term; nextPage advances skip', () => {
+  // 2b-iii-d: the semantic finder no longer runs an exact-`?name=` list filter. PICKING an entity
+  // feeds its name into the Name COLUMN filter — the server's substring `?search=` (6th arg), NOT
+  // `filters.search`/`?name=`. This is what keeps exact lookups (e.g. "ADR002") working without a
+  // redundant second name filter.
+  it('picking an entity sets the Name column filter (server ?search=, not ?name=); nextPage carries it', () => {
     const fixture = make();
     const c = fixture.componentInstance;
     api.listEntities.mockClear();
-    c.onEntitySearchChange('ali');
-    expect(api.listEntities).toHaveBeenCalledWith('work', 20, 0, { search: 'ali' }, undefined, undefined);
+    vi.useFakeTimers();
+    c.onEntitySearchPick({ name: 'ADR002' } as Entity);
+    vi.advanceTimersByTime(250); // setSearchFilter debounce
+    vi.useRealTimers();
+    expect(c.search()).toBe('ADR002');
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, undefined, 'ADR002');
     c.nextPage();
     expect(c.skip()).toBe(20);
-    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 20, { search: 'ali' }, undefined, undefined);
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 20, {}, undefined, 'ADR002');
+  });
+
+  it('clearing the finder clears the Name column filter', () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    vi.useFakeTimers();
+    c.onEntitySearchPick({ name: 'ADR002' } as Entity);
+    vi.advanceTimersByTime(250);
+    api.listEntities.mockClear();
+    c.onEntitySearchClear();
+    vi.advanceTimersByTime(250);
+    vi.useRealTimers();
+    expect(c.search()).toBe('');
+    expect(api.listEntities).toHaveBeenLastCalledWith('work', 20, 0, {}, undefined, undefined);
   });
 
   it('setSort cycles a column desc → asc → back to default, passing the sort to the API each time', () => {

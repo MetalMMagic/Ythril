@@ -25,8 +25,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
  * input; create/delete emit `mutated` so the shell refreshes tab-count stats.
  *
  * Entity delta from memories: both create AND inline-edit strip empty optional properties via the
- * entity schema; entity search uses the <app-entity-search> bar (semantic default) with no per-tab
- * search-mode pill.
+ * entity schema. Search: the top bar is the semantic-only `<app-entity-search>` finder
+ * (`[showModeToggle]="false"`, 2b-iii-d) — typing drives its own dropdown; picking a result feeds the
+ * name into the docked Name column freetext filter (the list's plain-text `?search=` path), so there
+ * is no separate exact-`?name=` list filter. Plain substring list filtering is the column header.
  */
 @Component({
   selector: 'app-entities-tab',
@@ -42,7 +44,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
               [spaceId]="spaceId()"
               placeholder="common.searchEntitiesPlaceholder"
               defaultMode="semantic"
-              (queryChange)="onEntitySearchChange($event)"
+              [showModeToggle]="false"
               (cleared)="onEntitySearchClear()"
               (selected)="onEntitySearchPick($event)"
             />
@@ -233,8 +235,6 @@ export class EntitiesTabComponent extends RecordTabBase {
   /** Emitted after a create/delete so the shell can refresh the space's tab-count stats. */
   readonly mutated = output<void>();
 
-  entitySearch = signal('');
-
   showEntityForm = signal(false);
   creatingEntity = signal(false);
   createEntityError = signal('');
@@ -242,7 +242,6 @@ export class EntitiesTabComponent extends RecordTabBase {
   editEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
 
   protected override resetOnSpaceChange(): void {
-    this.entitySearch.set('');
     this.recordFilter.set({ type: '', tag: '' });
   }
 
@@ -251,8 +250,7 @@ export class EntitiesTabComponent extends RecordTabBase {
     if (!spaceId) return;
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
-    const ef: { search?: string; type?: string; tag?: string } = {};
-    if (this.entitySearch()) ef.search = this.entitySearch();
+    const ef: { type?: string; tag?: string } = {};
     if (this.recordFilter().type) ef.type = this.recordFilter().type;
     if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
     this.brainApi.listEntities(spaceId, this.pageSize, this.skip(), ef, this.sortParam(), this.searchParam()).subscribe({
@@ -261,34 +259,16 @@ export class EntitiesTabComponent extends RecordTabBase {
     });
   }
 
-  /** Reload without the loading overlay — used by the search bar (keeps focus/typing smooth). */
-  private loadEntitiesSilent(): void {
-    const spaceId = this.spaceId();
-    if (!spaceId) return;
-    const ef: { search?: string; type?: string; tag?: string } = {};
-    if (this.entitySearch()) ef.search = this.entitySearch();
-    if (this.recordFilter().type) ef.type = this.recordFilter().type;
-    if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
-    this.brainApi.listEntities(spaceId, this.pageSize, this.skip(), ef, this.sortParam(), this.searchParam()).subscribe({
-      next: ({ entities }) => this.store.entities.set(entities),
-      error: () => {},
-    });
-  }
-
-  onEntitySearchChange(q: string): void {
-    this.entitySearch.set(q);
-    this.skip.set(0);
-    this.loadEntitiesSilent();
-  }
+  // The top bar is a SEMANTIC finder now (2b-iii-d): its A–Z half was removed since the docked Name
+  // column freetext filter already does plain-text (substring `?search=`). Typing drives the bar's own
+  // semantic dropdown; PICKING an entity feeds that name into the Name column filter so the list
+  // narrows via the same server `?search=` as typing in the column would — no separate exact-`?name=`
+  // list path (that was a redundant second name filter). Clearing the bar clears the column filter.
   onEntitySearchClear(): void {
-    this.entitySearch.set('');
-    this.skip.set(0);
-    this.loadEntitiesSilent();
+    this.setSearchFilter('');
   }
   onEntitySearchPick(ent: Entity): void {
-    this.entitySearch.set(ent.name);
-    this.skip.set(0);
-    this.loadEntitiesSilent();
+    this.setSearchFilter(ent.name);
   }
 
   openEntityForm(): void {

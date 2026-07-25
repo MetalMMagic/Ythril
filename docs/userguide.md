@@ -432,7 +432,7 @@ Tokens can also be **space-scoped** — restricted to a specific list of spaces.
 
 ### Creating a token
 
-Click **Create Token**. Enter a name, choose a permission level, optionally set an expiry date, and optionally restrict it to specific spaces. A help line under the permission choices spells out exactly what the selected level can and cannot do (Read-only reads only; Standard reads and writes data; Admin adds token/space/config management). Click **Create** — the token value is shown **once**. Copy it immediately. The tokens list shows each token's permission level and space scope at any time.
+Click **Create Token**. Enter a name, choose a permission level, optionally set an expiry date, and optionally restrict it to specific spaces. A help line under the permission choices spells out exactly what the selected level can and cannot do (Read-only reads only; Standard reads and writes data; Admin adds token/space/config management). Click **Create** — the token value is shown **once**. Copy it immediately. The tokens list shows each token's permission level and space scope at any time, with the permission pill **colour-coded by privilege** so the riskiest tokens stand out at a glance: **admin is red**, **standard is green**, and **read-only is yellow** (Library Access tokens keep their own blue).
 
 This dialog has no "Library Access" toggle. Library Access tokens (for sharing your schema library with other instances) are created separately, from the **Schema Library** page's own **Create token** dialog — see [Schema Library](#schema-library).
 

@@ -40,6 +40,21 @@ export const BRAIN_CHIP_STYLES = `
       color: var(--text-muted); cursor: pointer;
     }
     .chip-add:hover { border-color: var(--accent); color: var(--accent); }
+    /* Inline memory picker (chrono form + drawer, slice 3c): input + absolute results dropdown. */
+    .mem-pick { position: relative; }
+    .mem-pick-menu {
+      position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 60;
+      background: var(--bg-surface); border: 1px solid var(--border);
+      border-radius: var(--radius-md); box-shadow: var(--shadow-lg);
+      max-height: 200px; overflow-y: auto;
+    }
+    .mem-pick-item {
+      display: block; width: 100%; text-align: left; padding: 6px 10px;
+      background: transparent; border: none; border-bottom: 1px solid var(--border-muted);
+      color: var(--text-primary); font-size: 12px; cursor: pointer;
+    }
+    .mem-pick-item:last-child { border-bottom: none; }
+    .mem-pick-item:hover { background: var(--bg-elevated); }
 `;
 
 /** The detail drawer's own layout (overlay, panel, header, fields, read-only rows). Drawer-only. */

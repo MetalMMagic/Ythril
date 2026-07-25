@@ -200,4 +200,59 @@ export class EntityRefPicker {
     const c = this.store.chrono().find(c => c._id === id);
     return c ? c.title.slice(0, 40) + (c.title.length > 40 ? '…' : '') : id.slice(0, 8) + '…';
   }
+
+  // ── Inline memory picker (chrono form; slice 3c "memoryIds searchable like entity") ──────────
+  //
+  // Kept separate from the file-meta `fm*` memory picker above (file-meta rides its own flyout and is
+  // rebuilt in slice 4); these back an INLINE search + a title cache so chips show the memory's fact,
+  // not a truncated id. Reused by the chrono create form and the drawer's chrono edit (never both open
+  // at once). Search is a fact substring, mirroring the file-meta picker.
+
+  memPickQuery = signal('');
+  memPickResults = signal<Memory[]>([]);
+  private _memPickTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Memory id → full fact, for chip display (fed on pick and by `resolveMemoryTitles`). */
+  memoryTitleCache = signal<Record<string, string>>({});
+
+  onMemPickInput(q: string): void {
+    this.memPickQuery.set(q);
+    if (this._memPickTimer) clearTimeout(this._memPickTimer);
+    if (!q.trim()) { this.memPickResults.set([]); return; }
+    this._memPickTimer = setTimeout(() => {
+      this.brainApi.listMemories(this.spaceId(), 8, 0, {}, undefined, q).subscribe({
+        next: ({ memories }) => this.memPickResults.set(memories.slice(0, 6)),
+        error: () => {},
+      });
+    }, 300);
+  }
+
+  /** Cache the picked memory's fact for chip display, append its id to the form, and clear the search. */
+  addMemoryRef(form: { memoryIds: string[] }, mem: Memory): void {
+    this.memoryTitleCache.update(c => ({ ...c, [mem._id]: mem.fact }));
+    if (!form.memoryIds.includes(mem._id)) form.memoryIds.push(mem._id);
+    this.memPickQuery.set('');
+    this.memPickResults.set([]);
+  }
+
+  removeMemoryRef(form: { memoryIds: string[] }, id: string): void {
+    form.memoryIds = form.memoryIds.filter(m => m !== id);
+  }
+
+  /** Chip label for a linked memory: cached fact → loaded list → truncated id, trimmed for display. */
+  memoryRefTitle(id: string): string {
+    const full = this.memoryTitleCache()[id] ?? this.store.memories().find(m => m._id === id)?.fact;
+    return full ? full.slice(0, 40) + (full.length > 40 ? '…' : '') : id.slice(0, 8) + '…';
+  }
+
+  /** Resolve the uncached facts of a memoryIds list (opening a record for editing). Small N → per-id. */
+  resolveMemoryTitles(ids: string[]): void {
+    const spaceId = this.spaceId();
+    if (!spaceId) return;
+    for (const id of ids.filter(i => !this.memoryTitleCache()[i])) {
+      this.brainApi.getMemory(spaceId, id).subscribe({
+        next: (m) => this.memoryTitleCache.update(c => ({ ...c, [m._id]: m.fact })),
+        error: () => {},
+      });
+    }
+  }
 }

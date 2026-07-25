@@ -385,6 +385,8 @@
   "brain.chrono.form.kind": "Kind",
   "brain.chrono.form.customKind": "Custom…",
   "brain.chrono.form.startsAt": "Starts at",
+  "brain.chrono.form.memories": "Memories",
+  "brain.chrono.form.searchMemories": "Search memories to link…",
   "brain.chrono.form.endsAt": "Ends at (optional)",
   "brain.chrono.form.backToPresets": "Back to presets",
   "brain.chrono.table.title": "Title",

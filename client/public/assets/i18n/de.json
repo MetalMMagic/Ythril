@@ -385,6 +385,8 @@
   "brain.chrono.form.kind": "Art",
   "brain.chrono.form.customKind": "Brauch…",
   "brain.chrono.form.startsAt": "Beginnt um",
+  "brain.chrono.form.memories": "Erinnerungen",
+  "brain.chrono.form.searchMemories": "Erinnerungen zum Verknüpfen suchen…",
   "brain.chrono.form.endsAt": "Endet um (optional)",
   "brain.chrono.form.backToPresets": "Zurück zu den Voreinstellungen",
   "brain.chrono.table.title": "Titel",

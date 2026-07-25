@@ -88,6 +88,17 @@ describe('MemoriesTabComponent', () => {
     expect(fixture.nativeElement.querySelector('form.create-form')).toBeTruthy();
   });
 
+  // Slice 3a: the entity picker is INLINE — an app-entity-search in the form, no click-to-open flyout.
+  it('the entity picker is inline in the create form (no chip-add button / flyout panel)', () => {
+    const fixture = make();
+    fixture.componentInstance.openMemoryForm();
+    fixture.detectChanges();
+    const form = fixture.nativeElement.querySelector('form.create-form') as HTMLElement;
+    expect(form.querySelector('app-entity-search')).toBeTruthy();
+    expect(form.querySelector('.chip-add')).toBeNull();
+    expect(form.querySelector('.flyout-panel')).toBeNull();
+  });
+
   it('renders a row per memory (signal-driven view updates under OnPush)', () => {
     const fixture = make();
     // set AFTER the initial self-load settles (the effect reruns only on spaceId change)

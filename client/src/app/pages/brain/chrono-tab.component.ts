@@ -89,27 +89,14 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                 </div>
                 <div class="field">
                   <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
-                  <div class="flyout-wrap">
+                  @if (picker.entityChips(chronoForm.entityIds).length) {
                     <div class="entity-multi">
                       @for (chip of picker.entityChips(chronoForm.entityIds); track chip.id) {
                         <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(chronoForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                       }
-                      <button type="button" class="chip-add" (click)="picker.openFlyout('create-chrono-entityIds', chronoForm)">{{ 'common.addMore' | transloco }}</button>
                     </div>
-                    @if (picker.flyoutField() === 'create-chrono-entityIds') {
-                      <div class="flyout-panel">
-                        <app-entity-search
-                          mode="picker"
-                          [spaceId]="spaceId()"
-                          placeholder="common.searchEntitiesPlaceholder"
-                          (selected)="picker.pickEntity($event, chronoForm)"
-                        />
-                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                          <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                        </div>
-                      </div>
-                    }
-                  </div>
+                  }
+                  <app-entity-search mode="picker" [spaceId]="spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, chronoForm)" />
                 </div>
               </div>
               <div style="display:flex; gap:8px;">
@@ -186,28 +173,14 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                             <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
-                            <div class="flyout-wrap">
+                            @if (picker.entityChips(editChrono.entityIds).length) {
                               <div class="entity-multi">
                                 @for (chip of picker.entityChips(editChrono.entityIds); track chip.id) {
                                   <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(editChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                                 }
-                                <button type="button" class="chip-add" (click)="picker.openFlyout('edit-chrono-entityIds', editChrono)">{{ 'common.addMore' | transloco }}</button>
                               </div>
-                              @if (picker.flyoutField() === 'edit-chrono-entityIds') {
-                                <div class="flyout-panel">
-                                  <app-entity-search
-                                    mode="picker"
-                                    [spaceId]="spaceId()"
-                                    placeholder="common.searchEntitiesPlaceholder"
-
-                                    (selected)="picker.pickEntity($event, editChrono)"
-                                  />
-                                  <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                    <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                                  </div>
-                                </div>
-                              }
-                            </div>
+                            }
+                            <app-entity-search mode="picker" [spaceId]="spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, editChrono)" />
                           </div>
                           <div style="display:flex; gap:6px; align-items:flex-end;">
                             <button class="btn btn-sm btn-primary" [disabled]="recordList.editSaving()" (click)="saveEditChrono(entry._id)">

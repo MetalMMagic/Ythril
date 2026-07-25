@@ -73,22 +73,14 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.entityIds' | transloco }}</div>
-                  <div class="flyout-wrap">
+                  @if (picker.entityChips(state.drawerEditMemory.entityIds).length) {
                     <div class="entity-multi">
                       @for (chip of picker.entityChips(state.drawerEditMemory.entityIds); track chip.id) {
                         <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(state.drawerEditMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                       }
-                      <button type="button" class="chip-add" (click)="picker.openFlyout('drawer-memory-entityIds', state.drawerEditMemory)">{{ 'common.addMore' | transloco }}</button>
                     </div>
-                    @if (picker.flyoutField() === 'drawer-memory-entityIds') {
-                      <div class="flyout-panel">
-                        <app-entity-search mode="picker" [spaceId]="state.spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, state.drawerEditMemory)" />
-                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                          <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                        </div>
-                      </div>
-                    }
-                  </div>
+                  }
+                  <app-entity-search mode="picker" [spaceId]="state.spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, state.drawerEditMemory)" />
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.form.properties' | transloco }}</div>
@@ -257,22 +249,14 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.entityIds' | transloco }}</div>
-                  <div class="flyout-wrap">
+                  @if (picker.entityChips(state.drawerEditChrono.entityIds).length) {
                     <div class="entity-multi">
                       @for (chip of picker.entityChips(state.drawerEditChrono.entityIds); track chip.id) {
                         <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(state.drawerEditChrono, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                       }
-                      <button type="button" class="chip-add" (click)="picker.openFlyout('drawer-chrono-entityIds', state.drawerEditChrono)">{{ 'common.addMore' | transloco }}</button>
                     </div>
-                    @if (picker.flyoutField() === 'drawer-chrono-entityIds') {
-                      <div class="flyout-panel">
-                        <app-entity-search mode="picker" [spaceId]="state.spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, state.drawerEditChrono)" />
-                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                          <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                        </div>
-                      </div>
-                    }
-                  </div>
+                  }
+                  <app-entity-search mode="picker" [spaceId]="state.spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, state.drawerEditChrono)" />
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.memoryIds' | transloco }} <span class="drawer-muted">{{ 'common.commaSeparatedIds' | transloco }}</span></div>

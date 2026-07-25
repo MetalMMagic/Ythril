@@ -369,7 +369,7 @@ Click **Create New Space**. Fill in:
 
 ### Space settings
 
-Click the gear icon on any space row to open its settings panel. Changes save and close automatically.
+Click the gear icon on any space row to open its settings panel. Changes save and close automatically. An accidental click **outside** the panel won't close it (so you can't lose half-typed edits that way) — close it deliberately with **✕**, **Cancel**, or **Escape**; if you have unsaved changes you'll be asked to confirm.
 
 **Settings tab:** Update the display name, purpose, usage notes for AI assistants, storage quota, auto-delete window, and document-extraction mode — grouped into **Identity**, **Purpose**, **Limits**, and **Document extraction** cards. A blank storage quota, auto-delete window, or extraction override shows an **Unlimited** / **No auto-delete** / **Instance default** pill so the default is unmistakable.
 

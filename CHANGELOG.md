@@ -1500,6 +1500,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The space-settings panel no longer discards your edits on a stray click outside it.** Clicking the
+  backdrop closed the panel and threw away everything typed. The close guard *did* exist but keyed off
+  `isDirty()`, which only sees **committed** schema state (`buildMeta()`) — so half-typed, not-yet-added
+  schema inputs (a new type/property name, enum values) were invisible to it and vanished on a backdrop
+  misclick with no confirm. The panel now uses the shared `ModalDirective` with backdrop-dismissal
+  **off** (the same guard other data-entry dialogs use): a click outside does nothing; close via ✕ /
+  Cancel / Escape, which still run the unsaved-changes confirm. Also brings the panel a focus trap,
+  Escape handling, and dialog aria for free. Verified end-to-end (a typed-but-uncommitted schema input
+  survives a backdrop click).
 - **The external-assist "Document repair pass" pill said "In use" the moment you ticked the task,
   even with no assist model configured.** The pill keyed off the `uses` toggle alone, so toggling
   "repair" on with an empty Endpoint/Model still read "In use" — claiming an inoperable feature was

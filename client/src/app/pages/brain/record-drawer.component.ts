@@ -6,6 +6,7 @@ import { ModalDirective } from '../../shared/modal.directive';
 import { TagInputComponent } from '../../shared/tag-input.component';
 import { PropertiesEditorComponent } from '../../shared/properties-editor.component';
 import { EntityRefFieldComponent } from './entity-ref-field.component';
+import { MemoryRefFieldComponent } from './memory-ref-field.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { BrainStore } from './brain-store.service';
 import { EntityRefPicker } from './entity-ref-picker.service';
@@ -26,7 +27,7 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
   selector: 'app-record-drawer',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesEditorComponent, EntityRefFieldComponent, PhIconComponent, ModalDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesEditorComponent, EntityRefFieldComponent, MemoryRefFieldComponent, PhIconComponent, ModalDirective],
   styles: [BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES],
   template: `
       @if (state.drawerRecord(); as dr) {
@@ -246,23 +247,7 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
                 </div>
                 <div class="drawer-field">
                   <div class="drawer-label">{{ 'common.memoryIds' | transloco }}</div>
-                  @if (state.drawerEditChrono.memoryIds.length) {
-                    <div class="entity-multi">
-                      @for (id of state.drawerEditChrono.memoryIds; track id) {
-                        <span class="chip" [title]="id"><span class="chip-name">{{ picker.memoryRefTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeMemoryRef(state.drawerEditChrono, id)"><ph-icon name="x" [size]="12"/></button></span>
-                      }
-                    </div>
-                  }
-                  <div class="mem-pick">
-                    <input type="search" [value]="picker.memPickQuery()" (input)="picker.onMemPickInput($any($event.target).value)" [placeholder]="'brain.chrono.form.searchMemories' | transloco" [attr.aria-label]="'brain.chrono.form.searchMemories' | transloco" />
-                    @if (picker.memPickResults().length) {
-                      <div class="mem-pick-menu">
-                        @for (mem of picker.memPickResults(); track mem._id) {
-                          <button type="button" class="mem-pick-item" (mousedown)="picker.addMemoryRef(state.drawerEditChrono, mem)">{{ mem.fact.slice(0, 90) }}{{ mem.fact.length > 90 ? '…' : '' }}</button>
-                        }
-                      </div>
-                    }
-                  </div>
+                  <app-memory-ref-field [target]="state.drawerEditChrono" />
                 </div>
                 <hr class="drawer-hr">
                 <div class="drawer-field">

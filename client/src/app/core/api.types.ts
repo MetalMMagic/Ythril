@@ -397,7 +397,7 @@ export interface AboutInfo {
   version: string;
   uptime: string;
   mongoVersion: string;
-  diskInfo: { total: number; used: number; available: number };
+  diskInfo: { total: number; used: number; available: number; dataUsed: number };
   publicUrl?: string;
 }
 

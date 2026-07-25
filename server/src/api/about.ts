@@ -9,6 +9,7 @@ import { getConfig } from '../config/loader.js';
 import { getMongo } from '../db/mongo.js';
 import { getLogLines, subscribeLogLines } from '../util/log.js';
 import { computeSecurityPosture, securityStrict } from '../config/security-posture.js';
+import { dirSizeBytes } from '../quota/quota.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkgPath = path.resolve(__dirname, '..', '..', 'package.json');
@@ -36,15 +37,36 @@ function formatUptime(seconds: number): string {
   return parts.join(' ');
 }
 
-async function getDiskInfo(): Promise<{ total: number; used: number; available: number }> {
+// Ythril's actual data footprint (recursive size of DATA_ROOT) is what the operator wants to see —
+// `statfs` reports the WHOLE partition DATA_ROOT sits on, which in the common deployment (DATA_ROOT a
+// subdir of the host root fs, not its own mount) is the host disk, not Ythril's usage (the bug the
+// owner hit). A recursive `du` is O(files), so cache it with a TTL rather than pay it per /about call.
+let _dataUsedCache: { bytes: number; at: number } | null = null;
+const DATA_USED_TTL_MS = 5 * 60 * 1000;
+async function getDataUsedBytes(): Promise<number> {
+  const now = Date.now();
+  if (_dataUsedCache && now - _dataUsedCache.at < DATA_USED_TTL_MS) return _dataUsedCache.bytes;
+  try {
+    const bytes = await dirSizeBytes(DATA_ROOT);
+    _dataUsedCache = { bytes, at: now };
+    return bytes;
+  } catch {
+    return _dataUsedCache?.bytes ?? 0;
+  }
+}
+
+// `total`/`available`/`used` describe the filesystem/partition DATA_ROOT lives on (capacity context);
+// `dataUsed` is Ythril's own footprint under DATA_ROOT — the figure the UI leads with.
+async function getDiskInfo(): Promise<{ total: number; used: number; available: number; dataUsed: number }> {
+  const dataUsed = await getDataUsedBytes();
   try {
     const stats = fs.statfsSync(DATA_ROOT);
     const total = stats.bsize * stats.blocks;
     const available = stats.bsize * stats.bavail;
     const used = total - available;
-    return { total, used, available };
+    return { total, used, available, dataUsed };
   } catch {
-    return { total: 0, used: 0, available: 0 };
+    return { total: 0, used: 0, available: 0, dataUsed };
   }
 }
 

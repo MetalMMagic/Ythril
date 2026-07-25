@@ -73,27 +73,14 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                 </div>
                 <div class="field">
                   <label>{{ 'common.form.entities' | transloco }}</label>
-                  <div class="flyout-wrap">
+                  @if (picker.entityChips(memoryForm.entityIds).length) {
                     <div class="entity-multi">
                       @for (chip of picker.entityChips(memoryForm.entityIds); track chip.id) {
                         <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(memoryForm, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                       }
-                      <button type="button" class="chip-add" (click)="picker.openFlyout('create-memory-entityIds', memoryForm)">{{ 'common.addMore' | transloco }}</button>
                     </div>
-                    @if (picker.flyoutField() === 'create-memory-entityIds') {
-                      <div class="flyout-panel">
-                        <app-entity-search
-                          mode="picker"
-                          [spaceId]="spaceId()"
-                          placeholder="common.searchEntitiesPlaceholder"
-                          (selected)="picker.pickEntity($event, memoryForm)"
-                        />
-                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                          <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                        </div>
-                      </div>
-                    }
-                  </div>
+                  }
+                  <app-entity-search mode="picker" [spaceId]="spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, memoryForm)" />
                 </div>
                 <div class="field">
                   <label>{{ 'common.form.properties' | transloco }}</label>
@@ -158,28 +145,14 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                           </div>
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                             <label>{{ 'common.form.entities' | transloco }}</label>
-                            <div class="flyout-wrap">
+                            @if (picker.entityChips(editMemory.entityIds).length) {
                               <div class="entity-multi">
                                 @for (chip of picker.entityChips(editMemory.entityIds); track chip.id) {
                                   <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(editMemory, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
                                 }
-                                <button type="button" class="chip-add" (click)="picker.openFlyout('edit-memory-entityIds', editMemory)">{{ 'common.addMore' | transloco }}</button>
                               </div>
-                              @if (picker.flyoutField() === 'edit-memory-entityIds') {
-                                <div class="flyout-panel">
-                                  <app-entity-search
-                                    mode="picker"
-                                    [spaceId]="spaceId()"
-                                    placeholder="common.searchEntitiesPlaceholder"
-
-                                    (selected)="picker.pickEntity($event, editMemory)"
-                                  />
-                                  <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                    <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                                  </div>
-                                </div>
-                              }
-                            </div>
+                            }
+                            <app-entity-search mode="picker" [spaceId]="spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, editMemory)" />
                           </div>
                           <div class="field" style="flex:1; min-width:220px; margin-bottom:0;">
                             <label>{{ 'common.form.properties' | transloco }}</label>

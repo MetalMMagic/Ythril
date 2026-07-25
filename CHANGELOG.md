@@ -2293,6 +2293,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The entity picker in the Brain memory/chrono forms is inline now — no more click-to-open flyout.**
+  Adding entities to a memory or chrono entry (create form, inline-edit, and the detail drawer) used a
+  "+ Add…" button that popped a flyout panel with a search box and a Done button. The search
+  autocomplete now sits **inline** in the field: type to find an entity (name or semantic — defaults to
+  name, so exact IDs like `ADR002` resolve), click to link, and it stays put so you can add several in
+  a row; linked entities show as chips above it. Fewer clicks, no popover to dismiss. (File-meta's
+  pickers are unchanged — they're part of the separate File Meta rebuild.) Pure client, no API change.
 - **The Brain search bars now render identically across all five list tabs.** The entities tab's bar
   (`app-entity-search`) had drifted from the other four (`record-search-bar`): taller (`6px` vs `5px`
   vertical padding), a different fill (`--bg-elevated` vs `--bg-surface`), and wider (`520` vs `400px`

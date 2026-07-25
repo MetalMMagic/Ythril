@@ -1201,8 +1201,8 @@ With no `sort` the endpoint keeps its existing default order (entities: insertio
 
 #### Freetext search (`?search=`)
 
-The entities, edges, memories and chrono list endpoints accept an optional `?search=<text>` that
-matches a **case-insensitive substring** of the record's text fields, applied server-side before
+The entities, edges, memories, chrono and file-meta list endpoints accept an optional `?search=<text>`
+that matches a **case-insensitive substring** of the record's text fields, applied server-side before
 pagination (so it spans the whole set, like sort). The value is treated as a **literal** — regex
 metacharacters are escaped, so `a.b` matches the three characters `a.b`, not "a, any char, b".
 
@@ -1212,9 +1212,10 @@ metacharacters are escaped, so `a.b` matches the three characters `a.b`, not "a,
 | edges | `label`, `description` |
 | memories | `fact`, `description` |
 | chrono | `title`, `description` |
+| files | `path`, `description` |
 
-(Files use their own `path` filter; entities also keep the exact `?name=` filter and the semantic
-`/entities/by-name` endpoint.)
+(Files also keep their exact `?path=` filter — distinct from this substring `?search=`; entities keep
+the exact `?name=` filter and the semantic `/entities/by-name` endpoint.)
 
 ---
 

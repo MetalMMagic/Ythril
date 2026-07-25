@@ -18,7 +18,7 @@ import { openTestMongo, closeTestMongo, mongoSkipReason } from './_mongo-harness
 const skip = await mongoSkipReason();
 const SPACE = 'general';
 
-let mongo, listEntities, textSearchOr, entities;
+let mongo, listEntities, textSearchOr, SEARCHABLE_FIELDS, entities, files;
 
 async function insertEntity(_id, name, description = '') {
   await entities.insertOne({ _id, spaceId: SPACE, name, description, type: 'x', createdAt: '2026-01-01T00:00:00.000Z', seq: 1 });
@@ -42,11 +42,12 @@ describe('brain freetext search — against a real MongoDB', { skip }, () => {
   before(async () => {
     mongo = await openTestMongo('braintextsearch');
     ({ listEntities } = await import('../../server/dist/brain/entities.js'));
-    ({ textSearchOr } = await import('../../server/dist/brain/text-search.js'));
+    ({ textSearchOr, SEARCHABLE_FIELDS } = await import('../../server/dist/brain/text-search.js'));
     entities = mongo.col(`${SPACE}_entities`);
+    files = mongo.col(`${SPACE}_files`);
   });
   after(async () => { await closeTestMongo(); });
-  beforeEach(async () => { await entities.deleteMany({}); });
+  beforeEach(async () => { await entities.deleteMany({}); await files.deleteMany({}); });
 
   it('matches a substring across a PAGE BOUNDARY, not just the visible page', async () => {
     // Six names contain "ana"; page size 2 → three pages. A page-only filter would miss the rest.
@@ -89,5 +90,21 @@ describe('brain freetext search — against a real MongoDB', { skip }, () => {
     await insertEntity('a1', 'Alpha');
     await insertEntity('a2', 'Beta');
     assert.deepEqual(await searchAllPages(''), ['a1', 'a2']);
+  });
+
+  // Slice 4b: file-meta list gains the same freetext filter, over path + description.
+  it('files freetext matches path and description (SEARCHABLE_FIELDS.files)', async () => {
+    const insertFile = (id, path, description = '') =>
+      files.insertOne({ _id: id, spaceId: SPACE, path, description, tags: [], sizeBytes: 0, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' });
+    await insertFile('f1', 'docs/readme.md', 'project intro');
+    await insertFile('f2', 'src/main.ts', 'entry point');
+    await insertFile('f3', 'notes/todo.txt', 'the readme is stale');  // matches on description
+    const found = async (q) => {
+      const filter = textSearchOr(q, SEARCHABLE_FIELDS.files) ?? {};
+      return (await files.find(filter).toArray()).map(f => String(f._id)).sort();
+    };
+    assert.deepEqual(await found('readme'), ['f1', 'f3'], 'path (f1) + description (f3)');
+    assert.deepEqual(await found('main.ts'), ['f2'], 'path substring');
+    assert.deepEqual(await found('a.b'), [], 'literal dot — no wildcard match');
   });
 });

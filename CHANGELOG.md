@@ -831,6 +831,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The File Meta list endpoint gains a freetext `?search=`.** `GET /api/brain/spaces/:id/files` now
+  accepts a `?search=<text>` that matches a case-insensitive **substring** of a file record's `path` +
+  `description`, applied server-side before pagination (spans the whole list) and escaped as a literal —
+  the same builder (`textSearchOr` / `SEARCHABLE_FIELDS.files`) the other brain list endpoints use
+  (2b-iii-a). Distinct from the existing exact `?path=` filter. Groundwork for the File Meta list's
+  docked freetext column filter (client wiring follows); char-tested (unit + DB harness).
 - **Chrono entries can link memories through a searchable picker.** A chrono entry could already carry
   `memoryIds` (the API accepted them and the detail drawer round-tripped them), but the only UI was a
   raw comma-separated-ID **textarea** in the drawer — you had to paste ids by hand — and the create

@@ -2301,6 +2301,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brain File Meta list gets sortable headers and a tag column filter, like the other list tabs.**
+  The files list endpoint already supported `?sort=` (path / updatedAt / createdAt) and a `?tag=` filter
+  server-side, but the client never wired them and the table used plain headers. File Meta now has
+  `app-sort-th` headers on **Path** and **Updated** and a docked **Tags** filter, threaded through
+  `listFileMeta` (client-only — no server change). First step of the File Meta rebuild; a freetext
+  column filter + semantic top bar + edit-surface redo follow.
 - **The entity picker in the Brain memory/chrono forms is inline now — no more click-to-open flyout.**
   Adding entities to a memory or chrono entry (create form, inline-edit, and the detail drawer) used a
   "+ Add…" button that popped a flyout panel with a search box and a Done button. The search

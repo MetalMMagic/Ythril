@@ -13,6 +13,7 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
 import { StepProgressBarComponent } from '../../shared/step-progress-bar.component';
 import { RecordTabBase } from './record-tab-base';
 import { RecordSearchBarComponent } from './record-search-bar.component';
+import { SortableHeaderComponent } from './sortable-header.component';
 import { fmtApiError } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
@@ -31,7 +32,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-filemeta-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, StepProgressBarComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, StepProgressBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
           <div class="content-header">
@@ -48,14 +49,17 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
               <table>
                 <thead>
                   <tr>
-                    <th>{{ 'brain.fileMeta.table.path' | transloco }}</th>
+                    <th app-sort-th field="path" label="brain.fileMeta.table.path" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
                     <th>{{ 'brain.fileMeta.table.description' | transloco }}</th>
-                    <th>{{ 'brain.fileMeta.table.tags' | transloco }}</th>
+                    <th app-sort-th label="brain.fileMeta.table.tags">
+                      <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
+                        [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
+                    </th>
                     <th>{{ 'brain.fileMeta.table.entities' | transloco }}</th>
                     <th>{{ 'brain.fileMeta.table.memories' | transloco }}</th>
                     <th>{{ 'brain.fileMeta.table.chrono' | transloco }}</th>
                     <th>{{ 'brain.fileMeta.table.size' | transloco }}</th>
-                    <th>{{ 'brain.fileMeta.table.updated' | transloco }}</th>
+                    <th app-sort-th field="updatedAt" label="brain.fileMeta.table.updated" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
                     <th>{{ 'brain.fileMeta.table.actions' | transloco }}</th>
                   </tr>
                 </thead>
@@ -249,14 +253,19 @@ export class FilemetaTabComponent extends RecordTabBase {
   retryingEmbedding = signal<Set<string>>(new Set());
   editFileMeta = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };
 
-  // No resetOnSpaceChange override: file-meta has no filter bar, so the base's skip reset is enough.
+  protected override resetOnSpaceChange(): void {
+    this.recordFilter.set({ type: '', tag: '' });
+  }
 
   protected override load(): void {
     const spaceId = this.spaceId();
     if (!spaceId) return;
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
-    this.filesApi.listFileMeta(spaceId, this.pageSize, this.skip(), this.store.fileMetaSearch() || undefined).subscribe({
+    const filters: { search?: string; tag?: string } = {};
+    if (this.store.fileMetaSearch()) filters.search = this.store.fileMetaSearch();
+    if (this.recordFilter().tag) filters.tag = this.recordFilter().tag;
+    this.filesApi.listFileMeta(spaceId, this.pageSize, this.skip(), filters, this.sortParam()).subscribe({
       next: ({ files }) => { this.store.fileMetas.set(files); this.recordList.loading.set(false); },
       error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
     });

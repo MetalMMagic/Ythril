@@ -3,6 +3,7 @@ import { HttpClient, HttpParams, HttpHeaders } from '@angular/common/http';
 import { Observable, Subscription } from 'rxjs';
 import { map } from 'rxjs/operators';
 import type { FileEntry, FileMeta, UploadProgress, ConflictRecord } from './api.types';
+import type { ListSort } from './brain-api.service';
 
 /** File store (listing, upload, download), brain file-metadata, and sync file conflicts. */
 @Injectable({ providedIn: 'root' })
@@ -147,9 +148,12 @@ export class FilesApi {
 
   // ── File metadata (brain) ─────────────────────────────────────────────────
 
-  listFileMeta(spaceId: string, limit = 50, skip = 0, search?: string): Observable<{ files: FileMeta[]; limit: number; skip: number }> {
+  listFileMeta(spaceId: string, limit = 50, skip = 0, filters?: { search?: string; tag?: string }, sort?: ListSort): Observable<{ files: FileMeta[]; limit: number; skip: number }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
-    if (search) params = params.set('path', search);
+    // `search` maps to the server's `path` filter for now (exact-ish); slice 4b adds a real freetext `?search=`.
+    if (filters?.search) params = params.set('path', filters.search);
+    if (filters?.tag) params = params.set('tag', filters.tag);
+    if (sort) params = params.set('sort', sort.field).set('dir', sort.dir);
     return this.http.get<{ files: FileMeta[]; limit: number; skip: number }>(`/api/brain/spaces/${spaceId}/files`, { params });
   }
 

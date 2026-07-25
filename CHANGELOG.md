@@ -2324,6 +2324,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brain entity-chip field (linked-entity chips + inline picker) is now one shared component.**
+  The identical block — chips wired to the shared `EntityRefPicker` plus an inline `app-entity-search`
+  — was hand-copied across six create/inline-edit/drawer forms (memory ×3, chrono ×3); drift between
+  those copies is a recurring visual-consistency snag. It's extracted to a single `app-entity-ref-field`
+  and every one of the six call sites now renders it, so all six stay identical by construction.
+  No behaviour change (picking/removing mutate the same form object exactly as before); this unblocks
+  the File Meta edit-surface redo. Client-only, internal refactor.
 - **The Brain File Meta list's freetext search moved into a docked Path-column filter (server-side).**
   The old top-bar search was a client-side substring over just the loaded page; it's replaced by a
   debounced **freetext box under the Path header** that feeds the new server `?search=` (substring over

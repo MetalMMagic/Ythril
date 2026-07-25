@@ -108,7 +108,6 @@ export class RecordDrawerState {
   close(): void {
     this.drawerRecord.set(null);
     this.drawerError.set('');
-    this.picker.closeFlyout();
   }
 
   save(): void {

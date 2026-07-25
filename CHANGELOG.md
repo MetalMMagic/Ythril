@@ -3739,6 +3739,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **The dormant Brain entity-picker flyout machinery is gone (internal, no behaviour change).** The old
+  click-to-open flyout was fronted by `EntityRefPicker.flyoutField`/`openFlyout`/`closeFlyout`, a
+  shell-level `.flyout-backdrop`, and a block of `.flyout-*` rules in the shared chip styles. Slice 4d
+  moved File Meta — the last flyout user — onto the inline ref-field components, leaving all of that with
+  zero live consumers (the field was never set non-empty again). It's now removed, along with the
+  drawer-close `closeFlyout()` no-op and the obsolete picker-spec cases. The Graph page keeps its own,
+  independent flyout (separate component-local state + styles) and is unaffected.
 - **BREAKING: the legacy `/api/brain/:spaceId/memories` route shape is removed.** Space memory
   endpoints used to be registered under two URL shapes — canonical `/api/brain/spaces/:spaceId/…` and
   legacy `/api/brain/:spaceId/…` — with the handler bodies **copy-pasted** between them (and the

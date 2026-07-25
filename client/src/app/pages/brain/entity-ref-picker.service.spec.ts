@@ -12,8 +12,6 @@
  *     driving several distinct targets
  *   - `appendEntityId` de-dups and re-joins with ', '; `removeEntityId` drops one id and re-joins
  *   - `entityChips` resolves names from the cache, falls back to the raw id, trims and drops blanks
- *   - `openFlyout(key, target)` sets the active field and resolves the target's *uncached* ids; with
- *     no target (the memory/chrono file-meta pickers) it resolves nothing
  *   - `resolveEntityNames` / `resolveEntityNamesFor` hit the API only for uncached ids
  *
  * The edge from/to endpoints did NOT move here — they set display fields on the shell's `edgeForm`
@@ -100,22 +98,14 @@ describe('EntityRefPicker (characterization)', () => {
     ]);
   });
 
-  // ── openFlyout / closeFlyout + name resolution ─────────────────────────────
+  // ── resolveEntityNamesFor (a form's comma-separated entityIds, used on edit-open) ───────────
 
-  it('openFlyout sets the active field; closeFlyout clears it', () => {
-    const picker = create();
-    picker.openFlyout('create-memory-entityIds', { entityIds: '' });
-    expect(picker.flyoutField()).toBe('create-memory-entityIds');
-    picker.closeFlyout();
-    expect(picker.flyoutField()).toBe('');
-  });
-
-  it("openFlyout with a target resolves the target's UNCACHED ids and patches the cache", () => {
+  it("resolveEntityNamesFor resolves a CSV field's UNCACHED ids and patches the cache", () => {
     const picker = create();
     picker.entityNameCache.set({ e1: 'Alice' }); // e1 known → only e2 requested
     getEntitiesByIds.mockReturnValue(of({ entities: [entity('e2', 'Bob')] }));
 
-    picker.openFlyout('create-memory-entityIds', { entityIds: 'e1, e2' });
+    picker.resolveEntityNamesFor('e1, e2');
 
     expect(getEntitiesByIds).toHaveBeenCalledTimes(1);
     expect(getEntitiesByIds).toHaveBeenCalledWith('work', ['e2']);
@@ -123,17 +113,10 @@ describe('EntityRefPicker (characterization)', () => {
     expect(picker.entityNameCache()['e1']).toBe('Alice'); // preserved
   });
 
-  it('openFlyout does not call the API when every id is already cached', () => {
+  it('resolveEntityNamesFor does not call the API when every id is already cached', () => {
     const picker = create();
     picker.entityNameCache.set({ e1: 'Alice' });
-    picker.openFlyout('create-chrono-entityIds', { entityIds: 'e1' });
-    expect(getEntitiesByIds).not.toHaveBeenCalled();
-  });
-
-  it('openFlyout without a target (memory/chrono file-meta pickers) resolves nothing', () => {
-    const picker = create();
-    picker.openFlyout('edit-filemeta-memoryIds');
-    expect(picker.flyoutField()).toBe('edit-filemeta-memoryIds');
+    picker.resolveEntityNamesFor('e1');
     expect(getEntitiesByIds).not.toHaveBeenCalled();
   });
 

@@ -2331,6 +2331,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Token permission pills are now colour-coded by privilege (Settings → Tokens).** The permission
+  badge in the token list mapped to design-system colours that didn't track privilege — admin was
+  green, standard was neutral grey. Following owner feedback, the pills now read at a glance:
+  **admin = red** (the most-powerful, most-dangerous token), **standard = green**, **read-only =
+  yellow** (schema-library keeps its distinct blue). Purely the pill colour vocabulary — no change to
+  permissions, the create flow, or any behaviour.
 - **The Brain File Meta edit form's entity / memory / chrono pickers now match every other tab.** They
   were the last hold-outs on the old click-to-open **flyout** pattern; each is now the same always-inline
   chips + search field the memory and chrono forms use, via the shared `app-entity-ref-field` /

@@ -383,10 +383,10 @@ import { RelativeTimeComponent } from '../../shared/relative-time.component';
                     @if (t.id === selfToken()?.id) { <span style="margin-left:6px;font-size:0.75rem;color:var(--text-muted);">{{ 'tokens.table.currentSession' | transloco }}</span> }
                   </td>
                   <td>
-                    @if (t.admin) { <app-status-pill variant="ok">{{ 'tokens.badge.admin' | transloco }}</app-status-pill> }
+                    @if (t.admin) { <app-status-pill variant="error">{{ 'tokens.badge.admin' | transloco }}</app-status-pill> }
                     @else if (t.schemaLibrary) { <app-status-pill variant="pending">{{ 'tokens.badge.schemaLibrary' | transloco }}</app-status-pill> }
                     @else if (t.readOnly) { <app-status-pill variant="warn">{{ 'tokens.badge.readOnly' | transloco }}</app-status-pill> }
-                    @else { <app-status-pill variant="off">{{ 'tokens.badge.standard' | transloco }}</app-status-pill> }
+                    @else { <app-status-pill variant="ok">{{ 'tokens.badge.standard' | transloco }}</app-status-pill> }
                   </td>
                   <td><app-relative-time [value]="t.createdAt"/></td>
                   <td>

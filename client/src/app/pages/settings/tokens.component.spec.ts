@@ -57,6 +57,29 @@ describe('TokensComponent — permission → create payload', () => {
   });
 });
 
+describe('TokensComponent — permission pill colour semantics (UI-BUNDLE-1)', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  // Owner feedback 2026-07-23: admin=red, standard=green, read-only=yellow. The list pills map to the
+  // design-system StatusPill variants error / ok / warn respectively (schema-library stays pending/blue).
+  it('renders the permission pill with the level-coded StatusPill variant', () => {
+    const cases = [
+      { tok: { id: 't1', admin: true }, variant: 'error' },
+      { tok: { id: 't2' }, variant: 'ok' }, // standard = no flags
+      { tok: { id: 't3', readOnly: true }, variant: 'warn' },
+      { tok: { id: 't4', schemaLibrary: true }, variant: 'pending' },
+    ] as const;
+    for (const { tok, variant } of cases) {
+      const { fixture, c } = make();
+      c.tokens.set([{ spaces: [], ...tok } as never]);
+      fixture.detectChanges();
+      const pill = fixture.nativeElement.querySelector('tbody tr td:nth-child(2) .pill');
+      expect(pill, `token ${tok.id}`).not.toBeNull();
+      expect(pill.classList.contains(variant), `token ${tok.id} → ${variant}`).toBe(true);
+    }
+  });
+});
+
 describe('TokensComponent — permission capability help (U6)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 

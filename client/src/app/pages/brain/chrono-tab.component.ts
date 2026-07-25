@@ -8,6 +8,7 @@ import { BrainApi } from '../../core/brain-api.service';
 import { httpErrorReason } from '../../core/http-error';
 import { TagInputComponent } from '../../shared/tag-input.component';
 import { EntityRefFieldComponent } from './entity-ref-field.component';
+import { MemoryRefFieldComponent } from './memory-ref-field.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { RecordDrawerState } from './record-drawer-state.service';
@@ -33,7 +34,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-chrono-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntityRefFieldComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -93,23 +94,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                 </div>
                 <div class="field">
                   <label>{{ 'brain.chrono.form.memories' | transloco }}</label>
-                  @if (chronoForm.memoryIds.length) {
-                    <div class="entity-multi">
-                      @for (id of chronoForm.memoryIds; track id) {
-                        <span class="chip" [title]="id"><span class="chip-name">{{ picker.memoryRefTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeMemoryRef(chronoForm, id)"><ph-icon name="x" [size]="12"/></button></span>
-                      }
-                    </div>
-                  }
-                  <div class="mem-pick">
-                    <input type="search" [value]="picker.memPickQuery()" (input)="picker.onMemPickInput($any($event.target).value)" [placeholder]="'brain.chrono.form.searchMemories' | transloco" [attr.aria-label]="'brain.chrono.form.searchMemories' | transloco" />
-                    @if (picker.memPickResults().length) {
-                      <div class="mem-pick-menu">
-                        @for (mem of picker.memPickResults(); track mem._id) {
-                          <button type="button" class="mem-pick-item" (mousedown)="picker.addMemoryRef(chronoForm, mem)">{{ mem.fact.slice(0, 90) }}{{ mem.fact.length > 90 ? '…' : '' }}</button>
-                        }
-                      </div>
-                    }
-                  </div>
+                  <app-memory-ref-field [target]="chronoForm" />
                 </div>
               </div>
               <div style="display:flex; gap:8px;">

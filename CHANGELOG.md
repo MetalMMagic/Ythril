@@ -2324,6 +2324,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brain memory-reference field (linked-memory chips + inline title typeahead) is now one shared
+  component too.** Sibling of the entity-chip extraction below: the identical "chips + `.mem-pick`
+  search dropdown" block was hand-copied at the chrono create form and the detail drawer's chrono
+  section. It's extracted to `app-memory-ref-field` and both sites render it, so they stay identical by
+  construction. No behaviour change (add/remove mutate the same form object's `memoryIds` exactly as
+  before). File-meta's memory picker uses the separate `fm*` variant and is left for the File Meta
+  edit-surface redo. Client-only, internal refactor.
 - **The Brain entity-chip field (linked-entity chips + inline picker) is now one shared component.**
   The identical block — chips wired to the shared `EntityRefPicker` plus an inline `app-entity-search`
   — was hand-copied across six create/inline-edit/drawer forms (memory ×3, chrono ×3); drift between

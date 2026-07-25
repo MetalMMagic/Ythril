@@ -94,7 +94,7 @@ describe('ChronoTabComponent', () => {
 
   it('createChrono resolves a __custom__ kind to the free-text customKind and ISO-encodes startsAt', () => {
     const c = make().componentInstance;
-    c.chronoForm = { title: 'T', kind: '__custom__', customKind: ' launch ', startsAt: '2026-03-04T09:07', endsAt: '', description: '', tags: [], entityIds: '' };
+    c.chronoForm = { title: 'T', kind: '__custom__', customKind: ' launch ', startsAt: '2026-03-04T09:07', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [] };
     c.createChrono();
     const [, body] = api.createChrono.mock.calls[0];
     expect(body.title).toBe('T');
@@ -103,9 +103,21 @@ describe('ChronoTabComponent', () => {
     expect('endsAt' in body).toBe(false);
   });
 
+  // Slice 3c: linked memoryIds (from the inline memory picker) ride the create payload; omitted when empty.
+  it('createChrono includes memoryIds when the memory picker has linked some (omitted when empty)', () => {
+    const c = make().componentInstance;
+    c.chronoForm = { title: 'T', kind: 'event', customKind: '', startsAt: '2026-03-04T09:07', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: ['m1', 'm2'] };
+    c.createChrono();
+    expect(api.createChrono.mock.calls[0][1].memoryIds).toEqual(['m1', 'm2']);
+    api.createChrono.mockClear();
+    c.chronoForm = { title: 'T', kind: 'event', customKind: '', startsAt: '2026-03-04T09:07', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [] };
+    c.createChrono();
+    expect('memoryIds' in api.createChrono.mock.calls[0][1]).toBe(false);
+  });
+
   it('createChrono is a no-op without a title or startsAt', () => {
     const c = make().componentInstance;
-    c.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '2026-03-04T09:07', endsAt: '', description: '', tags: [], entityIds: '' };
+    c.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '2026-03-04T09:07', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [] };
     c.createChrono();
     expect(api.createChrono).not.toHaveBeenCalled();
   });
@@ -114,7 +126,7 @@ describe('ChronoTabComponent', () => {
     const c = make().componentInstance;
     c.store.chrono.set([{ _id: 'c1' } as ChronoEntry]);
     c.recordList.editingId.set('c1');
-    c.editChrono = { title: 'T', kind: '__custom__', status: 'active', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '' };
+    c.editChrono = { title: 'T', kind: '__custom__', status: 'active', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [] };
     c.saveEditChrono('c1');
     const [, , body] = api.updateChrono.mock.calls[0];
     expect(body.type).toBe('__custom__'); // sent verbatim, unlike createChrono

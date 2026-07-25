@@ -385,6 +385,8 @@
   "brain.chrono.form.kind": "Uprzejmy",
   "brain.chrono.form.customKind": "Zwyczaj…",
   "brain.chrono.form.startsAt": "Zaczyna się o",
+  "brain.chrono.form.memories": "Wspomnienia",
+  "brain.chrono.form.searchMemories": "Szukaj wspomnień do powiązania…",
   "brain.chrono.form.endsAt": "Kończy się o (opcjonalnie)",
   "brain.chrono.form.backToPresets": "Powrót do ustawień wstępnych",
   "brain.chrono.table.title": "Tytuł",

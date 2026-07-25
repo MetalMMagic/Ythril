@@ -164,7 +164,7 @@ When a **label** is selected and the space has a schema defined for that label, 
 
 Chrono stores time-anchored entries: events, deadlines, plans, predictions, and milestones.
 
-**Creating an entry:** Click **+ Add entry**. Required fields are **title**, **type**, and **starts at** (date and time). You can also add a description, tags, status, and linked entities.
+**Creating an entry:** Click **+ Add entry**. Required fields are **title**, **type**, and **starts at** (date and time). You can also add a description, tags, status, linked **entities**, and linked **memories** — the memory field is a searchable picker (type to find a memory by its fact and click to link it; linked memories show as chips). The same memory picker is available when editing an entry in its detail drawer.
 
 **Searching:** The top search bar is **Semantic** (ranks entries by meaning). Plain-text matching (title / description) is the **freetext box under the Title column**.
 

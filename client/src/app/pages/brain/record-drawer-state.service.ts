@@ -37,7 +37,7 @@ export class RecordDrawerState {
   drawerEditMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditEdge = { label: '', type: '', weight: null as number | null, tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
-  drawerEditChrono = { title: '', kind: 'event' as string, customKind: '', status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', confidence: null as number | null, memoryIds: '' };
+  drawerEditChrono = { title: '', kind: 'event' as string, customKind: '', status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', confidence: null as number | null, memoryIds: [] as string[] };
 
   /** Re-seed a drawer entity's properties when its type changes (mirrors the create/inline forms). */
   onEntityTypeChange(type: string): void {
@@ -88,8 +88,9 @@ export class RecordDrawerState {
         tags: [...(record.tags ?? [])],
         entityIds: (record.entityIds ?? []).join(', '),
         confidence: record.confidence ?? null,
-        memoryIds: (record.memoryIds ?? []).join(', '),
+        memoryIds: [...(record.memoryIds ?? [])],
       };
+      this.picker.resolveMemoryTitles(record.memoryIds ?? []);
     }
   }
 
@@ -168,7 +169,7 @@ export class RecordDrawerState {
         description: this.drawerEditChrono.description.trim(),
         tags: this.drawerEditChrono.tags,
         entityIds: this.drawerEditChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean),
-        ...(this.drawerEditChrono.memoryIds.trim() ? { memoryIds: this.drawerEditChrono.memoryIds.split(',').map(s => s.trim()).filter(Boolean) } : {}),
+        ...(this.drawerEditChrono.memoryIds.length ? { memoryIds: this.drawerEditChrono.memoryIds } : {}),
         ...(this.drawerEditChrono.confidence != null ? { confidence: this.drawerEditChrono.confidence } : {}),
       }).subscribe({
         next: (updated) => {

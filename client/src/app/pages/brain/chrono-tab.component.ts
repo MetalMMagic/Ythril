@@ -98,6 +98,26 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                   }
                   <app-entity-search mode="picker" [spaceId]="spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, chronoForm)" />
                 </div>
+                <div class="field">
+                  <label>{{ 'brain.chrono.form.memories' | transloco }}</label>
+                  @if (chronoForm.memoryIds.length) {
+                    <div class="entity-multi">
+                      @for (id of chronoForm.memoryIds; track id) {
+                        <span class="chip" [title]="id"><span class="chip-name">{{ picker.memoryRefTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeMemoryRef(chronoForm, id)"><ph-icon name="x" [size]="12"/></button></span>
+                      }
+                    </div>
+                  }
+                  <div class="mem-pick">
+                    <input type="search" [value]="picker.memPickQuery()" (input)="picker.onMemPickInput($any($event.target).value)" [placeholder]="'brain.chrono.form.searchMemories' | transloco" [attr.aria-label]="'brain.chrono.form.searchMemories' | transloco" />
+                    @if (picker.memPickResults().length) {
+                      <div class="mem-pick-menu">
+                        @for (mem of picker.memPickResults(); track mem._id) {
+                          <button type="button" class="mem-pick-item" (mousedown)="picker.addMemoryRef(chronoForm, mem)">{{ mem.fact.slice(0, 90) }}{{ mem.fact.length > 90 ? '…' : '' }}</button>
+                        }
+                      </div>
+                    }
+                  </div>
+                </div>
               </div>
               <div style="display:flex; gap:8px;">
                 <button class="btn-primary btn btn-sm" type="submit" [disabled]="creatingChrono() || !chronoForm.title.trim() || !chronoForm.startsAt || (chronoForm.kind === '__custom__' && !chronoForm.customKind.trim())">
@@ -264,8 +284,8 @@ export class ChronoTabComponent extends RecordTabBase {
   showChronoForm = signal(false);
   creatingChrono = signal(false);
   createChronoError = signal('');
-  chronoForm = { title: '', kind: 'event' as ChronoType | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '' };
-  editChrono = { title: '', kind: '' as string, status: '' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '' };
+  chronoForm = { title: '', kind: 'event' as ChronoType | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[] };
+  editChrono = { title: '', kind: '' as string, status: '' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[] };
 
   private _chronoSemTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -336,7 +356,7 @@ export class ChronoTabComponent extends RecordTabBase {
   }
 
   openChronoForm(): void {
-    this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '' };
+    this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [] };
     this.showChronoForm.set(true);
   }
 
@@ -359,11 +379,12 @@ export class ChronoTabComponent extends RecordTabBase {
     if (this.chronoForm.description.trim()) body.description = this.chronoForm.description.trim();
     if (this.chronoForm.tags.length) body.tags = this.chronoForm.tags;
     if (entityIds.length) body.entityIds = entityIds;
+    if (this.chronoForm.memoryIds.length) body.memoryIds = this.chronoForm.memoryIds;
     this.brainApi.createChrono(this.spaceId(), body).subscribe({
       next: () => {
         this.creatingChrono.set(false);
         this.showChronoForm.set(false);
-        this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '' };
+        this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [] };
         this.load();
       },
       error: (err) => { this.creatingChrono.set(false); this.createChronoError.set(fmtApiError(err, 'Failed to create chrono entry')); },
@@ -382,7 +403,9 @@ export class ChronoTabComponent extends RecordTabBase {
       description: entry.description ?? '',
       tags: entry.tags ?? [],
       entityIds: (entry.entityIds ?? []).join(', '),
+      memoryIds: [...(entry.memoryIds ?? [])],
     };
+    this.picker.resolveMemoryTitles(entry.memoryIds ?? []);
   }
 
   saveEditChrono(id: string): void {
@@ -397,6 +420,7 @@ export class ChronoTabComponent extends RecordTabBase {
       description: this.editChrono.description.trim(),
       tags: this.editChrono.tags,
       entityIds: this.editChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean),
+      memoryIds: this.editChrono.memoryIds,
     }).subscribe({
       next: (updated) => {
         this.recordList.editSaving.set(false);

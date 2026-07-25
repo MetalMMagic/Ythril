@@ -831,6 +831,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Chrono entries can link memories through a searchable picker.** A chrono entry could already carry
+  `memoryIds` (the API accepted them and the detail drawer round-tripped them), but the only UI was a
+  raw comma-separated-ID **textarea** in the drawer — you had to paste ids by hand — and the create
+  form had no memory field at all. Both now use an **inline memory picker** (matching the entity one,
+  per "memoryids searchable like entity"): type to find a memory by its fact, click to link it, linked
+  memories show as chips with their fact (resolved even for ids not in the loaded list). Wired into the
+  chrono create and drawer-edit save paths; reuses the existing chrono `memoryIds` API field (no route
+  change).
 - **Copy a whole space's schema into the Schema Library in one step — and import an exported space
   schema file into the library.** Auto-grouping a whole space's `typeSchemas` into reusable library
   entries already existed, but only on the Schema Library page — so it was easy to miss when looking

@@ -259,8 +259,24 @@ import { BRAIN_CHIP_STYLES, BRAIN_DRAWER_STYLES } from './brain-form.styles';
                   <app-entity-search mode="picker" [spaceId]="state.spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, state.drawerEditChrono)" />
                 </div>
                 <div class="drawer-field">
-                  <div class="drawer-label">{{ 'common.memoryIds' | transloco }} <span class="drawer-muted">{{ 'common.commaSeparatedIds' | transloco }}</span></div>
-                  <textarea [(ngModel)]="state.drawerEditChrono.memoryIds" name="drwChronoMemIds" rows="2" style="font-family:var(--font-mono,monospace); font-size:11px;"></textarea>
+                  <div class="drawer-label">{{ 'common.memoryIds' | transloco }}</div>
+                  @if (state.drawerEditChrono.memoryIds.length) {
+                    <div class="entity-multi">
+                      @for (id of state.drawerEditChrono.memoryIds; track id) {
+                        <span class="chip" [title]="id"><span class="chip-name">{{ picker.memoryRefTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeMemoryRef(state.drawerEditChrono, id)"><ph-icon name="x" [size]="12"/></button></span>
+                      }
+                    </div>
+                  }
+                  <div class="mem-pick">
+                    <input type="search" [value]="picker.memPickQuery()" (input)="picker.onMemPickInput($any($event.target).value)" [placeholder]="'brain.chrono.form.searchMemories' | transloco" [attr.aria-label]="'brain.chrono.form.searchMemories' | transloco" />
+                    @if (picker.memPickResults().length) {
+                      <div class="mem-pick-menu">
+                        @for (mem of picker.memPickResults(); track mem._id) {
+                          <button type="button" class="mem-pick-item" (mousedown)="picker.addMemoryRef(state.drawerEditChrono, mem)">{{ mem.fact.slice(0, 90) }}{{ mem.fact.length > 90 ? '…' : '' }}</button>
+                        }
+                      </div>
+                    }
+                  </div>
                 </div>
                 <hr class="drawer-hr">
                 <div class="drawer-field">

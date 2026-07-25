@@ -16,13 +16,14 @@ export interface EntityIdTarget {
 /**
  * The brain page's shared entity/memory/chrono reference picker.
  *
- * Extracted from BrainComponent (A17.9b). One flyout and one entity-name cache serve every form on
- * the page. Previously they were wired by a string-keyed god-switch — `pickEntity(ent, mode, field)`
- * and `resolveEntityNamesForFlyout(key)` branched on a field key like `'drawer-memory-entityIds'` and
- * reached directly into the matching form object, so the flyout could not leave the shell. This
- * service replaces that switch with a target-based API: the caller passes its OWN form ref, exactly
- * as `removeEntityId(target, id)` already did. That is the seam that lets the drawer and the tab views
- * become their own components (A17.9b-4/5), each holding its own edit models and calling this picker.
+ * Extracted from BrainComponent (A17.9b). Shared name/title caches plus the inline entity / memory /
+ * chrono pickers serve every form on the page. Previously they were wired by a string-keyed god-switch
+ * — `pickEntity(ent, mode, field)` branched on a field key like `'drawer-memory-entityIds'` and reached
+ * directly into the matching form object. This service replaces that switch with a target-based API:
+ * the caller passes its OWN form ref, exactly as `removeEntityId(target, id)` already did. That is the
+ * seam that lets the drawer and the tab views become their own components (A17.9b-4/5), each holding
+ * its own edit models and calling this picker. (The old click-to-open flyout that once fronted these
+ * pickers was retired in slice 4d, when file-meta — its last user — moved to the inline ref-fields.)
  *
  * Behaviour preserved verbatim (pinned by the A17.9b-2 characterization tests): picking an entity
  * updates the name cache and appends the id to the target's `entityIds`; edge endpoints (from/to) are
@@ -41,20 +42,9 @@ export class EntityRefPicker {
   /** Active brain space. Kept in sync by the shell, whose `activeSpaceId` is nav state. */
   readonly spaceId = signal('');
 
-  // ── Entity picker & flyout ───────────────────────────────────────────────
+  // ── Entity picker ────────────────────────────────────────────────────────
 
-  flyoutField = signal('');
   entityNameCache = signal<Record<string, string>>({});
-
-  /** Open the flyout for `key`; when a target is given, pre-resolve its uncached entity names. */
-  openFlyout(key: string, target?: EntityIdTarget): void {
-    this.flyoutField.set(key);
-    if (target) this.resolveEntityNamesFor(target.entityIds);
-  }
-
-  closeFlyout(): void {
-    this.flyoutField.set('');
-  }
 
   removeEntityId(target: { entityIds: string }, id: string): void {
     const parts = target.entityIds.split(',').map(s => s.trim()).filter(s => s && s !== id);
@@ -100,12 +90,11 @@ export class EntityRefPicker {
     return parts.join(', ');
   }
 
-  // ── Inline memory picker (chrono form; slice 3c "memoryIds searchable like entity") ──────────
+  // ── Inline memory picker (slice 3c "memoryIds searchable like entity") ───────────────────────
   //
-  // Kept separate from the file-meta `fm*` memory picker above (file-meta rides its own flyout and is
-  // rebuilt in slice 4); these back an INLINE search + a title cache so chips show the memory's fact,
-  // not a truncated id. Reused by the chrono create form and the drawer's chrono edit (never both open
-  // at once). Search is a fact substring, mirroring the file-meta picker.
+  // Backs app-memory-ref-field: an INLINE search + a title cache so chips show the memory's fact, not a
+  // truncated id. Server-searched via listMemories(?search=). Used by the chrono create form, the
+  // drawer's chrono edit, and (since slice 4d) the file-meta edit form — only ever one open at a time.
 
   memPickQuery = signal('');
   memPickResults = signal<Memory[]>([]);

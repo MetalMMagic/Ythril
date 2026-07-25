@@ -6,23 +6,9 @@
  * the drawer, so it does not import it).
  */
 
-/** Entity-chip + reference-picker flyout styling, used by every form and the drawer. */
+/** Entity-chip + inline reference-picker styling, used by every form, the ref-field components, and
+ *  the drawer. (The old click-to-open flyout was retired once file-meta moved to the inline pickers.) */
 export const BRAIN_CHIP_STYLES = `
-    .flyout-backdrop { position: fixed; inset: 0; z-index: 55; }
-    .flyout-wrap { position: relative; display: block; width: 100%; }
-    .flyout-trigger {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 5px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-      font-size: 12px; background: var(--bg-primary); color: var(--text-secondary);
-      cursor: pointer; width: 100%; text-align: left; transition: border-color var(--transition);
-    }
-    .flyout-trigger:hover { border-color: var(--accent); color: var(--text-primary); }
-    .flyout-trigger.has-value { color: var(--text-primary); }
-    .flyout-panel {
-      position: absolute; top: calc(100% + 4px); left: 0; min-width: 300px; z-index: 60;
-      background: var(--bg-primary); border: 1px solid var(--border);
-      border-radius: var(--radius-md); box-shadow: var(--shadow-lg); padding: 12px;
-    }
     .chip-list { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; min-height: 24px; }
     .chip {
       display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px;

@@ -42,9 +42,6 @@ interface SpaceView {
   imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, FilemetaTabComponent, TranslocoPipe],
   providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
   styles: [`
-    /* The shared entity-picker flyout backdrop is rendered at the shell level (the panels live in the
-       tab components). It is the only chip/flyout style the shell itself uses. */
-    .flyout-backdrop { position: fixed; inset: 0; z-index: 55; }
     .space-tabs {
       display: flex;
       gap: 8px;
@@ -161,8 +158,6 @@ interface SpaceView {
         <p>{{ 'brain.emptySpaces.body' | transloco }}</p>
       </div>
     } @else {
-
-      @if (picker.flyoutField()) { <div class="flyout-backdrop" (click)="picker.closeFlyout()"></div> }
 
       <!-- Space selector -->
       <div class="space-tabs">

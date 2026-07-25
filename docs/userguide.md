@@ -326,6 +326,8 @@ This tab lists all schema definitions on this instance.
 
 Click anywhere on a card to open and edit it. Changes save and close automatically.
 
+**Importing from a file:** Use **Import from file** to load a `.json` file. It accepts either a single library entry (or an array of them) *or* a whole space's exported schema (a `{ typeSchemas: … }` file from a space's Schema tab **Export JSON**) — in the latter case every type is auto-grouped into the library under a group named after the file's space, mirroring **Export to library**. Types linked to the library are skipped.
+
 **Publishing:** Click the globe icon on a card to make the entry visible to other Ythril instances. The icon turns accented when published. Click again to unpublish. No space data is ever exposed — only the schema definition.
 
 **Sharing your library:** The **Share This Library** panel shows your instance's **Public endpoint** URL. Click **Copy URL** to copy it. Other instances can paste this URL when adding a catalog link.
@@ -386,6 +388,8 @@ Click the gear icon on any space row to open its settings panel. Changes save an
 - **From Lib** — import a schema from the Schema Library. The type row shows a badge and stays in sync with the library automatically.
 - **From File** — import a schema from a previously exported JSON file.
 - **Save to Lib** — save the current type schema to the Schema Library for reuse in other spaces.
+
+The toolbar at the top of the tab has whole-space actions: **Export JSON** / **Import JSON** download or load the entire space's type schemas as one file, and **Export to library** copies the *whole* space schema into the Schema Library in one step — one reusable entry per type, grouped under a name you choose (defaulting to the space's), so you can later apply the whole set to another space. Types already linked to the library (`From Lib`) are skipped. Save any pending edits first — it exports the last saved version.
 
 **Danger tab:** Rebuild search indexes, rename the space ID, wipe all data, or delete the space entirely.
 

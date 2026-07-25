@@ -97,6 +97,52 @@ function formStateToSchema(f: LibraryFormState): Omit<TypeSchema, '$ref'> {
 
 // ── Component ───────────────────────────────────────────────────────────────
 
+/** The four schema-bearing knowledge types, in the server's `export-space` iteration order. */
+const KNOWLEDGE_TYPES: KnowledgeType[] = ['entity', 'memory', 'edge', 'chrono'];
+
+/**
+ * If `raw` is a space-schema export (a `{ typeSchemas: {...} }` envelope OR a bare typeSchemas map
+ * keyed by knowledge type), return the typeSchemas map; otherwise null (it's a library-entry file).
+ * A library entry has `name`+`knowledgeType`+`schema` at the top level, so we key off `typeSchemas`
+ * and the knowledge-type keys to disambiguate.
+ */
+export function extractTypeSchemas(raw: unknown): Record<string, Record<string, TypeSchema>> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const candidate = (obj['typeSchemas'] && typeof obj['typeSchemas'] === 'object' && !Array.isArray(obj['typeSchemas']))
+    ? obj['typeSchemas'] as Record<string, unknown>
+    // A bare typeSchemas map: only if it has NO library-entry marker and at least one KT key.
+    : (!('name' in obj) && !('schema' in obj) && KNOWLEDGE_TYPES.some(kt => kt in obj) ? obj : null);
+  if (!candidate) return null;
+  return candidate as Record<string, Record<string, TypeSchema>>;
+}
+
+/**
+ * Turn a space's `typeSchemas` into grouped library entries, mirroring the server `export-space`
+ * naming (`<prefix>-<kt>-<typeName>`, sanitised) so a file import produces the same entries as
+ * exporting the live space would. `$ref` types are skipped — they already point at a library entry.
+ */
+export function entriesFromTypeSchemas(
+  typeSchemas: Record<string, Record<string, TypeSchema>>,
+  group: string,
+): { entries: Array<Pick<SchemaLibraryEntry, 'name' | 'knowledgeType' | 'typeName' | 'schema' | 'schemaGroup'>>; skippedRefs: number } {
+  const prefix = group.toLowerCase().replace(/[^a-z0-9_.-]/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 100);
+  const entries: Array<Pick<SchemaLibraryEntry, 'name' | 'knowledgeType' | 'typeName' | 'schema' | 'schemaGroup'>> = [];
+  let skippedRefs = 0;
+  for (const kt of KNOWLEDGE_TYPES) {
+    const ktMap = typeSchemas[kt];
+    if (!ktMap || typeof ktMap !== 'object') continue;
+    for (const [typeName, schema] of Object.entries(ktMap)) {
+      if (!schema || typeof schema !== 'object') continue;
+      if ('$ref' in schema) { skippedRefs++; continue; }
+      const safeName = typeName.toLowerCase().replace(/[^a-z0-9_.-]/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 80);
+      const name = `${prefix}-${kt}-${safeName}`.slice(0, 200);
+      entries.push({ name, knowledgeType: kt, typeName, schema, schemaGroup: group });
+    }
+  }
+  return { entries, skippedRefs };
+}
+
 @Component({
   selector: 'app-schema-library',
   standalone: true,
@@ -1094,8 +1140,23 @@ export class SchemaLibraryComponent implements OnInit {
     reader.onload = async () => {
       try {
         const raw = JSON.parse(reader.result as string);
-        // Accept a single entry or an array of entries
-        const items: unknown[] = Array.isArray(raw) ? raw : [raw];
+        // Two accepted shapes:
+        //  (a) a space-schema export envelope `{ spaceId?, spaceLabel?, typeSchemas: {...} }` (or a bare
+        //      typeSchemas object) — auto-grouped into one library entry per inline type, and
+        //  (b) a single library entry or an array of them (the per-entry export shape).
+        const ts = extractTypeSchemas(raw);
+        let items: unknown[];
+        let group: string | undefined;
+        let skipped = 0;
+        if (ts) {
+          const g = (raw?.spaceLabel || raw?.spaceId || file.name.replace(/\.json$/i, '') || 'imported').toString();
+          group = g;
+          const built = entriesFromTypeSchemas(ts, g);
+          items = built.entries;
+          skipped = built.skippedRefs;
+        } else {
+          items = Array.isArray(raw) ? raw : [raw];
+        }
         let imported = 0;
         for (const item of items) {
           const e = item as SchemaLibraryEntry;
@@ -1118,7 +1179,12 @@ export class SchemaLibraryComponent implements OnInit {
             }
           } catch { /* skip invalid entries */ }
         }
-        if (imported === 0) this.toast.info(this.transloco.translate('schemaLib.import.noneImported'));
+        if (imported === 0) {
+          this.toast.info(this.transloco.translate('schemaLib.import.noneImported'));
+        } else if (group !== undefined) {
+          const key = skipped > 0 ? 'schemaLib.import.spaceGroupedSkipped' : 'schemaLib.import.spaceGrouped';
+          this.toast.success(this.transloco.translate(key, { count: imported, group, skipped }));
+        }
       } catch {
         this.toast.error(this.transloco.translate('schemaLib.import.parseFailed'));
       } finally {

@@ -9,16 +9,15 @@
  * It does not touch the pure derived state below — which is precisely what A17.9 relocates when the
  * eight tab-views become child components over a shared BrainState. So this pins:
  *
- *   - `filteredFileMetas`: file-meta's client-side filter and the fact that files have NO semantic
- *     mode — the deliberate asymmetry that survives 2b-iii-c. (memories/edges/chrono no longer have a
- *     client-side `filtered*` view: their top bar is semantic and their plain-text search is the
- *     server-side docked column filter, so there is nothing pure left here to pin.)
  *   - the `*TagSuggestions` union of schema suggestions + tags present on loaded records
  *   - `*TypeOptions`: schema names UNION values present, deduped and SORTED
+ *
+ * (No `filtered*` views remain to pin — every tab filters server-side since 4c-i; file-meta's old
+ * client `filteredFileMetas` was removed with the top-bar client filter.)
  */
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect } from 'vitest';
-import type { ChronoEntry, Edge, Entity, FileMeta, Memory, SpaceMetaResponse } from '../../core/api.types';
+import type { ChronoEntry, Edge, Entity, Memory, SpaceMetaResponse } from '../../core/api.types';
 import { BrainStore } from './brain-store.service';
 
 const mem = (fact: string, over: Partial<Memory> = {}): Memory =>
@@ -29,38 +28,12 @@ const edge = (label: string, over: Partial<Edge> = {}): Edge =>
   ({ _id: label, from: 'a', to: 'b', label, tags: [], createdAt: '', ...over } as Edge);
 const chrono = (title: string, over: Partial<ChronoEntry> = {}): ChronoEntry =>
   ({ _id: title, title, type: 'event', tags: [], entityIds: [], memoryIds: [], startsAt: '', status: 'upcoming', ...over } as ChronoEntry);
-const fileMeta = (path: string, over: Partial<FileMeta> = {}): FileMeta =>
-  ({ _id: path, path, tags: [], sizeBytes: 0, spaceId: 'work', createdAt: '', updatedAt: '', ...over } as FileMeta);
 
 function create(): BrainStore {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({ providers: [BrainStore] });
   return TestBed.inject(BrainStore);
 }
-
-describe('BrainStore — filteredFileMetas', () => {
-  it('searches path, description and tags', () => {
-    const c = create();
-    c.fileMetas.set([
-      fileMeta('docs/readme.md', { description: 'intro' }),
-      fileMeta('src/main.ts', { tags: ['code'] }),
-    ]);
-    const found = (q: string) => { c.fileMetaSearch.set(q); return c.filteredFileMetas().map(f => f.path); };
-    expect(found('readme')).toEqual(['docs/readme.md']); // path
-    expect(found('intro')).toEqual(['docs/readme.md']);  // description
-    expect(found('code')).toEqual(['src/main.ts']);      // tag
-  });
-
-  it('files have NO semantic bypass — unlike memories/chrono/edges, the filter always applies', () => {
-    // Deliberate asymmetry in the original: there is no fileMetaSearchMode at all. Pinned so a split
-    // does not "tidy" the four filters into one shape and silently change file search.
-    const c = create();
-    c.fileMetas.set([fileMeta('a.md'), fileMeta('b.md')]);
-    c.fileMetaSearch.set('a.md');
-    expect(c.filteredFileMetas().map(f => f.path)).toEqual(['a.md']);
-    expect('fileMetaSearchMode' in c).toBe(false);
-  });
-});
 
 describe('BrainStore — tag suggestions', () => {
   const meta = (tagSuggestions: string[]) => ({ tagSuggestions, typeSchemas: {} } as unknown as SpaceMetaResponse);

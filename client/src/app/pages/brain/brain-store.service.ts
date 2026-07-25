@@ -8,19 +8,17 @@ import {
  * Records for the active brain space, and the client-side view of them.
  *
  * Extracted from the 3701-line BrainComponent (A17.9b). Owns the five record lists, the space meta,
- * the per-collection top-bar search text, and everything derived from them: the file-meta
- * `filteredFileMetas` view, the `*TagSuggestions`, and the schema-backed `*TypeOptions`. This is the
- * cohesive "a list and the way it is being viewed" — splitting a list from its own filter would be
- * artificial.
+ * the per-collection top-bar search text, and everything derived from them: the `*TagSuggestions` and
+ * the schema-backed `*TypeOptions`.
  *
  * What is NOT here (stays with the component, moves to its own owner in a later step): the shell's
  * navigation (space list, activeTab, activeSpaceId), the loaders that populate these signals, the
  * create/edit forms per tab, the query/recall tab state, and the record drawer.
  *
- * Search shape (post 2b-iii-c): memories/edges/chrono have a SEMANTIC top bar (the server ranks and
- * returns the list, bound directly) plus a server-side docked column freetext filter; there is no
- * client-side `filtered*` view for them. File-meta is the asymmetry — it has no semantic mode, so its
- * search is a pure client-side filter (`filteredFileMetas`). Keep that asymmetry.
+ * Search shape (post 4c-i): every record tab filters SERVER-SIDE — memories/edges/chrono have a
+ * semantic top bar plus a docked column freetext filter; file-meta has a docked column freetext filter
+ * (its top bar / semantic recall is a later slice). No client-side `filtered*` views remain; templates
+ * bind `store.<collection>()` directly.
  *
  * Provided by BrainComponent (not root): one instance per mounted page.
  */
@@ -38,8 +36,10 @@ export class BrainStore {
    *  space+collection, and the mounted record tab reloads its current page in response. */
   liveRefreshTick = signal(0);
   // The record tabs' TOP-BAR search text. For memories/edges/chrono this is a SEMANTIC recall query
-  // (2b-iii-c demoted the old A–Z text mode into the docked column freetext filter); for file-meta it
-  // is a plain client-side filter term (files have no semantic mode). See `filteredFileMetas`.
+  // (2b-iii-c demoted the old A–Z text mode into the docked column freetext filter). For file-meta,
+  // `fileMetaSearch` is now just the shell→tab DEEP-LINK seed: the Files-tab "open in File Meta" action
+  // writes the file's path here, and the File Meta tab reads it into its docked Path-column freetext
+  // filter on open (4c-i). File-meta has no semantic top bar yet (4c-ii).
   memorySearch = signal('');
   edgeSearch = signal('');
   chronoSearch = signal('');
@@ -68,19 +68,9 @@ export class BrainStore {
     ...this.chrono().flatMap(c => c.tags ?? []),
   ])]);
 
-  // memories/edges/chrono have NO client-side `filtered*` view: their top bar is semantic (the server
-  // ranks and returns the list) and their plain-text search is the docked column freetext filter,
-  // applied server-side in `load()`. The template binds `store.memories()`/`edges()`/`chrono()`
-  // directly. Only file-meta keeps a client-side filter (it has no semantic mode).
-  filteredFileMetas = computed(() => {
-    const q = this.fileMetaSearch().toLowerCase().trim();
-    if (!q) return this.fileMetas();
-    return this.fileMetas().filter(fm =>
-      fm.path.toLowerCase().includes(q) ||
-      (fm.description ?? '').toLowerCase().includes(q) ||
-      fm.tags.some(t => t.toLowerCase().includes(q)),
-    );
-  });
+  // No client-side `filtered*` views remain: every record tab now filters server-side (semantic top bar
+  // for memories/edges/chrono; docked column freetext for all four, incl. file-meta since 4c-i). The
+  // templates bind `store.<collection>()` directly.
 
   // ── Schema-derived accessors + filter-bar type options ──────────────────────
   entityTypeNames(): string[] {

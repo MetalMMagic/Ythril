@@ -22,8 +22,9 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
  * records come from ingested files (NO create form), it uses the FILES api (updateFileMeta /
  * deleteFileMeta by path / retryEmbedding), it wires the shared `fm` memory/chrono pickers on
  * `EntityRefPicker`. Freetext is the docked **Path column** filter → the server's substring `?search=`
- * (slice 4c-i, matching the other list tabs); the old top-bar client filter (`store.filteredFileMetas`)
- * is retired here (that store computed is now vestigial pending the 4c-ii semantic top bar + its cleanup).
+ * (slice 4c-i, matching the other list tabs). The shell's Files-tab "open in File Meta" deep-link seeds
+ * that column filter via `store.fileMetaSearch` (consumed in `resetOnSpaceChange`). A **semantic** file
+ * top bar is a later slice (4c-ii).
  *
  * Self-loads via a `spaceId` effect. Two outputs: `mutated` (delete refreshes the space stats) and
  * `openInManager` (navigating to the Files tab is shell nav — the shell handles the emitted path).
@@ -255,6 +256,10 @@ export class FilemetaTabComponent extends RecordTabBase {
 
   protected override resetOnSpaceChange(): void {
     this.recordFilter.set({ type: '', tag: '' });
+    // Seed the Path-column freetext from the deep-link term the shell may have set (Files-tab
+    // "open in File Meta" → `store.fileMetaSearch(path)`), so that navigation still filters the list.
+    // Runs after the base's `search.set('')`; a normal open (empty seed) leaves the filter clear.
+    this.search.set(this.store.fileMetaSearch());
   }
 
   protected override load(): void {

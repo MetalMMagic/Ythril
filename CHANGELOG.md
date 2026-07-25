@@ -2328,8 +2328,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The old top-bar search was a client-side substring over just the loaded page; it's replaced by a
   debounced **freetext box under the Path header** that feeds the new server `?search=` (substring over
   path + description, slice 4b) — so it narrows the **whole** list, not only the visible rows, matching
-  the other list tabs. The top-bar client filter (and its `filteredFileMetas` role) is retired here; a
-  **semantic** file top bar follows in a later slice. Client-only.
+  the other list tabs. The top-bar client filter is retired and its dead `filteredFileMetas` /
+  client-substring store code removed; the Files-tab **"open in File Meta" deep-link** still filters the
+  list to the chosen path (it now seeds the docked Path filter). A **semantic** file top bar follows in
+  a later slice. Client-only.
 - **The Brain File Meta list gets sortable headers and a tag column filter, like the other list tabs.**
   The files list endpoint already supported `?sort=` (path / updatedAt / createdAt) and a `?tag=` filter
   server-side, but the client never wired them and the table used plain headers. File Meta now has

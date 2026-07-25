@@ -50,4 +50,15 @@ describe('textSearchOr', () => {
       assert.ok(fields.length > 0, `${name} must have searchable fields`);
     }
   });
+
+  it('files search over path + description (slice 4b)', () => {
+    assert.deepEqual(SEARCHABLE_FIELDS.files, ['path', 'description']);
+    const f = textSearchOr('readme', SEARCHABLE_FIELDS.files);
+    assert.deepEqual(f, {
+      $or: [
+        { path: { $regex: 'readme', $options: 'i' } },
+        { description: { $regex: 'readme', $options: 'i' } },
+      ],
+    });
+  });
 });

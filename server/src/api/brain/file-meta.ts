@@ -20,6 +20,7 @@ import { getConfig } from '../../config/loader.js';
 import { col, asFilter } from '../../db/mongo.js';
 import { parseLimit, parseSkip, capPage } from '../../util/pagination.js';
 import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-sort.js';
+import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
 import type { FileMetaDoc } from '../../config/types.js';
 import { fetchJobProgress } from '../../files/media/job-queue.js';
@@ -79,6 +80,10 @@ fileMetaRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, 
   if (!includeChunks) filter['parentFileId'] = { $exists: false };
   if (typeof req.query['tag'] === 'string') filter['tags'] = req.query['tag'];
   if (typeof req.query['path'] === 'string') filter['path'] = toDocId(req.query['path']);
+  // Freetext substring over path + description (escaped, mirrors 2b-iii-a on the other collections).
+  // Distinct from the exact `?path=` filter above; the client's docked freetext box feeds this.
+  const search = textSearchOr(req.query['search'] as string | undefined, SEARCHABLE_FIELDS.files);
+  if (search) Object.assign(filter, search);
   const all = await collectAcrossMembers(spaceId, async mid => {
     const files = await col(`${mid}_files`)
       .find(asFilter(filter))

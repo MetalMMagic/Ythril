@@ -18,6 +18,7 @@ export const SEARCHABLE_FIELDS = {
   edges: ['label', 'description'],
   memories: ['fact', 'description'],
   chrono: ['title', 'description'],
+  files: ['path', 'description'],
 } as const;
 
 /**

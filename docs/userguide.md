@@ -215,6 +215,8 @@ The **File Meta** tab lists the metadata records Ythril keeps for uploaded files
 
 Each row can be opened inline to edit its links: you can attach **entities**, **memories**, and **chrono** entries to a file so it surfaces alongside related knowledge. Opening a file from the Files tab's metadata action jumps you straight to its File Meta entry.
 
+Sort by clicking the **Path** or **Updated** column headers (server-side, across the whole list), and narrow by tag with the filter box docked under the **Tags** header — the same header controls the other Brain list tabs use.
+
 ---
 
 ## Graph

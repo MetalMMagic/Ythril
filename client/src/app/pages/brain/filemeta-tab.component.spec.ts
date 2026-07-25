@@ -46,9 +46,19 @@ describe('FilemetaTabComponent', () => {
     expect(FilemetaTabComponent.ɵcmp?.onPush).toBe(true);
   });
 
-  it('self-loads on the spaceId input (files API, no search term)', () => {
+  it('self-loads on the spaceId input (files API, no filters/sort)', () => {
     make();
-    expect(filesApi.listFileMeta).toHaveBeenCalledWith('work', 20, 0, undefined);
+    expect(filesApi.listFileMeta).toHaveBeenCalledWith('work', 20, 0, {}, undefined);
+  });
+
+  // Slice 4a: file-meta list wires the (already server-supported) sort + tag column filter.
+  it('sort + tag column filter flow through to the files list endpoint', () => {
+    const c = make().componentInstance;
+    filesApi.listFileMeta.mockClear();
+    c.setTagFilter('code');
+    expect(filesApi.listFileMeta).toHaveBeenLastCalledWith('work', 20, 0, { tag: 'code' }, undefined);
+    c.setSort('updatedAt'); // first click → desc
+    expect(filesApi.listFileMeta).toHaveBeenLastCalledWith('work', 20, 0, { tag: 'code' }, { field: 'updatedAt', dir: 'desc' });
   });
 
   it('saveEditFileMeta sends description/tags/entityIds/memoryIds/chronoIds and clears editingId', () => {

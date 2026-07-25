@@ -12,7 +12,6 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { StepProgressBarComponent } from '../../shared/step-progress-bar.component';
 import { RecordTabBase } from './record-tab-base';
-import { RecordSearchBarComponent } from './record-search-bar.component';
 import { SortableHeaderComponent } from './sortable-header.component';
 import { fmtApiError } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
@@ -22,8 +21,9 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
  * The File Meta record tab, extracted from BrainComponent (A17.9b-6g). The odd one of the five:
  * records come from ingested files (NO create form), it uses the FILES api (updateFileMeta /
  * deleteFileMeta by path / retryEmbedding), it wires the shared `fm` memory/chrono pickers on
- * `EntityRefPicker`, and it has NO semantic search — its search is a pure client-side filter via
- * `store.filteredFileMetas` (the loader still passes the term for the server-side first page).
+ * `EntityRefPicker`. Freetext is the docked **Path column** filter → the server's substring `?search=`
+ * (slice 4c-i, matching the other list tabs); the old top-bar client filter (`store.filteredFileMetas`)
+ * is retired here (that store computed is now vestigial pending the 4c-ii semantic top bar + its cleanup).
  *
  * Self-loads via a `spaceId` effect. Two outputs: `mutated` (delete refreshes the space stats) and
  * `openInManager` (navigating to the Files tab is shell nav — the shell handles the emitted path).
@@ -32,12 +32,9 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-filemeta-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, StepProgressBarComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, StepProgressBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
-          <div class="content-header">
-            <app-record-search-bar [value]="store.fileMetaSearch()" (valueChange)="onFileMetaSearch($event)" placeholder="brain.fileMeta.filterPlaceholder" ariaLabel="brain.fileMeta.filterAriaLabel" />
-          </div>
           @if (recordList.loading()) {
             <div class="empty-state"><span class="spinner"></span></div>
           } @else if (recordList.loadError() !== null) {
@@ -49,7 +46,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
               <table>
                 <thead>
                   <tr>
-                    <th app-sort-th field="path" label="brain.fileMeta.table.path" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
+                    <th app-sort-th field="path" label="brain.fileMeta.table.path" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                      <input class="col-filter-input" type="text" [ngModel]="search()" (ngModelChange)="setSearchFilter($event)"
+                        [placeholder]="'brain.filter.searchPlaceholder' | transloco" [attr.aria-label]="'brain.filter.searchPlaceholder' | transloco" />
+                    </th>
                     <th>{{ 'brain.fileMeta.table.description' | transloco }}</th>
                     <th app-sort-th label="brain.fileMeta.table.tags">
                       <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
@@ -64,7 +64,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                   </tr>
                 </thead>
                 <tbody>
-                  @for (fm of store.filteredFileMetas(); track fm._id) {
+                  @for (fm of store.fileMetas(); track fm._id) {
                     @if (recordList.editingId() === fm._id) {
                       <tr class="edit-row"><td colspan="9">
                         <form class="edit-form" (ngSubmit)="saveEditFileMeta(fm._id)" #fmEditForm="ngForm">
@@ -263,17 +263,12 @@ export class FilemetaTabComponent extends RecordTabBase {
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
     const filters: { search?: string; tag?: string } = {};
-    if (this.store.fileMetaSearch()) filters.search = this.store.fileMetaSearch();
+    if (this.searchParam()) filters.search = this.searchParam();
     if (this.recordFilter().tag) filters.tag = this.recordFilter().tag;
     this.filesApi.listFileMeta(spaceId, this.pageSize, this.skip(), filters, this.sortParam()).subscribe({
       next: ({ files }) => { this.store.fileMetas.set(files); this.recordList.loading.set(false); },
       error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },
     });
-  }
-
-  onFileMetaSearch(q: string): void {
-    this.store.fileMetaSearch.set(q);
-    // client-side filter via filteredFileMetas computed() — no API call per keystroke
   }
 
   startEditFileMeta(entry: FileMeta): void {

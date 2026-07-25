@@ -61,6 +61,17 @@ describe('FilemetaTabComponent', () => {
     expect(filesApi.listFileMeta).toHaveBeenLastCalledWith('work', 20, 0, { tag: 'code' }, { field: 'updatedAt', dir: 'desc' });
   });
 
+  // Slice 4c-i: the docked Path column freetext filter feeds the server ?search= (debounced).
+  it('the Path column freetext filter flows through as filters.search (debounced)', () => {
+    const c = make().componentInstance;
+    filesApi.listFileMeta.mockClear();
+    vi.useFakeTimers();
+    c.setSearchFilter('readme');
+    vi.advanceTimersByTime(250);
+    vi.useRealTimers();
+    expect(filesApi.listFileMeta).toHaveBeenLastCalledWith('work', 20, 0, { search: 'readme' }, undefined);
+  });
+
   it('saveEditFileMeta sends description/tags/entityIds/memoryIds/chronoIds and clears editingId', () => {
     const c = make().componentInstance;
     c.store.fileMetas.set([{ _id: 'f1', path: '/a.md', description: 'old' } as FileMeta]);

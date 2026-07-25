@@ -1500,6 +1500,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **About → disk usage now reports Ythril's actual data footprint, not the whole host partition.**
+  `getDiskInfo` returned `statfs(DATA_ROOT)` — the total/used of the entire filesystem `DATA_ROOT` sits
+  on. In the common deployment (`DATA_ROOT` a subdirectory of the host root fs, not its own mount) that
+  is the **host disk**, which the operator reads as "Ythril is using this much" — a wrong number. The
+  About page now leads with **Ythril data**, the recursive size of `DATA_ROOT` (via the existing
+  `dirSizeBytes`, cached with a 5-minute TTL so a large `du` isn't paid per request), and shows the
+  filesystem total/used separately, labelled **Disk (whole volume)**, with the capacity bar + health
+  pill tracking how full that volume is. (Server adds `diskInfo.dataUsed`; client + i18n updated.)
 - **The space-settings panel no longer discards your edits on a stray click outside it.** Clicking the
   backdrop closed the panel and threw away everything typed. The close guard *did* exist but keyed off
   `isDirty()`, which only sees **committed** schema state (`buildMeta()`) — so half-typed, not-yet-added

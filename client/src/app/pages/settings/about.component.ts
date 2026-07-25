@@ -75,6 +75,10 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
 
           <div class="disk">
             <div class="disk-fig">
+              <span>{{ 'about.dataUsage' | transloco }}</span>
+              <span>{{ formatBytes(i.diskInfo.dataUsed) }}</span>
+            </div>
+            <div class="disk-fig">
               <span>{{ 'about.diskUsage' | transloco }}</span>
               <span><span class="pct">{{ diskPercent().toFixed(1) }}%</span> · {{ formatBytes(i.diskInfo.used) }} / {{ formatBytes(i.diskInfo.total) }}</span>
             </div>

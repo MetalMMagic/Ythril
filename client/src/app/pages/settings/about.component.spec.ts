@@ -20,7 +20,7 @@ const INFO: AboutInfo = {
   version: '1.4.4',
   uptime: '3d 4h',
   mongoVersion: '7.0.5',
-  diskInfo: { total: 100, used: 40, available: 60 },
+  diskInfo: { total: 100, used: 40, available: 60, dataUsed: 25 },
 };
 
 function make(getAbout: () => unknown) {
@@ -63,7 +63,7 @@ describe('AboutComponent', () => {
     const f = make(() => of({ ...INFO }));
     expect(f.componentInstance.diskPercent()).toBeCloseTo(40);
 
-    const z = make(() => of({ ...INFO, diskInfo: { total: 0, used: 0, available: 0 } }));
+    const z = make(() => of({ ...INFO, diskInfo: { total: 0, used: 0, available: 0, dataUsed: 0 } }));
     expect(z.componentInstance.diskPercent()).toBe(0);
   });
 
@@ -96,7 +96,7 @@ describe('AboutComponent', () => {
     // The redesign unifies About's disk health onto the shared UsageBar classifier (usageLevel, warn 80 /
     // danger 95) so the pill and bar agree and match the Storage page — replacing the old bespoke 75/90 bands.
     const healthAt = (used: number) =>
-      make(() => of({ ...INFO, diskInfo: { total: 100, used, available: 100 - used } })).componentInstance.diskHealth();
+      make(() => of({ ...INFO, diskInfo: { total: 100, used, available: 100 - used, dataUsed: 10 } })).componentInstance.diskHealth();
     expect(healthAt(40)).toMatchObject({ variant: 'ok', label: 'about.disk.healthy' });
     expect(healthAt(79)).toMatchObject({ variant: 'ok' });
     expect(healthAt(80)).toMatchObject({ variant: 'warn', label: 'about.disk.high' });

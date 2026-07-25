@@ -9,6 +9,7 @@ import { httpErrorReason } from '../../core/http-error';
 import { TagInputComponent } from '../../shared/tag-input.component';
 import { EntityRefFieldComponent } from './entity-ref-field.component';
 import { MemoryRefFieldComponent } from './memory-ref-field.component';
+import { PropertiesEditorComponent } from '../../shared/properties-editor.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { RecordDrawerState } from './record-drawer-state.service';
@@ -34,7 +35,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-chrono-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, PropertiesEditorComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -57,13 +58,13 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                 <div class="field" style="width:160px;">
                   <label>{{ 'brain.chrono.form.kind' | transloco }}</label>
                   @if (chronoForm.kind !== '__custom__') {
-                    <select [(ngModel)]="chronoForm.kind" name="kind">
+                    <select [(ngModel)]="chronoForm.kind" name="kind" (ngModelChange)="onChronoFormKindChange()">
                       @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
                       <option value="__custom__">{{ 'brain.chrono.form.customKind' | transloco }}</option>
                     </select>
                   } @else {
                     <div style="display:flex; gap:4px;">
-                      <input type="text" [(ngModel)]="chronoForm.customKind" name="customKind" style="flex:1;" />
+                      <input type="text" [(ngModel)]="chronoForm.customKind" name="customKind" style="flex:1;" (ngModelChange)="onChronoFormKindChange()" />
                       <button type="button" class="btn-secondary btn btn-sm" style="padding:4px 8px;" (click)="chronoForm.kind = 'event'; chronoForm.customKind = ''" [attr.title]="'brain.chrono.form.backToPresets' | transloco"><ph-icon name="x" [size]="14"/></button>
                     </div>
                   }
@@ -95,6 +96,16 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                 <div class="field">
                   <label>{{ 'brain.chrono.form.memories' | transloco }}</label>
                   <app-memory-ref-field [target]="chronoForm" />
+                </div>
+              </div>
+              <div class="form-row rich">
+                <div class="field" style="flex:1;">
+                  <label>{{ 'brain.chrono.table.properties' | transloco }}</label>
+                  <app-properties-editor
+                    [schema]="store.chronoSchema(chronoFormKind())"
+                    [required]="store.requiredProps(store.chronoSchema(chronoFormKind()))"
+                    [(value)]="chronoForm.properties"
+                  />
                 </div>
               </div>
               <div style="display:flex; gap:8px;">
@@ -143,7 +154,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                           </div>
                           <div class="field" style="width:130px; margin-bottom:0;">
                             <label>{{ 'brain.chrono.form.kind' | transloco }}</label>
-                            <select [(ngModel)]="editChrono.kind" name="editChronoKind">
+                            <select [(ngModel)]="editChrono.kind" name="editChronoKind" (ngModelChange)="onEditChronoKindChange()">
                               @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
                             </select>
                           </div>
@@ -172,6 +183,14 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                           <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                             <label>{{ 'brain.chrono.table.entities' | transloco }}</label>
                             <app-entity-ref-field [target]="editChrono" [spaceId]="spaceId()" />
+                          </div>
+                          <div class="field" style="flex:1; min-width:180px; margin-bottom:0;">
+                            <label>{{ 'brain.chrono.table.properties' | transloco }}</label>
+                            <app-properties-editor
+                              [schema]="store.chronoSchema(editChrono.kind)"
+                              [required]="store.requiredProps(store.chronoSchema(editChrono.kind))"
+                              [(value)]="editChrono.properties"
+                            />
                           </div>
                           <div style="display:flex; gap:6px; align-items:flex-end;">
                             <button class="btn btn-sm btn-primary" [disabled]="recordList.editSaving()" (click)="saveEditChrono(entry._id)">
@@ -255,8 +274,8 @@ export class ChronoTabComponent extends RecordTabBase {
   showChronoForm = signal(false);
   creatingChrono = signal(false);
   createChronoError = signal('');
-  chronoForm = { title: '', kind: 'event' as ChronoType | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[] };
-  editChrono = { title: '', kind: '' as string, status: '' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[] };
+  chronoForm = { title: '', kind: 'event' as ChronoType | '__custom__', customKind: '', startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], properties: {} as Record<string, string | number | boolean> };
+  editChrono = { title: '', kind: '' as string, status: '' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], properties: {} as Record<string, string | number | boolean> };
 
   private _chronoSemTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -326,9 +345,24 @@ export class ChronoTabComponent extends RecordTabBase {
     });
   }
 
+  /** Effective chrono type for schema lookup: the free-text custom kind, else the selected preset. */
+  chronoFormKind(): string {
+    return this.chronoForm.kind === '__custom__' ? this.chronoForm.customKind.trim() : this.chronoForm.kind;
+  }
+
   openChronoForm(): void {
-    this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [] };
+    this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [], properties: this.store.buildPropertiesObject('chrono', {}, 'event') };
     this.showChronoForm.set(true);
+  }
+
+  /** Reseed the create form's properties from the newly selected kind's schema (preserving values). */
+  onChronoFormKindChange(): void {
+    this.chronoForm.properties = this.store.buildPropertiesObject('chrono', this.chronoForm.properties, this.chronoFormKind());
+  }
+
+  /** Reseed the inline-edit form's properties from the newly selected kind's schema. */
+  onEditChronoKindChange(): void {
+    this.editChrono.properties = this.store.buildPropertiesObject('chrono', this.editChrono.properties, this.editChrono.kind);
   }
 
   createChrono(): void {
@@ -351,11 +385,13 @@ export class ChronoTabComponent extends RecordTabBase {
     if (this.chronoForm.tags.length) body.tags = this.chronoForm.tags;
     if (entityIds.length) body.entityIds = entityIds;
     if (this.chronoForm.memoryIds.length) body.memoryIds = this.chronoForm.memoryIds;
+    const props = this.store.stripEmptyOptionalProps(this.chronoForm.properties, this.store.chronoSchema(resolvedKind));
+    if (Object.keys(props).length) body.properties = props;
     this.brainApi.createChrono(this.spaceId(), body).subscribe({
       next: () => {
         this.creatingChrono.set(false);
         this.showChronoForm.set(false);
-        this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [] };
+        this.chronoForm = { title: '', kind: 'event', customKind: '', startsAt: '', endsAt: '', description: '', tags: [], entityIds: '', memoryIds: [], properties: this.store.buildPropertiesObject('chrono', {}, 'event') };
         this.load();
       },
       error: (err) => { this.creatingChrono.set(false); this.createChronoError.set(fmtApiError(err, 'Failed to create chrono entry')); },
@@ -375,6 +411,7 @@ export class ChronoTabComponent extends RecordTabBase {
       tags: entry.tags ?? [],
       entityIds: (entry.entityIds ?? []).join(', '),
       memoryIds: [...(entry.memoryIds ?? [])],
+      properties: this.store.buildPropertiesObject('chrono', entry.properties ?? {}, entry.type),
     };
     this.picker.resolveMemoryTitles(entry.memoryIds ?? []);
   }
@@ -392,6 +429,7 @@ export class ChronoTabComponent extends RecordTabBase {
       tags: this.editChrono.tags,
       entityIds: this.editChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean),
       memoryIds: this.editChrono.memoryIds,
+      properties: this.store.stripEmptyOptionalProps(this.editChrono.properties, this.store.chronoSchema(this.editChrono.kind)),
     }).subscribe({
       next: (updated) => {
         this.recordList.editSaving.set(false);

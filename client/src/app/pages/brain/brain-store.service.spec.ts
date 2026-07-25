@@ -136,6 +136,16 @@ describe('BrainStore — buildPropertiesObject (schema-seeded defaults)', () => 
   });
 });
 
+describe('BrainStore — chronoSchema', () => {
+  it('returns the propertySchemas for a chrono type, undefined when none / no type', () => {
+    const c = create();
+    c.spaceMeta.set({ typeSchemas: { chrono: { deadline: { propertySchemas: { dueBy: { type: 'string' } } } } } } as unknown as SpaceMetaResponse);
+    expect(c.chronoSchema('deadline')).toEqual({ dueBy: { type: 'string' } });
+    expect(c.chronoSchema('event')).toBeUndefined();
+    expect(c.chronoSchema(undefined)).toBeUndefined();
+  });
+});
+
 describe('BrainStore — stripEmptyOptionalProps', () => {
   it('drops empty OPTIONAL props but keeps empty REQUIRED ones (and all non-empty)', () => {
     const c = create();

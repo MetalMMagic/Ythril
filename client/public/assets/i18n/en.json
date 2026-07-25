@@ -397,6 +397,7 @@
   "brain.chrono.table.ends": "Ends",
   "brain.chrono.table.tags": "Tags",
   "brain.chrono.table.entities": "Entities",
+  "brain.chrono.table.properties": "Properties",
   "brain.chrono.empty.noMatchQuery": "No timeline entries match this search.",
   "brain.chrono.empty.title": "No chrono entries",
   "brain.chrono.deleteAriaLabel": "Delete chrono entry",

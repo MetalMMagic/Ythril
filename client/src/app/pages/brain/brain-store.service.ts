@@ -97,6 +97,12 @@ export class BrainStore {
     return Object.values(ts)[0]?.propertySchemas;
   }
 
+  /** Property schema for a chrono type (kind or custom-kind name); undefined when none is defined. */
+  chronoSchema(typeName: string | undefined): Record<string, PropertySchema> | undefined {
+    if (!typeName) return undefined;
+    return this.spaceMeta()?.typeSchemas?.chrono?.[typeName]?.propertySchemas;
+  }
+
   requiredProps(schema: Record<string, PropertySchema> | undefined): string[] {
     if (!schema) return [];
     return Object.entries(schema).filter(([, s]) => s.required).map(([k]) => k);

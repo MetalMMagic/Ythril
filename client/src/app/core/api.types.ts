@@ -195,6 +195,7 @@ export interface ChronoEntry {
   tags: string[];
   entityIds: string[];
   memoryIds: string[];
+  properties?: Record<string, string | number | boolean>;
   recurrence?: { freq: string; interval?: number; until?: string };
   author: { instanceId: string; instanceLabel: string };
   createdAt: string;

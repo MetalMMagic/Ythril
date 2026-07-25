@@ -61,6 +61,15 @@ describe('FilemetaTabComponent', () => {
     expect(filesApi.listFileMeta).toHaveBeenLastCalledWith('work', 20, 0, { tag: 'code' }, { field: 'updatedAt', dir: 'desc' });
   });
 
+  // Slice 4c-i: the Files-tab "open in File Meta" deep-link seeds the Path column filter via
+  // store.fileMetaSearch (consumed in resetOnSpaceChange) — regression guard for that navigation.
+  it('seeds the Path column filter from the deep-link term (store.fileMetaSearch)', () => {
+    const c = make().componentInstance;
+    c.store.fileMetaSearch.set('docs/readme.md');
+    (c as unknown as { resetOnSpaceChange(): void }).resetOnSpaceChange();
+    expect(c.search()).toBe('docs/readme.md');
+  });
+
   // Slice 4c-i: the docked Path column freetext filter feeds the server ?search= (debounced).
   it('the Path column freetext filter flows through as filters.search (debounced)', () => {
     const c = make().componentInstance;

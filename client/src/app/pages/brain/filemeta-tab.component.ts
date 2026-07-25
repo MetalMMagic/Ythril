@@ -7,7 +7,9 @@ import { FilesApi } from '../../core/files-api.service';
 import { ToastService } from '../../core/toast.service';
 import { httpErrorReason } from '../../core/http-error';
 import { TagInputComponent } from '../../shared/tag-input.component';
-import { EntitySearchComponent } from '../../shared/entity-search.component';
+import { EntityRefFieldComponent } from './entity-ref-field.component';
+import { MemoryRefFieldComponent } from './memory-ref-field.component';
+import { ChronoRefFieldComponent } from './chrono-ref-field.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { StepProgressBarComponent } from '../../shared/step-progress-bar.component';
@@ -33,7 +35,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-filemeta-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, StepProgressBarComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, PhIconComponent, ErrorStateComponent, StepProgressBarComponent, SortableHeaderComponent],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
           @if (recordList.loading()) {
@@ -80,70 +82,15 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                             </div>
                             <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                               <label>{{ 'brain.fileMeta.table.entities' | transloco }}</label>
-                              <div class="flyout-wrap">
-                                <div class="entity-multi">
-                                  @for (chip of picker.entityChips(editFileMeta.entityIds); track chip.id) {
-                                    <span class="chip" [title]="chip.id"><span class="chip-name">{{ chip.name }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeEntityId(editFileMeta, chip.id)"><ph-icon name="x" [size]="12"/></button></span>
-                                  }
-                                  <button type="button" class="chip-add" (click)="picker.openFlyout('edit-filemeta-entityIds', editFileMeta)">{{ 'common.addMore' | transloco }}</button>
-                                </div>
-                                @if (picker.flyoutField() === 'edit-filemeta-entityIds') {
-                                  <div class="flyout-panel">
-                                    <app-entity-search mode="picker" [spaceId]="spaceId()" placeholder="common.searchEntitiesPlaceholder" (selected)="picker.pickEntity($event, editFileMeta)" />
-                                    <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                      <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                                    </div>
-                                  </div>
-                                }
-                              </div>
+                              <app-entity-ref-field [target]="editFileMeta" [spaceId]="spaceId()" />
                             </div>
                             <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                               <label>{{ 'brain.fileMeta.table.memories' | transloco }}</label>
-                              <div class="flyout-wrap">
-                                <div class="entity-multi">
-                                  @for (id of editFileMeta.memoryIds; track id) {
-                                    <span class="chip" [title]="id"><span class="chip-name">{{ picker.fmMemoryTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeFmMemoryId(editFileMeta, id)"><ph-icon name="x" [size]="12"/></button></span>
-                                  }
-                                  <button type="button" class="chip-add" (click)="picker.openFlyout('edit-filemeta-memoryIds')">{{ 'common.addMore' | transloco }}</button>
-                                </div>
-                                @if (picker.flyoutField() === 'edit-filemeta-memoryIds') {
-                                  <div class="flyout-panel">
-                                    <input type="text" [value]="picker.fmMemPickerQuery()" (input)="picker.onFmMemPickerInput($any($event.target).value)" [placeholder]="'brain.fileMeta.picker.searchMemories' | transloco" style="width:100%; margin-bottom:6px;" />
-                                    @for (mem of picker.fmMemPickerResults(); track mem._id) {
-                                      <div class="flyout-result" (click)="picker.addFmMemoryId(editFileMeta, mem._id); picker.closeFlyout()" style="cursor:pointer; padding:4px 6px; border-radius:4px;">
-                                        {{ mem.fact.slice(0, 60) }}{{ mem.fact.length > 60 ? '…' : '' }}
-                                      </div>
-                                    }
-                                    <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                      <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                                    </div>
-                                  </div>
-                                }
-                              </div>
+                              <app-memory-ref-field [target]="editFileMeta" />
                             </div>
                             <div class="field" style="flex:1; min-width:140px; margin-bottom:0;">
                               <label>{{ 'brain.fileMeta.table.chrono' | transloco }}</label>
-                              <div class="flyout-wrap">
-                                <div class="entity-multi">
-                                  @for (id of editFileMeta.chronoIds; track id) {
-                                    <span class="chip" [title]="id"><span class="chip-name">{{ picker.fmChronoTitle(id) }}</span><button type="button" class="chip-remove" (mousedown)="picker.removeFmChronoId(editFileMeta, id)"><ph-icon name="x" [size]="12"/></button></span>
-                                  }
-                                  <button type="button" class="chip-add" (click)="picker.openFlyout('edit-filemeta-chronoIds')">{{ 'common.addMore' | transloco }}</button>
-                                </div>
-                                @if (picker.flyoutField() === 'edit-filemeta-chronoIds') {
-                                  <div class="flyout-panel">
-                                    <input type="text" [value]="picker.fmChronoPickerQuery()" (input)="picker.onFmChronoPickerInput($any($event.target).value)" [placeholder]="'brain.fileMeta.picker.searchChrono' | transloco" style="width:100%; margin-bottom:6px;" />
-                                    @for (c of picker.fmChronoPickerResults(); track c._id) {
-                                      <div class="flyout-result" (click)="picker.addFmChronoId(editFileMeta, c._id); picker.closeFlyout()" style="cursor:pointer; padding:4px 6px; border-radius:4px;">
-                                        {{ c.title.slice(0, 60) }}{{ c.title.length > 60 ? '…' : '' }}
-                                      </div>
-                                    }
-                                    <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                                      <button type="button" class="btn btn-sm btn-secondary" (click)="picker.closeFlyout()">{{ 'common.done' | transloco }}</button>
-                                    </div>
-                                  </div>
-                                }
-                              </div>
+                              <app-chrono-ref-field [target]="editFileMeta" />
                             </div>
                           </div>
                           @if (recordList.editError()) {
@@ -203,14 +150,14 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                         <td>
                           <div class="chip-list">
                             @for (id of (fm.memoryIds ?? []); track id) {
-                              <span class="chip" [title]="id">{{ picker.fmMemoryTitle(id) }}</span>
+                              <span class="chip" [title]="id">{{ picker.memoryRefTitle(id) }}</span>
                             }
                           </div>
                         </td>
                         <td>
                           <div class="chip-list">
                             @for (id of (fm.chronoIds ?? []); track id) {
-                              <span class="chip" [title]="id">{{ picker.fmChronoTitle(id) }}</span>
+                              <span class="chip" [title]="id">{{ picker.chronoRefTitle(id) }}</span>
                             }
                           </div>
                         </td>
@@ -286,8 +233,10 @@ export class FilemetaTabComponent extends RecordTabBase {
       memoryIds: [...(entry.memoryIds ?? [])],
       chronoIds: [...(entry.chronoIds ?? [])],
     };
-    // Resolve entity names for chips display
+    // Resolve entity names / memory facts / chrono titles so the chips show labels, not truncated ids.
     this.picker.resolveEntityNamesFor(this.editFileMeta.entityIds);
+    this.picker.resolveMemoryTitles(this.editFileMeta.memoryIds);
+    this.picker.resolveChronoTitles(this.editFileMeta.chronoIds);
   }
 
   saveEditFileMeta(id: string): void {

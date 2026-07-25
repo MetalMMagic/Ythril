@@ -2324,6 +2324,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brain File Meta edit form's entity / memory / chrono pickers now match every other tab.** They
+  were the last hold-outs on the old click-to-open **flyout** pattern; each is now the same always-inline
+  chips + search field the memory and chrono forms use, via the shared `app-entity-ref-field` /
+  `app-memory-ref-field` and a new `app-chrono-ref-field`. Two concrete improvements fall out: the
+  **memory search is now server-side** (it was a client-side filter over only the first 8 loaded
+  memories), and linked memory/chrono **chips resolve their real titles** when you open a file for
+  editing instead of showing a truncated id. This also let a large slab of now-unreachable picker code
+  go — the entire file-meta `fm*` picker apparatus, including a dead `isDrawer` branch and its four
+  never-read drawer signals. Client-only.
 - **The Brain memory-reference field (linked-memory chips + inline title typeahead) is now one shared
   component too.** Sibling of the entity-chip extraction below: the identical "chips + `.mem-pick`
   search dropdown" block was hand-copied at the chrono create form and the detail drawer's chrono

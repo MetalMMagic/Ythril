@@ -41,25 +41,10 @@ export class EntityRefPicker {
   /** Active brain space. Kept in sync by the shell, whose `activeSpaceId` is nav state. */
   readonly spaceId = signal('');
 
-  // ── Entity picker & flyouts ─────────────────────────────────────────────
+  // ── Entity picker & flyout ───────────────────────────────────────────────
 
   flyoutField = signal('');
   entityNameCache = signal<Record<string, string>>({});
-
-  // ── File-meta memory/chrono pickers ──────────────────────────────────────
-
-  fmMemPickerQuery = signal('');
-  fmMemPickerResults = signal<Memory[]>([]);
-  fmChronoPickerQuery = signal('');
-  fmChronoPickerResults = signal<ChronoEntry[]>([]);
-  fmDrawerMemPickerQuery = signal('');
-  fmDrawerMemPickerResults = signal<Memory[]>([]);
-  fmDrawerChronoPickerQuery = signal('');
-  fmDrawerChronoPickerResults = signal<ChronoEntry[]>([]);
-  private _fmMemTimer: ReturnType<typeof setTimeout> | null = null;
-  private _fmChronoTimer: ReturnType<typeof setTimeout> | null = null;
-  private _fmDrawerMemTimer: ReturnType<typeof setTimeout> | null = null;
-  private _fmDrawerChronoTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Open the flyout for `key`; when a target is given, pre-resolve its uncached entity names. */
   openFlyout(key: string, target?: EntityIdTarget): void {
@@ -115,92 +100,6 @@ export class EntityRefPicker {
     return parts.join(', ');
   }
 
-  onFmMemPickerInput(q: string, isDrawer = false): void {
-    if (isDrawer) {
-      this.fmDrawerMemPickerQuery.set(q);
-      if (this._fmDrawerMemTimer) clearTimeout(this._fmDrawerMemTimer);
-      if (!q.trim()) { this.fmDrawerMemPickerResults.set([]); return; }
-      this._fmDrawerMemTimer = setTimeout(() => {
-        this.brainApi.listMemories(this.spaceId(), 8, 0, {}).subscribe({
-          next: ({ memories }) => this.fmDrawerMemPickerResults.set(
-            memories.filter(m => m.fact.toLowerCase().includes(q.toLowerCase())).slice(0, 6),
-          ),
-          error: () => {},
-        });
-      }, 300);
-    } else {
-      this.fmMemPickerQuery.set(q);
-      if (this._fmMemTimer) clearTimeout(this._fmMemTimer);
-      if (!q.trim()) { this.fmMemPickerResults.set([]); return; }
-      this._fmMemTimer = setTimeout(() => {
-        this.brainApi.listMemories(this.spaceId(), 8, 0, {}).subscribe({
-          next: ({ memories }) => this.fmMemPickerResults.set(
-            memories.filter(m => m.fact.toLowerCase().includes(q.toLowerCase())).slice(0, 6),
-          ),
-          error: () => {},
-        });
-      }, 300);
-    }
-  }
-
-  onFmChronoPickerInput(q: string, isDrawer = false): void {
-    if (isDrawer) {
-      this.fmDrawerChronoPickerQuery.set(q);
-      if (this._fmDrawerChronoTimer) clearTimeout(this._fmDrawerChronoTimer);
-      if (!q.trim()) { this.fmDrawerChronoPickerResults.set([]); return; }
-      this._fmDrawerChronoTimer = setTimeout(() => {
-        this.brainApi.listChrono(this.spaceId(), 8, 0, { search: q }).subscribe({
-          next: ({ chrono }) => this.fmDrawerChronoPickerResults.set(chrono.slice(0, 6)),
-          error: () => {},
-        });
-      }, 300);
-    } else {
-      this.fmChronoPickerQuery.set(q);
-      if (this._fmChronoTimer) clearTimeout(this._fmChronoTimer);
-      if (!q.trim()) { this.fmChronoPickerResults.set([]); return; }
-      this._fmChronoTimer = setTimeout(() => {
-        this.brainApi.listChrono(this.spaceId(), 8, 0, { search: q }).subscribe({
-          next: ({ chrono }) => this.fmChronoPickerResults.set(chrono.slice(0, 6)),
-          error: () => {},
-        });
-      }, 300);
-    }
-  }
-
-  addFmMemoryId(form: { memoryIds: string[] }, id: string): void {
-    if (!form.memoryIds.includes(id)) form.memoryIds.push(id);
-    this.fmMemPickerQuery.set('');
-    this.fmMemPickerResults.set([]);
-    this.fmDrawerMemPickerQuery.set('');
-    this.fmDrawerMemPickerResults.set([]);
-  }
-
-  removeFmMemoryId(form: { memoryIds: string[] }, id: string): void {
-    form.memoryIds = form.memoryIds.filter(m => m !== id);
-  }
-
-  addFmChronoId(form: { chronoIds: string[] }, id: string): void {
-    if (!form.chronoIds.includes(id)) form.chronoIds.push(id);
-    this.fmChronoPickerQuery.set('');
-    this.fmChronoPickerResults.set([]);
-    this.fmDrawerChronoPickerQuery.set('');
-    this.fmDrawerChronoPickerResults.set([]);
-  }
-
-  removeFmChronoId(form: { chronoIds: string[] }, id: string): void {
-    form.chronoIds = form.chronoIds.filter(c => c !== id);
-  }
-
-  fmMemoryTitle(id: string): string {
-    const mem = this.store.memories().find(m => m._id === id);
-    return mem ? mem.fact.slice(0, 40) + (mem.fact.length > 40 ? '…' : '') : id.slice(0, 8) + '…';
-  }
-
-  fmChronoTitle(id: string): string {
-    const c = this.store.chrono().find(c => c._id === id);
-    return c ? c.title.slice(0, 40) + (c.title.length > 40 ? '…' : '') : id.slice(0, 8) + '…';
-  }
-
   // ── Inline memory picker (chrono form; slice 3c "memoryIds searchable like entity") ──────────
   //
   // Kept separate from the file-meta `fm*` memory picker above (file-meta rides its own flyout and is
@@ -251,6 +150,60 @@ export class EntityRefPicker {
     for (const id of ids.filter(i => !this.memoryTitleCache()[i])) {
       this.brainApi.getMemory(spaceId, id).subscribe({
         next: (m) => this.memoryTitleCache.update(c => ({ ...c, [m._id]: m.fact })),
+        error: () => {},
+      });
+    }
+  }
+
+  // ── Inline chrono picker (file-meta; slice 4d "chronoIds searchable like memories") ──────────
+  //
+  // Sibling of the memory picker above, backing app-chrono-ref-field. Replaces the old file-meta `fm*`
+  // chrono flyout; a title cache lets chips show the entry's title (not a truncated id) and search is
+  // server-side via listChrono(?search=), matching the memory picker rather than the old client filter.
+
+  chronoPickQuery = signal('');
+  chronoPickResults = signal<ChronoEntry[]>([]);
+  private _chronoPickTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Chrono id → title, for chip display (fed on pick and by `resolveChronoTitles`). */
+  chronoTitleCache = signal<Record<string, string>>({});
+
+  onChronoPickInput(q: string): void {
+    this.chronoPickQuery.set(q);
+    if (this._chronoPickTimer) clearTimeout(this._chronoPickTimer);
+    if (!q.trim()) { this.chronoPickResults.set([]); return; }
+    this._chronoPickTimer = setTimeout(() => {
+      this.brainApi.listChrono(this.spaceId(), 8, 0, { search: q }).subscribe({
+        next: ({ chrono }) => this.chronoPickResults.set(chrono.slice(0, 6)),
+        error: () => {},
+      });
+    }, 300);
+  }
+
+  /** Cache the picked entry's title for chip display, append its id to the form, and clear the search. */
+  addChronoRef(form: { chronoIds: string[] }, c: ChronoEntry): void {
+    this.chronoTitleCache.update(t => ({ ...t, [c._id]: c.title }));
+    if (!form.chronoIds.includes(c._id)) form.chronoIds.push(c._id);
+    this.chronoPickQuery.set('');
+    this.chronoPickResults.set([]);
+  }
+
+  removeChronoRef(form: { chronoIds: string[] }, id: string): void {
+    form.chronoIds = form.chronoIds.filter(c => c !== id);
+  }
+
+  /** Chip label for a linked chrono entry: cached title → loaded list → truncated id, trimmed. */
+  chronoRefTitle(id: string): string {
+    const full = this.chronoTitleCache()[id] ?? this.store.chrono().find(c => c._id === id)?.title;
+    return full ? full.slice(0, 40) + (full.length > 40 ? '…' : '') : id.slice(0, 8) + '…';
+  }
+
+  /** Resolve the uncached titles of a chronoIds list (opening a record for editing). Small N → per-id. */
+  resolveChronoTitles(ids: string[]): void {
+    const spaceId = this.spaceId();
+    if (!spaceId) return;
+    for (const id of ids.filter(i => !this.chronoTitleCache()[i])) {
+      this.brainApi.getChrono(spaceId, id).subscribe({
+        next: (c) => this.chronoTitleCache.update(t => ({ ...t, [c._id]: c.title })),
         error: () => {},
       });
     }

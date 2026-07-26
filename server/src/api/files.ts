@@ -98,6 +98,67 @@ function enforceSizeLimit(req: Request, res: Response, next: NextFunction): void
   next();
 }
 
+/**
+ * Recursive size of each immediate sub-folder of `dirPath`, as a Map of folder name → total bytes.
+ *
+ * A folder's size is the sum of the RAW sizes of the files beneath it — computed from metadata, not a
+ * filesystem walk: the file-level FileMeta record (`_id`/`path`, no `parentFileId`) already carries the
+ * raw upload size in `sizeBytes` (chunk/derived records have a `parentFileId` and are excluded). One
+ * indexed prefix query per member space; the immediate-child grouping is done in JS (unicode-safe,
+ * unlike Mongo `$substr` byte offsets). Soft-deleted records are excluded.
+ */
+/**
+ * Pure grouping: given file-level records and the listing's path prefix (`''` at root, else
+ * `dir/`), sum each file's `sizeBytes` into the IMMEDIATE sub-folder it lives under. A file sitting
+ * loose in the listed directory (no further `/`) belongs to no sub-folder and is skipped — its own
+ * size shows on its own row. Exported for unit testing. Accumulates into `into` so callers can merge
+ * across member spaces.
+ */
+export function groupFolderSizes(
+  docs: { path: string; sizeBytes?: number }[], prefix: string, into = new Map<string, number>(),
+): Map<string, number> {
+  for (const d of docs) {
+    const rel = prefix ? d.path.slice(prefix.length) : d.path;
+    const slash = rel.indexOf('/');
+    if (slash <= 0) continue; // loose file directly in the listed dir — not a sub-folder's content
+    const child = rel.slice(0, slash);
+    into.set(child, (into.get(child) ?? 0) + (d.sizeBytes ?? 0));
+  }
+  return into;
+}
+
+async function folderSizes(memberIds: string[], dirPath: string): Promise<Map<string, number>> {
+  const prefix = dirPath === '.' ? '' : toDocId(dirPath) + '/';
+  const sizes = new Map<string, number>();
+  for (const mid of memberIds) {
+    try {
+      const docs = await col<FileMetaDoc>(`${mid}_files`).find(
+        asFilter<FileMetaDoc>({
+          parentFileId: { $exists: false },
+          deletedAt: { $exists: false },
+          // Indexed prefix range over `path` — files under this directory only (all files when root).
+          // '￿' is the highest BMP code unit, so `[prefix, prefix+￿)` covers every path with
+          // this prefix without a regex.
+          ...(prefix ? { path: { $gte: prefix, $lt: prefix + '￿' } } : {}),
+        }),
+        { projection: { path: 1, sizeBytes: 1 } },
+      ).toArray() as { path: string; sizeBytes?: number }[];
+      groupFolderSizes(docs, prefix, sizes);
+    } catch { /* member has no files collection — skip */ }
+  }
+  return sizes;
+}
+
+/** Fill in each `dir` entry's `size` with its recursive content size (files stay as listed). */
+async function withFolderSizes(
+  memberIds: string[], dirPath: string, entries: { name: string; type: 'file' | 'dir'; size?: number }[],
+): Promise<typeof entries> {
+  if (!entries.some(e => e.type === 'dir')) return entries;
+  const sizes = await folderSizes(memberIds, dirPath);
+  for (const e of entries) if (e.type === 'dir') e.size = sizes.get(e.name) ?? 0;
+  return entries;
+}
+
 // ── GET /api/files/:spaceId ───────────────────────────────────────────────────
 // Stat the path: directory → JSON list, file → stream bytes.
 fileStoreRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, res) => {
@@ -144,7 +205,7 @@ fileStoreRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, 
           }
         } catch { /* member may have no files dir */ }
       }
-      res.json({ path: normalised, type: 'dir', entries: allEntries });
+      res.json({ path: normalised, type: 'dir', entries: await withFolderSizes(memberIds, normalised, allEntries) });
       return;
     }
     res.status(404).json({ error: 'Path not found' });
@@ -163,7 +224,7 @@ fileStoreRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, 
         }
       } catch { /* dir may not exist in this member */ }
     }
-    res.json({ path: normalised, type: 'dir', entries: allEntries });
+    res.json({ path: normalised, type: 'dir', entries: await withFolderSizes(memberIds, normalised, allEntries) });
     return;
   }
 

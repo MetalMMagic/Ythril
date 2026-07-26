@@ -276,6 +276,8 @@ The file manager lets you upload, download, organise, and preview files within e
 
 **Navigation:** A breadcrumb bar (`root / docs / guides`) at the top lets you jump to any parent directory. The **tree sidebar** (toggle with **Show tree** / **Hide tree**) provides a full directory view.
 
+**Folder sizes:** the Size column shows a folder's **total content size** — the sum of every file inside it (recursively), not just files. An empty folder shows `0 B`.
+
 ### File preview
 
 Clicking a file name or 👁 opens an inline preview pane:

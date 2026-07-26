@@ -502,7 +502,7 @@ function previewKind(name: string): PreviewKind {
                       }
                     </td>
                     <td style="color:var(--text-muted)">
-                      {{ entry.isDirectory ? '—' : formatSize(entry.size) }}
+                      {{ formatSize(entry.size) }}
                     </td>
                     <td style="color:var(--text-muted)">{{ entry.modified | date:'dd.MM.yyyy HH:mm' }}</td>
                     <td style="display:flex; gap:6px; align-items:center;">

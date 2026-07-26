@@ -176,6 +176,31 @@ describe('SpaceSchemaTabComponent — schema-library link (must survive the rede
     c.importFromLibraryRef({ name: 'shared', knowledgeType: 'entity', typeName: 'Svc' } as never);
     expect(c.importConflict()).toMatchObject({ kt: 'entity', name: 'Svc', allowAddAs: false });
   });
+
+  it('linkedProps resolves the linked library entry properties for the read-only view', () => {
+    const entry = { name: 'shared-svc', knowledgeType: 'entity', typeName: 'Svc',
+      schema: { propertySchemas: { cost: { type: 'number', required: true } } } };
+    const { c, state } = setup({ listSchemaLibrary: () => of({ entries: [entry] }) as never });
+    c.ngOnInit(); // loads libEntriesByName from the (mocked) library
+    state.schTypeSchemas = { ...state.schTypeSchemas, entity: { Svc: { ...mkType(), _libRef: 'shared-svc' } } };
+    expect(c.linkedProps('entity', 'Svc')).toEqual([{ key: 'cost', s: { type: 'number', required: true } }]);
+  });
+
+  it('unlinkType inlines the library schema and drops the $ref (type becomes editable)', () => {
+    const entry = { name: 'shared-svc', knowledgeType: 'entity', typeName: 'Svc',
+      schema: { namingPattern: '^S', propertySchemas: { cost: { type: 'number', required: true } } } };
+    const { c, state } = setup({ listSchemaLibrary: () => of({ entries: [entry] }) as never });
+    c.ngOnInit();
+    state.schTypeSchemas = { ...state.schTypeSchemas, entity: { Svc: { ...mkType(), _libRef: 'shared-svc' } } };
+    expect(state.typeLibRef('entity', 'Svc')).toBe('shared-svc');
+
+    c.unlinkType('entity', 'Svc');
+
+    expect(state.typeLibRef('entity', 'Svc')).toBeNull();  // no longer a $ref
+    const ts = state.typeState('entity', 'Svc');
+    expect(ts.namingPattern).toBe('^S');
+    expect(ts.propertySchemas).toEqual([{ key: 'cost', s: { type: 'number', required: true }, _enumInput: '' }]);
+  });
 });
 
 describe('SpaceSchemaTabComponent — validation controls (moved here in U9 pt3)', () => {

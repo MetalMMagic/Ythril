@@ -393,7 +393,7 @@ Click the gear icon on any space row to open its settings panel. Changes save an
 - **Type schemas** — define per-type rules under each knowledge type (entity, memory, edge, chrono). For each named type you can set:
   - **Naming pattern** — a regex the name must match.
   - **Property schemas** — rules for each property field (type, allowed values, min/max, pattern, required, default).
-- **From Lib** — import a schema from the Schema Library. The type row shows a badge and stays in sync with the library automatically.
+- **From Lib** — import a schema from the Schema Library. The type row shows a badge and stays in sync with the library automatically. While linked, the type's properties are shown **read-only** so you can see what it enforces; click **Unlink** to copy the library schema inline (breaking the link) and then customise it for this space.
 - **From File** — import a schema from a previously exported JSON file.
 - **Save to Lib** — save the current type schema to the Schema Library for reuse in other spaces.
 

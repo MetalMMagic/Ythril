@@ -831,6 +831,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A library-linked schema type can be unlinked and customised, and its properties are visible while
+  linked (Settings → Spaces → *space* → Schema).** A type imported **From Lib** used to be an opaque,
+  non-editable link. Now the linked type shows the library entry's **properties read-only**, so you can
+  see exactly what it enforces without touching it — and an **Unlink** button copies that schema inline
+  (breaking the link) so the space can then diverge from the library and edit it like any other type.
+
 - **You can rename a token's label after it's created (Settings → Tokens).** Each row in the tokens
   list now has a pencil edit button — click it to rename the token inline (Enter to save, Esc to
   cancel). Only the human-readable label changes; the secret, permissions and scope are untouched.

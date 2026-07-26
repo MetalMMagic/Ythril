@@ -73,8 +73,14 @@ interface Step {
     /* The actor is the model, the dot is the state — kept visually separate on purpose. */
     .actor { font-size: 10.5px; color: var(--text-muted); margin-top: 3px;
       font-family: var(--font-mono, monospace); overflow-wrap: anywhere; }
-    .actor a { color: var(--text-secondary); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-    .actor a.infra { text-decoration-style: dotted; }
+    /* A configurable step's actor is a link back to the Models-tab card that configures it. A real
+       button (not an anchor) so keyboard + screen readers get it for free. */
+    .actor button.link { background: none; border: 0; padding: 0; font: inherit; text-align: left;
+      color: var(--text-secondary); text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+      overflow-wrap: anywhere; }
+    .actor button.link.infra { text-decoration-style: dotted; }
+    .actor button.link:hover { color: var(--text-primary); }
+    .actor button.link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
 
     .knobs { border-top: 1px solid var(--border-muted); padding: 14px 18px; }
     .knobs-h { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em;
@@ -140,7 +146,14 @@ interface Step {
           <div class="step" [class.cond]="st.conditional" [class.dim]="stepDim(st.key)" [class.active]="stepActive(st.key)">
             <div class="box">
               <div class="nm">{{ st.name | transloco }}<app-health-dot [state]="st.health" [subject]="st.name | transloco"/></div>
-              <div class="actor">{{ st.actor }}</div>
+              <div class="actor">
+                @if (st.cardId; as cid) {
+                  <button type="button" class="link" [class.infra]="isInfra(cid)" (click)="s.requestFocusCard(cid)"
+                    [attr.title]="'models.pipelines.configureLink' | transloco">{{ st.actor }}</button>
+                } @else {
+                  {{ st.actor }}
+                }
+              </div>
             </div>
           </div>
         }
@@ -202,7 +215,14 @@ interface Step {
             <div class="step" [class.cond]="st.conditional">
               <div class="box">
                 <div class="nm">{{ st.name | transloco }}<app-health-dot [state]="st.health" [subject]="st.name | transloco"/></div>
-                <div class="actor">{{ st.actor }}</div>
+                <div class="actor">
+                  @if (st.cardId; as cid) {
+                    <button type="button" class="link" [class.infra]="isInfra(cid)" (click)="s.requestFocusCard(cid)"
+                      [attr.title]="'models.pipelines.configureLink' | transloco">{{ st.actor }}</button>
+                  } @else {
+                    {{ st.actor }}
+                  }
+                </div>
               </div>
             </div>
           }
@@ -286,6 +306,11 @@ export class PipelinesTabComponent {
 
   /** Suffix on the reserved video rung. A disabled option with no explanation reads as a bug. */
   readonly notYet = ' — not built yet';
+
+  /** Cards rendered as infra (env-owned, read-only) on the Models tab — their actor links get the
+   *  dotted underline that marks "you can see it here but change it in the environment". */
+  private readonly infraCards = new Set(['doc-render', 'unstructured']);
+  isInfra(cardId: string): boolean { return this.infraCards.has(cardId); }
 
   /** The stored ceiling for a class, defaulting to `auto` (no policy limit of its own). */
   ceilingOf(cls: MediaClass): string { return (this.s.form.levels ?? {})[cls] ?? 'auto'; }

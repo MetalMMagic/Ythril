@@ -56,6 +56,16 @@ import { HealthState } from './models.types';
     .card-b { flex: 1; padding: 14px 18px 4px; }
     .card-f { padding: 12px 18px 16px; margin-top: auto; }
     .card-f:empty { display: none; }
+
+    /* Brief highlight when the operator arrives here by clicking the model in the Pipelines viz, so the
+       card they landed on is obvious after the scroll. */
+    .card.flash { animation: cardFlash 1.4s ease-out; }
+    @keyframes cardFlash {
+      0%   { box-shadow: 0 0 0 2px var(--accent); }
+      70%  { box-shadow: 0 0 0 2px var(--accent); }
+      100% { box-shadow: 0 0 0 2px transparent; }
+    }
+    @media (prefers-reduced-motion: reduce) { .card.flash { animation: none; } }
   `],
   template: `
     <section class="card" [class.infra]="infra()" [attr.id]="'model-card-' + id()">

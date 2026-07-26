@@ -18,7 +18,7 @@
  *     than silently discarding — the tabs look like navigation, and navigation that eats edits is a
  *     data-loss bug regardless of how small the edit was.
  */
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../../shared/ph-icon.component';
@@ -143,9 +143,39 @@ export class ModelsPageComponent implements OnInit {
   /** Tools is read-only, so it never needs the save bar. */
   readonly showsSave = computed(() => this.tab() !== 'tools');
 
+  /**
+   * A pipeline step actor was clicked (see `focusCard`): jump to the Models tab and reveal the card
+   * that configures that step. Restores the "click a model in the viz to go configure it" affordance.
+   * The signal is cleared inside `focusModelCard` (in a later task), so writing it there is not a
+   * write-during-effect.
+   */
+  private readonly focusReaction = effect(() => {
+    const cardId = this.s.focusCard();
+    if (cardId) this.focusModelCard(cardId);
+  });
+
   ngOnInit(): void {
     this.s.load();
     this.pipeline.load();
+  }
+
+  /**
+   * Switch to the Models tab (honouring the unsaved-changes guard in `switchTo`) and scroll the named
+   * card into view with a brief flash. If the operator cancels the discard prompt we stay put and just
+   * clear the request. The scroll is deferred a tick so the tab's cards have rendered.
+   */
+  private async focusModelCard(cardId: string): Promise<void> {
+    await this.switchTo('models');
+    if (this.tab() !== 'models') { this.s.focusCard.set(null); return; }  // discard was cancelled
+    setTimeout(() => {
+      const el = document.getElementById('model-card-' + cardId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.classList.add('flash');
+        setTimeout(() => el.classList.remove('flash'), 1400);
+      }
+      this.s.focusCard.set(null);
+    }, 80);
   }
 
   /**

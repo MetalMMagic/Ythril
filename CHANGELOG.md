@@ -1513,6 +1513,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Clicking a model in the Pipelines viz jumps to its configuration again (Settings → Models).** Each
+  step in the pipeline diagram names the model doing the work; those names are clickable links once
+  more — clicking one switches to the **Models** tab and scrolls the matching card into view with a
+  brief highlight, so you can go straight from "what runs here" to "configure it". Steps with no
+  configurable model (the in-process validate / split / chunk stages) stay plain text. The unsaved-
+  changes guard still applies: if you have edits in flight, switching tabs prompts first.
+
 - **About → disk usage now reports Ythril's actual data footprint, not the whole host partition.**
   `getDiskInfo` returned `statfs(DATA_ROOT)` — the total/used of the entire filesystem `DATA_ROOT` sits
   on. In the common deployment (`DATA_ROOT` a subdirectory of the host root fs, not its own mount) that

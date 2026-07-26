@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth, requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { authRateLimit, globalRateLimit } from '../rate-limit/middleware.js';
-import { createToken, listTokens, revokeToken, regenerateToken } from '../auth/tokens.js';
+import { createToken, listTokens, revokeToken, regenerateToken, renameToken } from '../auth/tokens.js';
 import { z } from 'zod';
 
 export const tokensRouter = Router();
@@ -72,6 +72,28 @@ tokensRouter.post('/', authRateLimit, requireAdminMfa, async (req, res) => {
   // Return plaintext only on creation — never retrievable again
   const { hash: _h, ...safeRecord } = record;
   res.status(201).json({ token: safeRecord, plaintext });
+});
+
+const RenameTokenBody = z.object({
+  // Same bound as create's `name`, so a label can't be edited to something the create flow would reject.
+  name: z.string().min(1).max(200),
+});
+
+// PATCH /api/tokens/:id — rename a token's label (only) — admin + MFA
+tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
+  const parsed = RenameTokenBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const id = req.params['id'] as string;
+  const ok = renameToken(id, parsed.data.name.trim());
+  if (!ok) {
+    res.status(404).json({ error: 'Token not found' });
+    return;
+  }
+  const updated = listTokens().find(t => t.id === id);
+  res.json({ token: updated });
 });
 
 // POST /api/tokens/:id/regenerate — rotate a token's secret — admin + MFA

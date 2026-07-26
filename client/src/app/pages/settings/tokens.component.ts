@@ -378,9 +378,23 @@ import { RelativeTimeComponent } from '../../shared/relative-time.component';
               @for (t of tokens(); track t.id) {
                 <tr>
                   <td style="font-weight:500;">
-                    <span class="token-status-dot" [class.dot-active]="!isExpired(t)" [class.dot-expired]="isExpired(t)"></span>
-                    {{ t.name }}
-                    @if (t.id === selfToken()?.id) { <span style="margin-left:6px;font-size:0.75rem;color:var(--text-muted);">{{ 'tokens.table.currentSession' | transloco }}</span> }
+                    @if (editingId() === t.id) {
+                      <span style="display:inline-flex;align-items:center;gap:6px;">
+                        <input type="text" [(ngModel)]="editLabelValue" maxlength="200" style="width:190px;"
+                          [attr.aria-label]="'tokens.action.editLabelAriaLabel' | transloco"
+                          (keydown.enter)="saveLabel(t)" (keydown.escape)="cancelEditLabel()" />
+                        <button class="icon-btn" [attr.title]="'common.save' | transloco" [attr.aria-label]="'common.save' | transloco"
+                          (click)="saveLabel(t)" [disabled]="!editLabelValue.trim()"><ph-icon name="check" [size]="14"/></button>
+                        <button class="icon-btn" [attr.title]="'common.cancel' | transloco" [attr.aria-label]="'common.cancel' | transloco"
+                          (click)="cancelEditLabel()"><ph-icon name="x" [size]="14"/></button>
+                      </span>
+                    } @else {
+                      <span class="token-status-dot" [class.dot-active]="!isExpired(t)" [class.dot-expired]="isExpired(t)"></span>
+                      {{ t.name }}
+                      <button class="icon-btn" style="margin-left:4px;" [attr.title]="'tokens.action.editLabelTitle' | transloco"
+                        [attr.aria-label]="'tokens.action.editLabelAriaLabel' | transloco" (click)="startEditLabel(t)"><ph-icon name="pencil-simple" [size]="13"/></button>
+                      @if (t.id === selfToken()?.id) { <span style="margin-left:6px;font-size:0.75rem;color:var(--text-muted);">{{ 'tokens.table.currentSession' | transloco }}</span> }
+                    }
                   </td>
                   <td>
                     @if (t.admin) { <app-status-pill variant="error">{{ 'tokens.badge.admin' | transloco }}</app-status-pill> }
@@ -461,6 +475,9 @@ export class TokensComponent implements OnInit {
   copied = signal(false);
   regenToken = signal('');
   copiedRegen = signal(false);
+  /** Inline label edit: the id of the token whose label is being edited (null = none), + its draft. */
+  editingId = signal<string | null>(null);
+  editLabelValue = '';
 
   ngOnInit(): void {
     this.authApi.getMe().subscribe({ next: (t) => this.selfToken.set(t), error: () => {} });
@@ -558,6 +575,29 @@ export class TokensComponent implements OnInit {
     this.authApi.revokeToken(t.id).subscribe({
       next: () => this.tokens.update(list => list.filter(x => x.id !== t.id)),
       error: () => this.toast.error(this.transloco.translate('tokens.error.revokeFailed')),
+    });
+  }
+
+  startEditLabel(t: TokenRecord): void {
+    this.editingId.set(t.id);
+    this.editLabelValue = t.name;
+  }
+
+  cancelEditLabel(): void {
+    this.editingId.set(null);
+    this.editLabelValue = '';
+  }
+
+  saveLabel(t: TokenRecord): void {
+    const name = this.editLabelValue.trim();
+    // A blank or unchanged label is a no-op, not a request — just close the editor.
+    if (!name || name === t.name) { this.cancelEditLabel(); return; }
+    this.authApi.renameToken(t.id, name).subscribe({
+      next: ({ token }) => {
+        this.tokens.update(list => list.map(x => x.id === t.id ? { ...x, name: token.name } : x));
+        this.cancelEditLabel();
+      },
+      error: () => this.toast.error(this.transloco.translate('tokens.error.renameFailed')),
     });
   }
 

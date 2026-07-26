@@ -100,6 +100,7 @@ const ROUTE_RULES: RouteRule[] = [
   // ── Token operations ─────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/tokens$/,                                  operation: 'token.create' },
   { method: 'DELETE', pattern: /^\/api\/tokens\/([^/]+)$/,                         operation: 'token.delete' },
+  { method: 'PATCH',  pattern: /^\/api\/tokens\/([^/]+)$/,                         operation: 'token.update' },
 
   { method: 'POST',   pattern: /^\/api\/tokens\/([^/]+)\/regenerate$/,             operation: 'token.regenerate' },
 

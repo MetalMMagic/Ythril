@@ -19,7 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 import { fileURLToPath } from 'url';
-import { INSTANCES, post, get, del, reqJson } from '../sync/helpers.js';
+import { INSTANCES, post, get, del, patch, reqJson } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
@@ -40,6 +40,37 @@ describe('Token lifecycle', () => {
     assert.ok(!r.body.token?.hash, 'hash must NOT be exposed');
     // Clean up
     await del(INSTANCES.a, tokenA, `/api/tokens/${r.body.token.id}`);
+  });
+
+  it('PATCH renames a token label and the change persists in the list', async () => {
+    const create = await post(INSTANCES.a, tokenA, '/api/tokens', { name: 'rename-me' });
+    assert.equal(create.status, 201);
+    const id = create.body.token.id;
+
+    const r = await patch(INSTANCES.a, tokenA, `/api/tokens/${id}`, { name: 'renamed-label' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.token?.name, 'renamed-label');
+    assert.ok(!r.body.token?.hash, 'hash must NOT be exposed on rename');
+
+    // The rename persists — the list reflects the new label, not the old.
+    const list = await get(INSTANCES.a, tokenA, '/api/tokens');
+    const found = list.body.tokens.find(t => t.id === id);
+    assert.equal(found?.name, 'renamed-label');
+
+    await del(INSTANCES.a, tokenA, `/api/tokens/${id}`);
+  });
+
+  it('PATCH rejects an empty label with 400 (same bound as create)', async () => {
+    const create = await post(INSTANCES.a, tokenA, '/api/tokens', { name: 'validate-rename' });
+    const id = create.body.token.id;
+    const r = await patch(INSTANCES.a, tokenA, `/api/tokens/${id}`, { name: '' });
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+    await del(INSTANCES.a, tokenA, `/api/tokens/${id}`);
+  });
+
+  it('PATCH a non-existent token returns 404', async () => {
+    const r = await patch(INSTANCES.a, tokenA, '/api/tokens/nonexistent-id', { name: 'whatever' });
+    assert.equal(r.status, 404);
   });
 
   it('Token list never exposes hashes', async () => {

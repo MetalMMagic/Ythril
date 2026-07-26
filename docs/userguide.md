@@ -442,6 +442,8 @@ Click **Create Token**. Enter a name, choose a permission level, optionally set 
 
 This dialog has no "Library Access" toggle. Library Access tokens (for sharing your schema library with other instances) are created separately, from the **Schema Library** page's own **Create token** dialog — see [Schema Library](#schema-library).
 
+**Renaming a token.** Each row in the tokens list has a pencil button — click it to rename the token inline (Enter saves, Esc cancels). Only the label changes; the token's secret, permission level and space scope stay exactly as they were.
+
 ### Rotating a token
 
 Click the ↺ icon on any token row. A new secret is generated; the old one stops working immediately. The new value is shown once.

@@ -65,6 +65,14 @@ describe('BrainComponent (OnPush)', () => {
     expect(create().componentInstance.activeTab()).toBe('overview');
   });
 
+  it('File Meta is merged into one Files tab — no separate File Meta collection tab', () => {
+    const c = create().componentInstance;
+    expect(c.collectionTabs.some(t => t.key === 'filemeta' as never)).toBe(false);
+    expect(c.collectionTabs.map(t => t.key)).toEqual(['entities', 'edges', 'memories', 'chrono']);
+    c.setTab('files');
+    expect(c.activeTab()).toBe('files'); // the single Files tab still activates
+  });
+
   // ── Regression: the mount⇄reload request storm (app-unusable P0) ─────────────
   // The five record tabs each WRITE `recordList.loading` during their own `load()`. They used to be
   // mounted inside the `@else` of `@if (recordList.loading())`, so a tab set loading=true on load,

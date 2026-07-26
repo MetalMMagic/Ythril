@@ -2403,6 +2403,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brain's separate "Files" and "File Meta" tabs are merged into one "Files" tab.** The per-space
+  Brain used to carry both a **Files** tab (the file manager) and a distinct **File Meta** tab (the
+  metadata records), which forced you to jump between the raw bytes and their searchable side. They are
+  now a single **Files** tab, in the slot where **File Meta** was — one explorer-style view of files
+  with their embedding status and tags inline (shipped in the two prior slices). Deep-link handoffs
+  between the two old tabs are gone (there is nowhere left to hand off to), and the file preview's
+  now-obsolete "Metadata" button is removed. A docked detail view that opens the full metadata
+  record next to the file preview follows in a subsequent update.
+
 - **⚠️ BREAKING: the media-embedding master switch is removed. Media embedding is now always on,
   controlled per class by the `images` / `audio` / `video` levels.** The `MEDIA_EMBEDDING_ENABLED`
   environment variable and the `mediaEmbedding.enabled` config flag no longer exist, and the "Enable

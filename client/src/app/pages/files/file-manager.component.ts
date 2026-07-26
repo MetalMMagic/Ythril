@@ -600,9 +600,6 @@ function previewKind(name: string): PreviewKind {
           <div class="preview-header">
             <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
             <button type="button" class="btn-secondary btn btn-sm" (click)="downloadFile(pf)" style="display:inline-flex;align-items:center;gap:4px"><ph-icon name="download-simple" [size]="14"/> {{ 'files.download' | transloco }}</button>
-            @if (embeddedSpaceId) {
-              <button class="btn btn-sm btn-secondary" [attr.title]="'files.viewMetadataTitle' | transloco" (click)="viewFileMeta.emit(previewFilePath(pf))" style="display:inline-flex;align-items:center;gap:4px"><ph-icon name="tag" [size]="14"/> {{ 'files.viewMetadata' | transloco }}</button>
-            }
             <button class="icon-btn" (click)="closePreview()" [attr.aria-label]="'files.closePreviewAriaLabel' | transloco"><ph-icon name="x" [size]="16"/></button>
           </div>
           <div class="preview-body">
@@ -650,17 +647,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   /** When set (embedded in brain), skip space loading and use this space. */
   @Input() embeddedSpaceId = '';
 
-  /** Emits the file path when user clicks "View Brain Metadata" in the preview pane. */
-  @Output() viewFileMeta = new EventEmitter<string>();
   /** Fires whenever the file set in this space changes (delete or upload complete) so the host can refresh counts. */
   @Output() filesChanged = new EventEmitter<void>();
-
-  /** Navigate to the given directory when changed from parent (used by Brain filemeta→Files link). */
-  @Input() set navigatePath(p: string) {
-    if (p && this.activeSpaceId()) {
-      this.navigate(p);
-    }
-  }
 
   spaces = signal<Space[]>([]);
   activeSpaceId = signal('');
@@ -983,11 +971,6 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     } catch (e) {
       this.toast.error(`${this.transloco.translate('files.downloadFailed')} ${httpErrorReason(e)}`.trim());
     }
-  }
-
-  /** Returns the space-relative path for a preview entry (used for brain metadata links). */
-  previewFilePath(entry: FileEntry): string {
-    return this.join(this.currentPath(), entry.name);
   }
 
   formatSize(bytes: number): string {

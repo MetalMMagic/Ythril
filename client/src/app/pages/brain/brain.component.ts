@@ -10,7 +10,6 @@ import { MemoriesTabComponent } from './memories-tab.component';
 import { EntitiesTabComponent } from './entities-tab.component';
 import { EdgesTabComponent } from './edges-tab.component';
 import { ChronoTabComponent } from './chrono-tab.component';
-import { FilemetaTabComponent } from './filemeta-tab.component';
 import { OverviewTabComponent } from './overview-tab.component';
 import { FormsModule } from '@angular/forms';
 import { Space, SpaceStats } from '../../core/api.types';
@@ -21,7 +20,7 @@ import { FileManagerComponent } from '../files/file-manager.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
-type BrainTab = 'overview' | 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono' | 'filemeta';
+type BrainTab = 'overview' | 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono';
 
 interface SpaceView {
   space: Space;
@@ -40,7 +39,7 @@ interface SpaceView {
   // or happens in a template event handler, both of which mark the view dirty. That coupling is
   // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, FilemetaTabComponent, OverviewTabComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, OverviewTabComponent, TranslocoPipe],
   providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
   styles: [`
     .space-tabs {
@@ -207,12 +206,6 @@ interface SpaceView {
         <button class="tab" [class.active]="activeTab() === 'graph'" (click)="setTab('graph')">
           <ph-icon name="binoculars" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.graph' | transloco }}
         </button>
-        <button class="tab" [class.active]="activeTab() === 'files'" (click)="setTab('files')">
-          <ph-icon name="folder" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.files' | transloco }}
-          @if (activeStats(); as s) {
-            <span class="tab-count">{{ s.files }}</span>
-          }
-        </button>
         <span class="tab-spacer"></span>
         @for (tab of collectionTabs; track tab.key) {
           <button class="tab" [class.active]="activeTab() === tab.key" (click)="setTab(tab.key)">
@@ -224,6 +217,14 @@ interface SpaceView {
             }
           </button>
         }
+        <!-- Files (the former File Meta slot) — the file manager and File Meta merged into one tab: the
+             explorer now shows each file's status, tags and folder sizes inline. -->
+        <button class="tab" [class.active]="activeTab() === 'files'" (click)="setTab('files')">
+          <ph-icon name="folder" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.files' | transloco }}
+          @if (activeStats(); as s) {
+            <span class="tab-count">{{ s.files }}</span>
+          }
+        </button>
       </div>
 
       <!-- Content. Tabs are gated by activeTab() ONLY — NEVER wrapped in @else of
@@ -242,9 +243,9 @@ interface SpaceView {
           <app-graph-view [embeddedSpaceId]="activeSpaceId()" />
         }
 
-        <!-- Files tab -->
+        <!-- Files tab (merged: file manager + File Meta) -->
         @if (activeTab() === 'files') {
-          <app-file-manager [embeddedSpaceId]="activeSpaceId()" [navigatePath]="fileManagerNavPath()" (viewFileMeta)="openFileMetaEntry($event)" (filesChanged)="loadStats(activeSpaceId())" />
+          <app-file-manager [embeddedSpaceId]="activeSpaceId()" (filesChanged)="loadStats(activeSpaceId())" />
         }
 
         <!-- Memories -->
@@ -258,9 +259,6 @@ interface SpaceView {
 
         <!-- Chrono -->
         @if (activeTab() === 'chrono') { <app-chrono-tab [spaceId]="activeSpaceId()" /> }
-
-        <!-- File Meta -->
-        @if (activeTab() === 'filemeta') { <app-filemeta-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" (openInManager)="openFileInManager($event)" /> }
 
         <!-- Query -->
         @if (activeTab() === 'overview') {
@@ -286,12 +284,12 @@ export class BrainComponent implements OnInit, OnDestroy {
   private brainApi = inject(BrainApi);
   private transloco = inject(TranslocoService);
 
+  // File Meta merged into the Files tab (rendered separately, after these, in the same group).
   collectionTabs: { key: BrainTab; label: string; statsKey?: keyof SpaceStats }[] = [
     { key: 'entities', label: 'Entities', statsKey: 'entities' },
     { key: 'edges', label: 'Edges', statsKey: 'edges' },
     { key: 'memories', label: 'Memories', statsKey: 'memories' },
     { key: 'chrono', label: 'Chrono', statsKey: 'chrono' },
-    { key: 'filemeta', label: 'File Meta', statsKey: 'files' },
   ];
 
   readonly pageSize = 20;
@@ -300,8 +298,6 @@ export class BrainComponent implements OnInit, OnDestroy {
   activeSpaceId = signal('');
   activeTab = signal<BrainTab>('overview');
   loadingSpaces = signal(true);
-
-  fileManagerNavPath = signal('');
 
   // Reindex
   needsReindex = signal(false);
@@ -359,7 +355,7 @@ export class BrainComponent implements OnInit, OnDestroy {
   private liveReconnectTimer?: ReturnType<typeof setTimeout>;
   private static readonly LIVE_RECONNECT_MS = 3000;
   private static readonly TAB_FOR_COLLECTION: Record<string, BrainTab> = {
-    memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'filemeta',
+    memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'files',
   };
 
   /** (Re)open the live-change SSE stream for a space. EventSource can't send an Authorization header, and
@@ -462,21 +458,6 @@ export class BrainComponent implements OnInit, OnDestroy {
 
   requestDelete(id: string): void { this.recordList.confirmDeleteId.set(id); }
   cancelDelete(): void { this.recordList.confirmDeleteId.set(''); }
-
-  // ── File Meta inline edit ─────────────────────────────────────────────────
-
-  /** Called from Files tab file preview: switch to Filemeta tab filtered by path. */
-  openFileMetaEntry(path: string): void {
-    this.store.fileMetaSearch.set(path.replace(/^\/+/, ''));
-    this.activeTab.set('filemeta');
-  }
-
-  /** Called from Filemeta tab: switch to Files tab and navigate to the file's directory. */
-  openFileInManager(path: string): void {
-    const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) || '/' : '/';
-    this.fileManagerNavPath.set(dir === '/' ? '' : dir);
-    this.setTab('files');
-  }
 
   runReindex(): void {
     this.reindexing.set(true);

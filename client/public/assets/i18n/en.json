@@ -1372,7 +1372,7 @@
   "models.tools.colSpace": "Space",
   "models.tools.colLive": "In the database",
   "models.tools.colStored": "Recorded",
-  "models.tools.colCollections": "Collections",
+  "models.tools.colStoredHint": "What config.json records as this space's index state — checked against the live “In the database” state to surface drift.",
   "models.tools.driftTitle": "{{count}} space(s) claim a ready index the database does not have.",
   "models.tools.driftBody": "Recall in those spaces returns nothing and reports no error. Rebuilding the indexes from the space’s Danger Zone fixes it.",
   "models.tools.indexEmpty": "No spaces with their own indexes.",

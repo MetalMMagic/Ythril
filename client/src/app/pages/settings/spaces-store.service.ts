@@ -26,6 +26,9 @@ export class SpacesStore {
 
   readonly spaces   = signal<Space[]>([]);
   readonly networks = signal<Network[]>([]);
+  /** Instance document-extraction ceiling — the highest mode a space may pick. Drives the per-space
+   *  extraction dropdown so it never offers a level the runtime would cap. 'auto' = no policy limit. */
+  readonly docExtractionCeiling = signal<'off' | 'ocr' | 'vlm' | 'repair' | 'auto'>('auto');
   readonly loading  = signal(true);
   /** Set when the spaces list fails to load, so the page can show an error state rather than a bare empty list. */
   readonly error    = signal(false);
@@ -61,7 +64,11 @@ export class SpacesStore {
     this.loading.set(true);
     this.error.set(false);
     this.spacesApi.listSpaces().subscribe({
-      next: ({ spaces }) => { this.spaces.set(spaces); this.loading.set(false); },
+      next: ({ spaces, docExtractionCeiling }) => {
+        this.spaces.set(spaces);
+        if (docExtractionCeiling) this.docExtractionCeiling.set(docExtractionCeiling);
+        this.loading.set(false);
+      },
       error: () => { this.error.set(true); this.loading.set(false); },
     });
     this.networksApi.listNetworks().subscribe({

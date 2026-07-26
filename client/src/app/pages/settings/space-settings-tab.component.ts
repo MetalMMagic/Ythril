@@ -16,6 +16,7 @@ import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
 import { SpaceSettingsState } from './space-settings-state.service';
+import { SpacesStore } from './spaces-store.service';
 import { SettingsCardComponent } from '../../shared/settings-card.component';
 
 @Component({
@@ -67,11 +68,17 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
         <option value="">{{ 'spaces.settings.extractionInherit' | transloco }}</option>
         <option value="auto">{{ 'spaces.settings.extractionAuto' | transloco }}</option>
         <option value="off">{{ 'spaces.settings.extractionOff' | transloco }}</option>
-        <option value="ocr">{{ 'spaces.settings.extractionOcr' | transloco }}</option>
-        <option value="vlm">{{ 'spaces.settings.extractionVlm' | transloco }}</option>
-        <option value="repair">{{ 'spaces.settings.extractionRepair' | transloco }}</option>
+        <!-- Only offer modes within the instance ceiling: a space can't extract more than the instance
+             allows, so a higher option would just be silently capped. The current value is always kept
+             visible, even if a since-lowered ceiling now excludes it. -->
+        @if (isExtractionAllowed('ocr') || state.stForm.documentExtraction === 'ocr') { <option value="ocr">{{ 'spaces.settings.extractionOcr' | transloco }}</option> }
+        @if (isExtractionAllowed('vlm') || state.stForm.documentExtraction === 'vlm') { <option value="vlm">{{ 'spaces.settings.extractionVlm' | transloco }}</option> }
+        @if (isExtractionAllowed('repair') || state.stForm.documentExtraction === 'repair') { <option value="repair">{{ 'spaces.settings.extractionRepair' | transloco }}</option> }
       </select>
       <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.extractionHint' | transloco }}</div>
+      @if (store.docExtractionCeiling() !== 'auto' && store.docExtractionCeiling() !== 'repair') {
+        <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.extractionCeilingHint' | transloco: { ceiling: store.docExtractionCeiling() } }}</div>
+      }
     </div>
   </app-settings-card>
 
@@ -80,4 +87,18 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
 })
 export class SpaceSettingsTabComponent {
   readonly state = inject(SpaceSettingsState);
+  readonly store = inject(SpacesStore);
+
+  private static readonly LADDER = ['off', 'ocr', 'vlm', 'repair'] as const;
+
+  /**
+   * Whether a concrete extraction mode is within the instance ceiling — so the per-space dropdown only
+   * offers levels the space could actually reach. `auto` ceiling imposes no limit; `off`/`auto`/inherit
+   * options are always offered separately (a space can always do less, or follow the ceiling).
+   */
+  isExtractionAllowed(mode: 'ocr' | 'vlm' | 'repair'): boolean {
+    const ceiling = this.store.docExtractionCeiling();
+    if (ceiling === 'auto') return true;
+    return SpaceSettingsTabComponent.LADDER.indexOf(mode) <= SpaceSettingsTabComponent.LADDER.indexOf(ceiling);
+  }
 }

@@ -2343,6 +2343,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A space's document-extraction dropdown now only offers modes within the instance ceiling.** The
+  per-space extraction override (Settings → Spaces → *space* → Settings) used to list every mode
+  (OCR / VLM / Repair) even when the instance ceiling was lower — so you could pick a level the runtime
+  would just silently cap. The dropdown now offers only the modes at or below the instance ceiling
+  (Off, Auto and *inherit* are always available), with a hint naming the ceiling; a space's already-set
+  value stays visible even if a since-lowered ceiling now excludes it. The server backs this up:
+  `GET /api/spaces` reports the `docExtractionCeiling`, and `PATCH /api/spaces/:id` caps a too-high
+  `documentExtraction` to the ceiling before storing it (it no longer stores a value it can't honour).
+
 - **A space's Schema tab gets a few UX fixes (Settings → Spaces → Schema).** Adding a property now uses
   the same inline **[name] [＋]** control as adding a type — one affordance for both "add something"
   actions instead of a name field beside a separate "+ Add property" button. The per-type **Save to

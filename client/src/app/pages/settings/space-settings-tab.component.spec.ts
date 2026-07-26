@@ -20,18 +20,23 @@ import { of } from 'rxjs';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { SpaceSettingsTabComponent } from './space-settings-tab.component';
 import { SpaceSettingsState } from './space-settings-state.service';
+import { SpacesStore } from './spaces-store.service';
 import { SpacesApi } from '../../core/spaces-api.service';
+import { NetworksApi } from '../../core/networks-api.service';
 import type { Space } from '../../core/api.types';
 
-async function setup(space: Partial<Space> = {}) {
+async function setup(space: Partial<Space> = {}, ceiling?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto') {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [SpaceSettingsTabComponent, getTranslocoModule()],
     providers: [
       SpaceSettingsState,
+      SpacesStore,
       { provide: SpacesApi, useValue: { getSpaceStats: () => of({ spaceId: 'work' }) } },
+      { provide: NetworksApi, useValue: { listNetworks: () => of({ networks: [] }) } },
     ],
   });
+  if (ceiling) TestBed.inject(SpacesStore).docExtractionCeiling.set(ceiling);
   const fixture = TestBed.createComponent(SpaceSettingsTabComponent);
   const state = TestBed.inject(SpaceSettingsState);
   // Populate every editable field exactly as opening a space's settings dialog would.
@@ -65,6 +70,30 @@ describe('SpaceSettingsTabComponent — U9 pt3 arrangement', () => {
     const selects = el.querySelectorAll('select');
     expect(selects.length).toBe(1);
     expect(selects[0].querySelector('option[value="ocr"]')).not.toBeNull();
+  });
+
+  it('the extraction dropdown offers only modes within the instance ceiling', async () => {
+    // Ceiling 'ocr' → off/ocr allowed, vlm/repair hidden (they would be silently capped).
+    const capped = await setup({}, 'ocr');
+    const opts = () => [...(capped.el.querySelector('select') as HTMLSelectElement).options].map(o => o.value);
+    expect(opts()).toContain('ocr');
+    expect(opts()).not.toContain('vlm');
+    expect(opts()).not.toContain('repair');
+    // Inherit / auto / off are always offered (do less, or follow the ceiling).
+    expect(opts()).toEqual(expect.arrayContaining(['', 'auto', 'off']));
+
+    // Ceiling 'auto' (no limit) → every mode is offered.
+    const open = await setup({}, 'auto');
+    const openOpts = [...(open.el.querySelector('select') as HTMLSelectElement).options].map(o => o.value);
+    expect(openOpts).toEqual(expect.arrayContaining(['', 'auto', 'off', 'ocr', 'vlm', 'repair']));
+  });
+
+  it('keeps a since-excluded stored value visible in the dropdown', async () => {
+    // A space stored with 'repair' before the ceiling was lowered to 'ocr' must still show 'repair'
+    // (so the select is not blank), even though it is above the ceiling.
+    const { el } = await setup({ documentExtraction: 'repair' } as Partial<Space>, 'ocr');
+    const opts = [...(el.querySelector('select') as HTMLSelectElement).options].map(o => o.value);
+    expect(opts).toContain('repair');
   });
 
   it('renders no default-state pills — blank fields convey the default via placeholder and the inherit option', async () => {

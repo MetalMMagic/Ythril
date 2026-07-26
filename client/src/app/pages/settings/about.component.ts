@@ -16,8 +16,12 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       gap: 16px;
-      align-items: start;
+      align-items: stretch;
     }
+    /* Uniform card size: stretch each card to fill its (equal-height) grid row. The host becomes a
+       grid so its single .card child fills the row height — scoped to About, the shared SettingsCard
+       is untouched. */
+    .grid app-settings-card { display: grid; }
     .kv { display: grid; grid-template-columns: minmax(84px, 132px) 1fr; gap: 7px 14px; font-size: 13px; }
     .kv .k { color: var(--text-secondary); }
     .kv .v { color: var(--text-primary); word-break: break-word; }

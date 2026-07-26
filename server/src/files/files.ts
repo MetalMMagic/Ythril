@@ -9,6 +9,11 @@ export interface FileEntry {
   type: 'file' | 'dir';
   size?: number;
   modifiedAt?: string;
+  // ── File-level metadata, joined from the `{space}_files` FileMeta record (files only) ──
+  /** Embedding lifecycle of the file, for the status pill in the merged Files list. */
+  embeddingStatus?: 'pending' | 'processing' | 'complete' | 'partial' | 'failed' | 'skipped' | 'disabled';
+  /** Tags on the file's metadata record. */
+  tags?: string[];
 }
 
 /** Ensure the space files directory exists */

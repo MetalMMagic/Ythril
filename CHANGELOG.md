@@ -831,6 +831,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The file list now shows each file's embedding status and tags inline.** Every file row carries a
+  **status pill** (Embedded / Embedding / Partial / Failed / Skipped…) and its **tags**, joined from the
+  file's metadata record — so you can see a space's file-processing state without leaving the file
+  manager. The join is done server-side in one query per space (the same query that computes folder
+  sizes), so the listing stays a single request. First UI step of merging the Files and File Meta tabs.
+
 - **Folders in the file list now show their total size (the sum of everything inside), not a dash.** The
   Size column reports a directory's recursive content size alongside files (an empty folder shows `0 B`).
   It's computed from file metadata — a `SUM` over the file records under the folder — not a filesystem

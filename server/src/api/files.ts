@@ -34,6 +34,7 @@ import {
   createDir,
   moveFile,
   listFilesRecursive,
+  type FileEntry,
 } from '../files/files.js';
 import {
   parseContentRange,
@@ -98,41 +99,50 @@ function enforceSizeLimit(req: Request, res: Response, next: NextFunction): void
   next();
 }
 
+// ── Merged file listing: join filesystem entries with their FileMeta records ──────────────────────
+// Folders get a recursive content size; files get their embedding status + tags. Both come from ONE
+// indexed prefix query per member over the `{space}_files` records (chunk/derived records carry a
+// `parentFileId` and are excluded; soft-deleted records excluded). The roll-up is pure JS (unicode-safe,
+// unlike Mongo `$substr` byte offsets).
+
+/** A file-level FileMeta row projected for the merged listing: path, raw size, and the bits the UI
+ *  shows per file (embedding status, tags). */
+interface FileMetaRow { path: string; sizeBytes?: number; embeddingStatus?: FileEntry['embeddingStatus']; tags?: string[] }
+
 /**
- * Recursive size of each immediate sub-folder of `dirPath`, as a Map of folder name → total bytes.
- *
- * A folder's size is the sum of the RAW sizes of the files beneath it — computed from metadata, not a
- * filesystem walk: the file-level FileMeta record (`_id`/`path`, no `parentFileId`) already carries the
- * raw upload size in `sizeBytes` (chunk/derived records have a `parentFileId` and are excluded). One
- * indexed prefix query per member space; the immediate-child grouping is done in JS (unicode-safe,
- * unlike Mongo `$substr` byte offsets). Soft-deleted records are excluded.
+ * Pure roll-up over the file-level records under a directory: sums each file's `sizeBytes` into the
+ * IMMEDIATE sub-folder it lives under (nested files roll up), and — for files sitting DIRECTLY in the
+ * listed directory — records their metadata (status, tags) keyed by name. A loose file belongs to no
+ * sub-folder; a nested file's metadata belongs to a deeper listing, not this one. Exported for testing;
+ * accumulates into the given maps so callers can merge across member spaces.
  */
-/**
- * Pure grouping: given file-level records and the listing's path prefix (`''` at root, else
- * `dir/`), sum each file's `sizeBytes` into the IMMEDIATE sub-folder it lives under. A file sitting
- * loose in the listed directory (no further `/`) belongs to no sub-folder and is skipped — its own
- * size shows on its own row. Exported for unit testing. Accumulates into `into` so callers can merge
- * across member spaces.
- */
-export function groupFolderSizes(
-  docs: { path: string; sizeBytes?: number }[], prefix: string, into = new Map<string, number>(),
-): Map<string, number> {
-  for (const d of docs) {
-    const rel = prefix ? d.path.slice(prefix.length) : d.path;
+export function rollUpDirRows(
+  rows: FileMetaRow[], prefix: string,
+  folderSizes = new Map<string, number>(),
+  fileMeta = new Map<string, { embeddingStatus?: FileEntry['embeddingStatus']; tags?: string[] }>(),
+): { folderSizes: Map<string, number>; fileMeta: Map<string, { embeddingStatus?: FileEntry['embeddingStatus']; tags?: string[] }> } {
+  for (const r of rows) {
+    const rel = prefix ? r.path.slice(prefix.length) : r.path;
     const slash = rel.indexOf('/');
-    if (slash <= 0) continue; // loose file directly in the listed dir — not a sub-folder's content
-    const child = rel.slice(0, slash);
-    into.set(child, (into.get(child) ?? 0) + (d.sizeBytes ?? 0));
+    if (slash > 0) {
+      // Nested → contributes to the immediate sub-folder's size.
+      const child = rel.slice(0, slash);
+      folderSizes.set(child, (folderSizes.get(child) ?? 0) + (r.sizeBytes ?? 0));
+    } else if (slash === -1 && rel) {
+      // A file sitting directly in the listed directory → carry its metadata onto the row.
+      if (!fileMeta.has(rel)) fileMeta.set(rel, { embeddingStatus: r.embeddingStatus, tags: r.tags });
+    }
   }
-  return into;
+  return { folderSizes, fileMeta };
 }
 
-async function folderSizes(memberIds: string[], dirPath: string): Promise<Map<string, number>> {
+async function dirAggregates(memberIds: string[], dirPath: string): Promise<ReturnType<typeof rollUpDirRows>> {
   const prefix = dirPath === '.' ? '' : toDocId(dirPath) + '/';
-  const sizes = new Map<string, number>();
+  const folderSizes = new Map<string, number>();
+  const fileMeta = new Map<string, { embeddingStatus?: FileEntry['embeddingStatus']; tags?: string[] }>();
   for (const mid of memberIds) {
     try {
-      const docs = await col<FileMetaDoc>(`${mid}_files`).find(
+      const rows = await col<FileMetaDoc>(`${mid}_files`).find(
         asFilter<FileMetaDoc>({
           parentFileId: { $exists: false },
           deletedAt: { $exists: false },
@@ -141,21 +151,30 @@ async function folderSizes(memberIds: string[], dirPath: string): Promise<Map<st
           // this prefix without a regex.
           ...(prefix ? { path: { $gte: prefix, $lt: prefix + '￿' } } : {}),
         }),
-        { projection: { path: 1, sizeBytes: 1 } },
-      ).toArray() as { path: string; sizeBytes?: number }[];
-      groupFolderSizes(docs, prefix, sizes);
+        { projection: { path: 1, sizeBytes: 1, embeddingStatus: 1, tags: 1 } },
+      ).toArray() as FileMetaRow[];
+      rollUpDirRows(rows, prefix, folderSizes, fileMeta);
     } catch { /* member has no files collection — skip */ }
   }
-  return sizes;
+  return { folderSizes, fileMeta };
 }
 
-/** Fill in each `dir` entry's `size` with its recursive content size (files stay as listed). */
-async function withFolderSizes(
-  memberIds: string[], dirPath: string, entries: { name: string; type: 'file' | 'dir'; size?: number }[],
-): Promise<typeof entries> {
-  if (!entries.some(e => e.type === 'dir')) return entries;
-  const sizes = await folderSizes(memberIds, dirPath);
-  for (const e of entries) if (e.type === 'dir') e.size = sizes.get(e.name) ?? 0;
+/**
+ * Enrich a directory listing from the FileMeta records in one query per member: directories get their
+ * recursive content `size`, files get their `embeddingStatus` + `tags` — the merged filesystem +
+ * metadata rows the Files list renders.
+ */
+async function enrichEntries(memberIds: string[], dirPath: string, entries: FileEntry[]): Promise<FileEntry[]> {
+  if (entries.length === 0) return entries;
+  const { folderSizes, fileMeta } = await dirAggregates(memberIds, dirPath);
+  for (const e of entries) {
+    if (e.type === 'dir') {
+      e.size = folderSizes.get(e.name) ?? 0;
+    } else {
+      const m = fileMeta.get(e.name);
+      if (m) { e.embeddingStatus = m.embeddingStatus; e.tags = m.tags; }
+    }
+  }
   return entries;
 }
 
@@ -195,7 +214,7 @@ fileStoreRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, 
   if (!foundMid || !stat) {
     // For directory listing at root, aggregate even if some members have no dir
     if (normalised === '.') {
-      const allEntries: { name: string; type: 'file' | 'dir'; size?: number }[] = [];
+      const allEntries: FileEntry[] = [];
       const seen = new Set<string>();
       for (const mid of memberIds) {
         try {
@@ -205,7 +224,7 @@ fileStoreRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, 
           }
         } catch { /* member may have no files dir */ }
       }
-      res.json({ path: normalised, type: 'dir', entries: await withFolderSizes(memberIds, normalised, allEntries) });
+      res.json({ path: normalised, type: 'dir', entries: await enrichEntries(memberIds, normalised, allEntries) });
       return;
     }
     res.status(404).json({ error: 'Path not found' });
@@ -214,7 +233,7 @@ fileStoreRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, 
 
   if (stat.isDirectory()) {
     // Aggregate directory entries across all member spaces
-    const allEntries: { name: string; type: 'file' | 'dir'; size?: number }[] = [];
+    const allEntries: FileEntry[] = [];
     const seen = new Set<string>();
     for (const mid of memberIds) {
       try {
@@ -224,7 +243,7 @@ fileStoreRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, 
         }
       } catch { /* dir may not exist in this member */ }
     }
-    res.json({ path: normalised, type: 'dir', entries: await withFolderSizes(memberIds, normalised, allEntries) });
+    res.json({ path: normalised, type: 'dir', entries: await enrichEntries(memberIds, normalised, allEntries) });
     return;
   }
 

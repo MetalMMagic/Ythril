@@ -22,6 +22,8 @@ export class FilesApi {
           isFile: e.type === 'file',
           isDirectory: e.type === 'dir',
           modified: e.modifiedAt ?? '',
+          embeddingStatus: e.embeddingStatus,
+          tags: e.tags,
         } as FileEntry)),
       })),
     );

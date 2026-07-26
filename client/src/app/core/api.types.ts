@@ -116,6 +116,9 @@ export interface SpaceMetaResponse extends SpaceMeta {
 
 export interface SpacesResponse {
   spaces: Space[];
+  /** The instance document-extraction ceiling — the highest mode any space may pick. 'auto' = no
+   *  policy limit. Used to constrain the per-space extraction dropdown. */
+  docExtractionCeiling?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto';
   storage?: {
     usageGiB: { files: number; brain: number; total: number };
     limits?: StorageLimits;

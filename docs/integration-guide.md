@@ -2151,7 +2151,7 @@ Switching tabs with unsaved changes prompts rather than discarding them.
 
 Results are cached for 20 seconds and single-flighted, so several admins on **Settings → Models & Pipelines** produce one set of probes rather than one per viewer per step. Stages sharing an endpoint (typically `doc-vlm` / `doc-repair` / `doc-verify` on one Ollama) are probed once.
 
-**Per-space override (F11-c).** The `mode` above is a **ceiling, not a default**: a space may choose anything up to it and nothing beyond it. Set the override from the space's **Settings → Document extraction** picker, or via `PATCH /api/spaces/:id` with `{ "documentExtraction": "off" | "ocr" | "vlm" | "repair" | "auto" }` (send `null` to clear it and follow the instance setting again). Like dupe rules and record-TTL, this is a **local, per-instance** operational setting: it is never governed or synced across a network.
+**Per-space override (F11-c).** The `mode` above is a **ceiling, not a default**: a space may choose anything up to it and nothing beyond it. Set the override from the space's **Settings → Document extraction** picker, or via `PATCH /api/spaces/:id` with `{ "documentExtraction": "off" | "ocr" | "vlm" | "repair" | "auto" }` (send `null` to clear it and follow the instance setting again). A request **above** the ceiling is **capped to the ceiling** before it is stored — the API never persists a level the runtime would only clamp later, and the Settings picker offers only the modes at or below the ceiling. Like dupe rules and record-TTL, this is a **local, per-instance** operational setting: it is never governed or synced across a network.
 
 The effective level is `min(instance mode, space override)`, which has three consequences worth stating outright:
 
@@ -2574,6 +2574,7 @@ worth querying.
       "usageGiB": 0.05
     }
   ],
+  "docExtractionCeiling": "auto",
   "storage": {
     "usageGiB": { "files": 0.02, "brain": 0.03, "total": 0.05 },
     "limits": { "totalLimitGiB": 200, "warnAtPercent": 80 }
@@ -2581,7 +2582,7 @@ worth querying.
 }
 ```
 
-> **Note:** `counts` fields are only present when `?counts=true` is passed. `storage.usageGiB` is the instance total (files + brain), and `storage.limits` echoes the configured quota (`totalLimitGiB`, `warnAtPercent`); each space object also carries its own `usageGiB` number.
+> **Note:** `counts` fields are only present when `?counts=true` is passed. `storage.usageGiB` is the instance total (files + brain), and `storage.limits` echoes the configured quota (`totalLimitGiB`, `warnAtPercent`); each space object also carries its own `usageGiB` number. `docExtractionCeiling` is the instance document-extraction ceiling (`off` / `ocr` / `vlm` / `repair` / `auto`) — the highest mode any space may pick; the admin UI uses it to constrain each space's extraction dropdown.
 
 ---
 

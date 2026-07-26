@@ -714,6 +714,7 @@
   "spaces.settings.extractionVlm": "VLM",
   "spaces.settings.extractionRepair": "Naprawa",
   "spaces.settings.extractionHint": "Zastępuje tryb ekstrakcji obowiązujący w całej instancji (Ustawienia → Modele) tylko dla tej przestrzeni i nigdy go nie przekracza. Wyłączone oznacza, że dokumenty są przechowywane, ale nigdy nieczytane — ich treść nie będzie dostępna. Auto korzysta z maksimum możliwości instancji i zawsze wraca do OCR.",
+  "spaces.settings.extractionCeilingHint": "Ograniczone limitem instancji ('{{ceiling}}') — przestrzeń może wyodrębniać tylko do poziomu, na który pozwala instancja. Podnieś limit w Ustawienia → Modele, aby udostępnić więcej.",
   "spaces.settings.validationMode": "Tryb walidacji",
   "spaces.settings.validation.off": "Wyłączone — nieograniczone zapisy",
   "spaces.settings.validation.warn": "Ostrzegaj — rejestruj tylko naruszenia",

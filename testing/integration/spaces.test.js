@@ -82,6 +82,36 @@ describe('Space management', () => {
     assert.equal(r.body.space?.meta?.strictLinkage, false, 'explicit strictLinkage should win');
   });
 
+  it('Per-space documentExtraction is capped at the instance ceiling; GET exposes the ceiling', async () => {
+    // Set the instance document-extraction ceiling to 'ocr'.
+    const setCeiling = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: { mode: 'ocr' } });
+    assert.equal(setCeiling.status, 200, JSON.stringify(setCeiling.body));
+    try {
+      // GET /api/spaces now advertises the ceiling so the client can constrain its dropdown.
+      const list = await get(INSTANCES.a, tokenA, '/api/spaces');
+      assert.equal(list.body.docExtractionCeiling, 'ocr');
+
+      const id = `extraction-cap-${RUN_ID}`;
+      const create = await post(INSTANCES.a, tokenA, '/api/spaces', { id, label: 'Extraction Cap' });
+      assert.equal(create.status, 201);
+      createdSpaceIds.push(id);
+
+      // Asking for a mode ABOVE the ceiling stores the ceiling, not the request.
+      const up = await patch(INSTANCES.a, tokenA, `/api/spaces/${id}`, { documentExtraction: 'vlm' });
+      assert.equal(up.status, 200, JSON.stringify(up.body));
+      const after = await get(INSTANCES.a, tokenA, '/api/spaces');
+      assert.equal(after.body.spaces.find(s => s.id === id)?.documentExtraction, 'ocr', 'vlm should be capped to the ocr ceiling');
+
+      // A mode at or below the ceiling is stored as chosen.
+      await patch(INSTANCES.a, tokenA, `/api/spaces/${id}`, { documentExtraction: 'off' });
+      const after2 = await get(INSTANCES.a, tokenA, '/api/spaces');
+      assert.equal(after2.body.spaces.find(s => s.id === id)?.documentExtraction, 'off');
+    } finally {
+      // Restore the instance ceiling so other tests see the default 'auto' (no limit).
+      await patch(INSTANCES.a, tokenA, '/api/admin/media-config', { documentProcessing: { mode: 'auto' } });
+    }
+  });
+
   it('Duplicate space ID is rejected', async () => {
     const r = await post(INSTANCES.a, tokenA, '/api/spaces', {
       id: `explicit-test-space-${RUN_ID}`,

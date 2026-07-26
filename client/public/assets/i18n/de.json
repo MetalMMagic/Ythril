@@ -714,6 +714,7 @@
   "spaces.settings.extractionVlm": "VLM",
   "spaces.settings.extractionRepair": "Reparatur",
   "spaces.settings.extractionHint": "Überschreibt den instanzweiten Extraktionsmodus (Einstellungen → Modelle) nur für diesen Space und kann ihn nie überschreiten. Aus bedeutet, dass Dokumente gespeichert, aber nie gelesen werden — ihr Inhalt ist dann nicht abrufbar. Auto nutzt so viel, wie die Instanz kann, und greift immer auf OCR zurück.",
+  "spaces.settings.extractionCeilingHint": "Begrenzt durch die Instanz-Obergrenze ('{{ceiling}}') — ein Space kann nur bis zu dem extrahieren, was die Instanz erlaubt. Erhöhen Sie die Obergrenze unter Einstellungen → Modelle, um mehr anzubieten.",
   "spaces.settings.validationMode": "Validierungsmodus",
   "spaces.settings.validation.off": "Aus – uneingeschränkte Schreibvorgänge",
   "spaces.settings.validation.warn": "Warnen – Nur Verstöße protokollieren",

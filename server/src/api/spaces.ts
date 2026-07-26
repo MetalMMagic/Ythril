@@ -2,7 +2,8 @@ import { Router } from 'express';
 import path from 'path';
 import { requireAuth, requireAdmin, requireAdminMfa, requireAdminMfaScoped } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
-import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary } from '../config/loader.js';
+import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig } from '../config/loader.js';
+import { capDocExtractionMode } from '../files/converters/extraction-level.js';
 import { slugify } from '../spaces/_shared.js';
 import { createSpace, removeSpace } from '../spaces/lifecycle.js';
 import { renameSpace } from '../spaces/rename.js';
@@ -366,7 +367,11 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
       // Non-fatal: storage summary omitted on measurement error
     }
   }
-  res.json({ spaces, ...(storage ? { storage } : {}) });
+  // The instance document-extraction ceiling — the most any space may do. The client uses it to offer
+  // only the extraction modes a space could actually reach, so the per-space dropdown can't propose a
+  // level the runtime would silently cap. 'auto' means the instance imposes no policy limit.
+  const docExtractionCeiling = getDocumentProcessingConfig().mode ?? 'auto';
+  res.json({ spaces, docExtractionCeiling, ...(storage ? { storage } : {}) });
 });
 
 // POST /api/spaces
@@ -472,8 +477,23 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     return;
   }
 
-  if (parsed.data.documentExtraction !== undefined) {
-    updateSpace(id, { documentExtraction: normalizeDocExtractionMode(parsed.data.documentExtraction) });
+  // A space may pick any extraction mode up to the instance ceiling and nothing beyond. The client only
+  // offers valid options, but an API caller (or a space whose stored value predates a lowered ceiling)
+  // could still send more — so cap it here rather than store a value the runtime would only clamp later
+  // anyway. Distinguish field ABSENT (leave the override alone) from an explicit value: `null`/legacy
+  // clears it (stored as undefined), `auto` follows the ceiling, a concrete mode is capped to the
+  // ceiling. `hasDocExtraction` gates the write so a clear is applied, not skipped as if absent.
+  const hasDocExtraction = parsed.data.documentExtraction !== undefined;
+  const cappedDocExtraction = !hasDocExtraction
+    ? undefined
+    : (() => {
+        const requested = normalizeDocExtractionMode(parsed.data.documentExtraction);
+        if (!requested || requested === 'auto') return requested;  // null (clear → undefined) / auto pass through
+        return capDocExtractionMode(getDocumentProcessingConfig().mode ?? 'auto', requested);
+      })();
+
+  if (hasDocExtraction) {
+    updateSpace(id, { documentExtraction: cappedDocExtraction });
   }
 
   // Merge the incoming meta with the existing meta so that PATCH has true
@@ -548,12 +568,12 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
   }
 
   // Pull documentExtraction out of the spread: the parsed value may still be the legacy `max`,
-  // and only the normalised spelling is ever stored.
-  const { documentExtraction: rawMode, ...restPatch } = parsed.data;
+  // and only the normalised, ceiling-capped spelling is ever stored (see `cappedDocExtraction` above).
+  const { documentExtraction: _rawMode, ...restPatch } = parsed.data;
   const updated = updateSpace(id, {
     ...restPatch,
     meta: mergedMeta,
-    ...(rawMode !== undefined ? { documentExtraction: normalizeDocExtractionMode(rawMode) } : {}),
+    ...(hasDocExtraction ? { documentExtraction: cappedDocExtraction } : {}),
   });
   if (!updated) {
     res.status(404).json({ error: `Space '${id}' not found` });

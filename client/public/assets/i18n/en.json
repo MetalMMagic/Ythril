@@ -714,6 +714,7 @@
   "spaces.settings.extractionVlm": "VLM",
   "spaces.settings.extractionRepair": "Repair",
   "spaces.settings.extractionHint": "Overrides the instance-wide extraction mode (Settings → Models) for this space only, and can never exceed it. Off means documents are stored but never read, so nothing in them can be recalled. Auto uses as much as the instance can do and always falls back to OCR.",
+  "spaces.settings.extractionCeilingHint": "Limited to the instance ceiling ('{{ceiling}}') — a space can only extract up to what the instance allows. Raise the ceiling under Settings → Models to offer more.",
   "spaces.settings.validationMode": "Validation mode",
   "spaces.settings.validation.off": "Off — unrestricted writes",
   "spaces.settings.validation.warn": "Warn — log violations only",

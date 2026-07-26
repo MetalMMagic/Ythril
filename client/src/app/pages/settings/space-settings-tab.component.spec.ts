@@ -7,8 +7,9 @@
  *   - the tab groups its fields into four SettingsCards (Identity · Purpose · Limits · Document extraction);
  *   - the validationMode select and strictLinkage checkbox have MOVED to the Schema tab — this tab no
  *     longer renders the strictLinkage checkbox, and its only <select> is the F11-c extraction-mode one;
- *   - blank storage / TTL fields surface an "unlimited" / "no auto-delete" pill, not just hint text, and
- *     an unset per-space extraction override surfaces an "instance default" pill (F11-c).
+ *   - blank storage / TTL / extraction-override fields convey their default through the input
+ *     placeholder and the "use instance default" select option — the redundant status pills that used
+ *     to repeat those values were removed (owner feedback: a useless repeat of the field itself).
  *
  * The component is still pure ngModel bindings onto SpaceSettingsState; persistence is covered by
  * space-settings-state.service.spec and is unchanged by moving the inputs (the state field is shared).
@@ -66,12 +67,20 @@ describe('SpaceSettingsTabComponent — U9 pt3 arrangement', () => {
     expect(selects[0].querySelector('option[value="ocr"]')).not.toBeNull();
   });
 
-  it('shows the "unlimited", "no auto-delete", and "instance default" pills when quota, TTL, and override are blank', async () => {
+  it('renders no default-state pills — blank fields convey the default via placeholder and the inherit option', async () => {
     const { el } = await setup(); // no maxGiB / recordTtlDays / documentExtraction → all inherit
-    expect(el.querySelectorAll('app-status-pill').length).toBe(3);
+    // The redundant "unlimited" / "no auto-delete" / "instance default" pills were removed.
+    expect(el.querySelectorAll('app-status-pill').length).toBe(0);
+    // Each blank number input still communicates its default through placeholder text...
+    const numbers = [...el.querySelectorAll('input[type="number"]')] as HTMLInputElement[];
+    expect(numbers.length).toBe(2);
+    expect(numbers.every(n => n.placeholder.trim().length > 0)).toBe(true);
+    // ...and the extraction select keeps its "use instance default" (value="") option.
+    const select = el.querySelector('select') as HTMLSelectElement;
+    expect(select.querySelector('option[value=""]')).not.toBeNull();
   });
 
-  it('hides the pills once a quota, TTL, and per-space extraction override are set', async () => {
+  it('still renders no pills once a quota, TTL, and per-space extraction override are set', async () => {
     const { el } = await setup({ maxGiB: 5, recordTtlDays: 30, documentExtraction: 'vlm' } as Partial<Space>);
     expect(el.querySelectorAll('app-status-pill').length).toBe(0);
   });

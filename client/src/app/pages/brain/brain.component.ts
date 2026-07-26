@@ -11,6 +11,7 @@ import { EntitiesTabComponent } from './entities-tab.component';
 import { EdgesTabComponent } from './edges-tab.component';
 import { ChronoTabComponent } from './chrono-tab.component';
 import { FilemetaTabComponent } from './filemeta-tab.component';
+import { OverviewTabComponent } from './overview-tab.component';
 import { FormsModule } from '@angular/forms';
 import { Space, SpaceStats } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -20,7 +21,7 @@ import { FileManagerComponent } from '../files/file-manager.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
-type BrainTab = 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono' | 'filemeta';
+type BrainTab = 'overview' | 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono' | 'filemeta';
 
 interface SpaceView {
   space: Space;
@@ -39,7 +40,7 @@ interface SpaceView {
   // or happens in a template event handler, both of which mark the view dirty. That coupling is
   // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, FilemetaTabComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, FilemetaTabComponent, OverviewTabComponent, TranslocoPipe],
   providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
   styles: [`
     .space-tabs {
@@ -197,6 +198,9 @@ interface SpaceView {
 
       <!-- Sub-tabs: Query on left, collections on right -->
       <div class="tabs">
+        <button class="tab" [class.active]="activeTab() === 'overview'" (click)="setTab('overview')">
+          <ph-icon name="chart-bar" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.overview' | transloco }}
+        </button>
         <button class="tab" [class.active]="activeTab() === 'query'" (click)="setTab('query')">
           <ph-icon name="magnifying-glass" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.query' | transloco }}
         </button>
@@ -259,6 +263,12 @@ interface SpaceView {
         @if (activeTab() === 'filemeta') { <app-filemeta-tab [spaceId]="activeSpaceId()" (mutated)="loadStats(activeSpaceId())" (openInManager)="openFileInManager($event)" /> }
 
         <!-- Query -->
+        @if (activeTab() === 'overview') {
+          @if (activeSpace(); as sp) {
+            <app-overview-tab [space]="sp" [stats]="activeStats()" [needsReindex]="needsReindex()"
+              [reindexing]="reindexing()" (reindex)="runReindex()" />
+          }
+        }
         @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }
       </div>
 
@@ -288,7 +298,7 @@ export class BrainComponent implements OnInit, OnDestroy {
 
   spaces = signal<SpaceView[]>([]);
   activeSpaceId = signal('');
-  activeTab = signal<BrainTab>('query');
+  activeTab = signal<BrainTab>('overview');
   loadingSpaces = signal(true);
 
   fileManagerNavPath = signal('');
@@ -302,6 +312,11 @@ export class BrainComponent implements OnInit, OnDestroy {
 
   activeStats = computed(() =>
     this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.stats,
+  );
+
+  /** The active space object (for the Overview tab's index-status + quota panels). */
+  activeSpace = computed(() =>
+    this.spaces().find(sv => sv.space.id === this.activeSpaceId())?.space,
   );
 
   spaceTotal(stats: SpaceStats): number {

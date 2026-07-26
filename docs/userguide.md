@@ -12,7 +12,7 @@ For setting up a workstation quickly see [workstation-mode-guide.md](workstation
 1. [Logging in](#logging-in)
 2. [Navigation](#navigation)
 3. [Spaces — what they are](#spaces--what-they-are)
-4. [Brain](#brain) — tabs: [Query](#query), [Graph](#graph), [Files](#files), Entities, Edges, Memories, Chrono, [File Meta](#file-meta)
+4. [Brain](#brain) — tabs: Overview (default landing), [Query](#query), [Graph](#graph), [Files](#files), Entities, Edges, Memories, Chrono, [File Meta](#file-meta)
    - [Memories](#memories)
    - [Entities](#entities)
    - [Edges](#edges)
@@ -84,7 +84,9 @@ The `general` space is created automatically on first run. Admins can create add
 
 ## Brain
 
-The Brain is where all your knowledge lives. It has eight tabs: **Query**, **Graph**, **Files**, **Entities**, **Edges**, **Memories**, **Chrono**, and **File Meta**.
+The Brain is where all your knowledge lives. It has nine tabs: **Overview**, **Query**, **Graph**, **Files**, **Entities**, **Edges**, **Memories**, **Chrono**, and **File Meta**.
+
+**Overview** is the **default landing tab** — opening a space lands here first. It is a per-space dashboard assembled from what the Brain already knows: a **Statistics** panel (record counts per collection, a total, and storage used against the space's quota) and an **Indexing** panel (the vector index's state, plus a **Reindex** button — behind a confirmation — when embeddings have gone stale). More panels (embedding queue, networks, health) arrive in later updates.
 
 At the top of the page a row of **space chips** lets you switch space; each chip shows the space's total record count. The tab buttons themselves carry small count badges for the collection they open.
 

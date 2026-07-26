@@ -10,7 +10,7 @@
  *
  * Rows that do not apply are omitted rather than dashed, per the owner's option B.
  */
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../../shared/ph-icon.component';
@@ -18,6 +18,7 @@ import { StatusPillComponent } from '../../../shared/status-pill.component';
 import { ModelProviderCardComponent } from './model-provider-card.component';
 import { ModelsStateService } from './models-state.service';
 import { PipelineStatusService } from './pipeline-status.service';
+import { SchemaApi } from '../../../core/schema-api.service';
 import { TestTarget } from './models.types';
 
 @Component({
@@ -54,6 +55,14 @@ import { TestTarget } from './models.types';
     /* width:auto keeps a checkbox in a checkrow from being stretched to 100% by the .field input
        rule when the checkrow sits inside a .field (assist card's repair-pass toggle). */
     .checkrow input { margin-top: 2px; flex: none; width: auto; }
+    /* Person-type chips: the selected library entity types, each removable. */
+    .ptype-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
+    .ptype-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 4px 2px 9px;
+      border-radius: 6px; border: 1px solid var(--border); background: var(--bg-primary);
+      font-family: var(--font-mono, monospace); }
+    .ptype-rm { display: inline-flex; align-items: center; background: none; border: 0; padding: 2px; cursor: pointer;
+      color: var(--text-muted); border-radius: 4px; }
+    .ptype-rm:hover { color: var(--error); }
     .switchrow { margin-bottom: 13px; }
     .switchrow .hint { margin-left: 22px; }   /* line up under the label, not the checkbox */
     /* Keep the test row a single fixed-height line so pressing Test (which reveals the status pill +
@@ -346,10 +355,28 @@ import { TestTarget } from './models.types';
         </div>
 
         <div class="field">
-          <label for="face-types">{{ 'models.face.personTypes' | transloco }}</label>
-          <input id="face-types" data-mono [ngModel]="(s.face.personEntityTypes ?? []).join(', ')"
-            (ngModelChange)="setPersonTypes($any($event))"
-            [disabled]="s.faceLocked('personEntityTypes') || s.managed" placeholder="person" />
+          <label>{{ 'models.face.personTypes' | transloco }}</label>
+          @if (s.face.personEntityTypes?.length) {
+            <div class="ptype-chips">
+              @for (t of s.face.personEntityTypes; track t) {
+                <span class="ptype-chip">{{ t }}
+                  @if (!(s.faceLocked('personEntityTypes') || s.managed)) {
+                    <button type="button" class="ptype-rm" [attr.aria-label]="'common.remove' | transloco" (click)="removePersonType(t)"><ph-icon name="x" [size]="11"/></button>
+                  }
+                </span>
+              }
+            </div>
+          }
+          @if (!(s.faceLocked('personEntityTypes') || s.managed)) {
+            @if (availablePersonTypes().length) {
+              <select [ngModel]="''" (ngModelChange)="addPersonType($event)" [attr.aria-label]="'models.face.personTypesAdd' | transloco">
+                <option value="" disabled>{{ 'models.face.personTypesAdd' | transloco }}</option>
+                @for (t of availablePersonTypes(); track t) { <option [value]="t">{{ t }}</option> }
+              </select>
+            } @else if (!libEntityTypes().length) {
+              <div class="hint">{{ 'models.face.personTypesEmpty' | transloco }}</div>
+            }
+          }
           <div class="hint">{{ 'models.face.personTypesHint' | transloco }}</div>
         </div>
 
@@ -361,22 +388,55 @@ import { TestTarget } from './models.types';
     </div>
   `,
 })
-export class ModelsTabComponent {
+export class ModelsTabComponent implements OnInit {
   readonly s = inject(ModelsStateService);
   readonly pipeline = inject(PipelineStatusService);
+  private schemaApi = inject(SchemaApi);
 
   /** Face recognition runs in-process, so its only health is enabled/disabled. */
   faceState = computed(() => this.pipeline.status()?.faceRecognition.state ?? null);
 
+  /** Entity type names defined in the Schema Library — the source for the person-types picker. */
+  readonly libEntityTypes = signal<string[]>([]);
+
+  ngOnInit(): void {
+    // Load the library once so the person-types picker can offer known entity types by name.
+    this.schemaApi.listSchemaLibrary().subscribe({
+      next: ({ entries }) => this.libEntityTypes.set(
+        [...new Set(entries.filter(e => e.knowledgeType === 'entity').map(e => e.typeName))].sort(),
+      ),
+      error: () => this.libEntityTypes.set([]),
+    });
+  }
+
   /**
-   * Person entity types, edited as a comma-separated line.
-   *
-   * Only entities of these types can enter the face gallery, so an empty list means no face is ever
-   * auto-labelled. Blank entries are dropped rather than stored: a trailing comma is the normal way
-   * to type this field mid-edit, and persisting `''` would add a type nothing can ever match.
+   * Person entity types govern the face gallery: only entities of these types are ever auto-labelled.
+   * They are picked from the Schema Library's entity types (below), but any value already stored — e.g.
+   * from before this was library-backed, or a type since removed from the library — stays selectable
+   * and removable so nothing silently drops.
    */
-  setPersonTypes(raw: string): void {
-    this.s.face.personEntityTypes = raw.split(',').map(t => t.trim()).filter(Boolean);
+  private personTypes(): string[] { return this.s.face.personEntityTypes ?? []; }
+
+  /**
+   * Library entity types not already selected — the options the "add" dropdown offers. Deliberately a
+   * method, not a computed: `s.face.personEntityTypes` is a plain field (not a signal), so a computed
+   * would never re-run when the selection changes; a method re-evaluates every change-detection pass.
+   */
+  availablePersonTypes(): string[] {
+    const selected = new Set(this.s.face.personEntityTypes ?? []);
+    return this.libEntityTypes().filter(t => !selected.has(t));
+  }
+
+  addPersonType(type: string): void {
+    const t = type.trim();
+    if (!t || this.personTypes().includes(t)) return;
+    this.s.face.personEntityTypes = [...this.personTypes(), t];
+    this.s.touched.set(true);   // programmatic change — the page's input listener won't see it
+  }
+
+  removePersonType(type: string): void {
+    this.s.face.personEntityTypes = this.personTypes().filter(t => t !== type);
+    this.s.touched.set(true);
   }
 
   sidecarUrl(key: string): string { return this.pipeline.bySidecarKey().get(key)?.url ?? '—'; }

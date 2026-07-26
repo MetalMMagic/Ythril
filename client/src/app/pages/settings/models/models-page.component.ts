@@ -45,9 +45,10 @@ type Tab = 'models' | 'pipelines' | 'tools';
   ],
   styles: [`
     :host { display: block; }
-    .page-header { display: flex; justify-content: space-between; align-items: flex-start;
+    /* Header debloated to just the global media-embedding toggle, right-aligned; the sidebar nav and
+       the tab strip already say where you are, so the old title + explanatory subtitle were redundant. */
+    .page-header { display: flex; justify-content: flex-end; align-items: center;
       gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
-    .page-header .sub { font-size: 13px; color: var(--text-secondary); margin-top: 4px; max-width: 56ch; }
     .master { display: flex; align-items: center; gap: 9px; font-size: 13px; }
 
     /* Tabs sized to content, at the top of the panel — not a full-width strip. */
@@ -75,10 +76,6 @@ type Tab = 'models' | 'pipelines' | 'tools';
   `],
   template: `
     <div class="page-header">
-      <div>
-        <div class="card-title">{{ 'models.page.title' | transloco }}</div>
-        <div class="sub">{{ 'models.page.subtitle' | transloco }}</div>
-      </div>
       <label class="master">
         <input type="checkbox" [(ngModel)]="s.form.enabled" [disabled]="s.isLocked('enabled')"
           (ngModelChange)="s.touched.set(true)" name="mediaEnabled" />

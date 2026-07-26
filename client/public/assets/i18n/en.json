@@ -1249,7 +1249,6 @@
   "spaces.dangerZone.rebuildIndexesStarted": "Rebuilding search indexes — search results will be incomplete until it finishes.",
   "spaces.dangerZone.rebuildIndexesFailed": "Could not start the index rebuild.",
   "models.page.title": "Models & Pipelines",
-  "models.page.subtitle": "The models that read your files, the pipelines they run in, and whether any of it is working right now.",
   "models.page.mediaEmbedding": "Media embedding",
   "models.page.unsaved": "Unsaved changes",
   "models.page.managedBanner": "These models are <b>managed by infrastructure</b> on this instance — settings are read-only. Change them in <code>config.json</code> or the environment. You can still <b>Test connection</b> below.",

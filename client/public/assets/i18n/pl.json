@@ -1249,7 +1249,6 @@
   "spaces.dangerZone.rebuildIndexesStarted": "Trwa odbudowa indeksów wyszukiwania — do jej zakończenia wyniki będą niepełne.",
   "spaces.dangerZone.rebuildIndexesFailed": "Nie udało się rozpocząć odbudowy indeksów.",
   "models.page.title": "Modele i potoki",
-  "models.page.subtitle": "Modele, które czytają Twoje pliki, potoki, w których działają, i to, czy cokolwiek z tego działa w tej chwili.",
   "models.page.mediaEmbedding": "Osadzanie multimediów",
   "models.page.unsaved": "Niezapisane zmiany",
   "models.page.managedBanner": "Te modele są na tej instancji <b>zarządzane przez infrastrukturę</b> — ustawienia są tylko do odczytu. Zmień je w <code>config.json</code> lub w środowisku. <b>Testuj połączenie</b> nadal działa.",

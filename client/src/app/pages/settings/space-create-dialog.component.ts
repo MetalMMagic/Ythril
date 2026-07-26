@@ -44,15 +44,15 @@ import { SpaceMeta, ValidationMode } from '../../core/api.types';
         <label>{{ 'spaces.create.maxGiB' | transloco }}</label>
         <input type="number" [(ngModel)]="form.maxGiB" name="maxGiB" min="0" step="0.1" placeholder="—" />
       </div>
-      <div style="display:flex;gap:12px;flex-basis:100%;">
-        <div class="field" style="flex:1;margin-bottom:0;">
+      <div style="display:flex;gap:12px;flex-basis:100%;align-items:stretch;">
+        <div class="field" style="flex:1;margin-bottom:0;display:flex;flex-direction:column;">
           <label>{{ 'spaces.create.purpose' | transloco }}</label>
-          <textarea [(ngModel)]="form.purpose" name="purpose" maxlength="4000" rows="5" style="resize:vertical;" [placeholder]="'spaces.create.purposePlaceholder' | transloco"></textarea>
+          <textarea [(ngModel)]="form.purpose" name="purpose" maxlength="4000" rows="8" style="resize:vertical;flex:1;min-height:160px;" [placeholder]="'spaces.create.purposePlaceholder' | transloco"></textarea>
         </div>
-        <div class="field" style="flex:1;margin-bottom:0;">
+        <div class="field" style="flex:1;margin-bottom:0;display:flex;flex-direction:column;">
           <label>{{ 'spaces.create.proxyFor' | transloco }}</label>
           @if (store.spaces().length > 0) {
-            <div class="table-wrapper" style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">
+            <div class="table-wrapper" style="flex:1;min-height:160px;max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">
               <table style="margin:0;">
                 <thead><tr><th style="width:40px;"></th><th>{{ 'spaces.table.column.label' | transloco }}</th><th>{{ 'spaces.table.column.id' | transloco }}</th></tr></thead>
                 <tbody>
@@ -75,20 +75,16 @@ import { SpaceMeta, ValidationMode } from '../../core/api.types';
           }
         </div>
       </div>
-      <div style="display:flex;gap:12px;flex-basis:100%;align-items:flex-start;">
+      <div style="display:flex;gap:12px;flex-basis:100%;align-items:flex-end;">
         <div class="field" style="margin-bottom:0;">
           <label>{{ 'spaces.create.validationMode' | transloco }}</label>
           <select [(ngModel)]="form.validationMode" name="validationMode" style="width:140px;">
             <option value="off">{{ 'spaces.create.validation.off' | transloco }}</option><option value="warn">{{ 'spaces.create.validation.warn' | transloco }}</option><option value="strict">{{ 'spaces.create.validation.strict' | transloco }}</option>
           </select>
         </div>
-        <div class="field" style="margin-bottom:0;padding-top:22px;">
-          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
-            <input type="checkbox" [(ngModel)]="form.strictLinkage" name="strictLinkage" />{{ 'spaces.create.strictLinkage' | transloco }}
-          </label>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;flex-basis:100%;">
+        <label class="field" style="margin-bottom:0;display:flex;flex-direction:row;align-items:center;gap:8px;font-weight:normal;cursor:pointer;height:34px;">
+          <input type="checkbox" [(ngModel)]="form.strictLinkage" name="strictLinkage" />{{ 'spaces.create.strictLinkage' | transloco }}
+        </label>
         <button class="btn btn-primary" type="submit" style="margin-left:auto;" [disabled]="creating()||!form.label.trim()">
           @if (creating()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.create.submitButton' | transloco }}
         </button>
@@ -106,52 +102,6 @@ export class SpaceCreateDialogComponent {
   /** The page owns whether this dialog is shown; tell it to close. */
   readonly closed = output<void>();
 
-  static readonly DEFAULT_PURPOSE = [
-    'MCP endpoint for this space. Available tools:',
-    '',
-    'Spaces:',
-    '  list_spaces()                                      — list all accessible spaces with IDs, labels, counts',
-    '  get_stats(space)                                   — counts of memories, entities, edges, chrono',
-    '  get_space_meta(space)                              — schema, purpose, validation mode, entry counts',
-    '  update_space(space, label?, description?)          — update space label or description (admin)',
-    '  wipe_space(space, types?)                          — wipe all or specific collections (admin)',
-    '',
-    'Knowledge Graph — Memory:',
-    '  remember(space, fact, entities?, tags?, properties?) — store a fact with semantic embedding',
-    '  recall(query, space?, topK?, types?, filter?)      — semantic search; omit space for cross-space',
-    '  find_similar(space, entryId, entryType, topK?, ...) — find similar entries by stored embedding',
-    '  update_memory(space, id, fact?, tags?, entityIds?) — update memory (re-embeds on fact change)',
-    '  delete_memory(space, id)                           — delete memory',
-    '  query(space, collection, filter, projection?, limit?) — structured read-only MongoDB query',
-    '  bulk_write(space, memories?, entities?, edges?, chrono?) — batch upsert across all types',
-    '',
-    'Knowledge Graph — Entities & Edges:',
-    '  upsert_entity(space, name, type, tags?, properties?) — create or update named entity',
-    '  find_entities_by_name(space, name)                 — find entities by exact name',
-    '  update_entity(space, id, ...)                      — update entity fields',
-    '  merge_entities(space, survivorId, absorbedId, resolutions?) — merge two entities into one',
-    '  upsert_edge(space, from, to, label, type?, weight?) — create or update relationship edge',
-    '  update_edge(space, id, ...)                        — update edge fields',
-    '  traverse(space, startId, direction?, edgeLabels?, maxDepth?) — traverse the knowledge graph',
-    '',
-    'Knowledge Graph — Chrono:',
-    '  create_chrono(space, title, type, startsAt, ...)   — create event/deadline/plan/milestone',
-    '  update_chrono(space, id, ...)                      — update chronological entry',
-    '  list_chrono(space?, status?, type?, tags?, limit?) — list chrono entries; omit space for cross-space',
-    '',
-    'Files:',
-    '  read_file(space, path)                   — read file contents',
-    '  write_file(space, path, content, inputFormat?) — write file; auto-converts pdf/docx/epub/html',
-    '  list_dir(space, path?)                   — list directory contents',
-    '  delete_file(space, path)                 — delete a file',
-    '  create_dir(space, path)                  — create directory tree',
-    '  move_file(space, src, dst)               — move or rename file/directory',
-    '',
-    'Sync:',
-    '  list_peers()                             — list connected peer instances',
-    '  sync_now(peerId?)                        — trigger immediate sync cycle',
-  ].join('\n');
-
   // create dialog
   creating         = signal(false);
 
@@ -161,11 +111,15 @@ export class SpaceCreateDialogComponent {
 
   proxyForAll = false;
 
+  // The Purpose field starts empty — it used to pre-fill a long MCP tool listing, which the owner
+  // never wanted persisted (it is exposed over MCP anyway). Validation defaults to the fully-strict
+  // posture, matching the server's new-space default (#400), so the form never understates what will
+  // actually be created.
   form = {
     label: '', id: '', maxGiB: null as number | null,
-    purpose: SpaceCreateDialogComponent.DEFAULT_PURPOSE,
-    validationMode: 'off' as ValidationMode,
-    strictLinkage: false,
+    purpose: '',
+    validationMode: 'strict' as ValidationMode,
+    strictLinkage: true,
   };
 
   isProxyForSelected(id: string): boolean { return this.proxyForSelected.includes(id); }
@@ -191,11 +145,16 @@ export class SpaceCreateDialogComponent {
     if (this.form.maxGiB) body.maxGiB = this.form.maxGiB;
     if (this.proxyForAll) body.proxyFor = ['*'];
     else if (this.proxyForSelected.length) body.proxyFor = [...this.proxyForSelected];
-    const meta: Partial<SpaceMeta> = {};
+    // Send the validation choices EXPLICITLY, always. The server now defaults a new space to a
+    // fully-strict posture when they are omitted (#400); if the form quietly dropped an 'off'/unchecked
+    // choice it would create a strict space while showing the user 'off' — so the form must be
+    // authoritative over its own visible values.
+    const meta: Partial<SpaceMeta> = {
+      validationMode: this.form.validationMode,
+      strictLinkage: this.form.strictLinkage,
+    };
     if (this.form.purpose.trim()) meta.purpose = this.form.purpose.trim();
-    if (this.form.validationMode !== 'off') meta.validationMode = this.form.validationMode;
-    if (this.form.strictLinkage) meta.strictLinkage = true;
-    if (Object.keys(meta).length) body.meta = meta;
+    body.meta = meta;
     this.spacesApi.createSpace(body).pipe(
       timeout(30_000),
       finalize(() => this.creating.set(false)),
@@ -203,7 +162,7 @@ export class SpaceCreateDialogComponent {
       next: ({ space }) => {
         this.closed.emit();
         this.store.spaces.update(list => [...list, space]);
-        this.form = { label: '', id: '', maxGiB: null, purpose: SpaceCreateDialogComponent.DEFAULT_PURPOSE, validationMode: 'off', strictLinkage: false };
+        this.form = { label: '', id: '', maxGiB: null, purpose: '', validationMode: 'strict', strictLinkage: true };
         this.proxyForSelected = [];
         this.proxyForAll = false;
         // Vector indexes finish building server-side (B1); poll so the "preparing

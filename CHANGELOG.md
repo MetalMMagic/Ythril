@@ -2331,6 +2331,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Create-space dialog is cleaner and no longer understates what it creates.** The **Purpose**
+  field now starts **empty** — it used to pre-fill a long MCP tool listing that was never meant to be
+  saved as a space's purpose. The **validation controls now default to the fully-strict posture**
+  (`strict` + strict linkage) and are **sent explicitly**, so the form matches the server's new-space
+  default instead of showing `off` while silently creating a strict space. The validation-mode select
+  and strict-linkage toggle now sit **inline on the same row as the Create button**, and the Purpose and
+  Proxy-for fields expand to fill the dialog instead of leaving dead space beneath them.
+
 - **New spaces now start with a fully-strict schema posture.** Creating a space in **Settings → Spaces**
   now defaults it to `validationMode: 'strict'` **and** `strictLinkage: true`, so a fresh space enforces
   its schema and referential integrity from the moment it exists — the strictest, most data-honest

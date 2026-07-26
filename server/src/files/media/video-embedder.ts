@@ -100,6 +100,11 @@ async function extractKeyframes(
  *   2. Sample keyframes + caption each via vision provider.
  *   3. For each audio chunk, prepend overlapping frame captions and re-embed.
  *
+ * `doKeyframes` controls whether steps 2–3 run. At the `audio` video level the video "takes the audio
+ * pipeline instead of a model": only step 1 runs — the audio track is transcribed and embedded, and the
+ * vision model is never touched. At `full` / `auto` the keyframe-caption path runs on top. The caller
+ * resolves this from `videoDoesKeyframes(effectiveVideoLevel(spaceId))`.
+ *
  * @param keyframeIntervalS seconds between keyframe samples (default 30)
  */
 export async function embedVideo(
@@ -109,6 +114,7 @@ export async function embedVideo(
   mimeType: string,
   vision: VisionProvider,
   stt: SttProvider,
+  doKeyframes = true,
   overlapMs = 5000,
   keyframeIntervalS = DEFAULT_KEYFRAME_INTERVAL_S,
 ): Promise<void> {
@@ -134,6 +140,12 @@ export async function embedVideo(
 
     if (audioChunks.length === 0) {
       log.warn(`Video embedder: no audio chunks produced for ${fileId}`);
+    }
+
+    // `audio` video level: stop after the audio pipeline — no keyframes, the vision model is not called.
+    if (!doKeyframes) {
+      log.debug(`Video embedder: audio-only level for ${fileId} — skipping keyframe captioning`);
+      return;
     }
 
     // Step 2: Extract keyframes

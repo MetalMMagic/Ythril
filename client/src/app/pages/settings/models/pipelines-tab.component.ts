@@ -1,7 +1,7 @@
 /**
  * Tab 2 — Pipelines. What actually runs, drawn as the real step chain.
  *
- * Four pipelines (Documents · Images · Audio & video · Text), each with the actor named under every
+ * Five pipelines (Documents · Images · Audio · Video · Text), each with the actor named under every
  * step and that pipeline's knobs attached to it rather than pooled in one "Advanced" block at the
  * bottom of the page. Pooling them is what made the old page unreadable: a render-DPI field sitting
  * next to a worker-concurrency field tells you nothing about which pipeline either belongs to.
@@ -199,7 +199,7 @@ interface Step {
       </div>
     </section>
 
-    <!-- ── Images / Audio & video / Text ──────────────────────────────── -->
+    <!-- ── Images / Audio / Video / Text ──────────────────────────────── -->
     @for (p of mediaPipelines(); track p.id) {
       <section class="pipe-card">
         <header class="pipe-h">
@@ -233,32 +233,17 @@ interface Step {
           <p class="ceiling-hint">{{ 'models.pipelines.ceilingHint' | transloco }}</p>
           @for (c of p.ceilings; track c.cls) {
             <div class="ceiling">
-              <label [attr.for]="p.ceilings.length > 1 ? 'ceiling-' + c.cls : null">{{ 'models.class.' + c.cls | transloco }}</label>
-              @if (p.ceilings.length === 1) {
-                <!-- Single-class pipelines (Images, Text) use the same segmented buttons as the document
-                     extraction mode, so every pipeline's primary control reads the same way. Audio keeps
-                     a select because it carries two ladders (audio + video) side by side. -->
-                <div class="modeseg" role="group" [attr.aria-label]="'models.class.' + c.cls | transloco">
-                  @for (rung of c.ladder; track rung) {
-                    <button type="button" [class.on]="ceilingOf(c.cls) === rung" (click)="setCeiling(c.cls, rung)"
-                      [disabled]="s.isLocked('levels.' + c.cls) || s.managed">
-                      {{ 'models.level.' + rung | transloco }}
-                    </button>
-                  }
-                </div>
-              } @else {
-                <select [attr.id]="'ceiling-' + c.cls" [ngModel]="ceilingOf(c.cls)"
-                  (ngModelChange)="setCeiling(c.cls, $any($event))" [disabled]="s.isLocked('levels.' + c.cls) || s.managed"
-                  [name]="'ceiling-' + c.cls">
-                  @for (rung of c.ladder; track rung) {
-                    <!-- Video "full" is reserved and not built. Rendered disabled rather than omitted
-                         so the ladder reads complete — and the server rejects it either way. -->
-                    <option [value]="rung" [disabled]="c.cls === 'video' && rung === 'full'">
-                      {{ 'models.level.' + rung | transloco }}{{ c.cls === 'video' && rung === 'full' ? notYet : '' }}
-                    </option>
-                  }
-                </select>
-              }
+              <label>{{ 'models.class.' + c.cls | transloco }}</label>
+              <!-- Every media pipeline is single-class, so each uses the same segmented buttons as the
+                   document extraction mode — one control vocabulary across all of them. -->
+              <div class="modeseg" role="group" [attr.aria-label]="'models.class.' + c.cls | transloco">
+                @for (rung of c.ladder; track rung) {
+                  <button type="button" [class.on]="ceilingOf(c.cls) === rung" (click)="setCeiling(c.cls, rung)"
+                    [disabled]="s.isLocked('levels.' + c.cls) || s.managed">
+                    {{ 'models.level.' + rung | transloco }}
+                  </button>
+                }
+              </div>
               @if (s.isLocked('levels.' + c.cls)) { <app-status-pill variant="env">{{ 'models.pill.env' | transloco }}</app-status-pill> }
               @if (ceilingOf(c.cls) === 'off') {
                 <!-- "off" is a floor as well as a ceiling: it takes the class offline for every space,
@@ -303,9 +288,6 @@ export class PipelinesTabComponent {
   }
 
   private notSet = '—';
-
-  /** Suffix on the reserved video rung. A disabled option with no explanation reads as a bug. */
-  readonly notYet = ' — not built yet';
 
   /** Cards rendered as infra (env-owned, read-only) on the Models tab — their actor links get the
    *  dotted underline that marks "you can see it here but change it in the environment". */
@@ -357,14 +339,25 @@ export class PipelinesTabComponent {
       },
       {
         id: 'audio', icon: 'microphone', title: 'models.pipelines.audio', purpose: 'models.pipelines.audioPurpose',
-        // This card covers TWO classes: audio files and video files have separate ladders.
-        ceilings: [{ cls: 'audio' as MediaClass, ladder: AUDIO_LEVELS }, { cls: 'video' as MediaClass, ladder: VIDEO_LEVELS }],
+        ceilings: [{ cls: 'audio' as MediaClass, ladder: AUDIO_LEVELS }],
         steps: [
-          // Video only: audio files skip straight to transcription. ffmpeg is bundled and always
-          // available in-process, so it reports 'ok' (online) rather than an "unknown" no-probe dot.
-          { key: 'split', name: 'models.step.split', actor: 'ffmpeg', health: 'ok', conditional: true },
           { key: 'transcribe', name: 'models.step.transcribe', actor: this.s.form.stt?.model || this.notSet, health: ps.modelState('stt'), conditional: false, cardId: 'stt' },
           { key: 'aud-embed', name: 'models.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
+        ] as Step[],
+      },
+      {
+        // Video is its own pipeline. It ALWAYS extracts the audio track and runs the audio pipeline
+        // (ffmpeg → transcribe → embed); at the `full`/`auto` level it ALSO captions keyframes with the
+        // vision model. The `audio` level is "take the audio pipeline instead of a model" — the keyframe
+        // step is skipped (conditional). ffmpeg + the chunker are bundled/in-process, so they report 'ok'.
+        id: 'video', icon: 'video-camera', title: 'models.pipelines.video', purpose: 'models.pipelines.videoPurpose',
+        ceilings: [{ cls: 'video' as MediaClass, ladder: VIDEO_LEVELS }],
+        steps: [
+          { key: 'vid-split', name: 'models.step.split', actor: 'ffmpeg', health: 'ok', conditional: false },
+          { key: 'vid-transcribe', name: 'models.step.transcribe', actor: this.s.form.stt?.model || this.notSet, health: ps.modelState('stt'), conditional: false, cardId: 'stt' },
+          // Only at the `full`/`auto` rung — at `audio` the vision model is not called.
+          { key: 'vid-keyframe', name: 'models.step.keyframe', actor: this.s.form.vision?.model || this.notSet, health: ps.modelState('vision'), conditional: true, cardId: 'vision' },
+          { key: 'vid-embed', name: 'models.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
         ] as Step[],
       },
       {

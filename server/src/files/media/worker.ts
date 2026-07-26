@@ -52,7 +52,7 @@ import {
 import type { ResolvedFormat } from '../converters/pipeline.js';
 import { ConversionUnavailableError } from '../converters/types.js';
 import { effectiveDocExtractionMode } from '../converters/extraction-level.js';
-import { effectiveTextLevel } from '../converters/media-level.js';
+import { effectiveTextLevel, effectiveVideoLevel, videoDoesKeyframes } from '../converters/media-level.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { spaceRoot } from '../sandbox.js';
@@ -315,9 +315,13 @@ async function processJob(
       case 'audio':
         await embedAudio(spaceId, fileId, fileBytes, mimeType, providers.stt);
         break;
-      case 'video':
-        await embedVideo(spaceId, fileId, fileBytes, mimeType, providers.vision, providers.stt);
+      case 'video': {
+        // Honour the video level: `audio` takes the audio pipeline only (no vision model); `full`/`auto`
+        // add keyframe captioning. Previously keyframes always ran, so the `audio` level did nothing.
+        const doKeyframes = videoDoesKeyframes(effectiveVideoLevel(spaceId));
+        await embedVideo(spaceId, fileId, fileBytes, mimeType, providers.vision, providers.stt, doKeyframes);
         break;
+      }
       case 'text': {
         // Text/document embedding: chunk + embed the file content asynchronously.
         // Delete any stale chunks first so a re-upload always produces a clean set.

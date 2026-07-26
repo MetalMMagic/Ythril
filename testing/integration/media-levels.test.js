@@ -85,12 +85,14 @@ describe('per-space media levels', () => {
     assert.equal(clear.body?.space?.videoAnalysis, undefined);
   });
 
-  it("video 'full' is rejected rather than silently behaving like 'audio'", async () => {
-    // The rung is reserved so the ladder reads complete. Accepting it would tell an operator that
-    // keyframes are being analysed when nothing of the sort is built.
+  it("video 'full' is now accepted (keyframe captioning is implemented)", async () => {
+    // The rung was reserved while keyframe captioning was unbuilt; it is now a real level — video 'full'
+    // runs the audio pipeline plus vision captions of sampled keyframes. So it must be accepted and stored.
     const r = await setLevel({ videoAnalysis: 'full' });
-    assert.equal(r.status, 400, `expected a refusal, got ${r.status}: ${JSON.stringify(r.body)}`);
-    assert.match(r.body?.error ?? '', /not implemented/i);
+    assert.equal(r.status, 200, `expected acceptance, got ${r.status}: ${JSON.stringify(r.body)}`);
+    assert.equal(r.body?.space?.videoAnalysis, 'full');
+    // reset so later tests see a clean space
+    await setLevel({ videoAnalysis: null });
   });
 
   it('an unknown level is refused by the schema', async () => {

@@ -17,12 +17,11 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
 import { SpaceSettingsState } from './space-settings-state.service';
 import { SettingsCardComponent } from '../../shared/settings-card.component';
-import { StatusPillComponent } from '../../shared/status-pill.component';
 
 @Component({
   selector: 'app-space-settings-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, SettingsCardComponent, StatusPillComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, SettingsCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [SPACE_DIALOG_STYLES],
   template: `
@@ -49,18 +48,12 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
   <app-settings-card icon="database" [heading]="'spaces.settings.card.limits' | transloco" [purpose]="'spaces.settings.card.limitsHint' | transloco">
     <div style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap;">
       <div class="field" style="margin:0;max-width:220px;">
-        <label style="display:flex;align-items:center;gap:8px;">
-          {{ 'spaces.settings.maxStorage' | transloco }}
-          @if (state.stForm.maxGiB == null) { <app-status-pill variant="off">{{ 'spaces.settings.unlimitedPill' | transloco }}</app-status-pill> }
-        </label>
+        <label>{{ 'spaces.settings.maxStorage' | transloco }}</label>
         <input type="number" [(ngModel)]="state.stForm.maxGiB" min="0" step="0.1" [placeholder]="'spaces.settings.unlimitedPlaceholder' | transloco" />
         <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.maxStorageHint' | transloco }}</div>
       </div>
       <div class="field" style="margin:0;max-width:220px;">
-        <label style="display:flex;align-items:center;gap:8px;">
-          {{ 'spaces.settings.recordTtl' | transloco }}
-          @if (state.stForm.recordTtlDays == null) { <app-status-pill variant="off">{{ 'spaces.settings.noTtlPill' | transloco }}</app-status-pill> }
-        </label>
+        <label>{{ 'spaces.settings.recordTtl' | transloco }}</label>
         <input type="number" [(ngModel)]="state.stForm.recordTtlDays" min="0" step="1" [placeholder]="'spaces.settings.recordTtlPlaceholder' | transloco" />
         <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.recordTtlHint' | transloco }}</div>
       </div>
@@ -69,10 +62,7 @@ import { StatusPillComponent } from '../../shared/status-pill.component';
 
   <app-settings-card icon="package" [heading]="'spaces.settings.card.extraction' | transloco" [purpose]="'spaces.settings.card.extractionHint' | transloco">
     <div class="field" style="margin:0;max-width:260px;">
-      <label style="display:flex;align-items:center;gap:8px;">
-        {{ 'spaces.settings.extractionMode' | transloco }}
-        @if (state.stForm.documentExtraction === '') { <app-status-pill variant="off">{{ 'spaces.settings.extractionInheritPill' | transloco }}</app-status-pill> }
-      </label>
+      <label>{{ 'spaces.settings.extractionMode' | transloco }}</label>
       <select [(ngModel)]="state.stForm.documentExtraction">
         <option value="">{{ 'spaces.settings.extractionInherit' | transloco }}</option>
         <option value="auto">{{ 'spaces.settings.extractionAuto' | transloco }}</option>

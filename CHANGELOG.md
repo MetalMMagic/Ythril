@@ -2331,6 +2331,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The space Settings tab drops three redundant status pills.** The **Limits** and **Document
+  extraction** cards used to show an "Unlimited" / "No auto-delete" / "Instance default" pill next to a
+  field that *already* said the same thing through its placeholder ("Unlimited" / "No expiry") or its
+  "Use instance default" option. The pills were a useless repeat, so they're gone — and with the labels
+  back to a single line, the two Limits fields line up horizontally again. No behaviour change; the
+  defaults are still unmistakable from each field itself.
+
 - **The Create-space dialog is cleaner and no longer understates what it creates.** The **Purpose**
   field now starts **empty** — it used to pre-fill a long MCP tool listing that was never meant to be
   saved as a space's purpose. The **validation controls now default to the fully-strict posture**

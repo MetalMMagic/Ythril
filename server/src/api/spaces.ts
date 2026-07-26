@@ -480,16 +480,19 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
   // A space may pick any extraction mode up to the instance ceiling and nothing beyond. The client only
   // offers valid options, but an API caller (or a space whose stored value predates a lowered ceiling)
   // could still send more — so cap it here rather than store a value the runtime would only clamp later
-  // anyway. `undefined` = field absent, `null` = clear the override, `auto` = follow the ceiling.
-  const cappedDocExtraction = parsed.data.documentExtraction === undefined
+  // anyway. Distinguish field ABSENT (leave the override alone) from an explicit value: `null`/legacy
+  // clears it (stored as undefined), `auto` follows the ceiling, a concrete mode is capped to the
+  // ceiling. `hasDocExtraction` gates the write so a clear is applied, not skipped as if absent.
+  const hasDocExtraction = parsed.data.documentExtraction !== undefined;
+  const cappedDocExtraction = !hasDocExtraction
     ? undefined
     : (() => {
         const requested = normalizeDocExtractionMode(parsed.data.documentExtraction);
-        if (!requested || requested === 'auto') return requested;  // null (clear) / auto pass through
+        if (!requested || requested === 'auto') return requested;  // null (clear → undefined) / auto pass through
         return capDocExtractionMode(getDocumentProcessingConfig().mode ?? 'auto', requested);
       })();
 
-  if (cappedDocExtraction !== undefined) {
+  if (hasDocExtraction) {
     updateSpace(id, { documentExtraction: cappedDocExtraction });
   }
 
@@ -570,7 +573,7 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
   const updated = updateSpace(id, {
     ...restPatch,
     meta: mergedMeta,
-    ...(cappedDocExtraction !== undefined ? { documentExtraction: cappedDocExtraction } : {}),
+    ...(hasDocExtraction ? { documentExtraction: cappedDocExtraction } : {}),
   });
   if (!updated) {
     res.status(404).json({ error: `Space '${id}' not found` });

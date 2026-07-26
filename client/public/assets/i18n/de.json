@@ -503,8 +503,6 @@
   "files.downloadFailed": "Download fehlgeschlagen.",
   "files.renameEntryAriaLabel": "Eintrag umbenennen",
   "files.deleteEntryAriaLabel": "Eintrag löschen",
-  "files.viewMetadata": "Metadaten",
-  "files.viewMetadataTitle": "Brain-Metadaten für diese Datei anzeigen",
   "files.closePreviewAriaLabel": "Vorschau schließen",
   "files.emptyFolder.title": "Leerer Ordner",
   "files.emptyFolder.body": "Laden Sie Dateien hoch oder erstellen Sie einen Ordner.",

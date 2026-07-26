@@ -12,13 +12,12 @@ For setting up a workstation quickly see [workstation-mode-guide.md](workstation
 1. [Logging in](#logging-in)
 2. [Navigation](#navigation)
 3. [Spaces — what they are](#spaces--what-they-are)
-4. [Brain](#brain) — tabs: Overview (default landing), [Query](#query), [Graph](#graph), [Files](#files), Entities, Edges, Memories, Chrono, [File Meta](#file-meta)
+4. [Brain](#brain) — tabs: Overview (default landing), [Query](#query), [Graph](#graph), [Files](#files), Entities, Edges, Memories, Chrono
    - [Memories](#memories)
    - [Entities](#entities)
    - [Edges](#edges)
    - [Chrono](#chrono)
    - [Query](#query)
-   - [File Meta](#file-meta)
 5. [Graph](#graph)
 6. [Files](#files)
 7. [Conflict resolution](#conflict-resolution)
@@ -84,7 +83,7 @@ The `general` space is created automatically on first run. Admins can create add
 
 ## Brain
 
-The Brain is where all your knowledge lives. It has nine tabs: **Overview**, **Query**, **Graph**, **Files**, **Entities**, **Edges**, **Memories**, **Chrono**, and **File Meta**.
+The Brain is where all your knowledge lives. It has eight tabs: **Overview**, **Query**, **Graph**, **Files**, **Entities**, **Edges**, **Memories**, and **Chrono**.
 
 **Overview** is the **default landing tab** — opening a space lands here first. It is a per-space dashboard assembled from what the Brain already knows: a **Statistics** panel (record counts per collection, a total, and storage used against the space's quota) and an **Indexing** panel (the vector index's state, plus a **Reindex** button — behind a confirmation — when embeddings have gone stale). More panels (embedding queue, networks, health) arrive in later updates.
 
@@ -211,13 +210,9 @@ Example — find memories tagged `infra`:
 
 ---
 
-### File Meta
+### File metadata (merged into Files)
 
-The **File Meta** tab lists the metadata records Ythril keeps for uploaded files — the searchable side of a file (its caption/extracted text, tags, and links) as distinct from the raw bytes you manage on the Files tab.
-
-Each row can be opened inline to edit its links: you can attach **entities**, **memories**, and **chrono** entries to a file so it surfaces alongside related knowledge. Opening a file from the Files tab's metadata action jumps you straight to its File Meta entry.
-
-Sort by clicking the **Path** or **Updated** column headers (server-side, across the whole list). Narrow the list with the filter boxes docked under the headers — a **freetext box under Path** (case-insensitive substring over path + description, matched server-side across the whole list) and a **tag box under Tags** — the same header controls the other Brain list tabs use. (Semantic file search in a top bar is coming in a later slice.)
+There is no longer a separate **File Meta** tab. The metadata Ythril keeps for each uploaded file — the searchable side of a file (its caption/extracted text, tags, and links to entities, memories, and chrono entries) as distinct from the raw bytes — is being folded into the **[Files](#files)** tab, so files and their metadata live in one explorer-style view. Each file row already shows its **embedding status** and **tags** inline (see [Files](#files)); a docked detail view that opens the full metadata record next to the file preview follows in a subsequent update.
 
 ---
 

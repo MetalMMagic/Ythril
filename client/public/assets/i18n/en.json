@@ -503,8 +503,6 @@
   "files.downloadFailed": "Download failed.",
   "files.renameEntryAriaLabel": "Rename entry",
   "files.deleteEntryAriaLabel": "Delete entry",
-  "files.viewMetadata": "Metadata",
-  "files.viewMetadataTitle": "View Brain metadata for this file",
   "files.closePreviewAriaLabel": "Close preview",
   "files.emptyFolder.title": "Empty folder",
   "files.emptyFolder.body": "Upload files or create a folder.",

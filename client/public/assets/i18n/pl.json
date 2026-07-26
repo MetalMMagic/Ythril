@@ -503,8 +503,6 @@
   "files.downloadFailed": "Pobieranie nie powiodło się.",
   "files.renameEntryAriaLabel": "Zmień nazwę wpisu",
   "files.deleteEntryAriaLabel": "Usuń wpis",
-  "files.viewMetadata": "Metadane",
-  "files.viewMetadataTitle": "Wyświetl metadane Brain dla tego pliku",
   "files.closePreviewAriaLabel": "Zamknij podgląd",
   "files.emptyFolder.title": "Pusty folder",
   "files.emptyFolder.body": "Prześlij pliki lub utwórz folder.",

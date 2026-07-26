@@ -182,11 +182,6 @@ export class ModelsStateService {
     if (this.vlmNeededButMissing() && (key === 'render' || key === 'vlm' || key === 'repair')) return 'warn';
     return 'on';
   }
-  runLineKey(): string {
-    if (this.docMode() === 'off') return 'models.runLine.off';
-    if (this.vlmNeededButMissing()) return 'models.runLine.fallback';
-    return this.docMode() === 'ocr' ? 'models.runLine.ocr' : 'models.runLine.vlm';
-  }
   /** Key plus the interpolation params, so the sentence can be re-ordered per language. */
   docSummary(): { key: string; params: Record<string, string> } {
     const m = this.docMode();

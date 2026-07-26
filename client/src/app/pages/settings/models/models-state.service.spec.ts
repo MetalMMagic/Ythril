@@ -353,7 +353,6 @@ describe('ModelsStateService — derived display state', () => {
     expect(c.vlmNeededButMissing()).toBe(true);
     expect(c.docPillLabelKey()).toBe('models.docPill.fallback');
     expect(c.docVariant()).toBe('warn');
-    expect(c.runLineKey()).toBe('models.runLine.fallback');
     expect(c.docSummary().key).toBe('models.docSummary.fallback');
     // The affected stages are flagged rather than shown as running normally.
     expect(c.stageClass('vlm')).toBe('warn');
@@ -401,7 +400,6 @@ describe('ModelsStateService — derived display state', () => {
     expect(c.docVariant()).toBe('off');
     expect(c.vlmNeededButMissing()).toBe(false); // nothing runs, so nothing can be missing
     expect(c.docSummary().key).toBe('models.docSummary.off');
-    expect(c.runLineKey()).toBe('models.runLine.off');
     expect(c.stageClass('ocr')).toBe('dim');
   });
 

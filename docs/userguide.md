@@ -278,6 +278,8 @@ The file manager lets you upload, download, organise, and preview files within e
 
 **Folder sizes:** the Size column shows a folder's **total content size** — the sum of every file inside it (recursively), not just files. An empty folder shows `0 B`.
 
+**Status & tags:** each file row also shows its **embedding status** (a pill: *Embedded*, *Embedding*, *Partial*, *Failed*, *Skipped*…) and its **tags**, pulled from the file's metadata — so a space's file-processing state is visible right in the list. (This is the file manager and the *File Meta* tab coming together into one view.)
+
 ### File preview
 
 Clicking a file name or 👁 opens an inline preview pane:

@@ -148,6 +148,18 @@ describe('Directory listing', () => {
     assert.equal(folder.size, 16, 'folder size sums every file beneath it (5 + 11), recursively');
   });
 
+  it('file rows carry their joined metadata (status/tags) in the listing', async () => {
+    const dir = `metadir-${Date.now()}`;
+    await uploadFile(tokenA, 'general', `${dir}/note.txt`, 'joined metadata check');
+    const r = await fetch(`${INSTANCES.a}/api/files/general?path=${encodeURIComponent(dir)}`, { headers: { 'Authorization': `Bearer ${tokenA}` } });
+    const body = await r.json();
+    const file = body.entries.find(e => e.name === 'note.txt' && e.type === 'file');
+    assert.ok(file, 'the file is listed');
+    // Its FileMeta record exists (created at upload), so its metadata is joined onto the row.
+    assert.ok(Array.isArray(file.tags), 'file row carries tags from its metadata record');
+    assert.equal(typeof file.size, 'number', 'file row has its byte size');
+  });
+
   it('Listing non-existent dir returns 404', async () => {
     const url = `${INSTANCES.a}/api/files/general?path=${encodeURIComponent('no-such-dir/')}`;
     const r = await fetch(url, { headers: { 'Authorization': `Bearer ${tokenA}` } });

@@ -271,10 +271,14 @@ export interface WipeResult {
 
 export interface FileEntry {
   name: string;
+  /** Files: byte size. Directories: recursive sum of the files beneath them. */
   size: number;
   isFile: boolean;
   isDirectory: boolean;
   modified: string;
+  // ── Joined from the file's metadata record (files only) — for the merged Files list ──
+  embeddingStatus?: 'pending' | 'processing' | 'complete' | 'partial' | 'failed' | 'skipped' | 'disabled';
+  tags?: string[];
 }
 
 export interface FileMeta {

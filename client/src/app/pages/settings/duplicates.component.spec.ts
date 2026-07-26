@@ -112,4 +112,68 @@ describe('DuplicatesComponent', () => {
     other.c.scan();
     expect(other.toastErrors).toContain('duplicates.scanError');
   });
+
+  it('re-rate on the "dismissed" filter removes the row (it is no longer dismissed)', () => {
+    const reopen = vi.fn(() => of({ status: 'open' }));
+    const { c } = setup({
+      listDuplicates: () => of({ duplicates: [rec({ id: 'd1', status: 'dismissed' }), rec({ id: 'd2', status: 'dismissed' })] }),
+      reopenDuplicate: reopen,
+    });
+    c.statusFilter = 'dismissed';
+    c.reopen(rec({ id: 'd1', status: 'dismissed' }));
+    expect(reopen).toHaveBeenCalledWith('d1');
+    expect(c.rows().map(r => r.id)).toEqual(['d2']);
+  });
+
+  it('re-rate on the "all" filter flips the row back to open in place', () => {
+    const { c } = setup({
+      listDuplicates: () => of({ duplicates: [rec({ id: 'd1', status: 'dismissed' })] }),
+      reopenDuplicate: () => of({ status: 'open' }),
+    });
+    c.statusFilter = 'all';
+    c.reopen(rec({ id: 'd1', status: 'dismissed' }));
+    expect(c.rows()[0]).toMatchObject({ id: 'd1', status: 'open' });
+  });
+
+  it('a re-rate failure surfaces an error toast and leaves the row', () => {
+    const { c, toastErrors } = setup({
+      listDuplicates: () => of({ duplicates: [rec({ id: 'd1', status: 'dismissed' })] }),
+      reopenDuplicate: () => throwError(() => ({ error: { error: 'nope' } })),
+    });
+    c.statusFilter = 'dismissed';
+    c.reopen(rec({ id: 'd1', status: 'dismissed' }));
+    expect(toastErrors).toContain('nope');
+    expect(c.rows().map(r => r.id)).toEqual(['d1']);
+  });
+
+  it('the search box narrows filteredRows over summaries/type/space, leaving rows() intact', () => {
+    const { c } = setup({
+      listDuplicates: () => of({ duplicates: [
+        rec({ id: 'd1', aSummary: 'Vault secrets', bSummary: 'secret store' }),
+        rec({ id: 'd2', aSummary: 'Telemetry', bSummary: 'metrics' }),
+      ] }),
+    });
+    c.query.set('vault');
+    expect(c.filteredRows().map(r => r.id)).toEqual(['d1']);
+    expect(c.rows().length).toBe(2); // the underlying list is untouched
+    c.query.set('');
+    expect(c.filteredRows().length).toBe(2);
+  });
+
+  it('renders a Re-rate button on a dismissed row and a search box, and the button reopens', () => {
+    const reopen = vi.fn(() => of({ status: 'open' }));
+    const { f } = setup({
+      listDuplicates: () => of({ duplicates: [rec({ id: 'd1', status: 'dismissed', type: 'entity' })] }),
+      reopenDuplicate: reopen,
+    });
+    // The Re-rate button keys off the row's own status ('dismissed'), not the filter dropdown, so the
+    // single detectChanges in setup() has already rendered it.
+    const el = f.nativeElement as HTMLElement;
+    expect(el.querySelector('.dup-search input[type="search"]')).not.toBeNull();
+    // The dismissed row must offer Re-rate, not Dismiss/Merge.
+    const btn = el.querySelector('.dup-actions button') as HTMLButtonElement | null;
+    expect(btn).not.toBeNull();
+    btn!.click();
+    expect(reopen).toHaveBeenCalledWith('d1');
+  });
 });

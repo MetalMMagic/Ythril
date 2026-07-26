@@ -17,8 +17,10 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
   styles: [`
     .page-title { margin: 0 0 4px; font-size: 18px; }
     .intro { color: var(--text-muted); font-size: 13px; margin: 0 0 16px; }
-    .strip-ctl { display: flex; align-items: center; gap: 8px; }
+    .strip-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .strip-ctl select { font-size: 13px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); }
+    .dup-search { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); color: var(--text-muted); }
+    .dup-search input { border: 0; background: transparent; color: var(--text-primary); font-size: 13px; outline: none; width: 150px; }
 
     .dup-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; margin-top: 16px; }
     .dup-card { border: 1px solid var(--border); border-radius: 10px; background: var(--bg-surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -50,6 +52,12 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
     <app-summary-strip [items]="summaryItems()">
       <div class="strip-ctl">
+        <label class="dup-search">
+          <ph-icon name="magnifying-glass" [size]="14"/>
+          <input type="search" [ngModel]="query()" (ngModelChange)="query.set($event)"
+            [placeholder]="'duplicates.searchPlaceholder' | transloco"
+            [attr.aria-label]="'duplicates.searchPlaceholder' | transloco" />
+        </label>
         <select [(ngModel)]="statusFilter" (change)="load()" [attr.aria-label]="'duplicates.statusFilterAria' | transloco">
           <option value="open">{{ 'duplicates.status.open' | transloco }}</option>
           <option value="dismissed">{{ 'duplicates.status.dismissed' | transloco }}</option>
@@ -66,15 +74,20 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
       <div class="loading-overlay"><span class="spinner"></span></div>
     } @else if (error()) {
       <div class="alert alert-warning" style="margin-top:16px;">{{ 'duplicates.loadError' | transloco }}</div>
-    } @else if (rows().length === 0) {
+    } @else if (filteredRows().length === 0) {
       <div class="empty-state">
         <div class="empty-state-icon"><ph-icon name="check-circle" [size]="48"/></div>
-        <h3>{{ 'duplicates.empty.title' | transloco }}</h3>
-        <p>{{ 'duplicates.empty.body' | transloco }}</p>
+        @if (query().trim() && rows().length) {
+          <h3>{{ 'duplicates.noMatches.title' | transloco }}</h3>
+          <p>{{ 'duplicates.noMatches.body' | transloco }}</p>
+        } @else {
+          <h3>{{ 'duplicates.empty.title' | transloco }}</h3>
+          <p>{{ 'duplicates.empty.body' | transloco }}</p>
+        }
       </div>
     } @else {
       <div class="dup-grid">
-        @for (d of rows(); track d.id) {
+        @for (d of filteredRows(); track d.id) {
           <div class="dup-card">
             <div class="dup-card-h">
               <span class="badge badge-blue mono">{{ d.spaceId }}</span>
@@ -105,6 +118,14 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
               @if (d.resolution) {
                 <div class="dup-resolved">{{ ('duplicates.resolution.' + d.resolution) | transloco }}</div>
               }
+            } @else if (d.status === 'dismissed') {
+              <!-- A dismissed pair resurfaces on its own only if its content materially changes; this is
+                   the manual way to bring it back for review sooner. -->
+              <div class="dup-actions">
+                <button class="btn btn-sm btn-secondary" (click)="reopen(d)" [disabled]="busy() === d.id">
+                  <ph-icon name="arrows-clockwise" [size]="14" style="margin-right:4px;vertical-align:-2px;"/>{{ 'duplicates.reRate' | transloco }}
+                </button>
+              </div>
             } @else {
               <div class="dup-actions">
                 @if (d.type === 'entity') {
@@ -133,6 +154,17 @@ export class DuplicatesComponent implements OnInit {
   busy = signal<string | null>(null);
   rows = signal<DuplicateRecord[]>([]);
   statusFilter: 'open' | 'dismissed' | 'all' = 'open';
+  /** Free-text filter over the loaded list — a dismissed pile can grow large, so it is searchable. */
+  query = signal('');
+
+  /** The list actually shown: the loaded rows narrowed by the search box (summaries, type, space). */
+  filteredRows = computed<DuplicateRecord[]>(() => {
+    const q = this.query().trim().toLowerCase();
+    const list = this.rows();
+    if (!q) return list;
+    return list.filter(r =>
+      `${r.aSummary} ${r.bSummary} ${r.type} ${r.spaceId}`.toLowerCase().includes(q));
+  });
 
   /** Operator-first rollup atop the list: how many still need attention + how strong the matches are. */
   summaryItems = computed<SummaryItem[]>(() => {
@@ -143,7 +175,7 @@ export class DuplicatesComponent implements OnInit {
     return [
       { label: this.transloco.translate('duplicates.summary.open'), value: String(open), variant: open ? 'warn' : 'ok' },
       { label: this.transloco.translate('duplicates.summary.avgScore'), value: scores.length ? `${Math.round(avg * 100)}%` : '—' },
-      { label: this.transloco.translate('duplicates.summary.shown'), value: String(list.length) },
+      { label: this.transloco.translate('duplicates.summary.shown'), value: String(this.filteredRows().length) },
     ];
   });
 
@@ -184,6 +216,23 @@ export class DuplicatesComponent implements OnInit {
     this.duplicatesApi.dismissDuplicate(d.id).subscribe({
       next: () => { this.rows.update(list => this.statusFilter === 'open' ? list.filter(x => x.id !== d.id) : list.map(x => x.id === d.id ? { ...x, status: 'dismissed' } : x)); this.busy.set(null); },
       error: (e) => { this.busy.set(null); this.toast.error(e?.error?.error || this.transloco.translate('duplicates.dismissError')); },
+    });
+  }
+
+  async reopen(d: DuplicateRecord): Promise<void> {
+    // Re-rating is the deliberate counterpart to a sticky dismissal — no confirm needed, it only
+    // moves the pair back onto the review list (nothing is destroyed).
+    this.busy.set(d.id);
+    this.duplicatesApi.reopenDuplicate(d.id).subscribe({
+      next: () => {
+        // In the dismissed view the pair no longer belongs; in the "all" view it flips back to open.
+        this.rows.update(list => this.statusFilter === 'dismissed'
+          ? list.filter(x => x.id !== d.id)
+          : list.map(x => x.id === d.id ? { ...x, status: 'open' } : x));
+        this.busy.set(null);
+        this.toast.success(this.transloco.translate('duplicates.reRateDone'));
+      },
+      error: (e) => { this.busy.set(null); this.toast.error(e?.error?.error || this.transloco.translate('duplicates.reRateError')); },
     });
   }
 

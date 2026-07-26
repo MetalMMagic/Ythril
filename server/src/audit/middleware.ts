@@ -145,6 +145,7 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'POST',   pattern: /^\/api\/duplicates\/scan$/,                         operation: 'duplicate.scan' },
   { method: 'POST',   pattern: /^\/api\/duplicates\/([^/]+)\/merge$/,               operation: 'duplicate.merge' },
   { method: 'POST',   pattern: /^\/api\/duplicates\/([^/]+)\/dismiss$/,             operation: 'duplicate.dismiss' },
+  { method: 'POST',   pattern: /^\/api\/duplicates\/([^/]+)\/reopen$/,              operation: 'duplicate.reopen' },
 
   // ── Schema library ───────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/schema-library$/,                           operation: 'schema_library.create' },

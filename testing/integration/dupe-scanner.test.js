@@ -5,7 +5,10 @@
  *  - flag (default): scan records reviewable candidates with summaries + score
  *  - list + status filter (open / dismissed / all)
  *  - dismiss: candidate leaves the open list, appears under dismissed
- *  - re-detect on change: editing a record (bumps seq) re-opens a dismissed pair
+ *  - manual re-rate: POST /:id/reopen brings a dismissed pair back onto the open list
+ *  - content-gated resurface: a real content edit re-opens a dismissed pair (a bare re-write would
+ *    not — that branch is exhaustively covered by testing/standalone/dupe-dismissed-sticky.test.js,
+ *    since the public API cannot re-embed without also changing content)
  *  - automerge rule: a lossless entity pair is merged; candidate marked resolved
  *  - merge via API: POST /:id/merge merges an open entity candidate
  *
@@ -139,16 +142,43 @@ describe('Duplicate scanner — flag + review', () => {
     assert.ok(dismissed.some(c => c.id === v.id), 'dismissed pair in dismissed list');
   });
 
-  it('editing a record re-opens a dismissed pair on the next scan', async (t) => {
+  it('manual re-rate (POST /:id/reopen) brings a dismissed pair back to the open list', async (t) => {
     if (!embeddingAvailable) return t.skip('embedding unavailable');
-    // Edit V1 (bumps its seq) — still near-duplicate of V2.
+    // The V pair is dismissed from the previous test.
+    const dismissed = await listDupes(SPACE, 'dismissed');
+    const v = dismissed.find(c => [c.aId, c.bId].sort().join() === [ids.v1, ids.v2].sort().join());
+    assert.ok(v, 'the V pair is on the dismissed list before re-rate');
+    const r = await raw('POST', `/api/duplicates/${encodeURIComponent(v.id)}/reopen`);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.status, 'open');
+    const open = await listDupes(SPACE, 'open');
+    assert.ok(open.some(c => c.id === v.id), 're-rated pair is back on the open list');
+    const dismissedAfter = await listDupes(SPACE, 'dismissed');
+    assert.ok(!dismissedAfter.some(c => c.id === v.id), 're-rated pair left the dismissed list');
+    // Re-rating a pair that is not dismissed is a no-op 404 (it only lifts a dismissal).
+    const again = await raw('POST', `/api/duplicates/${encodeURIComponent(v.id)}/reopen`);
+    assert.equal(again.status, 404, 'reopen on an already-open pair is a 404');
+  });
+
+  it('a real content edit resurfaces a dismissed pair on the next scan', async (t) => {
+    if (!embeddingAvailable) return t.skip('embedding unavailable');
+    // Dismiss the V pair afresh (it is open again after the re-rate above), capturing its content
+    // fingerprint...
+    let open = await listDupes(SPACE, 'open');
+    const v = open.find(c => [c.aId, c.bId].sort().join() === [ids.v1, ids.v2].sort().join());
+    assert.ok(v, 'V pair is open before we dismiss it');
+    assert.equal((await raw('POST', `/api/duplicates/${encodeURIComponent(v.id)}/dismiss`)).status, 200);
+    // ...then MATERIALLY change V1's content. A bare re-write (re-embed/re-sync) would leave the
+    // content hash unchanged and stay dismissed; this edit changes the embedded text, so the pair must
+    // come back for review.
     const u = await raw('PATCH', `/api/brain/spaces/${SPACE}/entities/${ids.v1}`, { description: 'Vault secret storage service handling authentication token scoping and rotation on a nightly schedule now' });
     assert.equal(u.status, 200, JSON.stringify(u.body));
     await scan(SPACE);
-    const open = await listDupes(SPACE, 'open');
-    const v = open.find(c => [c.aId, c.bId].sort().join() === [ids.v1, ids.v2].sort().join());
-    assert.ok(v, 'edited pair re-detected and re-opened');
-    assert.equal(v.status, 'open');
+    open = await listDupes(SPACE, 'open');
+    assert.ok(
+      open.some(c => [c.aId, c.bId].sort().join() === [ids.v1, ids.v2].sort().join()),
+      'the content-edited pair is back on the open list',
+    );
   });
 
   it('merge via API merges an open entity candidate', async (t) => {

@@ -14,7 +14,7 @@ import { globalRateLimit } from '../rate-limit/middleware.js';
 import { col, asFilter, asUpdate } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
-import { scanSpace } from '../brain/dupe-scanner.js';
+import { scanSpace, pairContentHash } from '../brain/dupe-scanner.js';
 import { computeMergePlan, applyResolutions, executeMerge } from '../brain/merge.js';
 import type { DupeCandidateDoc } from '../config/types.js';
 
@@ -90,20 +90,49 @@ duplicatesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
 });
 
 // POST /api/duplicates/:id/dismiss — mark a candidate pair reviewed/not-a-duplicate.
+// Captures the pair's content fingerprint so a later re-embed / re-sync / index rebuild (which bump
+// seq without changing content) will NOT resurface it — but a real content edit will.
 duplicatesRouter.post('/:id/dismiss', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
   try {
     const id = req.params['id'] as string;
     const spaces = accessibleSpaces(req.authToken?.spaces);
     for (const spaceId of spaces) {
-      const r = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).updateOne(
+      const coll = col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`);
+      const doc = await coll.findOne(asFilter<DupeCandidateDoc>({ _id: id })) as DupeCandidateDoc | null;
+      if (!doc) continue;
+      const dismissedContentHash = await pairContentHash(spaceId, doc.type, doc.aId, doc.bId);
+      await coll.updateOne(
         asFilter<DupeCandidateDoc>({ _id: id }),
-        asUpdate<DupeCandidateDoc>({ $set: { status: 'dismissed', updatedAt: new Date().toISOString() } }),
+        asUpdate<DupeCandidateDoc>({ $set: { status: 'dismissed', dismissedContentHash, updatedAt: new Date().toISOString() } }),
       );
-      if (r.matchedCount > 0) { res.json({ status: 'dismissed' }); return; }
+      res.json({ status: 'dismissed' });
+      return;
     }
     res.status(404).json({ error: 'Duplicate candidate not found' });
   } catch (err) {
     log.error(`POST /api/duplicates/:id/dismiss: ${err}`);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// POST /api/duplicates/:id/reopen — manually re-rate a dismissed pair back onto the open review list.
+// The counterpart to dismiss: dismissal is sticky (a re-embed/re-sync no longer resurfaces it), so
+// bringing a pair back for review is a deliberate action. Only matches a pair that is currently
+// `dismissed` — reopening a resolved/merged or already-open pair is a no-op 404.
+duplicatesRouter.post('/:id/reopen', globalRateLimit, requireAuth, denyReadOnly, async (req, res) => {
+  try {
+    const id = req.params['id'] as string;
+    const spaces = accessibleSpaces(req.authToken?.spaces);
+    for (const spaceId of spaces) {
+      const r = await col<DupeCandidateDoc>(`${spaceId}_dupe_candidates`).updateOne(
+        asFilter<DupeCandidateDoc>({ _id: id, status: 'dismissed' }),
+        asUpdate<DupeCandidateDoc>({ $set: { status: 'open', updatedAt: new Date().toISOString() } }),
+      );
+      if (r.matchedCount > 0) { res.json({ status: 'open' }); return; }
+    }
+    res.status(404).json({ error: 'Dismissed duplicate candidate not found' });
+  } catch (err) {
+    log.error(`POST /api/duplicates/:id/reopen: ${err}`);
     res.status(500).json({ error: 'Internal error' });
   }
 });

@@ -5536,7 +5536,7 @@ Entries expire automatically after `retentionDays` (default 90). MongoDB's TTL d
 
 ## Duplicate Scanner & Action Rules
 
-A background scanner can sweep a space for **semantically duplicate** records and act on them according to per-space rules. It complements the interactive insert-time check ([Duplicate Detection on Insert](#duplicate-detection-on-insert)) but is independent of it: the scanner finds duplicates among **all** records — including those inserted with `checkDuplicates` off — and re-evaluates a pair whenever either record changes.
+A background scanner can sweep a space for **semantically duplicate** records and act on them according to per-space rules. It complements the interactive insert-time check ([Duplicate Detection on Insert](#duplicate-detection-on-insert)) but is independent of it: the scanner finds duplicates among **all** records — including those inserted with `checkDuplicates` off — and re-evaluates a pair whenever either record changes (a **dismissed** pair re-opens only when its content materially changes, not on a bare re-embed/re-sync — see below).
 
 **Off by default.** Enable it in `config.json`:
 
@@ -5579,7 +5579,7 @@ Rules are evaluated **highest `minScore` first**; the first match decides the ac
 | `automerge` | **Entities only.** Merge losslessly using the existing entity merge (unions edges, tags, and non-conflicting properties). If the two records set the same property to *different* values, the merge is not lossless — it is **not** performed and the pair falls back to `flag`. The survivor is the older record by default (`dupeMergeSurvivor`). |
 | `notify` | Emit a `duplicate.detected` webhook with both full records + the score. By default this goes to your webhook **subscriptions** (subscribe your automation, e.g. an n8n workflow, to `duplicate.detected` for the space); set a rule-level `webhookUrl` to POST directly to a specific (SSRF-validated) endpoint instead. Your automation can then apply custom logic and call back the API (`merge_entities`, delete, etc.). |
 
-An action runs once per pair; it re-runs only after one of the records changes (a dismissed pair likewise re-opens after an edit).
+An action runs once per pair; it re-runs only after one of the records changes. **A dismissed pair is content-gated:** it stays dismissed when a record is merely re-written with the *same* content — a re-embed, a peer re-sync, an index rebuild (all of which advance `seq`) — but it **re-opens automatically when the pair's content materially changes** (a real edit to the embedded text). This is why a routine re-embed no longer resurfaces every pair you already dismissed, while a genuine edit still comes back for review. You can also bring a dismissed pair back manually at any time by re-rating it (`POST /api/duplicates/:id/reopen`, or the **Re-rate** button in the UI). Mechanically, dismissal records a fingerprint of both records' embedded text; the scanner re-opens the pair only when that fingerprint no longer matches.
 
 ### Candidate review API
 
@@ -5588,11 +5588,12 @@ Base path: `/api/duplicates`.
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/api/duplicates?status=open&space=<id>` | any token (space-scoped) | List candidates. `status` = `open` (default), `dismissed`, or `all`. |
-| `POST` | `/api/duplicates/:id/dismiss` | non-read-only | Mark a pair reviewed / not-a-duplicate. |
+| `POST` | `/api/duplicates/:id/dismiss` | non-read-only | Mark a pair reviewed / not-a-duplicate. A later re-embed/re-sync will not resurface it; a real content change will. |
+| `POST` | `/api/duplicates/:id/reopen` | non-read-only | Manually re-rate a **dismissed** pair back onto the open list. `404` if the pair is not currently dismissed. |
 | `POST` | `/api/duplicates/:id/merge` | non-read-only | Merge an entity candidate losslessly. `409` with the merge plan if there is a value conflict. |
 | `POST` | `/api/duplicates/scan?space=<id>` | admin + MFA | Trigger an on-demand full re-scan (all accessible spaces, or one). Requires `X-TOTP-Code` when MFA is enabled. |
 
-A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, score, status, resolution?, detectedAt, updatedAt }`. The web UI (**Settings → Duplicates**) lists candidates with dismiss / merge actions and a "Scan now" button.
+A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, score, status, resolution?, detectedAt, updatedAt }`. The web UI (**Settings → Duplicates**) lists candidates with dismiss / merge / re-rate actions, a **search box** (handy for a large dismissed pile), and a "Scan now" button.
 
 > **Cost note:** the initial full scan of a large existing space is O(N) vector searches — inherently the expensive part. It is bounded per run (`maxPerRun`) and runs off-hours; steady-state runs only touch new or edited records. Keep `notify` rules and automation idempotent, since an edited record re-fires its pair's action.
 

@@ -1322,6 +1322,14 @@ export interface DupeCandidateDoc {
   status: 'open' | 'dismissed' | 'resolved';
   /** How a resolved candidate was actioned (present only when status = 'resolved'). */
   resolution?: 'merged' | 'notified';
+  /**
+   * Content fingerprint of the pair (both records' embedded text) captured when it was dismissed.
+   * A dismissed pair is sticky against seq bumps that DON'T change content — a re-embed, a peer
+   * re-sync, an index rebuild — but re-opens automatically when the content materially changes
+   * (this hash no longer matches). Present only while `status = 'dismissed'`; undefined on a legacy
+   * dismissal (pre-this-feature), which is treated as sticky and back-filled on the next scan.
+   */
+  dismissedContentHash?: string;
   detectedAt: string;     // ISO8601 — first detection
   updatedAt: string;      // ISO8601 — last re-detection
 }

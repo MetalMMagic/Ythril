@@ -840,6 +840,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are touched, but recall stays empty until the rebuild finishes. It rebuilds the index; it is not the
   config-change reindex that re-embeds content, which cannot recreate a missing index. No new endpoint.
 
+- **Duplicates: a searchable dismissed list with a Re-rate action (Settings → Duplicates).** The list
+  now has a **search box** (filters by summary / type / space — for a large dismissed pile) and a
+  **Re-rate** button on dismissed cards that puts a pair back on the open review list
+  (`POST /api/duplicates/:id/reopen`).
+
 - **A library-linked schema type can be unlinked and customised, and its properties are visible while
   linked (Settings → Spaces → *space* → Schema).** A type imported **From Lib** used to be an opaque,
   non-editable link. Now the linked type shows the library entry's **properties read-only**, so you can
@@ -1532,6 +1537,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of a third-party signed cast, tampered cast rejected).
 
 ### Fixed
+
+- **A dismissed duplicate pair no longer resurfaces after a routine re-embed or re-sync.** The scanner
+  re-opened a dismissed pair the instant either record's `seq` changed — but `seq` advances on *any*
+  re-write (an edit, a peer re-sync, a re-embed, an index rebuild), not just a content change, so
+  re-embedding a space (e.g. after changing the embedding model, or an index rebuild) resurfaced *every*
+  pair you had already dismissed. Dismissal is now **content-gated**: dismissing records a fingerprint of
+  both records' embedded text, and the scanner re-opens the pair only when that fingerprint changes —
+  i.e. when the content *materially* changed. A bare re-write with identical content stays dismissed; a
+  real edit still comes back for review. Pairs dismissed before this change (no stored fingerprint) are
+  treated as sticky and back-filled on the next scan, so upgrading does not resurface anything. The pure
+  policy is exhaustively unit-tested (`testing/standalone/dupe-dismissed-sticky.test.js`) and the
+  content-edit path in `testing/integration/dupe-scanner.test.js`.
 
 - **Clicking a model in the Pipelines viz jumps to its configuration again (Settings → Models).** Each
   step in the pipeline diagram names the model doing the work; those names are clickable links once

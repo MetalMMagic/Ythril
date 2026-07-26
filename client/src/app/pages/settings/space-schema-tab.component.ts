@@ -41,6 +41,8 @@ const SCHEMA_MD_STYLES = `
 .sch-md { display:grid; grid-template-columns:minmax(190px,250px) 1fr; gap:18px; align-items:start; margin-top:6px; }
 @media (max-width:760px) { .sch-md { grid-template-columns:1fr; } }
 .sch-master { display:flex; flex-direction:column; gap:3px; min-width:0; }
+/* The list of types scrolls inside itself; the add-row above and imports below stay pinned. */
+.sch-type-list { display:flex; flex-direction:column; gap:3px; min-height:0; overflow-y:auto; max-height:340px; }
 .sch-type-item { display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:none;
   border:1px solid transparent; border-radius:8px; padding:7px 9px; cursor:pointer; font:inherit; color:var(--text-primary); }
 .sch-type-item:hover { background:var(--bg-elevated); }
@@ -66,6 +68,10 @@ const SCHEMA_MD_STYLES = `
 .sch-add-btn:hover:not(:disabled) { border-color:var(--accent); }
 .sch-add-btn:disabled { color:var(--text-muted); cursor:not-allowed; opacity:.6; }
 .sch-add-btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+/* Same row, but it heads the detail pane's foot rather than the list's head: rule on top, not bottom. */
+.sch-add-prop { margin-bottom:0; padding-bottom:0; border-bottom:none;
+  margin-top:10px; padding-top:10px; border-top:1px solid var(--border); }
+.sch-add-prop input { max-width:260px; }
 .sch-add-imports { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; padding-top:8px;
   border-top:1px solid var(--border-muted); }
 .prop-caret { color:var(--text-muted); flex-shrink:0; display:inline-flex; }
@@ -191,6 +197,9 @@ const SCHEMA_MD_STYLES = `
         </button>
       </div>
 
+      <!-- The type list scrolls inside its own box: a long allowlist must not stretch the whole dialog
+           (and push the imports / Save out of reach) — it stays put and the list scrolls. -->
+      <div class="sch-type-list">
       @for (name of state.typeNames(kt); track name) {
         <button type="button" class="sch-type-item" [class.sel]="state.isTypeSelected(kt,name)" (click)="state.selectType(kt,name)">
           <span class="nm">{{ name }}</span>
@@ -210,6 +219,7 @@ const SCHEMA_MD_STYLES = `
       } @empty {
         <div class="sch-empty-list">{{ kt === 'edge' ? ('spaces.schema.noEdgeLabels' | transloco) : ('spaces.schema.noTypes' | transloco) }}</div>
       }
+      </div>
 
       <!-- Imports stay at the bottom: they are the occasional path, and putting them beside the
            everyday control is what made the top of this column busy. -->
@@ -239,7 +249,8 @@ const SCHEMA_MD_STYLES = `
               style="padding:2px 6px;" [attr.title]="'spaces.schema.exportTypeTitle' | transloco"><ph-icon name="upload" [size]="13"/></button>
             @if (!state.typeLibRef(kt,name)) {
               <button class="btn btn-ghost btn-sm" type="button" (click)="saveTypeToLibrary(kt,name)"
-                style="font-size:10px;padding:2px 8px;" [attr.title]="'spaces.schema.saveToLibraryTitle' | transloco">{{ 'spaces.schema.saveToLibraryButton' | transloco }}</button>
+                style="padding:2px 6px;" [attr.title]="'spaces.schema.saveToLibraryTitle' | transloco"
+                [attr.aria-label]="'spaces.schema.saveToLibraryButton' | transloco"><ph-icon name="bookmarks" [size]="13"/></button>
             }
             <button class="icon-btn danger" type="button" (click)="state.removeType(kt,name)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
           </span>
@@ -382,13 +393,17 @@ const SCHEMA_MD_STYLES = `
               </tbody>
             </table>
           </div>
-          <!-- add property -->
-          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+          <!-- add property — the same inline [input][+] affordance as the add-type row, so the two
+               "add something" controls on this tab read and behave identically. -->
+          <div class="sch-add-row sch-add-prop">
             <input type="text" [(ngModel)]="state.typeState(kt,name)._newPropInput" [placeholder]="'spaces.schema.newPropNamePlaceholder' | transloco"
-              style="flex:1;max-width:220px;"
+              [attr.aria-label]="'spaces.schema.addPropertyButton' | transloco"
               (keydown.enter)="$event.preventDefault();state.addProp(kt,name)" />
-            <button class="btn btn-secondary btn-sm" type="button"
-              (click)="state.addProp(kt,name)" [disabled]="!state.typeState(kt,name)._newPropInput.trim()">{{ 'spaces.schema.addPropertyButton' | transloco }}</button>
+            <button class="sch-add-btn" type="button"
+              (click)="state.addProp(kt,name)" [disabled]="!state.typeState(kt,name)._newPropInput.trim()"
+              [attr.title]="'spaces.schema.addPropertyButton' | transloco" [attr.aria-label]="'spaces.schema.addPropertyButton' | transloco">
+              <ph-icon name="plus-circle" [size]="18"/>
+            </button>
           </div>
         }
       } @else {

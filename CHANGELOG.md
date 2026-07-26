@@ -831,6 +831,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Folders in the file list now show their total size (the sum of everything inside), not a dash.** The
+  Size column reports a directory's recursive content size alongside files (an empty folder shows `0 B`).
+  It's computed from file metadata — a `SUM` over the file records under the folder — not a filesystem
+  walk, so it stays fast, and it reads from the raw size already stored on each file record (no schema
+  change). First step of the Files + File Meta tab merge; the merged tab reuses the same figure.
+
 - **The Brain now opens on an Overview tab (its new default landing view).** Opening a space lands on
   **Overview** — a per-space dashboard rather than the Query box. Slice one ships two panels: **Statistics**
   (record counts per collection, a total, and storage used vs. the space's quota) and **Indexing** (the

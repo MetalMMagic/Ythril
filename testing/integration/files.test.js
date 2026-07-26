@@ -136,6 +136,18 @@ describe('Directory listing', () => {
     assert.equal(body.type, 'dir');
   });
 
+  it('a folder entry reports its recursive content size (sum of files beneath it)', async () => {
+    const dir = `sizedir-${Date.now()}`;
+    // 'hello' = 5 bytes at the top of the folder; 'worldwide!!' = 11 bytes nested → both roll up.
+    await uploadFile(tokenA, 'general', `${dir}/a.txt`, 'hello');
+    await uploadFile(tokenA, 'general', `${dir}/sub/b.txt`, 'worldwide!!');
+    const r = await fetch(`${INSTANCES.a}/api/files/general?path=.`, { headers: { 'Authorization': `Bearer ${tokenA}` } });
+    const body = await r.json();
+    const folder = body.entries.find(e => e.name === dir && e.type === 'dir');
+    assert.ok(folder, `folder ${dir} is listed`);
+    assert.equal(folder.size, 16, 'folder size sums every file beneath it (5 + 11), recursively');
+  });
+
   it('Listing non-existent dir returns 404', async () => {
     const url = `${INSTANCES.a}/api/files/general?path=${encodeURIComponent('no-such-dir/')}`;
     const r = await fetch(url, { headers: { 'Authorization': `Bearer ${tokenA}` } });

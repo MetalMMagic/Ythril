@@ -50,6 +50,14 @@ export class ModelsStateService {
   /** Flipped by a delegated input/change listener on the page. See `isDirty`. */
   touched = signal(false);
 
+  /**
+   * One-shot cross-tab focus request: a pipeline step actor was clicked, naming the Models-tab card
+   * that configures it. The page reacts by switching to the Models tab and scrolling that card into
+   * view, then clears this back to null. Holds the card id (matching `#model-card-<id>`), never a tab.
+   */
+  readonly focusCard = signal<string | null>(null);
+  requestFocusCard(cardId: string): void { this.focusCard.set(cardId); }
+
   // ── Face recognition ──
   /** Live handle to the editable face block, lazily initialised so the template can bind fields. */
   get face(): FaceRecognitionCfg { return (this.form.faceRecognition ??= {}); }

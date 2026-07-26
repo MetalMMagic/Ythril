@@ -1327,6 +1327,7 @@
   "models.pipelines.text": "Tekst",
   "models.pipelines.textPurpose": "Co dzieje się z tekstem, który wychodzi z każdego innego potoku.",
   "models.pipelines.extractionMode": "Tryb ekstrakcji",
+  "models.pipelines.configureLink": "Skonfiguruj w karcie „Modele”",
   "models.pipelines.ceiling": "Limit instancji",
   "models.pipelines.statusUnavailable": "Nie udało się odczytać statusu na żywo, więc wskaźniki są nieznane, a nie wyłączone: {{detail}}",
   "models.step.ocr": "OCR",

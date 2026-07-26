@@ -1327,6 +1327,7 @@
   "models.pipelines.text": "Text",
   "models.pipelines.textPurpose": "What happens to the text that comes out of every other pipeline.",
   "models.pipelines.extractionMode": "Extraction mode",
+  "models.pipelines.configureLink": "Configure this in the Models tab",
   "models.pipelines.ceiling": "Instance ceiling",
   "models.pipelines.statusUnavailable": "Could not read live status, so the health indicators are unknown rather than off: {{detail}}",
   "models.step.ocr": "OCR",

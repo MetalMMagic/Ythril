@@ -391,6 +391,13 @@ describe('ModelsStateService — derived display state', () => {
     expect(c.form.documentProcessing?.mode).toBe('repair');
   });
 
+  it('requestFocusCard raises the one-shot focus signal for the page to consume', () => {
+    const { c } = make();
+    expect(c.focusCard()).toBeNull();
+    c.requestFocusCard('vision');
+    expect(c.focusCard()).toBe('vision');
+  });
+
   // The ladder gained `off` and renamed `max` to `repair` (owner, 2026-07-21). `off` is the rung with
   // consequences: it must read as a deliberate choice, not as a degraded or broken pipeline.
   it("'off' reads as off, not as a missing model or a fallback", () => {

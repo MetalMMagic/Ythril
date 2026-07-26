@@ -1327,6 +1327,7 @@
   "models.pipelines.text": "Text",
   "models.pipelines.textPurpose": "Was mit dem Text passiert, der aus allen anderen Pipelines herauskommt.",
   "models.pipelines.extractionMode": "Extraktionsmodus",
+  "models.pipelines.configureLink": "Im Tab „Modelle“ konfigurieren",
   "models.pipelines.ceiling": "Obergrenze der Instanz",
   "models.pipelines.statusUnavailable": "Der Live-Status konnte nicht gelesen werden, deshalb sind die Statusanzeigen unbekannt statt aus: {{detail}}",
   "models.step.ocr": "OCR",

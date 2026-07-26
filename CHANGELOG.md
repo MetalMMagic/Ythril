@@ -2331,6 +2331,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Models → Tools: consistent cards and a tidier vector-index table.** The **Media
+  splitter** and **Text chunker** now use the same card as the models on the Models tab (side by side),
+  so all three Models tabs share one card vocabulary. The **vector-index table dropped its
+  "Collections" column** — every space lists the same collections, so it only added width — and the
+  **"Recorded" column now carries a tooltip** explaining it's what `config.json` believes, checked
+  against the live "In the database" state to surface drift.
+
 - **Settings → Models → Pipelines: clearer viz and consistent controls.** The extraction mode now
   **marks the steps it actually runs** with an accent border and faint tint, so switching to (say) OCR
   visibly lights up just the OCR → Embed path while the rest stay dimmed. The **Images** and **Text**

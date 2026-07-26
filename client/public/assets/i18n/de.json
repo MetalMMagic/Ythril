@@ -1372,7 +1372,7 @@
   "models.tools.colSpace": "Bereich",
   "models.tools.colLive": "In der Datenbank",
   "models.tools.colStored": "Vermerkt",
-  "models.tools.colCollections": "Sammlungen",
+  "models.tools.colStoredHint": "Was config.json als Indexstatus dieses Space verzeichnet — wird mit dem Live-Status „In der Datenbank“ abgeglichen, um Abweichungen sichtbar zu machen.",
   "models.tools.driftTitle": "{{count}} Bereich(e) melden einen fertigen Index, den die Datenbank nicht hat.",
   "models.tools.driftBody": "Die Suche in diesen Bereichen liefert nichts und meldet keinen Fehler. Ein Neuaufbau der Indizes über die Gefahrenzone des Bereichs behebt das.",
   "models.tools.indexEmpty": "Keine Bereiche mit eigenen Indizes.",

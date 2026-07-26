@@ -2135,7 +2135,7 @@ The unstructured sidecar strategy and image extraction behaviour can be tuned un
 
 - **Models** — every model you or infra can set: text embedding, vision, speech-to-text, the assist model, and read-only cards for the page renderer, document converter and face recognition. One shape per card (provider → endpoint → model → credential → test); infra-owned cards are dashed and name the env var that owns them.
 - **Pipelines** — Documents, Images, Audio & video and Text drawn as their real step chains, with the model doing the work named under each step and a health indicator fed by `GET /api/admin/pipeline-status`. Conditional steps (VLM fallback, repair, face vectors) are dashed. Each pipeline's knobs hang off that pipeline, and each carries its own **instance ceiling** picker (see below). Audio and video share a card but have separate ceilings, because they have separate ladders.
-- **Tools** — the components that run but have nothing to set: media splitter (ffmpeg), text chunker, and the vector index. The index is **status-only** (readiness per space and collection); rebuilding is a Danger Zone action, not a button here.
+- **Tools** — the components that run but have nothing to set: media splitter (ffmpeg), text chunker, and the vector index. The index is **status-only** — per space it shows the **live** database state alongside the **recorded** (config.json) state, so drift between them is visible; rebuilding is a Danger Zone action, not a button here.
 
 Switching tabs with unsaved changes prompts rather than discarding them.
 

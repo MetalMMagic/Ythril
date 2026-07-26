@@ -2331,6 +2331,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Models → Pipelines: clearer viz and consistent controls.** The extraction mode now
+  **marks the steps it actually runs** with an accent border and faint tint, so switching to (say) OCR
+  visibly lights up just the OCR → Embed path while the rest stay dimmed. The **Images** and **Text**
+  pipelines now use the same segmented **Extraction-mode buttons** as the Documents pipeline instead of
+  a dropdown (Audio keeps a select, since it carries two ladders side by side). And the redundant "No
+  vision model configured — falls back to OCR" warning box is gone — the header "OCR fallback" pill and
+  the pipeline summary line already say it (the now-dead `runLineKey` helper and its i18n keys were
+  removed with it).
+
 - **Settings → Models tab: header and Models-card visual polish.** The page header dropped its
   redundant title + explanatory subtitle (the sidebar nav and the Models/Pipelines/Tools tabs already
   say where you are), leaving just the global media-embedding toggle. Pressing **Test connection** no

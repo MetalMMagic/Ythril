@@ -65,6 +65,10 @@ interface Step {
       padding: 9px 10px; height: 100%; }
     .step.cond .box { border-style: dashed; }
     .step.dim .box { opacity: .42; }
+    /* The extraction mode marks the steps it actually runs: an accent border + faint tint, so the live
+       path stands out from the dimmed ones at a glance. */
+    .step.active .box { border-color: var(--accent);
+      box-shadow: inset 0 0 0 1px var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--bg-primary)); }
     .nm { font-size: 12px; font-weight: 620; display: flex; align-items: center; gap: 6px; }
     /* The actor is the model, the dot is the state — kept visually separate on purpose. */
     .actor { font-size: 10.5px; color: var(--text-muted); margin-top: 3px;
@@ -133,7 +137,7 @@ interface Step {
 
       <div class="chain">
         @for (st of documentSteps(); track st.key) {
-          <div class="step" [class.cond]="st.conditional" [class.dim]="stepDim(st.key)">
+          <div class="step" [class.cond]="st.conditional" [class.dim]="stepDim(st.key)" [class.active]="stepActive(st.key)">
             <div class="box">
               <div class="nm">{{ st.name | transloco }}<app-health-dot [state]="st.health" [subject]="st.name | transloco"/></div>
               <div class="actor">{{ st.actor }}</div>
@@ -153,12 +157,9 @@ interface Step {
         </div>
         <p class="modedesc"><b>{{ 'models.mode.' + s.docMode() | transloco }}</b> — {{ s.modeDescKey() | transloco }}</p>
 
-        @if (s.vlmNeededButMissing()) {
-          <div class="warnline">
-            <ph-icon name="warning" [size]="15"/>
-            <span>{{ s.runLineKey() | transloco }}</span>
-          </div>
-        }
+        <!-- The "no vision model configured, falls back to OCR" case is already carried by the header
+             pill ("OCR fallback") and the pipeline summary line, so the extra warning box was redundant
+             noise — removed per owner feedback. -->
 
         <div class="grid">
           <div class="field">
@@ -212,18 +213,32 @@ interface Step {
           <p class="ceiling-hint">{{ 'models.pipelines.ceilingHint' | transloco }}</p>
           @for (c of p.ceilings; track c.cls) {
             <div class="ceiling">
-              <label [attr.for]="'ceiling-' + c.cls">{{ 'models.class.' + c.cls | transloco }}</label>
-              <select [attr.id]="'ceiling-' + c.cls" [ngModel]="ceilingOf(c.cls)"
-                (ngModelChange)="setCeiling(c.cls, $any($event))" [disabled]="s.isLocked('levels.' + c.cls) || s.managed"
-                [name]="'ceiling-' + c.cls">
-                @for (rung of c.ladder; track rung) {
-                  <!-- Video "full" is reserved and not built. Rendered disabled rather than omitted
-                       so the ladder reads complete — and the server rejects it either way. -->
-                  <option [value]="rung" [disabled]="c.cls === 'video' && rung === 'full'">
-                    {{ 'models.level.' + rung | transloco }}{{ c.cls === 'video' && rung === 'full' ? notYet : '' }}
-                  </option>
-                }
-              </select>
+              <label [attr.for]="p.ceilings.length > 1 ? 'ceiling-' + c.cls : null">{{ 'models.class.' + c.cls | transloco }}</label>
+              @if (p.ceilings.length === 1) {
+                <!-- Single-class pipelines (Images, Text) use the same segmented buttons as the document
+                     extraction mode, so every pipeline's primary control reads the same way. Audio keeps
+                     a select because it carries two ladders (audio + video) side by side. -->
+                <div class="modeseg" role="group" [attr.aria-label]="'models.class.' + c.cls | transloco">
+                  @for (rung of c.ladder; track rung) {
+                    <button type="button" [class.on]="ceilingOf(c.cls) === rung" (click)="setCeiling(c.cls, rung)"
+                      [disabled]="s.isLocked('levels.' + c.cls) || s.managed">
+                      {{ 'models.level.' + rung | transloco }}
+                    </button>
+                  }
+                </div>
+              } @else {
+                <select [attr.id]="'ceiling-' + c.cls" [ngModel]="ceilingOf(c.cls)"
+                  (ngModelChange)="setCeiling(c.cls, $any($event))" [disabled]="s.isLocked('levels.' + c.cls) || s.managed"
+                  [name]="'ceiling-' + c.cls">
+                  @for (rung of c.ladder; track rung) {
+                    <!-- Video "full" is reserved and not built. Rendered disabled rather than omitted
+                         so the ladder reads complete — and the server rejects it either way. -->
+                    <option [value]="rung" [disabled]="c.cls === 'video' && rung === 'full'">
+                      {{ 'models.level.' + rung | transloco }}{{ c.cls === 'video' && rung === 'full' ? notYet : '' }}
+                    </option>
+                  }
+                </select>
+              }
               @if (s.isLocked('levels.' + c.cls)) { <app-status-pill variant="env">{{ 'models.pill.env' | transloco }}</app-status-pill> }
               @if (ceilingOf(c.cls) === 'off') {
                 <!-- "off" is a floor as well as a ceiling: it takes the class offline for every space,
@@ -256,6 +271,15 @@ export class PipelinesTabComponent {
     if (this.s.docMode() === 'off') return true;          // nothing in this pipeline runs at all
     if (!MODE_STAGES['auto'].has(key)) return false;      // not a mode-governed stage
     return !this.activeStages().has(key);
+  }
+
+  /**
+   * Whether a step is on the path the current extraction mode actually runs — the inverse of dim while
+   * the pipeline is on. Used to mark (border) the live steps in the viz so the chosen mode reads at a
+   * glance; when the pipeline is off, nothing is marked.
+   */
+  stepActive(key: string): boolean {
+    return this.s.docMode() !== 'off' && !this.stepDim(key);
   }
 
   private notSet = '—';

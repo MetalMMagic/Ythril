@@ -250,7 +250,7 @@ const SCHEMA_MD_STYLES = `
             @if (!state.typeLibRef(kt,name)) {
               <button class="btn btn-ghost btn-sm" type="button" (click)="saveTypeToLibrary(kt,name)"
                 style="padding:2px 6px;" [attr.title]="'spaces.schema.saveToLibraryTitle' | transloco"
-                [attr.aria-label]="'spaces.schema.saveToLibraryButton' | transloco"><ph-icon name="bookmark-simple" [size]="13"/></button>
+                [attr.aria-label]="'spaces.schema.saveToLibraryButton' | transloco"><ph-icon name="bookmarks" [size]="13"/></button>
             }
             <button class="icon-btn danger" type="button" (click)="state.removeType(kt,name)" [attr.title]="'common.remove' | transloco"><ph-icon name="x" [size]="14"/></button>
           </span>

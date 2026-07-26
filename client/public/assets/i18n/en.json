@@ -509,6 +509,8 @@
   "files.preview.failed": "Couldn’t load preview.",
   "files.preview.size": "Size",
   "files.preview.modified": "Modified",
+  "files.preview.fullscreen": "Full screen",
+  "files.preview.exitFullscreen": "Exit full screen",
   "files.detail.tabsAriaLabel": "Detail view",
   "files.detail.previewTab": "Preview & description",
   "files.detail.metaTab": "File meta",

@@ -14,6 +14,7 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
+import { marked } from 'marked';
 // The docked detail pane reuses the Brain's file-metadata edit fields. These are dumb, shared
 // ref-field widgets; they resolve chip labels via EntityRefPicker, which the Brain provides — so the
 // "File meta" edit mode is available only when embedded in the Brain (embeddedSpaceId set).
@@ -55,7 +56,7 @@ interface TreeNode {
   children: TreeNode[] | null;  // null = not yet loaded
 }
 
-type PreviewKind = 'text' | 'image' | 'pdf' | 'unknown';
+type PreviewKind = 'text' | 'markdown' | 'image' | 'pdf' | 'unknown';
 
 type UploadStatus = 'queued' | 'uploading' | 'done' | 'failed';
 
@@ -70,9 +71,11 @@ interface UploadItem {
 }
 
 const TEXT_EXTS = new Set([
-  '.txt', '.md', '.json', '.yaml', '.yml', '.ts', '.js', '.py', '.sh',
+  '.txt', '.json', '.yaml', '.yml', '.ts', '.js', '.py', '.sh',
   '.csv', '.xml', '.html', '.css', '.log', '.env', '.toml',
 ]);
+// Markdown renders formatted (via marked) rather than as highlighted source.
+const MARKDOWN_EXTS = new Set(['.md', '.markdown']);
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']);
 const PDF_EXTS = new Set(['.pdf']);
 
@@ -90,6 +93,7 @@ function extOf(name: string): string {
 
 function previewKind(name: string): PreviewKind {
   const ext = extOf(name);
+  if (MARKDOWN_EXTS.has(ext)) return 'markdown';
   if (TEXT_EXTS.has(ext)) return 'text';
   if (IMAGE_EXTS.has(ext)) return 'image';
   if (PDF_EXTS.has(ext)) return 'pdf';
@@ -304,6 +308,35 @@ function previewKind(name: string): PreviewKind {
     .detail-meta-form label { display: block; margin-bottom: 4px; font-size: 0.8em; color: var(--text-muted); }
     .detail-meta-form textarea { width: 100%; resize: vertical; }
     .detail-meta-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+    /* Full-screen toggle floats at the top-right of the preview body. */
+    .preview-body { position: relative; }
+    .preview-fs-btn { position: absolute; top: 4px; right: 4px; z-index: 1; opacity: 0.75; }
+    .preview-fs-btn:hover { opacity: 1; }
+    /* Formatted markdown */
+    .md-rendered { line-height: 1.6; word-break: break-word; }
+    .md-rendered h1, .md-rendered h2, .md-rendered h3 { margin: 0.8em 0 0.4em; line-height: 1.25; }
+    .md-rendered h1 { font-size: 1.5em; } .md-rendered h2 { font-size: 1.3em; } .md-rendered h3 { font-size: 1.12em; }
+    .md-rendered p { margin: 0.5em 0; }
+    .md-rendered ul, .md-rendered ol { margin: 0.5em 0; padding-left: 1.5em; }
+    .md-rendered code { background: var(--bg-muted); padding: 0.1em 0.35em; border-radius: 4px; font-family: var(--font-mono, monospace); font-size: 0.9em; }
+    .md-rendered pre { background: var(--bg-muted); padding: 12px; border-radius: 6px; overflow: auto; margin: 0.6em 0; }
+    .md-rendered pre code { background: none; padding: 0; }
+    .md-rendered a { color: var(--accent, #6ea8fe); }
+    .md-rendered blockquote { margin: 0.5em 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--text-muted); }
+    .md-rendered table { border-collapse: collapse; margin: 0.5em 0; }
+    .md-rendered th, .md-rendered td { border: 1px solid var(--border); padding: 4px 8px; }
+    .md-rendered img { max-width: 100%; }
+    /* Full-screen preview overlay */
+    .preview-fs-overlay {
+      position: fixed; inset: 0; z-index: 1200;
+      background: var(--bg-surface); display: flex; flex-direction: column;
+    }
+    .preview-fs-bar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .preview-fs-bar .file-title { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .preview-fs-body { flex: 1; overflow: auto; padding: 20px; max-width: 1100px; width: 100%; margin: 0 auto; }
     .preview-body {
       flex: 1;
       overflow: auto;
@@ -590,7 +623,7 @@ function previewKind(name: string): PreviewKind {
           <!-- Docked detail pane: preview + description ⇄ file-meta record (the merged File Meta view).
                The list runs full width until a file is opened; opening one adds this column. -->
           @if (previewFile(); as pf) {
-            <div class="fm-detail" tabindex="0" (keydown)="onPreviewKey($event)" #detailPane>
+            <div class="fm-detail" tabindex="0" #detailPane>
               <div class="detail-header">
                 @if (embeddedSpaceId) {
                   <div class="seg-toggle" role="tablist" [attr.aria-label]="'files.detail.tabsAriaLabel' | transloco">
@@ -606,24 +639,11 @@ function previewKind(name: string): PreviewKind {
               <div class="detail-body">
                 @if (detailMode() === 'preview' || !embeddedSpaceId) {
                   <div class="preview-body">
-                    @if (previewLoading()) {
-                      <div class="loading-overlay"><span class="spinner"></span></div>
-                    } @else if (previewError() !== null) {
-                      <div class="alert alert-error" role="alert">{{ 'files.preview.failed' | transloco }} {{ previewError() }}</div>
-                    } @else {
-                      @switch (previewKind()) {
-                        @case ('text') { <pre class="preview-code"><code [innerHTML]="previewHtml()"></code></pre> }
-                        @case ('image') { <img [src]="previewMediaUrl()" [alt]="pf.name" /> }
-                        @case ('pdf') { <iframe [src]="previewSafeUrl()"></iframe> }
-                        @default {
-                          <dl class="preview-meta">
-                            <dt>{{ 'files.preview.name' | transloco }}</dt><dd>{{ pf.name }}</dd>
-                            <dt>{{ 'files.preview.size' | transloco }}</dt><dd>{{ formatSize(pf.size) }}</dd>
-                            <dt>{{ 'files.preview.modified' | transloco }}</dt><dd>{{ pf.modified | date:'dd.MM.yyyy HH:mm' }}</dd>
-                          </dl>
-                        }
-                      }
+                    <!-- Full-screen toggle: shown once there's rendered content (not while loading / on error). -->
+                    @if (!previewLoading() && previewError() === null && previewKind() !== 'unknown') {
+                      <button class="btn-ghost btn btn-sm preview-fs-btn" type="button" (click)="previewFullscreen.set(true)" [attr.title]="'files.preview.fullscreen' | transloco" [attr.aria-label]="'files.preview.fullscreen' | transloco"><ph-icon name="corners-out" [size]="16"/></button>
                     }
+                    <ng-container [ngTemplateOutlet]="previewContent" [ngTemplateOutletContext]="{ $implicit: pf }"></ng-container>
                   </div>
                   @if (selectedMeta()?.description) {
                     <div class="detail-desc">
@@ -690,6 +710,42 @@ function previewKind(name: string): PreviewKind {
         }
       }
     </ng-template>
+
+    <!-- Preview content, shared by the docked pane and the full-screen overlay. -->
+    <ng-template #previewContent let-pf>
+      @if (previewLoading()) {
+        <div class="loading-overlay"><span class="spinner"></span></div>
+      } @else if (previewError() !== null) {
+        <div class="alert alert-error" role="alert">{{ 'files.preview.failed' | transloco }} {{ previewError() }}</div>
+      } @else {
+        @switch (previewKind()) {
+          @case ('markdown') { <div class="md-rendered" [innerHTML]="previewHtml()"></div> }
+          @case ('text') { <pre class="preview-code"><code [innerHTML]="previewHtml()"></code></pre> }
+          @case ('image') { <img [src]="previewMediaUrl()" [alt]="pf.name" /> }
+          @case ('pdf') { <iframe [src]="previewSafeUrl()"></iframe> }
+          @default {
+            <dl class="preview-meta">
+              <dt>{{ 'files.preview.name' | transloco }}</dt><dd>{{ pf.name }}</dd>
+              <dt>{{ 'files.preview.size' | transloco }}</dt><dd>{{ formatSize(pf.size) }}</dd>
+              <dt>{{ 'files.preview.modified' | transloco }}</dt><dd>{{ pf.modified | date:'dd.MM.yyyy HH:mm' }}</dd>
+            </dl>
+          }
+        }
+      }
+    </ng-template>
+
+    <!-- Full-screen preview overlay (the one intentional fixed overlay — for the full-screen button). -->
+    @if (previewFullscreen() && previewFile(); as pf) {
+      <div class="preview-fs-overlay" tabindex="0" #fsOverlay>
+        <div class="preview-fs-bar">
+          <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
+          <button class="icon-btn" (click)="previewFullscreen.set(false)" [attr.aria-label]="'files.preview.exitFullscreen' | transloco"><ph-icon name="x" [size]="18"/></button>
+        </div>
+        <div class="preview-fs-body preview-body">
+          <ng-container [ngTemplateOutlet]="previewContent" [ngTemplateOutletContext]="{ $implicit: pf }"></ng-container>
+        </div>
+      </div>
+    }
   `,
 })
 export class FileManagerComponent implements OnInit, OnDestroy {
@@ -753,6 +809,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   previewError = signal<string | null>(null);
   /** Blob object URL backing the current image/PDF preview; revoked on close/next. */
   private _previewObjectUrl: string | null = null;
+  /** True while the preview is expanded to a full-screen overlay (Escape collapses it first). */
+  previewFullscreen = signal(false);
 
   // ── Docked detail-pane state (preview+description ⇄ file-meta record) ──────
   /** Which face of the detail pane is showing. Meta editing is only reachable when embedded. */
@@ -1142,6 +1200,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     // Selecting a file always shows the preview face first; the meta record loads alongside so the
     // description shows here and the (embedded-only) edit form is ready when the toggle is used.
     this.detailMode.set('preview');
+    this.previewFullscreen.set(false);
     this.loadSelectedMeta(entry);
 
     // Every preview fetch must carry the auth header — the file endpoint requires it,
@@ -1152,14 +1211,20 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     const token = this.auth.token();
     const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
 
-    if (kind === 'text') {
+    if (kind === 'text' || kind === 'markdown') {
       this.previewLoading.set(true);
       fetch(url, { headers })
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
         .then(text => {
-          const ext = extOf(entry.name);
-          const lang = EXT_LANG[ext] ?? 'plaintext';
-          this.previewHtml.set(hljs.highlight(text, { language: lang }).value);
+          if (kind === 'markdown') {
+            // marked → HTML string. Bound via [innerHTML] WITHOUT bypassSecurityTrust, so Angular's
+            // built-in DOM sanitizer strips scripts/handlers from the (untrusted) file content.
+            this.previewHtml.set(marked.parse(text, { async: false }) as string);
+          } else {
+            const ext = extOf(entry.name);
+            const lang = EXT_LANG[ext] ?? 'plaintext';
+            this.previewHtml.set(hljs.highlight(text, { language: lang }).value);
+          }
           this.previewLoading.set(false);
         })
         .catch((e) => { this.previewError.set(httpErrorReason(e)); this.previewLoading.set(false); });
@@ -1278,6 +1343,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   onPreviewKey(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
+      // Full-screen collapses back to the docked pane first; a second Escape closes the pane.
+      if (this.previewFullscreen()) { this.previewFullscreen.set(false); return; }
       this.closePreview();
       return;
     }

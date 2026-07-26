@@ -509,6 +509,8 @@
   "files.preview.failed": "Vorschau konnte nicht geladen werden.",
   "files.preview.size": "Größe",
   "files.preview.modified": "Geändert",
+  "files.preview.fullscreen": "Vollbild",
+  "files.preview.exitFullscreen": "Vollbild beenden",
   "files.detail.tabsAriaLabel": "Detailansicht",
   "files.detail.previewTab": "Vorschau & Beschreibung",
   "files.detail.metaTab": "Datei-Metadaten",

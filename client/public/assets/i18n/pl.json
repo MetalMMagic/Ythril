@@ -509,6 +509,8 @@
   "files.preview.failed": "Nie udało się wczytać podglądu.",
   "files.preview.size": "Rozmiar",
   "files.preview.modified": "Zmodyfikowany",
+  "files.preview.fullscreen": "Pełny ekran",
+  "files.preview.exitFullscreen": "Zamknij pełny ekran",
   "files.detail.tabsAriaLabel": "Widok szczegółów",
   "files.detail.previewTab": "Podgląd i opis",
   "files.detail.metaTab": "Metadane pliku",

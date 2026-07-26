@@ -273,6 +273,16 @@ export function updateTokenSpaces(id: string, spaces: string[] | undefined): boo
   return true;
 }
 
+/** Rename a token — updates only its human-readable label (`name`); the secret and scope are untouched. */
+export function renameToken(id: string, name: string): boolean {
+  const config = getConfig();
+  const idx = config.tokens.findIndex(t => t.id === id);
+  if (idx < 0) return false;
+  config.tokens[idx]!.name = name;
+  saveConfig(config);
+  return true;
+}
+
 /** Revoke a token by ID */
 export async function revokeToken(id: string): Promise<boolean> {
   const config = getConfig();

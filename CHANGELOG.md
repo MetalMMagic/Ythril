@@ -831,6 +831,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **You can rename a token's label after it's created (Settings → Tokens).** Each row in the tokens
+  list now has a pencil edit button — click it to rename the token inline (Enter to save, Esc to
+  cancel). Only the human-readable label changes; the secret, permissions and scope are untouched.
+  Backed by a new admin-only `PATCH /api/tokens/:id` (audited as `token.update`).
+
 - **Chrono entries can now carry schema-defined properties in the UI.** A chrono type's schema could
   already declare `propertySchemas` and the server validated + persisted a chrono's `properties`, but no
   client form ever surfaced them — so the field was invisible and effectively unusable. The chrono

@@ -21,7 +21,7 @@ If you are here for web UI usage, read [User Guide](userguide.md). If you are co
 6. [Brain API](#brain-api) — memories, entities, edges, chrono, traverse, search, stats, bulk write
 7. [Files API](#files-api) — upload, download, chunked upload, move, delete, media embedding
 8. [Spaces API](#spaces-api) — create, list, delete, proxy spaces, schema validation, meta
-9. [Tokens API](#tokens-api) — create, list, regenerate, revoke
+9. [Tokens API](#tokens-api) — create, list, rename, regenerate, revoke
 10. [Networks API](#networks-api) — create, join, members, voting, sync history, fork
 11. [Invite API](#invite-api) — RSA peer handshake
 12. [Notify API](#notify-api) — peer events and sync triggers
@@ -3448,7 +3448,7 @@ Base path: `/api/tokens`.
 
 - `GET /api/tokens/me` requires any valid token.
 - The read-only list `GET /api/tokens` requires an **admin** token (but not MFA).
-- All **mutating** token routes (create/delete/regenerate) require admin scope **and** MFA where enabled.
+- All **mutating** token routes (create/rename/delete/regenerate) require admin scope **and** MFA where enabled.
 
 ### Current Token Context
 
@@ -3576,6 +3576,26 @@ Issues a new plaintext credential for an existing token record. The old value is
 ```json
 { "plaintext": "ythril_newValue..." }
 ```
+
+---
+
+### Rename a Token
+
+```http
+PATCH /api/tokens/:id
+{ "name": "new label" }
+```
+
+Updates **only** the token's human-readable label. The secret, permissions, spaces and expiry are
+untouched. `name` follows the same bound as create (1–200 chars). Audited as `token.update`.
+
+**Response** `200`: the updated token record (hash excluded).
+
+```json
+{ "token": { "id": "…", "name": "new label", "admin": false, "...": "…" } }
+```
+
+Returns `404` if no token has that id, `400` for an empty/oversized name.
 
 ---
 

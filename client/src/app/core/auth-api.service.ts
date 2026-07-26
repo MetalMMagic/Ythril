@@ -47,6 +47,10 @@ export class AuthApi {
     return this.http.post<{ plaintext: string }>(`/api/tokens/${id}/regenerate`, {});
   }
 
+  renameToken(id: string, name: string): Observable<{ token: TokenRecord }> {
+    return this.http.patch<{ token: TokenRecord }>(`/api/tokens/${id}`, { name });
+  }
+
   revokeToken(id: string): Observable<void> {
     return this.http.delete<void>(`/api/tokens/${id}`);
   }

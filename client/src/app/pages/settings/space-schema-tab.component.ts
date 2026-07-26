@@ -14,7 +14,7 @@
  * unrendered. That hazard is exactly why OnPush was not retrofitted onto the 1600-line parent and
  * is applied per component instead.
  */
-import { Component, ChangeDetectionStrategy, inject, signal, ElementRef, ViewChild } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, ElementRef, ViewChild, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -257,11 +257,42 @@ const SCHEMA_MD_STYLES = `
         </div>
 
         @if (state.typeLibRef(kt,name); as libRef) {
-          <!-- Linked library schema — non-editable -->
+          <!-- Linked library schema — editable only after unlinking; shown read-only meanwhile. -->
           <div style="display:flex;align-items:center;gap:10px;padding:4px 0;color:var(--text-secondary);font-size:13px;">
             <ph-icon name="bookmarks" [size]="16" style="color:var(--accent);flex-shrink:0;"/>
             <span>{{ 'spaces.schema.libRef.linkedHint' | transloco: {name: libRef} }}</span>
+            <button class="btn btn-secondary btn-sm" type="button" style="margin-left:auto;flex-shrink:0;"
+              (click)="unlinkType(kt,name)" [attr.title]="'spaces.schema.libRef.unlinkTitle' | transloco">{{ 'spaces.schema.libRef.unlinkButton' | transloco }}</button>
           </div>
+          <!-- Read-only view of the linked entry's properties, so you can see what the type enforces
+               without unlinking first. -->
+          @if (linkedProps(kt,name); as props) {
+            @if (props.length) {
+              <div class="sch-section-label" style="margin-top:12px;">{{ 'spaces.schema.propertySchemas' | transloco }}</div>
+              <div class="tablewrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style="width:150px;">{{ 'spaces.schema.propTable.property' | transloco }}</th>
+                      <th style="width:80px;">{{ 'spaces.schema.propTable.type' | transloco }}</th>
+                      <th>{{ 'spaces.schema.propTable.constraints' | transloco }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (p of props; track p.key) {
+                      <tr>
+                        <td style="font-family:var(--font-mono);font-size:12.5px;">{{ p.key }}</td>
+                        <td>{{ p.s.type || '—' }}</td>
+                        <td style="color:var(--text-secondary);font-size:12.5px;">{{ propConstraintSummary(p.s) }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            } @else {
+              <div class="sch-hint" style="margin-top:8px;">{{ 'spaces.schema.libRef.noProps' | transloco }}</div>
+            }
+          }
         } @else {
           <!-- Naming pattern (entity only) -->
           @if (kt === 'entity') {
@@ -496,7 +527,7 @@ const SCHEMA_MD_STYLES = `
 }
   `,
 })
-export class SpaceSchemaTabComponent {
+export class SpaceSchemaTabComponent implements OnInit {
   readonly state = inject(SpaceSettingsState);
   private schemaApi = inject(SchemaApi);
   private toast = inject(ToastService);
@@ -525,6 +556,68 @@ export class SpaceSchemaTabComponent {
   libPickerLoading    = signal(false);
 
   libPickerEntries    = signal<SchemaLibraryEntry[]>([]);
+
+  /** All schema-library entries by name — used to show a linked type's properties read-only and to
+   *  resolve its schema when unlinking (turning the $ref into an inline, editable copy). */
+  readonly libEntriesByName = signal<Record<string, SchemaLibraryEntry>>({});
+
+  ngOnInit(): void {
+    // Load the library once so linked types can render their (read-only) properties and be unlinked
+    // into an inline copy without a per-type round-trip.
+    this.schemaApi.listSchemaLibrary().subscribe({
+      next: ({ entries }) => this.libEntriesByName.set(Object.fromEntries(entries.map(e => [e.name, e]))),
+      error: () => this.libEntriesByName.set({}),
+    });
+  }
+
+  /** The library entry a linked type points at, if it has been loaded — else null. */
+  linkedEntry(kt: KnowledgeType, name: string): SchemaLibraryEntry | null {
+    const ref = this.state.typeLibRef(kt, name);
+    return ref ? (this.libEntriesByName()[ref] ?? null) : null;
+  }
+
+  /** A linked type's property schemas, as a display list (read-only), resolved from the library. */
+  linkedProps(kt: KnowledgeType, name: string): { key: string; s: PropertySchema }[] {
+    const schema = this.linkedEntry(kt, name)?.schema;
+    return Object.entries(schema?.propertySchemas ?? {}).map(([key, s]) => ({ key, s }));
+  }
+
+  /** A one-line, read-only summary of a property's constraints for the linked-type view. */
+  propConstraintSummary(s: PropertySchema): string {
+    const parts: string[] = [];
+    if (s.required) parts.push(this.transloco.translate('spaces.schema.propDetail.required'));
+    if (s.enum?.length) parts.push(`${this.transloco.translate('spaces.schema.propDetail.enumValues')}: ${s.enum.join(', ')}`);
+    if (s.minimum != null) parts.push(`${this.transloco.translate('spaces.schema.propDetail.min')} ${s.minimum}`);
+    if (s.maximum != null) parts.push(`${this.transloco.translate('spaces.schema.propDetail.max')} ${s.maximum}`);
+    if (s.pattern) parts.push(`/${s.pattern}/`);
+    if (s.default != null) parts.push(`${this.transloco.translate('spaces.schema.propDetail.default')} ${s.default}`);
+    return parts.join(' · ') || '—';
+  }
+
+  /**
+   * Unlink a library-linked type: replace the `$ref` with an inline copy of the library entry's schema
+   * so the space can then customise it. Mirrors the inline branch of the state loader; leaves the change
+   * pending in the form (buildMeta() then stores it inline instead of a $ref) — the footer Save persists.
+   */
+  unlinkType(kt: KnowledgeType, name: string): void {
+    const entry = this.linkedEntry(kt, name);
+    if (!entry) { this.toast.error(this.transloco.translate('spaces.schema.libRef.unlinkFailed')); return; }
+    const schema = entry.schema;
+    this.state.schTypeSchemas = {
+      ...this.state.schTypeSchemas,
+      [kt]: {
+        ...(this.state.schTypeSchemas[kt] ?? {}),
+        [name]: {
+          namingPattern:   schema.namingPattern ?? '',
+          tagSuggestions:  [...(schema.tagSuggestions ?? [])],
+          propertySchemas: Object.entries(schema.propertySchemas ?? {}).map(([k, ps]) => ({ key: k, s: { ...ps }, _enumInput: '' })),
+          _newPropInput: '',
+          _newTagInput:  '',
+          // _libRef intentionally dropped — the type is now a plain inline schema.
+        },
+      },
+    };
+  }
 
   /** The selected type's name if it belongs to the given collection and still exists, else null. */
   selectedTypeName(kt: KnowledgeType): string | null {

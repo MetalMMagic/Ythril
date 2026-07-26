@@ -2134,7 +2134,7 @@ The unstructured sidecar strategy and image extraction behaviour can be tuned un
 **The admin page has three tabs**, one route:
 
 - **Models** — every model you or infra can set: text embedding, vision, speech-to-text, the assist model, and read-only cards for the page renderer, document converter and face recognition. One shape per card (provider → endpoint → model → credential → test); infra-owned cards are dashed and name the env var that owns them.
-- **Pipelines** — Documents, Images, Audio & video and Text drawn as their real step chains, with the model doing the work named under each step and a health indicator fed by `GET /api/admin/pipeline-status`. **Clicking a model name jumps to the Models tab and highlights the card that configures it.** Conditional steps (VLM fallback, repair, face vectors) are dashed. Each pipeline's knobs hang off that pipeline, and each carries its own **instance ceiling** picker (see below). Audio and video share a card but have separate ceilings, because they have separate ladders.
+- **Pipelines** — Documents, Images, Audio, Video and Text drawn as their real step chains, with the model doing the work named under each step and a health indicator fed by `GET /api/admin/pipeline-status`. **Clicking a model name jumps to the Models tab and highlights the card that configures it.** Conditional steps (VLM fallback, repair, face vectors, video keyframe captioning) are dashed. Each pipeline's knobs hang off that pipeline, and each carries its own **instance ceiling** picker (see below). **Audio and Video are separate pipelines:** Audio is transcribe → embed; Video extracts the audio track and runs that same pipeline, adding keyframe captioning only at the `full` level (so at `audio` a video uses no vision model).
 - **Tools** — the components that run but have nothing to set: media splitter (ffmpeg), text chunker, and the vector index. Per space the index table shows the **live** database state alongside the **recorded** (config.json) state, so drift between them is visible; each row carries a **Rebuild** button (the same `POST /api/spaces/:id/rebuild-indexes` the space Danger Zone offers, behind the same confirmation) so the repair sits right where the drift shows.
 
 Switching tabs with unsaved changes prompts rather than discarding them.
@@ -2175,7 +2175,7 @@ ceiling under `mediaEmbedding.levels`:
 **Setting the ceilings.** `PATCH /api/admin/media-config` accepts a `levels` block — `{ "levels": { "images": "caption" } }` — or use the pickers on **Settings → Models → Pipelines**. Three things about it are deliberate:
 
 - **Each class is merged independently.** A patch naming only `images` leaves the other three exactly as they were. This matters more than it looks: an absent class reads back as `auto`, so a whole-object replace would silently *raise* the ceiling on every class the request did not mention.
-- **`video: "full"` is rejected** with `400`, on this route and on `PATCH /api/spaces/:id` alike. The rung is reserved so the ladder reads complete, but keyframe analysis is not built — accepting it as a ceiling would let every `auto` space resolve to a level that does nothing. The Pipelines picker renders it disabled rather than hiding it.
+- **Video's `audio` vs `full` is a real choice.** At `audio` a video "takes the audio pipeline instead of a model": its audio track is transcribed and embedded, and the vision model is never called. At `full` (and `auto`, which resolves to full) it additionally captions sampled keyframes with the vision model and folds those into the transcript segments. Both are accepted and stored.
 - **Env-pinned levels are refused** with `403` and reported in `lockedByInfra`, like every other media field.
 
 Remember what a ceiling does before lowering one: it caps every space already above it (those spaces keep their stored choice and return to it if you raise the ceiling again), and `off` is a floor as well as a ceiling — the class is not processed anywhere, whatever a space asked for.
@@ -2191,9 +2191,12 @@ quote the passage; `embed` stores one vector for the whole document, which still
 no longer answers "where does it say that?" — a real trade on long documents, and close to free on
 short notes. `off` stores the file and indexes nothing.
 
-`videoAnalysis: "full"` (keyframes analysed as images) is **reserved and not implemented**. The API
-**rejects it with 400** rather than accepting it and behaving like `audio`, so an operator is never
-told that keyframe analysis is running when nothing of the sort is built.
+`videoAnalysis` chooses how much of a video is analysed. `audio` runs the **audio pipeline only** —
+extract the audio track, transcribe, embed — so a video is searchable by what is said without ever
+invoking the vision model. `full` adds **keyframe captioning**: frames are sampled at an interval,
+captioned by the vision model, and prepended to the transcript segment they overlap before re-embedding.
+`auto` resolves to `full`. (Video is its own pipeline on **Settings → Models → Pipelines**, separate
+from Audio.)
 
 Uploads to a class whose effective level is `off` are stored and marked `embeddingStatus: "skipped"`.
 They are never queued, so they do not sit at `pending` waiting for work that will not happen. Uploads to a space whose effective level is `"off"` are stored and marked `embeddingStatus: "skipped"` — they are never queued, so they do not sit at `pending` waiting for work that will not happen.
@@ -2329,7 +2332,7 @@ Binary media files (images, audio, video) are automatically captioned or transcr
 |---|---|
 | Images (PNG, JPEG, GIF, WebP, …) | Caption via Ollama-compatible vision model → embed caption |
 | Audio (MP3, WAV, OGG, FLAC, …) | Silence-detect → STT chunks via Whisper-compatible API → embed each chunk |
-| Video (MP4, MKV, MOV, WebM, …) | Extract audio → STT + keyframe captioning → embed combined segments |
+| Video (MP4, MKV, MOV, WebM, …) | Extract audio → STT → embed; at the `full` level also caption sampled keyframes and fold them into the transcript segments (at `audio` the vision model is not used) |
 
 All media ultimately produces text that passes through the same `nomic-embed-text-v1.5` embedding model used for documents — no separate CLIP or multimodal vector space is required.
 

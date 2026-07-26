@@ -831,6 +831,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Audio and Video are now separate pipelines (Settings → Models → Pipelines), and the video level
+  actually controls the work.** They were one combined "Audio & video" card. Video is now its own
+  pipeline: it always extracts the audio track and runs the audio pipeline (transcribe → embed), and at
+  the **`full`** level it additionally captions sampled keyframes with the vision model. The **`audio`**
+  level means "take the audio pipeline **instead of a model**" — no vision calls. **Fix:** the video
+  level was previously ignored — keyframe captioning ran for *every* video regardless of level, so
+  `audio` did nothing; the worker now honours `effectiveVideoLevel`. The **`full`** rung is un-parked
+  (it was reserved/"not built"): the capability already ran, so this makes it a real, selectable choice
+  and lifts the `400` that the media-config and per-space routes returned for `video: "full"`.
+
 - **The vector-index table (Settings → Models → Tools) now has a per-space Rebuild button.** That
   table is the one place index drift is visible — a space **recorded** as `ready` while the database
   has **no such index**, the silent failure where recall returns nothing forever with no error. The

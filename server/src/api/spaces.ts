@@ -467,16 +467,6 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     if (ttl) void ensureTtlIndex(id).catch(err => log.warn(`ensureTtlIndex ${id}: ${err}`));
   }
 
-  // Per-space extraction-mode override (F11-c) is local/operational (like dupe rules) — apply
-  // immediately, never voted. null clears the override so the space inherits the instance default.
-  if (parsed.data.videoAnalysis === 'full') {
-    res.status(400).json({
-      error: "video level 'full' is reserved but not implemented yet — keyframe analysis is not built. " +
-             "Use 'audio' to transcribe the audio track, or 'auto'.",
-    });
-    return;
-  }
-
   // A space may pick any extraction mode up to the instance ceiling and nothing beyond. The client only
   // offers valid options, but an API caller (or a space whose stored value predates a lowered ceiling)
   // could still send more — so cap it here rather than store a value the runtime would only clamp later

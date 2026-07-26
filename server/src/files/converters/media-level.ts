@@ -76,6 +76,19 @@ export function effectiveVideoLevel(spaceId: string): VideoLevel {
 }
 
 /**
+ * Whether video embedding runs the keyframe-captioning path (the vision model) on top of the audio
+ * pipeline. Pure so the level→path policy is unit-testable without a database.
+ *
+ *   `audio` → transcribe the audio track only — video "takes the audio pipeline instead of a model".
+ *   `full`  → audio + keyframe captions via the vision model.
+ *   `auto`  → as much as possible, i.e. full (keyframes).
+ *   `off`   → never reached here (dispatch records 'skipped' before enqueuing).
+ */
+export function videoDoesKeyframes(level: VideoLevel): boolean {
+  return level === 'full' || level === 'auto';
+}
+
+/**
  * How text content is indexed for this space, low to high:
  *
  *   off    stored, never indexed — nothing in it is findable by search

@@ -162,17 +162,6 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     return;
   }
 
-  // Video `full` (keyframes as images) is a reserved rung with no implementation behind it. Rejected
-  // rather than silently treated as `audio`, and rejected here as well as on the per-space route —
-  // accepting it as a CEILING would let every `auto` space resolve to a level that does nothing.
-  if (parsed.data.levels?.video === 'full') {
-    res.status(400).json({
-      error: "video level 'full' is reserved but not implemented yet — keyframe analysis is not built. " +
-             "Use 'audio' to transcribe the audio track, or 'auto'.",
-    });
-    return;
-  }
-
   const locked = new Set(activeCfg.lockedByInfra ?? []);
 
   const blocked = blockedByInfra(parsed.data, locked);

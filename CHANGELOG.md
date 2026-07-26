@@ -831,6 +831,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Brain now opens on an Overview tab (its new default landing view).** Opening a space lands on
+  **Overview** — a per-space dashboard rather than the Query box. Slice one ships two panels: **Statistics**
+  (record counts per collection, a total, and storage used vs. the space's quota) and **Indexing** (the
+  vector index's state, plus a confirm-guarded **Reindex** when embeddings are stale). It reuses data the
+  Brain already loads, so it adds no fetch. Further panels (embedding queue, networks, health) follow.
+
 - **Audio and Video are now separate pipelines (Settings → Models → Pipelines), and the video level
   actually controls the work.** They were one combined "Audio & video" card. Video is now its own
   pipeline: it always extracts the audio track and runs the audio pipeline (transcribe → embed), and at

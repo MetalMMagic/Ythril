@@ -61,6 +61,10 @@ describe('BrainComponent (OnPush)', () => {
     expect(BrainComponent.ɵcmp?.onPush).toBe(true);
   });
 
+  it('lands on the Overview tab by default (F9 — Overview is the space landing view)', () => {
+    expect(create().componentInstance.activeTab()).toBe('overview');
+  });
+
   // ── Regression: the mount⇄reload request storm (app-unusable P0) ─────────────
   // The five record tabs each WRITE `recordList.loading` during their own `load()`. They used to be
   // mounted inside the `@else` of `@if (recordList.loading())`, so a tab set loading=true on load,

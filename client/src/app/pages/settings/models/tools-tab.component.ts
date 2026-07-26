@@ -6,23 +6,29 @@
  * real components or labels. More importantly, this tab is "is it working?" for exactly the class of
  * component that has no settings screen — which is the class whose failure went unnoticed for months.
  *
- * **The vector index is status-only, deliberately.** No rebuild button: repair is a Danger Zone
- * action, and a reindex caused by a config change happens on save behind a confirm that says it
- * re-embeds the whole brain. A one-click "rebuild" here would be the same destructive operation
- * without any of that framing.
+ * **The vector index table now carries a per-row Rebuild button.** This table is the one place drift
+ * is actually visible — `config.json` recording a space as `ready` while the database has no such index
+ * — so it is also where the repair belongs, right next to the row that shows the problem. It is the
+ * SAME rebuild the space's Danger Zone offers (`rebuildSpaceIndexes` → `POST .../rebuild-indexes`), with
+ * the same guard: a confirm that spells out that recall returns empty until the rebuild finishes. It
+ * rebuilds the missing `$vectorSearch` index; it is not the config-change reindex that re-embeds the
+ * brain, and it touches no records. Rebuild — not reindex — is what fixes the drift this table surfaces.
  *
  * The drift row is the reason `GET /api/admin/pipeline-status` exists. `config.json` recording a
  * space as `ready` while the database has no such index is invisible everywhere else in the product —
  * recall simply returns nothing, forever, with no error anywhere.
  */
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
-import { TranslocoPipe } from '@jsverse/transloco';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../../shared/ph-icon.component';
 import { StatusPillComponent, StatusVariant } from '../../../shared/status-pill.component';
 import { HealthDotComponent } from './health-dot.component';
 import { ModelProviderCardComponent } from './model-provider-card.component';
 import { PipelineStatusService } from './pipeline-status.service';
 import { SpaceIndexStatus } from './models.types';
+import { SpacesApi } from '../../../core/spaces-api.service';
+import { ToastService } from '../../../core/toast.service';
+import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 
 @Component({
   selector: 'app-tools-tab',
@@ -55,6 +61,13 @@ import { SpaceIndexStatus } from './models.types';
     td.space { font-weight: 550; }
     /* The "Recorded" header carries a tooltip; the dotted underline advertises it. */
     .th-hint { cursor: help; text-decoration: underline dotted; text-underline-offset: 2px; }
+    /* Action column: right-aligned Rebuild button, never wraps its label. */
+    th.act-h, td.act { text-align: right; white-space: nowrap; padding-right: 0; }
+    td.act .btn { display: inline-flex; align-items: center; gap: 6px; }
+    td.act .spinner { width: 12px; height: 12px; border-width: 2px; }
+    /* Visually-hidden accessible label for the action column header. */
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+      clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
     .drift { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 14px; padding: 11px 13px;
       border-radius: 9px; font-size: 12.5px; border: 1px solid var(--error-border); background: var(--error-bg); }
@@ -122,6 +135,7 @@ import { SpaceIndexStatus } from './models.types';
                   <!-- "Recorded" needs a word: it is what config.json believes, which "In the database"
                        is checked against — a mismatch is the drift this table exists to surface. -->
                   <th><span class="th-hint" [attr.title]="'models.tools.colStoredHint' | transloco">{{ 'models.tools.colStored' | transloco }}</span></th>
+                  <th class="act-h"><span class="sr-only">{{ 'models.tools.colAction' | transloco }}</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -130,6 +144,12 @@ import { SpaceIndexStatus } from './models.types';
                     <td class="space">{{ sp.label }}</td>
                     <td><app-status-pill [variant]="liveVariant(sp)" [dot]="true">{{ 'models.indexState.' + sp.live | transloco }}</app-status-pill></td>
                     <td><app-status-pill [variant]="sp.drifted ? 'error' : 'off'">{{ 'models.indexState.' + sp.stored | transloco }}</app-status-pill></td>
+                    <td class="act">
+                      <button class="btn btn-danger btn-sm" type="button" [disabled]="rebuilding().has(sp.id)" (click)="rebuildIndexes(sp)">
+                        @if (rebuilding().has(sp.id)) { <span class="spinner"></span> } @else { <ph-icon name="arrows-clockwise" [size]="14"/> }
+                        {{ 'models.tools.rebuildRowButton' | transloco }}
+                      </button>
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -142,6 +162,13 @@ import { SpaceIndexStatus } from './models.types';
 })
 export class ToolsTabComponent {
   readonly pipeline = inject(PipelineStatusService);
+  private spacesApi = inject(SpacesApi);
+  private toast = inject(ToastService);
+  private confirmDialog = inject(ConfirmDialogService);
+  private transloco = inject(TranslocoService);
+
+  /** Space ids whose rebuild is in flight — drives the per-row spinner + disabled state. */
+  rebuilding = signal(new Set<string>());
 
   spaces = computed(() => this.pipeline.status()?.index.spaces ?? []);
   unavailable = computed(() => this.pipeline.status()?.index.unavailable ?? null);
@@ -162,5 +189,39 @@ export class ToolsTabComponent {
     if (sp.live === 'building') return 'warn';
     if (sp.live === 'missing') return 'error';
     return 'off';
+  }
+
+  /**
+   * Rebuild one space's `$vectorSearch` index — the repair for the drift this table surfaces.
+   *
+   * Same operation and guard as the space Danger Zone (`rebuildSpaceIndexes`), surfaced here because
+   * this is where drift is visible. It is not destructive — no record is touched, only the index is
+   * recreated — but recall returns EMPTY until the build finishes, so the confirm spells that out.
+   * Reuses the Danger Zone's confirm/toast copy so the two entry points read identically.
+   */
+  async rebuildIndexes(sp: SpaceIndexStatus): Promise<void> {
+    if (this.rebuilding().has(sp.id)) return;
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('spaces.dangerZone.rebuildIndexesTitle'),
+      message: this.transloco.translate('spaces.dangerZone.confirmRebuildIndexes', { label: sp.label }),
+      confirmLabel: this.transloco.translate('spaces.dangerZone.rebuildIndexesButton'),
+      danger: true,
+    });
+    if (!ok) return;
+    this.rebuilding.update(s => new Set(s).add(sp.id));
+    this.spacesApi.rebuildSpaceIndexes(sp.id).subscribe({
+      next: () => {
+        this.clearRebuilding(sp.id);
+        this.toast.success(this.transloco.translate('spaces.dangerZone.rebuildIndexesStarted'));
+      },
+      error: (err: { error?: { error?: string }; message?: string }) => {
+        this.clearRebuilding(sp.id);
+        this.toast.error(err?.error?.error ?? err?.message ?? this.transloco.translate('spaces.dangerZone.rebuildIndexesFailed'));
+      },
+    });
+  }
+
+  private clearRebuilding(id: string): void {
+    this.rebuilding.update(s => { const n = new Set(s); n.delete(id); return n; });
   }
 }

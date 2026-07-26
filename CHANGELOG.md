@@ -831,6 +831,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The vector-index table (Settings → Models → Tools) now has a per-space Rebuild button.** That
+  table is the one place index drift is visible — a space **recorded** as `ready` while the database
+  has **no such index**, the silent failure where recall returns nothing forever with no error. The
+  repair for it (recreating the `$vectorSearch` index) previously lived only in the space's Danger Zone,
+  a tab away from where the problem shows. Each row now carries a red **Rebuild** button that runs the
+  *same* operation (`POST /api/spaces/:id/rebuild-indexes`) behind the *same* confirmation — no records
+  are touched, but recall stays empty until the rebuild finishes. It rebuilds the index; it is not the
+  config-change reindex that re-embeds content, which cannot recreate a missing index. No new endpoint.
+
 - **A library-linked schema type can be unlinked and customised, and its properties are visible while
   linked (Settings → Spaces → *space* → Schema).** A type imported **From Lib** used to be an opaque,
   non-editable link. Now the linked type shows the library entry's **properties read-only**, so you can

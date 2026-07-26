@@ -2349,6 +2349,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Face recognition's "Person entity types" are now picked from your Schema Library (Settings →
+  Models → Face recognition).** The field was a free-typed, comma-separated line; it's now a chip
+  selector whose dropdown lists the **entity types defined in your Schema Library**, with a hint saying
+  so — so you choose from real, known types instead of guessing spellings. Any value already stored
+  stays selectable and removable even if it's no longer in the library, so nothing silently drops.
+
 - **A space's document-extraction dropdown now only offers modes within the instance ceiling.** The
   per-space extraction override (Settings → Spaces → *space* → Settings) used to list every mode
   (OCR / VLM / Repair) even when the instance ceiling was lower — so you could pick a level the runtime

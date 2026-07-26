@@ -360,8 +360,9 @@ export class PipelinesTabComponent {
         // This card covers TWO classes: audio files and video files have separate ladders.
         ceilings: [{ cls: 'audio' as MediaClass, ladder: AUDIO_LEVELS }, { cls: 'video' as MediaClass, ladder: VIDEO_LEVELS }],
         steps: [
-          // Video only: audio files skip straight to transcription.
-          { key: 'split', name: 'models.step.split', actor: 'ffmpeg', health: null, conditional: true },
+          // Video only: audio files skip straight to transcription. ffmpeg is bundled and always
+          // available in-process, so it reports 'ok' (online) rather than an "unknown" no-probe dot.
+          { key: 'split', name: 'models.step.split', actor: 'ffmpeg', health: 'ok', conditional: true },
           { key: 'transcribe', name: 'models.step.transcribe', actor: this.s.form.stt?.model || this.notSet, health: ps.modelState('stt'), conditional: false, cardId: 'stt' },
           { key: 'aud-embed', name: 'models.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
         ] as Step[],
@@ -370,8 +371,9 @@ export class PipelinesTabComponent {
         id: 'text', icon: 'text-align-left', title: 'models.pipelines.text', purpose: 'models.pipelines.textPurpose',
         ceilings: [{ cls: 'text' as MediaClass, ladder: TEXT_LEVELS }],
         steps: [
-          // Chunking only happens at the `chunk` rung; `embed` produces one vector for the whole document.
-          { key: 'chunk', name: 'models.step.chunk', actor: 'text chunker', health: null, conditional: true },
+          // Chunking only happens at the `chunk` rung; `embed` produces one vector for the whole
+          // document. The chunker is bundled and always available in-process, so it reports 'ok'.
+          { key: 'chunk', name: 'models.step.chunk', actor: 'text chunker', health: 'ok', conditional: true },
           { key: 'txt-embed', name: 'models.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
         ] as Step[],
       },

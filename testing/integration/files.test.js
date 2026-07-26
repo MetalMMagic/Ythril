@@ -907,7 +907,9 @@ describe('Media embedding — GET /api/admin/media-config', () => {
     });
     assert.equal(r.status, 200, `Expected 200, got ${r.status}`);
     const body = await r.json();
-    assert.equal(typeof body.enabled, 'boolean', 'enabled must be a boolean');
+    // The `enabled` master switch was removed — media embedding is always on, gated per class by levels.
+    assert.equal(body.enabled, undefined, 'the removed enabled master switch must not be returned');
+    assert.ok(typeof body.levels === 'object' && body.levels !== null, 'levels config must be an object');
     assert.ok(['local', 'external'].includes(body.visionProvider), 'visionProvider must be local or external');
     assert.ok(['local', 'external'].includes(body.sttProvider), 'sttProvider must be local or external');
     assert.ok(typeof body.vision === 'object' && body.vision !== null, 'vision config must be an object');

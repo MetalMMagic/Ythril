@@ -2331,12 +2331,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **New spaces now start with a fully-strict schema posture.** Creating a space in **Settings → Spaces**
+  now defaults it to `validationMode: 'strict'` **and** `strictLinkage: true`, so a fresh space enforces
+  its schema and referential integrity from the moment it exists — the strictest, most data-honest
+  default. You can still turn either off per space from the Schema tab, and an explicit value in the
+  create request always wins. **Existing spaces are not migrated**, and the strict default is **not**
+  applied to spaces created by joining a federation network (those keep the lenient default so incoming
+  federated records are never rejected on ingest). With no per-type schemas defined yet, `strict` still
+  accepts every type — nothing to violate — so a brand-new empty space is never blocked.
+
 - **Token permission pills are now colour-coded by privilege (Settings → Tokens).** The permission
   badge in the token list mapped to design-system colours that didn't track privilege — admin was
   green, standard was neutral grey. Following owner feedback, the pills now read at a glance:
   **admin = red** (the most-powerful, most-dangerous token), **standard = green**, **read-only =
   yellow** (schema-library keeps its distinct blue). Purely the pill colour vocabulary — no change to
   permissions, the create flow, or any behaviour.
+
 - **The Brain File Meta edit form's entity / memory / chrono pickers now match every other tab.** They
   were the last hold-outs on the old click-to-open **flyout** pattern; each is now the same always-inline
   chips + search field the memory and chrono forms use, via the shared `app-entity-ref-field` /

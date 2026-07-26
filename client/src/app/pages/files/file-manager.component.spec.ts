@@ -115,6 +115,37 @@ describe('FileManagerComponent (OnPush)', () => {
     expect(fixture.nativeElement.querySelector('.seg-toggle')).toBeNull();
   });
 
+  it('renders markdown FORMATTED (not as highlighted source) in the preview face', () => {
+    const fixture = create([fileEntry('doc.md')]);
+    fixture.componentInstance.previewFile.set(fileEntry('doc.md'));
+    fixture.componentInstance.previewKind.set('markdown');
+    fixture.componentInstance.previewHtml.set('<h1>Hello</h1><p>world</p>');
+    fixture.detectChanges();
+    const md = fixture.nativeElement.querySelector('.md-rendered') as HTMLElement | null;
+    expect(md).toBeTruthy();
+    expect(md!.querySelector('h1')?.textContent).toContain('Hello');
+    // A .md must NOT fall through to the source-code (<pre class="preview-code">) branch.
+    expect(fixture.nativeElement.querySelector('.preview-code')).toBeNull();
+  });
+
+  it('toggles the full-screen preview overlay; Escape collapses it before closing the pane', () => {
+    const fixture = create([fileEntry('doc.md')]);
+    fixture.componentInstance.previewFile.set(fileEntry('doc.md'));
+    fixture.componentInstance.previewKind.set('markdown');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.preview-fs-overlay')).toBeNull();
+
+    fixture.componentInstance.previewFullscreen.set(true);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.preview-fs-overlay')).toBeTruthy();
+
+    // First Escape collapses full-screen but leaves the docked pane open.
+    fixture.componentInstance.onPreviewKey(new KeyboardEvent('keydown', { key: 'Escape' }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.previewFullscreen()).toBe(false);
+    expect(fixture.componentInstance.previewFile()).toBeTruthy();
+  });
+
   it('re-renders the listing when the entries signal is replaced (not just on first load)', () => {
     const fixture = create([fileEntry('first.md')]);
     const body = () => (fixture.nativeElement.querySelector('table tbody') as HTMLElement).textContent ?? '';

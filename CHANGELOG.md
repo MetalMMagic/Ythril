@@ -2403,6 +2403,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Files preview now renders Markdown formatted and can go full-screen.** `.md` / `.markdown` files
+  render as formatted Markdown (headings, lists, links, code blocks, tables) instead of highlighted source,
+  and the preview gains a **full-screen** button that expands it to a full-window overlay (Escape or the close
+  button collapses it back to the docked pane, which stays open). The generated HTML is bound through Angular's
+  DOM sanitizer, so scripts/handlers in file content are stripped. (Mermaid diagrams and an .xlsx table preview
+  follow in later updates.)
+
 - **The Brain's Files tab gains a docked detail pane — preview + description, toggled to the full file-meta
   record.** Clicking a file now opens a right-hand column beside the list (the list runs full width until
   then, and reclaims it on close) instead of a full-screen modal drawer. Its header is a lean

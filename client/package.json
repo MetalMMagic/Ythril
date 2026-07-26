@@ -24,6 +24,7 @@
     "@phosphor-icons/core": "^2.1.1",
     "cytoscape": "^3.33.2",
     "highlight.js": "^11.11.1",
+    "marked": "^18.0.7",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "uqr": "^0.1.3"

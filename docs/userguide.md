@@ -275,18 +275,24 @@ The file manager lets you upload, download, organise, and preview files within e
 
 **Status & tags:** each file row also shows its **embedding status** (a pill: *Embedded*, *Embedding*, *Partial*, *Failed*, *Skipped*…) and its **tags**, pulled from the file's metadata — so a space's file-processing state is visible right in the list. (This is the file manager and the *File Meta* tab coming together into one view.)
 
-### File preview
+### Detail pane (preview + description ⇄ file meta)
 
-Clicking a file name or 👁 opens an inline preview pane:
+Clicking a file opens a **docked detail pane** to the right of the list (the list runs full width until then, and reclaims it when you close the pane). The pane has two faces, switched with the segmented toggle in its header:
 
-| Type | How it renders |
-|------|---------------|
-| Text, code, Markdown, JSON, YAML… | Syntax-highlighted |
-| Images (.png, .jpg, .gif, .webp, .svg…) | Inline image |
-| PDF | Embedded viewer |
-| Everything else | File info + download button |
+- **Preview & description** — the file preview, with the file's metadata **description** shown beneath it:
 
-Press **Escape** or click the backdrop to close. Use arrow keys to move to the previous or next file in the directory.
+  | Type | How it renders |
+  |------|---------------|
+  | Text, code, Markdown, JSON, YAML… | Syntax-highlighted |
+  | Images (.png, .jpg, .gif, .webp, .svg…) | Inline image |
+  | PDF | Embedded viewer |
+  | Everything else | File info + download button |
+
+- **File meta** *(in the Brain)* — the editable metadata record: **description**, **tags**, and links to **entities**, **memories** and **chrono** entries, plus a **Retry** action to re-queue embedding for a failed or partial file. This is where the former *File Meta* tab's editing now lives. (On the standalone Files page, outside the Brain, the pane shows preview + description only.)
+
+Press **Escape** or the close button to dismiss the pane. Use arrow keys to move to the previous or next file in the directory.
+
+> Formatted Markdown and Mermaid rendering, an .xlsx table preview, and a full-screen preview button are coming in a later update.
 
 ---
 

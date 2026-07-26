@@ -35,6 +35,7 @@ function makeApi(entries: FileEntry[]) {
     listSpaces: () => of({ spaces: [] }),
     listFiles: () => of({ entries }),
     getFileDownloadUrl: (spaceId: string, path: string) => `/api/files/${spaceId}${path}`,
+    getFileMeta: () => of(null), // opening a file fetches its meta record; no record in these fixtures
   } as any;
 }
 
@@ -85,17 +86,33 @@ describe('FileManagerComponent (OnPush)', () => {
     expect(treeText.some((t) => t?.includes('readme.md'))).toBe(false);
   });
 
-  it('opens the preview overlay when the previewFile signal is set (OnPush re-checks the signal)', () => {
+  it('opens the docked detail pane when the previewFile signal is set (OnPush re-checks the signal)', () => {
     const fixture = create([fileEntry('photo.bin')]);
-    expect(fixture.nativeElement.querySelector('.preview-overlay')).toBeNull();
+    // The list runs full width until a file is opened — no detail column yet.
+    expect(fixture.nativeElement.querySelector('.fm-detail')).toBeNull();
 
     fixture.componentInstance.previewKind.set('unknown');
     fixture.componentInstance.previewFile.set(fileEntry('photo.bin'));
     fixture.detectChanges();
 
-    const overlay = fixture.nativeElement.querySelector('.preview-overlay');
-    expect(overlay).toBeTruthy();
+    const detail = fixture.nativeElement.querySelector('.fm-detail');
+    expect(detail).toBeTruthy();
     expect(text(fixture)).toContain('photo.bin');
+    // Opening a file shows the preview face first.
+    expect(fixture.componentInstance.detailMode()).toBe('preview');
+    // Embedded in the Brain (create() sets embeddedSpaceId) → the [Preview | File meta] toggle is offered.
+    expect(fixture.nativeElement.querySelector('.seg-toggle')).toBeTruthy();
+  });
+
+  it('hides the File-meta toggle when NOT embedded (meta editing needs the Brain-provided picker)', () => {
+    const fixture = create([fileEntry('photo.bin')]);
+    // Standalone /files route: no Brain injector, so meta editing is unavailable — preview only.
+    fixture.componentInstance.embeddedSpaceId = '';
+    fixture.componentInstance.previewKind.set('unknown');
+    fixture.componentInstance.previewFile.set(fileEntry('photo.bin'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.fm-detail')).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('.seg-toggle')).toBeNull();
   });
 
   it('re-renders the listing when the entries signal is replaced (not just on first load)', () => {

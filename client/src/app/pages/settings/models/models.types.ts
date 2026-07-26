@@ -83,7 +83,7 @@ export interface FaceRecognitionCfg {
 }
 
 export interface MediaCfg {
-  enabled?: boolean;
+  // No master `enabled` switch — media embedding is always on; each class is gated by `levels`.
   levels?: MediaLevelCeilings;
   faceRecognition?: FaceRecognitionCfg;
   visionProvider?: 'local' | 'external';

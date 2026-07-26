@@ -146,7 +146,7 @@ import { TestTarget } from './models.types';
         [heading]="'models.vision.title' | transloco"
         [purpose]="'models.vision.purpose' | transloco"
         [health]="pipeline.modelState('vision')">
-        <app-status-pill pill [variant]="s.form.enabled ? 'active' : 'off'">
+        <app-status-pill pill [variant]="s.mediaClassOn('images') ? 'active' : 'off'">
           {{ (s.form.visionProvider === 'external' ? 'models.pill.external' : 'models.vision.pillLocal') | transloco }}
         </app-status-pill>
         @if (s.isLocked('visionProvider')) { <app-status-pill pill variant="env">{{ 'models.pill.env' | transloco }}</app-status-pill> }
@@ -188,7 +188,7 @@ import { TestTarget } from './models.types';
         [heading]="'models.stt.title' | transloco"
         [purpose]="'models.stt.purpose' | transloco"
         [health]="pipeline.modelState('stt')">
-        <app-status-pill pill [variant]="s.form.enabled ? 'active' : 'off'">
+        <app-status-pill pill [variant]="s.mediaClassOn('audio') ? 'active' : 'off'">
           {{ (s.form.sttProvider === 'external' ? 'models.pill.external' : 'models.stt.pillLocal') | transloco }}
         </app-status-pill>
         @if (s.isLocked('sttProvider')) { <app-status-pill pill variant="env">{{ 'models.pill.env' | transloco }}</app-status-pill> }

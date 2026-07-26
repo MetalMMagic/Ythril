@@ -17,7 +17,7 @@ import { TranslocoService } from '@jsverse/transloco';
 import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 import { StatusVariant } from '../../../shared/status-pill.component';
 import {
-  MediaCfg, DocProcCfg, DocAssistCfg, DocAssistUse, DocMode, EmbeddingCfg,
+  MediaCfg, MediaClass, DocProcCfg, DocAssistCfg, DocAssistUse, DocMode, EmbeddingCfg,
   TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES,
 } from './models.types';
 
@@ -208,11 +208,10 @@ export class ModelsStateService {
     return this.vlmNeededButMissing() ? 'warn' : 'active';
   }
 
-  // ── summary pill helpers for vision/stt ──
-  capVariant(model?: string): StatusVariant { return this.form.enabled ? (model ? 'active' : 'warn') : 'off'; }
-  capLabelKey(model?: string): string {
-    return !this.form.enabled ? 'models.cap.off' : (model ? 'models.cap.active' : 'models.cap.noModel');
-  }
+  // ── per-class on/off (media embedding is always on; each class is gated by its level) ──
+  /** A media class is active unless its instance level is `off` (absent ⇒ `auto` ⇒ active). Drives the
+   *  vision (images) / STT (audio) "active/off" pills now that the master switch is gone. */
+  mediaClassOn(cls: MediaClass): boolean { return (this.form.levels?.[cls] ?? 'auto') !== 'off'; }
 
   /**
    * The PATCH body. Split out of `save()` so the dirty check can compare against it — the set of
@@ -226,7 +225,6 @@ export class ModelsStateService {
     const dp = this.form.documentProcessing ?? {};
     const levels = this.form.levels ?? {};
     return {
-      enabled: this.form.enabled,
       // Instance ceilings, sent per class. The server merges class by class for the same reason this
       // sends all four: a partial block would let the classes it omits default back up to `auto`.
       levels: { images: levels.images, audio: levels.audio, video: levels.video, text: levels.text },

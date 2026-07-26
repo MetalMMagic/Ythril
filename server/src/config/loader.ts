@@ -178,6 +178,35 @@ export function configExists(): boolean {
   }
 }
 
+/**
+ * One-time migration for the removed media-embedding master switch.
+ *
+ * Media embedding is now always-on, controlled per class by `mediaEmbedding.levels`. An instance that
+ * had the old `enabled:false` must NOT silently start embedding on upgrade, so map it to the equivalent
+ * per-class state: force images/audio/video to `off` (the master switch used to override the levels, so
+ * this preserves exact prior behaviour). Then drop the dead `enabled` field. Idempotent — a no-op once
+ * `enabled` is gone.
+ *
+ * Must be DURABLE (rewrite config.json), not applied only in `getMediaEmbeddingConfig()`: the
+ * media-config PATCH handler merges the RAW on-disk block, so an in-memory-only migration would be
+ * undone — and would flip media ON — the next time an admin saved a setting.
+ *
+ * @returns true if it changed the config (caller persists).
+ */
+export function migrateMediaEmbeddingMasterSwitch(config: Config): boolean {
+  const media = config.mediaEmbedding as (MediaEmbeddingConfig & { enabled?: boolean }) | undefined;
+  if (!media || !('enabled' in media)) return false;
+  const wasDisabled = media.enabled === false;
+  delete media.enabled;
+  if (wasDisabled) {
+    media.levels = { ...(media.levels ?? {}) };
+    media.levels.images = 'off';
+    media.levels.audio = 'off';
+    media.levels.video = 'off';
+  }
+  return true;
+}
+
 export function loadConfig(): Config {
   checkPermissions(CONFIG_PATH);
   const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
@@ -189,6 +218,15 @@ export function loadConfig(): Config {
   parsed.networks ??= [];
   _config = parsed;
   validateOidcBlock(_config);
+  // Durable one-time migration of the removed media-embedding master switch (writes config.json once).
+  if (migrateMediaEmbeddingMasterSwitch(_config)) {
+    try {
+      saveConfig(_config);
+      log.info('Migrated mediaEmbedding.enabled → per-class levels (media-embedding master switch removed)');
+    } catch (err) {
+      log.warn(`Could not persist mediaEmbedding master-switch migration (will retry next boot): ${err}`);
+    }
+  }
   return _config;
 }
 
@@ -621,14 +659,10 @@ export function getDataRoot(): string {
 import type { MediaEmbeddingConfig, MediaProviderConfig, FaceRecognitionConfig, DocumentProcessingConfig, EmbeddingConfig } from './types.js';
 
 const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
-  // Enabled by default: both K8s manifests (kubernetes/manifests/ollama-deploy.yaml,
-  // whisper-deploy.yaml) and the workstation docker-compose.yml ship with bundled
-  // ollama + whisper services. The default `vision.baseUrl` / `stt.baseUrl` resolve
-  // in both environments via the short service name (Docker bridge DNS in compose;
-  // ClusterFirst DNS in the `ythril` namespace in K8s).
-  enabled: true,
-  // Per-class ceilings default to `auto`: no policy limit of their own, so behaviour is
-  // unchanged until an operator sets one.
+  // Media embedding is always on (no master switch). Each class is gated by its `levels` entry, which
+  // defaults to `auto` (no policy limit of its own). The bundled ollama + whisper services (K8s
+  // manifests + the workstation docker-compose) back the default `vision`/`stt` endpoints, which resolve
+  // via the short service name in both environments (Docker bridge DNS; ClusterFirst DNS in K8s).
   levels: { images: 'auto', audio: 'auto', video: 'auto', text: 'auto' },
   visionProvider: 'local',
   sttProvider: 'local',
@@ -684,7 +718,6 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
     return configVal !== undefined ? configVal : defaultVal;
   }
 
-  const enabled = pick('MEDIA_EMBEDDING_ENABLED', 'enabled', base.enabled, MEDIA_EMBEDDING_DEFAULTS.enabled);
   const visionProvider = pick('VISION_PROVIDER', 'visionProvider', base.visionProvider, MEDIA_EMBEDDING_DEFAULTS.visionProvider) as 'local' | 'external';
   const sttProvider = pick('STT_PROVIDER', 'sttProvider', base.sttProvider, MEDIA_EMBEDDING_DEFAULTS.sttProvider) as 'local' | 'external';
 
@@ -750,7 +783,6 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   if (process.env['EMBEDDING_API_KEY']) locked.push('embedding.apiKey');
 
   return {
-    enabled,
     // Per-class ceilings, filled per field so a partial `levels` block cannot drop the classes it
     // does not mention (the same trap the embedding defaults hit).
     levels: {

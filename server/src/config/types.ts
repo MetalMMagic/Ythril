@@ -300,19 +300,19 @@ export interface MediaProviderConfig {
  * captioning + STT so every embedding lands in the same vector space as
  * memories, entities and converted documents (`nomic-embed-text-v1.5`).
  *
- * Off by default — must be explicitly enabled in config.json or via
- * `MEDIA_EMBEDDING_ENABLED=true` once the config loader is implemented.
+ * Always on — there is no master on/off switch. Each media class is controlled by its `levels` entry
+ * (`off` takes that class offline instance-wide); the removed `MEDIA_EMBEDDING_ENABLED` /
+ * `mediaEmbedding.enabled` master switch is migrated to `levels` on upgrade.
  *
  * ── Plugin model ────────────────────────────────────────────────────────────
  * Vision and STT are pluggable via the generic `vision` / `stt`
  * `MediaProviderConfig` blocks. Any OpenAI-compatible endpoint works
  * out-of-the-box; switching providers is a config edit, not a code change.
  *
- * ── Planned resolution order (high → low precedence; not yet active) ────────
- * When `getMediaEmbeddingConfig()` in the loader is implemented, it will apply:
- *   1. Env vars (`MEDIA_EMBEDDING_ENABLED`, `VISION_PROVIDER`, `OLLAMA_URL`,
- *      `VISION_MODEL`, `VISION_API_KEY`, `STT_PROVIDER`, `WHISPER_URL`,
- *      `WHISPER_MODEL`, `STT_API_KEY`, …)
+ * ── Resolution order (high → low precedence) ────────────────────────────────
+ * `getMediaEmbeddingConfig()` in the loader applies:
+ *   1. Env vars (`VISION_PROVIDER`, `OLLAMA_URL`, `VISION_MODEL`, `VISION_API_KEY`,
+ *      `STT_PROVIDER`, `WHISPER_URL`, `WHISPER_MODEL`, `STT_API_KEY`, …)
  *   2. `config.json` `mediaEmbedding.*` (writable from the UI)
  *   3. Built-in defaults
  *
@@ -320,10 +320,10 @@ export interface MediaProviderConfig {
  * the Settings UI can render it read-only (locked-by-infra).
  */
 export interface MediaEmbeddingConfig {
-  /** Master switch — when false, media files store with embeddingStatus="disabled". */
-  enabled?: boolean;
   /** Instance CEILINGS per media class — the most a space is allowed to do, not a default a space
-   *  inherits. Absent = `auto` (no policy limit). Documents have their own under
+   *  inherits. Absent = `auto` (no policy limit). A class set to `off` here takes it offline instance-
+   *  wide — this is the ONLY media on/off control (the old `enabled` master switch was removed; a legacy
+   *  `enabled:false` is migrated to images/audio/video = `off`). Documents have their own under
    *  `documentProcessing.mode`, which predates this block. */
   levels?: MediaLevelCeilings;
   /** "local" → bundled cluster endpoint (Ollama); "external" → user-supplied API. */
@@ -1245,8 +1245,11 @@ export interface FileMetaDoc {
    *   "partial"    → chunks produced but some failed to embed; searchable but incomplete.
    *                  Re-runnable via POST /api/files/:spaceId/retry_embedding.
    *   "failed"     → exhausted retries; mediaJobError carries the reason
-   *   "skipped"    → file too large (> maxFileSizeBytes) — original kept, no embedding
-   *   "disabled"   → mediaEmbedding.enabled=false at upload time
+   *   "skipped"    → not analysed — file too large (> maxFileSizeBytes), or this media class is `off`
+   *                  for the space (its `levels` entry) — original kept, no embedding
+   *   "disabled"   → LEGACY: set at upload when the removed media-embedding master switch was off. No
+   *                  longer produced (a class turned off now lands as "skipped"); kept so pre-migration
+   *                  records still render.
    */
   embeddingStatus?: 'pending' | 'processing' | 'complete' | 'partial' | 'failed' | 'skipped' | 'disabled';
   /** For audio/video chunk records: start offset within the parent media file. */

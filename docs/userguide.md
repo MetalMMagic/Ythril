@@ -546,7 +546,7 @@ By default, Ythril ships with a bundled vision service (Ollama running `moondrea
 
 ### When to change this
 
-- **Disable it.** Untick **Enable media embedding** if you don't upload media or your machine is tight on memory. Existing files keep their captions; new uploads are stored as-is.
+- **Turn a class off.** There is no single on/off switch — each media class (images, audio, video) has its own **level**. Set a class to **Off** if you don't upload that kind of media or your machine is tight on memory; its provider card then reads **off** and new uploads of that class are stored as-is (existing files keep their captions). Setting all three to Off turns media embedding off entirely.
 - **Use an external provider.** Switch the **Provider** on the **Vision** or **Speech** card to *External* if you'd rather call OpenAI, Azure, or any other OpenAI-compatible service. Fill in the **Endpoint**, **Model**, and **API key (external only)** for that provider. API keys are stored in the encrypted secrets file, never alongside the rest of the configuration.
 - **Use a different local model.** Keep the provider on *Local* but change the **Model** field — for example, switch the vision model from `moondream` to `llava` if you've pulled it into Ollama.
 

@@ -42,7 +42,6 @@ import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 /** The shape GET /api/admin/media-config returns, with keys masked as the server masks them. */
 function cfgFixture(over: Record<string, unknown> = {}) {
   return {
-    enabled: true,
     visionProvider: 'local',
     sttProvider: 'local',
     vision: { baseUrl: 'http://ollama:11434', model: 'llava', apiKey: '••••••••' },
@@ -373,15 +372,16 @@ describe('ModelsStateService — derived display state', () => {
     expect(c.docSummary().key).toBe('models.docSummary.ocr');
   });
 
-  it('capability pills distinguish off / no-model / active', () => {
-    const { c } = make();
-    expect(c.capLabelKey('llava')).toBe('models.cap.active');
-    expect(c.capVariant('llava')).toBe('active');
-    expect(c.capLabelKey(undefined)).toBe('models.cap.noModel');
-    expect(c.capVariant(undefined)).toBe('warn');
-    c.form.enabled = false;
-    expect(c.capLabelKey('llava')).toBe('models.cap.off');
-    expect(c.capVariant('llava')).toBe('off');
+  it('mediaClassOn reflects the per-class level (no master switch)', () => {
+    // absent levels ⇒ auto ⇒ every class active
+    const def = make();
+    expect(def.c.mediaClassOn('images')).toBe(true);
+    expect(def.c.mediaClassOn('audio')).toBe(true);
+    // an explicit `off` level takes that class offline (drives the vision/STT pills)
+    const { c } = make(cfgFixture({ levels: { images: 'caption', audio: 'off', video: 'auto', text: 'auto' } }));
+    expect(c.mediaClassOn('images')).toBe(true);   // caption ≠ off
+    expect(c.mediaClassOn('audio')).toBe(false);    // off ⇒ inactive
+    expect(c.mediaClassOn('video')).toBe(true);     // auto
   });
 
   it('setMode keeps the form and the signal in step', () => {

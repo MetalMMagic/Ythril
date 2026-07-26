@@ -2375,6 +2375,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **⚠️ BREAKING: the media-embedding master switch is removed. Media embedding is now always on,
+  controlled per class by the `images` / `audio` / `video` levels.** The `MEDIA_EMBEDDING_ENABLED`
+  environment variable and the `mediaEmbedding.enabled` config flag no longer exist, and the "Enable
+  media embedding" master checkbox is gone from **Settings → Models**. To take a media class offline, set
+  its **level** to `off` (per class in the UI, or `PATCH /api/admin/media-config` with a `levels` block;
+  all three `off` = media off instance-wide). **Upgrade is automatic and lossless:** on first boot an
+  instance that had `enabled:false` is migrated — its `images`/`audio`/`video` levels are set to `off`
+  (config.json is rewritten once), so a disabled instance stays disabled and does NOT silently start
+  embedding. Infra that set `MEDIA_EMBEDDING_ENABLED=false` must switch to the levels (the env var is
+  now ignored). The vision/STT provider cards' "active/off" pills key off the per-class level. The
+  `embeddingStatus: "disabled"` value is retained for pre-migration file records but is no longer
+  produced — a class turned off now records `"skipped"` (with a reason) instead.
+
 - **Face recognition's "Person entity types" are now picked from your Schema Library (Settings →
   Models → Face recognition).** The field was a free-typed, comma-separated line; it's now a chip
   selector whose dropdown lists the **entity types defined in your Schema Library**, with a hint saying

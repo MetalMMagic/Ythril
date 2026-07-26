@@ -40,16 +40,13 @@ type Tab = 'models' | 'pipelines' | 'tools';
   // state rather than a previous visit's half-finished edits.
   providers: [ModelsStateService, PipelineStatusService],
   imports: [
-    FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent,
+    FormsModule, TranslocoPipe, PhIconComponent,
     ModelsTabComponent, PipelinesTabComponent, ToolsTabComponent,
   ],
   styles: [`
     :host { display: block; }
-    /* Header debloated to just the global media-embedding toggle, right-aligned; the sidebar nav and
-       the tab strip already say where you are, so the old title + explanatory subtitle were redundant. */
-    .page-header { display: flex; justify-content: flex-end; align-items: center;
-      gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
-    .master { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+    /* No page header: media embedding is always on (controlled per class on the Models tab), the sidebar
+       nav and tab strip already say where you are, and the old title/subtitle were redundant. */
 
     /* Tabs sized to content, at the top of the panel — not a full-width strip. */
     .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
@@ -75,15 +72,6 @@ type Tab = 'models' | 'pipelines' | 'tools';
     .save-ok { color: var(--success); font-size: 13px; }
   `],
   template: `
-    <div class="page-header">
-      <label class="master">
-        <input type="checkbox" [(ngModel)]="s.form.enabled" [disabled]="s.isLocked('enabled')"
-          (ngModelChange)="s.touched.set(true)" name="mediaEnabled" />
-        {{ 'models.page.mediaEmbedding' | transloco }}
-        @if (s.isLocked('enabled')) { <app-status-pill variant="env">{{ 'models.pill.env' | transloco }}</app-status-pill> }
-      </label>
-    </div>
-
     @if (s.loading()) {
       <div class="loading-overlay"><span class="spinner"></span></div>
     } @else if (s.loadError(); as e) {

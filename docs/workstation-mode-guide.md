@@ -68,7 +68,7 @@ Default stack from `docker-compose.yml`:
 - `ythril-unstructured` (document parsing for PDF/DOCX/EPUB uploads)
 - `ythril-doc-render` (PDF → page-image rendering for the VLM document-extraction path)
 
-All six containers start on `docker compose up -d` — none is behind a Compose profile. To run a lean stack, scale the ones you don't need to zero, e.g. `docker compose up --scale ollama=0 --scale whisper=0 --scale unstructured=0 --scale doc-render=0`. Unticking **Enable media embedding** in **Settings → Models** (or `mediaEmbedding.enabled: false` in `config.json`) stops Ythril *calling* the vision/STT sidecars, but does not stop the `unstructured`/`doc-render` document-processing containers — scale those to zero if you don't upload documents.
+All six containers start on `docker compose up -d` — none is behind a Compose profile. To run a lean stack, scale the ones you don't need to zero, e.g. `docker compose up --scale ollama=0 --scale whisper=0 --scale unstructured=0 --scale doc-render=0`. Setting the **images / audio / video** levels to `off` in **Settings → Models** (or `mediaEmbedding.levels` in `config.json`) stops Ythril *calling* the vision/STT sidecars, but does not stop the `unstructured`/`doc-render` document-processing containers — scale those to zero if you don't upload documents.
 
 Option A: keep defaults (port 3200 + bundled MongoDB)
 

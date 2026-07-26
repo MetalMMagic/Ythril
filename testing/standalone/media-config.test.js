@@ -100,10 +100,11 @@ describe('getMediaEmbeddingConfig', () => {
   });
 
   describe('defaults', () => {
-    it('returns enabled=true by default', () => {
+    it('is always on: no `enabled` field, and levels default to auto', () => {
       writeConfig();
       const cfg = getMediaEmbeddingConfig();
-      assert.equal(cfg.enabled, true);
+      assert.equal('enabled' in cfg, false, 'the master switch was removed');
+      assert.deepEqual(cfg.levels, { images: 'auto', audio: 'auto', video: 'auto', text: 'auto' });
     });
 
     it('returns visionProvider=local by default', () => {
@@ -150,18 +151,15 @@ describe('getMediaEmbeddingConfig', () => {
   });
 
   describe('env var override tier', () => {
-    it('MEDIA_EMBEDDING_ENABLED=true overrides default', () => {
-      process.env['MEDIA_EMBEDDING_ENABLED'] = 'true';
+    it('MEDIA_EMBEDDING_ENABLED is removed (breaking): it no longer produces an `enabled` field', () => {
+      // The master switch is gone; the env var is dead. Setting it must NOT reintroduce `enabled`
+      // nor otherwise change the resolved config — media is controlled per class via `levels`.
+      process.env['MEDIA_EMBEDDING_ENABLED'] = 'false';
       writeConfig();
       const cfg = getMediaEmbeddingConfig();
-      assert.equal(cfg.enabled, true);
-    });
-
-    it('MEDIA_EMBEDDING_ENABLED=1 is treated as truthy', () => {
-      process.env['MEDIA_EMBEDDING_ENABLED'] = '1';
-      writeConfig();
-      const cfg = getMediaEmbeddingConfig();
-      assert.equal(cfg.enabled, true);
+      assert.equal('enabled' in cfg, false);
+      assert.deepEqual(cfg.lockedByInfra, [], 'the dead env var does not lock anything');
+      delete process.env['MEDIA_EMBEDDING_ENABLED'];
     });
 
     it('OLLAMA_URL overrides default vision URL', () => {
@@ -215,10 +213,14 @@ describe('getMediaEmbeddingConfig', () => {
   });
 
   describe('config.json override tier', () => {
-    it('config.json mediaEmbedding.enabled overrides default', () => {
-      writeConfig({ mediaEmbedding: { enabled: true } });
+    it('config.json mediaEmbedding.levels override the defaults per class', () => {
+      writeConfig({ mediaEmbedding: { levels: { images: 'off', audio: 'on' } } });
       const cfg = getMediaEmbeddingConfig();
-      assert.equal(cfg.enabled, true);
+      assert.equal(cfg.levels?.images, 'off');
+      assert.equal(cfg.levels?.audio, 'on');
+      // classes the block omits keep the default rather than dropping out
+      assert.equal(cfg.levels?.video, 'auto');
+      assert.equal(cfg.levels?.text, 'auto');
     });
 
     it('config.json vision.baseUrl is used when no env var', () => {

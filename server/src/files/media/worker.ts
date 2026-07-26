@@ -11,13 +11,13 @@
  * - Concurrency: up to `workerConcurrency` jobs processed in parallel per tick
  * - Stalled job recovery: reset "processing" jobs older than `stalledJobTimeoutMs`
  *
- * Behaviour when `mediaEmbedding.enabled` flips from `true` → `false`:
- *   The worker still drains any jobs that were enqueued while it was enabled.
- *   This is intentional — those uploads already incurred CPU/disk and the
- *   user expects the corresponding chunks to appear in recall results. To
- *   stop processing in flight, set `enabled: false` AND set
- *   `workerConcurrency: 0` (or restart the pod, which leaves any pending
- *   jobs in the queue for a future enable).
+ * Behaviour when a media class is turned off (its `levels` entry → `off`):
+ *   New uploads of that class are never enqueued (dispatch marks them `skipped`),
+ *   but the worker still drains any jobs enqueued while the class was on. This is
+ *   intentional — those uploads already incurred CPU/disk and the user expects the
+ *   corresponding chunks to appear in recall results. To stop processing in flight,
+ *   set `workerConcurrency: 0` (or restart the pod, which leaves any pending jobs in
+ *   the queue for later).
  *
  * Provider/worker config is hot-reloaded WITHOUT a restart. A dedicated timer
  * (`providerRefreshTimer`) re-reads the config and rebuilds the provider bundle

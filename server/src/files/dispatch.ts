@@ -70,10 +70,10 @@ export async function dispatchFileProcessing(
       );
     const mediaCfg = getMediaEmbeddingConfig();
     const maxBytes = mediaCfg.maxFileSizeBytes ?? DEFAULT_MEDIA_MAX_FILE_SIZE_BYTES;
-    if (!mediaCfg.enabled) {
-      await setMediaStatus('disabled');
-      return { resolvedFormat, embeddingStatus: 'disabled' };
-    }
+    // No master switch any more: whether this class runs is decided entirely by its per-class level
+    // below (`mediaIsOff`). A whole-instance "off" is now `levels.<class> = off`, which lands as
+    // 'skipped' with a reason — not the old blanket 'disabled'. (Existing 'disabled' records still
+    // render; that status just has no producer now.)
     if (input.bytes > maxBytes) {
       await setMediaStatus('skipped');
       log.info(`Media file ${spaceId}/${filePath} skipped: ${input.bytes} bytes exceeds maxFileSizeBytes (${maxBytes})`);

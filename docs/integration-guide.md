@@ -2335,7 +2335,7 @@ All media ultimately produces text that passes through the same `nomic-embed-tex
 
 #### Disabling or Switching Providers
 
-Use **Settings → Models** in the web UI, or `PATCH /api/admin/media-config`, or set `MEDIA_EMBEDDING_ENABLED=false` in Ythril's environment to turn the pipeline off.
+Media embedding is **always on** — there is no master on/off switch. To turn a class off, set its **level** to `off` per class (images / audio / video) on **Settings → Models**, or via `PATCH /api/admin/media-config` with a `levels` block (e.g. `{ "levels": { "images": "off", "audio": "off", "video": "off" } }` turns all media off instance-wide). *(Breaking change: the old `MEDIA_EMBEDDING_ENABLED` env var and `mediaEmbedding.enabled` config flag were removed; an existing `enabled:false` is auto-migrated to those three levels = `off` on upgrade.)*
 
 Required services (bundled by default; override only when you point at external providers):
 
@@ -2353,8 +2353,8 @@ When a media file is uploaded, the response includes an `embeddingStatus` field:
 | Value | Meaning |
 |---|---|
 | `"pending"` | Job enqueued; background worker will process soon |
-| `"disabled"` | `MEDIA_EMBEDDING_ENABLED` is `false`; file stored but not embedded |
-| `"skipped"` | File exceeds `MAX_FILE_SIZE_BYTES` limit |
+| `"skipped"` | Not analysed — the file exceeds `MAX_FILE_SIZE_BYTES`, **or** this media class is `off` for the space (its `levels` entry). File stored, not embedded |
+| `"disabled"` | **Legacy** — set at upload while the removed media-embedding master switch was off. No longer produced (a class turned off now returns `"skipped"`); still appears on pre-migration records |
 
 While processing, the filemeta record on the file (accessible via `GET /api/brain/spaces/:spaceId/files`) reflects the current status:
 
@@ -2412,7 +2412,7 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 
 | Field | Env var | Default | Description |
 |---|---|---|---|
-| `enabled` | `MEDIA_EMBEDDING_ENABLED` | `true` | Master on/off switch |
+| `levels.{images,audio,video,text}` | — | `auto` | Per-class instance ceiling; set a class to `off` to take it offline. **This is the media on/off control** (the `enabled` / `MEDIA_EMBEDDING_ENABLED` master switch was removed). |
 | `visionProvider` | `VISION_PROVIDER` | `local` | Wire protocol, not trust level: `local` (Ollama `/api/chat`) or `external` (OpenAI `/chat/completions`). A self-hosted OpenAI-compatible server needs `external` — see `allowPrivateModelEndpoints` for one on a private address. |
 | `sttProvider` | `STT_PROVIDER` | `local` | Wire protocol, not trust level: `local` (bundled Whisper) or `external` (OpenAI-compatible). Both speak `/v1/audio/transcriptions`. |
 | `vision.baseUrl` | `OLLAMA_URL` | `http://ollama:11434` | Vision service endpoint (short name resolves in both Docker Compose and the K8s `ythril` namespace) |

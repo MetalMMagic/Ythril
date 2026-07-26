@@ -126,7 +126,7 @@ const FaceRecognitionPatchSchema = z.object({
 }).strict();
 
 const MediaConfigPatchSchema = z.object({
-  enabled: z.boolean().optional(),
+  // No `enabled` — the media-embedding master switch was removed; each class is controlled via `levels`.
   levels: LevelsPatchSchema.optional(),
   faceRecognition: FaceRecognitionPatchSchema.optional(),
   visionProvider: z.enum(['local', 'external']).optional(),
@@ -292,6 +292,9 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const cfg = getConfig();
     const existing = cfg.mediaEmbedding ?? {};
     const merged: Record<string, unknown> = { ...existing, ...parsed.data };
+    // Strip the removed master switch: `existing` may still carry a legacy `enabled` (boot migration
+    // normally clears it, but defend the write path so a PATCH can never persist it back).
+    delete merged['enabled'];
     // Remove runtime-only lockedByInfra — never persisted to config.json
     delete merged['lockedByInfra'];
     // Strip apiKey from config.json — it lives in secrets.json now

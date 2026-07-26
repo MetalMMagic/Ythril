@@ -2331,6 +2331,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Models tab: header and Models-card visual polish.** The page header dropped its
+  redundant title + explanatory subtitle (the sidebar nav and the Models/Pipelines/Tools tabs already
+  say where you are), leaving just the global media-embedding toggle. Pressing **Test connection** no
+  longer jolts the layout — the result row keeps a fixed height and the detail truncates instead of
+  wrapping, so the whole equal-height card row stays put. And the **External assist** card's *Document
+  repair pass* checkbox now sits beside its normal-case label instead of floating above an ALL-CAPS
+  caption (it was being caught by the shared field-caption styling).
+
 - **The Settings → About cards are now a uniform size.** The **Instance** and **System** cards sat at
   their own content heights, so the shorter Instance card stopped short of the taller System card. They
   now stretch to an equal height across the row, for a tidy, aligned pair. Purely visual — same

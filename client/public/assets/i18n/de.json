@@ -1249,7 +1249,6 @@
   "spaces.dangerZone.rebuildIndexesStarted": "Suchindizes werden neu aufgebaut — bis zum Abschluss sind die Suchergebnisse unvollständig.",
   "spaces.dangerZone.rebuildIndexesFailed": "Der Index-Neuaufbau konnte nicht gestartet werden.",
   "models.page.title": "Modelle & Pipelines",
-  "models.page.subtitle": "Die Modelle, die Ihre Dateien lesen, die Pipelines, in denen sie laufen, und ob davon gerade etwas funktioniert.",
   "models.page.mediaEmbedding": "Medien-Embedding",
   "models.page.unsaved": "Ungespeicherte Änderungen",
   "models.page.managedBanner": "Diese Modelle werden auf dieser Instanz <b>von der Infrastruktur verwaltet</b> — die Einstellungen sind schreibgeschützt. Ändern Sie sie in <code>config.json</code> oder in der Umgebung. <b>Verbindung testen</b> funktioniert weiterhin.",

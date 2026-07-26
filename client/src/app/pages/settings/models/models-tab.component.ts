@@ -47,12 +47,22 @@ import { TestTarget } from './models.types';
       border-radius: 9px; font-size: 12.5px; border: 1px solid var(--warning-border); background: var(--warning-bg); }
     .warnline ph-icon { flex: none; margin-top: 1px; }
     .checkrow { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px;
-      color: var(--text-secondary); font-weight: normal; }
-    .checkrow input { margin-top: 2px; flex: none; }
+      color: var(--text-secondary); font-weight: normal;
+      /* Undo the global ".field label" caption styling (uppercase + tracking) — a checkbox's own
+         label is a normal sentence, not a field caption. */
+      text-transform: none; letter-spacing: normal; }
+    /* width:auto keeps a checkbox in a checkrow from being stretched to 100% by the .field input
+       rule when the checkrow sits inside a .field (assist card's repair-pass toggle). */
+    .checkrow input { margin-top: 2px; flex: none; width: auto; }
     .switchrow { margin-bottom: 13px; }
     .switchrow .hint { margin-left: 22px; }   /* line up under the label, not the checkbox */
-    .testrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    .testrow .hint { margin: 0; }
+    /* Keep the test row a single fixed-height line so pressing Test (which reveals the status pill +
+       latency/detail) never wraps to a second line and jolts the whole equal-height card row. The
+       button and pill stay their natural size; the detail truncates with an ellipsis (full text on
+       hover) rather than pushing the layout. */
+    .testrow { display: flex; gap: 10px; align-items: center; flex-wrap: nowrap; min-height: 34px; }
+    .testrow > :not(.hint) { flex: none; }
+    .testrow .hint { margin: 0; min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   `],
   template: `
     <div class="cards">
@@ -117,7 +127,7 @@ import { TestTarget } from './models.types';
           </button>
           @if (s.testOf('embedding')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
-            <span class="hint">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
           }
         </div>
       </app-model-provider-card>
@@ -159,7 +169,7 @@ import { TestTarget } from './models.types';
           </button>
           @if (s.testOf('vision')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
-            <span class="hint">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
           }
         </div>
       </app-model-provider-card>
@@ -201,7 +211,7 @@ import { TestTarget } from './models.types';
           </button>
           @if (s.testOf('stt')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
-            <span class="hint">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
           }
         </div>
       </app-model-provider-card>
@@ -235,11 +245,16 @@ import { TestTarget } from './models.types';
         </div>
         <div class="field">
           <label>{{ 'models.assist.usedFor' | transloco }}</label>
-          <label class="checkrow">
-            <input type="checkbox" [checked]="s.assistUses('repair')"
-              (change)="s.toggleAssistUse('repair', $any($event.target).checked)" [disabled]="s.assistLocked()" />
-            <span>{{ 'models.assist.useRepair' | transloco }}</span>
-          </label>
+          <!-- The checkrow is deliberately NOT a direct-child label of .field: that rule renders a
+               field-caption (block + uppercase), which floated the checkbox above an all-caps label.
+               Wrapping it keeps the checkbox beside its own normal-case label (same fix as the face card). -->
+          <div class="switchrow" style="margin-bottom:0;">
+            <label class="checkrow">
+              <input type="checkbox" [checked]="s.assistUses('repair')"
+                (change)="s.toggleAssistUse('repair', $any($event.target).checked)" [disabled]="s.assistLocked()" />
+              <span>{{ 'models.assist.useRepair' | transloco }}</span>
+            </label>
+          </div>
         </div>
         <div class="warnline">
           <ph-icon name="warning" [size]="15"/>
@@ -256,7 +271,7 @@ import { TestTarget } from './models.types';
           </button>
           @if (s.testOf('assist')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
-            <span class="hint">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
           }
         </div>
       </app-model-provider-card>

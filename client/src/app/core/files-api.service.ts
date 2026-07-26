@@ -159,6 +159,14 @@ export class FilesApi {
     return this.http.get<{ files: FileMeta[]; limit: number; skip: number }>(`/api/brain/spaces/${spaceId}/files`, { params });
   }
 
+  /** Fetch the single file-metadata record for an exact path (reuses the list route's `?path=` filter — no dedicated route). */
+  getFileMeta(spaceId: string, path: string): Observable<FileMeta | null> {
+    const params = new HttpParams().set('path', path).set('limit', 1);
+    return this.http.get<{ files: FileMeta[] }>(`/api/brain/spaces/${spaceId}/files`, { params }).pipe(
+      map(r => r.files[0] ?? null),
+    );
+  }
+
   updateFileMeta(spaceId: string, path: string, body: Partial<{ description: string; tags: string[]; entityIds: string[]; chronoIds: string[]; memoryIds: string[]; properties: Record<string, string | number | boolean> }>): Observable<FileMeta> {
     const params = new HttpParams().set('path', path);
     return this.http.patch<FileMeta>(`/api/brain/spaces/${spaceId}/files`, body, { params });

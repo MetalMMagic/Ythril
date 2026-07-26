@@ -2403,6 +2403,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brain's Files tab gains a docked detail pane — preview + description, toggled to the full file-meta
+  record.** Clicking a file now opens a right-hand column beside the list (the list runs full width until
+  then, and reclaims it on close) instead of a full-screen modal drawer. Its header is a lean
+  `[Preview & description | File meta]` segmented toggle plus a close button — the filename, download and
+  delete already live in the row. **Preview & description** shows the file preview with its metadata
+  description beneath; **File meta** opens the editable record (description, tags, and entity / memory /
+  chrono links, with save and a retry-embedding action) reusing the same fields as the old File Meta tab.
+  Editing the record is available in the Brain (the standalone Files page shows preview + description only).
+  The redundant row "eye" button is gone — the row itself opens the pane. Formatted markdown/mermaid/xlsx
+  previews and a full-screen button follow in a subsequent update.
+
 - **The Brain's separate "Files" and "File Meta" tabs are merged into one "Files" tab.** The per-space
   Brain used to carry both a **Files** tab (the file manager) and a distinct **File Meta** tab (the
   metadata records), which forced you to jump between the raw bytes and their searchable side. They are

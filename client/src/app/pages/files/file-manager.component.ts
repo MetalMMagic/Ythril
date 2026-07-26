@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { Space, FileEntry, UploadProgress } from '../../core/api.types';
+import { Space, FileEntry, FileMeta, UploadProgress } from '../../core/api.types';
 import { FilesApi } from '../../core/files-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { AuthService } from '../../core/auth.service';
@@ -14,6 +14,14 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
+// The docked detail pane reuses the Brain's file-metadata edit fields. These are dumb, shared
+// ref-field widgets; they resolve chip labels via EntityRefPicker, which the Brain provides — so the
+// "File meta" edit mode is available only when embedded in the Brain (embeddedSpaceId set).
+import { TagInputComponent } from '../../shared/tag-input.component';
+import { EntityRefFieldComponent } from '../brain/entity-ref-field.component';
+import { MemoryRefFieldComponent } from '../brain/memory-ref-field.component';
+import { ChronoRefFieldComponent } from '../brain/chrono-ref-field.component';
+import { EntityRefPicker } from '../brain/entity-ref-picker.service';
 import hljs from 'highlight.js/lib/core';
 import javascript from 'highlight.js/lib/languages/javascript';
 import typescript from 'highlight.js/lib/languages/typescript';
@@ -98,7 +106,7 @@ function previewKind(name: string): PreviewKind {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent],
   styles: [`
     .toolbar {
       display: flex;
@@ -259,33 +267,43 @@ function previewKind(name: string): PreviewKind {
       flex-wrap: wrap;
     }
 
-    /* ── Preview pane ─────────────────────────────────────────── */
-    .preview-overlay {
-      position: fixed;
-      inset: 0;
-      background: var(--bg-scrim);
-      z-index: 1000;
-      display: flex;
-      justify-content: flex-end;
-    }
-    .preview-pane {
-      width: min(700px, 90vw);
-      height: 100vh;
-      background: var(--bg-surface);
+    /* ── Docked detail pane (preview + description ⇄ file meta) ─── */
+    /* A third in-flow column of .fm-layout; the list (.fm-main) reflows to full width when it's absent. */
+    .fm-detail {
+      width: min(480px, 42vw);
+      flex-shrink: 0;
+      border-left: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      box-shadow: var(--shadow-drawer);
+      max-height: calc(100vh - 180px);
     }
-    .preview-header {
+    .detail-header {
       display: flex;
       align-items: center;
       gap: 10px;
-      padding: 12px 16px;
+      padding: 10px 12px;
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
-    .preview-header .file-title { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .detail-header .file-title { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Segmented [Preview & description | File meta] toggle */
+    .seg-toggle { display: inline-flex; flex: 1; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .seg-toggle button {
+      flex: 1; background: none; border: none; padding: 5px 10px; cursor: pointer;
+      font-size: 0.82em; color: var(--text-muted); white-space: nowrap;
+    }
+    .seg-toggle button.active { background: var(--bg-muted); color: var(--text); font-weight: 600; }
+    .seg-toggle button:not(.active):hover { background: var(--bg-hover); }
+    .detail-body { flex: 1; overflow: auto; padding: 14px; }
+    /* Description shown beneath the preview */
+    .detail-desc { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .detail-desc h4 { margin: 0 0 6px; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
+    .detail-desc p { margin: 0; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+    .detail-meta-form .field { margin-bottom: 12px; }
+    .detail-meta-form label { display: block; margin-bottom: 4px; font-size: 0.8em; color: var(--text-muted); }
+    .detail-meta-form textarea { width: 100%; resize: vertical; }
+    .detail-meta-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
     .preview-body {
       flex: 1;
       overflow: auto;
@@ -539,7 +557,6 @@ function previewKind(name: string): PreviewKind {
                     <td style="color:var(--text-muted)">{{ entry.modified | date:'dd.MM.yyyy HH:mm' }}</td>
                     <td style="display:flex; gap:6px; align-items:center;">
                       @if (entry.isFile) {
-                        <button class="btn-ghost btn btn-sm" (click)="openPreview(entry)" [attr.aria-label]="'files.previewAriaLabel' | transloco" [attr.title]="'files.previewTitle' | transloco"><ph-icon name="eye" [size]="16"/></button>
                         <button
                           type="button"
                           class="btn-ghost btn btn-sm"
@@ -569,6 +586,87 @@ function previewKind(name: string): PreviewKind {
           </div>
         }
           </div><!-- .fm-main -->
+
+          <!-- Docked detail pane: preview + description ⇄ file-meta record (the merged File Meta view).
+               The list runs full width until a file is opened; opening one adds this column. -->
+          @if (previewFile(); as pf) {
+            <div class="fm-detail" tabindex="0" (keydown)="onPreviewKey($event)" #detailPane>
+              <div class="detail-header">
+                @if (embeddedSpaceId) {
+                  <div class="seg-toggle" role="tablist" [attr.aria-label]="'files.detail.tabsAriaLabel' | transloco">
+                    <button type="button" role="tab" [class.active]="detailMode() === 'preview'" [attr.aria-selected]="detailMode() === 'preview'" (click)="detailMode.set('preview')">{{ 'files.detail.previewTab' | transloco }}</button>
+                    <button type="button" role="tab" [class.active]="detailMode() === 'meta'" [attr.aria-selected]="detailMode() === 'meta'" (click)="showMetaMode()">{{ 'files.detail.metaTab' | transloco }}</button>
+                  </div>
+                } @else {
+                  <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
+                }
+                <button class="icon-btn" (click)="closePreview()" [attr.aria-label]="'files.closePreviewAriaLabel' | transloco"><ph-icon name="x" [size]="16"/></button>
+              </div>
+
+              <div class="detail-body">
+                @if (detailMode() === 'preview' || !embeddedSpaceId) {
+                  <div class="preview-body">
+                    @if (previewLoading()) {
+                      <div class="loading-overlay"><span class="spinner"></span></div>
+                    } @else if (previewError() !== null) {
+                      <div class="alert alert-error" role="alert">{{ 'files.preview.failed' | transloco }} {{ previewError() }}</div>
+                    } @else {
+                      @switch (previewKind()) {
+                        @case ('text') { <pre class="preview-code"><code [innerHTML]="previewHtml()"></code></pre> }
+                        @case ('image') { <img [src]="previewMediaUrl()" [alt]="pf.name" /> }
+                        @case ('pdf') { <iframe [src]="previewSafeUrl()"></iframe> }
+                        @default {
+                          <dl class="preview-meta">
+                            <dt>{{ 'files.preview.name' | transloco }}</dt><dd>{{ pf.name }}</dd>
+                            <dt>{{ 'files.preview.size' | transloco }}</dt><dd>{{ formatSize(pf.size) }}</dd>
+                            <dt>{{ 'files.preview.modified' | transloco }}</dt><dd>{{ pf.modified | date:'dd.MM.yyyy HH:mm' }}</dd>
+                          </dl>
+                        }
+                      }
+                    }
+                  </div>
+                  @if (selectedMeta()?.description) {
+                    <div class="detail-desc">
+                      <h4>{{ 'files.detail.description' | transloco }}</h4>
+                      <p>{{ selectedMeta()!.description }}</p>
+                    </div>
+                  }
+                } @else {
+                  <!-- File-meta edit form (embedded only — reuses the Brain ref-field widgets). -->
+                  <form class="detail-meta-form" (ngSubmit)="saveMeta(pf)" #metaForm="ngForm">
+                    <div class="field">
+                      <label>{{ 'brain.fileMeta.table.description' | transloco }}</label>
+                      <textarea [(ngModel)]="metaEditModel.description" name="detailDesc" rows="3"></textarea>
+                    </div>
+                    <div class="field">
+                      <label>{{ 'brain.fileMeta.table.tags' | transloco }}</label>
+                      <app-tag-input [(value)]="metaEditModel.tags" inputName="detailTags" />
+                    </div>
+                    <div class="field">
+                      <label>{{ 'brain.fileMeta.table.entities' | transloco }}</label>
+                      <app-entity-ref-field [target]="metaEditModel" [spaceId]="activeSpaceId()" />
+                    </div>
+                    <div class="field">
+                      <label>{{ 'brain.fileMeta.table.memories' | transloco }}</label>
+                      <app-memory-ref-field [target]="metaEditModel" />
+                    </div>
+                    <div class="field">
+                      <label>{{ 'brain.fileMeta.table.chrono' | transloco }}</label>
+                      <app-chrono-ref-field [target]="metaEditModel" />
+                    </div>
+                    @if (metaError()) { <div class="alert alert-error" role="alert">{{ metaError() }}</div> }
+                    <div class="detail-meta-actions">
+                      <button class="btn btn-sm btn-primary" type="submit" [disabled]="metaSaving()">{{ 'common.save' | transloco }}</button>
+                      <button class="btn btn-sm btn-secondary" type="button" (click)="cancelMeta()">{{ 'common.cancel' | transloco }}</button>
+                      @if (pf.embeddingStatus === 'failed' || pf.embeddingStatus === 'partial') {
+                        <button class="btn btn-sm btn-ghost" type="button" [disabled]="retrying()" (click)="retryMeta(pf)">{{ 'brain.fileMeta.retryEmbedding' | transloco }}</button>
+                      }
+                    </div>
+                  </form>
+                }
+              </div>
+            </div>
+          }
         </div><!-- .fm-layout -->
       }
     }
@@ -592,45 +690,6 @@ function previewKind(name: string): PreviewKind {
         }
       }
     </ng-template>
-
-    <!-- Preview pane -->
-    @if (previewFile(); as pf) {
-      <div class="preview-overlay" (click)="closePreview()" (keydown)="onPreviewKey($event)" tabindex="0" #previewOverlay>
-        <div class="preview-pane" (click)="$event.stopPropagation()">
-          <div class="preview-header">
-            <span class="file-title" [title]="pf.name">{{ pf.name }}</span>
-            <button type="button" class="btn-secondary btn btn-sm" (click)="downloadFile(pf)" style="display:inline-flex;align-items:center;gap:4px"><ph-icon name="download-simple" [size]="14"/> {{ 'files.download' | transloco }}</button>
-            <button class="icon-btn" (click)="closePreview()" [attr.aria-label]="'files.closePreviewAriaLabel' | transloco"><ph-icon name="x" [size]="16"/></button>
-          </div>
-          <div class="preview-body">
-            @if (previewLoading()) {
-              <div class="loading-overlay"><span class="spinner"></span></div>
-            } @else if (previewError() !== null) {
-              <div class="alert alert-error" role="alert">{{ 'files.preview.failed' | transloco }} {{ previewError() }}</div>
-            } @else {
-            @switch (previewKind()) {
-              @case ('text') {
-                <pre class="preview-code"><code [innerHTML]="previewHtml()"></code></pre>
-              }
-              @case ('image') {
-                <img [src]="previewMediaUrl()" [alt]="pf.name" />
-              }
-              @case ('pdf') {
-                <iframe [src]="previewSafeUrl()"></iframe>
-              }
-              @default {
-                <dl class="preview-meta">
-                  <dt>{{ 'files.preview.name' | transloco }}</dt><dd>{{ pf.name }}</dd>
-                  <dt>{{ 'files.preview.size' | transloco }}</dt><dd>{{ formatSize(pf.size) }}</dd>
-                  <dt>{{ 'files.preview.modified' | transloco }}</dt><dd>{{ pf.modified | date:'dd.MM.yyyy HH:mm' }}</dd>
-                </dl>
-              }
-            }
-            }
-          </div>
-        </div>
-      </div>
-    }
   `,
 })
 export class FileManagerComponent implements OnInit, OnDestroy {
@@ -642,7 +701,10 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
   private confirmDialog = inject(ConfirmDialogService);
-  private previewOverlayRef = viewChild<ElementRef<HTMLDivElement>>('previewOverlay');
+  private detailPaneRef = viewChild<ElementRef<HTMLDivElement>>('detailPane');
+  // Brain-provided (only present when embedded in the Brain). Optional so the standalone /files route,
+  // where the Brain injector isn't in the tree, still constructs — there the meta edit mode is hidden.
+  private picker = inject(EntityRefPicker, { optional: true });
 
   /** When set (embedded in brain), skip space loading and use this space. */
   @Input() embeddedSpaceId = '';
@@ -691,6 +753,19 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   previewError = signal<string | null>(null);
   /** Blob object URL backing the current image/PDF preview; revoked on close/next. */
   private _previewObjectUrl: string | null = null;
+
+  // ── Docked detail-pane state (preview+description ⇄ file-meta record) ──────
+  /** Which face of the detail pane is showing. Meta editing is only reachable when embedded. */
+  detailMode = signal<'preview' | 'meta'>('preview');
+  /** The FileMeta record for the open file (its description + links); null until the fetch lands. */
+  selectedMeta = signal<FileMeta | null>(null);
+  /** Edit model for the meta form — same shape the Brain File Meta tab uses (entityIds is comma-joined
+   *  for app-entity-ref-field; memory/chrono are id arrays). Mutated in place by the ref-field widgets. */
+  metaEditModel = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };
+  metaSaving = signal(false);
+  metaError = signal<string | null>(null);
+  /** True while a retry-embedding request for the open file is in flight. */
+  retrying = signal(false);
 
   // ── Tree sidebar state ───────────────────────────────────────────────────
   sidebarOpen = signal(localStorage.getItem('ythril.sidebar') !== 'closed');
@@ -1064,6 +1139,10 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.revokePreviewUrl();
     this.previewMediaUrl.set('');
     this.previewSafeUrl.set('');
+    // Selecting a file always shows the preview face first; the meta record loads alongside so the
+    // description shows here and the (embedded-only) edit form is ready when the toggle is used.
+    this.detailMode.set('preview');
+    this.loadSelectedMeta(entry);
 
     // Every preview fetch must carry the auth header — the file endpoint requires it,
     // and a browser-native <img src>/<iframe src> can't send one (that regressed image
@@ -1099,7 +1178,88 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     }
 
     document.addEventListener('keydown', this._keyHandler);
-    setTimeout(() => this.previewOverlayRef()?.nativeElement?.focus());
+    setTimeout(() => this.detailPaneRef()?.nativeElement?.focus());
+  }
+
+  /** Space-relative path of an entry (matches the FileMeta `_id`/`path`; leading slashes stripped). */
+  private relPath(entry: FileEntry): string {
+    return this.join(this.currentPath(), entry.name).replace(/^\/+/, '');
+  }
+
+  /** Fetch the file's metadata record so the pane can show its description and (embedded) edit its links. */
+  private loadSelectedMeta(entry: FileEntry): void {
+    this.selectedMeta.set(null);
+    this.metaError.set(null);
+    this.filesApi.getFileMeta(this.activeSpaceId(), this.relPath(entry)).subscribe({
+      next: (fm) => { this.selectedMeta.set(fm); this.seedMetaModel(fm); },
+      // A missing record just means no description/links yet — leave the model empty, not an error.
+      error: () => { this.seedMetaModel(null); },
+    });
+  }
+
+  /** Copy a FileMeta record into the editable form model (and prime chip labels when the picker is present). */
+  private seedMetaModel(fm: FileMeta | null): void {
+    this.metaEditModel = {
+      description: fm?.description ?? '',
+      tags: [...(fm?.tags ?? [])],
+      entityIds: (fm?.entityIds ?? []).join(', '),
+      memoryIds: [...(fm?.memoryIds ?? [])],
+      chronoIds: [...(fm?.chronoIds ?? [])],
+    };
+    this.picker?.resolveEntityNamesFor(this.metaEditModel.entityIds);
+    this.picker?.resolveMemoryTitles(this.metaEditModel.memoryIds);
+    this.picker?.resolveChronoTitles(this.metaEditModel.chronoIds);
+  }
+
+  /** Switch the pane to the file-meta edit face, re-seeding the form from the loaded record. */
+  showMetaMode(): void {
+    this.seedMetaModel(this.selectedMeta());
+    this.metaError.set(null);
+    this.detailMode.set('meta');
+  }
+
+  /** Discard edits and return to the preview face. */
+  cancelMeta(): void {
+    this.seedMetaModel(this.selectedMeta());
+    this.metaError.set(null);
+    this.detailMode.set('preview');
+  }
+
+  /** Persist the edited metadata for the open file, then refresh the row (status/tags) via a dir reload. */
+  saveMeta(entry: FileEntry): void {
+    const path = this.relPath(entry);
+    this.metaSaving.set(true);
+    this.metaError.set(null);
+    this.filesApi.updateFileMeta(this.activeSpaceId(), path, {
+      description: this.metaEditModel.description.trim(),
+      tags: this.metaEditModel.tags,
+      entityIds: this.metaEditModel.entityIds.split(',').map(s => s.trim()).filter(Boolean),
+      memoryIds: this.metaEditModel.memoryIds,
+      chronoIds: this.metaEditModel.chronoIds,
+    }).subscribe({
+      next: (fm) => {
+        this.selectedMeta.set(fm);
+        this.seedMetaModel(fm);
+        this.metaSaving.set(false);
+        this.detailMode.set('preview');
+        this.toast.success(this.transloco.translate('files.detail.metaSaved'));
+        this.reloadDir(); // reflect updated tags/status in the list row
+      },
+      error: (e) => { this.metaError.set(httpErrorReason(e)); this.metaSaving.set(false); },
+    });
+  }
+
+  /** Re-queue embedding for the open file (shown only when its status is failed/partial). */
+  retryMeta(entry: FileEntry): void {
+    this.retrying.set(true);
+    this.filesApi.retryEmbedding(this.activeSpaceId(), this.relPath(entry)).subscribe({
+      next: () => {
+        this.retrying.set(false);
+        this.toast.success(this.transloco.translate('files.detail.retryQueued'));
+        this.reloadDir();
+      },
+      error: (e) => { this.retrying.set(false); this.toast.error(`${this.transloco.translate('files.detail.retryFailed')} ${httpErrorReason(e)}`.trim()); },
+    });
   }
 
   /** Revoke the current preview blob URL (if any) to avoid leaking object URLs. */

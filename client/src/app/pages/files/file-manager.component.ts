@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, signal, OnInit, OnDestroy, 
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { DomSanitizer, SafeResourceUrl, SafeHtml } from '@angular/platform-browser';
 import { Space, FileEntry, FileMeta, UploadProgress } from '../../core/api.types';
 import { FilesApi } from '../../core/files-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -14,7 +14,8 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { httpErrorReason } from '../../core/http-error';
-import { marked } from 'marked';
+import { Marked } from 'marked';
+import DOMPurify from 'dompurify';
 // The docked detail pane reuses the Brain's file-metadata edit fields. These are dumb, shared
 // ref-field widgets; they resolve chip labels via EntityRefPicker, which the Brain provides — so the
 // "File meta" edit mode is available only when embedded in the Brain (embeddedSpaceId set).
@@ -98,6 +99,11 @@ function previewKind(name: string): PreviewKind {
   if (IMAGE_EXTS.has(ext)) return 'image';
   if (PDF_EXTS.has(ext)) return 'pdf';
   return 'unknown';
+}
+
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, c => HTML_ESCAPES[c]);
 }
 
 @Component({
@@ -326,6 +332,8 @@ function previewKind(name: string): PreviewKind {
     .md-rendered table { border-collapse: collapse; margin: 0.5em 0; }
     .md-rendered th, .md-rendered td { border: 1px solid var(--border); padding: 4px 8px; }
     .md-rendered img { max-width: 100%; }
+    .mermaid-diagram { display: flex; justify-content: center; margin: 0.8em 0; }
+    .mermaid-diagram svg { max-width: 100%; height: auto; }
     /* Full-screen preview overlay */
     .preview-fs-overlay {
       position: fixed; inset: 0; z-index: 1200;
@@ -801,7 +809,9 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   // ── Preview state ────────────────────────────────────────────────────────
   previewFile = signal<FileEntry | null>(null);
   previewKind = signal<PreviewKind>('unknown');
-  previewHtml = signal('');
+  // A string for highlighted source (Angular sanitizes on bind); a trusted SafeHtml for rendered markdown
+  // (we sanitize with DOMPurify first, because it may contain inlined mermaid SVG that Angular would strip).
+  previewHtml = signal<string | SafeHtml>('');
   previewLoading = signal(false);
   previewMediaUrl = signal('');
   previewSafeUrl = signal<SafeResourceUrl>('');
@@ -1215,11 +1225,14 @@ export class FileManagerComponent implements OnInit, OnDestroy {
       this.previewLoading.set(true);
       fetch(url, { headers })
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.text(); })
-        .then(text => {
+        .then(async text => {
           if (kind === 'markdown') {
-            // marked → HTML string. Bound via [innerHTML] WITHOUT bypassSecurityTrust, so Angular's
-            // built-in DOM sanitizer strips scripts/handlers from the (untrusted) file content.
-            this.previewHtml.set(marked.parse(text, { async: false }) as string);
+            // marked → HTML, with any ```mermaid fences rendered to inline SVG; the whole thing is
+            // sanitized with DOMPurify and marked trusted (Angular's own sanitizer would strip the SVG).
+            const html = await this.renderMarkdown(text);
+            // Guard against a fast arrow-key navigation having moved on while mermaid rendered async.
+            if (this.previewFile()?.name !== entry.name) return;
+            this.previewHtml.set(this.sanitizer.bypassSecurityTrustHtml(html));
           } else {
             const ext = extOf(entry.name);
             const lang = EXT_LANG[ext] ?? 'plaintext';
@@ -1325,6 +1338,57 @@ export class FileManagerComponent implements OnInit, OnDestroy {
       },
       error: (e) => { this.retrying.set(false); this.toast.error(`${this.transloco.translate('files.detail.retryFailed')} ${httpErrorReason(e)}`.trim()); },
     });
+  }
+
+  /**
+   * Render markdown to sanitized HTML, replacing ```mermaid fences with inline SVG.
+   *
+   * mermaid is heavy, so it's lazy-imported and only when a diagram is actually present. The final
+   * HTML — prose plus any mermaid SVG — is sanitized with DOMPurify (mermaid runs in `strict` mode too),
+   * then marked trusted; Angular's own HTML sanitizer would otherwise strip the SVG.
+   */
+  private async renderMarkdown(text: string): Promise<string> {
+    const mermaidSources: string[] = [];
+    const md = new Marked({
+      renderer: {
+        code({ text: code, lang }) {
+          if ((lang ?? '').trim().toLowerCase() === 'mermaid') {
+            const i = mermaidSources.length;
+            mermaidSources.push(code);
+            return `<div class="mermaid-slot" data-idx="${i}"></div>`;
+          }
+          return false; // fall through to marked's default code renderer
+        },
+      },
+    });
+    let html = md.parse(text, { async: false }) as string;
+
+    if (mermaidSources.length) {
+      try {
+        const mermaid = (await import('mermaid')).default;
+        // htmlLabels:false → labels render as native SVG <text>, not <foreignObject> HTML. That keeps the
+        // labels through DOMPurify's SVG sanitization (which strips foreignObject) and removes the
+        // foreignObject XSS surface entirely.
+        mermaid.initialize({
+          startOnLoad: false, securityLevel: 'strict', theme: 'dark', htmlLabels: false,
+          flowchart: { htmlLabels: false },
+        });
+        for (let i = 0; i < mermaidSources.length; i++) {
+          const slot = `<div class="mermaid-slot" data-idx="${i}"></div>`;
+          try {
+            const { svg } = await mermaid.render(`fm-mmd-${Date.now()}-${i}`, mermaidSources[i]);
+            html = html.replace(slot, `<div class="mermaid-diagram">${svg}</div>`);
+          } catch {
+            // Invalid diagram → show its source rather than breaking the whole preview.
+            html = html.replace(slot, `<pre class="preview-code"><code>${escapeHtml(mermaidSources[i])}</code></pre>`);
+          }
+        }
+      } catch {
+        // mermaid failed to load — leave the empty slots; the surrounding prose still renders.
+      }
+    }
+
+    return DOMPurify.sanitize(html, { USE_PROFILES: { html: true, svg: true, svgFilters: true }, ADD_TAGS: ['foreignObject'] });
   }
 
   /** Revoke the current preview blob URL (if any) to avoid leaking object URLs. */

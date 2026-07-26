@@ -2338,6 +2338,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Models → Pipelines: the always-on tools now show an "online" dot, and inactive dots read
+  as one uniform grey.** The in-process **Extract audio** (ffmpeg) and **Chunk** (text chunker) steps
+  are bundled and always available, so they now show a green online dot instead of an "unknown" no-probe
+  marker. And the inactive indicators no longer mix a grey bead with a hollow dashed ring: `unknown`,
+  `off` and `unconfigured` share one grey bead. The states stay distinct where it matters — the dot's
+  accessible name / tooltip still says "unknown" vs "off" for screen readers — but the *visual* is now
+  a single uniform grey, per owner review.
+
 - **Settings → Models → Tools: consistent cards and a tidier vector-index table.** The **Media
   splitter** and **Text chunker** now use the same card as the models on the Models tab (side by side),
   so all three Models tabs share one card vocabulary. The **vector-index table dropped its

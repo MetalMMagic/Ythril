@@ -8,8 +8,11 @@
  *
  * **Colour is never the only carrier.** Every dot has an accessible name and a `title`, because the
  * entire purpose of this component is reporting status and a status a screen-reader user cannot hear
- * is not reported. `unknown` (status not loaded, or the fetch failed) is a distinct state rather than
- * being drawn as `off` — "we could not tell" and "it is switched off" are different facts.
+ * is not reported. `unknown` (status not loaded, or the fetch failed) stays a distinct *state* — "we
+ * could not tell" and "it is switched off" are different facts, and the accessible name/title still
+ * says so. Its *visual* now matches `off`/`unconfigured` (a plain grey bead) rather than a dashed
+ * hollow ring: per owner review the inactive dots must read as one uniform grey, not a grey-vs-empty
+ * mix, so the distinction lives in the name a screen reader announces, not in a second dot shape.
  */
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
@@ -45,12 +48,13 @@ import { HealthState } from './models.types';
       --ring:  color-mix(in srgb, var(--base) 20%, transparent);
       --bloom: color-mix(in srgb, var(--base) 42%, transparent);
     }
-    /* Matte: no bloom, no highlight, flat fill. Deliberately not a colour variant of the others. */
+    /* Matte: no bloom, no highlight, flat fill. Deliberately not a colour variant of the others.
+       off / unconfigured / unknown share one grey bead — inactive dots read as a single uniform grey
+       (owner review); the states stay distinct only in the accessible name, not a second dot shape. */
     .off, .unknown, .unconfigured {
       background: var(--bg-elevated); box-shadow: inset 0 0 0 1px var(--border);
     }
     .off::after, .unknown::after, .unconfigured::after { display: none; }
-    .unknown { border: 1px dashed var(--border); box-sizing: border-box; background: transparent; box-shadow: none; }
     @media (prefers-reduced-motion: reduce) { .dot { box-shadow: 0 0 0 2.5px var(--ring); } }
   `],
   template: `

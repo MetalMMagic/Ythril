@@ -2331,6 +2331,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Settings → About cards are now a uniform size.** The **Instance** and **System** cards sat at
+  their own content heights, so the shorter Instance card stopped short of the taller System card. They
+  now stretch to an equal height across the row, for a tidy, aligned pair. Purely visual — same
+  information, same layout otherwise — and scoped to the About page (the shared settings-card primitive
+  is untouched).
+
 - **The space Settings tab drops three redundant status pills.** The **Limits** and **Document
   extraction** cards used to show an "Unlimited" / "No auto-delete" / "Instance default" pill next to a
   field that *already* said the same thing through its placeholder ("Unlimited" / "No expiry") or its

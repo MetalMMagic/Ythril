@@ -2338,6 +2338,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A space's Schema tab gets a few UX fixes (Settings → Spaces → Schema).** Adding a property now uses
+  the same inline **[name] [＋]** control as adding a type — one affordance for both "add something"
+  actions instead of a name field beside a separate "+ Add property" button. The per-type **Save to
+  library** action is now a compact bookmark icon (with its tooltip) to sit alongside the other icon
+  actions in the type header. And the **type list scrolls inside its own box** — a long allowlist no
+  longer stretches the whole dialog and pushes the import buttons out of reach.
+
 - **Settings → Models → Pipelines: the always-on tools now show an "online" dot, and inactive dots read
   as one uniform grey.** The in-process **Extract audio** (ffmpeg) and **Chunk** (text chunker) steps
   are bundled and always available, so they now show a green online dot instead of an "unknown" no-probe

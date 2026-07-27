@@ -2525,6 +2525,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been added to any locale, so the field rendered the literal text `schemaLib.field.schema`. Both are now
   present in en/de/pl. Found by the new i18n key-coverage test below — it had been broken on main.
 
+- **The contradiction scanner sweeps a space — with two cursors, so an outage cannot silently skip work
+  (F-REVIEW slice 3c).** It walks records, pairs each with its nearest neighbours (similarity finds the
+  candidates; it never decides them) and asks the judge. The subtlety is the cursor: the duplicate scanner
+  advances one per record, which is safe because a cosine score always answers — but this judge can decline,
+  and a single cursor would still move past a pair it failed to judge, so that pair would not be looked at
+  again until one of its records happened to change. An NLI outage during a nightly sweep would permanently
+  skip everything it touched and the Review tab would look clean. So the **structured** pass (deterministic
+  property conflicts) keeps its own cursor and runs even with **no NLI model configured at all**, while the
+  **NLI** pass keeps a second cursor that parks when the judge is unavailable and resumes exactly where it
+  stopped. A merely *low-confidence* answer does not park it — the judge answered, just weakly, and asking
+  again would say the same thing.
+
 - **Contradiction candidates have a home and a decision (F-REVIEW slice 3b).** A
   `{space}_contradiction_candidates` collection shaped after the duplicates one — same canonical pair id,
   same sticky-dismissal contract — so the Review tab's two sub-views share one vocabulary and one

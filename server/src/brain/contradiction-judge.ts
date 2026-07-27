@@ -45,7 +45,17 @@ export type Verdict =
   | { kind: 'contradiction'; basis: ContradictionBasis; confidence: number; fields?: PropertyDisagreement[] }
   | { kind: 'agree'; basis: ContradictionBasis; confidence: number }
   /** No judgement was possible. NOT "they agree" — the pair must be re-examined on a later scan. */
-  | { kind: 'unjudged'; reason: 'no-judge-configured' | 'judge-unavailable' | 'no-text' };
+  /**
+   * No judgement was recorded. NOT "they agree".
+   *
+   * The reasons are not interchangeable, and the scanner's cursor depends on the difference:
+   *   - `low-confidence`     the judge ANSWERED, just weakly. Re-running gives the same answer, so the
+   *                          scan may move past this pair.
+   *   - `judge-unavailable`  the judge could not answer (unreachable, unreadable). Re-running later may
+   *                          well succeed, so the scan must NOT treat this pair as settled.
+   *   - `no-judge-configured` / `no-text` — nothing to ask, or nothing to ask about.
+   */
+  | { kind: 'unjudged'; reason: 'no-judge-configured' | 'judge-unavailable' | 'low-confidence' | 'no-text' };
 
 /** Multi-valued properties hold a set of facts, so two different values are additive, not contradictory. */
 function isSingleValued(key: string, schemas?: Record<string, TypeSchema>): boolean {
@@ -107,7 +117,8 @@ export async function judgePair(
   if (!verdict) return { kind: 'unjudged', reason: 'judge-unavailable' };
 
   const min = opts.minConfidence ?? 0.6;
-  if (verdict.score < min) return { kind: 'unjudged', reason: 'judge-unavailable' };
+  // A weak answer is still an answer — distinct from an absent one. See the Verdict note.
+  if (verdict.score < min) return { kind: 'unjudged', reason: 'low-confidence' };
 
   return verdict.label === 'contradiction'
     ? { kind: 'contradiction', basis: 'nli', confidence: verdict.score }

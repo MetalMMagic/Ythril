@@ -528,6 +528,14 @@ export interface AuditLogEntry {
   status: number;
   entryId: string | null;
   durationMs: number;
+  /**
+   * Field values this request changed, for operations that record them.
+   *
+   * **Absent means "not recorded", never "nothing changed"** — only explicitly allowlisted operations and
+   * fields are captured, so that an audited route can never leak a credential into the log. Present but
+   * empty does not occur: the server omits the field rather than writing `[]`.
+   */
+  changes?: { field: string; from?: string | number | boolean | null; to?: string | number | boolean | null }[];
 }
 
 export interface AuditLogResponse {

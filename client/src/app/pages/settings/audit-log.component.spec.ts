@@ -76,6 +76,65 @@ describe('AuditLogComponent (OnPush)', () => {
     expect(fixture.nativeElement.querySelector('.empty')).toBeTruthy();
   });
 
+  // The change list. Recorded server-side behind a per-operation allowlist, which makes ABSENCE the
+  // subtle case: a detail panel that simply shows nothing reads as "this operation changed nothing",
+  // when it actually means "changes are not recorded for this operation".
+  describe('what changed', () => {
+    it('lists the recorded field changes', () => {
+      const fixture = create([]);
+      fixture.componentInstance.showDetail(entry({
+        operation: 'space.update',
+        changes: [{ field: 'label', from: 'General', to: 'Renamed' }],
+      }));
+      fixture.detectChanges();
+      const rows = fixture.nativeElement.querySelectorAll('.changes-table tbody tr');
+      expect(rows.length).toBe(1);
+      expect(rows[0].textContent).toContain('label');
+      expect(rows[0].textContent).toContain('General');
+      expect(rows[0].textContent).toContain('Renamed');
+    });
+
+    it('says changes are NOT RECORDED rather than showing an empty panel', () => {
+      // Silence here would be read as "nothing happened" — the exact misreading this text prevents.
+      const fixture = create([]);
+      fixture.componentInstance.showDetail(entry({ operation: 'token.create' }));
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.changes-table')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.changes-none')).toBeTruthy();
+    });
+
+    it('distinguishes a field that was NOT SET from one set to null', () => {
+      // Different facts: "this field was introduced" vs "this field was cleared". Rendering both as a
+      // dash would lose exactly what an audit reader is trying to recover.
+      const fixture = create([]);
+      fixture.componentInstance.showDetail(entry({
+        operation: 'space.update',
+        changes: [
+          { field: 'purpose', to: 'research' },          // no `from` — did not exist before
+          { field: 'label', from: 'General', to: null }, // existed, cleared
+        ],
+      }));
+      fixture.detectChanges();
+      const rows = fixture.nativeElement.querySelectorAll('.changes-table tbody tr');
+      // The transloco test module echoes keys rather than translating, so match the marker either way —
+      // what matters is that the two cases render DIFFERENTLY, not the wording.
+      const notSet = /not set|notSet/;
+      expect(rows[0].textContent).toMatch(notSet);          // no `from` → "not set"
+      expect(rows[1].textContent).toContain('null');        // from present, to null → "null"
+      expect(notSet.test(rows[1].textContent)).toBe(false); // and NOT conflated with "not set"
+    });
+
+    it('quotes strings so a value of "null" is not mistaken for the literal', () => {
+      const c = fixture0().componentInstance;
+      expect(c.fmtValue('null')).toBe('"null"');
+      expect(c.fmtValue(null)).toBe('null');
+      expect(c.fmtValue(true)).toBe('true');
+      expect(c.fmtValue(42)).toBe('42');
+    });
+
+    function fixture0() { return create([]); }
+  });
+
   it('opens the detail panel when selectedEntry is set (OnPush re-checks the signal)', () => {
     const fixture = create([entry({ operation: 'space.wipe' })]);
     expect(fixture.nativeElement.querySelector('.detail-panel')).toBeNull();

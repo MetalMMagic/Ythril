@@ -835,6 +835,18 @@ Migration is a one-way operation. Keep your old database available until you hav
 
 **Table:** Each row shows the timestamp, which token or user made the request, the operation, the space, the HTTP status, and the response time. Click the **Detail** button on a row to open a structured panel with every field (timestamp, token/user, operation, method + path, status, IP, duration, space, entry ID) plus the full raw entry in a collapsible **Raw JSON** section.
 
+**What changed:** for some operations the detail panel also lists the field values the request altered —
+field, from, to. Two things are worth reading carefully:
+
+- *not set* in the **From** column means the field did not exist before, which is different from a value of
+  `null` (it existed and was cleared). Both are shown as written, never as a dash.
+- Some operations show **"field-level changes are not recorded for this operation"**. That is not the same
+  as *nothing changed*. Only explicitly listed fields are ever recorded, so that operations handling
+  credentials — creating or regenerating a token, configuring a webhook or a model endpoint — cannot write
+  a secret into a log that admins can read and that is retained for months. When you need to know exactly
+  what a request contained, the resource's own history or your reverse proxy's logs are the place to look;
+  the audit log deliberately does not keep it.
+
 **Exporting:** Download the current filtered view as JSON or CSV.
 
 **Live server log:** the **Server Log** sub-tab streams the instance's log in real time over Server-Sent Events (SSE). It loads the recent lines and then appends new ones as they happen, colour-coded by level.

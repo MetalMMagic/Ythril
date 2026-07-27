@@ -852,6 +852,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The audit log shows what changed.** The entry detail gains a **What changed** table — field, from, to —
+  for the operations that record it. Two readings are kept distinct because conflating them is how an audit
+  log misleads: a field that **was not set** before renders as *not set* rather than a dash, so "this field
+  was introduced" stays distinguishable from "this field was cleared to null"; and an operation that records
+  no changes says **"field-level changes are not recorded for this operation"** rather than showing an empty
+  panel, because silence there reads as *nothing happened*.
+
 - **Audit entries can now say what actually changed, not just that something did.** An entry recorded who,
   when, which route and what status — so *"an admin patched the space at 14:02"* never told you whether they
   renamed it or turned strict linkage off, which is the question an audit log exists to answer. Entries now

@@ -7,10 +7,17 @@ import { toMongoSort, type SortSpec } from './list-sort.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from './text-search.js';
 import { embed } from './embedding.js';
 import { chronoEmbedText } from './embed-text.js';
+import { SimilarMatch, DupeCheckOpts, checkDuplicates } from './recall.js';
+import { findInsertContradictions, type ContradictionWarning } from './insert-contradictions.js';
+import { deriveChronoStatus } from './chrono-status.js';
 import { getConfig } from '../config/loader.js';
 import { stampExpiryOnCreate, applyExpiryToUpdate } from './ttl.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { ChronoEntry, ChronoType, ChronoStatus, TombstoneDoc } from '../config/types.js';
+
+// Re-exported so existing importers (and the C5 tests) keep reaching it here; it lives in its own leaf
+// module only to keep chrono.ts ↔ recall.ts from importing each other. See chrono-status.ts.
+export { deriveChronoStatus } from './chrono-status.js';
 
 
 const RECURRENCE_FREQ = ['daily', 'weekly', 'monthly', 'yearly'] as const;
@@ -63,7 +70,13 @@ export function parseRecurrence(
   };
 }
 
-/** Derive the text to embed for a chrono entry (type + status + title + description + tags). */
+/**
+ * Store a new chrono entry.
+ *
+ * `opts` is last rather than alongside `actor`/`ttlDays` (where `remember` and `upsertEntity` put it) purely
+ * so the three existing positional call sites are untouched; it is the same `DupeCheckOpts` and behaves
+ * identically.
+ */
 export async function createChrono(
   spaceId: string,
   fields: {
@@ -82,7 +95,8 @@ export async function createChrono(
   },
   actor?: WebhookActor,
   ttlDays?: number | null,
-): Promise<ChronoEntry> {
+  opts?: DupeCheckOpts,
+): Promise<ChronoEntry & { similar?: SimilarMatch[]; contradicts?: ContradictionWarning[] }> {
   const seq = await nextSeq(spaceId);
   const now = new Date().toISOString();
   const status = fields.status ?? 'upcoming';
@@ -95,6 +109,21 @@ export async function createChrono(
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* embedding unavailable — chrono stored without vector */ }
+
+  // Opt-in insert-time duplicate / contradiction checks, using the freshly computed vector BEFORE insert so
+  // it can never self-match. ONE neighbour search serves both flags. A calendar is where the same thing most
+  // often gets logged twice, and where two entries most often disagree about what became of it — the
+  // structured judge compares the stored `status`, not the dates (see structured-claims.ts for why).
+  let similar: SimilarMatch[] | undefined;
+  let contradicts: ContradictionWarning[] | undefined;
+  if ((opts?.checkDuplicates || opts?.checkContradictions) && embeddingFields.embedding) {
+    const hits = await checkDuplicates(spaceId, 'chrono', embeddingFields.embedding, opts.dupeThreshold, opts.dupeTopK);
+    if (opts.checkDuplicates && hits.length > 0) similar = hits;
+    if (opts.checkContradictions && hits.length > 0) {
+      const found = await findInsertContradictions(spaceId, 'chrono', { properties: fields.properties, status }, hits);
+      if (found.length > 0) contradicts = found;
+    }
+  }
 
   const doc: ChronoEntry = {
     _id: uuidv4(),
@@ -121,7 +150,8 @@ export async function createChrono(
   stampExpiryOnCreate(spaceId, doc, ttlDays);
   await col<ChronoEntry>(`${spaceId}_chrono`).insertOne(asDoc<ChronoEntry>(doc));
   if (actor) emitWebhookEvent({ event: 'chrono.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
-  return doc;
+  // Advisory only — the entry is stored either way.
+  return (similar || contradicts) ? { ...doc, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) } : doc;
 }
 
 export async function updateChrono(
@@ -177,29 +207,6 @@ export async function updateChrono(
   if ('_expireAt' in $unset) delete (updatedChrono as { _expireAt?: unknown })._expireAt;
   if (actor) emitWebhookEvent({ event: 'chrono.updated', spaceId, entry: { ...updatedChrono, embedding: undefined }, ...actor });
   return updatedChrono;
-}
-
-/**
- * C5 — derive `overdue` on read.
- *
- * An entry is overdue when its due moment (its `endsAt`, or `startsAt` when it has no end) has passed
- * and it is not yet `completed`/`cancelled`. Nothing writes the `overdue` status — it is computed at
- * read time so there is no write churn, no scheduled sweep, and no sync traffic, and it is always
- * accurate to the second. Because the STORED status stays `upcoming`/`active`, this must be applied at
- * every chrono read path (see `getChronoById` and `listChrono`), and the `listChrono` status filter is
- * translated to match (below).
- *
- * Known limitation: the entry's embedding is built from the stored status, so a derived-`overdue` entry
- * still embeds as `upcoming` — semantic search for "overdue" won't rank it. That is the trade-off for
- * not re-embedding on a clock tick.
- */
-export function deriveChronoStatus(
-  entry: Pick<ChronoEntry, 'status' | 'startsAt' | 'endsAt'>,
-  now: Date = new Date(),
-): ChronoStatus {
-  if (entry.status !== 'upcoming' && entry.status !== 'active') return entry.status;
-  const due = entry.endsAt ?? entry.startsAt;
-  return due && new Date(due).getTime() < now.getTime() ? 'overdue' : entry.status;
 }
 
 /** Return the entry with its derived status applied (a shallow copy only when the status changes). */

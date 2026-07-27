@@ -42,6 +42,9 @@ export const create_chronoTool: ToolHandler = {
               additionalProperties: false,
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+            checkDuplicates: { type: 'boolean', default: true, description: 'Run a semantic near-duplicate check before storing (default true). When a highly similar entry already exists, the response flags it (id + summary + score) so you can update it instead of logging the same event twice. The entry is still stored regardless. Set false to skip.' },
+            checkContradictions: { type: 'boolean', default: false, description: 'Also flag existing entries that CONTRADICT this one — a near-neighbour claiming a different status, or setting the same single-valued property to a different value. Deterministic only (no model call). The entry is still stored regardless.' },
+            dupeThreshold: unitScoreSchema('Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.'),
             ttlDays: TTL_DAYS_SCHEMA,
           },
           required: ['space', 'title', 'type', 'startsAt'],
@@ -109,9 +112,24 @@ export const create_chronoTool: ToolHandler = {
       memoryIds: chronoMemoryIds,
       properties: chronoProps,
       ...(rec.value ? { recurrence: rec.value } : {}),
-    }, ctx.actor, ttlDaysFromArgs(a));
+    }, ctx.actor, ttlDaysFromArgs(a), {
+      // Duplicate check defaults ON for the interactive create tool, as it does for remember/upsert_entity.
+      checkDuplicates: a['checkDuplicates'] !== false,
+      checkContradictions: a['checkContradictions'] === true,
+      dupeThreshold: typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined,
+    });
     let text = `Chrono entry '${entry.title}' (${entry.type}) created (ID ${entry._id}, seq ${entry.seq}).`
       + (remQuota.softBreached ? `\n⚠️ Storage warning: ${remQuota.warning}` : '');
+    if (entry.similar && entry.similar.length > 0) {
+      text += `\n⚠️ Possible duplicate — ${entry.similar.length} existing entr${entry.similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${entry.similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. This entry was still stored; pass checkDuplicates:false to skip this check, or update the existing one instead.`;
+    }
+    if (entry.contradicts && entry.contradicts.length > 0) {
+      // Named field + both values: the agent should be able to see WHAT disagrees, not just that
+      // something does — otherwise it cannot decide whether it is correcting or mistaken.
+      const detail = entry.contradicts.map(c =>
+        `"${c.summary}" (ID ${c.id}: ${c.fields.map(f => `${f.key} ${f.aValue} vs ${f.bValue}`).join(', ')})`).join('; ');
+      text += `\n⚠️ Contradiction — ${entry.contradicts.length} existing entr${entry.contradicts.length === 1 ? 'y disagrees' : 'ies disagree'} with this one: ${detail}. This entry was still stored. If you are correcting an outdated entry, update or supersede the record above instead of leaving both.`;
+    }
     if (chronoMeta?.validationMode === 'warn') {
       for (const v of chronoSchemaViolations) text += `\n⚠️ Schema: ${v.field} — ${v.reason}`;
     }

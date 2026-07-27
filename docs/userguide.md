@@ -828,11 +828,19 @@ opinion. Contradictions are never merged: both records are real and which one is
 either **dismiss** it (sticky, like a duplicate dismissal), mark it **resolved by edit** after correcting a
 record, or **link** the two as a contradiction instead.
 
+Memories, entities and **chrono entries** are reviewed. For a chrono pair, a field conflict includes its
+**status** — the same event logged twice, once as *completed* and once as *cancelled*, is exactly the kind of
+disagreement worth your attention. The **dates** are deliberately left out: two hand-logged occurrences of a
+repeating event ("Team sync", every Monday) would otherwise be reported as contradicting each other every
+single week, which is the fastest way to make a review queue not worth reading.
+
 **Duplicates** surfaces near-duplicate records found by the background semantic-duplicate scanner, **for that space**. It used to be a global page at Settings → Duplicates; a duplicate pair only ever means something *inside* one space, so it now lives beside that space's data. (The old `/settings/duplicates` link still works — it redirects to the Brain.)
 
 A summary row at the top shows how many pairs are **open**, the **average match confidence**, and how many are **shown**, alongside a **search box**, a status filter (**open / dismissed / all**) and a **Scan now** button. The search box narrows the list by record summary, type, or space — handy once a **dismissed** pile has grown. Each duplicate pair is a **comparison card**: the space and record type, a **confidence meter** (the similarity as a coloured percentage), when it was detected, and record **A** shown side-by-side with record **B**. For an entity pair you can **Merge** the two records (the older one is kept); any open pair can be **Dismiss**ed — dismissing asks for confirmation first, since it removes the pair from the open list.
 
 **Dismissed pairs stay dismissed** — a routine re-embed, a peer re-sync, or an index rebuild no longer drags them back onto the list the way they used to. A dismissed pair **only resurfaces on its own when its content materially changes** (a real edit to one of the records); a re-write that leaves the content the same keeps it dismissed. To bring one back for review sooner, switch the filter to **dismissed** (or **all**) and use **Re-rate** on the card.
+
+The scanner sweeps **memories, entities and chrono entries** by default — logging the same event twice is one of the commonest ways a knowledge base goes redundant.
 
 **Per-space rules:** how the scanner reacts is configured per space on the **Settings → Spaces → (space) → Duplicates** tab. Each rule pairs a **minimum-confidence slider** with an action — `flag` a pair for review, `automerge` it (asks for confirmation, since it's destructive and unattended), or `notify` a webhook. With no rules, pairs are simply flagged for review. You also choose which record survives a merge (older or newer). The scanner is opt-in and off by default.
 

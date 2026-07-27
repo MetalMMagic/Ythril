@@ -12,7 +12,7 @@ import { getEmbeddingConfig } from '../config/loader.js';
 import { needsReindex } from '../spaces/_shared.js';
 import { vectorFilterFieldsFor } from '../spaces/vector-index.js';
 import { FilterExpression, buildMongoFilter, toNativeVectorFilter } from './filter.js';
-import { deriveChronoStatus } from './chrono.js';
+import { deriveChronoStatus } from './chrono-status.js';
 import type { ChronoStatus } from '../config/types.js';
 
 export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';

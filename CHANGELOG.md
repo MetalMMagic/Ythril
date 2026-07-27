@@ -852,6 +852,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Chrono entries are now covered by duplicate and contradiction detection — both on insert and in the
+  nightly sweep.** They previously had neither: `create_chrono` ran no near-duplicate check, and
+  `dupeScanner.types` defaulted to `["memory", "entity"]` — which the new contradiction scanner inherited —
+  so a calendar was the one place nothing was watching for the same event logged twice. `create_chrono` now
+  takes `checkDuplicates` (default **on**, matching `remember`/`upsert_entity`), `checkContradictions`
+  (default off) and `dupeThreshold`, sharing one neighbour search between them; both scanners sweep
+  `chrono` by default.
+
+  The structured judge treats a chrono entry's **`status`** as a claim — one entry saying an event
+  `completed` while a near-identical one says `cancelled` is a real disagreement, and status is part of the
+  embedded text, so a pair similar enough to be flagged *while disagreeing about it* is near-certainly the
+  same event twice. Its **dates are deliberately not compared**: `startsAt`/`endsAt` are not embedded, so two
+  hand-logged occurrences of a repeating event pair at ~1.0 with different dates every time — reporting them
+  would fill the queue with the one thing that is definitely not a contradiction, and the duplicate scanner
+  already names that pair.
+
+  **Upgrading:** on an instance with the duplicate scanner already enabled, the first run after this release
+  starts chrono from cursor zero. That is a normal first pass and is bounded by `maxPerRun` like any other;
+  set `dupeScanner.types` explicitly to opt back out.
+
 - **The Brain Overview gains an admin-only Token-access panel — the final F9 Overview panel.** For an
   admin viewer it lists which API tokens can reach the current space and at what level (admin / read-write /
   read-only), flagging network-peer and all-spaces tokens and showing any expiry. It answers "who can get at
@@ -1651,6 +1671,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of a third-party signed cast, tampered cast rejected).
 
 ### Fixed
+
+- **The contradiction sweep recorded every finding in a space under one row, and its model pass never ran
+  at all.** The scanner mapped a vector-search hit onto the judge's input with a cast that silenced the type
+  checker: a recall hit carries `_id` (not `id`) and keeps its text under a per-type field (`fact` / `name` /
+  `title`), so every record reduced to `id: undefined, text: ''`. Nothing threw. The empty text made the
+  judge answer `no-text` for every pair, so the NLI pass judged nothing while reporting success, and every
+  structured finding was written under the pair id `"undefined:undefined"` — one row per space that each new
+  finding overwrote in turn. The mapping is now explicit and unit-tested (id carried across, non-empty text
+  built from the record's own summary and description), and the `evalRecord` casts are gone.
 
 - **Three more columns can be sorted: edges Weight, chrono Status and Ends.** They were rendered but not
   sortable — the original sort slice covered the identity/type/date columns and closed, and nothing tracked

@@ -12,7 +12,16 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { decideDismissed } from '../../server/dist/brain/dupe-scanner.js';
+import { decideDismissed, DEFAULT_TYPES } from '../../server/dist/brain/dupe-scanner.js';
+
+describe('duplicate scanner — swept types', () => {
+  it('sweeps chrono by default', () => {
+    // Logging the same event twice is one of the commonest ways a knowledge base goes redundant, and
+    // chrono was in neither scanner's defaults — so nothing was looking for it.
+    assert.ok(DEFAULT_TYPES.includes('chrono'));
+    assert.ok(DEFAULT_TYPES.includes('memory') && DEFAULT_TYPES.includes('entity'));
+  });
+});
 
 describe('decideDismissed — sticky-until-content-changes policy', () => {
   it('seqs unchanged → keep (stay dismissed, no work) regardless of hash', () => {

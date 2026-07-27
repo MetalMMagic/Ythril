@@ -127,14 +127,16 @@ export async function vlmExtractDocument(
     onProgress?.({ step: 'validate', steps });
     if (route.stages.includes('repair') && ocr && evidence.trim()) {
       onProgress?.({ step: 'repair', steps });
-      // F11-b — route repair to the external assist model when it's configured for `repair` AND its egress
-      // host has been acknowledged. The host-match is re-checked HERE so document content never leaves the
-      // instance without recorded consent, even if config.json were hand-edited to add `uses` without an ack.
+      // F11-b — route repair to the external assist model when it is configured AND its egress host has
+      // been acknowledged. The ACK is the gate: it is re-checked HERE, not just at save time, so document
+      // content never leaves the instance without recorded consent even if config.json were hand-edited.
+      // (There used to be a separate `uses: ['repair']` tick as well. It was a second switch for the only
+      // thing an assist model does, so it went; the consent record is the meaningful gate.)
       const assist = cfg.assistModel;
       let useExternal = false;
-      if (assist?.baseUrl && assist.model && assist.uses?.includes('repair')) {
+      if (assist?.baseUrl && assist.model) {
         try { useExternal = assist.acknowledgedHost === new URL(assist.baseUrl).host; } catch { useExternal = false; }
-        if (!useExternal) log.warn('VLM extract: assist model set for repair but its egress host is not acknowledged — using local repair');
+        if (!useExternal) log.warn('VLM extract: an external assist model is configured but its egress host is not acknowledged — using local repair');
       }
       const repairModel = useExternal ? assist!.model! : (cfg.repairModel || cfg.vlmModel);
       try {

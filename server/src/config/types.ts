@@ -477,14 +477,12 @@ export interface DocAssistModelConfig {
   /** Model tag to request (e.g. `gpt-4o`, a hosted Llama, …). */
   model?: string;
   /** What the external model powers. `repair` (the max-mode reconciliation pass) today; more TBD. */
-  uses?: DocAssistUse[];
   /** The host (`new URL(baseUrl).host`) the operator acknowledged document egress to. Must match `baseUrl`'s
    *  host while `uses` is non-empty — re-acknowledged when the endpoint host changes. Records consent. */
   acknowledgedHost?: string;
 }
 
 /** F11-b — tasks an external assist model can be assigned to. Extensible (transcribe / verify are later). */
-export type DocAssistUse = 'repair';
 
 /**
  * F11 — how thoroughly documents are read, low to high:

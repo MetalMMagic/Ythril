@@ -56,12 +56,12 @@ const ProviderPatchSchema = z.object({
 // F11 — document-processing / extraction settings. Shallow-merged like `vision`/`stt`: the client sends
 // the full block. `ocr` mode = today's behaviour; `vlm`/`auto`/`max` opt into the VLM pipeline.
 // F11-b — external assist model. `apiKey` is split into secrets.json (like vision/stt). `acknowledgedHost`
-// records the operator's egress consent; the handler requires it to match `baseUrl`'s host when `uses` is set.
+// records the operator's egress consent; the handler requires it to match `baseUrl`'s host whenever the
+// extraction rung can actually reach the endpoint (mode `repair`/`auto`).
 const AssistModelPatchSchema = z.object({
   baseUrl: z.string().url().optional(),
   model: z.string().max(128).optional(),
   apiKey: z.string().max(512).optional().nullable(),
-  uses: z.array(z.enum(['repair'])).max(8).optional(),
   acknowledgedHost: z.string().max(255).optional(),
 }).strict();
 
@@ -203,9 +203,12 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
   }
 
   // ── F11-b: external assist model — locked check + SSRF + egress-acknowledgment enforcement ──
-  // This is the only path that sends document content OFF the instance, so a `uses`-active endpoint must be
-  // (a) SSRF-safe and (b) acknowledged: `acknowledgedHost` must match the endpoint host. The client's
-  // acknowledgment modal sets that field; enforcing it here makes the consent auditable, not just UI.
+  // This is the only path that sends document content OFF the instance, so an endpoint that the pipeline
+  // could actually reach must be (a) SSRF-safe and (b) acknowledged: `acknowledgedHost` must match the
+  // endpoint host. The client's acknowledgment modal sets that field; enforcing it here makes the consent
+  // auditable, not just UI. The trigger is the PIPELINE RUNG, not a separate tick: the assist model exists
+  // to serve the `repair` pass, so consent is demanded exactly when repair becomes reachable — whether that
+  // happened by configuring the endpoint or by raising the extraction mode in the same or an earlier save.
   const assistPatch = parsed.data.documentProcessing?.assistModel;
   if (assistPatch !== undefined && locked.has('documentProcessing.assistModel')) {
     res.status(403).json({
@@ -214,12 +217,15 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     });
     return;
   }
-  if (assistPatch) {
+  {
     const existingAssist = activeCfg.documentProcessing?.assistModel ?? {};
-    const effBaseUrl = assistPatch.baseUrl ?? existingAssist.baseUrl;
-    const effUses = assistPatch.uses ?? existingAssist.uses ?? [];
-    const effAck = assistPatch.acknowledgedHost ?? existingAssist.acknowledgedHost;
-    if (effUses.length > 0 && effBaseUrl) {
+    const effBaseUrl = assistPatch?.baseUrl ?? existingAssist.baseUrl;
+    const effAck = assistPatch?.acknowledgedHost ?? existingAssist.acknowledgedHost;
+    // Effective extraction rung after this patch. `repair` uses the assist model outright; `auto` resolves
+    // to repair whenever a repair capability exists — and a configured assist model IS one.
+    const effMode = parsed.data.documentProcessing?.mode ?? activeCfg.documentProcessing?.mode ?? 'vlm';
+    const repairReachable = effMode === 'repair' || effMode === 'auto';
+    if (repairReachable && effBaseUrl) {
       if (!isSsrfSafeUrl(effBaseUrl, allowPrivate)) {
         res.status(400).json({ error: 'assistModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' });
         return;

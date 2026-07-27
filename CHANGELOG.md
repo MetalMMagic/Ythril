@@ -838,6 +838,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The per-space media pickers now show the instance ceiling instead of silently capping.** Each of the
+  four Media-analysis pickers (images / audio / video / text) offers only the levels within its per-class
+  instance ceiling — higher levels are hidden and a note names the ceiling — exactly as the document-extraction
+  picker already did. `GET /api/spaces` now returns `mediaCeilings` (the per-class ceilings) alongside
+  `docExtractionCeiling` to drive this. A level a space stored before the ceiling was lowered stays visible in
+  its picker (so the field is never blank). This completes "a space cannot see that its level was capped": the
+  picker can no longer propose a level the runtime would cap.
+
 - **A space can now set its own media-analysis levels.** Settings → Spaces → *space* → Settings gains a
   **Media analysis** card with per-space overrides for **images**, **audio**, **video**, and **text** (each
   defaulting to *Inherit instance default*) — previously only document-extraction was per-space overridable

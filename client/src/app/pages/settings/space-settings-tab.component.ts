@@ -90,9 +90,12 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
           <option value="">{{ 'spaces.settings.media.lvl.inherit' | transloco }}</option>
           <option value="auto">{{ 'spaces.settings.media.lvl.auto' | transloco }}</option>
           <option value="off">{{ 'spaces.settings.media.lvl.off' | transloco }}</option>
-          <option value="caption">{{ 'spaces.settings.media.lvl.caption' | transloco }}</option>
-          <option value="recognition">{{ 'spaces.settings.media.lvl.recognition' | transloco }}</option>
+          @if (isMediaAllowed('image', 'caption') || state.stForm.imageAnalysis === 'caption') { <option value="caption">{{ 'spaces.settings.media.lvl.caption' | transloco }}</option> }
+          @if (isMediaAllowed('image', 'recognition') || state.stForm.imageAnalysis === 'recognition') { <option value="recognition">{{ 'spaces.settings.media.lvl.recognition' | transloco }}</option> }
         </select>
+        @if (showMediaCeiling('image')) {
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.media.ceilingHint' | transloco: { ceiling: mediaCeiling('image') } }}</div>
+        }
       </div>
       <div class="field" style="margin:0; max-width:190px;">
         <label>{{ 'spaces.settings.media.audio' | transloco }}</label>
@@ -100,8 +103,11 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
           <option value="">{{ 'spaces.settings.media.lvl.inherit' | transloco }}</option>
           <option value="auto">{{ 'spaces.settings.media.lvl.auto' | transloco }}</option>
           <option value="off">{{ 'spaces.settings.media.lvl.off' | transloco }}</option>
-          <option value="on">{{ 'spaces.settings.media.lvl.on' | transloco }}</option>
+          @if (isMediaAllowed('audio', 'on') || state.stForm.audioAnalysis === 'on') { <option value="on">{{ 'spaces.settings.media.lvl.on' | transloco }}</option> }
         </select>
+        @if (showMediaCeiling('audio')) {
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.media.ceilingHint' | transloco: { ceiling: mediaCeiling('audio') } }}</div>
+        }
       </div>
       <div class="field" style="margin:0; max-width:190px;">
         <label>{{ 'spaces.settings.media.video' | transloco }}</label>
@@ -109,9 +115,12 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
           <option value="">{{ 'spaces.settings.media.lvl.inherit' | transloco }}</option>
           <option value="auto">{{ 'spaces.settings.media.lvl.auto' | transloco }}</option>
           <option value="off">{{ 'spaces.settings.media.lvl.off' | transloco }}</option>
-          <option value="audio">{{ 'spaces.settings.media.lvl.audioOnly' | transloco }}</option>
-          <option value="full">{{ 'spaces.settings.media.lvl.full' | transloco }}</option>
+          @if (isMediaAllowed('video', 'audio') || state.stForm.videoAnalysis === 'audio') { <option value="audio">{{ 'spaces.settings.media.lvl.audioOnly' | transloco }}</option> }
+          @if (isMediaAllowed('video', 'full') || state.stForm.videoAnalysis === 'full') { <option value="full">{{ 'spaces.settings.media.lvl.full' | transloco }}</option> }
         </select>
+        @if (showMediaCeiling('video')) {
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.media.ceilingHint' | transloco: { ceiling: mediaCeiling('video') } }}</div>
+        }
       </div>
       <div class="field" style="margin:0; max-width:190px;">
         <label>{{ 'spaces.settings.media.text' | transloco }}</label>
@@ -119,9 +128,12 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
           <option value="">{{ 'spaces.settings.media.lvl.inherit' | transloco }}</option>
           <option value="auto">{{ 'spaces.settings.media.lvl.auto' | transloco }}</option>
           <option value="off">{{ 'spaces.settings.media.lvl.off' | transloco }}</option>
-          <option value="embed">{{ 'spaces.settings.media.lvl.embed' | transloco }}</option>
-          <option value="chunk">{{ 'spaces.settings.media.lvl.chunk' | transloco }}</option>
+          @if (isMediaAllowed('text', 'embed') || state.stForm.textAnalysis === 'embed') { <option value="embed">{{ 'spaces.settings.media.lvl.embed' | transloco }}</option> }
+          @if (isMediaAllowed('text', 'chunk') || state.stForm.textAnalysis === 'chunk') { <option value="chunk">{{ 'spaces.settings.media.lvl.chunk' | transloco }}</option> }
         </select>
+        @if (showMediaCeiling('text')) {
+          <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">{{ 'spaces.settings.media.ceilingHint' | transloco: { ceiling: mediaCeiling('text') } }}</div>
+        }
       </div>
     </div>
     <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">{{ 'spaces.settings.media.hint' | transloco }}</div>
@@ -136,6 +148,15 @@ export class SpaceSettingsTabComponent {
 
   private static readonly LADDER = ['off', 'ocr', 'vlm', 'repair'] as const;
 
+  /** Per-class media ladders, low to high (excluding `auto`, which resolves rather than ranks). Same
+   *  contract as the extraction ladder: a level is offered only when it sits at or below the ceiling. */
+  private static readonly MEDIA_LADDERS = {
+    image: ['off', 'caption', 'recognition'],
+    audio: ['off', 'on'],
+    video: ['off', 'audio', 'full'],
+    text: ['off', 'embed', 'chunk'],
+  } as const;
+
   /**
    * Whether a concrete extraction mode is within the instance ceiling — so the per-space dropdown only
    * offers levels the space could actually reach. `auto` ceiling imposes no limit; `off`/`auto`/inherit
@@ -145,5 +166,32 @@ export class SpaceSettingsTabComponent {
     const ceiling = this.store.docExtractionCeiling();
     if (ceiling === 'auto') return true;
     return SpaceSettingsTabComponent.LADDER.indexOf(mode) <= SpaceSettingsTabComponent.LADDER.indexOf(ceiling);
+  }
+
+  /**
+   * Whether a concrete media level is within the instance ceiling for its class — the media analogue of
+   * `isExtractionAllowed`, so a per-space picker never offers a level the runtime would silently cap.
+   * `auto` ceiling imposes no limit; the stored value is kept visible separately even if since-excluded.
+   */
+  isMediaAllowed(cls: 'image' | 'audio' | 'video' | 'text', level: string): boolean {
+    const ceiling = this.store.mediaCeilings()[cls];
+    if (ceiling === 'auto') return true;
+    const ladder = SpaceSettingsTabComponent.MEDIA_LADDERS[cls] as readonly string[];
+    return ladder.indexOf(level) <= ladder.indexOf(ceiling);
+  }
+
+  /** The instance ceiling for a media class (raw level code), for the "capped by the instance" hint. */
+  mediaCeiling(cls: 'image' | 'audio' | 'video' | 'text'): string {
+    return this.store.mediaCeilings()[cls];
+  }
+
+  /**
+   * Whether to show the ceiling hint for a class: only when the instance imposes a real limit — the
+   * ceiling is neither `auto` (no limit) nor the class maximum (a ceiling AT the top caps nothing).
+   */
+  showMediaCeiling(cls: 'image' | 'audio' | 'video' | 'text'): boolean {
+    const ceiling = this.store.mediaCeilings()[cls];
+    const ladder = SpaceSettingsTabComponent.MEDIA_LADDERS[cls] as readonly string[];
+    return ceiling !== 'auto' && ceiling !== ladder[ladder.length - 1];
   }
 }

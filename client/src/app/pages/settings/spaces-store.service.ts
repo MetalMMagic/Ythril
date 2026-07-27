@@ -1,6 +1,6 @@
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { moveItemInArray } from '@angular/cdk/drag-drop';
-import { Network, Space } from '../../core/api.types';
+import { Network, Space, SpacesResponse } from '../../core/api.types';
 import { NetworksApi } from '../../core/networks-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
 
@@ -29,6 +29,12 @@ export class SpacesStore {
   /** Instance document-extraction ceiling — the highest mode a space may pick. Drives the per-space
    *  extraction dropdown so it never offers a level the runtime would cap. 'auto' = no policy limit. */
   readonly docExtractionCeiling = signal<'off' | 'ocr' | 'vlm' | 'repair' | 'auto'>('auto');
+  /** Instance per-class media-analysis ceilings — the highest level a space may pick for each class.
+   *  Drives the per-space media pickers so they never offer a level the runtime would cap. 'auto' = no
+   *  policy limit (the default when the server omits the field). */
+  readonly mediaCeilings = signal<NonNullable<SpacesResponse['mediaCeilings']>>({
+    image: 'auto', audio: 'auto', video: 'auto', text: 'auto',
+  });
   readonly loading  = signal(true);
   /** Set when the spaces list fails to load, so the page can show an error state rather than a bare empty list. */
   readonly error    = signal(false);
@@ -64,9 +70,10 @@ export class SpacesStore {
     this.loading.set(true);
     this.error.set(false);
     this.spacesApi.listSpaces().subscribe({
-      next: ({ spaces, docExtractionCeiling }) => {
+      next: ({ spaces, docExtractionCeiling, mediaCeilings }) => {
         this.spaces.set(spaces);
         if (docExtractionCeiling) this.docExtractionCeiling.set(docExtractionCeiling);
+        if (mediaCeilings) this.mediaCeilings.set(mediaCeilings);
         this.loading.set(false);
       },
       error: () => { this.error.set(true); this.loading.set(false); },

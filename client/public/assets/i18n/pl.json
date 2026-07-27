@@ -804,6 +804,7 @@
   "spaces.settings.media.lvl.embed": "Osadź",
   "spaces.settings.media.lvl.chunk": "Podziel + osadź",
   "spaces.settings.media.hint": "Pozostaw \"Dziedzicz\", aby użyć domyślnego instancji. Poziom powyżej limitu instancji jest ograniczany do limitu.",
+  "spaces.settings.media.ceilingHint": "Ograniczone do limitu instancji ('{{ceiling}}'). Zwiększ go w Ustawienia → Modele, aby zaoferować więcej.",
   "spaces.settings.validationMode": "Tryb walidacji",
   "spaces.settings.validation.off": "Wyłączone — nieograniczone zapisy",
   "spaces.settings.validation.warn": "Ostrzegaj — rejestruj tylko naruszenia",

@@ -30,7 +30,6 @@ import {
   readFileBytes,
   writeFileBytes,
   listDir,
-  deleteFile,
   createDir,
   moveFile,
   listFilesRecursive,
@@ -48,11 +47,12 @@ import { col, asFilter, asDoc } from '../db/mongo.js';
 import type { FileMetaDoc } from '../config/types.js';
 import { upsertFileMeta, deleteFileMeta, deleteFileMetaByPrefix, renameFileMeta, renameFileMetaByPrefix, markFileMetaDeleted, markFileMetaDeletedByPrefix } from '../files/file-meta.js';
 import { writeFileTombstones } from '../files/tombstones.js';
+import { deleteFileCascade } from '../files/delete-cascade.js';
 import { resolveMemberSpaces, resolveWriteTarget } from '../spaces/proxy.js';
 import { emitWebhookEvent } from '../webhooks/dispatcher.js';
 import { deleteConversionArtifacts, deleteConversionArtifactsByPrefix, isMediaFormat } from '../files/converters/pipeline.js';
 import type { InputFormat } from '../files/converters/pipeline.js';
-import { cancelMediaJob, cancelMediaJobsByPrefix } from '../files/media/job-queue.js';
+import { cancelMediaJobsByPrefix } from '../files/media/job-queue.js';
 import { dispatchFileProcessing } from '../files/dispatch.js';
 
 export const fileStoreRouter = Router();
@@ -693,28 +693,9 @@ fileStoreRouter.delete('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadO
   }
 
   try {
-    await deleteFile(targetSpace, filePath);
-    invalidateUsageCache(); // freed disk — reflect it in the next quota check
-    // Propagate the deletion to sync peers.
-    await writeFileTombstones(targetSpace, [filePath]);
-    // Metadata: soft-flag (retain for audit) or hard-delete, per softDeleteFileMeta.
-    if (getConfig().softDeleteFileMeta === true) {
-      await markFileMetaDeleted(targetSpace, filePath).catch(err => {
-        log.warn(`markFileMetaDeleted error for space ${targetSpace}, path ${filePath}: ${err}`);
-      });
-    } else {
-      await deleteFileMeta(targetSpace, filePath).catch(err => {
-        log.warn(`deleteFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
-      });
-    }
-    // Cancel any queued media/text job so it cannot outlive the file and retry forever.
-    await cancelMediaJob(targetSpace, filePath).catch(err => {
-      log.warn(`cancelMediaJob error for space ${targetSpace}, path ${filePath}: ${err}`);
-    });
-    await deleteConversionArtifacts(targetSpace, filePath).catch(err => {
-      log.warn(`deleteConversionArtifacts error for space ${targetSpace}, path ${filePath}: ${err}`);
-    });
-    emitWebhookEvent({ event: 'file.deleted', spaceId: targetSpace, entry: { path: filePath }, ...webhookToken(req) });
+    // Full cascade (blob + tombstone + meta + job + artifacts + usage + webhook) — shared with the MCP
+    // delete_file tool and the TTL sweep so every delete path cleans up identically.
+    await deleteFileCascade(targetSpace, filePath, webhookToken(req));
     res.status(204).end();
   } catch (err) {
     if (err instanceof RangeError) {

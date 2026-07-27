@@ -2410,6 +2410,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **File deletion now runs one shared cascade across every path.** The blob-unlink + sync-tombstone +
+  metadata removal + queued-job cancellation + conversion-artifact cleanup sequence was duplicated in the
+  REST `DELETE /api/files/:spaceId` handler and the MCP `delete_file` tool; it is now a single
+  `deleteFileCascade` helper both call (and the upcoming file-TTL sweep will reuse), so a file removed by
+  any path cleans up identically and never orphans bytes, jobs or artifacts. No behavioural change.
+
 - **The Brain landing page is much lighter.** The Graph and Files tabs (which carry cytoscape and the
   file-manager's markdown / mermaid / xlsx renderers) are now `@defer`-loaded on first visit instead of
   being downloaded with the Brain page. Opening a space (which lands on Overview) no longer pulls those

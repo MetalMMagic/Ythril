@@ -1080,6 +1080,8 @@
   "brain.query.filterPlaceholder": "{\"tags\": {\"$in\": [\"my-tag\"]}} or {\"name\": {\"$regex\": \"auth\", \"$options\": \"i\"}}",
   "brain.query.projectionPlaceholder": "{\"fact\": 1, \"tags\": 1}",
   "brain.query.resultsFrom": "result(s) from {{ collection }}",
+  "brain.query.passages": "{{count}} passages",
+  "brain.query.groupedPassages": "from {{count}} matching passages",
   "graph.stats.nodesEdges": "{{ nodes }} nodes · {{ edges }} edges",
   "settings.language": "Language",
   "settings.language.en": "English",

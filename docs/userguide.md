@@ -192,6 +192,14 @@ Click **Show advanced** for more control:
 - **Tags** — a tag filter applied to results.
 - **Filter** — a JSON object of extra field constraints, validated before the search runs. The recall filter accepts fields such as `status` and `label`, which are applied as native `$vectorSearch` pre-filters (they narrow the candidate set inside the vector index rather than filtering afterwards).
 
+**File results are grouped by document.** Searching over files matches *passages*, not whole documents, so a
+long paper that is relevant in five places would otherwise fill the list with five near-identical rows. Each
+document instead appears once — named, with a badge saying how many passages matched, and each passage listed
+under the heading it sits beneath with its text.
+
+Because several rows collapse into one, the header states both counts: *"1 result from 6 matching passages"*.
+So a **topK** of 10 can legitimately show fewer than ten rows — the passage count tells you nothing was lost.
+
 #### Advanced Query
 
 Runs a structured MongoDB-style query against one collection. Select a collection (`memories`, `entities`, `edges`, `chrono`, or `files`), optionally set a **limit** and **max time (ms)**, enter a filter as JSON, and click **Run**. Results appear below.

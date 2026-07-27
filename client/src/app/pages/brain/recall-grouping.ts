@@ -1,0 +1,150 @@
+/**
+ * Group chunk-level file hits under the document they came from (brain-ux-epic 4c-ii).
+ *
+ * Semantic recall over files matches CHUNKS, not documents — a long paper that is relevant in five places
+ * returns five near-identical rows, which pushes everything else out of the visible list and tells the
+ * reader five times over what they already knew after the first. Grouping restores the thing they are
+ * actually looking for: *which document*, and *where in it*.
+ *
+ * ── Why this lives in the client ────────────────────────────────────────────────────────────────────────
+ *
+ * The server already does the expensive half: every chunk hit arrives carrying `parentFileId` and an
+ * inlined `parentFile {path, description, tags}`, batch-fetched in one query. Nothing in the client had
+ * ever read those fields — the data crossed the wire on every recall and was thrown away. So this is a
+ * presentation concern, and doing it here changes no API shape and does not ripple to MCP callers, who
+ * receive the flat list they are built around.
+ *
+ * ── The count question, answered honestly ───────────────────────────────────────────────────────────────
+ *
+ * Collapsing five rows into one makes a `topK` of ten look like six. The alternative — over-fetching and
+ * collapsing server-side — would change the recall contract for every consumer to fix a display problem.
+ * Instead the group carries `hitCount`, and the UI reports both numbers. A reader who asked for ten and
+ * sees six documents is not being short-changed as long as the six say how many passages they matched;
+ * silently showing six with no explanation is what would mislead.
+ */
+import type { RecallResult } from '../../core/api.types';
+
+/** The file-specific fields the server sends on a recall hit. `RecallResult` is index-signature typed, so
+ *  these are narrowed here rather than being assumed at every use site. */
+interface FileHitFields {
+  _id?: unknown;
+  parentFileId?: unknown;
+  parentFile?: { path?: unknown; description?: unknown; tags?: unknown };
+  headingText?: unknown;
+  path?: unknown;
+}
+
+/** A parent document, when a group represents one. */
+export interface RecallGroupFile {
+  id: string;
+  path: string;
+  description?: string;
+  tags?: string[];
+}
+
+export interface RecallGroup {
+  /** Best score in the group — what the list orders by, so grouping never reorders relative to other hits. */
+  score?: number;
+  /** Set only for a grouped file. Absent for memories, entities, edges, chrono and ungroupable file rows. */
+  file?: RecallGroupFile;
+  /** The underlying hits, best first. Exactly one for a non-file group. */
+  hits: RecallResult[];
+  /** How many passages matched. 1 for everything that is not a grouped document. */
+  hitCount: number;
+}
+
+const str = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() ? v : undefined);
+
+/**
+ * The key a file hit groups under: its parent document when it is a chunk, otherwise itself.
+ *
+ * Returning the file's own id for a NON-chunk hit is deliberate — it means a whole-file match and the
+ * chunk matches from that same file collapse into one group instead of appearing as a document plus some
+ * unrelated-looking fragments.
+ */
+export function fileGroupKey(r: RecallResult): string | null {
+  if (r.type !== 'file') return null;
+  const f = r as unknown as FileHitFields;
+  return str(f.parentFileId) ?? str(f._id) ?? null;
+}
+
+/** The parent document description for a group, from whichever hit carries it. */
+function fileOf(hits: RecallResult[], key: string): RecallGroupFile {
+  for (const h of hits) {
+    const f = h as unknown as FileHitFields;
+    const p = str(f.parentFile?.path);
+    if (p) {
+      return {
+        id: key, path: p,
+        ...(str(f.parentFile?.description) ? { description: str(f.parentFile?.description)! } : {}),
+        ...(Array.isArray(f.parentFile?.tags) ? { tags: f.parentFile?.tags as string[] } : {}),
+      };
+    }
+  }
+  // A non-chunk file hit has no `parentFile` — it IS the file, so its own path is the document's path.
+  for (const h of hits) {
+    const p = str((h as unknown as FileHitFields).path);
+    if (p) return { id: key, path: p };
+  }
+  return { id: key, path: key };
+}
+
+/**
+ * Collapse chunk hits under their parent document, preserving the incoming order.
+ *
+ * Order is by each group's FIRST occurrence, not by re-sorting on score: the server has already ranked the
+ * results, and re-ranking here would quietly disagree with the ordering every other consumer sees.
+ */
+export function groupRecallResults(results: readonly RecallResult[]): RecallGroup[] {
+  const groups: RecallGroup[] = [];
+  const byKey = new Map<string, RecallGroup>();
+
+  for (const r of results) {
+    const key = fileGroupKey(r);
+    if (key === null) {
+      groups.push({ hits: [r], hitCount: 1, ...(r.score != null ? { score: r.score } : {}) });
+      continue;
+    }
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.hits.push(r);
+      existing.hitCount++;
+      continue;
+    }
+    const group: RecallGroup = { hits: [r], hitCount: 1, ...(r.score != null ? { score: r.score } : {}) };
+    byKey.set(key, group);
+    groups.push(group);
+  }
+
+  // The parent is resolved after collection so a group whose FIRST hit lacked `parentFile` can still be
+  // named from a later one.
+  for (const [key, g] of byKey) g.file = fileOf(g.hits, key);
+  return groups;
+}
+
+/** A short label for where in the document a chunk matched — its heading, when the chunker recorded one. */
+export function chunkLabel(r: RecallResult): string | undefined {
+  return str((r as unknown as FileHitFields).headingText);
+}
+
+/** Longest passage rendered inline before it is cut. Long enough to judge relevance, short enough that six
+ *  of them under one document stay scannable. */
+const PASSAGE_MAX = 400;
+
+/**
+ * The matching passage's own text, for display.
+ *
+ * Recall results otherwise render as pretty-printed JSON, which is defensible for a record you are
+ * inspecting and useless for a passage you are reading — and grouping makes it worse, stacking six JSON
+ * blobs under one document. `content` is the chunk's text; `matchedText` is the exact string that was
+ * embedded, which is what actually matched, so it is the better fallback than the raw record.
+ *
+ * Returns undefined when there is no text, so the caller can fall back rather than render an empty block.
+ */
+export function passageText(r: RecallResult): string | undefined {
+  const f = r as unknown as FileHitFields & { content?: unknown; matchedText?: unknown };
+  const text = str(f.content) ?? str(f.matchedText);
+  if (!text) return undefined;
+  const clean = text.replace(/\s+/g, ' ').trim();
+  return clean.length > PASSAGE_MAX ? `${clean.slice(0, PASSAGE_MAX - 1)}…` : clean;
+}

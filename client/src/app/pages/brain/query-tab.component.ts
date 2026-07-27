@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { groupRecallResults, chunkLabel, passageText } from './recall-grouping';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -207,17 +208,56 @@ import { BrainStore } from './brain-store.service';
 
               @if (recallResults().length) {
                 <div class="query-results-header" style="margin-top:12px;">
-                  <strong>{{ recallResults().length }}</strong> {{ 'brain.query.resultsCount' | transloco: { count: recallResults().length } }}
+                  <strong>{{ recallGroups().length }}</strong> {{ 'brain.query.resultsCount' | transloco: { count: recallGroups().length } }}
+                  <!-- Grouping makes a topK of 10 look like 6, so the passage count is stated rather than
+                       left for the reader to wonder about. Only shown when grouping actually happened. -->
+                  @if (recallResults().length !== recallGroups().length) {
+                    <span style="font-size:11px; color:var(--text-muted); margin-left:6px;">{{ 'brain.query.groupedPassages' | transloco: { count: recallResults().length } }}</span>
+                  }
                 </div>
-                @for (r of recallResults(); track $index) {
+                @for (g of recallGroups(); track $index) {
                   <div class="query-result-card" style="margin-top:6px;">
-                    <div style="display:flex; gap:8px; margin-bottom:4px; align-items:center;">
-                      <span class="badge badge-purple" style="font-size:10px;">{{ r.type }}</span>
-                      @if (r.score != null) {
-                        <span style="font-size:11px; color:var(--text-muted);">{{ 'common.score' | transloco }}: {{ r.score.toFixed(3) }}</span>
+                    @if (g.file; as f) {
+                      <!-- A grouped document: name the FILE once, then say where inside it matched. -->
+                      <div style="display:flex; gap:8px; margin-bottom:4px; align-items:center; flex-wrap:wrap;">
+                        <span class="badge badge-purple" style="font-size:10px;">file</span>
+                        <strong style="font-size:12px; word-break:break-all;">{{ f.path }}</strong>
+                        @if (g.score != null) {
+                          <span style="font-size:11px; color:var(--text-muted);">{{ 'common.score' | transloco }}: {{ g.score.toFixed(3) }}</span>
+                        }
+                        @if (g.hitCount > 1) {
+                          <span class="badge" style="font-size:10px;">{{ 'brain.query.passages' | transloco: { count: g.hitCount } }}</span>
+                        }
+                      </div>
+                      @if (f.description) {
+                        <div style="font-size:11px; color:var(--text-muted); margin-bottom:4px;">{{ f.description }}</div>
                       }
-                    </div>
-                    <div style="white-space:pre-wrap; word-break:break-all;">{{ formatQueryDoc(r) }}</div>
+                      <ul style="margin:0; padding-left:16px;">
+                        @for (h of g.hits; track $index) {
+                          <li style="margin:2px 0;">
+                            @if (chunkHeading(h); as heading) {
+                              <span style="font-size:11px; color:var(--text-secondary); font-weight:550;">{{ heading }}</span>
+                            }
+                            <!-- The passage's own text, not the raw record: a JSON dump per passage is
+                                 unreadable stacked six deep, and the text is what actually matched.
+                                 Falls back to the record only when a hit carries no text at all. -->
+                            @if (passageOf(h); as text) {
+                              <div style="white-space:pre-wrap; word-break:break-word; font-size:12px;">{{ text }}</div>
+                            } @else {
+                              <div style="white-space:pre-wrap; word-break:break-all;">{{ formatQueryDoc(h) }}</div>
+                            }
+                          </li>
+                        }
+                      </ul>
+                    } @else {
+                      <div style="display:flex; gap:8px; margin-bottom:4px; align-items:center;">
+                        <span class="badge badge-purple" style="font-size:10px;">{{ g.hits[0].type }}</span>
+                        @if (g.score != null) {
+                          <span style="font-size:11px; color:var(--text-muted);">{{ 'common.score' | transloco }}: {{ g.score.toFixed(3) }}</span>
+                        }
+                      </div>
+                      <div style="white-space:pre-wrap; word-break:break-all;">{{ formatQueryDoc(g.hits[0]) }}</div>
+                    }
                   </div>
                 }
               }
@@ -342,6 +382,26 @@ export class QueryTabComponent {
   recallRunning = signal(false);
   recallResults = signal<RecallResult[]>([]);
   recallError = signal('');
+
+  /**
+   * Recall hits with each document's chunk matches collapsed under it (4c-ii).
+   *
+   * A long paper relevant in five places used to return five near-identical rows, pushing everything else
+   * out of view. The server has always sent `parentFileId` + an inlined `parentFile` on chunk hits; nothing
+   * read them until now, so this is presentation only — no API change, and MCP callers still get the flat
+   * list they are built around.
+   */
+  recallGroups = computed(() => groupRecallResults(this.recallResults()));
+
+  /** The heading a passage sits under, when the chunker recorded one. */
+  chunkHeading(r: RecallResult): string | undefined {
+    return chunkLabel(r);
+  }
+
+  /** The passage's own text for display, or undefined when the hit carries none. */
+  passageOf(r: RecallResult): string | undefined {
+    return passageText(r);
+  }
 
   runQuery(): void {
     this.queryFilterError.set('');

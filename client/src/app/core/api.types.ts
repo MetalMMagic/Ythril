@@ -412,6 +412,32 @@ export interface DupeActionRule {
   webhookUrl?: string;
 }
 
+/**
+ * One contradiction candidate. Mirrors DuplicateRecord, except that where a duplicate has a similarity
+ * `score`, a contradiction has a `basis` — and the two bases are not equally strong, so the UI must not
+ * flatten them into one number.
+ */
+export interface ContradictionRecord {
+  id: string;
+  spaceId: string;
+  type: string;
+  aId: string;
+  aSummary: string;
+  bId: string;
+  bSummary: string;
+  /** `structured-field` = deterministic (the records set one single-valued property to two values, listed
+   *  in `fields`). `nli` = an entailment model's verdict, and `confidence` is its score. */
+  basis: 'structured-field' | 'nli';
+  confidence: number;
+  /** The disagreeing properties — present only for a `structured-field` basis. */
+  fields?: { key: string; aValue: string | number | boolean; bValue: string | number | boolean }[];
+  status: 'open' | 'dismissed' | 'resolved';
+  /** `edited` = a record was corrected; `linked` = a contradicts/supersedes edge was drawn instead. */
+  resolution?: 'edited' | 'linked';
+  detectedAt: string;
+  updatedAt: string;
+}
+
 export interface DuplicateRecord {
   id: string;
   spaceId: string;

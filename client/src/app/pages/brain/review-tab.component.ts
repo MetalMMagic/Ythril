@@ -1,7 +1,8 @@
 import { Component, inject, signal, computed, OnInit, OnChanges, SimpleChanges, Input } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DuplicateRecord } from '../../core/api.types';
+import { DuplicateRecord, ContradictionRecord } from '../../core/api.types';
 import { DuplicatesApi } from '../../core/duplicates-api.service';
+import { ContradictionsApi } from '../../core/contradictions-api.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
@@ -43,6 +44,12 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
     .dup-rec.b .dup-rec-txt { color: var(--text-secondary); }
     .dup-vs { display: flex; align-items: center; color: var(--text-muted); font-size: 11px; font-style: italic; }
 
+    .con-fields { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .con-fields li { display: flex; align-items: baseline; gap: 7px; font-size: 12px; flex-wrap: wrap; }
+    .con-key { font-family: var(--font-mono, monospace); font-size: 11px; color: var(--text-muted); }
+    .con-a, .con-b { font-weight: 600; color: var(--text-primary); }
+    .con-sep { color: var(--text-muted); font-style: italic; font-size: 11px; }
+
     .dup-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
     .dup-resolved { font-size: 12px; color: var(--success); text-align: right; }
   `],
@@ -66,11 +73,84 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
     @if (sub() === 'contradictions') {
       <section role="tabpanel" id="review-panel-contradictions" aria-labelledby="review-tab-contradictions">
         <p class="intro">{{ 'review.contradictions.intro' | transloco }}</p>
-        <div class="empty-state">
-          <div class="empty-state-icon"><ph-icon name="warning" [size]="48"/></div>
-          <h3>{{ 'review.contradictions.pendingTitle' | transloco }}</h3>
-          <p>{{ 'review.contradictions.pendingBody' | transloco }}</p>
-        </div>
+        @if (conLoading()) {
+          <div class="loading-overlay"><span class="spinner"></span></div>
+        } @else if (conRows().length === 0) {
+          <div class="empty-state">
+            <div class="empty-state-icon"><ph-icon name="warning" [size]="48"/></div>
+            <h3>{{ 'review.contradictions.pendingTitle' | transloco }}</h3>
+            <p>{{ 'review.contradictions.pendingBody' | transloco }}</p>
+          </div>
+        } @else {
+          <div class="dup-grid">
+            @for (c of conRows(); track c.id) {
+              <div class="dup-card">
+                <div class="dup-card-h">
+                  <span class="dup-type">{{ c.type }}</span>
+                  <!-- The basis, never a bare number: a deterministic field conflict and a model's opinion
+                       are different kinds of claim, and a reviewer needs to tell them apart at a glance. -->
+                  @if (c.basis === 'structured-field') {
+                    <app-status-pill variant="warn">{{ 'review.contradictions.basis.structured' | transloco }}</app-status-pill>
+                  } @else {
+                    <app-status-pill variant="off">{{ 'review.contradictions.basis.nli' | transloco }}</app-status-pill>
+                    <span class="conf" [attr.title]="'review.contradictions.confidence' | transloco">
+                      <span class="conf-track"><span class="conf-fill" [class]="scoreVariant(c.confidence)" [style.width.%]="scorePct(c.confidence)"></span></span>
+                      <span class="conf-pct">{{ scorePct(c.confidence) }}%</span>
+                    </span>
+                  }
+                  @if (c.status !== 'open') {
+                    <app-status-pill [variant]="c.status === 'resolved' ? 'ok' : 'off'">{{ ('duplicates.status.' + c.status) | transloco }}</app-status-pill>
+                  }
+                  <span class="dup-when"><app-relative-time [value]="c.detectedAt"/></span>
+                </div>
+
+                <!-- A structured verdict can NAME the disagreement; say what it is rather than asserting one. -->
+                @if (c.fields?.length) {
+                  <ul class="con-fields">
+                    @for (f of c.fields; track f.key) {
+                      <li><span class="con-key">{{ f.key }}</span>
+                        <span class="con-a">{{ f.aValue }}</span>
+                        <span class="con-sep">{{ 'review.contradictions.versus' | transloco }}</span>
+                        <span class="con-b">{{ f.bValue }}</span></li>
+                    }
+                  </ul>
+                }
+
+                <div class="dup-ab">
+                  <div class="dup-rec">
+                    <div class="dup-rec-l">{{ 'duplicates.table.recordA' | transloco }}</div>
+                    <div class="dup-rec-txt">{{ c.aSummary }}</div>
+                  </div>
+                  <div class="dup-vs">{{ 'review.contradictions.versus' | transloco }}</div>
+                  <div class="dup-rec b">
+                    <div class="dup-rec-l">{{ 'duplicates.table.recordB' | transloco }}</div>
+                    <div class="dup-rec-txt">{{ c.bSummary }}</div>
+                  </div>
+                </div>
+
+                <div class="dup-actions">
+                  @if (c.status === 'dismissed') {
+                    <button class="btn btn-sm btn-secondary" type="button" [disabled]="conBusy() === c.id" (click)="reopenContradiction(c)">
+                      {{ 'duplicates.reRate' | transloco }}
+                    </button>
+                  } @else if (c.status === 'open') {
+                    <button class="btn btn-sm btn-secondary" type="button" [disabled]="conBusy() === c.id" (click)="dismissContradiction(c)">
+                      {{ 'duplicates.dismiss' | transloco }}
+                    </button>
+                    <!-- Contradictions are never merged: both records are real and which is wrong is a
+                         judgement call, so the reviewer records HOW they settled it. -->
+                    <button class="btn btn-sm btn-secondary" type="button" [disabled]="conBusy() === c.id" (click)="resolveContradiction(c, 'edited')">
+                      {{ 'review.contradictions.action.edited' | transloco }}
+                    </button>
+                    <button class="btn btn-sm btn-secondary" type="button" [disabled]="conBusy() === c.id" (click)="resolveContradiction(c, 'linked')">
+                      {{ 'review.contradictions.action.linked' | transloco }}
+                    </button>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        }
       </section>
     } @else {
     <section role="tabpanel" id="review-panel-duplicates" aria-labelledby="review-tab-duplicates">
@@ -170,6 +250,46 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
   `,
 })
 export class ReviewTabComponent implements OnInit, OnChanges {
+  private contradictionsApi = inject(ContradictionsApi);
+  readonly conRows = signal<ContradictionRecord[]>([]);
+  readonly conLoading = signal(false);
+  readonly conBusy = signal<string | null>(null);
+
+  /** Load this space's contradictions. Called on init, on space switch, and after every action. */
+  loadContradictions(): void {
+    this.conLoading.set(true);
+    this.contradictionsApi.listContradictions('open', this.spaceId).subscribe({
+      next: r => { this.conRows.set(r.contradictions); this.conLoading.set(false); },
+      // A load failure must not read as "no contradictions" — the empty state would be a lie. Surface it
+      // and leave whatever was already on screen.
+      error: () => { this.conLoading.set(false); this.toast.error(this.transloco.translate('review.contradictions.loadError')); },
+    });
+  }
+
+  dismissContradiction(c: ContradictionRecord): void {
+    this.conBusy.set(c.id);
+    this.contradictionsApi.dismissContradiction(c.id).subscribe({
+      next: () => { this.conBusy.set(null); this.loadContradictions(); },
+      error: () => { this.conBusy.set(null); this.toast.error(this.transloco.translate('duplicates.dismissError')); },
+    });
+  }
+
+  reopenContradiction(c: ContradictionRecord): void {
+    this.conBusy.set(c.id);
+    this.contradictionsApi.reopenContradiction(c.id).subscribe({
+      next: () => { this.conBusy.set(null); this.loadContradictions(); },
+      error: () => { this.conBusy.set(null); this.toast.error(this.transloco.translate('duplicates.dismissError')); },
+    });
+  }
+
+  resolveContradiction(c: ContradictionRecord, resolution: 'edited' | 'linked'): void {
+    this.conBusy.set(c.id);
+    this.contradictionsApi.resolveContradiction(c.id, resolution).subscribe({
+      next: () => { this.conBusy.set(null); this.loadContradictions(); },
+      error: () => { this.conBusy.set(null); this.toast.error(this.transloco.translate('duplicates.dismissError')); },
+    });
+  }
+
   /** Sub-views of the space's record-QA queue. Ordered as a reviewer meets them. */
   readonly SUBTABS = ['duplicates', 'contradictions'] as const;
   readonly sub = signal<'duplicates' | 'contradictions'>('duplicates');
@@ -216,9 +336,9 @@ export class ReviewTabComponent implements OnInit, OnChanges {
   scorePct(s: number): number { return Math.round(Math.min(Math.max(s, 0), 1) * 100); }
   scoreVariant(s: number): 'high' | 'mid' | 'low' { return s >= 0.95 ? 'high' : s >= 0.85 ? 'mid' : 'low'; }
 
-  ngOnInit(): void { this.load(); }
+  ngOnInit(): void { this.load(); this.loadContradictions(); }
   /** Switching space in the Brain re-points this tab rather than leaving another space's pairs on screen. */
-  ngOnChanges(ch: SimpleChanges): void { if (ch['spaceId'] && !ch['spaceId'].firstChange) this.load(); }
+  ngOnChanges(ch: SimpleChanges): void { if (ch['spaceId'] && !ch['spaceId'].firstChange) { this.load(); this.loadContradictions(); } }
 
   load(): void {
     this.loading.set(true);

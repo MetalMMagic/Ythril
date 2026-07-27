@@ -1539,5 +1539,12 @@
   "review.sub.contradictions": "Widersprüche",
   "review.contradictions.intro": "Datensätze in diesem Space, die sich widersprechen — gleiches Thema, gegenteilige Aussagen.",
   "review.contradictions.pendingTitle": "Die Widerspruchserkennung läuft noch nicht",
-  "review.contradictions.pendingBody": "Sie benötigt ein NLI-Modell (Entailment). Konfiguriere eines unter Einstellungen → Medienverarbeitung; danach füllt sich diese Liste, sobald der Scanner läuft."
+  "review.contradictions.pendingBody": "Sie benötigt ein NLI-Modell (Entailment). Konfiguriere eines unter Einstellungen → Medienverarbeitung; danach füllt sich diese Liste, sobald der Scanner läuft.",
+  "review.contradictions.basis.structured": "Feldkonflikt",
+  "review.contradictions.basis.nli": "Modell-Urteil",
+  "review.contradictions.confidence": "Modell-Konfidenz",
+  "review.contradictions.versus": "vs.",
+  "review.contradictions.action.edited": "Durch Bearbeitung gelöst",
+  "review.contradictions.action.linked": "Als Widerspruch verknüpfen",
+  "review.contradictions.loadError": "Widersprüche konnten nicht geladen werden."
 }

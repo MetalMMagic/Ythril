@@ -1539,5 +1539,12 @@
   "review.sub.contradictions": "Sprzeczności",
   "review.contradictions.intro": "Rekordy w tej przestrzeni, które są ze sobą sprzeczne — ten sam temat, przeciwne twierdzenia.",
   "review.contradictions.pendingTitle": "Wykrywanie sprzeczności jeszcze nie działa",
-  "review.contradictions.pendingBody": "Wymaga modelu NLI (entailment). Skonfiguruj go w Ustawienia → Przetwarzanie mediów, a ta lista wypełni się po uruchomieniu skanera."
+  "review.contradictions.pendingBody": "Wymaga modelu NLI (entailment). Skonfiguruj go w Ustawienia → Przetwarzanie mediów, a ta lista wypełni się po uruchomieniu skanera.",
+  "review.contradictions.basis.structured": "Konflikt pola",
+  "review.contradictions.basis.nli": "Werdykt modelu",
+  "review.contradictions.confidence": "Pewność modelu",
+  "review.contradictions.versus": "vs",
+  "review.contradictions.action.edited": "Rozwiązane przez edycję",
+  "review.contradictions.action.linked": "Połącz jako sprzeczność",
+  "review.contradictions.loadError": "Nie udało się wczytać sprzeczności."
 }

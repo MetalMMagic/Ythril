@@ -2525,6 +2525,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been added to any locale, so the field rendered the literal text `schemaLib.field.schema`. Both are now
   present in en/de/pl. Found by the new i18n key-coverage test below — it had been broken on main.
 
+- **The Review tab's Contradictions sub-view is real (F-REVIEW slice 4, client half).** It replaces the
+  placeholder with the actual candidate list, reusing the Duplicates card so the two halves of the queue read
+  as one thing. The card keeps the two bases apart rather than flattening them into a single percentage: a
+  **Field conflict** names the property and shows *both* values, while a **Model verdict** shows the
+  entailment model's confidence — "these disagree on `port`" is a fact and "a model thinks these disagree"
+  is an opinion, and a reviewer has to be able to act on the difference. Actions match what a contradiction
+  actually permits: dismiss (sticky), resolved-by-edit, or link the two as a contradiction. There is no
+  merge, because both records are real. A failed load surfaces an error instead of rendering the empty
+  state, which would otherwise read as "nothing to review".
+
 - **A contradiction review API (F-REVIEW slice 4, server half).** `/api/contradictions` mirrors the
   duplicates API — same space scoping, same content-gated sticky dismissal — because the Review tab shows
   both under one vocabulary and the two should not drift. What it keeps distinct is the **basis**: a

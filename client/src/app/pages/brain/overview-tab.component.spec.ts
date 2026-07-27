@@ -98,6 +98,23 @@ describe('OverviewTabComponent', () => {
     expect(el.textContent).toContain('brain.overview.noNetworks');
   });
 
+  it('Instance panel renders identity/health when `about` is provided, and is absent otherwise', () => {
+    const withAbout = setup();
+    withAbout.fixture.componentRef.setInput('about', {
+      instanceId: 'inst-abc', instanceLabel: 'My Brain', version: '1.4.4', uptime: '2h', mongoVersion: '8.2.1',
+      diskInfo: { total: 0, used: 0, available: 0, dataUsed: 0 },
+    });
+    withAbout.fixture.detectChanges();
+    const kv = (withAbout.fixture.nativeElement as HTMLElement).querySelector('.kv');
+    expect(kv).toBeTruthy();
+    expect(kv!.textContent).toContain('My Brain');
+    expect(kv!.textContent).toContain('8.2.1');
+
+    const noAbout = setup();
+    noAbout.fixture.detectChanges();
+    expect((noAbout.fixture.nativeElement as HTMLElement).querySelector('.kv')).toBeNull();
+  });
+
   it('renders the counts and a Reindex button; shows the reindex note when stale', () => {
     const { fixture } = setup({ stats: STATS, needsReindex: true });
     fixture.detectChanges();

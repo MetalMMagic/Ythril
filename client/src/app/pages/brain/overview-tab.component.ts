@@ -6,17 +6,17 @@
  * inputs (the shell preloads them for every space), and the one action, Reindex, is emitted back to the
  * shell's existing reindex flow behind a confirm.
  *
- * Panels so far: Statistics, Indexing, and Networks (the last reuses F8's per-space `networks` /
- * `networkStatus`, already on the space payload — still no fetch). Embedding-queue, governance, token
- * access and health panels are deliberately later slices (they carry admin-gating and per-instance
- * questions, or need new aggregation endpoints, that these per-space, non-admin-sensitive panels do not).
+ * Panels so far: Statistics, Indexing, Networks (reuses F8's per-space `networks`/`networkStatus`) and
+ * Instance (identity + core health from `/api/about`, preloaded by the shell and passed in as `about` —
+ * so this component still fetches nothing itself). Embedding-queue, governance and token-access panels are
+ * deliberately later slices (they carry admin-gating or need new aggregation endpoints).
  */
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { StatusPillComponent, StatusVariant } from '../../shared/status-pill.component';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
-import { Space, SpaceStats } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo } from '../../core/api.types';
 
 interface StatCard { key: string; icon: string; label: string; value: number }
 
@@ -65,6 +65,11 @@ interface StatCard { key: string; icon: string; label: string; value: number }
     .net-list ph-icon { color: var(--text-muted); flex: none; }
     .net-list .nl { flex: 1; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .net-list .nt { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono, monospace); }
+
+    .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 12.5px; margin: 0; }
+    .kv dt { color: var(--text-secondary); white-space: nowrap; }
+    .kv dd { margin: 0; color: var(--text-primary); text-align: right; }
+    .kv dd.mono { font-family: var(--font-mono, monospace); font-size: 11px; word-break: break-all; }
   `],
   template: `
     <div class="grid">
@@ -161,6 +166,26 @@ interface StatCard { key: string; icon: string; label: string; value: number }
           }
         </div>
       </section>
+
+      <!-- ── Instance ───────────────────────────────────────────────── -->
+      @if (about(); as a) {
+        <section class="panel">
+          <header class="panel-h">
+            <span class="ic"><ph-icon name="info" [size]="16"/></span>
+            <div><h3>{{ 'brain.overview.instanceTitle' | transloco }}</h3>
+              <p>{{ 'brain.overview.instanceHint' | transloco }}</p></div>
+          </header>
+          <div class="panel-b">
+            <dl class="kv">
+              <dt>{{ 'brain.overview.inst.label' | transloco }}</dt><dd>{{ a.instanceLabel }}</dd>
+              <dt>{{ 'brain.overview.inst.version' | transloco }}</dt><dd>{{ a.version }}</dd>
+              <dt>{{ 'brain.overview.inst.id' | transloco }}</dt><dd class="mono">{{ a.instanceId }}</dd>
+              <dt>{{ 'brain.overview.inst.uptime' | transloco }}</dt><dd>{{ a.uptime }}</dd>
+              <dt>{{ 'brain.overview.inst.mongo' | transloco }}</dt><dd>{{ a.mongoVersion }}</dd>
+            </dl>
+          </div>
+        </section>
+      }
     </div>
   `,
 })
@@ -169,6 +194,8 @@ export class OverviewTabComponent {
   stats = input<SpaceStats | undefined>(undefined);
   reindexing = input(false);
   needsReindex = input(false);
+  /** Instance identity/health (from /api/about), preloaded by the shell — null until it lands. */
+  about = input<AboutInfo | null>(null);
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
   reindex = output<void>();
 

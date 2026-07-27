@@ -838,6 +838,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Brain Overview gains an Instance panel.** Shows this instance's label, version, instance ID, uptime,
+  and MongoDB version (a live-Mongo signal) — instance identity/health at a glance on the landing dashboard.
+  The shell fetches `/api/about` once and passes it in, so the Overview component itself still fetches nothing.
+
 - **The Brain Overview gains a Networks panel.** Alongside Statistics and Indexing, the landing dashboard
   now shows the networks a space syncs with — each network's label and type plus the aggregate sync status
   (Idle / Syncing / Degraded / Vote pending), or a note when the space belongs to no network. Assembled from

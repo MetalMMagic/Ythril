@@ -20,6 +20,7 @@ import { ActivatedRoute } from '@angular/router';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { FilesApi } from '../../core/files-api.service';
+import { AdminApi } from '../../core/admin-api.service';
 import { AuthService } from '../../core/auth.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { BrainComponent } from './brain.component';
@@ -35,6 +36,7 @@ function makeApi() {
     listMemories: () => of({ memories: [] }),
     getEntitiesByIds: () => of({ entities: [] }),
     mintEventsTicket: () => of({ ticket: 't', expiresInMs: 60000 }),
+    getAbout: () => of(null), // Overview Instance panel — null keeps it hidden in tests
   } as any;
 }
 
@@ -46,6 +48,7 @@ describe('BrainComponent (OnPush)', () => {
         { provide: SpacesApi, useValue: makeApi() },
         { provide: BrainApi, useValue: makeApi() },
         { provide: FilesApi, useValue: makeApi() },
+        { provide: AdminApi, useValue: makeApi() },
         { provide: AuthService, useValue: { token: () => '' } },
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
       ],
@@ -90,6 +93,7 @@ describe('BrainComponent (OnPush)', () => {
         { provide: SpacesApi, useValue: makeApi() },
         { provide: BrainApi, useValue: { ...makeApi(), listEntities } },
         { provide: FilesApi, useValue: makeApi() },
+        { provide: AdminApi, useValue: makeApi() },
         { provide: AuthService, useValue: { token: () => '' } },
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
       ],

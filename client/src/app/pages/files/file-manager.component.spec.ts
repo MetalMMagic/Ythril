@@ -75,6 +75,44 @@ describe('FileManagerComponent (OnPush)', () => {
     expect(names).toContain('sub');
   });
 
+  // ── Column sort — restores what #421 dropped when File Meta merged into this tab ─────────────
+  // Sorting is client-side ON PURPOSE here: listFiles returns a whole directory in one response, so
+  // reordering it reorders the complete set (unlike the paginated record tabs, where a client sort
+  // would reorder one page and misrepresent the rest).
+  it('sorts entries by a column, keeps folders first, and clears back to server order', () => {
+    const rowNames = (f: { nativeElement: HTMLElement }) =>
+      Array.from(f.nativeElement.querySelectorAll('table tbody .file-name-btn'))
+        .map(b => (b as HTMLElement).textContent?.trim());
+
+    const big = { ...fileEntry('big.bin'), size: 9000 } as FileEntry;
+    const small = { ...fileEntry('small.txt'), size: 10 } as FileEntry;
+    const dir = fileEntry('zzz-folder', true);
+    const fixture = create([big, small, dir]);   // server order: big, small, folder
+    const c = fixture.componentInstance;
+
+    expect(rowNames(fixture)).toEqual(['big.bin', 'small.txt', 'zzz-folder']); // untouched by default
+
+    c.setSort('size');                            // 1st click → ascending
+    fixture.detectChanges();
+    // The folder leads despite its name sorting last and size 0 — folders always come first.
+    expect(rowNames(fixture)).toEqual(['zzz-folder', 'small.txt', 'big.bin']);
+
+    c.setSort('size');                            // 2nd click → descending
+    fixture.detectChanges();
+    expect(rowNames(fixture)).toEqual(['zzz-folder', 'big.bin', 'small.txt']);
+
+    c.setSort('size');                            // 3rd click → cleared, server order returns
+    fixture.detectChanges();
+    expect(c.sortField()).toBe('');
+    expect(rowNames(fixture)).toEqual(['big.bin', 'small.txt', 'zzz-folder']);
+  });
+
+  it('renders sortable headers for name, status, size and modified', () => {
+    const fixture = create([fileEntry('a.txt')]);
+    const sortable = fixture.nativeElement.querySelectorAll('table thead th[app-sort-th]');
+    expect(sortable.length).toBe(4);
+  });
+
   it('renders a tree node for each subdirectory (treeRoot signal)', () => {
     const fixture = create([fileEntry('docs', true), fileEntry('src', true), fileEntry('readme.md')]);
     const treeText = Array.from(fixture.nativeElement.querySelectorAll('.tree-node')).map(

@@ -1644,6 +1644,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Files tab can be sorted again — and the dead File Meta component is gone.** PR #388 gave the old
+  *File Meta* tab sortable headers plus a tag filter; #421 then merged File Meta into the Files tab, and the
+  surviving `file-manager` carried none of it — Name / Status / Tags / Size / Modified were all plain,
+  unsortable headers. Clicking **Name**, **Status**, **Size** or **Modified** now sorts the current folder
+  (ascending → descending → back to the folder's own order), with **folders pinned to the top** so the tree
+  stays navigable. The sort is client-side *here specifically* because `listFiles` returns a whole directory
+  in one response — it reorders the complete set, unlike the paginated record tabs, where a client-side sort
+  would reorder one page and misrepresent the rest. The `app-filemeta-tab` component, rendered nowhere since
+  #421, is deleted along with its 17 now-orphaned i18n keys in all three locales.
+
 - **Switching space in the Brain now lands on that space's Overview.** The active tab persisted across a
   space switch, so picking another space while on (say) Entities just swapped the rows underneath you —
   the page looked unchanged until you clicked a tab, and the space you had just chosen never introduced

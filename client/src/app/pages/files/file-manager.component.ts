@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, inject, signal, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
+import { SortableHeaderComponent } from '../brain/sortable-header.component';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -139,7 +140,7 @@ function xlsxCellText(v: unknown): string {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent],
   styles: [`
     .toolbar {
       display: flex;
@@ -583,16 +584,16 @@ function xlsxCellText(v: unknown): string {
               <thead>
                 <tr>
                   <th style="width:24px"></th>
-                  <th>{{ 'files.table.name' | transloco }}</th>
-                  <th>{{ 'files.table.status' | transloco }}</th>
+                  <th app-sort-th field="name" label="files.table.name" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
+                  <th app-sort-th field="status" label="files.table.status" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
                   <th>{{ 'files.table.tags' | transloco }}</th>
-                  <th>{{ 'files.table.size' | transloco }}</th>
-                  <th>{{ 'files.table.modified' | transloco }}</th>
+                  <th app-sort-th field="size" label="files.table.size" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
+                  <th app-sort-th field="modified" label="files.table.modified" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
                   <th>{{ 'files.table.actions' | transloco }}</th>
                 </tr>
               </thead>
               <tbody>
-                @for (entry of entries(); track entry.name) {
+                @for (entry of sortedEntries(); track entry.name) {
                   <tr>
                     <td><span class="file-icon">@if (entry.isDirectory) { <ph-icon name="folder" [size]="16"/> } @else { <ph-icon name="file" [size]="16"/> }</span></td>
                     <td>
@@ -827,6 +828,50 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   activeSpaceId = signal('');
   currentPath = signal('/');
   entries = signal<FileEntry[]>([]);
+
+  // ── Column sort (restores what #421 dropped) ───────────────────────────────
+  // Sorted CLIENT-side, which is honest here and only here: `listFiles` returns a whole directory in one
+  // response (no limit/skip), so this reorders the complete set. The paginated record tabs must sort
+  // server-side for exactly the opposite reason — there, a client sort would reorder one page and lie
+  // about the rest.
+  sortField = signal<'' | 'name' | 'status' | 'size' | 'modified'>('');
+  sortDir = signal<'asc' | 'desc'>('asc');
+
+  /** desc -> asc -> unsorted, matching the record tabs' shared header primitive. */
+  setSort(field: string): void {
+    const f = field as '' | 'name' | 'status' | 'size' | 'modified';
+    if (this.sortField() !== f) { this.sortField.set(f); this.sortDir.set('asc'); return; }
+    if (this.sortDir() === 'asc') { this.sortDir.set('desc'); return; }
+    this.sortField.set('');            // third click clears back to the server's own order
+    this.sortDir.set('asc');
+  }
+
+  /**
+   * Folders always come first — this is a file explorer, and interleaving directories with files by size
+   * or date makes the tree unnavigable. The chosen column orders WITHIN each group.
+   */
+  sortedEntries = computed<FileEntry[]>(() => {
+    const list = this.entries();
+    const field = this.sortField();
+    if (!field) return list;
+    const sign = this.sortDir() === 'asc' ? 1 : -1;
+    const key = (e: FileEntry): string | number => {
+      switch (field) {
+        case 'size': return e.size ?? 0;
+        case 'modified': return e.modified ?? '';
+        case 'status': return e.embeddingStatus ?? '';
+        default: return e.name.toLowerCase();
+      }
+    };
+    return [...list].sort((a, b) => {
+      if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1;
+      const ka = key(a), kb = key(b);
+      if (ka === kb) return a.name.localeCompare(b.name);   // stable, human tiebreak
+      return (typeof ka === 'number' && typeof kb === 'number')
+        ? (ka - kb) * sign
+        : String(ka).localeCompare(String(kb)) * sign;
+    });
+  });
   loading = signal(false);
   /** Failure reason for the directory listing; null when it loaded (U3). */
   loadError = signal<string | null>(null);

@@ -752,6 +752,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
+- **Backfilled the one overnight gap: the networks per-peer sync-health row (#431) now has a render
+  test.** That display shipped template-only (no method to characterize), so it had no assertion. A
+  focused render test in `networks.component.spec` expands a network and asserts a member on a failing
+  streak shows the "Failing(N)" badge while a never-synced member shows the never-synced label rather
+  than a date — so the sync-health markup can't silently regress.
+
 - **The brain list sort is proven against a real MongoDB across a page boundary — the one thing a
   client-only sort could never do.** `brain-list-sort-db.test.js` seeds records in a deliberately
   scrambled order, then walks every page of a sorted list and asserts the concatenation is one

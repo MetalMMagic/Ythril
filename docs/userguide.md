@@ -287,6 +287,7 @@ Clicking a file opens a **docked detail pane** to the right of the list (the lis
   | Text, code, JSON, YAML… | Syntax-highlighted source |
   | Images (.png, .jpg, .gif, .webp, .svg…) | Inline image |
   | PDF | Embedded viewer |
+  | Spreadsheets (.xlsx, .xlsm) | First sheet as a table (capped at 200 rows × 40 columns, with a note when truncated) |
   | Everything else | File info + download button |
 
   A **full-screen** button (top-right of the preview) expands the preview to fill the window; **Escape** or its close button collapses it back to the docked pane.
@@ -294,8 +295,6 @@ Clicking a file opens a **docked detail pane** to the right of the list (the lis
 - **File meta** *(in the Brain)* — the editable metadata record: **description**, **tags**, and links to **entities**, **memories** and **chrono** entries, plus a **Retry** action to re-queue embedding for a failed or partial file. This is where the former *File Meta* tab's editing now lives. (On the standalone Files page, outside the Brain, the pane shows preview + description only.)
 
 Press **Escape** or the close button to dismiss the pane. Use arrow keys to move to the previous or next file in the directory.
-
-> An .xlsx table preview is coming in a later update.
 
 ---
 

@@ -2403,6 +2403,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Spreadsheets (`.xlsx` / `.xlsm`) now preview as a table.** Opening a spreadsheet in the Files tab renders
+  its first sheet as a grid (first row as a header band, formula cells shown as their computed result). The
+  parser (exceljs) is **lazy-loaded** — only fetched when a spreadsheet is opened, out of the initial bundle.
+  The grid is **capped at 200 rows × 40 columns** with a visible "showing N of M" note (no silent truncation).
+  Legacy binary `.xls` is not supported (only the OOXML formats). This completes the merged Files tab's preview set.
+
 - **Markdown previews now render `mermaid` diagrams.** A ` ```mermaid ` fenced block in a previewed
   Markdown file is rendered as a diagram. mermaid is heavy, so it's **lazy-loaded** — only fetched when a
   diagram is actually present, and it stays out of the initial bundle. It runs in `strict` mode with

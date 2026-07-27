@@ -511,6 +511,8 @@
   "files.preview.modified": "Geändert",
   "files.preview.fullscreen": "Vollbild",
   "files.preview.exitFullscreen": "Vollbild beenden",
+  "files.preview.xlsxEmpty": "Diese Tabelle enthält keine Arbeitsblätter zur Vorschau.",
+  "files.preview.xlsxTruncated": "Zeige {{rows}} von {{totalRows}} Zeilen und {{cols}} von {{totalCols}} Spalten.",
   "files.detail.tabsAriaLabel": "Detailansicht",
   "files.detail.previewTab": "Vorschau & Beschreibung",
   "files.detail.metaTab": "Datei-Metadaten",

@@ -511,6 +511,8 @@
   "files.preview.modified": "Modified",
   "files.preview.fullscreen": "Full screen",
   "files.preview.exitFullscreen": "Exit full screen",
+  "files.preview.xlsxEmpty": "This spreadsheet has no sheets to preview.",
+  "files.preview.xlsxTruncated": "Showing {{rows}} of {{totalRows}} rows and {{cols}} of {{totalCols}} columns.",
   "files.detail.tabsAriaLabel": "Detail view",
   "files.detail.previewTab": "Preview & description",
   "files.detail.metaTab": "File meta",

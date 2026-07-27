@@ -6,9 +6,10 @@
  * inputs (the shell preloads them for every space), and the one action, Reindex, is emitted back to the
  * shell's existing reindex flow behind a confirm.
  *
- * Slice 1 ships two panels — Statistics and Indexing. Embedding-queue, networks, governance, token
+ * Panels so far: Statistics, Indexing, and Networks (the last reuses F8's per-space `networks` /
+ * `networkStatus`, already on the space payload — still no fetch). Embedding-queue, governance, token
  * access and health panels are deliberately later slices (they carry admin-gating and per-instance
- * questions that this per-space, non-admin-sensitive slice does not).
+ * questions, or need new aggregation endpoints, that these per-space, non-admin-sensitive panels do not).
  */
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -58,6 +59,12 @@ interface StatCard { key: string; icon: string; label: string; value: number }
     .reindex-note ph-icon { flex: none; margin-top: 1px; color: var(--warning); }
     .actions { margin-top: 13px; }
     .muted { color: var(--text-muted); font-size: 12.5px; }
+
+    .net-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+    .net-list li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .net-list ph-icon { color: var(--text-muted); flex: none; }
+    .net-list .nl { flex: 1; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .net-list .nt { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono, monospace); }
   `],
   template: `
     <div class="grid">
@@ -130,6 +137,30 @@ interface StatCard { key: string; icon: string; label: string; value: number }
           </div>
         </div>
       </section>
+
+      <!-- ── Networks ───────────────────────────────────────────────── -->
+      <section class="panel">
+        <header class="panel-h">
+          <span class="ic"><ph-icon name="link" [size]="16"/></span>
+          <div><h3>{{ 'brain.overview.networksTitle' | transloco }}</h3>
+            <p>{{ 'brain.overview.networksHint' | transloco }}</p></div>
+        </header>
+        <div class="panel-b">
+          @if (networks().length) {
+            <div class="idx-row" style="margin-bottom:11px;">
+              <span class="lab">{{ 'brain.overview.syncStatus' | transloco }}</span>
+              <app-status-pill [variant]="netVariant()" [dot]="true">{{ 'brain.overview.net.' + netStatus() | transloco }}</app-status-pill>
+            </div>
+            <ul class="net-list">
+              @for (n of networks(); track n.id) {
+                <li><ph-icon name="link" [size]="13"/><span class="nl">{{ n.label }}</span><span class="nt">{{ n.type }}</span></li>
+              }
+            </ul>
+          } @else {
+            <span class="muted">{{ 'brain.overview.noNetworks' | transloco }}</span>
+          }
+        </div>
+      </section>
     </div>
   `,
 })
@@ -168,6 +199,23 @@ export class OverviewTabComponent {
     const sp = this.space();
     if (!sp.maxGiB) return null;
     return Math.min(100, ((sp.usageGiB ?? 0) / sp.maxGiB) * 100);
+  }
+
+  /** Networks this space belongs to (F8 data, already on the space payload — no extra fetch). */
+  networks = computed(() => this.space().networks ?? []);
+
+  /** Aggregate sync/governance status; defaults to 'idle' when connected but unreported. */
+  netStatus(): 'idle' | 'syncing' | 'degraded' | 'vote' {
+    return this.space().networkStatus ?? 'idle';
+  }
+
+  netVariant(): StatusVariant {
+    switch (this.space().networkStatus) {
+      case 'degraded': return 'error';
+      case 'syncing': return 'pending';
+      case 'vote': return 'warn';   // a governance vote is awaiting this instance — needs attention
+      default: return 'ok';         // idle = connected and healthy
+    }
   }
 
   /** Space.indexStatus is optional (proxy/legacy spaces have none) → 'none'. */

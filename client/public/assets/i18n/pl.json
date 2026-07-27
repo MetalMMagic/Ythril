@@ -461,6 +461,7 @@
   "brain.chrono.table.tags": "Tagi",
   "brain.chrono.table.entities": "Podmioty",
   "brain.chrono.table.properties": "Właściwości",
+  "brain.chrono.table.created": "Stworzony",
   "brain.chrono.empty.noMatchQuery": "Żaden wpis na osi czasu nie pasuje do tego wyszukiwania.",
   "brain.chrono.empty.title": "Brak wpisów chronologicznych",
   "brain.chrono.deleteAriaLabel": "Usuń wpis chronologiczny",

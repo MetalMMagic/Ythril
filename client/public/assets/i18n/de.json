@@ -461,6 +461,7 @@
   "brain.chrono.table.tags": "Schlagworte",
   "brain.chrono.table.entities": "Entitäten",
   "brain.chrono.table.properties": "Eigenschaften",
+  "brain.chrono.table.created": "Erstellt",
   "brain.chrono.empty.noMatchQuery": "Für diese Suche stimmen keine Timeline-Einträge überein.",
   "brain.chrono.empty.title": "Keine Chronoeinträge",
   "brain.chrono.deleteAriaLabel": "Chronoeintrag löschen",

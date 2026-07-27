@@ -139,7 +139,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
                     <datalist [id]="tagListId">@for (s of store.chronoTagSuggestions(); track s) { <option [value]="s"></option> }</datalist>
-                  </th><th>{{ 'brain.chrono.table.entities' | transloco }}</th><th></th>
+                  </th><th>{{ 'brain.chrono.table.entities' | transloco }}</th><th app-sort-th field="createdAt" label="brain.chrono.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -224,6 +224,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                           </div>
                         } @else { <span style="color:var(--text-muted)">—</span> }
                       </td>
+                      <td style="color:var(--text-muted)">{{ entry.createdAt | date:'dd.MM.yyyy' }}</td>
                       <td style="white-space:nowrap;">
                         <button class="icon-btn" [attr.title]="'common.viewDetails' | transloco" [attr.aria-label]="'common.viewDetails' | transloco" (click)="drawerState.open('chrono', entry)"><ph-icon name="eye" [size]="16"/></button>
                         @if (recordList.confirmDeleteId() === entry._id) {

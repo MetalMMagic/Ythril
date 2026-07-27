@@ -852,6 +852,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Chrono tab now has a Created column, and it sorts.** Entities, edges and memories all showed one;
+  chrono did not, even though the API has accepted `sort=createdAt` for chrono all along — the column simply
+  was never added, so the capability existed and could not be reached.
+
+  Its spec now pins the **client** half of sortable-column coverage: every field the server whitelist allows
+  for chrono must have a header on the tab. The server-side test already pinned the whitelist and noted in a
+  comment that each column "needs BOTH the whitelist entry and a client header" — but nothing checked the
+  header half, which is exactly how this one went unnoticed. A second test asserts the date is rendered in
+  the row too, since a header with no cell sorts by a value the reader cannot see.
+
 - **The Review tab can be filtered by record type.** Now that chrono entries are swept alongside memories
   and entities, a space's queue genuinely mixes kinds, and "show me only the chrono findings" was not
   expressible. A single control under the sub-tabs filters **both** of them — the sub-tabs stay *kinds of

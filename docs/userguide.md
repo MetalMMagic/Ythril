@@ -275,6 +275,13 @@ The file manager lets you upload, download, organise, and preview files within e
 
 **Status & tags:** each file row also shows its **embedding status** (a pill: *Embedded*, *Embedding*, *Partial*, *Failed*, *Skipped*…) and its **tags**, pulled from the file's metadata — so a space's file-processing state is visible right in the list. (This is the file manager and the *File Meta* tab coming together into one view.)
 
+**While a file is being processed**, the Status column shows a **stage bar** instead of the pill: a segment
+per stage of *that file's own route* — a PDF might run render → VLM → repair, an image caption → embed — with
+the current stage filling as its pages land and a `12 / 40` count where the work is countable. It replaces a
+generic "Embedding" that looked the same for every file and every stage. If the worker stops reporting for
+longer than the stall timeout the bar turns amber and says **stalled**, so a wedged job no longer looks like
+a working one. The moment the file finishes, the row goes back to its status pill.
+
 **Sorting:** click the **Name**, **Status**, **Size** or **Modified** header to sort the current folder. Clicking cycles ascending → descending → back to the folder's own order. **Folders always stay at the top** — a file explorer where directories interleave with files by size or date is hard to navigate. Sorting applies to the folder you are looking at, which is the whole set the view holds.
 
 ### Detail pane (preview + description ⇄ file meta)

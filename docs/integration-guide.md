@@ -1916,12 +1916,34 @@ GET /api/files/:spaceId?path=reports/
   "path": "reports/",
   "type": "dir",
   "entries": [
-    { "name": "q1.pdf", "type": "file", "size": 204800 },
-    { "name": "q1-data.xlsx", "type": "file", "size": 51200 },
-    { "name": "charts", "type": "dir" }
+    { "name": "q1.pdf", "type": "file", "size": 204800, "embeddingStatus": "complete", "tags": ["finance"] },
+    {
+      "name": "q1-data.xlsx", "type": "file", "size": 51200, "embeddingStatus": "processing",
+      "progress": { "step": "vlm", "steps": ["render", "vlm", "repair"], "done": 12, "total": 40 },
+      "progressAt": "2026-07-27T15:04:11.204Z"
+    },
+    { "name": "charts", "type": "dir", "size": 819200 }
   ]
 }
 ```
+
+A directory's `size` is the recursive sum of everything beneath it. Files carry their `embeddingStatus` and
+`tags` from the file's metadata record.
+
+**`progress` / `progressAt` are present only while a file is in flight** (`pending`/`processing`) *and* its
+worker has reported at least one step:
+
+- `steps` is the route **this** file is taking, not a fixed list — it differs per file type and per the
+  space's effective extraction level, so a client can render exactly the stages that will really run.
+- `step` is the one running now; `done`/`total` are units within it (pages, usually) and are **absent for
+  stages that are not divisible** — render those as indeterminate rather than inventing a fraction.
+- `progressAt` is the last sign of life. Treat a file whose `progressAt` is older than the stall timeout as
+  **stalled**, not working — that distinction is the whole point of the field.
+
+Absence means "not known yet", **not** "no work to do": a job claimed a moment ago has no `progress` until
+its first report. Fall back to `embeddingStatus` rather than rendering an empty progress indicator. The
+lookup is best-effort server-side, so these fields may also be absent if the job store was briefly
+unreachable — the listing itself never fails over them.
 
 ---
 

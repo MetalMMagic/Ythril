@@ -65,6 +65,35 @@ describe('FileManagerComponent (OnPush)', () => {
     expect(FileManagerComponent.ɵcmp?.onPush).toBe(true);
   });
 
+  // ── Live processing stage (replaces the generic "embedding" + spinner) ───────────────────────
+  // The bar component and the server-side stage data both already existed; nothing joined them, so
+  // every in-flight file said "embedding" for the whole job and looked the same working or wedged.
+  describe('live processing stage', () => {
+    const withProgress = (name: string, progress: FileEntry['progress'], status: FileEntry['embeddingStatus'] = 'processing') =>
+      ({ ...fileEntry(name), embeddingStatus: status, progress, progressAt: new Date().toISOString() }) as FileEntry;
+
+    it('draws the stage bar for a file whose job has reported a step', () => {
+      const fixture = create([withProgress('scan.pdf', { step: 'vlm', steps: ['render', 'vlm'], done: 2, total: 9 })]);
+      const row = fixture.nativeElement.querySelector('table tbody tr') as HTMLElement;
+      expect(row.querySelector('app-step-progress-bar')).toBeTruthy();
+      // The pill is REPLACED, not accompanied — two status indicators on one row is worse than either.
+      expect(row.querySelector('.emb-pill')).toBeNull();
+    });
+
+    it('keeps the plain status pill when there is no stage to show', () => {
+      // A finished file, and a claimed job that has not reported yet, both fall back here. Drawing an
+      // empty bar for the latter would read as "zero progress" rather than "not known yet".
+      const fixture = create([
+        { ...fileEntry('done.pdf'), embeddingStatus: 'complete' } as FileEntry,
+        { ...fileEntry('queued.pdf'), embeddingStatus: 'pending' } as FileEntry,
+      ]);
+      const rows = fixture.nativeElement.querySelectorAll('table tbody tr');
+      expect(rows.length).toBe(2);
+      expect(fixture.nativeElement.querySelectorAll('app-step-progress-bar').length).toBe(0);
+      expect(fixture.nativeElement.querySelectorAll('.emb-pill').length).toBe(2);
+    });
+  });
+
   it('renders a row per file entry after load (signal-driven view updates under OnPush)', () => {
     const fixture = create([fileEntry('readme.md'), fileEntry('notes.txt'), fileEntry('sub', true)]);
     const names = Array.from(fixture.nativeElement.querySelectorAll('table tbody .file-name-btn')).map(

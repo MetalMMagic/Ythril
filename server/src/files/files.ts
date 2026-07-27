@@ -14,6 +14,14 @@ export interface FileEntry {
   embeddingStatus?: 'pending' | 'processing' | 'complete' | 'partial' | 'failed' | 'skipped' | 'disabled';
   /** Tags on the file's metadata record. */
   tags?: string[];
+  /**
+   * Live stage of the file's media job — which step of THIS file's route is running, and how far in.
+   * Present only while the file is in flight (`pending`/`processing`) and only once the worker has
+   * reported a step; absent means "not known yet", which the UI must keep distinct from "no steps".
+   */
+  progress?: { step: string; steps: string[]; done?: number; total?: number };
+  /** ISO8601 of the job's last sign of life, so the UI can tell "working" from "wedged". */
+  progressAt?: string | null;
 }
 
 /** Ensure the space files directory exists */

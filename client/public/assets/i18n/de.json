@@ -1555,5 +1555,10 @@
   "review.contradictions.versus": "vs.",
   "review.contradictions.action.edited": "Durch Bearbeitung gelöst",
   "review.contradictions.action.linked": "Als Widerspruch verknüpfen",
-  "review.contradictions.loadError": "Widersprüche konnten nicht geladen werden."
+  "review.contradictions.loadError": "Widersprüche konnten nicht geladen werden.",
+  "review.typeFilter.label": "Datensatztyp",
+  "review.typeFilter.all": "Alle Typen",
+  "review.typeFilter.capped": "Es werden die ersten 500 Funde angezeigt — Filter gelten nur für diese.",
+  "review.typeFilter.noneOfType": "Keine Funde dieses Typs",
+  "review.typeFilter.noneOfTypeBody": "In dieser Liste gibt es Funde, aber keine des gewählten Datensatztyps. Wähle „Alle Typen“, um sie zu sehen."
 }

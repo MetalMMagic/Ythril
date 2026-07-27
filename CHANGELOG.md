@@ -852,6 +852,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Review tab can be filtered by record type.** Now that chrono entries are swept alongside memories
+  and entities, a space's queue genuinely mixes kinds, and "show me only the chrono findings" was not
+  expressible. A single control under the sub-tabs filters **both** of them — the sub-tabs stay *kinds of
+  finding* (Duplicates / Contradictions) and the type is a separate axis, because making it a third and
+  fourth tab would produce a matrix (duplicates×memory, contradictions×chrono, …) that grows badly.
+
+  It offers only the types actually present in the loaded queue, so no choice can return nothing, and it
+  hides itself entirely when everything is one type. When a filter empties the list, the empty state says
+  *"no findings of this type"* rather than "nothing to review" — the queue is not empty, the filter is. It
+  composes with the existing duplicates search box rather than replacing it.
+
+  **The 500-row server cap is now stated** rather than left implicit: both list endpoints return at most 500
+  findings per space with no pagination, so a filter over them can only ever mean "…among the first 500".
+  When the cap is reached the control says so. Filtering a silently truncated list would have looked
+  authoritative while under-reporting.
+
 - **Semantic search groups a document's matching passages under the document, and shows the passages
   instead of raw JSON.** Recall over files matches *chunks*, so a paper relevant in five places returned
   five near-identical rows that pushed everything else out of the visible list — and each row rendered as a

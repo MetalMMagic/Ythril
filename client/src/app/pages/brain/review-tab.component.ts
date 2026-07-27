@@ -52,6 +52,14 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
     .dup-actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
     .dup-resolved { font-size: 12px; color: var(--success); text-align: right; }
+
+    /* Record-type filter — sits under the sub-tabs because it applies to whichever one is open. */
+    .type-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0 0; font-size: 13px; }
+    .type-filter label { color: var(--text-muted); font-size: 12px; }
+    /* width/flex are explicit: a global full-width rule on select otherwise stretches this across the
+       whole page and pushes the label onto its own line. */
+    .type-filter select { font-size: 13px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); width: auto; min-width: 140px; flex: 0 0 auto; }
+    .cap-note { font-size: 11px; color: var(--warning); }
   `],
   template: `
     <h2 class="page-title">{{ 'review.title' | transloco }}</h2>
@@ -70,20 +78,48 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
       }
     </nav>
 
+    <!-- Record-TYPE filter, shared by both sub-tabs. The tabs are kinds of finding; this is the record
+         type. Keeping them as separate axes is what avoids a duplicates×type / contradictions×type matrix.
+         Only shown when the loaded rows actually span more than one type — a control with one real choice
+         is noise. -->
+    @if (showTypeFilter()) {
+      <div class="type-filter">
+        <label [attr.for]="'review-type-filter'">{{ 'review.typeFilter.label' | transloco }}</label>
+        <select id="review-type-filter" [ngModel]="typeFilter()" (ngModelChange)="typeFilter.set($event)"
+          [attr.aria-label]="'review.typeFilter.label' | transloco">
+          <option value="all">{{ 'review.typeFilter.all' | transloco }}</option>
+          @for (t of typeOptions(); track t) {
+            <option [value]="t">{{ t }}</option>
+          }
+        </select>
+        <!-- The lists are capped server-side with no pagination, so a filter over them can only ever mean
+             "…among the first 500". Saying so beats letting the filter imply completeness. -->
+        @if (listCapped()) {
+          <span class="cap-note">{{ 'review.typeFilter.capped' | transloco }}</span>
+        }
+      </div>
+    }
+
     @if (sub() === 'contradictions') {
       <section role="tabpanel" id="review-panel-contradictions" aria-labelledby="review-tab-contradictions">
         <p class="intro">{{ 'review.contradictions.intro' | transloco }}</p>
         @if (conLoading()) {
           <div class="loading-overlay"><span class="spinner"></span></div>
-        } @else if (conRows().length === 0) {
+        } @else if (conFilteredRows().length === 0) {
           <div class="empty-state">
             <div class="empty-state-icon"><ph-icon name="warning" [size]="48"/></div>
-            <h3>{{ 'review.contradictions.pendingTitle' | transloco }}</h3>
-            <p>{{ 'review.contradictions.pendingBody' | transloco }}</p>
+            @if (typeFilter() !== 'all' && conRows().length) {
+              <!-- Distinct from "nothing to review": the queue is not empty, this filter is. -->
+              <h3>{{ 'review.typeFilter.noneOfType' | transloco }}</h3>
+              <p>{{ 'review.typeFilter.noneOfTypeBody' | transloco }}</p>
+            } @else {
+              <h3>{{ 'review.contradictions.pendingTitle' | transloco }}</h3>
+              <p>{{ 'review.contradictions.pendingBody' | transloco }}</p>
+            }
           </div>
         } @else {
           <div class="dup-grid">
-            @for (c of conRows(); track c.id) {
+            @for (c of conFilteredRows(); track c.id) {
               <div class="dup-card">
                 <div class="dup-card-h">
                   <span class="dup-type">{{ c.type }}</span>
@@ -186,6 +222,10 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
         @if (query().trim() && rows().length) {
           <h3>{{ 'duplicates.noMatches.title' | transloco }}</h3>
           <p>{{ 'duplicates.noMatches.body' | transloco }}</p>
+        } @else if (typeFilter() !== 'all' && rows().length) {
+          <!-- The queue is not empty, this filter is — a distinction "nothing to review" would hide. -->
+          <h3>{{ 'review.typeFilter.noneOfType' | transloco }}</h3>
+          <p>{{ 'review.typeFilter.noneOfTypeBody' | transloco }}</p>
         } @else {
           <h3>{{ 'duplicates.empty.title' | transloco }}</h3>
           <p>{{ 'duplicates.empty.body' | transloco }}</p>
@@ -311,14 +351,79 @@ export class ReviewTabComponent implements OnInit, OnChanges {
   /** Free-text filter over the loaded list — a dismissed pile can grow large, so it is searchable. */
   query = signal('');
 
+  /**
+   * Record-type filter, shared by BOTH sub-tabs.
+   *
+   * The sub-tabs are kinds of FINDING (duplicates vs contradictions); this is the record TYPE. They are
+   * orthogonal, which is exactly why type is not a third and fourth tab — that would produce a matrix
+   * (duplicates×memory, contradictions×chrono, …) that grows badly. Sharing one signal across both panels
+   * means "I am looking at chrono findings" survives a tab switch, rather than the filter silently meaning
+   * something different on each side.
+   */
+  typeFilter = signal<string>('all');
+
+  /**
+   * The types actually present in the current sub-tab's loaded rows, so the control never offers a choice
+   * that can only ever yield nothing. Derived from the UNFILTERED rows — deriving from the filtered list
+   * would make every other option vanish the moment one was picked.
+   */
+  availableTypes = computed<string[]>(() => {
+    const list: Array<{ type: string }> = this.sub() === 'contradictions' ? this.conRows() : this.rows();
+    return [...new Set(list.map(r => r.type))].sort();
+  });
+
+  /**
+   * Whether to render the control.
+   *
+   * Normally hidden when the queue is all one type — a filter with a single real choice is noise. But it
+   * MUST stay visible whenever a filter is actually applied, even if this tab has one type or none: the
+   * signal is shared across both sub-tabs, so filtering Duplicates to `memory` and switching to
+   * Contradictions would otherwise hide the control while it was still constraining the list, leaving an
+   * empty view and no way to clear it. Never hide a control that is currently narrowing what is on screen.
+   */
+  showTypeFilter = computed(() => this.availableTypes().length > 1 || this.typeFilter() !== 'all');
+
+  /**
+   * The options to render: the types present here, plus the active filter if this tab has none of them.
+   *
+   * Without that union the `<select>` would hold a value with no matching `<option>` after a tab switch and
+   * render blank — the control would look unset while still filtering the list.
+   */
+  typeOptions = computed<string[]>(() => {
+    const types = this.availableTypes();
+    const active = this.typeFilter();
+    return active !== 'all' && !types.includes(active) ? [...types, active].sort() : types;
+  });
+
   /** The list actually shown: the loaded rows narrowed by the search box (summaries, type, space). */
   filteredRows = computed<DuplicateRecord[]>(() => {
     const q = this.query().trim().toLowerCase();
-    const list = this.rows();
+    const type = this.typeFilter();
+    let list = this.rows();
+    if (type !== 'all') list = list.filter(r => r.type === type);
     if (!q) return list;
     return list.filter(r =>
       `${r.aSummary} ${r.bSummary} ${r.type} ${r.spaceId}`.toLowerCase().includes(q));
   });
+
+  /** Contradictions narrowed by the same type filter. No search box on this side yet. */
+  conFilteredRows = computed<ContradictionRecord[]>(() => {
+    const type = this.typeFilter();
+    const list = this.conRows();
+    return type === 'all' ? list : list.filter(r => r.type === type);
+  });
+
+  /**
+   * True when the server's per-space cap was reached, so the list on screen is not the whole story.
+   *
+   * Both list endpoints return a capped set (500 per space) with no pagination. Filtering a truncated set
+   * client-side would quietly under-report while looking authoritative — the filter would imply "these are
+   * all the chrono findings" when it can only mean "these are the chrono findings among the first 500".
+   * Say so rather than adding pagination as a side quest.
+   */
+  private static readonly SERVER_CAP = 500;
+  listCapped = computed(() =>
+    (this.sub() === 'contradictions' ? this.conRows() : this.rows()).length >= ReviewTabComponent.SERVER_CAP);
 
   /** Operator-first rollup atop the list: how many still need attention + how strong the matches are. */
   summaryItems = computed<SummaryItem[]>(() => {

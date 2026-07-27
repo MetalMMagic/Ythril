@@ -243,20 +243,27 @@ interface SpaceView {
         }
 
         <!-- Graph + Files carry heavy libraries (cytoscape; the file-manager's markdown/mermaid/xlsx
-             renderers). @defer keeps them OUT of the brain chunk downloaded on landing (Overview is the
-             default tab) — the chunk loads on first visit to that tab. Trigger is the SAME activeTab()
-             gate as the record tabs, so the storm-safe "gate on activeTab() alone" rule still holds. -->
-        @defer (when activeTab() === 'graph') {
-          <app-graph-view [embeddedSpaceId]="activeSpaceId()" />
-        } @loading (minimum 200ms) {
-          <div class="loading-overlay loading-overlay--float"><span class="spinner"></span></div>
+             renderers). They must MOUNT only while their tab is active — an if-block on activeTab() does
+             that (same storm-safe "gate on activeTab() alone" rule as the record tabs), and crucially
+             UNMOUNTS them again when you leave, so they can't linger over another tab. A defer block
+             alone can't do this: its when-trigger is a one-way load and never removes what it rendered.
+             The inner defer (on immediate) still keeps these chunks OUT of the landing bundle — it fires
+             the moment the tab first renders, and the browser-cached chunk re-instantiates fast. -->
+        @if (activeTab() === 'graph') {
+          @defer (on immediate) {
+            <app-graph-view [embeddedSpaceId]="activeSpaceId()" />
+          } @loading (minimum 200ms) {
+            <div class="loading-overlay loading-overlay--float" data-tab-defer="graph"><span class="spinner"></span></div>
+          }
         }
 
         <!-- Files tab (merged: file manager + File Meta) -->
-        @defer (when activeTab() === 'files') {
-          <app-file-manager [embeddedSpaceId]="activeSpaceId()" (filesChanged)="loadStats(activeSpaceId())" />
-        } @loading (minimum 200ms) {
-          <div class="loading-overlay loading-overlay--float"><span class="spinner"></span></div>
+        @if (activeTab() === 'files') {
+          @defer (on immediate) {
+            <app-file-manager [embeddedSpaceId]="activeSpaceId()" (filesChanged)="loadStats(activeSpaceId())" />
+          } @loading (minimum 200ms) {
+            <div class="loading-overlay loading-overlay--float" data-tab-defer="files"><span class="spinner"></span></div>
+          }
         }
 
         <!-- Memories -->

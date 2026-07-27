@@ -13,7 +13,7 @@
  * the plain `drawerEditMemory.fact`, and if the sibling signal write were ever dropped, the title
  * would render empty and this test would fail rather than the bug shipping silently.
  */
-import { TestBed } from '@angular/core/testing';
+import { TestBed, DeferBlockBehavior } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { of } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
@@ -79,6 +79,52 @@ describe('BrainComponent (OnPush)', () => {
     expect(c.collectionTabs.map(t => t.key)).toEqual(['entities', 'edges', 'memories', 'chrono']);
     c.setTab('files');
     expect(c.activeTab()).toBe('files'); // the single Files tab still activates
+  });
+
+  // ── Regression: Graph/Files must UNMOUNT when you leave their tab ────────────
+  // They are lazy-loaded with @defer to keep cytoscape + the file-manager renderers off the landing
+  // chunk. The bug: `@defer (when activeTab()==='graph')` is a ONE-WAY load trigger — it renders the
+  // block when the tab is first entered but never removes it, so Graph/Files lingered over every later
+  // tab. The fix wraps each @defer in `@if (activeTab()===…)` so leaving the tab unmounts it. This test
+  // uses Playthrough so the defer blocks resolve, and asserts graph is present on its tab and GONE after
+  // navigating to Entities. deferBlockBehavior is per-module, so this test builds its own TestBed.
+  it('unmounts the Graph tab when navigating away (defer must be @if-gated, not @defer-when)', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [BrainComponent, getTranslocoModule()],
+      deferBlockBehavior: DeferBlockBehavior.Playthrough,
+      providers: [
+        { provide: SpacesApi, useValue: makeApi() },
+        { provide: BrainApi, useValue: { ...makeApi(), listEntities: () => of({ entities: [] }) } },
+        { provide: FilesApi, useValue: makeApi() },
+        { provide: AdminApi, useValue: makeApi() },
+        { provide: NetworksApi, useValue: makeApi() },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+      ],
+    });
+    const fixture = TestBed.createComponent(BrainComponent);
+    fixture.detectChanges();                 // ngOnInit → lands on Overview
+    const c = fixture.componentInstance;
+    const el = fixture.nativeElement as HTMLElement;
+    // The graph block is present when EITHER its deferred content or its @loading placeholder renders
+    // (the `minimum 200ms` @loading holds the placeholder in a unit run — either proves the block exists).
+    const graphPresent = () => !!(el.querySelector('app-graph-view') || el.querySelector('[data-tab-defer="graph"]'));
+
+    expect(graphPresent()).toBe(false);      // not on the landing (Overview) tab
+
+    c.setTab('graph');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    expect(graphPresent()).toBe(true);       // mounted on its own tab
+
+    c.setTab('entities');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+    // The @if wrapper must have removed it — the pre-fix `@defer (when …)` left it lingering here.
+    expect(graphPresent()).toBe(false);
   });
 
   // ── Regression: the mount⇄reload request storm (app-unusable P0) ─────────────

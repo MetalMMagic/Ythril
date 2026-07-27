@@ -1638,6 +1638,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Graph and Files tabs no longer linger on top of other Brain tabs.** When the two heavy tabs were
+  made lazy (`@defer`, to keep cytoscape and the file-manager renderers off the landing bundle), they were
+  gated with `@defer (when activeTab() === …)` — but a defer block's `when` is a **one-way load trigger**:
+  it renders the block when the tab is first opened and never removes it. So after visiting Graph or Files,
+  their content stayed mounted over Entities/Edges/Memories/etc. Each is now wrapped in an
+  `@if (activeTab() === …)` (which unmounts on leave, same as the record tabs) with the `@defer` inside for
+  the lazy chunk — so the tab still stays off the landing bundle, but actually goes away when you leave it.
+
 - **A dismissed duplicate pair no longer resurfaces after a routine re-embed or re-sync.** The scanner
   re-opened a dismissed pair the instant either record's `seq` changed — but `seq` advances on *any*
   re-write (an edit, a peer re-sync, a re-embed, an index rebuild), not just a content change, so

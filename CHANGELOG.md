@@ -752,6 +752,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
+- **The graph page is now pinned by 45 characterization tests, written before it is split.** At 2065 lines
+  and 53 methods it had four tests, all of which covered the OnPush conversion — the traversal cache, the
+  depth filter, the model handed to cytoscape and the out-of-zone tap handlers were entirely unpinned, and
+  every one of them fails *silently* when broken: a lost cache still draws a correct graph at N× the request
+  volume, and a dropped root fallback just makes the most-clicked node in the graph stop responding. The
+  suite records what the component does **today**, including two asymmetries it does not endorse (an edge
+  panel filters memories on one endpoint but chrono on both; chrono rows hard-code an empty properties bag),
+  so changing either is a visible decision rather than an accident. It was validated by mutation: 24
+  plausible refactor slips were applied to the original component one at a time, and all 24 were caught —
+  three of them only after the tests that missed them were strengthened.
+
 - **Translation keys are now verified against the source, so a missing one can't ship silently.** A missing
   key fails invisibly: Transloco renders the key itself, the build succeeds, and the unit tests pass — the
   test harness deliberately echoes raw keys — so the only detector is a human looking at that exact screen.

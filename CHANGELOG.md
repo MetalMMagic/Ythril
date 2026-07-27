@@ -838,6 +838,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Brain Overview gains a Governance panel.** When this space's networks have **open votes** awaiting a
+  decision, the landing dashboard lists them — subject, type, deadline, and the running `yes · veto` tally —
+  with a link to Settings → Networks to cast a vote. Hidden when there are none. Assembled from the existing
+  votes API (one `listVotes` per network the space belongs to; one unreachable network can't hide the rest).
+
 - **The Brain Overview gains an Embedding-queue panel.** Shows this space's background embedding backlog —
   **pending / processing / failed** job counts, and for failed jobs the file path + error reason — so a stuck
   upload or a downed model is visible at a glance instead of buried per-file. Backed by a small server

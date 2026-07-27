@@ -7,6 +7,7 @@
  */
 import { TestBed, ComponentFixture } from '@angular/core/testing';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { provideRouter } from '@angular/router';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { OverviewTabComponent } from './overview-tab.component';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
@@ -22,7 +23,7 @@ function setup(opts: { stats?: SpaceStats; space?: Space; confirm?: boolean; nee
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [OverviewTabComponent, getTranslocoModule()],
-    providers: [{ provide: ConfirmDialogService, useValue: { confirm } }],
+    providers: [provideRouter([]), { provide: ConfirmDialogService, useValue: { confirm } }],
   });
   const fixture: ComponentFixture<OverviewTabComponent> = TestBed.createComponent(OverviewTabComponent);
   fixture.componentRef.setInput('space', opts.space ?? space());
@@ -130,6 +131,26 @@ describe('OverviewTabComponent', () => {
     const noQ = setup();
     noQ.fixture.detectChanges();
     expect((noQ.fixture.nativeElement as HTMLElement).querySelector('.fail-list')).toBeNull();
+  });
+
+  it('Governance panel lists open votes with tallies; absent when there are none', () => {
+    const withVotes = setup();
+    withVotes.fixture.componentRef.setInput('openVotes', [{
+      id: 'r1', networkId: 'n1', type: 'leave', subject: 'Peer B wants to leave',
+      openedAt: '2026-07-27T00:00:00Z', deadline: '2026-07-28T00:00:00Z', status: 'open',
+      votes: [{ instanceId: 'a', vote: 'yes' }, { instanceId: 'b', vote: 'yes' }, { instanceId: 'c', vote: 'veto' }],
+    }]);
+    withVotes.fixture.detectChanges();
+    const el = withVotes.fixture.nativeElement as HTMLElement;
+    const list = el.querySelector('.vote-list');
+    expect(list).toBeTruthy();
+    expect(list!.textContent).toContain('Peer B wants to leave');
+    expect(withVotes.c.tallyYes({ votes: [{ vote: 'yes' }, { vote: 'yes' }, { vote: 'veto' }] } as never)).toBe(2);
+    expect(withVotes.c.tallyVeto({ votes: [{ vote: 'yes' }, { vote: 'veto' }] } as never)).toBe(1);
+
+    const noVotes = setup();
+    noVotes.fixture.detectChanges();
+    expect((noVotes.fixture.nativeElement as HTMLElement).querySelector('.vote-list')).toBeNull();
   });
 
   it('renders the counts and a Reindex button; shows the reindex note when stale', () => {

@@ -2525,6 +2525,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been added to any locale, so the field rendered the literal text `schemaLib.field.schema`. Both are now
   present in en/de/pl. Found by the new i18n key-coverage test below — it had been broken on main.
 
+- **A contradiction review API (F-REVIEW slice 4, server half).** `/api/contradictions` mirrors the
+  duplicates API — same space scoping, same content-gated sticky dismissal — because the Review tab shows
+  both under one vocabulary and the two should not drift. What it keeps distinct is the **basis**: a
+  `structured-field` finding is deterministic and names the offending property and both values, while an
+  `nli` finding is a model's opinion with its confidence. A reviewer needs to tell "these disagree on
+  `port`" from "a model thinks these disagree", so the list preserves that instead of flattening both into
+  one number. **Contradictions are never merged** — two records that disagree are both real and which is
+  wrong is a judgement call, so `resolve` records how a human settled it (`edited` or `linked` via a
+  contradicts/supersedes edge) and leaves the records to the normal edit paths. All four mutating routes are
+  audited. The scan endpoint reports `nliStalled` rather than swallowing it, so a sweep that stopped because
+  the judge was unreachable is distinguishable from a genuinely clean space.
+
 - **The contradiction scanner sweeps a space — with two cursors, so an outage cannot silently skip work
   (F-REVIEW slice 3c).** It walks records, pairs each with its nearest neighbours (similarity finds the
   candidates; it never decides them) and asks the judge. The subtlety is the cursor: the duplicate scanner

@@ -147,6 +147,13 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'POST',   pattern: /^\/api\/duplicates\/([^/]+)\/merge$/,               operation: 'duplicate.merge' },
   { method: 'POST',   pattern: /^\/api\/duplicates\/([^/]+)\/dismiss$/,             operation: 'duplicate.dismiss' },
   { method: 'POST',   pattern: /^\/api\/duplicates\/([^/]+)\/reopen$/,              operation: 'duplicate.reopen' },
+  // Contradiction review (F-REVIEW). Same shape as duplicates: reviewing a record-QA finding is a
+  // decision about the knowledge base, so it belongs in the trail alongside the merge/dismiss actions.
+  { method: 'POST',   pattern: /^\/api\/contradictions\/scan$/,                     operation: 'contradiction.scan' },
+  { method: 'POST',   pattern: /^\/api\/contradictions\/([^/]+)\/dismiss$/,         operation: 'contradiction.dismiss' },
+  { method: 'POST',   pattern: /^\/api\/contradictions\/([^/]+)\/reopen$/,          operation: 'contradiction.reopen' },
+  { method: 'POST',   pattern: /^\/api\/contradictions\/([^/]+)\/resolve$/,         operation: 'contradiction.resolve' },
+
 
   // ── Schema library ───────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/schema-library$/,                           operation: 'schema_library.create' },

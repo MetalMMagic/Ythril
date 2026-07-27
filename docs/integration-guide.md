@@ -5612,6 +5612,35 @@ Base path: `/api/duplicates`.
 
 A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, score, status, resolution?, detectedAt, updatedAt }`. The web UI (a space's **Brain → Review** tab) lists that space's candidates with dismiss / merge / re-rate actions, a **search box** (handy for a large dismissed pile), and a "Scan now" button.
 
+### Contradictions API
+
+Base path: `/api/contradictions`. Mirrors the duplicates API — same space scoping, same content-gated
+sticky dismissal — because the Review tab presents both under one vocabulary.
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/contradictions?status=open&space=<id>` | any token (space-scoped) | List candidates. `status` = `open` (default), `dismissed`, `resolved`, or `all`. |
+| `POST` | `/api/contradictions/:id/dismiss` | non-read-only | Reviewed / not a real disagreement. Content-gated exactly like a duplicate dismissal. |
+| `POST` | `/api/contradictions/:id/reopen` | non-read-only | Bring a **dismissed** pair back onto the open list. `404` if it is not currently dismissed. |
+| `POST` | `/api/contradictions/:id/resolve` | non-read-only | Body `{ "resolution": "edited" \| "linked" }`. Records HOW a human settled it. |
+| `POST` | `/api/contradictions/scan?space=<id>` | admin + MFA | Run the sweep now. Returns `nliStalled: true` if it stopped because the judge was unavailable. |
+
+A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, basis, confidence, fields?, status,
+resolution?, detectedAt, updatedAt }`.
+
+**`basis` is the important field.** `structured-field` means the two records set the same single-valued
+property to different values — deterministic, `confidence` is 1, and `fields` names the offending keys and
+both values. `nli` means an entailment model judged the free text, and `confidence` is its score. A reviewer
+must be able to tell *"these disagree on `port`"* from *"a model thinks these disagree"*, so do not flatten
+the two into one number.
+
+**Contradictions are never merged.** Two records that disagree are both real, and which one is wrong is a
+judgement call — so `resolve` records the outcome (`edited`: a record was corrected; `linked`: a
+`contradicts`/`supersedes` edge was drawn instead) and leaves the records to the normal edit paths.
+
+**`nliStalled`** is surfaced rather than swallowed: a sweep that stopped because the NLI judge was
+unreachable has *not* cleared the space, and that must be distinguishable from a genuinely clean result.
+
 > **Cost note:** the initial full scan of a large existing space is O(N) vector searches — inherently the expensive part. It is bounded per run (`maxPerRun`) and runs off-hours; steady-state runs only touch new or edited records. Keep `notify` rules and automation idempotent, since an edited record re-fires its pair's action.
 
 ---

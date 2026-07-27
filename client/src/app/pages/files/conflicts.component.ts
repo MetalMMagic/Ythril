@@ -33,6 +33,11 @@ type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-spa
       <div class="alert alert-warning" style="margin-bottom:16px;">
         {{ 'conflicts.unresolvedCount' | transloco: { count: conflicts().length } }}
       </div>
+      @if (truncated()) {
+        <div class="alert alert-info" style="margin-bottom:16px;">
+          {{ 'conflicts.truncated' | transloco: { count: conflicts().length } }}
+        </div>
+      }
 
       <!-- Bulk action bar -->
       @if (conflicts().length > 1) {
@@ -135,6 +140,8 @@ export class ConflictsComponent implements OnInit {
 
   loading = signal(true);
   conflicts = signal<ConflictRecord[]>([]);
+  /** True when the server capped the list — the user is NOT seeing every conflict (resolve some to see more). */
+  truncated = signal(false);
   resolving = signal<string | null>(null);
   bulkResolving = signal(false);
   selectedIds = signal<string[]>([]);
@@ -173,8 +180,9 @@ export class ConflictsComponent implements OnInit {
   private load(): void {
     this.loading.set(true);
     this.filesApi.listConflicts().subscribe({
-      next: ({ conflicts }) => {
+      next: ({ conflicts, truncated }) => {
         this.conflicts.set(conflicts);
+        this.truncated.set(truncated === true);
         for (const c of conflicts) {
           if (!this.conflictActions[c.id]) this.conflictActions[c.id] = 'keep-local';
         }

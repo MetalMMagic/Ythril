@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The conflicts and link-violation lists no longer truncate silently.** `GET /api/conflicts` and
+  `GET /api/conflicts/link-violations` capped each space's results at 500 with no pagination and concatenated
+  every accessible space in memory (up to 500·N docs for an N-space token), returning a silently-capped array
+  a client couldn't tell was incomplete. Both now cap per space **and** bound the cross-space total, and
+  return `returned` + `truncated` so the caller knows whether it saw everything. The Conflicts page shows a
+  note when the list is truncated.
+
 - **The chrono `?search=` filter no longer passes the raw query to a MongoDB `$regex`.** The value was
   handed to the engine un-escaped, so a crafted input (e.g. `(a+)+$`) was a regex-injection / ReDoS
   vector against the list endpoint. It is now escaped and matched as a literal substring, the same as

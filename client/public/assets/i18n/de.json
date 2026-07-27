@@ -605,6 +605,7 @@
   "conflicts.action.keepBoth": "Beide behalten",
   "conflicts.action.saveToSpace": "In Bereich speichern…",
   "conflicts.unresolvedCount": "{{ count }} ungelöste Konflikte.",
+  "conflicts.truncated": "Es werden die ersten {{ count }} Konflikte angezeigt — es gibt mehr, als auf einmal aufgelistet werden können. Lösen Sie einige, um die übrigen zu sehen.",
   "conflicts.resolveSelected": "{{ count }} ausgewählte Konflikte lösen",
   "conflicts.resolving": "Löse auf…",
   "conflicts.resolveButton": "Lösen",

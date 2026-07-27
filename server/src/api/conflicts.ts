@@ -93,20 +93,31 @@ async function executeResolve(
     .deleteOne(asFilter<ConflictDoc>({ _id: doc._id }));
 }
 
+// Bounds for the cross-space list endpoints below. Without these the fan-in was up to 500·N docs
+// materialised in memory for an N-space token, and the client got a silently-capped array with no way
+// to tell it was incomplete. We cap per space (fetch cap+1 to DETECT overflow) and bound the total,
+// and always report `truncated` + `returned` so the caller knows whether it saw everything.
+const PER_SPACE_CAP = 500;
+const MAX_TOTAL = 2000;
+
 // GET /api/conflicts — list unresolved conflicts for all accessible spaces
 conflictsRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
   try {
     const spaces = accessibleSpaces(req.authToken?.spaces);
     const results: ConflictDoc[] = [];
+    let truncated = false;
     for (const spaceId of spaces) {
       const docs = await col<ConflictDoc>(`${spaceId}_conflicts`)
         .find({})
         .sort({ detectedAt: -1 })
-        .limit(500)
+        .limit(PER_SPACE_CAP + 1)
         .toArray() as ConflictDoc[];
+      if (docs.length > PER_SPACE_CAP) { truncated = true; docs.length = PER_SPACE_CAP; }
       results.push(...docs);
+      if (results.length >= MAX_TOTAL) { truncated = true; break; } // bound cross-space memory
     }
     results.sort((a, b) => b.detectedAt.localeCompare(a.detectedAt));
+    if (results.length > MAX_TOTAL) { results.length = MAX_TOTAL; truncated = true; }
     res.json({
       conflicts: results.map(c => ({
         id: c._id,
@@ -117,6 +128,8 @@ conflictsRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
         peerInstanceLabel: c.peerInstanceLabel,
         detectedAt: c.detectedAt,
       })),
+      returned: results.length,
+      truncated,
     });
   } catch (err) {
     log.error(`GET /api/conflicts: ${err}`);
@@ -133,16 +146,20 @@ conflictsRouter.get('/link-violations', globalRateLimit, requireAuth, async (_re
   try {
     const spaces = accessibleSpaces(_req.authToken?.spaces);
     const results: LinkViolationDoc[] = [];
+    let truncated = false;
     for (const spaceId of spaces) {
       const docs = await col<LinkViolationDoc>(`${spaceId}_link_violations`)
         .find({})
         .sort({ detectedAt: -1 })
-        .limit(500)
+        .limit(PER_SPACE_CAP + 1)
         .toArray() as LinkViolationDoc[];
+      if (docs.length > PER_SPACE_CAP) { truncated = true; docs.length = PER_SPACE_CAP; }
       results.push(...docs);
+      if (results.length >= MAX_TOTAL) { truncated = true; break; }
     }
     results.sort((a, b) => b.detectedAt.localeCompare(a.detectedAt));
-    res.json({ violations: results });
+    if (results.length > MAX_TOTAL) { results.length = MAX_TOTAL; truncated = true; }
+    res.json({ violations: results, returned: results.length, truncated });
   } catch (err) {
     log.error(`GET /api/conflicts/link-violations: ${err}`);
     res.status(500).json({ error: 'Internal error' });

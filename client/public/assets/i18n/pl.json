@@ -605,6 +605,7 @@
   "conflicts.action.keepBoth": "Zachowaj oba",
   "conflicts.action.saveToSpace": "Zapisz do przestrzeni…",
   "conflicts.unresolvedCount": "Nierozwiązane konflikty: {{ count }}.",
+  "conflicts.truncated": "Wyświetlono pierwsze {{ count }} konfliktów — jest ich więcej, niż można wyświetlić naraz. Rozwiąż część, aby zobaczyć resztę.",
   "conflicts.resolveSelected": "Rozwiąż zaznaczone: {{ count }}",
   "conflicts.resolving": "Rozwiązywanie…",
   "conflicts.resolveButton": "Rozwiąż",

@@ -1737,6 +1737,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The contradiction sweep's limits are now configurable instead of hard-coded**, and the similarity floor
+  is documented on the right scale. `structuredThreshold`, `nliThreshold`, `maxJudgedPairsPerRun`,
+  `batchSize` and `maxPerRun` were all fixed constants; only `dupeScanner` had equivalents.
+
+  **The thresholds are not raw cosine** — `$vectorSearch` normalises cosine to `(1 + cos) / 2`, so 0.92
+  means cosine ≈ 0.84, and a plausible-looking 0.70 would mean cosine 0.40, where a great deal of
+  barely-related text sits. Reading them as cosine sets them roughly twice as loose as intended, so the
+  docs and the code now say so explicitly.
+
+  **The defaults are unchanged.** Lowering the floor is attractive in principle — 0.92 asks "are these the
+  same record?" rather than "do these disagree?" — but two deliberately-constructed contradicting pairs
+  still scored 0.9479 and 0.9259, because records sharing a subject embed close together even when their
+  descriptions diverge. With no reproducible miss, changing behaviour for every instance was not warranted;
+  the knob is.
+
+  The model pass gets its own floor, and its defaults key on **where the judge runs** rather than on the
+  fact that it is a model at all. The judge is an MNLI *encoder* — one forward pass, three labels, no
+  generation — so a loopback sidecar is not expensive and now gets the same wide floor as the free
+  deterministic pass, with no pair cap. A **remote** endpoint keeps the strict floor and a per-run budget
+  (2000 judged pairs), because every remote judgement is record text leaving the instance and that cost
+  does not shrink with faster hardware. All of it is configurable — `structuredThreshold`, `nliThreshold`,
+  `maxJudgedPairsPerRun`, `batchSize`, `maxPerRun` — where previously all five were hard-coded constants.
+  The defaults are reasoned, not benchmarked: no NLI sidecar ships with the stack, so there was nothing to
+  time against, which is exactly why they are all overridable.
+
+  Hitting the pair budget is an **orderly** stop, deliberately unlike a stall: the pairs it judged are
+  settled and the cursor advances past them, so the next run resumes rather than re-judging (and re-paying
+  for) the same work. Only an unavailable judge parks the cursor. `POST /api/contradictions/scan` now
+  reports `judgedPairs` and distinguishes `budgetExhausted` from `nliStalled`, since one means "settled as
+  far as it got" and the other means "settled nothing".
+
 - **The contradiction sweep was never scheduled — it only ever ran if an admin triggered it by hand.**
   `runContradictionScanAllSpaces` was written, exported and tested, and **nothing called it**: the boot
   sequence started the duplicate scanner, the backup scheduler and the TTL sweep, with no contradiction

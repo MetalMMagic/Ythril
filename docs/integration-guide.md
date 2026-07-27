@@ -5703,10 +5703,41 @@ external endpoint, sends record text off the instance:
 {
   "contradictionScanner": {
     "enabled": true,
-    "schedule": "30 3 * * *"   // cron — 03:30 daily (default), half an hour after the dupe sweep
+    "schedule": "30 3 * * *",       // cron — 03:30 daily (default), half an hour after the dupe sweep
+    "structuredThreshold": 0.92,    // similarity floor for the free deterministic pass (default)
+    "nliThreshold": 0.92,           // floor for the model pass (default)
+    "maxJudgedPairsPerRun": 0,      // 0 = unlimited (the local default); 2000 for a remote judge
+    "batchSize": 200,
+    "maxPerRun": 5000
   }
 }
 ```
+
+> **These thresholds are not raw cosine.** `$vectorSearch` normalises cosine similarity to `(1 + cos) / 2`,
+> and that is the number compared here. So **0.92 ⇒ cosine 0.84**, **0.85 ⇒ cosine 0.70**, and a
+> reasonable-looking **0.70 ⇒ cosine 0.40** — where a lot of barely-related text sits. Read these as cosine
+> and you will set them roughly twice as loose as you intended.
+
+**Should you lower it?** In principle 0.92 asks *"are these the same record?"* rather than *"do these
+disagree?"*, so a lower floor should surface contradictions between records that are related but not
+near-identical. In practice that was hard to reproduce: two deliberately-constructed contradicting pairs
+still scored 0.9479 and 0.9259, because records sharing a subject embed close together even when their
+descriptions diverge sharply. The default is therefore left at 0.92 — but if you see real contradictions
+being missed in your data, this is the knob, and lowering it costs nothing on the structured pass.
+
+**Why the model-pass defaults depend on where the judge runs.** The judge is an MNLI *encoder* — one
+forward pass returning three labels, not a generative model — so it is not slow. What differs is that every
+pair judged by a **remote** endpoint is record text leaving the instance, and that cost does not shrink with
+a faster model or a bigger GPU. So a loopback sidecar gets the same wide floor as the free pass and no pair
+cap, while a remote endpoint defaults to the strict floor plus a per-run budget. Override any of it.
+
+> These defaults are **reasoned, not benchmarked** — no NLI sidecar ships with the stack, so there was
+> nothing to time against. That is precisely why they are all configurable.
+
+`POST /scan` reports `judgedPairs` (what a remote judge was actually asked) plus two *distinct* incomplete
+endings: `nliStalled` means the judge was unreachable and **nothing** was settled (the cursor is parked),
+while `budgetExhausted` means the pairs it judged **are** settled and the next run continues from there.
+Neither should be read as a clean result.
 
 Until it is enabled, contradictions are found **only** when an admin runs `POST /api/contradictions/scan`
 by hand — so the Review tab's Contradictions view stays empty on an instance nobody has scanned manually.

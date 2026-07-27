@@ -34,6 +34,20 @@ export function nliConfigured(): boolean {
   return !!nli?.baseUrl?.trim() && !!nli?.model?.trim();
 }
 
+/**
+ * True when the configured judge runs locally — i.e. judging a pair costs CPU but sends nothing anywhere.
+ *
+ * Callers use this to decide how *freely* they may judge. The distinction is not speed: an MNLI encoder is
+ * a single forward pass either way. It is that every judged pair on a remote endpoint is document content
+ * leaving the instance, and that cost does not shrink with a faster model or a bigger machine.
+ *
+ * Unconfigured counts as NOT local: there is nothing to call, so nothing may be assumed cheap.
+ */
+export function nliIsLocal(): boolean {
+  const url = getMediaEmbeddingConfig().nli?.baseUrl?.trim();
+  return !!url && isLocalEndpoint(url);
+}
+
 /** Loopback/private hosts are the bundled sidecar; anything else is egress and gets the SSRF guard. */
 function isLocalEndpoint(rawUrl: string): boolean {
   try {

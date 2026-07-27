@@ -33,8 +33,9 @@ import { col, asFilter, asUpdate, isVectorSearchAvailable } from '../db/mongo.js
 import { getConfig } from '../config/loader.js';
 import { needsReindex } from '../spaces/_shared.js';
 import { log } from '../util/log.js';
-import { findSimilar, DEFAULT_DUPE_THRESHOLD, type RecallKnowledgeType } from './recall.js';
+import { findSimilar, summariseRecall, DEFAULT_DUPE_THRESHOLD, type RecallKnowledgeType, type RecallResult } from './recall.js';
 import { judgePair, type JudgeableRecord } from './contradiction-judge.js';
+import { extraClaimFields, fetchStructuredClaims, type ClaimMap } from './structured-claims.js';
 import { recordContradiction } from './contradiction-candidates.js';
 import { nliConfigured } from './nli-client.js';
 import type { DupeScanStateDoc, DupeScanType } from '../config/types.js';
@@ -42,7 +43,10 @@ import type { DupeScanStateDoc, DupeScanType } from '../config/types.js';
 const SCAN_STATE = 'ythril_dupe_scan_state';
 const DEFAULT_BATCH_SIZE = 200;
 const DEFAULT_MAX_PER_RUN = 5000;
-const DEFAULT_TYPES: DupeScanType[] = ['memory', 'entity'];
+// Chrono is swept alongside memories and entities: a calendar is exactly where the same thing gets logged
+// twice with conflicting states, and its `status` is a single-valued claim the structured pass can settle
+// without a model. See structured-claims.ts for why its dates are deliberately not part of that.
+export const DEFAULT_TYPES: DupeScanType[] = ['memory', 'entity', 'chrono'];
 const TOPK = 5;
 
 const COLLECTION_SUFFIX: Record<DupeScanType, string> = {
@@ -78,8 +82,28 @@ export interface RecordOutcomeSummary {
   judgeStalled: boolean;
 }
 
-const toJudgeable = (r: { id: string; text?: string; properties?: Record<string, string | number | boolean> }): JudgeableRecord =>
-  ({ id: r.id, text: r.text ?? '', ...(r.properties ? { properties: r.properties } : {}) });
+/**
+ * A recall hit as the judge sees it.
+ *
+ * The mapping is spelled out rather than cast because getting it wrong is silent and total. A `RecallResult`
+ * carries `_id` (not `id`) and keeps its free text under a per-type field (`fact` / `name` / `title`) — it
+ * has no `text` and no `summary` at all. Handing one straight to `JudgeableRecord` therefore yields
+ * `id: undefined, text: ''`, which does not fail: `judgePair` reads the empty text as `no-text` so the NLI
+ * pass silently judges nothing ever, and every structured finding is written under the pair id
+ * `"undefined:undefined"`, so the whole space collapses into one row that each pair overwrites in turn.
+ * Nothing throws and the sweep reports success. That is what the `as never` casts here used to hide.
+ */
+export function toJudgeable(r: RecallResult, claims?: ClaimMap): JudgeableRecord {
+  // `summariseRecall` is the same one-liner the duplicate review list shows, so a contradiction card and a
+  // duplicate card describe the same record identically. `description` is appended for the NLI pass, which
+  // needs prose to entail over — a bare title rarely contradicts anything.
+  const head = summariseRecall(r);
+  return {
+    id: r._id,
+    text: r.description ? `${head}. ${r.description}` : head,
+    ...(claims ? { properties: claims } : {}),
+  };
+}
 
 /**
  * Evaluate one seed record against its nearest neighbours.
@@ -95,10 +119,21 @@ export async function evalRecord(
   try {
     const { source, results } = await findSimilar(
       spaceId, recordId, type as RecallKnowledgeType, TOPK, [type as RecallKnowledgeType], threshold);
-    for (const match of results) {
-      if (match.type !== type) continue;
-      const a = toJudgeable(source as never);
-      const b = toJudgeable(match as never);
+    const sameType = results.filter(m => m.type === type);
+
+    // For a type whose claims include stored columns (chrono's `status`), read them from the COLLECTION
+    // rather than from the recall result — `RecallChrono.status` is derived from the clock, so judging on
+    // it would produce a candidate whose verdict changes overnight while both records sit untouched.
+    // One round trip covers the seed and all its neighbours.
+    const stored = extraClaimFields(type).length > 0
+      ? await fetchStructuredClaims(spaceId, type, [source._id, ...sameType.map(m => m._id)])
+      : null;
+    const claimsOf = (r: RecallResult): ClaimMap | undefined =>
+      stored ? stored.get(r._id) : r.properties;
+
+    const a = toJudgeable(source, claimsOf(source));
+    for (const match of sameType) {
+      const b = toJudgeable(match, claimsOf(match));
 
       // The structured pass must not reach the model — it has to stay useful (and cursor-advancing) on an
       // instance with no NLI endpoint at all. It only records a verdict it can reach deterministically.
@@ -111,8 +146,8 @@ export async function evalRecord(
         continue;   // leave the pair unsettled; the NLI cursor will not move past this record
       }
       const outcome = await recordContradiction(spaceId, type,
-        { id: a.id, summary: (source as { summary?: string }).summary ?? a.text.slice(0, 200), seq: (source as { seq?: number }).seq ?? 0 },
-        { id: b.id, summary: (match as { summary?: string }).summary ?? b.text.slice(0, 200), seq: (match as { seq?: number }).seq ?? 0 },
+        { id: a.id, summary: summariseRecall(source), seq: source.seq ?? 0 },
+        { id: b.id, summary: summariseRecall(match), seq: match.seq ?? 0 },
         verdict);
       if (outcome === 'created' || outcome === 'reopened') found++;
     }

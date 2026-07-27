@@ -18,24 +18,24 @@
  * The warning never blocks the write. An agent correcting an outdated fact *should* be able to contradict
  * the record it is superseding — the point is to tell it, not to stop it.
  */
-import { col, asFilter } from '../db/mongo.js';
 import { findPropertyDisagreements, type PropertyDisagreement } from './contradiction-judge.js';
+import { structuredClaims, fetchStructuredClaims, type ClaimMap } from './structured-claims.js';
 import type { SimilarMatch } from './recall.js';
 
 /** A near-neighbour that disagrees with the record being written. */
 export interface ContradictionWarning {
   id: string;
   summary: string;
-  /** The single-valued properties they disagree on, with both values. */
+  /** The single-valued fields they disagree on, with both values. */
   fields: PropertyDisagreement[];
 }
 
-const COLLECTION_SUFFIX: Record<string, string> = {
-  memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'files',
-};
-
 /**
  * Which of `hits` structurally contradict the record being written.
+ *
+ * `incoming` is the record as the caller is about to store it. Pass the whole thing, not just its
+ * properties: what counts as a claim is type-specific (a chrono entry claims its `status` in a top-level
+ * column), and `structured-claims.ts` owns that knowledge for both this path and the nightly sweep.
  *
  * Returns [] rather than throwing: a warning is a courtesy on the write path and must never be the reason
  * a write fails.
@@ -43,35 +43,25 @@ const COLLECTION_SUFFIX: Record<string, string> = {
 export async function findInsertContradictions(
   spaceId: string,
   type: string,
-  incoming: { properties?: Record<string, string | number | boolean> },
+  incoming: { properties?: ClaimMap } & Record<string, unknown>,
   hits: SimilarMatch[],
 ): Promise<ContradictionWarning[]> {
-  // Nothing to disagree about: the incoming record makes no property claims.
-  if (!incoming.properties || Object.keys(incoming.properties).length === 0) return [];
   if (hits.length === 0) return [];
 
-  const suffix = COLLECTION_SUFFIX[type];
-  if (!suffix) return [];
+  // Nothing to disagree about: the incoming record makes no claims at all.
+  const claims = structuredClaims(type, incoming);
+  if (!claims || Object.keys(claims).length === 0) return [];
 
-  try {
-    const ids = hits.map(h => h._id);
-    const docs = await col<{ _id: string; properties?: Record<string, string | number | boolean> }>(`${spaceId}_${suffix}`)
-      .find(asFilter<{ _id: string }>({ _id: { $in: ids } }), { projection: { _id: 1, properties: 1 } })
-      .toArray() as Array<{ _id: string; properties?: Record<string, string | number | boolean> }>;
-
-    const byId = new Map(docs.map(d => [d._id, d.properties]));
-    const out: ContradictionWarning[] = [];
-    for (const hit of hits) {
-      const props = byId.get(hit._id);
-      if (!props) continue;
-      const fields = findPropertyDisagreements(
-        { id: 'incoming', text: '', properties: incoming.properties },
-        { id: hit._id, text: '', properties: props },
-      );
-      if (fields.length > 0) out.push({ id: hit._id, summary: hit.summary, fields });
-    }
-    return out;
-  } catch {
-    return [];
+  const byId = await fetchStructuredClaims(spaceId, type, hits.map(h => h._id));
+  const out: ContradictionWarning[] = [];
+  for (const hit of hits) {
+    const theirs = byId.get(hit._id);
+    if (!theirs) continue;
+    const fields = findPropertyDisagreements(
+      { id: 'incoming', text: '', properties: claims },
+      { id: hit._id, text: '', properties: theirs },
+    );
+    if (fields.length > 0) out.push({ id: hit._id, summary: hit.summary, fields });
   }
+  return out;
 }

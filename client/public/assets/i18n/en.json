@@ -1533,5 +1533,11 @@
   "mediaProcessing.assist.gatedByPipeline": "Used for the document repair pass. Raise Document extraction to \"Repair\" (or Auto) to route repairs through it; you will be asked to acknowledge the egress.",
   "schemaLib.field.schema": "Schema (JSON)",
   "schemaLib.field.schemaHint": "The property definitions for this type, as a JSON object. Invalid JSON is rejected on save.",
-  "brain.tab.review": "Review"
+  "brain.tab.review": "Review",
+  "review.title": "Review",
+  "review.sub.duplicates": "Duplicates",
+  "review.sub.contradictions": "Contradictions",
+  "review.contradictions.intro": "Records in this space that disagree with each other — same subject, opposite claims.",
+  "review.contradictions.pendingTitle": "Contradiction detection is not running yet",
+  "review.contradictions.pendingBody": "It needs an NLI (entailment) model. Configure one under Settings → Media Processing, then this list fills as the scanner runs."
 }

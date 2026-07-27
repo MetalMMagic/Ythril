@@ -47,7 +47,33 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
     .dup-resolved { font-size: 12px; color: var(--success); text-align: right; }
   `],
   template: `
-    <h2 class="page-title">{{ 'duplicates.title' | transloco }}</h2>
+    <h2 class="page-title">{{ 'review.title' | transloco }}</h2>
+
+    <!-- Sub-tabs, not a compact toggle: this is the space's record-QA queue and it will grow past two
+         views (contradictions now, orphans / schema violations later). A full tab strip keeps them all
+         discoverable and reuses the same affordance as every other tab in the app, rather than hiding
+         the second view behind a control people have to notice. -->
+    <nav class="tabs" role="tablist" [attr.aria-label]="'review.title' | transloco">
+      @for (t of SUBTABS; track t) {
+        <button class="tab" type="button" role="tab" [class.active]="sub() === t"
+          [attr.aria-selected]="sub() === t" [attr.id]="'review-tab-' + t"
+          [attr.aria-controls]="'review-panel-' + t" (click)="sub.set(t)">
+          {{ 'review.sub.' + t | transloco }}
+        </button>
+      }
+    </nav>
+
+    @if (sub() === 'contradictions') {
+      <section role="tabpanel" id="review-panel-contradictions" aria-labelledby="review-tab-contradictions">
+        <p class="intro">{{ 'review.contradictions.intro' | transloco }}</p>
+        <div class="empty-state">
+          <div class="empty-state-icon"><ph-icon name="warning" [size]="48"/></div>
+          <h3>{{ 'review.contradictions.pendingTitle' | transloco }}</h3>
+          <p>{{ 'review.contradictions.pendingBody' | transloco }}</p>
+        </div>
+      </section>
+    } @else {
+    <section role="tabpanel" id="review-panel-duplicates" aria-labelledby="review-tab-duplicates">
     <p class="intro">{{ 'duplicates.intro' | transloco }}</p>
 
     <app-summary-strip [items]="summaryItems()">
@@ -139,9 +165,15 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
         }
       </div>
     }
+    </section>
+    }
   `,
 })
 export class ReviewTabComponent implements OnInit, OnChanges {
+  /** Sub-views of the space's record-QA queue. Ordered as a reviewer meets them. */
+  readonly SUBTABS = ['duplicates', 'contradictions'] as const;
+  readonly sub = signal<'duplicates' | 'contradictions'>('duplicates');
+
   /** The space being reviewed. Required: this view is per-space now, never instance-wide. */
   @Input({ required: true }) spaceId = '';
 

@@ -196,4 +196,40 @@ describe('ReviewTabComponent', () => {
     c.ngOnChanges({ spaceId: { currentValue: 'other', previousValue: 'work', firstChange: false, isFirstChange: () => false } });
     expect(listDuplicates).toHaveBeenCalledWith('open', 'other');
   });
+
+  // Sub-tabs, not a compact toggle: the owner's call was explicitly "not a small toggle that noone finds".
+  // The Review tab is the space's record-QA queue and will grow past two views, so it uses the same tab
+  // affordance as the rest of the app.
+  describe('sub-tabs', () => {
+    it('offers Duplicates and Contradictions as real tabs, Duplicates first', () => {
+      const { f } = setup();
+      const tabs = [...(f.nativeElement as HTMLElement).querySelectorAll('nav.tabs button[role="tab"]')];
+      expect(tabs.length).toBe(2);
+      expect(tabs[0].getAttribute('aria-selected')).toBe('true');   // lands on Duplicates
+      expect(tabs[1].getAttribute('aria-selected')).toBe('false');
+    });
+
+    it('switches panels, and the duplicates list is not rendered while Contradictions is shown', () => {
+      const { f, c } = setup({ listDuplicates: () => of({ duplicates: [rec()] }) });
+      const el = f.nativeElement as HTMLElement;
+      expect(el.querySelector('#review-panel-duplicates')).toBeTruthy();
+
+      c.sub.set('contradictions');
+      f.detectChanges();
+      expect(el.querySelector('#review-panel-contradictions')).toBeTruthy();
+      expect(el.querySelector('#review-panel-duplicates')).toBeNull();
+
+      // …and back, so the move can't strand a reviewer on the empty half.
+      c.sub.set('duplicates');
+      f.detectChanges();
+      expect(el.querySelector('#review-panel-duplicates')).toBeTruthy();
+    });
+
+    it('each tab is wired to its panel for screen readers', () => {
+      const { f } = setup();
+      const tabs = [...(f.nativeElement as HTMLElement).querySelectorAll('nav.tabs button[role="tab"]')];
+      expect(tabs[0].getAttribute('aria-controls')).toBe('review-panel-duplicates');
+      expect(tabs[1].getAttribute('aria-controls')).toBe('review-panel-contradictions');
+    });
+  });
 });

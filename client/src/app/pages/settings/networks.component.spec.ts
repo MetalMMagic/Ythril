@@ -288,4 +288,29 @@ describe('NetworksComponent (characterization)', () => {
     expect(c.joinMyUrl).toBe('https://brain.example.com');
     expect(c.needsNetworkEnable()).toBe(false);
   });
+
+  // Per-peer sync health on the member rows (#431) is TEMPLATE-ONLY (no method to drive), so unlike the
+  // logic-only characterization above this one render test expands a network and asserts the markup:
+  // a member with a failing streak shows the "Failing(N)" badge and a member never synced shows the
+  // never-synced label rather than a date.
+  it('member rows show per-peer sync health: a failing badge on a streak, never-synced when unsynced', () => {
+    make(); // configures the TestBed (providers) and resets it; we build our own fixture below
+    const members = [
+      { instanceId: 'aaaaaaaa1111', label: 'Peer A', endpoint: 'https://a.example', consecutiveFailures: 3, lastSyncAt: '2026-07-20T10:00:00Z' },
+      { instanceId: 'bbbbbbbb2222', label: 'Peer B', endpoint: 'https://b.example', consecutiveFailures: 0, lastSyncAt: null },
+    ];
+    api.listNetworks.mockReturnValue(of({ networks: [net({ id: 'n1', members: members as never })] }));
+    const fixture = TestBed.createComponent(NetworksComponent);
+    const inst = fixture.componentInstance;
+    inst.load();          // populate networks from the mocked API
+    inst.expanded.set('n1'); // expand so the member rows render
+    fixture.detectChanges();
+    const rows = [...(fixture.nativeElement as HTMLElement).querySelectorAll('.member-row')];
+    expect(rows.length).toBe(2);
+    // Peer A (3 failures) shows the failing badge; Peer B (0) does not.
+    expect(rows[0].querySelector('.member-failing')).toBeTruthy();
+    expect(rows[1].querySelector('.member-failing')).toBeNull();
+    // Peer B never synced → the never-synced label (test transloco emits the raw key), not a date.
+    expect(rows[1].querySelector('.member-sync')?.textContent).toContain('networks.member.neverSynced');
+  });
 });

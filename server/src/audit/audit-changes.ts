@@ -52,6 +52,15 @@ export const AUDIT_CHANGE_FIELDS: Readonly<Record<string, readonly string[]>> = 
   // Media levels and extraction mode: the settings that decide what gets processed and what leaves the
   // instance. The provider blocks in the same payload carry API keys and are NOT listed.
   'config.media.update': ['levels.images', 'levels.audio', 'levels.video', 'levels.text', 'documentProcessing.mode'],
+  // Network settings a `PATCH /api/networks/:id` can actually change — and only those three. The network
+  // record also holds `inviteKeyHash` and each member's `tokenHash`; naming fields rather than diffing the
+  // record is what keeps them out. `requireSignedVotes` is the reason this entry is worth having: turning
+  // it off silently weakens vote verification for the whole network, and "an admin patched the network"
+  // does not tell you that happened.
+  'network.update': ['label', 'syncSchedule', 'requireSignedVotes'],
+  // Backup schedule and retention. `offsite.destPath` is a container filesystem path (mounted volume),
+  // not a URL, so it cannot carry credentials in userinfo the way a webhook target can.
+  'data.backup_config.update': ['schedule', 'retention.keepLocal', 'offsite.destPath', 'offsite.retention.keepCount'],
 };
 
 /** Scalars only — anything else is dropped rather than stringified. */

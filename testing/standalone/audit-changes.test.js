@@ -75,6 +75,7 @@ describe('audit changes — every allowlist is actually reachable', () => {
   const read = (rel) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
   const ROUTE_SOURCES = [
     'server/src/api/spaces.ts', 'server/src/api/tokens.ts', 'server/src/api/media-config.ts',
+    'server/src/api/networks/crud.ts', 'server/src/api/data.ts',
   ];
 
   it('every allowlisted key is a REAL operation name from the middleware', () => {
@@ -106,6 +107,27 @@ describe('audit changes — every allowlist is actually reachable', () => {
     assert.deepEqual(AUDIT_CHANGE_FIELDS['token.update'], ['name']);
     assert.ok(read('server/src/api/tokens.ts').includes('name: parsed.data.name.trim()'),
       'the token route should snapshot the same field the allowlist names');
+  });
+
+  it('network.update names exactly the three fields its PATCH can change', () => {
+    // Same check for slice 3. The route assigns `label`, `syncSchedule` and `requireSignedVotes` and
+    // nothing else; an allowlist naming a fourth would be silent forever rather than wrong-and-loud.
+    const src = read('server/src/api/networks/crud.ts');
+    for (const f of AUDIT_CHANGE_FIELDS['network.update']) {
+      assert.ok(src.includes(`net.${f} =`) || src.includes(`net.${f},`),
+        `network.update allowlists "${f}", which the PATCH route never assigns`);
+    }
+  });
+
+  it('the backup-config allowlist matches the schema that validates the body', () => {
+    // These are dotted paths into a nested config. A typo (retention.keepLocal -> retention.keep) reads
+    // as "nothing changed" forever, so pin them against the schema that defines the shape.
+    const schema = read('server/src/db/backup-config.ts');
+    for (const path of AUDIT_CHANGE_FIELDS['data.backup_config.update']) {
+      const leaf = path.split('.').pop();
+      assert.ok(new RegExp(`\\b${leaf}\\s*:`).test(schema),
+        `backup-config allowlists "${path}" but the schema defines no "${leaf}"`);
+    }
   });
 });
 

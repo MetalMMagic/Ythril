@@ -134,7 +134,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                       <option value="">{{ 'brain.filter.allKinds' | transloco }}</option>
                       @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
                     </select>
-                  </th><th>{{ 'brain.chrono.table.status' | transloco }}</th><th app-sort-th field="startsAt" label="brain.chrono.table.starts" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th>{{ 'brain.chrono.table.ends' | transloco }}</th>
+                  </th><th app-sort-th field="status" label="brain.chrono.table.status" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="startsAt" label="brain.chrono.table.starts" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="endsAt" label="brain.chrono.table.ends" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
                   <th app-sort-th label="brain.chrono.table.tags">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />

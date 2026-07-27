@@ -62,6 +62,24 @@ describe('parseSortParam — the 400-on-unknown-sort contract', () => {
       assert.ok(set.has('createdAt'), `${name} must allow sorting by createdAt`);
     }
   });
+
+  // Columns the tables render but could not sort by until now. Each needs BOTH the whitelist entry (or the
+  // route 400s) and a client header — the whitelist half is what this pins.
+  it('allows the late-added columns: edges weight, chrono endsAt/status', () => {
+    assert.ok(SORTABLE_FIELDS.edges.has('weight'), 'edges.weight is numeric — a natural sort');
+    assert.ok(SORTABLE_FIELDS.chrono.has('endsAt'), 'chrono renders an Ends column');
+    assert.ok(SORTABLE_FIELDS.chrono.has('status'), 'chrono renders a Status column');
+  });
+
+  // A rejected-by-design list, asserted so it is not "corrected" into the whitelist later. `properties` is
+  // a free-form JSON blob with no single orderable value; the id arrays order by nothing a reader can see.
+  it('keeps unsortable-by-nature fields OUT of every whitelist', () => {
+    for (const [name, set] of Object.entries(SORTABLE_FIELDS)) {
+      for (const field of ['properties', 'entityIds', 'memoryIds']) {
+        assert.ok(!set.has(field), `${name}.${field} must not be sortable — it has no orderable value`);
+      }
+    }
+  });
 });
 
 describe('toMongoSort — deterministic paging tiebreaker', () => {

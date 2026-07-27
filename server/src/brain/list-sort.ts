@@ -24,11 +24,15 @@ export interface SortSpec {
  * `overdue` status, which is computed from the due moment and never stored) are deliberately left
  * out — sorting by a stored `status` that disagrees with the displayed one would mislead.
  */
+// Deliberately ABSENT and not an oversight: `properties` (a free-form JSON blob — there is no single
+// value to order by) and `entityIds`/`memoryIds` (reference arrays — ordering by an array of ids sorts
+// by nothing a reader can see). Both were considered and rejected; leaving that unwritten is how they get
+// "fixed" into the list later by someone reading it as a gap.
 export const SORTABLE_FIELDS = {
   entities: new Set<string>(['createdAt', 'name', 'type']),
-  edges: new Set<string>(['createdAt', 'label', 'from', 'to', 'type']),
+  edges: new Set<string>(['createdAt', 'label', 'from', 'to', 'type', 'weight']),
   memories: new Set<string>(['createdAt', 'type']),
-  chrono: new Set<string>(['createdAt', 'title', 'startsAt', 'type']),
+  chrono: new Set<string>(['createdAt', 'title', 'startsAt', 'endsAt', 'status', 'type']),
   files: new Set<string>(['createdAt', 'updatedAt', 'path']),
 } as const;
 

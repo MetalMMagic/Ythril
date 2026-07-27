@@ -4,7 +4,7 @@
  * These began as characterization tests pinning the PRE-pt3 layout (validation controls on this tab),
  * proven green against the original code. This revision updates them to the NEW arrangement the pt3
  * refactor introduces, so the move is an explicit, reviewable diff:
- *   - the tab groups its fields into four SettingsCards (Identity · Purpose · Limits · Document extraction);
+ *   - the tab groups its fields into five SettingsCards (Identity · Purpose · Limits · Document extraction · Media analysis);
  *   - the validationMode select and strictLinkage checkbox have MOVED to the Schema tab — this tab no
  *     longer renders the strictLinkage checkbox, and its only <select> is the F11-c extraction-mode one;
  *   - blank storage / TTL / extraction-override fields convey their default through the input
@@ -51,9 +51,9 @@ async function setup(space: Partial<Space> = {}, ceiling?: 'off' | 'ocr' | 'vlm'
 describe('SpaceSettingsTabComponent — U9 pt3 arrangement', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('groups the fields into four SettingsCards (Identity · Purpose · Limits · Document extraction)', async () => {
+  it('groups the fields into five SettingsCards (Identity · Purpose · Limits · Document extraction · Media analysis)', async () => {
     const { el } = await setup();
-    expect(el.querySelectorAll('app-settings-card').length).toBe(4);
+    expect(el.querySelectorAll('app-settings-card').length).toBe(5);
   });
 
   it('still renders label, purpose, usage notes, max storage, and record TTL', async () => {
@@ -63,13 +63,15 @@ describe('SpaceSettingsTabComponent — U9 pt3 arrangement', () => {
     expect(el.querySelectorAll('input[type="number"]').length).toBe(2);                 // maxGiB + recordTtlDays
   });
 
-  it('no longer renders the validation controls — the only select is the extraction-mode one', async () => {
+  it('no longer renders the validation controls; the selects are the extraction-mode + 4 media-level pickers', async () => {
     const { el } = await setup({ meta: { validationMode: 'strict', strictLinkage: true } } as Partial<Space>);
-    // strictLinkage checkbox is gone; the sole remaining <select> is F11-c's extraction-mode picker.
+    // strictLinkage checkbox is gone. The selects are now F11-c's extraction-mode picker plus the four
+    // per-space media-analysis pickers (image/audio/video/text) — no validation control among them.
     expect(el.querySelector('input[type="checkbox"]')).toBeNull();
     const selects = el.querySelectorAll('select');
-    expect(selects.length).toBe(1);
-    expect(selects[0].querySelector('option[value="ocr"]')).not.toBeNull();
+    expect(selects.length).toBe(5);
+    // The extraction picker (identified by its 'ocr' option) is present among them.
+    expect([...selects].some(s => s.querySelector('option[value="ocr"]'))).toBe(true);
   });
 
   it('the extraction dropdown offers only modes within the instance ceiling', async () => {

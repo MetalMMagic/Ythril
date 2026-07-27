@@ -852,6 +852,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Semantic search groups a document's matching passages under the document, and shows the passages
+  instead of raw JSON.** Recall over files matches *chunks*, so a paper relevant in five places returned
+  five near-identical rows that pushed everything else out of the visible list — and each row rendered as a
+  pretty-printed JSON record. A search now returns one row per document, naming the file once, badging how
+  many passages matched, and listing each passage under the heading it sits beneath with its actual text
+  (whitespace-collapsed, truncated at 400 characters).
+
+  The header states both numbers — *"1 result from 6 matching passages"* — because collapsing rows makes a
+  `topK` of 10 look like 6, and a reader who is shown fewer results than they asked for deserves to be told
+  why rather than left to wonder. A whole-file hit merges with that same file's chunk hits, so a document no
+  longer appears once as itself and again as a set of fragments that look unrelated.
+
+  Entirely presentation-side: the server has always sent `parentFileId` and an inlined `parentFile` on chunk
+  hits, and nothing had ever read them — the data crossed the wire on every recall and was discarded. So the
+  recall API is unchanged and MCP callers still receive the flat list they are built around.
+
 - **A file's detail pane now says what WILL run for it — and, when nothing will, why.** Opening a file
   shows the chain it goes through (a PDF: render → OCR evidence → vision → validate → repair; an image:
   caption → embed → faces; audio/video: transcribe → chunk → embed, with keyframe sampling for video), the

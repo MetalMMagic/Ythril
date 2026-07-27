@@ -51,6 +51,11 @@ export class BrainApi {
     return this.http.get<EmbeddingQueue>(`/api/brain/spaces/${spaceId}/embedding-queue`);
   }
 
+  /** Re-queue every failed media job in a space (F9 Overview "retry all failed"). Returns the count reset. */
+  retryFailedEmbeddings(spaceId: string): Observable<{ retried: number }> {
+    return this.http.post<{ retried: number }>(`/api/brain/spaces/${spaceId}/embedding-queue/retry-failed`, {});
+  }
+
   recallBrain(
     spaceId: string,
     body: {

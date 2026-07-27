@@ -76,6 +76,7 @@ const ROUTE_RULES: RouteRule[] = [
   { method: 'DELETE', pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/files$/,      operation: 'file.meta.delete', spaceGroup: 1 },
   { method: 'PATCH',  pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/files$/,      operation: 'file.meta.update', spaceGroup: 1 },
   { method: 'POST',   pattern: /^\/api\/brain\/(?:spaces\/)?([^/]+)\/reindex$/,    operation: 'space.reindex',  spaceGroup: 1 },
+  { method: 'POST',   pattern: /^\/api\/brain\/spaces\/([^/]+)\/embedding-queue\/retry-failed$/, operation: 'file.retry_embedding_all', spaceGroup: 1 },
 
   // ── Space operations ─────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/spaces$/,                                  operation: 'space.create' },

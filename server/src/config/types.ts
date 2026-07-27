@@ -844,6 +844,42 @@ export interface ContradictionScannerConfig {
   enabled?: boolean;
   /** Cron schedule for the sweep. Default: '30 3 * * *' (03:30 daily). */
   schedule?: string;
+  /**
+   * Similarity floor for the STRUCTURED pass. Default: 0.85.
+   *
+   * **NOT raw cosine.** `$vectorSearch` normalises cosine to `(1 + cos) / 2`, so 0.85 here means cosine
+   * ≈ 0.70, and the previous 0.92 meant cosine ≈ 0.84. Reading these as cosine makes them sound roughly
+   * twice as strict as they are — and setting 0.7 "so the records are at least related" would really mean
+   * cosine 0.4, where plenty of unrelated text lands.
+   *
+   * Loosened from the inherited duplicate threshold because 0.92 asks "are these the same record?", which
+   * is the right question for de-duplication and the wrong one here: two records can contradict without
+   * being near-identical. The structured judge is deterministic and free per pair, so a somewhat wider net
+   * costs nothing but review attention.
+   */
+  structuredThreshold?: number;
+  /**
+   * Similarity floor for the NLI pass. Default: **0.85 when the judge is local, 0.92 when it is remote**.
+   *
+   * Same normalised scale as `structuredThreshold`. The gap is not about speed — an MNLI encoder is one
+   * forward pass either way — but about egress: every pair judged remotely is record text leaving the
+   * instance, and no amount of hardware makes that cheaper. A local sidecar can afford the same net as the
+   * free pass.
+   */
+  nliThreshold?: number;
+  /**
+   * Cap on how many pairs the NLI pass may judge in one run. Default: **unlimited when local, 2000 when
+   * remote**. 0 means unlimited.
+   *
+   * Hitting the cap is an ORDERLY stop, not a stall: the pairs it did judge are settled and the cursor
+   * advances past them, so the next run resumes where it left off. Only an unavailable judge parks the
+   * cursor. Conflating the two would either re-judge the same pairs forever or silently skip them.
+   */
+  maxJudgedPairsPerRun?: number;
+  /** Records fetched per DB batch during a sweep. Default: 200. */
+  batchSize?: number;
+  /** Max records scanned per space per run. Default: 5000. */
+  maxPerRun?: number;
 }
 
 /**

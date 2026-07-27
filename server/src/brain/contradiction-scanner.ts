@@ -38,12 +38,43 @@ import { findSimilar, summariseRecall, DEFAULT_DUPE_THRESHOLD, type RecallKnowle
 import { judgePair, type JudgeableRecord } from './contradiction-judge.js';
 import { extraClaimFields, fetchStructuredClaims, type ClaimMap } from './structured-claims.js';
 import { recordContradiction } from './contradiction-candidates.js';
-import { nliConfigured } from './nli-client.js';
-import type { DupeScanStateDoc, DupeScanType } from '../config/types.js';
+import { nliConfigured, nliIsLocal } from './nli-client.js';
+import type { ContradictionScannerConfig, DupeScanStateDoc, DupeScanType } from '../config/types.js';
 
 const SCAN_STATE = 'ythril_dupe_scan_state';
 const DEFAULT_BATCH_SIZE = 200;
 const DEFAULT_MAX_PER_RUN = 5000;
+/**
+ * Similarity floor for candidate pairs.
+ *
+ * ── READ THIS BEFORE CHANGING THE NUMBER ────────────────────────────────────────────────────────────────
+ *
+ * These thresholds are **not raw cosine**. `$vectorSearch` with cosine returns a score NORMALISED to
+ * [0, 1] as `(1 + cosine) / 2`, and that is what `findSimilar` compares against. So:
+ *
+ *      score 0.92  ⇒  cosine 0.84        score 0.85  ⇒  cosine 0.70        score 0.70  ⇒  cosine 0.40
+ *
+ * Measured, not assumed: a chrono pair with raw cosine 0.8957 came back from the search as 0.9479.
+ * Reading these as cosine makes every one of them sound ~2× stricter than it is, and picking "0.7 because
+ * the records should at least be related" would actually mean cosine 0.4 — where a great deal of loosely
+ * related text lands, which would bury the queue in noise.
+ *
+ * ── Why the DEFAULT is unchanged at 0.92 ────────────────────────────────────────────────────────────────
+ *
+ * It is tempting to loosen this on the argument that 0.92 asks "are these the same record?" rather than
+ * "do these disagree?". That argument is sound in principle, but two attempts to build a pair that
+ * genuinely contradicts and falls BELOW 0.92 both failed — they scored 0.9479 and 0.9259. Records that
+ * share a subject embed close together even when their descriptions diverge sharply, because the subject
+ * dominates the embedded text.
+ *
+ * So: no demonstrated case where a lower default changes the outcome, and therefore no default change.
+ * What was genuinely missing is the ability to TUNE it, which is now here. Shipping a behaviour change to
+ * every instance on an argument that could not be reproduced would be a worse trade than leaving the
+ * number alone and letting operators who see real misses lower it themselves.
+ */
+const DEFAULT_STRUCTURED_THRESHOLD = DEFAULT_DUPE_THRESHOLD;
+/** Pairs a REMOTE judge may be asked per run by default. Bounds egress, not time. */
+const DEFAULT_REMOTE_PAIR_BUDGET = 2000;
 // Chrono is swept alongside memories and entities: a calendar is exactly where the same thing gets logged
 // twice with conflicting states, and its `status` is a single-valued claim the structured pass can settle
 // without a model. See structured-claims.ts for why its dates are deliberately not part of that.
@@ -81,6 +112,8 @@ export interface RecordOutcomeSummary {
   found: number;
   /** True when at least one pair could not be judged because the judge itself was unavailable. */
   judgeStalled: boolean;
+  /** Pairs the judge actually answered for — what a remote endpoint's budget is spent on. */
+  judged: number;
 }
 
 /**
@@ -117,6 +150,7 @@ export async function evalRecord(
 ): Promise<RecordOutcomeSummary> {
   let found = 0;
   let judgeStalled = false;
+  let judged = 0;
   try {
     const { source, results } = await findSimilar(
       spaceId, recordId, type as RecallKnowledgeType, TOPK, [type as RecallKnowledgeType], threshold);
@@ -146,6 +180,9 @@ export async function evalRecord(
         judgeStalled = true;
         continue;   // leave the pair unsettled; the NLI cursor will not move past this record
       }
+      // Count only what the MODEL was actually asked. The structured pass reaches no endpoint, and an
+      // unavailable judge answered nothing — neither spends the budget the budget exists to bound.
+      if (pass === 'nli' && verdict.kind !== 'unjudged') judged++;
       const outcome = await recordContradiction(spaceId, type,
         { id: a.id, summary: summariseRecall(source), seq: source.seq ?? 0 },
         { id: b.id, summary: summariseRecall(match), seq: match.seq ?? 0 },
@@ -155,7 +192,7 @@ export async function evalRecord(
   } catch {
     /* no stored vector, record merged away, or search failed — skip the seed, not the sweep */
   }
-  return { found, judgeStalled };
+  return { found, judgeStalled, judged };
 }
 
 export interface ContradictionScanResult {
@@ -163,34 +200,71 @@ export interface ContradictionScanResult {
   found: number;
   /** True when the NLI pass stopped early because the judge was unavailable. Reported, not swallowed. */
   nliStalled: boolean;
+  /** Pairs the NLI judge actually answered for. The number an operator pays for on a remote endpoint. */
+  judgedPairs: number;
+  /** True when the NLI pass stopped because its per-run budget was spent. An ORDERLY stop, not a stall. */
+  budgetExhausted: boolean;
+}
+
+/**
+ * Effective knobs for a sweep.
+ *
+ * The NLI defaults key on **where the judge runs**, not on the pass alone. An MNLI encoder is one forward
+ * pass whether it is loopback or across the internet — what differs is that every remote judgement is
+ * record text leaving the instance, a cost no hardware makes cheaper. So a local sidecar gets the same wide
+ * net as the free structured pass, and a remote endpoint stays at the strict duplicate-grade threshold with
+ * a pair budget on top.
+ *
+ * NOTE: these defaults are reasoned, not measured — no NLI sidecar ships with the stack, so there was
+ * nothing to time against. They are all configurable for exactly that reason.
+ */
+export function scanTuning(cfg: ContradictionScannerConfig | undefined, judgeIsLocal: boolean): {
+  structuredThreshold: number; nliThreshold: number; maxJudgedPairs: number; batchSize: number; maxPerRun: number;
+} {
+  const clamp01 = (n: number) => Math.min(Math.max(n, 0), 1);
+  return {
+    structuredThreshold: typeof cfg?.structuredThreshold === 'number' ? clamp01(cfg.structuredThreshold) : DEFAULT_STRUCTURED_THRESHOLD,
+    nliThreshold: typeof cfg?.nliThreshold === 'number' ? clamp01(cfg.nliThreshold)
+      : (judgeIsLocal ? DEFAULT_STRUCTURED_THRESHOLD : DEFAULT_DUPE_THRESHOLD),
+    // 0 means unlimited, and that is the local default: a forward pass that leaves the box is free to run.
+    maxJudgedPairs: typeof cfg?.maxJudgedPairsPerRun === 'number' && cfg.maxJudgedPairsPerRun >= 0
+      ? cfg.maxJudgedPairsPerRun
+      : (judgeIsLocal ? 0 : DEFAULT_REMOTE_PAIR_BUDGET),
+    batchSize: Math.min(Math.max(cfg?.batchSize ?? DEFAULT_BATCH_SIZE, 1), 1000),
+    maxPerRun: Math.min(Math.max(cfg?.maxPerRun ?? DEFAULT_MAX_PER_RUN, 1), 1_000_000),
+  };
 }
 
 /** Sweep one space. Incremental per pass; `reset` re-runs both from zero. */
 export async function scanSpace(spaceId: string, opts?: { reset?: boolean }): Promise<ContradictionScanResult> {
   const cfg = getConfig();
+  const empty: ContradictionScanResult = { scanned: 0, found: 0, nliStalled: false, judgedPairs: 0, budgetExhausted: false };
   const space = cfg.spaces.find(s => s.id === spaceId);
-  if (!space || space.proxyFor) return { scanned: 0, found: 0, nliStalled: false };
-  if (!isVectorSearchAvailable() || needsReindex(spaceId)) return { scanned: 0, found: 0, nliStalled: false };
+  if (!space || space.proxyFor) return empty;
+  if (!isVectorSearchAvailable() || needsReindex(spaceId)) return empty;
 
-  const threshold = DEFAULT_DUPE_THRESHOLD;
+  const tune = scanTuning(cfg.contradictionScanner, nliIsLocal());
   let scanned = 0;
   let found = 0;
   let nliStalled = false;
+  let judgedPairs = 0;
+  let budgetExhausted = false;
 
   // The NLI pass is skipped wholesale when no model is configured — its cursor stays put, so the day one is
   // configured it starts from the beginning of what it has not seen rather than from "now".
   const passes: Pass[] = nliConfigured() ? ['structured', 'nli'] : ['structured'];
 
   for (const pass of passes) {
+    const threshold = pass === 'nli' ? tune.nliThreshold : tune.structuredThreshold;
     for (const type of DEFAULT_TYPES) {
-      if (scanned >= DEFAULT_MAX_PER_RUN) break;
+      if (scanned >= tune.maxPerRun || budgetExhausted) break;
       if (opts?.reset) await setCursor(spaceId, type, pass, 0);
       let cursor = opts?.reset ? 0 : await getCursor(spaceId, type, pass);
       const coll = `${spaceId}_${COLLECTION_SUFFIX[type]}`;
-      let stalledThisType = false;
+      let stopThisType = false;
 
-      while (scanned < DEFAULT_MAX_PER_RUN && !stalledThisType) {
-        const take = Math.min(DEFAULT_BATCH_SIZE, DEFAULT_MAX_PER_RUN - scanned);
+      while (scanned < tune.maxPerRun && !stopThisType) {
+        const take = Math.min(tune.batchSize, tune.maxPerRun - scanned);
         const batch = await col<{ _id: string; seq?: number }>(coll)
           .find(asFilter<{ _id: string; seq?: number }>({ spaceId, seq: { $gt: cursor } }), { projection: { _id: 1, seq: 1 } })
           .sort({ seq: 1 })
@@ -201,15 +275,25 @@ export async function scanSpace(spaceId: string, opts?: { reset?: boolean }): Pr
         for (const rec of batch) {
           const out = await evalRecord(spaceId, type, rec._id, pass, threshold);
           found += out.found;
+          judgedPairs += out.judged;
           scanned++;
           if (out.judgeStalled) {
             // Stop this pass HERE, without advancing past the record. The pair is not settled, so the
             // cursor must not claim it is — that is the whole point of the second cursor.
-            stalledThisType = true;
+            stopThisType = true;
             nliStalled = true;
             break;
           }
+          // The record itself IS settled, so the cursor advances before any budget check below.
           if (typeof rec.seq === 'number' && rec.seq > cursor) cursor = rec.seq;
+          // Budget spent: an ORDERLY stop. Everything judged so far is settled and the cursor has moved
+          // past it, so the next run resumes here rather than re-judging (and re-paying for) the same
+          // pairs. This is exactly why it is checked AFTER the cursor advance, unlike a stall.
+          if (pass === 'nli' && tune.maxJudgedPairs > 0 && judgedPairs >= tune.maxJudgedPairs) {
+            stopThisType = true;
+            budgetExhausted = true;
+            break;
+          }
         }
         await setCursor(spaceId, type, pass, cursor);
       }
@@ -217,7 +301,8 @@ export async function scanSpace(spaceId: string, opts?: { reset?: boolean }): Pr
   }
 
   if (nliStalled) log.warn(`Contradiction scan (${spaceId}): the NLI judge was unavailable — its cursor is parked and will resume where it stopped`);
-  return { scanned, found, nliStalled };
+  if (budgetExhausted) log.info(`Contradiction scan (${spaceId}): judged ${judgedPairs} pairs and stopped at its per-run budget; the next run resumes from there`);
+  return { scanned, found, nliStalled, judgedPairs, budgetExhausted };
 }
 
 /**
@@ -231,16 +316,22 @@ export async function scanSpace(spaceId: string, opts?: { reset?: boolean }): Pr
 export async function runContradictionScanAllSpaces(): Promise<void> {
   let scanned = 0;
   let found = 0;
+  let judgedPairs = 0;
   let stalled = false;
+  let budgetOut = false;
   for (const s of getConfig().spaces) {
     if (s.proxyFor) continue;
     try {
       const r = await scanSpace(s.id);
-      scanned += r.scanned; found += r.found; stalled ||= r.nliStalled;
+      scanned += r.scanned; found += r.found; judgedPairs += r.judgedPairs;
+      stalled ||= r.nliStalled; budgetOut ||= r.budgetExhausted;
     } catch (err) { log.warn(`Contradiction scan failed for ${s.id}: ${err instanceof Error ? err.message : String(err)}`); }
   }
-  if (scanned > 0) log.info(`Contradiction scan: scanned ${scanned}, found ${found}`);
+  if (scanned > 0) log.info(`Contradiction scan: scanned ${scanned}, judged ${judgedPairs} pairs, found ${found}`);
+  // Two different incomplete endings, logged differently on purpose: one means nothing was settled, the
+  // other means everything judged WAS settled and the next run picks up from there.
   if (stalled) log.warn('Contradiction scan: the NLI judge was unavailable — its cursor is parked and will resume where it stopped. This sweep did NOT clear the queue.');
+  if (budgetOut) log.info('Contradiction scan: stopped at the per-run judged-pair budget. What it judged is settled; the next run continues from there.');
 }
 
 // ── Scheduler (node-cron, mirrors the duplicate scanner) ─────────────────────

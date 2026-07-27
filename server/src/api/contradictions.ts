@@ -164,14 +164,18 @@ contradictionsRouter.post('/scan', globalRateLimit, requireAdminMfa, denyReadOnl
   try {
     const spaceFilter = typeof req.query['space'] === 'string' ? req.query['space'] : undefined;
     const spaces = accessibleSpaces(req.authToken?.spaces).filter(id => !spaceFilter || id === spaceFilter);
-    let scanned = 0, found = 0, nliStalled = false;
+    let scanned = 0, found = 0, nliStalled = false, judgedPairs = 0, budgetExhausted = false;
     for (const spaceId of spaces) {
       const r = await scanSpace(spaceId);
-      scanned += r.scanned; found += r.found; nliStalled = nliStalled || r.nliStalled;
+      scanned += r.scanned; found += r.found; judgedPairs += r.judgedPairs;
+      nliStalled = nliStalled || r.nliStalled;
+      budgetExhausted = budgetExhausted || r.budgetExhausted;
     }
-    // `nliStalled` is surfaced, not swallowed: a sweep that stopped because the judge was unavailable has
-    // NOT cleared the space, and the caller should be able to tell that from a genuinely clean result.
-    res.json({ scannedSpaces: spaces.length, scanned, found, nliStalled });
+    // Three different reasons the list may be incomplete, and they are NOT interchangeable:
+    //   nliStalled       the judge was unreachable — nothing was settled, the cursor is parked.
+    //   budgetExhausted  the pair budget ran out — what was judged IS settled; the next run continues.
+    // Neither may read as a clean result. `judgedPairs` is what a remote endpoint actually spent.
+    res.json({ scannedSpaces: spaces.length, scanned, found, judgedPairs, nliStalled, budgetExhausted });
   } catch (err) {
     log.error(`POST /api/contradictions/scan: ${err}`);
     res.status(500).json({ error: 'Internal error' });

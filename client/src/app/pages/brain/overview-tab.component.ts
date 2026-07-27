@@ -6,17 +6,19 @@
  * inputs (the shell preloads them for every space), and the one action, Reindex, is emitted back to the
  * shell's existing reindex flow behind a confirm.
  *
- * Panels so far: Statistics, Indexing, Embedding queue (per-space media-job counts from a small server
- * aggregation), Networks (reuses F8's `networks`/`networkStatus`) and Instance (`/api/about`). Every input
- * is preloaded by the shell, so this component still fetches nothing itself. Governance and token-access
- * panels are deliberately later slices (admin-gating / more endpoints).
+ * Panels so far: Statistics, Indexing, Embedding queue (per-space media-job counts), Governance (open
+ * votes across the space's networks), Networks (F8's `networks`/`networkStatus`) and Instance
+ * (`/api/about`). Every input is preloaded by the shell, so this component still fetches nothing itself.
+ * The token-access panel is a later slice (admin-gating).
  */
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { StatusPillComponent, StatusVariant } from '../../shared/status-pill.component';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
-import { Space, SpaceStats, AboutInfo, EmbeddingQueue } from '../../core/api.types';
+import { DatePipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound } from '../../core/api.types';
 
 interface StatCard { key: string; icon: string; label: string; value: number }
 
@@ -24,7 +26,7 @@ interface StatCard { key: string; icon: string; label: string; value: number }
   selector: 'app-overview-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [TranslocoPipe, PhIconComponent, StatusPillComponent],
+  imports: [TranslocoPipe, PhIconComponent, StatusPillComponent, RouterLink, DatePipe],
   styles: [`
     :host { display: block; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
@@ -77,6 +79,14 @@ interface StatCard { key: string; icon: string; label: string; value: number }
     .fail-list li { display: flex; flex-direction: column; gap: 1px; font-size: 11.5px; border-top: 1px solid var(--border-muted); padding-top: 6px; }
     .fail-list .fp { font-family: var(--font-mono, monospace); color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .fail-list .fe { color: var(--error); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .vote-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+    .vote-list li { border: 1px solid var(--border-muted); border-radius: 8px; padding: 9px 11px; background: var(--bg-elevated); }
+    .vote-top { display: flex; align-items: baseline; gap: 8px; }
+    .vote-top .vs { flex: 1; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .vote-top .vt { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono, monospace); }
+    .vote-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 4px; font-size: 11.5px; color: var(--text-secondary); flex-wrap: wrap; }
+    .vote-meta .tally { font-variant-numeric: tabular-nums; }
   `],
   template: `
     <div class="grid">
@@ -178,6 +188,33 @@ interface StatCard { key: string; icon: string; label: string; value: number }
         </section>
       }
 
+      <!-- ── Governance (open votes) ────────────────────────────────── -->
+      @if (openVotes().length) {
+        <section class="panel">
+          <header class="panel-h">
+            <span class="ic"><ph-icon name="broadcast" [size]="16"/></span>
+            <div><h3>{{ 'brain.overview.govTitle' | transloco }}</h3>
+              <p>{{ 'brain.overview.govHint' | transloco }}</p></div>
+          </header>
+          <div class="panel-b">
+            <ul class="vote-list">
+              @for (v of openVotes(); track v.id) {
+                <li>
+                  <div class="vote-top"><span class="vs" [title]="v.subject">{{ v.subject }}</span><span class="vt">{{ v.type }}</span></div>
+                  <div class="vote-meta">
+                    <span>{{ 'brain.overview.gov.deadline' | transloco }}: {{ v.deadline | date:'dd.MM.yyyy HH:mm' }}</span>
+                    <span class="tally">{{ tallyYes(v) }} {{ 'brain.overview.gov.yes' | transloco }} · {{ tallyVeto(v) }} {{ 'brain.overview.gov.veto' | transloco }}</span>
+                  </div>
+                </li>
+              }
+            </ul>
+            <a class="btn btn-sm btn-secondary" routerLink="/settings/networks" style="margin-top:12px; display:inline-flex; align-items:center; gap:5px;">
+              <ph-icon name="broadcast" [size]="14"/> {{ 'brain.overview.gov.review' | transloco }}
+            </a>
+          </div>
+        </section>
+      }
+
       <!-- ── Networks ───────────────────────────────────────────────── -->
       <section class="panel">
         <header class="panel-h">
@@ -233,6 +270,8 @@ export class OverviewTabComponent {
   about = input<AboutInfo | null>(null);
   /** Embedding-job backlog for this space (from the shell) — null until it lands. */
   embeddingQueue = input<EmbeddingQueue | null>(null);
+  /** Open governance votes across this space's networks (from the shell). */
+  openVotes = input<VoteRound[]>([]);
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
   reindex = output<void>();
 
@@ -281,6 +320,10 @@ export class OverviewTabComponent {
       default: return 'ok';         // idle = connected and healthy
     }
   }
+
+  /** Running vote tallies for the Governance panel. */
+  tallyYes(v: VoteRound): number { return v.votes.filter(x => x.vote === 'yes').length; }
+  tallyVeto(v: VoteRound): number { return v.votes.filter(x => x.vote === 'veto').length; }
 
   /** Space.indexStatus is optional (proxy/legacy spaces have none) → 'none'. */
   indexState(): 'ready' | 'building' | 'failed' | 'none' {

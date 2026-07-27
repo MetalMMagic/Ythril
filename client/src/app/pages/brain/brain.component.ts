@@ -12,10 +12,13 @@ import { EdgesTabComponent } from './edges-tab.component';
 import { ChronoTabComponent } from './chrono-tab.component';
 import { OverviewTabComponent } from './overview-tab.component';
 import { FormsModule } from '@angular/forms';
-import { Space, SpaceStats, AboutInfo, EmbeddingQueue } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { AdminApi } from '../../core/admin-api.service';
+import { NetworksApi } from '../../core/networks-api.service';
+import { forkJoin, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
 import { GraphComponent } from '../graph/graph.component';
 import { FileManagerComponent } from '../files/file-manager.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
@@ -272,7 +275,8 @@ interface SpaceView {
         @if (activeTab() === 'overview') {
           @if (activeSpace(); as sp) {
             <app-overview-tab [space]="sp" [stats]="activeStats()" [needsReindex]="needsReindex()"
-              [reindexing]="reindexing()" [about]="aboutInfo()" [embeddingQueue]="embeddingQueue()" (reindex)="runReindex()" />
+              [reindexing]="reindexing()" [about]="aboutInfo()" [embeddingQueue]="embeddingQueue()"
+              [openVotes]="overviewVotes()" (reindex)="runReindex()" />
           }
         }
         @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }
@@ -291,6 +295,7 @@ export class BrainComponent implements OnInit, OnDestroy {
   private spacesApi = inject(SpacesApi);
   private brainApi = inject(BrainApi);
   private adminApi = inject(AdminApi);
+  private networksApi = inject(NetworksApi);
   private transloco = inject(TranslocoService);
 
   // File Meta merged into the Files tab (rendered separately, after these, in the same group).
@@ -311,6 +316,8 @@ export class BrainComponent implements OnInit, OnDestroy {
   aboutInfo = signal<AboutInfo | null>(null);
   /** Embedding-job backlog for the ACTIVE space (Overview embedding-queue panel); refreshed on space switch + live events. */
   embeddingQueue = signal<EmbeddingQueue | null>(null);
+  /** Open governance votes across the ACTIVE space's networks (Overview Governance panel). */
+  overviewVotes = signal<VoteRound[]>([]);
 
   // Reindex
   needsReindex = signal(false);
@@ -445,15 +452,34 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.recordList.confirmDeleteId.set('');
     this.reindexResult.set('');
     this.embeddingQueue.set(null);
+    this.overviewVotes.set([]);
     this.loadStats(id);
     this.loadSpaceMeta(id);
     this.loadEmbeddingQueue(id);
+    this.loadOverviewVotes(id);
   }
 
   /** Fetch the embedding-job backlog for a space; only stores it while that space is still active. */
   private loadEmbeddingQueue(spaceId: string): void {
     this.brainApi.getEmbeddingQueue(spaceId).subscribe({
       next: q => { if (this.activeSpaceId() === spaceId) this.embeddingQueue.set(q); },
+      error: () => {},
+    });
+  }
+
+  /** Fetch OPEN governance votes across the space's networks (Overview Governance panel). One listVotes
+   *  per network the space belongs to; only stores the result while that space is still active. */
+  private loadOverviewVotes(spaceId: string): void {
+    const nets = this.spaces().find(sv => sv.space.id === spaceId)?.space.networks ?? [];
+    if (nets.length === 0) { this.overviewVotes.set([]); return; }
+    forkJoin(nets.map(n => this.networksApi.listVotes(n.id).pipe(
+      catchError(() => of({ rounds: [] as VoteRound[] })), // one unreachable network must not hide the rest
+    ))).subscribe({
+      next: results => {
+        if (this.activeSpaceId() !== spaceId) return;
+        const open = results.flatMap(r => r.rounds).filter(v => v.status === 'open');
+        this.overviewVotes.set(open);
+      },
       error: () => {},
     });
   }

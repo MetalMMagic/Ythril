@@ -57,6 +57,12 @@ export async function startConfiguredInstanceServices(): Promise<void> {
   startBackupScheduler();
   const { startDupeScanner } = await import('./brain/dupe-scanner.js');
   startDupeScanner();
+  // Its own scheduler, not a rider on the dupe sweep: the contradiction pass may call an NLI model per
+  // pair, so it has to be opted into separately. Without this the sweep only ever ran when an admin hit
+  // POST /api/contradictions/scan by hand, which left the Review tab's Contradictions view permanently
+  // empty on any instance nobody had poked manually.
+  const { startContradictionScanner } = await import('./brain/contradiction-scanner.js');
+  startContradictionScanner();
   const { startTtlSweep } = await import('./brain/ttl-sweep.js');
   startTtlSweep();
 

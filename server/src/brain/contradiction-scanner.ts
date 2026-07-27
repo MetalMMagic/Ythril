@@ -29,6 +29,7 @@
  * same answer — so the NLI cursor moves past it. That is the whole reason `Verdict` distinguishes
  * `low-confidence` from `judge-unavailable`.
  */
+import { schedule, validate, type ScheduledTask } from 'node-cron';
 import { col, asFilter, asUpdate, isVectorSearchAvailable } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { needsReindex } from '../spaces/_shared.js';
@@ -219,11 +220,55 @@ export async function scanSpace(spaceId: string, opts?: { reset?: boolean }): Pr
   return { scanned, found, nliStalled };
 }
 
-/** Scan every real (non-proxy) space once, incrementally. */
+/**
+ * Scan every real (non-proxy) space once, incrementally.
+ *
+ * Reports what it did rather than running silently: a sweep that parked because the judge was unreachable
+ * has NOT cleared anything, and that has to be distinguishable in the logs from a sweep that found nothing.
+ * The whole two-cursor design exists to stop an outage looking like a clean queue; swallowing it here would
+ * put the blind spot straight back.
+ */
 export async function runContradictionScanAllSpaces(): Promise<void> {
+  let scanned = 0;
+  let found = 0;
+  let stalled = false;
   for (const s of getConfig().spaces) {
     if (s.proxyFor) continue;
-    try { await scanSpace(s.id); }
-    catch (err) { log.warn(`Contradiction scan failed for ${s.id}: ${err instanceof Error ? err.message : String(err)}`); }
+    try {
+      const r = await scanSpace(s.id);
+      scanned += r.scanned; found += r.found; stalled ||= r.nliStalled;
+    } catch (err) { log.warn(`Contradiction scan failed for ${s.id}: ${err instanceof Error ? err.message : String(err)}`); }
   }
+  if (scanned > 0) log.info(`Contradiction scan: scanned ${scanned}, found ${found}`);
+  if (stalled) log.warn('Contradiction scan: the NLI judge was unavailable — its cursor is parked and will resume where it stopped. This sweep did NOT clear the queue.');
+}
+
+// ── Scheduler (node-cron, mirrors the duplicate scanner) ─────────────────────
+//
+// Off by default and deliberately its own switch: the NLI pass is a model call per candidate pair and,
+// with an external endpoint, egresses record text. Enabling duplicate detection must not silently start
+// paying for inference. The default time sits half an hour after the dupe sweep so the two do not contend
+// for the same vector-search capacity on a small instance.
+
+const DEFAULT_SCHEDULE = '30 3 * * *';
+let _task: ScheduledTask | null = null;
+
+export function startContradictionScanner(): void {
+  stopContradictionScanner();
+  const cs = getConfig().contradictionScanner;
+  if (!cs?.enabled) return;
+  const cron = cs.schedule ?? DEFAULT_SCHEDULE;
+  if (!validate(cron)) {
+    log.warn(`Invalid contradictionScanner.schedule '${cron}' — contradiction scanner not started`);
+    return;
+  }
+  _task = schedule(cron, () => {
+    runContradictionScanAllSpaces().catch(err => log.error(`Scheduled contradiction scan error: ${err}`));
+  });
+  log.info(`Contradiction scanner scheduled (${cron})`);
+}
+
+export function stopContradictionScanner(): void {
+  _task?.stop();
+  _task = null;
 }

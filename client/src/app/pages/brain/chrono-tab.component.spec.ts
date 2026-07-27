@@ -47,6 +47,32 @@ describe('ChronoTabComponent', () => {
     expect(ChronoTabComponent.ɵcmp?.onPush).toBe(true);
   });
 
+  // The CLIENT half of sortable-column coverage. `brain-list-sort-unit.test.js` pins the server whitelist
+  // and says outright that each column "needs BOTH the whitelist entry (or the route 400s) and a client
+  // header" — but nothing pinned the header half, so a field could be sortable server-side and simply never
+  // offered. `createdAt` was in exactly that state: allowed by the API, with no column on this tab at all,
+  // while entities, edges and memories all showed one.
+  it('offers every column the server can sort chrono by', () => {
+    const fixture = make();
+    const fields = [...(fixture.nativeElement as HTMLElement).querySelectorAll('th[app-sort-th]')]
+      .map(th => th.getAttribute('field'))
+      .filter((f): f is string => !!f);
+    // Mirrors SORTABLE_FIELDS.chrono in server/src/brain/list-sort.ts.
+    expect(fields.sort()).toEqual(['createdAt', 'endsAt', 'startsAt', 'status', 'title', 'type']);
+  });
+
+  it('renders the created date in the row, not just a sortable header', () => {
+    // A header with no cell sorts by a value the reader cannot see, so they have no way to tell what the
+    // order means. The default list mock returns no rows, so seed one for this.
+    api.listChrono.mockReturnValueOnce(of({ chrono: [{
+      _id: 'c1', spaceId: 'work', title: 'Q3 review', type: 'event', status: 'upcoming',
+      startsAt: '2026-08-01T09:00:00Z', createdAt: '2026-01-15T10:00:00Z', updatedAt: '2026-01-15T10:00:00Z',
+      tags: [], entityIds: [], memoryIds: [],
+    }] as unknown as ChronoEntry[] }));
+    const fixture = make();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('15.01.2026');
+  });
+
   it('self-loads on the spaceId input', () => {
     make();
     expect(api.listChrono).toHaveBeenCalledWith('work', 20, 0, {}, undefined);

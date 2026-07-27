@@ -95,11 +95,14 @@ describe('contradiction judge', () => {
       assert.equal(v.reason, 'judge-unavailable');
     });
 
-    it('a low-confidence verdict → unjudged, not a reported contradiction', async () => {
+    it('a low-confidence verdict → unjudged, and reported as ANSWERED-WEAKLY not unavailable', async () => {
       configureNli(true);
       stubNli({ label: 'contradiction', score: 0.31 });
       const v = await judgePair(rec('a', 'x is true'), rec('b', 'x is false'));
       assert.equal(v.kind, 'unjudged', 'noise in a review queue is what makes people stop reading it');
+      // The distinction the scanner's cursor turns on: a weak answer is still an answer, so the scan may
+      // move past this pair. An unreachable judge is not, and must not settle it.
+      assert.equal(v.reason, 'low-confidence');
     });
 
     it('empty text on either side → unjudged (nothing for an entailment model to read)', async () => {

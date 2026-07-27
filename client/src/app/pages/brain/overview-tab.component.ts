@@ -29,16 +29,44 @@ interface StatCard { key: string; icon: string; label: string; value: number }
   imports: [TranslocoPipe, PhIconComponent, StatusPillComponent, RouterLink, DatePipe],
   styles: [`
     :host { display: block; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
-    .panel { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-    .panel-h { display: flex; align-items: center; gap: 9px; padding: 13px 16px; border-bottom: 1px solid var(--border-muted); }
+
+    /* Deterministic column count instead of auto-fit: auto-fit re-flowed at every viewport width and
+       regularly orphaned a card on a row of its own, which is what made the board look arbitrary.
+       Cards STRETCH to their row height (no align-items:start), so every card in a row ends level. */
+    .grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 820px)  { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (min-width: 1280px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+    /* The summary spans the full row — it is the heaviest card (six tiles + the storage bar) and
+       reads as the page's headline rather than one tile among equals. */
+    .panel.span-all { grid-column: 1 / -1; }
+
+    /* A card is a column: header, then a body that FILLS the stretched height. Without the filling
+       body a short card's content floats against a tall border box. */
+    .panel { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+      display: flex; flex-direction: column; }
+    .panel-h { display: flex; align-items: center; gap: 9px; padding: 13px 16px;
+      border-bottom: 1px solid var(--border-muted); }
     .panel-h .ic { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; flex: none;
       background: var(--bg-elevated); border: 1px solid var(--border); color: var(--accent); }
     .panel-h h3 { margin: 0; font-size: 14px; font-weight: 620; }
-    .panel-h p { margin: 1px 0 0; font-size: 12px; color: var(--text-secondary); }
-    .panel-b { padding: 14px 16px; }
+    /* Every hint RESERVES two lines and clamps to two, so a card whose hint wraps and one whose hint
+       fits on a single line still put their divider rule at the same height. Reserving (rather than
+       truncating to one line) keeps the full hint readable — the alignment costs a little whitespace,
+       not information. em-based, so it survives a font-size change; no magic total-height number. */
+    .panel-h p { margin: 1px 0 0; font-size: 12px; color: var(--text-secondary); line-height: 1.35;
+      min-height: calc(2 * 1.35em);
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .panel-b { padding: 14px 16px; flex: 1; }
 
-    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 10px; }
+    /* Default tile grid: the embedding-queue card's three counters, in a normal-width card. NOTE the
+       breakpoints below are VIEWPORT-based, so they must not be allowed to reach this card — six
+       columns inside a one-third-width card squeezes the labels to nothing. Hence the .span-all scope. */
+    .stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    /* The summary's six tiles (five collections + total) across the full-width card. */
+    .span-all .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    @media (min-width: 560px)  { .span-all .stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+    @media (min-width: 1000px) { .span-all .stat-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
     .stat { background: var(--bg-elevated); border: 1px solid var(--border-muted); border-radius: 8px; padding: 11px 12px; }
     .stat .v { font-size: 22px; font-weight: 700; font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; line-height: 1.1; }
     .stat .l { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 11.5px; color: var(--text-secondary); }
@@ -93,13 +121,17 @@ interface StatCard { key: string; icon: string; label: string; value: number }
     .tok-list .tx { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
     .lvl { font-size: 10.5px; font-weight: 620; padding: 1px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; flex: none; }
     .lvl.admin { background: color-mix(in srgb, var(--error) 16%, transparent); color: var(--error); }
+
+    /* Rows are as tall as their tallest card, so an unbounded list (many tokens, many peers) used to
+       stretch every sibling with it. Cap the lists and let the long ones scroll in place. */
+    .net-list, .vote-list, .tok-list, .fail-list { max-height: 216px; overflow-y: auto; }
     .lvl.full { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
     .lvl.readOnly { background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-secondary); }
   `],
   template: `
     <div class="grid">
-      <!-- ── Statistics ─────────────────────────────────────────────── -->
-      <section class="panel">
+      <!-- ── Statistics (full-width summary strip) ──────────────────── -->
+      <section class="panel span-all">
         <header class="panel-h">
           <span class="ic"><ph-icon name="chart-bar" [size]="16"/></span>
           <div><h3>{{ 'brain.overview.statsTitle' | transloco }}</h3>

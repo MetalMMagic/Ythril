@@ -84,6 +84,21 @@ describe('File upload & download', () => {
     assert.equal(r.body.embeddingStatus, 'pending', 'Text document uploads must return embeddingStatus=pending');
   });
 
+  it('GET embedding-queue returns per-space job counts by status (F9 Overview panel)', async () => {
+    // Seed a job by uploading a document, then read the queue summary.
+    await uploadFile(tokenA, 'general', 'queue-probe.txt', 'embedding queue probe');
+    const r = await get(INSTANCES.a, tokenA, '/api/brain/spaces/general/embedding-queue');
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    // Shape (not exact counts — a job races through pending→processing→complete): the four status
+    // counts are non-negative integers, failedSample is an array, and at least one job now exists.
+    for (const k of ['pending', 'processing', 'complete', 'failed']) {
+      assert.equal(typeof r.body[k], 'number', `${k} must be a number`);
+      assert.ok(r.body[k] >= 0, `${k} must be >= 0`);
+    }
+    assert.ok(Array.isArray(r.body.failedSample), 'failedSample must be an array');
+    assert.ok(r.body.pending + r.body.processing + r.body.complete + r.body.failed >= 1, 'the uploaded doc should have created a job');
+  });
+
   it('Download uploaded file returns correct bytes', async () => {
     await uploadFile(tokenA, 'general', 'test-download.txt', 'download me');
     const r = await downloadFile(tokenA, 'general', 'test-download.txt');

@@ -6,17 +6,17 @@
  * inputs (the shell preloads them for every space), and the one action, Reindex, is emitted back to the
  * shell's existing reindex flow behind a confirm.
  *
- * Panels so far: Statistics, Indexing, Networks (reuses F8's per-space `networks`/`networkStatus`) and
- * Instance (identity + core health from `/api/about`, preloaded by the shell and passed in as `about` —
- * so this component still fetches nothing itself). Embedding-queue, governance and token-access panels are
- * deliberately later slices (they carry admin-gating or need new aggregation endpoints).
+ * Panels so far: Statistics, Indexing, Embedding queue (per-space media-job counts from a small server
+ * aggregation), Networks (reuses F8's `networks`/`networkStatus`) and Instance (`/api/about`). Every input
+ * is preloaded by the shell, so this component still fetches nothing itself. Governance and token-access
+ * panels are deliberately later slices (admin-gating / more endpoints).
  */
 import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { StatusPillComponent, StatusVariant } from '../../shared/status-pill.component';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
-import { Space, SpaceStats, AboutInfo } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue } from '../../core/api.types';
 
 interface StatCard { key: string; icon: string; label: string; value: number }
 
@@ -70,6 +70,13 @@ interface StatCard { key: string; icon: string; label: string; value: number }
     .kv dt { color: var(--text-secondary); white-space: nowrap; }
     .kv dd { margin: 0; color: var(--text-primary); text-align: right; }
     .kv dd.mono { font-family: var(--font-mono, monospace); font-size: 11px; word-break: break-all; }
+
+    .stat.err-stat { border-color: color-mix(in srgb, var(--error) 45%, transparent); background: color-mix(in srgb, var(--error) 10%, var(--bg-elevated)); }
+    .stat.err-stat .v { color: var(--error); }
+    .fail-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+    .fail-list li { display: flex; flex-direction: column; gap: 1px; font-size: 11.5px; border-top: 1px solid var(--border-muted); padding-top: 6px; }
+    .fail-list .fp { font-family: var(--font-mono, monospace); color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fail-list .fe { color: var(--error); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   `],
   template: `
     <div class="grid">
@@ -143,6 +150,34 @@ interface StatCard { key: string; icon: string; label: string; value: number }
         </div>
       </section>
 
+      <!-- ── Embedding queue ────────────────────────────────────────── -->
+      @if (embeddingQueue(); as q) {
+        <section class="panel">
+          <header class="panel-h">
+            <span class="ic"><ph-icon name="stack" [size]="16"/></span>
+            <div><h3>{{ 'brain.overview.queueTitle' | transloco }}</h3>
+              <p>{{ 'brain.overview.queueHint' | transloco }}</p></div>
+          </header>
+          <div class="panel-b">
+            <div class="stat-grid">
+              <div class="stat"><div class="v">{{ q.pending }}</div><div class="l">{{ 'brain.overview.queue.pending' | transloco }}</div></div>
+              <div class="stat"><div class="v">{{ q.processing }}</div><div class="l">{{ 'brain.overview.queue.processing' | transloco }}</div></div>
+              <div class="stat" [class.err-stat]="q.failed > 0"><div class="v">{{ q.failed }}</div><div class="l">{{ 'brain.overview.queue.failed' | transloco }}</div></div>
+            </div>
+            @if (q.failed === 0 && q.pending === 0 && q.processing === 0) {
+              <div class="muted" style="margin-top:12px;">{{ 'brain.overview.queue.idle' | transloco }}</div>
+            }
+            @if (q.failedSample.length) {
+              <ul class="fail-list">
+                @for (f of q.failedSample; track f.path) {
+                  <li><span class="fp" [title]="f.path">{{ f.path }}</span><span class="fe" [title]="f.lastError">{{ f.lastError || ('brain.overview.queue.unknownError' | transloco) }}</span></li>
+                }
+              </ul>
+            }
+          </div>
+        </section>
+      }
+
       <!-- ── Networks ───────────────────────────────────────────────── -->
       <section class="panel">
         <header class="panel-h">
@@ -196,6 +231,8 @@ export class OverviewTabComponent {
   needsReindex = input(false);
   /** Instance identity/health (from /api/about), preloaded by the shell — null until it lands. */
   about = input<AboutInfo | null>(null);
+  /** Embedding-job backlog for this space (from the shell) — null until it lands. */
+  embeddingQueue = input<EmbeddingQueue | null>(null);
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
   reindex = output<void>();
 

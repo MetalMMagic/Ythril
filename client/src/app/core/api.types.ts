@@ -206,6 +206,15 @@ export interface ChronoEntry {
   seq: number;
 }
 
+/** Embedding-job backlog for a space (F9 Overview embedding-queue panel). */
+export interface EmbeddingQueue {
+  pending: number;
+  processing: number;
+  complete: number;
+  failed: number;
+  failedSample: { path: string; lastError: string | null }[];
+}
+
 export interface SpaceStats {
   spaceId: string;
   memories: number;

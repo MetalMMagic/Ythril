@@ -838,6 +838,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Brain Overview gains an Embedding-queue panel.** Shows this space's background embedding backlog —
+  **pending / processing / failed** job counts, and for failed jobs the file path + error reason — so a stuck
+  upload or a downed model is visible at a glance instead of buried per-file. Backed by a small server
+  aggregation (`GET /api/brain/spaces/:id/embedding-queue`) the shell preloads and refreshes on live events;
+  the counts sum across member spaces for a proxy space.
+
 - **The Brain Overview gains an Instance panel.** Shows this instance's label, version, instance ID, uptime,
   and MongoDB version (a live-Mongo signal) — instance identity/health at a glance on the landing dashboard.
   The shell fetches `/api/about` once and passes it in, so the Overview component itself still fetches nothing.

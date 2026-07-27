@@ -38,6 +38,40 @@ function fileCollection(spaceId: string) {
   return col<FileMetaDoc>(`${spaceId}_files`);
 }
 
+// ── Queue summary (F9 Overview embedding-queue panel) ────────────────────────
+
+export interface MediaJobCounts {
+  pending: number;
+  processing: number;
+  complete: number;
+  failed: number;
+  /** Up to a few failed jobs (file path + reason) for the panel to surface, not the whole failed set. */
+  failedSample: Array<{ path: string; lastError: string | null }>;
+}
+
+/**
+ * Count this space's embedding jobs by status, plus a small sample of failed ones (path + reason).
+ * One aggregation over `${spaceId}_media_jobs`; a missing collection aggregates to all-zero. Per single
+ * space — callers sum across members for a proxy space.
+ */
+export async function getMediaJobCounts(spaceId: string): Promise<MediaJobCounts> {
+  const rows = await jobCollection(spaceId)
+    .aggregate([{ $group: { _id: '$status', n: { $sum: 1 } } }])
+    .toArray() as Array<{ _id: string; n: number }>;
+  const c: MediaJobCounts = { pending: 0, processing: 0, complete: 0, failed: 0, failedSample: [] };
+  for (const r of rows) {
+    if (r._id === 'pending' || r._id === 'processing' || r._id === 'complete' || r._id === 'failed') c[r._id] = r.n;
+  }
+  if (c.failed > 0) {
+    const failed = await jobCollection(spaceId)
+      .find(asFilter<MediaJobDoc>({ status: 'failed' }), { projection: { _id: 1, lastError: 1 } })
+      .limit(5)
+      .toArray() as Array<{ _id: string; lastError: string | null }>;
+    c.failedSample = failed.map(d => ({ path: d._id, lastError: d.lastError ?? null }));
+  }
+  return c;
+}
+
 // ── Enqueue ────────────────────────────────────────────────────────────────
 
 /**

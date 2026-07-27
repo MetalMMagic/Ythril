@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
   Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus,
-  QueryCollection, QueryResult, RecallKnowledgeType, RecallResponse, TraverseResult,
+  QueryCollection, QueryResult, RecallKnowledgeType, RecallResponse, TraverseResult, EmbeddingQueue,
 } from './api.types';
 
 /**
@@ -44,6 +44,11 @@ export class BrainApi {
     },
   ): Observable<QueryResult> {
     return this.http.post<QueryResult>(`/api/brain/spaces/${spaceId}/query`, body);
+  }
+
+  /** Embedding-job backlog for a space (F9 Overview embedding-queue panel). */
+  getEmbeddingQueue(spaceId: string): Observable<EmbeddingQueue> {
+    return this.http.get<EmbeddingQueue>(`/api/brain/spaces/${spaceId}/embedding-queue`);
   }
 
   recallBrain(

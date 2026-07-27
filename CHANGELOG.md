@@ -2403,6 +2403,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Markdown previews now render `mermaid` diagrams.** A ` ```mermaid ` fenced block in a previewed
+  Markdown file is rendered as a diagram. mermaid is heavy, so it's **lazy-loaded** — only fetched when a
+  diagram is actually present, and it stays out of the initial bundle. It runs in `strict` mode with
+  SVG-native labels (no `foreignObject`), and the output is sanitized with DOMPurify before display; an
+  invalid diagram falls back to showing its source instead of breaking the preview. (An `.xlsx` table
+  preview is the remaining piece.)
+
 - **The Files preview now renders Markdown formatted and can go full-screen.** `.md` / `.markdown` files
   render as formatted Markdown (headings, lists, links, code blocks, tables) instead of highlighted source,
   and the preview gains a **full-screen** button that expands it to a full-window overlay (Escape or the close

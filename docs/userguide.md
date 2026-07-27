@@ -283,7 +283,7 @@ Clicking a file opens a **docked detail pane** to the right of the list (the lis
 
   | Type | How it renders |
   |------|---------------|
-  | Markdown (.md, .markdown) | **Formatted** — headings, lists, links, code blocks, tables |
+  | Markdown (.md, .markdown) | **Formatted** — headings, lists, links, code blocks, tables, and `mermaid` diagrams |
   | Text, code, JSON, YAML… | Syntax-highlighted source |
   | Images (.png, .jpg, .gif, .webp, .svg…) | Inline image |
   | PDF | Embedded viewer |
@@ -295,7 +295,7 @@ Clicking a file opens a **docked detail pane** to the right of the list (the lis
 
 Press **Escape** or the close button to dismiss the pane. Use arrow keys to move to the previous or next file in the directory.
 
-> Mermaid diagram rendering and an .xlsx table preview are coming in a later update.
+> An .xlsx table preview is coming in a later update.
 
 ---
 

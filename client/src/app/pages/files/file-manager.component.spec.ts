@@ -128,6 +128,18 @@ describe('FileManagerComponent (OnPush)', () => {
     expect(fixture.nativeElement.querySelector('.preview-code')).toBeNull();
   });
 
+  it('sanitizes rendered markdown — scripts/handlers are stripped before the trusted bind', async () => {
+    // The markdown HTML is bound with bypassSecurityTrustHtml (it may carry inlined mermaid SVG), so the
+    // component must sanitize it itself. This pins that a <script> and an inline handler don't survive.
+    const fixture = create([fileEntry('x.md')]);
+    const html = await (fixture.componentInstance as unknown as {
+      renderMarkdown(t: string): Promise<string>;
+    }).renderMarkdown('# Title\n\n<img src=x onerror="alert(1)">\n\n<script>alert(2)</script>\n');
+    expect(html).toContain('<h1'); // prose still renders
+    expect(html.toLowerCase()).not.toContain('onerror');
+    expect(html.toLowerCase()).not.toContain('<script');
+  });
+
   it('toggles the full-screen preview overlay; Escape collapses it before closing the pane', () => {
     const fixture = create([fileEntry('doc.md')]);
     fixture.componentInstance.previewFile.set(fileEntry('doc.md'));

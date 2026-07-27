@@ -119,10 +119,15 @@ export function mediaIsOff(spaceId: string, mediaType: 'image' | 'audio' | 'vide
 /**
  * Whether faces may be detected/embedded for this space.
  *
- * Two gates, and both must allow it: the instance-wide `faceRecognition.enabled` (which infra can pin),
- * and the space being at the `recognition` rung. A space on `caption` gets described images and no face
- * data — which is the whole point of giving images their own ladder, since face embeddings are the
- * part of this pipeline with real privacy weight.
+ * The ladder is the gate: a space must sit at the `recognition` rung (or `auto`, which resolves to it)
+ * under an instance ceiling that permits it. A space on `caption` gets described images and no face
+ * data — the whole point of giving images their own ladder, since face embeddings are the part of this
+ * pipeline with real privacy weight. That is also why images DEFAULT to `caption`: a biometric store
+ * should be something an operator opts into, never something an install hands them.
+ *
+ * There is one more gate, and it is deliberately NOT here: `faceRecognition.enabled`, the infra/env pin
+ * (`FACE_RECOGNITION_ENABLED=false`), is checked by the caller in `image-embedder.ts` so infrastructure
+ * can hard-disable the feature regardless of any ladder. This function answers the policy question only.
  */
 export function faceRecognitionAllowed(spaceId: string): boolean {
   const level = effectiveImageLevel(spaceId);

@@ -32,6 +32,7 @@ import { isSsrfSafeUrl } from '../util/ssrf.js';
 import { allowPrivateModelEndpoints } from '../config/model-egress-policy.js';
 import { probeModelEndpoint } from './media-config.js';
 import { getDb } from '../db/mongo.js';
+import { faceRecognitionAllowed } from '../files/converters/media-level.js';
 import { VECTOR_INDEXED_COLLECTIONS } from '../spaces/vector-index.js';
 import { log } from '../util/log.js';
 
@@ -275,7 +276,10 @@ async function indexStatus(): Promise<{ spaces: SpaceIndexStatus[]; unavailable?
   let spaces;
   try { spaces = getConfig().spaces; } catch { return { spaces: [], unavailable: 'configuration is not loaded' }; }
 
-  const faceEnabled = getFaceRecognitionConfig().enabled;
+  // Face recognition is gated per space by the image ladder (its `recognition` rung) under the instance
+  // ceiling, with `enabled` surviving only as the infra pin — so whether a space should HAVE a face index
+  // is a per-space question now, not one instance-wide flag.
+  const faceInfraPin = getFaceRecognitionConfig().enabled;
   const db = (() => { try { return getDb(); } catch { return null; } })();
   if (!db) return { spaces: [], unavailable: 'database is not connected' };
 
@@ -287,7 +291,9 @@ async function indexStatus(): Promise<{ spaces: SpaceIndexStatus[]; unavailable?
       const expected: Array<{ collection: string; indexName: string }> = VECTOR_INDEXED_COLLECTIONS.map(suffix => ({
         collection: suffix, indexName: `${space.id}_${suffix}_embedding`,
       }));
-      if (faceEnabled) expected.push({ collection: 'files', indexName: `${space.id}_files_faceEmbedding` });
+      if (faceInfraPin && faceRecognitionAllowed(space.id)) {
+        expected.push({ collection: 'files', indexName: `${space.id}_files_faceEmbedding` });
+      }
 
       const collections: CollectionIndexStatus[] = [];
       let listingFailed = false;
@@ -329,7 +335,13 @@ async function collect(): Promise<PipelineStatus> {
     index,
     // Face recognition runs in-process (BlazeFace + FaceRes), so there is no endpoint to probe —
     // enabled or not is the whole of its health.
-    faceRecognition: { state: face.enabled ? 'ok' : 'off' },
+    // 'ok' only when the infra pin allows it AND at least one space actually sits at the recognition rung
+    // — reporting 'ok' off a flag no operator can see any more would be a health light for nothing.
+    faceRecognition: {
+      state: face.enabled && (() => {
+        try { return getConfig().spaces.some(s => faceRecognitionAllowed(s.id)); } catch { return false; }
+      })() ? 'ok' : 'off',
+    },
   };
 }
 

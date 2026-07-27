@@ -2186,10 +2186,13 @@ ceiling under `mediaEmbedding.levels`:
 
 Remember what a ceiling does before lowering one: it caps every space already above it (those spaces keep their stored choice and return to it if you raise the ceiling again), and `off` is a floor as well as a ceiling — the class is not processed anywhere, whatever a space asked for.
 
-`recognition` is the rung that permits **face detection and embedding**, and it is gated twice: the
-instance-wide `mediaEmbedding.faceRecognition.enabled` must allow it *and* the space must be at
-`recognition`. A space on `caption` gets described images and no face data — which is the reason
-images have their own ladder rather than riding on the master media switch.
+`recognition` is the rung that permits **face detection and embedding**, and it is the gate: the space
+must be at `recognition` (or `auto`) under an instance ceiling that permits it. A space on `caption` gets
+described images and no face data — the reason images have their own ladder rather than riding on the
+master media switch. **Images default to `caption`, not `auto`**: `auto` resolves to `recognition`, and a
+biometric store should be opted into rather than inherited from a default. `mediaEmbedding.faceRecognition.enabled`
+is no longer a user setting — it survives only as an infra pin (`FACE_RECOGNITION_ENABLED=false`) that
+hard-disables faces regardless of any ladder, and it is not accepted by `PATCH /api/admin/media-config`.
 
 `textAnalysis` decides what happens to text AFTER a document is read, which is a separate question
 from how it was read (`documentExtraction`). `chunk` stores a vector per section, so a recall can
@@ -2211,7 +2214,7 @@ They are never queued, so they do not sit at `pending` waiting for work that wil
 |---|---|---|
 | `strategy` | `"hi_res"` | Unstructured partition strategy. `"hi_res"`: full Tesseract OCR + layout detection — accurate on scanned PDFs, extracts embedded images and structured tables. `"auto"`: sidecar picks the fastest viable strategy. `"fast"`: pdfminer text-layer only — fastest but no OCR, no image extraction. `"ocr_only"`: force OCR on every page regardless of whether a text layer exists. |
 | `extractImages` | `true` | When `true` and `strategy` is `"hi_res"`, embedded images found in document partitions are decoded and saved as `_extracted/{originalId}/image-{N}.{ext}` subfiles. Each is automatically enqueued for the full media pipeline (caption + face recognition). Has no effect when strategy is not `"hi_res"`. |
-| `mode` | `"auto"` | How thoroughly documents are read, low to high: `"off"` · `"ocr"` · `"vlm"` · `"repair"`, plus `"auto"`. **`"off"` means documents are stored but never analysed** — no text is extracted, so nothing in them can be recalled; those uploads are recorded as `skipped` rather than queued. `"ocr"` is OCR-only (the unstructured sidecar). `"vlm"` renders each page and transcribes it with a vision model, using OCR as grounding evidence and falling back to OCR if the result doesn't validate (so it is **never worse than OCR**). `"repair"` adds a validation-driven **repair** pass (below) on top of `"vlm"`, plus a second-model consensus pass when a `verifyModel` is set. `"auto"` (default) means **as much as this instance can actually do** — it resolves to `"repair"` when a repair model is configured, otherwise `"vlm"`, otherwise `"ocr"`, so with no `vlmModel` set it is byte-for-byte the OCR-only path. `"max"` is the previous name for `"repair"` and is still accepted on read. |
+| `mode` | `"vlm"` | How thoroughly documents are read, low to high: `"off"` · `"ocr"` · `"vlm"` · `"repair"`, plus `"auto"`. **`"off"` means documents are stored but never analysed** — no text is extracted, so nothing in them can be recalled; those uploads are recorded as `skipped` rather than queued. `"ocr"` is OCR-only (the unstructured sidecar). `"vlm"` renders each page and transcribes it with a vision model, using OCR as grounding evidence and falling back to OCR if the result doesn't validate (so it is **never worse than OCR**). `"repair"` adds a validation-driven **repair** pass (below) on top of `"vlm"`, plus a second-model consensus pass when a `verifyModel` is set. `"auto"` means **as much as this instance can actually do** — it resolves to `"repair"` when a repair model is configured, otherwise `"vlm"`, otherwise `"ocr"`, so with no `vlmModel` set it is byte-for-byte the OCR-only path. `"max"` is the previous name for `"repair"` and is still accepted on read. |
 | `vlmModel` | `""` | Ollama vision model used for `vlm` / `auto` / `repair` (e.g. a bundled `moondream`, or a larger model you wire in). Empty ⇒ the VLM path is unavailable and extraction stays on OCR. Env override: `DOC_VLM_MODEL`. |
 | `vlmBaseUrl` | `""` | Endpoint for the VLM. Empty ⇒ falls back to the media vision provider's `baseUrl`, then `http://ollama:11434`. Env override: `DOC_VLM_URL`. |
 | `repairModel` | `""` | Used by the **`repair`** level — and by **`auto`**, which resolves to `repair` whenever this is set. Model used for the repair pass when a page's VLM output fails OCR-evidence validation — it reconciles the draft against the OCR text in one extra text-only call. Empty ⇒ reuses `vlmModel`. Set this to wire in a stronger model you host. Env override: `DOC_REPAIR_MODEL`. |

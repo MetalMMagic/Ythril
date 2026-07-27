@@ -100,11 +100,14 @@ describe('getMediaEmbeddingConfig', () => {
   });
 
   describe('defaults', () => {
-    it('is always on: no `enabled` field, and levels default to auto', () => {
+    it('is always on: no `enabled` field; levels default to auto EXCEPT images', () => {
       writeConfig();
       const cfg = getMediaEmbeddingConfig();
       assert.equal('enabled' in cfg, false, 'the master switch was removed');
-      assert.deepEqual(cfg.levels, { images: 'auto', audio: 'auto', video: 'auto', text: 'auto' });
+      // Images deliberately start one rung below `auto`. `auto` resolves to `recognition`, which detects
+      // faces and stores face embeddings — biometric data — so it is opted into, never defaulted into.
+      // The classes with no comparable rung keep `auto`.
+      assert.deepEqual(cfg.levels, { images: 'caption', audio: 'auto', video: 'auto', text: 'auto' });
     });
 
     it('returns visionProvider=local by default', () => {

@@ -331,13 +331,11 @@ import { TestTarget } from './models.types';
         <!-- Not wrapped in .field: that rule styles a direct child label as a small-caps field
              caption, which turned the checkbox's own label into what looked like a section header
              floating above an unlabelled box. -->
-        <div class="switchrow">
-          <label class="checkrow">
-            <input type="checkbox" [(ngModel)]="s.face.enabled" [disabled]="s.faceLocked('enabled') || s.managed" />
-            <span>{{ 'models.face.enable' | transloco }}</span>
-          </label>
-          <div class="hint">{{ 'models.face.enableHint' | transloco }}</div>
-        </div>
+        <!-- No enable switch: face recognition is turned on by raising the IMAGE pipeline to its
+             recognition rung (instance ceiling here, then per space), so the ladder is the single
+             control. faceRecognition.enabled still exists as an infra/env pin, deliberately not
+             editable here. -->
+        <div class="hint" style="margin-bottom:12px;">{{ 'models.face.gatedByPipeline' | transloco }}</div>
 
         <div class="grid2">
           <div class="field">

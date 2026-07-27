@@ -1520,8 +1520,6 @@
   "files.progress.stalled": "Brak zgłoszonego postępu — to zadanie mogło się zaciąć",
   "models.face.pillOn": "Włączone",
   "models.face.pillOff": "Wyłączone",
-  "models.face.enable": "Wykrywaj i osadzaj twarze w przesyłanych obrazach",
-  "models.face.enableHint": "Domyślnie wyłączone. Wymaga obecności lokalnych plików modelu.",
   "models.face.confidence": "Próg automatycznego oznaczania",
   "models.face.confidenceHint": "Podobieństwo (0–1), powyżej którego twarz jest oznaczana automatycznie. Poniżej twarz zostaje osadzona, ale bez oznaczenia.",
   "models.face.minSize": "Minimalny rozmiar twarzy",
@@ -1533,5 +1531,6 @@
   "models.confirm.faceOffTitle": "Wyłączyć rozpoznawanie twarzy?",
   "models.confirm.faceOffMessage": "Od tej chwili żadne nowe twarze nie będą wykrywane ani osadzane.\n\nIstniejące wektory twarzy i oznaczenia osób NIE zostaną usunięte — pozostaną zapisane i wyszukiwalne, dopóki nie usuniesz plików, z których pochodzą. Wyłączenie to nie to samo co skasowanie już zebranych danych.",
   "models.confirm.faceOffConfirm": "Wyłącz — rozumiem",
-  "spaces.schema.propertySchemasHint": "— właściwości deklarowane przez ten typ; to, jak rygorystycznie są egzekwowane, zależy od ustawienia walidacji powyżej"
+  "spaces.schema.propertySchemasHint": "— właściwości deklarowane przez ten typ; to, jak rygorystycznie są egzekwowane, zależy od ustawienia walidacji powyżej",
+  "models.face.gatedByPipeline": "Rozpoznawanie twarzy podąża za potokiem Obrazy: ustaw go na \"Opis + rozpoznawanie twarzy\", aby wykrywać i osadzać twarze. Wymaga obecności lokalnych plików modelu."
 }

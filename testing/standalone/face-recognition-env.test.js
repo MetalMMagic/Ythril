@@ -43,9 +43,21 @@ describe('face recognition — infra-settable', () => {
     }
   });
 
-  it('is off by default — enabling it stays a deliberate act', () => {
+  // `enabled` is no longer the user-facing switch — the image ladder's `recognition` rung is, and images
+  // default to `caption`. What survives here is the INFRA PIN: env can hard-disable faces regardless of any
+  // ladder. So the default flipped to true (pin absent = infra imposes nothing), while "faces are off until
+  // someone asks for them" is now guaranteed by the ladder default and is asserted in media-config.test.js
+  // (levels.images === 'caption') and the migration test.
+  it('imposes nothing by default — the pin is absent, the ladder decides', () => {
+    assert.equal(getFaceRecognitionConfig().enabled, true);
+    assert.deepEqual(lockedFaceRecognitionFields(), [], 'nothing reported as infra-locked');
+  });
+
+  it('can be hard-disabled from the environment regardless of the ladder', () => {
+    process.env['FACE_RECOGNITION_ENABLED'] = 'false';
     assert.equal(getFaceRecognitionConfig().enabled, false);
-    assert.deepEqual(lockedFaceRecognitionFields(), []);
+    assert.deepEqual(lockedFaceRecognitionFields(), ['faceRecognition.enabled'],
+      'a pinned field must be reported so the UI never offers a control that does nothing');
   });
 
   it('can be switched on from the environment', () => {
@@ -53,10 +65,12 @@ describe('face recognition — infra-settable', () => {
     assert.equal(getFaceRecognitionConfig().enabled, true);
   });
 
-  it('accepts 1 as well as true, and treats anything else as off', () => {
+  it('accepts 1 as well as true; anything else reads as a false pin', () => {
     process.env['FACE_RECOGNITION_ENABLED'] = '1';
     assert.equal(getFaceRecognitionConfig().enabled, true);
-    for (const v of ['yes', 'TRUE', 'on', '']) {
+    // Only 'true'/'1' mean true. Anything else — including a typo — resolves to false, i.e. faces OFF.
+    // Erring toward off is the right failure direction for a biometric feature.
+    for (const v of ['yes', 'TRUE', 'on']) {
       process.env['FACE_RECOGNITION_ENABLED'] = v;
       assert.equal(getFaceRecognitionConfig().enabled, false, `"${v}" must not enable face recognition`);
     }
@@ -103,7 +117,7 @@ describe('face recognition — infra-settable', () => {
 
     assert.deepEqual(lockedFaceRecognitionFields(), [], 'an empty value must not lock anything');
     const cfg = getFaceRecognitionConfig();
-    assert.equal(cfg.enabled, false, 'still the default');
+    assert.equal(cfg.enabled, true, 'still the default — an empty value is not a pin');
     assert.equal(cfg.modelPath, 'human-models', 'the default path, not an empty string');
     assert.deepEqual(cfg.personEntityTypes, ['person'], 'the default list, not an empty list');
   });

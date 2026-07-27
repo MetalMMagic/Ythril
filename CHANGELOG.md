@@ -2505,6 +2505,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`auto` is never the default where `auto` means the heaviest rung.** `auto` keeps its meaning — *as much
+  as this instance can do* — but two ladders no longer start there, because in both cases "as much as
+  possible" is a decision an operator should make rather than inherit:
+  - **Images now default to `caption` instead of `auto`.** `auto` resolves to the `recognition` rung, which
+    detects faces and stores **face embeddings — biometric data**. Nobody should acquire a biometric store
+    by installing the software and leaving the defaults alone. Raise the Images ceiling to *Caption + face
+    recognition* under Settings → Models to turn it on.
+  - **Document extraction now defaults to `vlm` instead of `auto`.** For extraction `auto` resolves to
+    `repair`, which runs an extra LLM reconciliation pass over every document and, with an external assist
+    model configured, sends OCR text and page images off the instance. `vlm` is the most capable rung that
+    stays a plain transcription, and it still falls back to OCR when no vision model is configured — so a
+    bare instance behaves exactly as before. **Existing instances that never chose a mode will drop from
+    `repair` to `vlm`;** set it back to `repair`/`auto` under Settings → Models if you want the repair pass.
+
+- **Face recognition lost its own on/off checkbox — the Images pipeline is the control.** It was never
+  really a second setting: the checkbox was the only thing keeping faces off, while the image ceiling
+  already said "allowed". Now the ladder is the single gate, and `mediaEmbedding.faceRecognition.enabled`
+  survives **only as an infra pin** (`FACE_RECOGNITION_ENABLED=false` hard-disables faces regardless of any
+  ladder); it is no longer accepted by `PATCH /api/admin/media-config`. **A boot migration protects existing
+  instances:** where faces were off and the image ceiling would now permit them, the ceiling is lowered to
+  `caption` — images stay described and embedded, faces stay off — so no upgrade silently starts collecting
+  biometric data. Instances that had faces on explicitly keep them. `/api/admin/pipeline-status` now reports
+  face health from the ladder (per space) rather than from the retired flag.
+
 - **The Brain Overview is laid out as a uniform card grid instead of a ragged one.** The panels were
   placed with `auto-fit` columns and `align-items: start`, so every card shrink-wrapped its own content:
   card bottoms never lined up, the divider rule under each header sat at a different height depending on

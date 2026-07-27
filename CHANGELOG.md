@@ -2489,6 +2489,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brain Overview is laid out as a uniform card grid instead of a ragged one.** The panels were
+  placed with `auto-fit` columns and `align-items: start`, so every card shrink-wrapped its own content:
+  card bottoms never lined up, the divider rule under each header sat at a different height depending on
+  whether that card's hint wrapped, and the column count re-flowed unpredictably with the viewport
+  (regularly orphaning a card on a row of its own). The board now uses a deterministic 1 / 2 / 3-column
+  grid whose cards stretch to a common row height, each header reserves two lines for its hint so the
+  dividers align across a row, and the Statistics summary spans the full width as the page's headline
+  (its six tiles sitting in one clean row) rather than competing with a five-line list for one column.
+  Long lists (peers, votes, tokens, failures) scroll within their card so one long list can no longer
+  stretch every card beside it. Verified by measuring the rendered geometry in a real browser — every
+  row now reports equal card heights and a single shared divider position.
+
 - **File deletion now runs one shared cascade across every path.** The blob-unlink + sync-tombstone +
   metadata removal + queued-job cancellation + conversion-artifact cleanup sequence was duplicated in the
   REST `DELETE /api/files/:spaceId` handler and the MCP `delete_file` tool; it is now a single

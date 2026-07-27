@@ -173,6 +173,23 @@ describe('OverviewTabComponent', () => {
     expect((noVotes.fixture.nativeElement as HTMLElement).querySelector('.vote-list')).toBeNull();
   });
 
+  it('the Statistics summary is the one full-width card; every other panel is a normal grid cell', () => {
+    // Uniform card sizing is CSS (jsdom computes no layout, so heights are verified by the E2E
+    // geometry check, not here). What IS pinnable is the structure that layout relies on: exactly one
+    // .span-all card, and it is the Statistics summary.
+    const { fixture } = setup({ stats: STATS });
+    fixture.componentRef.setInput('about', {
+      instanceId: 'i', instanceLabel: 'L', version: '1', uptime: '0m', mongoVersion: '8',
+      diskInfo: { total: 0, used: 0, available: 0, dataUsed: 0 },
+    });
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    const spanning = [...el.querySelectorAll('.panel.span-all')];
+    expect(spanning.length).toBe(1);
+    expect(spanning[0].querySelector('h3')?.textContent).toContain('brain.overview.statsTitle');
+    expect(el.querySelectorAll('.panel').length).toBeGreaterThan(1); // other panels are normal cells
+  });
+
   it('Token-access panel is admin-only: hidden when null, lists tokens with level badges when provided', () => {
     // null (non-admin / endpoint 403) → panel hidden.
     const hidden = setup();

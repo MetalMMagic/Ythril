@@ -173,6 +173,37 @@ describe('OverviewTabComponent', () => {
     expect((noVotes.fixture.nativeElement as HTMLElement).querySelector('.vote-list')).toBeNull();
   });
 
+  it('Token-access panel is admin-only: hidden when null, lists tokens with level badges when provided', () => {
+    // null (non-admin / endpoint 403) → panel hidden.
+    const hidden = setup();
+    hidden.fixture.detectChanges();
+    expect((hidden.fixture.nativeElement as HTMLElement).querySelector('.tok-list')).toBeNull();
+
+    // A list (admin) → one row per token, each carrying its level badge.
+    const shown = setup();
+    shown.fixture.componentRef.setInput('tokenAccess', [
+      { name: 'CI bot', level: 'full', allSpaces: false, peer: false, expiresAt: null },
+      { name: 'Admin PAT', level: 'admin', allSpaces: true, peer: false, expiresAt: null },
+      { name: 'Reader', level: 'readOnly', allSpaces: false, peer: false, expiresAt: '2027-01-01T00:00:00Z' },
+    ]);
+    shown.fixture.detectChanges();
+    const el = shown.fixture.nativeElement as HTMLElement;
+    const rows = [...el.querySelectorAll('.tok-list li')];
+    expect(rows.length).toBe(3);
+    expect(el.querySelector('.lvl.admin')).toBeTruthy();
+    expect(el.querySelector('.lvl.full')).toBeTruthy();
+    expect(el.querySelector('.lvl.readOnly')).toBeTruthy();
+    expect(rows[0].textContent).toContain('CI bot');
+
+    // An empty list (admin, but no token reaches the space) → panel shows its empty note, not the list.
+    const empty = setup();
+    empty.fixture.componentRef.setInput('tokenAccess', []);
+    empty.fixture.detectChanges();
+    const emptyEl = empty.fixture.nativeElement as HTMLElement;
+    expect(emptyEl.querySelector('.tok-list')).toBeNull();
+    expect(emptyEl.textContent).toContain('brain.overview.tok.none'); // test transloco emits the raw key
+  });
+
   it('renders the counts and a Reindex button; shows the reindex note when stale', () => {
     const { fixture } = setup({ stats: STATS, needsReindex: true });
     fixture.detectChanges();

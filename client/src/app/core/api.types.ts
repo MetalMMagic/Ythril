@@ -230,6 +230,17 @@ export interface EmbeddingQueue {
   failedSample: { path: string; lastError: string | null }[];
 }
 
+/** One token that can reach a space (F9 Overview token-access matrix). Minimal, non-secret fields only. */
+export interface TokenAccessEntry {
+  name: string;
+  level: 'admin' | 'readOnly' | 'full';
+  /** True when the token has no space allow-list — it reaches every space, not just this one. */
+  allSpaces: boolean;
+  /** True when the token belongs to a network peer (inbound sync), for distinct labelling. */
+  peer: boolean;
+  expiresAt: string | null;
+}
+
 export interface SpaceStats {
   spaceId: string;
   memories: number;

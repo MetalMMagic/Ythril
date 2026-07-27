@@ -18,7 +18,7 @@ import { StatusPillComponent, StatusVariant } from '../../shared/status-pill.com
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry } from '../../core/api.types';
 
 interface StatCard { key: string; icon: string; label: string; value: number }
 
@@ -87,6 +87,14 @@ interface StatCard { key: string; icon: string; label: string; value: number }
     .vote-top .vt { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono, monospace); }
     .vote-meta { display: flex; justify-content: space-between; gap: 10px; margin-top: 4px; font-size: 11.5px; color: var(--text-secondary); flex-wrap: wrap; }
     .vote-meta .tally { font-variant-numeric: tabular-nums; }
+    .tok-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
+    .tok-list li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+    .tok-list .tn { flex: 1; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tok-list .tx { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+    .lvl { font-size: 10.5px; font-weight: 620; padding: 1px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; flex: none; }
+    .lvl.admin { background: color-mix(in srgb, var(--error) 16%, transparent); color: var(--error); }
+    .lvl.full { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+    .lvl.readOnly { background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-secondary); }
   `],
   template: `
     <div class="grid">
@@ -263,6 +271,34 @@ interface StatCard { key: string; icon: string; label: string; value: number }
           </div>
         </section>
       }
+
+      <!-- ── Token access (admin-only; null for non-admins → hidden) ──── -->
+      @if (tokenAccess(); as toks) {
+        <section class="panel">
+          <header class="panel-h">
+            <span class="ic"><ph-icon name="key" [size]="16"/></span>
+            <div><h3>{{ 'brain.overview.tokenTitle' | transloco }}</h3>
+              <p>{{ 'brain.overview.tokenHint' | transloco }}</p></div>
+          </header>
+          <div class="panel-b">
+            @if (toks.length) {
+              <ul class="tok-list">
+                @for (t of toks; track t.name) {
+                  <li>
+                    <span class="lvl" [class.admin]="t.level === 'admin'" [class.full]="t.level === 'full'" [class.readOnly]="t.level === 'readOnly'">{{ 'brain.overview.tok.' + t.level | transloco }}</span>
+                    <span class="tn">{{ t.name }}</span>
+                    @if (t.peer) { <span class="tx">{{ 'brain.overview.tok.peer' | transloco }}</span> }
+                    @if (t.allSpaces) { <span class="tx">{{ 'brain.overview.tok.allSpaces' | transloco }}</span> }
+                    @if (t.expiresAt) { <span class="tx">{{ 'brain.overview.tok.expires' | transloco: { date: (t.expiresAt | date:'mediumDate') } }}</span> }
+                  </li>
+                }
+              </ul>
+            } @else {
+              <div class="muted">{{ 'brain.overview.tok.none' | transloco }}</div>
+            }
+          </div>
+        </section>
+      }
     </div>
   `,
 })
@@ -277,6 +313,8 @@ export class OverviewTabComponent {
   embeddingQueue = input<EmbeddingQueue | null>(null);
   /** Open governance votes across this space's networks (from the shell). */
   openVotes = input<VoteRound[]>([]);
+  /** Tokens that can reach this space (from the shell). Null for non-admins → the panel stays hidden. */
+  tokenAccess = input<TokenAccessEntry[] | null>(null);
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
   reindex = output<void>();
   /** Emitted so the shell re-queues every failed embedding job and reloads the queue (fetch-free tab). */

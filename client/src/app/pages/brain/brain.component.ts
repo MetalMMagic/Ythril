@@ -12,7 +12,7 @@ import { EdgesTabComponent } from './edges-tab.component';
 import { ChronoTabComponent } from './chrono-tab.component';
 import { OverviewTabComponent } from './overview-tab.component';
 import { FormsModule } from '@angular/forms';
-import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { AdminApi } from '../../core/admin-api.service';
@@ -276,7 +276,7 @@ interface SpaceView {
           @if (activeSpace(); as sp) {
             <app-overview-tab [space]="sp" [stats]="activeStats()" [needsReindex]="needsReindex()"
               [reindexing]="reindexing()" [about]="aboutInfo()" [embeddingQueue]="embeddingQueue()"
-              [openVotes]="overviewVotes()" (reindex)="runReindex()" (retryFailed)="runRetryFailedEmbeddings()" />
+              [openVotes]="overviewVotes()" [tokenAccess]="tokenAccess()" (reindex)="runReindex()" (retryFailed)="runRetryFailedEmbeddings()" />
           }
         }
         @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }
@@ -318,6 +318,9 @@ export class BrainComponent implements OnInit, OnDestroy {
   embeddingQueue = signal<EmbeddingQueue | null>(null);
   /** Open governance votes across the ACTIVE space's networks (Overview Governance panel). */
   overviewVotes = signal<VoteRound[]>([]);
+  /** Tokens that can reach the ACTIVE space (Overview token-access matrix). Null unless the caller is
+   *  admin — the endpoint 403s otherwise, so a null keeps the panel hidden for non-admins. */
+  tokenAccess = signal<TokenAccessEntry[] | null>(null);
 
   // Reindex
   needsReindex = signal(false);
@@ -453,10 +456,12 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.reindexResult.set('');
     this.embeddingQueue.set(null);
     this.overviewVotes.set([]);
+    this.tokenAccess.set(null);
     this.loadStats(id);
     this.loadSpaceMeta(id);
     this.loadEmbeddingQueue(id);
     this.loadOverviewVotes(id);
+    this.loadTokenAccess(id);
   }
 
   /** Fetch the embedding-job backlog for a space; only stores it while that space is still active. */
@@ -464,6 +469,15 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.brainApi.getEmbeddingQueue(spaceId).subscribe({
       next: q => { if (this.activeSpaceId() === spaceId) this.embeddingQueue.set(q); },
       error: () => {},
+    });
+  }
+
+  /** Fetch the token-access matrix for a space (Overview panel). ADMIN-only: a 403 for a non-admin
+   *  caller leaves the signal null, which keeps the panel hidden. Only stores it while still active. */
+  private loadTokenAccess(spaceId: string): void {
+    this.brainApi.getTokenAccess(spaceId).subscribe({
+      next: r => { if (this.activeSpaceId() === spaceId) this.tokenAccess.set(r.tokens); },
+      error: () => { if (this.activeSpaceId() === spaceId) this.tokenAccess.set(null); },
     });
   }
 

@@ -838,6 +838,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Brain Overview gains an admin-only Token-access panel — the final F9 Overview panel.** For an
+  admin viewer it lists which API tokens can reach the current space and at what level (admin / read-write /
+  read-only), flagging network-peer and all-spaces tokens and showing any expiry. It answers "who can get at
+  this space's data?" from the space itself. Backed by a read-only
+  `GET /api/brain/spaces/:spaceId/token-access` gated `requireSpaceAuth` + `requireAdmin`, so a non-admin
+  caller gets 403 and the panel simply doesn't render; the response carries only name/level/flags/expiry —
+  never a hash, prefix, or other secret. Verified end-to-end on a scratch instance: an admin token saw the
+  matrix (admin + read-only tokens, correctly labelled) while a space-scoped read-only token got 403.
+
 - **The Brain Overview embedding-queue panel gains a "Retry all failed" button.** When a space has failed
   media-embedding jobs, one click (behind a confirmation) re-queues every one of them — previously the only
   way to retry was per file, via the file's own retry action. Backed by a new

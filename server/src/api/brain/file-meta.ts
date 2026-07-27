@@ -11,7 +11,8 @@
  */
 import { Router } from 'express';
 import { toDocId } from '../../util/paths.js';
-import { requireSpaceAuth, denyReadOnly } from '../../auth/middleware.js';
+import { requireSpaceAuth, denyReadOnly, requireAdmin } from '../../auth/middleware.js';
+import { listTokens } from '../../auth/tokens.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { updateFileMeta, deleteFileMeta } from '../../files/file-meta.js';
 import { assertRefsResolve } from '../../brain/entity-refs.js';
@@ -133,6 +134,31 @@ fileMetaRouter.post('/spaces/:spaceId/embedding-queue/retry-failed', globalRateL
     retried += await retryFailedJobs(mid);
   }
   res.status(202).json({ retried });
+});
+
+// GET /api/brain/spaces/:spaceId/token-access — which tokens can reach this space and at what level
+// (F9 Overview token-access matrix). ADMIN-only (requireAdmin after requireSpaceAuth) so a non-admin
+// space token gets 403 and the panel simply hides. Returns the MINIMUM the matrix needs — never a
+// hash, prefix, or any other secret material.
+fileMetaRouter.get('/spaces/:spaceId/token-access', globalRateLimit, requireSpaceAuth, requireAdmin, (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  // A token reaches this space when it has no `spaces` allow-list (all spaces) or lists this one.
+  // schemaLibrary tokens have no space access at all, so they never appear.
+  const tokens = listTokens()
+    .filter(t => !t.schemaLibrary && (!t.spaces || t.spaces.includes(spaceId)))
+    .map(t => ({
+      name: t.name,
+      level: t.admin ? 'admin' : (t.readOnly ? 'readOnly' : 'full'),
+      allSpaces: !t.spaces,
+      peer: !!t.peerInstanceId,
+      expiresAt: t.expiresAt,
+    }));
+  res.json({ tokens });
 });
 
 

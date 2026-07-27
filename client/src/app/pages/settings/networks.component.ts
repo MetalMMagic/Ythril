@@ -73,6 +73,13 @@ import { NetworkEnableWizardComponent } from './network-enable-wizard.component'
     }
 
     .member-row:last-child { border-bottom: none; }
+    .member-sync { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+    .member-failing {
+      display: inline-flex; align-items: center; gap: 3px; font-size: 11px; white-space: nowrap;
+      padding: 1px 7px; border-radius: 10px; color: var(--error);
+      background: color-mix(in srgb, var(--error) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--error) 45%, transparent);
+    }
 
     .vote-row {
       display: flex;
@@ -278,6 +285,16 @@ import { NetworkEnableWizardComponent } from './network-enable-wizard.component'
                   <span class="mono badge badge-gray" style="font-size:11px;">{{ m.instanceId.slice(0, 8) }}</span>
                   <span style="font-weight:500; flex:1;">{{ m.label }}</span>
                   <span class="badge badge-gray" style="font-size:11px;">{{ m.syncDirection ?? 'both' }}</span>
+                  <!-- Sync health at a glance: last successful sync + a failing badge when a run streak is failing. -->
+                  @if (m.consecutiveFailures) {
+                    <span class="member-failing" [attr.title]="'networks.member.failingTitle' | transloco: { count: m.consecutiveFailures }">
+                      <ph-icon name="warning" [size]="11"/> {{ 'networks.member.failing' | transloco: { count: m.consecutiveFailures } }}
+                    </span>
+                  }
+                  <span class="member-sync" [attr.title]="m.lastSyncAt ? (m.lastSyncAt | date:'dd.MM.yyyy HH:mm') : ''">
+                    @if (m.lastSyncAt) { {{ 'networks.member.synced' | transloco }} {{ m.lastSyncAt | date:'dd.MM.yyyy HH:mm' }} }
+                    @else { {{ 'networks.member.neverSynced' | transloco }} }
+                  </span>
                   <a class="member-endpoint" [href]="m.endpoint" target="_blank" rel="noopener" [attr.title]="m.endpoint">{{ m.endpoint }}</a>
                   <button
                     class="btn-danger btn btn-sm"

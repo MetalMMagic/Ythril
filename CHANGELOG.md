@@ -843,6 +843,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Idle / Syncing / Degraded / Vote pending), or a note when the space belongs to no network. Assembled from
   data the Brain already holds (no extra request).
 
+- **Network member rows now show per-peer sync health.** Each member in an expanded network card shows its
+  **last successful sync** time (or *Never synced*) and a red **Failing (N)** badge when that peer's recent
+  sync attempts have been failing (N = consecutive failures since the last success) — surfacing a stuck peer
+  without opening the full Sync History. Uses data already on the networks payload (`lastSyncAt` /
+  `consecutiveFailures`); no server change.
+
 - **Files can now carry a per-record TTL (auto-expiry), like every other knowledge type.** Pass `ttlDays`
   as a query param on upload — `POST /api/files/:spaceId?path=…&ttlDays=30` — or the `ttlDays` field on the
   MCP `write_file` tool; `0`/`null` means never expire, and a space's `recordTtlDays` default applies to

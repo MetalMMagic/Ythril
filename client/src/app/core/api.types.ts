@@ -334,6 +334,10 @@ export interface NetworkMember {
   label: string;
   endpoint: string;
   syncDirection?: 'both' | 'push' | 'pull';
+  /** ISO8601 of the last SUCCESSFUL sync with this member (absent = never synced yet). */
+  lastSyncAt?: string;
+  /** Consecutive failed sync attempts since the last success (0/absent = healthy). */
+  consecutiveFailures?: number;
 }
 
 export interface InviteBundle {

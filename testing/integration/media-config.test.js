@@ -189,27 +189,38 @@ describe('Media config — external assist model (F11-b)', () => {
     tokenA = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
   });
   after(async () => {
-    // Disable egress (uses: []) so no external routing leaks into other suites.
+    // Lower the rung so no external routing leaks into other suites. (`uses` is retired — the extraction
+    // rung IS the switch now, so dropping below `repair` is what disables the egress path. Note we do not
+    // try to blank `baseUrl`: the schema requires a valid URL, so an empty string would 400 and the
+    // `.catch()` would swallow it, leaving the cleanup silently undone.)
     await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
-      { documentProcessing: { assistModel: { uses: [] } } }).catch(() => {});
+      { documentProcessing: { mode: 'ocr' } }).catch(() => {});
   });
 
-  it('assigning a use to an endpoint WITHOUT acknowledgment is rejected (egress gate)', async () => {
+  it('making an endpoint REACHABLE without acknowledgment is rejected (egress gate)', async () => {
+    // The rung is the switch: mode `repair` is what lets the pipeline call the endpoint, so that is what
+    // demands the acknowledgment. (This used to be the `uses: ['repair']` tick, now retired.)
     const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', {
-      documentProcessing: { assistModel: { baseUrl: 'https://assist.example.com', model: 'big', uses: ['repair'] } },
+      documentProcessing: { mode: 'repair', assistModel: { baseUrl: 'https://assist.example.com', model: 'big' } },
     });
     // Rejected either as unacknowledged egress or (if DNS unavailable) as SSRF-unsafe — both are 400.
     assert.equal(r.status, 400, `expected rejection, got ${r.status}: ${JSON.stringify(r.body)}`);
   });
 
-  it('configuring the endpoint with NO uses is allowed (no egress yet) and round-trips', async () => {
+  it('configuring the endpoint BELOW the repair rung is allowed (not reachable yet) and round-trips', async () => {
     const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', {
-      documentProcessing: { assistModel: { baseUrl: 'https://assist.example.com', model: 'big', uses: [] } },
+      documentProcessing: { mode: 'vlm', assistModel: { baseUrl: 'https://assist.example.com', model: 'big' } },
     });
     assert.equal(r.status, 200, `expected 200, got ${r.status}: ${JSON.stringify(r.body)}`);
     const reread = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
     assert.equal(reread.body?.documentProcessing?.assistModel?.baseUrl, 'https://assist.example.com');
-    assert.deepEqual(reread.body?.documentProcessing?.assistModel?.uses, []);
+  });
+
+  it('the retired `uses` key is rejected outright', async () => {
+    const r = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', {
+      documentProcessing: { assistModel: { uses: ['repair'] } },
+    });
+    assert.equal(r.status, 400, `expected 400, got ${r.status}: ${JSON.stringify(r.body)}`);
   });
 
   it('a mode-only documentProcessing PATCH does not wipe the assist config (deep-merge)', async () => {
@@ -223,7 +234,7 @@ describe('Media config — external assist model (F11-b)', () => {
 
   it('the assist API key is never returned in plaintext (masked in GET)', async () => {
     const set = await patch(INSTANCES.a, tokenA, '/api/admin/media-config', {
-      documentProcessing: { assistModel: { baseUrl: 'https://assist.example.com', model: 'big', uses: [], apiKey: 'sk-secret-xyz' } },
+      documentProcessing: { assistModel: { baseUrl: 'https://assist.example.com', model: 'big', apiKey: 'sk-secret-xyz' } },
     });
     assert.equal(set.status, 200, JSON.stringify(set.body));
     const reread = await get(INSTANCES.a, tokenA, '/api/admin/media-config');
@@ -231,6 +242,6 @@ describe('Media config — external assist model (F11-b)', () => {
     assert.ok(key && !key.includes('sk-secret-xyz'), `key must be masked, got: ${key}`);
     // Clear the stored key.
     await patch(INSTANCES.a, tokenA, '/api/admin/media-config',
-      { documentProcessing: { assistModel: { uses: [], apiKey: null } } }).catch(() => {});
+      { documentProcessing: { assistModel: { apiKey: null } } }).catch(() => {});
   });
 });

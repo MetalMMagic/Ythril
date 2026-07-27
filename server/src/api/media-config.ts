@@ -56,7 +56,8 @@ const ProviderPatchSchema = z.object({
 // F11 — document-processing / extraction settings. Shallow-merged like `vision`/`stt`: the client sends
 // the full block. `ocr` mode = today's behaviour; `vlm`/`auto`/`max` opt into the VLM pipeline.
 // F11-b — external assist model. `apiKey` is split into secrets.json (like vision/stt). `acknowledgedHost`
-// records the operator's egress consent; the handler requires it to match `baseUrl`'s host when `uses` is set.
+// records the operator's egress consent; the handler requires it to match `baseUrl`'s host whenever the
+// extraction rung can actually reach the endpoint (mode `repair`/`auto`).
 const AssistModelPatchSchema = z.object({
   baseUrl: z.string().url().optional(),
   model: z.string().max(128).optional(),

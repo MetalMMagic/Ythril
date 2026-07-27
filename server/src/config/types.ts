@@ -947,6 +947,14 @@ export interface AuditLogEntry {
   status: number;          // HTTP status code
   entryId: string | null;
   durationMs: number;
+  /**
+   * What the request actually changed, when the operation has an allowlist in `audit/audit-changes.ts`.
+   *
+   * Absent for everything else, by design: an operation with no allowlist records nothing, so a route
+   * added later is silent rather than leaking. Values are scalars only — see that module for why a
+   * denylist would be the wrong shape here.
+   */
+  changes?: { field: string; from?: string | number | boolean | null; to?: string | number | boolean | null }[];
 }
 
 export interface Config {

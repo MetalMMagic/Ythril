@@ -9,6 +9,7 @@
 
 import type { Request, Response, NextFunction } from 'express';
 import { logAuditEntry } from './audit.js';
+import { auditChanges } from './audit-changes.js';
 import { getConfig } from '../config/loader.js';
 import type { OidcTokenRecord } from '../auth/oidc.js';
 
@@ -280,6 +281,11 @@ export function auditMiddleware(req: Request, res: Response, next: NextFunction)
       status: res.statusCode,
       entryId: matched.entryId,
       durationMs: Math.round(durationMs),
+      // Only for a request that actually succeeded: a rejected PATCH changed nothing, and recording its
+      // intended values would make the log claim an edit that never happened.
+      ...(res.statusCode < 400 && req.auditSnapshots
+        ? { changes: auditChanges(matched.operation, req.auditSnapshots.before, req.auditSnapshots.after) }
+        : {}),
     });
   });
 

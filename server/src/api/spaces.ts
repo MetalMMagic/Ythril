@@ -454,6 +454,15 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     return;
   }
 
+  // Snapshot for the audit log's change list, taken BEFORE anything is applied. Handing the whole record
+  // over is safe: `audit-changes.ts` reads only the fields allowlisted for `space.update` and never
+  // touches the rest, so this cannot publish something by carrying it. The middleware only records it on
+  // a <400 response, so a request rejected below logs no change.
+  req.auditSnapshots = {
+    before: { ...space, ...space.meta },
+    after: { ...space, ...space.meta, ...parsed.data, ...(parsed.data.meta ?? {}) },
+  };
+
   // Validate any $ref values in the incoming meta against the instance schema library
   if (parsed.data.meta?.typeSchemas) {
     const brokenRefs = findBrokenLibraryRefs(parsed.data.meta.typeSchemas as z.infer<typeof TypeSchemasZ>);

@@ -13,6 +13,7 @@ import { getDb } from '../db/mongo.js';
 import { getConfig } from '../config/loader.js';
 import { log } from '../util/log.js';
 import type { AuditLogEntry } from '../config/types.js';
+import type { AuditChange } from './audit-changes.js';
 import type { Collection, Filter, Sort } from 'mongodb';
 
 const COLLECTION = 'audit_log';
@@ -93,6 +94,8 @@ export interface AuditEntryInput {
   status: number;
   entryId?: string | null;
   durationMs: number;
+  /** Allowlisted field changes — see `audit-changes.ts`. Omitted when the operation has no allowlist. */
+  changes?: AuditChange[];
 }
 
 /** Insert an audit log entry. Fire-and-forget — never throws. */
@@ -116,6 +119,9 @@ export function logAuditEntry(input: AuditEntryInput): void {
     status: input.status,
     entryId: input.entryId ?? null,
     durationMs: input.durationMs,
+    // Omitted entirely when there is nothing allowlisted to say, so an entry never carries an empty array
+    // that reads as "we looked and nothing changed" when in fact we never looked.
+    ...(input.changes && input.changes.length > 0 ? { changes: input.changes } : {}),
   };
 
   col().insertOne(entry as any).catch((err: unknown) => {

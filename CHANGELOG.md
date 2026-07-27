@@ -852,6 +852,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Audit entries can now say what actually changed, not just that something did.** An entry recorded who,
+  when, which route and what status — so *"an admin patched the space at 14:02"* never told you whether they
+  renamed it or turned strict linkage off, which is the question an audit log exists to answer. Entries now
+  carry a `changes` list of `{field, from, to}`.
+
+  **It is an allowlist, and that is the whole design.** Several audited routes handle secrets directly —
+  token create/regenerate/update, webhook create/update (target URLs and signing secrets), and the
+  media-config routes (vision / STT / NLI / assist API keys) — and audit entries are queryable by any admin
+  and retained for `audit.retentionDays`. Diffing a request body and stripping known-secret names fails in
+  the worst direction: forget one name and a live key sits in a retained, queryable store with nothing to
+  report it. Naming the fields that *may* be recorded fails the other way — forget one and the entry merely
+  lacks it.
+
+  So an operation with no allowlist records **nothing**, which makes a route added later silent by default
+  rather than leaky by default. Values are scalars only (a nested object would let one allowlisted parent
+  ship every child it gains later), and a request that failed records no change at all — it changed nothing,
+  and logging its intended values would claim an edit that never happened.
+
+  This first slice covers `space.update`, with the mechanism and its guards in place; the remaining ~100
+  audited routes follow a few at a time. The secret-adjacent ones come last, if ever, and the right entry
+  there is *"the key was replaced"* — never a value.
+
 - **Long documents are now read in full instead of being cut at 50 pages.** A document longer than
   `maxPages` became its first `maxPages` pages, permanently — a 400-page report was indexed as its first
   fifty, and recall then answered confidently from an eighth of it. The page sidecars accept a `startPage`,

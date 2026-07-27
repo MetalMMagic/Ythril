@@ -22,6 +22,16 @@ declare global {
        *  request (e.g. a router-level requireAuth + a route-level requireAdmin) don't each try to consume
        *  it. `null` means the ticket was invalid; `undefined` means not yet exchanged. */
       sseTicketBearer?: string | null;
+      /**
+       * Before/after snapshots a route offers the audit log, so the entry can say WHAT changed rather
+       * than only that something did. The audit middleware runs on `res.finish` and cannot see resource
+       * state, so the handler must hand it over.
+       *
+       * Handing them over does NOT publish them: `audit-changes.ts` reads only the fields allowlisted for
+       * that operation and ignores everything else, so a handler may pass a whole record without auditing
+       * its secrets.
+       */
+      auditSnapshots?: { before?: unknown; after?: unknown };
     }
   }
 }

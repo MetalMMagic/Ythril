@@ -2800,6 +2800,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The graph page is no longer a god file: 2065 lines split into a component plus four focused
+  modules.** The traversal cache, the detail-table derivation, the cytoscape boundary and 556 lines of
+  CSS each moved to their own file, following the `pages/brain/` precedent (pure module by default, and
+  a `*.styles.ts` for the CSS). Behaviour is preserved by construction rather than by inspection: the 45
+  characterization tests from the previous release pass **unchanged**, which was the acceptance
+  condition — a test needing an edit to accommodate the split would have meant the split changed
+  something. The hand-retyped cytoscape stylesheet was additionally diffed against the original
+  structurally (8 selectors, every property, every literal value), and the page was driven in a browser
+  to confirm what no unit test reaches: the canvas renders, the side panel opens on the root, and a
+  detail row still opens its record.
+
+  One real duplication was removed rather than relocated. The template built a seven-field detail-row
+  object at four separate click handlers for a method that reads exactly two of those fields, and the
+  copies had already drifted from the component's own version — harmlessly, but only because nothing
+  read the field that differed. The handler now takes just the id and kind.
+
 - **The Schema Library's schema field showed a raw translation key instead of a label.**
   `schemaLib.field.schema` and `schemaLib.field.schemaHint` were referenced by the template but had never
   been added to any locale, so the field rendered the literal text `schemaLib.field.schema`. Both are now

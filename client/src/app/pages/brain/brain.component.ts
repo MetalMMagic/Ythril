@@ -452,6 +452,12 @@ export class BrainComponent implements OnInit, OnDestroy {
   }
 
   selectSpace(id: string): void {
+    // Switching space lands on the new space's OVERVIEW — its landing view (F9). The tab used to
+    // persist across the switch, so picking another space while on, say, Entities just swapped the
+    // rows underneath you: the page looked unchanged until you clicked a tab, and the space you had
+    // chosen never introduced itself. Re-clicking the chip of the space you are ALREADY on is not a
+    // switch, so that leaves your current tab alone.
+    if (this.activeSpaceId() !== id) this.activeTab.set('overview');
     this.activeSpaceId.set(id);
     this.picker.spaceId.set(id);
     this.drawerState.spaceId.set(id);

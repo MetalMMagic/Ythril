@@ -1644,6 +1644,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Switching space in the Brain now lands on that space's Overview.** The active tab persisted across a
+  space switch, so picking another space while on (say) Entities just swapped the rows underneath you —
+  the page looked unchanged until you clicked a tab, and the space you had just chosen never introduced
+  itself. A switch now returns to the Overview landing view (F9). Re-clicking the chip of the space you
+  are already on is not a switch and leaves your current tab alone.
+
 - **The Graph and Files tabs no longer linger on top of other Brain tabs.** When the two heavy tabs were
   made lazy (`@defer`, to keep cytoscape and the file-manager renderers off the landing bundle), they were
   gated with `@defer (when activeTab() === …)` — but a defer block's `when` is a **one-way load trigger**:

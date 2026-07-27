@@ -1520,8 +1520,6 @@
   "files.progress.stalled": "Kein Fortschritt gemeldet — dieser Auftrag hängt möglicherweise",
   "models.face.pillOn": "An",
   "models.face.pillOff": "Aus",
-  "models.face.enable": "Gesichter in hochgeladenen Bildern erkennen und einbetten",
-  "models.face.enableHint": "Standardmäßig aus. Setzt voraus, dass die lokalen Modelldateien vorhanden sind.",
   "models.face.confidence": "Schwelle für automatische Zuordnung",
   "models.face.confidenceHint": "Ähnlichkeit (0–1), ab der ein Gesicht automatisch zugeordnet wird. Darunter wird das Gesicht eingebettet, aber nicht zugeordnet.",
   "models.face.minSize": "Mindestgröße des Gesichts",
@@ -1533,5 +1531,6 @@
   "models.confirm.faceOffTitle": "Gesichtserkennung ausschalten?",
   "models.confirm.faceOffMessage": "Ab sofort werden keine neuen Gesichter mehr erkannt oder eingebettet.\n\nBereits vorhandene Gesichtsvektoren und Personenzuordnungen werden NICHT entfernt — sie bleiben gespeichert und durchsuchbar, bis die zugehörigen Dateien gelöscht werden. Ausschalten ist nicht dasselbe wie Löschen des bereits Erfassten.",
   "models.confirm.faceOffConfirm": "Ausschalten — ich habe verstanden",
-  "spaces.schema.propertySchemasHint": "— die Eigenschaften, die dieser Typ deklariert; wie streng sie durchgesetzt werden, richtet sich nach der Validierungseinstellung oben"
+  "spaces.schema.propertySchemasHint": "— die Eigenschaften, die dieser Typ deklariert; wie streng sie durchgesetzt werden, richtet sich nach der Validierungseinstellung oben",
+  "models.face.gatedByPipeline": "Die Gesichtserkennung folgt der Bilder-Pipeline: Stelle sie auf \"Beschreibung + Gesichtserkennung\", um Gesichter zu erkennen und einzubetten. Setzt voraus, dass die lokalen Modelldateien vorhanden sind."
 }

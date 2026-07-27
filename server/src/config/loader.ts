@@ -207,6 +207,43 @@ export function migrateMediaEmbeddingMasterSwitch(config: Config): boolean {
   return true;
 }
 
+/**
+ * Face recognition lost its own on/off switch — the image ladder's `recognition` rung is the gate now,
+ * and `faceRecognition.enabled` survives only as the infra (env) pin.
+ *
+ * The danger this migration exists to prevent: `enabled` used to default to **false**, so on almost every
+ * instance faces were OFF while the image ceiling sat at its old default of `auto` — which the ladder
+ * reads as "recognition allowed". Simply dropping the switch would therefore have started face detection
+ * and stored face EMBEDDINGS — biometric data — on upgrade, with nobody having asked for it.
+ *
+ * So: wherever faces were effectively off (`enabled: false` in the stored config) and the image ceiling
+ * would now permit them, lower that ceiling to `caption`. `caption` is the faithful translation of the old
+ * state — images were still described and embedded, only faces were skipped — whereas `off` would also
+ * silently stop captioning. Then drop the dead field so the new default (true = infra pin only) applies.
+ *
+ * Durable, like `migrateMediaEmbeddingMasterSwitch`: the media-config PATCH handler merges the RAW on-disk
+ * block, so an in-memory-only fix would be undone — and would flip faces ON — the next time an admin saved.
+ * Idempotent: a no-op once `enabled` is gone.
+ *
+ * @returns true if it changed the config (caller persists).
+ */
+export function migrateFaceRecognitionSwitch(config: Config): boolean {
+  const media = config.mediaEmbedding;
+  const face = media?.faceRecognition as (FaceRecognitionConfig & { enabled?: boolean }) | undefined;
+  if (!media || !face || !('enabled' in face)) return false;
+  const wasDisabled = face.enabled === false;
+  delete face.enabled;
+  if (wasDisabled) {
+    const levels = { ...(media.levels ?? {}) };
+    // Only lower a ceiling that would newly permit faces; anything at/below `caption` already agrees.
+    if (levels.images === undefined || levels.images === 'auto' || levels.images === 'recognition') {
+      levels.images = 'caption';
+    }
+    media.levels = levels;
+  }
+  return true;
+}
+
 export function loadConfig(): Config {
   checkPermissions(CONFIG_PATH);
   const raw = fs.readFileSync(CONFIG_PATH, 'utf8');
@@ -225,6 +262,16 @@ export function loadConfig(): Config {
       log.info('Migrated mediaEmbedding.enabled → per-class levels (media-embedding master switch removed)');
     } catch (err) {
       log.warn(`Could not persist mediaEmbedding master-switch migration (will retry next boot): ${err}`);
+    }
+  }
+  // Same shape, for the face-recognition switch: the image ladder is the gate now, so an instance that had
+  // faces off must have its image ceiling lowered rather than silently gaining a biometric store.
+  if (migrateFaceRecognitionSwitch(_config)) {
+    try {
+      saveConfig(_config);
+      log.info('Migrated mediaEmbedding.faceRecognition.enabled → image ladder (face switch removed; env pin retained)');
+    } catch (err) {
+      log.warn(`Could not persist face-recognition switch migration (will retry next boot): ${err}`);
     }
   }
   return _config;
@@ -663,7 +710,13 @@ const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | '
   // defaults to `auto` (no policy limit of its own). The bundled ollama + whisper services (K8s
   // manifests + the workstation docker-compose) back the default `vision`/`stt` endpoints, which resolve
   // via the short service name in both environments (Docker bridge DNS; ClusterFirst DNS in K8s).
-  levels: { images: 'auto', audio: 'auto', video: 'auto', text: 'auto' },
+  // `auto` means "the most this instance can do" and stays exactly that — but it is deliberately NOT the
+  // default for IMAGES. `auto` resolves to the `recognition` rung, which detects faces and stores face
+  // embeddings: biometric data. Nobody should acquire a biometric store by installing the software and
+  // leaving the defaults alone, so images start at `caption` (described + embedded, no faces) and an
+  // admin raises the ceiling to `recognition`/`auto` deliberately. The other classes have no comparable
+  // rung, so they keep `auto`.
+  levels: { images: 'caption', audio: 'auto', video: 'auto', text: 'auto' },
   visionProvider: 'local',
   sttProvider: 'local',
   workerConcurrency: 2,
@@ -820,9 +873,13 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
 const DOCUMENT_PROCESSING_DEFAULTS: Required<DocumentProcessingConfig> = {
   strategy: 'hi_res',
   extractImages: true,
-  // F11 — default `auto`: use the VLM when one is configured and reachable, else fall back to OCR. With no
-  // vlmModel set this is byte-for-byte the old OCR path, so it's a safe default (never worse than OCR).
-  mode: 'auto',
+  // `auto` still means "the most this instance can do" — but it is deliberately NOT the default, because
+  // for extraction `auto` resolves to the `repair` rung (extraction-policy: auto -> repair when available),
+  // which runs an extra LLM reconciliation pass over every document and, with an external assist model
+  // configured, sends OCR text and page images off the instance. That is a cost-and-egress decision an
+  // operator should make, not inherit. `vlm` is the most capable rung that stays a plain transcription;
+  // it falls back to OCR when no vision model is configured, so a bare instance behaves as it always did.
+  mode: 'vlm',
   renderDpi: 150,
   maxPages: 50,
   pageTimeoutMs: 60_000,
@@ -888,7 +945,11 @@ export function getDocAssistApiKey(): string | undefined {
 // ── Face Recognition Config ──────────────────────────────────────────────────
 
 const FACE_RECOGNITION_DEFAULTS: Required<FaceRecognitionConfig> = {
-  enabled: false,
+  // No longer a user-facing switch: the image ladder decides whether faces run (the `recognition` rung),
+  // and images now default to `caption`, so this defaulting to true does NOT turn faces on anywhere. What
+  // it stays is the INFRA pin — `FACE_RECOGNITION_ENABLED=false` hard-disables face recognition regardless
+  // of any ladder, which is why the field survives the checkbox that used to write it.
+  enabled: true,
   confidenceThreshold: 0.6,
   minFaceSizeFraction: 0.05,
   modelPath: 'human-models',

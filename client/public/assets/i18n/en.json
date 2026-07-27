@@ -1520,8 +1520,6 @@
   "files.progress.stalled": "No progress reported — this job may be stuck",
   "models.face.pillOn": "On",
   "models.face.pillOff": "Off",
-  "models.face.enable": "Detect and embed faces in uploaded images",
-  "models.face.enableHint": "Off by default. Requires the local model files to be present.",
   "models.face.confidence": "Auto-label threshold",
   "models.face.confidenceHint": "Similarity (0–1) above which a face is labelled automatically. Below it the face is embedded but left unlabelled.",
   "models.face.minSize": "Minimum face size",
@@ -1533,5 +1531,6 @@
   "models.confirm.faceOffTitle": "Turn off face recognition?",
   "models.confirm.faceOffMessage": "No new faces will be detected or embedded from this point on.\n\nExisting face vectors and person labels are NOT removed — they stay stored and searchable until the files they came from are deleted. Turning this off is not the same as erasing what has already been collected.",
   "models.confirm.faceOffConfirm": "Turn off — I understand",
-  "spaces.schema.propertySchemasHint": "— the properties this type declares; how strictly they are enforced follows the validation setting above"
+  "spaces.schema.propertySchemasHint": "— the properties this type declares; how strictly they are enforced follows the validation setting above",
+  "models.face.gatedByPipeline": "Face recognition follows the Images pipeline: raise it to \"Caption + face recognition\" to detect and embed faces. Requires the local model files to be present."
 }

@@ -119,7 +119,9 @@ const LevelsPatchSchema = z.object({
  * re-analysed locally) and is left where it is.
  */
 const FaceRecognitionPatchSchema = z.object({
-  enabled: z.boolean().optional(),
+  // No `enabled` — face recognition is gated by the image ladder's `recognition` rung (a per-space choice
+  // under an instance ceiling), and the surviving `faceRecognition.enabled` is an INFRA pin set by env
+  // only. Accepting it here would hand the API back the switch the UI just lost.
   confidenceThreshold: z.number().min(0).max(1).optional(),
   minFaceSizeFraction: z.number().min(0).max(1).optional(),
   personEntityTypes: z.array(z.string().min(1).max(64)).max(32).optional(),

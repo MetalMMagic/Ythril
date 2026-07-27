@@ -73,6 +73,23 @@ describe('BrainComponent (OnPush)', () => {
     expect(create().componentInstance.activeTab()).toBe('overview');
   });
 
+  it('switching space lands on the new space Overview; re-clicking the active chip keeps your tab', () => {
+    const c = create().componentInstance; // initial load selects 'work'
+    c.setTab('entities');
+    expect(c.activeTab()).toBe('entities');
+
+    // A DIFFERENT space → its Overview (the landing view). Previously the tab persisted, so the
+    // switch silently swapped the rows under you and looked like nothing had happened.
+    c.selectSpace('other');
+    expect(c.activeTab()).toBe('overview');
+    expect(c.activeSpaceId()).toBe('other');
+
+    // Re-clicking the chip you are already on is not a switch — it must not yank you off your tab.
+    c.setTab('edges');
+    c.selectSpace('other');
+    expect(c.activeTab()).toBe('edges');
+  });
+
   it('File Meta is merged into one Files tab — no separate File Meta collection tab', () => {
     const c = create().componentInstance;
     expect(c.collectionTabs.some(t => t.key === 'filemeta' as never)).toBe(false);

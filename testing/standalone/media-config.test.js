@@ -317,19 +317,20 @@ describe('getMediaEmbeddingConfig', () => {
       writeConfig();
       const dp = getDocumentProcessingConfig();
       assert.equal(dp.assistModel.baseUrl, undefined);
-      assert.deepEqual(dp.assistModel.uses, []);
       assert.equal(getDocAssistApiKey(), undefined);
       assert.equal(getMediaEmbeddingConfig().lockedByInfra?.includes('documentProcessing.assistModel'), false);
     });
 
-    it('resolves baseUrl/model/uses/acknowledgedHost from config.json', () => {
+    // `uses` is retired: the assist model serves the repair pass, so the extraction rung is the switch and
+    // `acknowledgedHost` is the gate the runtime actually checks. A stale `uses` key in an old config.json
+    // is simply ignored — asserted here so nobody resurrects it as a second switch.
+    it('resolves baseUrl/model/acknowledgedHost from config.json and ignores a legacy uses key', () => {
       writeConfig({ mediaEmbedding: { documentProcessing: { assistModel: {
         baseUrl: 'https://api.example.com', model: 'big-llm', uses: ['repair'], acknowledgedHost: 'api.example.com',
       } } } });
       const dp = getDocumentProcessingConfig();
       assert.equal(dp.assistModel.baseUrl, 'https://api.example.com');
       assert.equal(dp.assistModel.model, 'big-llm');
-      assert.deepEqual(dp.assistModel.uses, ['repair']);
       assert.equal(dp.assistModel.acknowledgedHost, 'api.example.com');
     });
 

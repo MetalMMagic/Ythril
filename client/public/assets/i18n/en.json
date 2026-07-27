@@ -1406,8 +1406,6 @@
   "models.assist.pillAcknowledged": "Egress acknowledged · {{host}}",
   "models.assist.endpointLabel": "Endpoint (OpenAI-compatible)",
   "models.assist.modelPlaceholder": "e.g. a hosted GPT / Llama",
-  "models.assist.usedFor": "Used for",
-  "models.assist.useRepair": "Document repair pass — reconcile a page’s draft transcription against the OCR text",
   "models.assist.egressWarning": "When assigned a task, this model receives document content — OCR-extracted text and draft transcriptions, and rendered page images for image-based tasks. That data leaves your instance.",
   "models.assist.egressPending": "You will confirm egress to {{host}} when you save.",
   "models.render.title": "Page renderer",
@@ -1532,5 +1530,6 @@
   "models.confirm.faceOffMessage": "No new faces will be detected or embedded from this point on.\n\nExisting face vectors and person labels are NOT removed — they stay stored and searchable until the files they came from are deleted. Turning this off is not the same as erasing what has already been collected.",
   "models.confirm.faceOffConfirm": "Turn off — I understand",
   "spaces.schema.propertySchemasHint": "— the properties this type declares; how strictly they are enforced follows the validation setting above",
-  "models.face.gatedByPipeline": "Face recognition follows the Images pipeline: raise it to \"Caption + face recognition\" to detect and embed faces. Requires the local model files to be present."
+  "models.face.gatedByPipeline": "Face recognition follows the Images pipeline: raise it to \"Caption + face recognition\" to detect and embed faces. Requires the local model files to be present.",
+  "models.assist.gatedByPipeline": "Used for the document repair pass. Raise Document extraction to \"Repair\" (or Auto) to route repairs through it; you will be asked to acknowledge the egress."
 }

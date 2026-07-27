@@ -17,7 +17,7 @@ import { TranslocoService } from '@jsverse/transloco';
 import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 import { StatusVariant } from '../../../shared/status-pill.component';
 import {
-  MediaCfg, MediaClass, DocProcCfg, DocAssistCfg, DocAssistUse, DocMode, EmbeddingCfg,
+  MediaCfg, MediaClass, DocProcCfg, DocAssistCfg, DocMode, EmbeddingCfg,
   TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES,
 } from './models.types';
 
@@ -98,25 +98,26 @@ export class ModelsStateService {
   /** Live handle to the editable assist-model block (lazily initialised so templates can bind fields). */
   get assist(): DocAssistCfg { return (this.form.documentProcessing ??= {}).assistModel ??= {}; }
   assistLocked(): boolean { return this.isLocked('documentProcessing.assistModel'); }
-  assistUses(u: DocAssistUse): boolean { return this.assist.uses?.includes(u) ?? false; }
+
   /** True when the external assist model is actually configured — a base URL AND a model to call.
    *  Without both there is no endpoint, so nothing it is "used" for can run. */
   assistConfigured(): boolean { return !!this.assist.baseUrl?.trim() && !!this.assist.model?.trim(); }
-  /** True when `u` is BOTH toggled on AND the model is configured — i.e. actually operational. The
-   *  "in use" pill keys off this, not the toggle alone: a repair pass toggled on but with no assist
-   *  model configured does not run, so the pill must not claim it is in use. */
-  assistInUse(u: DocAssistUse): boolean { return this.assistUses(u) && this.assistConfigured(); }
-  toggleAssistUse(u: DocAssistUse, on: boolean): void {
-    const set = new Set(this.assist.uses ?? []);
-    if (on) set.add(u); else set.delete(u);
-    this.assist.uses = [...set];
+  /** The assist model is live when it is configured AND the extraction rung that uses it is reachable. */
+  assistInUse(): boolean { return this.assistConfigured() && this.repairReachable(); }
+  /** `repair` uses the assist model outright; `auto` resolves to repair when a repair capability exists. */
+  repairReachable(): boolean {
+    const m = this.form.documentProcessing?.mode;
+    return m === 'repair' || m === 'auto';
   }
   /** The endpoint host (for the egress acknowledgment), or '' when the URL is empty/invalid. */
   assistHost(): string { try { return this.assist.baseUrl ? new URL(this.assist.baseUrl).host : ''; } catch { return ''; } }
-  /** True when a task is assigned to an endpoint whose host has not been acknowledged — save prompts. */
+  /** True when the pipeline could actually reach an endpoint whose host has not been acknowledged — the
+   *  save prompts for consent. Keyed off the extraction RUNG (repair/auto), not a separate tick: the
+   *  assist model exists to serve the repair pass, so consent is due exactly when repair becomes
+   *  reachable — whether by configuring the endpoint or by raising the mode. */
   assistNeedsAck(): boolean {
     const host = this.assistHost();
-    return !!host && (this.assist.uses?.length ?? 0) > 0 && this.assist.acknowledgedHost !== host;
+    return !!host && this.repairReachable() && this.assist.acknowledgedHost !== host;
   }
 
   /** The loaded doc-processing config (read-only fields like vlmModel live here). */
@@ -129,9 +130,9 @@ export class ModelsStateService {
       next: cfg => {
         this.lockedByInfra = cfg.lockedByInfra ?? [];
         const dp: DocProcCfg = { mode: 'auto', renderDpi: 150, maxPages: 50, pageTimeoutMs: 60000, concurrency: 2, ocrTimeoutMs: 120000, ...cfg.documentProcessing };
-        // F11-b — keep a copy of the assist model with `uses` always an array; the masked apiKey stays
+        // F11-b — the masked apiKey stays
         // only so the UI can show "key set" — it is never sent back (assistApiKeyInput carries changes).
-        dp.assistModel = { uses: [], ...cfg.documentProcessing?.assistModel };
+        dp.assistModel = { ...cfg.documentProcessing?.assistModel };
         this.form = { vision: {}, stt: {}, ...cfg, documentProcessing: dp };
         this.form.vision = { ...cfg.vision, apiKey: undefined };
         this.form.stt = { ...cfg.stt, apiKey: undefined };
@@ -261,11 +262,10 @@ export class ModelsStateService {
     if (this.managed) return; // infra-managed: the API would reject it anyway
     const dp = this.form.documentProcessing ?? {};
     const assist = dp.assistModel ?? {};
-    const uses = assist.uses ?? [];
     const host = this.assistHost();
 
-    // F11-b — egress acknowledgment: assigning a task to an external endpoint whose host is not yet
-    // acknowledged requires an explicit confirmation that document content leaves the instance.
+    // F11-b — egress acknowledgment: making an external endpoint REACHABLE by the repair pass, without its
+    // host already acknowledged, requires an explicit confirmation that document content leaves the box.
     if (!this.assistLocked() && this.assistNeedsAck()) {
       const ok = await this.confirmDialog.confirm({
         title: this.transloco.translate('models.confirm.egressTitle'),
@@ -309,12 +309,11 @@ export class ModelsStateService {
     this.saving.set(true);
     this.saveError.set('');
     this.saveOk.set('');
-    // Assist block: send baseUrl/model/uses/acknowledgedHost (+ apiKey only when the operator typed a
+    // Assist block: send baseUrl/model/acknowledgedHost (+ apiKey only when the operator typed a
     // new one — the masked value from GET is never echoed back). Omitted when locked by env.
     const assistPayload: DocAssistCfg | undefined = this.assistLocked() ? undefined : {
       baseUrl: assist.baseUrl || undefined,
       model: assist.model || undefined,
-      uses,
       acknowledgedHost: assist.acknowledgedHost,
       ...(this.assistApiKeyInput ? { apiKey: this.assistApiKeyInput } : {}),
     };

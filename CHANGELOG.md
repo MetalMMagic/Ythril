@@ -2519,6 +2519,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     bare instance behaves exactly as before. **Existing instances that never chose a mode will drop from
     `repair` to `vlm`;** set it back to `repair`/`auto` under Settings → Models if you want the repair pass.
 
+- **The external assist model lost its "used for" checkbox — the extraction rung is the switch, and the
+  egress acknowledgement moved there with it.** `DocAssistUse` had exactly one value (`repair`), and the
+  extraction ladder's `repair` rung already decides whether a repair pass runs, so the tick was a second
+  switch for the only thing the assist model does. Configure an endpoint and raise **Document extraction**
+  to `repair`/`auto` to route through it — **the acknowledgement is now demanded at that moment**, whether
+  you reached it by configuring the endpoint or by raising the mode, and it is still enforced server-side so
+  the consent stays auditable rather than being a UI formality. The runtime gate is now the acknowledgement
+  itself: an endpoint whose host is not acknowledged is never contacted and repairs fall back to the local
+  model. `uses` is retired from the config, the API (`PATCH` rejects it) and the UI; a stale `uses` key in an
+  existing config.json is simply ignored.
+
 - **Face recognition lost its own on/off checkbox — the Images pipeline is the control.** It was never
   really a second setting: the checkbox was the only thing keeping faces off, while the image ceiling
   already said "allowed". Now the ladder is the single gate, and `mediaEmbedding.faceRecognition.enabled`

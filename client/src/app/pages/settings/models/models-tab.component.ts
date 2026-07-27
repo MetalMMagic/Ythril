@@ -230,8 +230,8 @@ import { TestTarget } from './models.types';
         [heading]="'models.assist.title' | transloco"
         [purpose]="'models.assist.purpose' | transloco"
         [health]="pipeline.modelState('assist')">
-        <app-status-pill pill [variant]="s.assistLocked() ? 'env' : (s.assistInUse('repair') ? 'active' : 'off')">
-          {{ (s.assistLocked() ? 'models.pill.env' : (s.assistInUse('repair') ? 'models.assist.pillInUse' : 'models.assist.pillUnset')) | transloco }}
+        <app-status-pill pill [variant]="s.assistLocked() ? 'env' : (s.assistInUse() ? 'active' : 'off')">
+          {{ (s.assistLocked() ? 'models.pill.env' : (s.assistInUse() ? 'models.assist.pillInUse' : 'models.assist.pillUnset')) | transloco }}
         </app-status-pill>
         <!-- Moved out of the footer, where it was effectively invisible. -->
         @if (s.assist.acknowledgedHost && !s.assistNeedsAck()) {
@@ -252,19 +252,10 @@ import { TestTarget } from './models.types';
           <input id="assist-key" type="password" [(ngModel)]="s.assistApiKeyInput" [disabled]="s.assistLocked()"
             [placeholder]="(s.assist.apiKey ? 'models.field.apiKeyKeep' : 'models.field.apiKeyOptional') | transloco" />
         </div>
-        <div class="field">
-          <label>{{ 'models.assist.usedFor' | transloco }}</label>
-          <!-- The checkrow is deliberately NOT a direct-child label of .field: that rule renders a
-               field-caption (block + uppercase), which floated the checkbox above an all-caps label.
-               Wrapping it keeps the checkbox beside its own normal-case label (same fix as the face card). -->
-          <div class="switchrow" style="margin-bottom:0;">
-            <label class="checkrow">
-              <input type="checkbox" [checked]="s.assistUses('repair')"
-                (change)="s.toggleAssistUse('repair', $any($event.target).checked)" [disabled]="s.assistLocked()" />
-              <span>{{ 'models.assist.useRepair' | transloco }}</span>
-            </label>
-          </div>
-        </div>
+        <!-- No "used for" tick: the assist model exists to serve the repair pass, so the extraction rung
+             is the switch. Configure the endpoint here, then raise Document extraction to repair (or auto)
+             to actually route through it — at which point the egress acknowledgement is demanded. -->
+        <div class="hint" style="margin-bottom:10px;">{{ 'models.assist.gatedByPipeline' | transloco }}</div>
         <div class="warnline">
           <ph-icon name="warning" [size]="15"/>
           <span>

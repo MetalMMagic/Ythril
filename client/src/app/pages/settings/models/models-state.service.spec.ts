@@ -253,7 +253,7 @@ describe('ModelsStateService — the two confirmations', () => {
     const assist = c.form.documentProcessing!.assistModel!;
     assist.baseUrl = 'https://api.example.com/v1';
     assist.model = 'gpt-4o';
-    assist.uses = ['repair'];
+    c.form.documentProcessing!.mode = 'repair';   // the rung is what makes the endpoint reachable
     expect(c.assistNeedsAck()).toBe(true);
     await c.save();
     expect(confirm).toHaveBeenCalledOnce();
@@ -265,7 +265,7 @@ describe('ModelsStateService — the two confirmations', () => {
     const assist = c.form.documentProcessing!.assistModel!;
     assist.baseUrl = 'https://api.example.com/v1';
     assist.model = 'gpt-4o';
-    assist.uses = ['repair'];
+    c.form.documentProcessing!.mode = 'repair';
     await c.save();
     const sentAssist = (sent(patch)['documentProcessing'] as Record<string, Record<string, unknown>>)['assistModel'];
     expect(sentAssist['acknowledgedHost']).toBe('api.example.com');
@@ -276,7 +276,7 @@ describe('ModelsStateService — the two confirmations', () => {
     const assist = c.form.documentProcessing!.assistModel!;
     assist.baseUrl = 'https://api.example.com/v1';
     assist.model = 'gpt-4o';
-    assist.uses = ['repair'];
+    c.form.documentProcessing!.mode = 'repair';
     assist.acknowledgedHost = 'api.example.com';
     expect(c.assistNeedsAck()).toBe(false);
     await c.save();
@@ -496,31 +496,39 @@ describe('ModelsStateService — assist "in use" reflects real configuration (re
     make(cfgFixture({
       documentProcessing: {
         mode: 'ocr', renderDpi: 150, maxPages: 50, pageTimeoutMs: 60000, concurrency: 2, ocrTimeoutMs: 120000,
-        assistModel: { uses: [], baseUrl: '', model: '', ...assist },
+        assistModel: { baseUrl: '', model: '', ...assist },
       },
     })).c;
 
-  it('is NOT in use when repair is toggled on but no assist model is configured (the reported bug)', () => {
-    const c = withAssist({ uses: ['repair'], baseUrl: '', model: '' });
-    expect(c.assistUses('repair')).toBe(true);       // the toggle is on…
-    expect(c.assistConfigured()).toBe(false);        // …but there is no endpoint
-    expect(c.assistInUse('repair')).toBe(false);     // so the pill must not say "in use"
+  // The `uses: ['repair']` tick is gone — the extraction rung is the switch. The bug this block guards
+  // is unchanged in spirit: the pill must claim "in use" only when the model can ACTUALLY be called.
+  it('is NOT in use when the rung reaches repair but no assist model is configured (the reported bug)', () => {
+    const c = withAssist({ baseUrl: '', model: '' });
+    c.form.documentProcessing!.mode = 'repair';
+    expect(c.repairReachable()).toBe(true);      // the rung would use it…
+    expect(c.assistConfigured()).toBe(false);    // …but there is no endpoint
+    expect(c.assistInUse()).toBe(false);         // so the pill must not say "in use"
   });
 
-  it('is NOT in use when configured but repair is not toggled on', () => {
-    const c = withAssist({ uses: [], baseUrl: 'https://api.example.com/v1', model: 'gpt-4o' });
+  it('is NOT in use when configured but the rung never reaches repair', () => {
+    const c = withAssist({ baseUrl: 'https://api.example.com/v1', model: 'gpt-4o' });
+    expect(c.form.documentProcessing!.mode).toBe('ocr');
     expect(c.assistConfigured()).toBe(true);
-    expect(c.assistInUse('repair')).toBe(false);
+    expect(c.assistInUse()).toBe(false);
   });
 
-  it('IS in use only when repair is toggled AND a base URL + model are set', () => {
-    const c = withAssist({ uses: ['repair'], baseUrl: 'https://api.example.com/v1', model: 'gpt-4o' });
-    expect(c.assistInUse('repair')).toBe(true);
+  it('IS in use only when the rung reaches repair AND a base URL + model are set', () => {
+    const c = withAssist({ baseUrl: 'https://api.example.com/v1', model: 'gpt-4o' });
+    for (const mode of ['repair', 'auto'] as const) {
+      c.form.documentProcessing!.mode = mode;
+      expect(c.assistInUse()).toBe(true);
+    }
   });
 
   it('a base URL without a model is not configured (both are required to call an endpoint)', () => {
-    const c = withAssist({ uses: ['repair'], baseUrl: 'https://api.example.com/v1', model: '' });
+    const c = withAssist({ baseUrl: 'https://api.example.com/v1', model: '' });
+    c.form.documentProcessing!.mode = 'repair';
     expect(c.assistConfigured()).toBe(false);
-    expect(c.assistInUse('repair')).toBe(false);
+    expect(c.assistInUse()).toBe(false);
   });
 });

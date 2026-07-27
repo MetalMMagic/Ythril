@@ -929,7 +929,6 @@ export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig
     assistModel: {
       baseUrl: process.env['DOC_ASSIST_URL'] ?? base.assistModel?.baseUrl,
       model: process.env['DOC_ASSIST_MODEL'] ?? base.assistModel?.model,
-      uses: base.assistModel?.uses ?? [],
       acknowledgedHost: base.assistModel?.acknowledgedHost,
     },
   };

@@ -27,6 +27,7 @@ export const upsert_entityTool: ToolHandler = {
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+            checkContradictions: { type: 'boolean', default: false, description: 'Also flag existing entities that CONTRADICT this one — a near-neighbour setting the same single-valued property to a different value. Deterministic only (no model call). The entity is still stored regardless.' },
             checkDuplicates: { type: 'boolean', default: true, description: 'On a NEW entity insert (no id / unknown id), run a semantic near-duplicate check first (default true). Flags highly similar existing entities (id + summary + score) so you can merge or update instead of creating a duplicate. Does not fire on updates. Set false to skip.' },
             dupeThreshold: unitScoreSchema('Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.'),
             ttlDays: TTL_DAYS_SCHEMA,
@@ -61,13 +62,20 @@ export const upsert_entityTool: ToolHandler = {
     // Insert-time duplicate check defaults ON for the interactive upsert tool
     // (only fires on inserts, not updates — see upsertEntity).
     const entDupeCheck = a['checkDuplicates'] !== false;
+    const entContraCheck = a['checkContradictions'] === true;
     const entDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
     const entTtlDays = ttlDaysFromArgs(a);
-    const { entity, warning, similar } = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId,
-      { checkDuplicates: entDupeCheck, dupeThreshold: entDupeThreshold }, ctx.actor, entTtlDays);
+    const { entity, warning, similar, contradicts } = await upsertEntity(wt.target, eName, eType, tags, props, description, rawId,
+      { checkDuplicates: entDupeCheck, checkContradictions: entContraCheck, dupeThreshold: entDupeThreshold }, ctx.actor, entTtlDays);
     let msg = `Entity '${entity.name}' (${entity.type}) upserted (ID ${entity._id}).${warning ? `\n⚠️ ${warning}` : ''}`;
     if (similar && similar.length > 0) {
       msg += `\n⚠️ Possible duplicate — ${similar.length} existing entit${similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. Pass checkDuplicates:false to skip, or provide the existing id to update it instead.`;
+    }
+    if (contradicts && contradicts.length > 0) {
+      const detail = contradicts.map(c =>
+        `"${c.summary}" (ID ${c.id}: ${c.fields.map(f => `${f.key} ${f.aValue} vs ${f.bValue}`).join(', ')})`).join('; ');
+      msg += `
+⚠️ Contradiction — ${contradicts.length} existing entit${contradicts.length === 1 ? 'y disagrees' : 'ies disagree'} with this one: ${detail}. The entity was still stored. If you are correcting an outdated fact, update the record above instead of leaving both.`;
     }
     // Schema warnings (reuse violations from pre-write check)
     if (entMeta?.validationMode === 'warn') {

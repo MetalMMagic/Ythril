@@ -7,6 +7,7 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { authorRef } from '../config/author.js';
+import { findInsertContradictions, type ContradictionWarning } from './insert-contradictions.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
@@ -42,17 +43,23 @@ export async function remember(
   opts?: DupeCheckOpts,
   actor?: WebhookActor,
   ttlDays?: number | null,
-): Promise<MemoryDoc & { similar?: SimilarMatch[] }> {
+): Promise<MemoryDoc & { similar?: SimilarMatch[]; contradicts?: ContradictionWarning[] }> {
   const names = entityNames ?? await resolveEntityNames(spaceId, entityIds);
   const embedText = memoryEmbedText(fact, tags, names, description, properties);
   const embResult = await embed(embedText);
 
-  // Opt-in insert-time duplicate check, using the freshly computed vector
-  // BEFORE insert so it can never self-match.
+  // Opt-in insert-time duplicate / contradiction checks, using the freshly computed vector BEFORE insert
+  // so it can never self-match. ONE neighbour search serves both flags — the second question is free once
+  // the first has paid for the vector search.
   let similar: SimilarMatch[] | undefined;
-  if (opts?.checkDuplicates) {
+  let contradicts: ContradictionWarning[] | undefined;
+  if (opts?.checkDuplicates || opts?.checkContradictions) {
     const hits = await checkDuplicates(spaceId, 'memory', embResult.vector, opts.dupeThreshold, opts.dupeTopK);
-    if (hits.length > 0) similar = hits;
+    if (opts.checkDuplicates && hits.length > 0) similar = hits;
+    if (opts.checkContradictions && hits.length > 0) {
+      const found = await findInsertContradictions(spaceId, 'memory', { properties }, hits);
+      if (found.length > 0) contradicts = found;
+    }
   }
 
   const seq = await nextSeq(spaceId);
@@ -82,7 +89,8 @@ export async function remember(
     import('./dupe-scanner.js').then(m => m.evaluateRecordForDuplicates(spaceId, 'memory', doc._id)).catch(() => { /* best-effort */ });
   }
   if (actor) emitWebhookEvent({ event: 'memory.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
-  return similar ? { ...doc, similar } : doc;
+  // Advisory only — the record is stored either way.
+  return (similar || contradicts) ? { ...doc, ...(similar ? { similar } : {}), ...(contradicts ? { contradicts } : {}) } : doc;
 }
 
 /** Update an existing memory's fact, tags, entityIds, description, or properties. Re-embeds when content fields change. */

@@ -45,6 +45,7 @@ export const rememberTool: ToolHandler = {
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
             checkDuplicates: { type: 'boolean', default: true, description: 'Run a semantic near-duplicate check before storing (default true). When a highly similar memory already exists, the response flags it (id + summary + score) so you can update it instead of creating a redundant one. The memory is still stored regardless. Set false to skip the check.' },
+            checkContradictions: { type: 'boolean', default: false, description: 'Also flag existing memories that CONTRADICT this one — a near-neighbour that sets the same single-valued property to a different value (e.g. status="active" vs status="retired"). Different question from checkDuplicates: "is this redundant?" vs "does this conflict with what we already believe?". Deterministic only (no model call, no added latency). The memory is still stored regardless — if you are correcting an outdated fact, that is expected; consider updating or superseding the record named in the warning.' },
             dupeThreshold: unitScoreSchema('Cosine-similarity threshold for the duplicate check (0-1, default ~0.92). Lower to flag looser matches.'),
             ttlDays: TTL_DAYS_SCHEMA,
           },
@@ -96,13 +97,21 @@ export const rememberTool: ToolHandler = {
     const resolvedNames = (await findEntitiesByIds(ts, entityIds)).map(e => e.name);
     // Insert-time duplicate check defaults ON for the interactive remember tool.
     const remDupeCheck = a['checkDuplicates'] !== false;
+    const remContraCheck = a['checkContradictions'] === true;
     const remDupeThreshold = typeof a['dupeThreshold'] === 'number' ? a['dupeThreshold'] : undefined;
     const remTtlDays = ttlDaysFromArgs(a);
     const mem = await remember(ts, fact, entityIds, tags, description, props, resolvedNames, memType,
-      { checkDuplicates: remDupeCheck, dupeThreshold: remDupeThreshold }, ctx.actor, remTtlDays);
+      { checkDuplicates: remDupeCheck, checkContradictions: remContraCheck, dupeThreshold: remDupeThreshold }, ctx.actor, remTtlDays);
     const warnings: string[] = [];
     if (mem.similar && mem.similar.length > 0) {
       warnings.push(`⚠️ Possible duplicate — ${mem.similar.length} existing memor${mem.similar.length === 1 ? 'y is' : 'ies are'} highly similar: ${mem.similar.map(s => `"${s.summary}" (ID ${s._id}, ${s.score.toFixed(2)})`).join('; ')}. This memory was still stored; pass checkDuplicates:false to skip this check, or update the existing one instead.`);
+    }
+    if (mem.contradicts && mem.contradicts.length > 0) {
+      // Named field + both values: the agent should be able to see WHAT disagrees, not just that
+      // something does — otherwise it cannot decide whether it is correcting or mistaken.
+      const detail = mem.contradicts.map(c =>
+        `"${c.summary}" (ID ${c.id}: ${c.fields.map(f => `${f.key} ${f.aValue} vs ${f.bValue}`).join(', ')})`).join('; ');
+      warnings.push(`⚠️ Contradiction — ${mem.contradicts.length} existing memor${mem.contradicts.length === 1 ? 'y disagrees' : 'ies disagree'} with this one: ${detail}. This memory was still stored. If you are correcting an outdated fact, update or supersede the record above instead of leaving both.`);
     }
     // (An unresolved or ambiguous reference is now a hard error above, not a warning on a write
     // that already happened.)

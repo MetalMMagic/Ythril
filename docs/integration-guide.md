@@ -6209,6 +6209,32 @@ Stored memory (seq 1284, ID 7f3c…).
 ⚠️ Possible duplicate — 1 existing memory is highly similar: "The Vault service stores secrets and rotates auth tokens" (ID 9a1b…, 0.97). This memory was still stored; pass checkDuplicates:false to skip this check, or update the existing one instead.
 ```
 
+#### Contradiction warning on insert
+
+`checkContradictions` (default **off**) asks a different question of the same neighbours: not *"is this
+redundant?"* but *"does this conflict with what we already believe?"*. When a near-neighbour sets the same
+single-valued property to a different value, the response names the property and **both** values:
+
+```text
+Stored memory (seq 1290, ID 4c2e…).
+⚠️ Contradiction — 1 existing memory disagrees with this one: "Vault runs in the eu-west cluster" (ID 9a1b…: region eu-west vs us-east). This memory was still stored. If you are correcting an outdated fact, update or supersede the record above instead of leaving both.
+```
+
+Three deliberate limits:
+
+- **It is its own flag**, not a rider on `checkDuplicates` — a caller may well want the conflict check
+  without the redundancy check. One neighbour search serves both when both are on.
+- **Deterministic only.** The entailment (NLI) judge is a model call *per pair*; on the write path that
+  would add latency to every insert and, with an external endpoint, send record text off the instance on
+  every insert. The nightly scanner runs the NLI pass over the same pairs, so nothing is lost — this is a
+  fast-path courtesy, not the safety net.
+- **It never blocks the write.** An agent correcting an outdated fact *should* be able to contradict the
+  record it supersedes; the point is to tell it, not to stop it.
+
+Available on `remember` and `upsert_entity`. **Not** on edges or files: edge writes are the bulk path
+(imports, peer sync, subgraph building) where a per-insert vector search would be felt most, and a file
+record "disagreeing" with another is not a meaningful claim.
+
 - **The write always succeeds** — the check is advisory, never blocking. It also never fails an insert: if vector search is unavailable or the space needs reindexing, the check is silently skipped.
 - **Default on** for both tools. Pass `checkDuplicates: false` to skip it, or `dupeThreshold` (0–1, default ~0.92) to tune sensitivity — lower flags looser matches.
 - For `upsert_entity` the check fires only on a **new insert** (no `id`, or an `id` that does not yet exist), not on updates.

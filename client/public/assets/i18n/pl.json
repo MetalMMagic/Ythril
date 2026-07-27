@@ -1555,5 +1555,10 @@
   "review.contradictions.versus": "vs",
   "review.contradictions.action.edited": "Rozwiązane przez edycję",
   "review.contradictions.action.linked": "Połącz jako sprzeczność",
-  "review.contradictions.loadError": "Nie udało się wczytać sprzeczności."
+  "review.contradictions.loadError": "Nie udało się wczytać sprzeczności.",
+  "review.typeFilter.label": "Typ rekordu",
+  "review.typeFilter.all": "Wszystkie typy",
+  "review.typeFilter.capped": "Pokazano pierwsze 500 wyników — filtry dotyczą tylko ich.",
+  "review.typeFilter.noneOfType": "Brak wyników tego typu",
+  "review.typeFilter.noneOfTypeBody": "W tej kolejce są wyniki, ale żaden nie jest wybranego typu rekordu. Wybierz „Wszystkie typy”, aby je zobaczyć."
 }

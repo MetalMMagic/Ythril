@@ -1555,5 +1555,10 @@
   "review.contradictions.versus": "vs",
   "review.contradictions.action.edited": "Resolved by edit",
   "review.contradictions.action.linked": "Link as contradiction",
-  "review.contradictions.loadError": "Could not load contradictions."
+  "review.contradictions.loadError": "Could not load contradictions.",
+  "review.typeFilter.label": "Record type",
+  "review.typeFilter.all": "All types",
+  "review.typeFilter.capped": "Showing the first 500 findings — filters apply to those only.",
+  "review.typeFilter.noneOfType": "No findings of this type",
+  "review.typeFilter.noneOfTypeBody": "There are findings in this queue, but none of the selected record type. Choose All types to see them."
 }

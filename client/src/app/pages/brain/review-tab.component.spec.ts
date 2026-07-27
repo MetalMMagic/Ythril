@@ -208,6 +208,95 @@ describe('ReviewTabComponent', () => {
   // Sub-tabs, not a compact toggle: the owner's call was explicitly "not a small toggle that noone finds".
   // The Review tab is the space's record-QA queue and will grow past two views, so it uses the same tab
   // affordance as the rest of the app.
+  // Owner's call: the sub-tabs stay KINDS OF FINDING; record type is a filter INSIDE them. Splitting by
+  // type as well would produce a duplicates×type / contradictions×type matrix that grows badly.
+  describe('record-type filter', () => {
+    const mixed = [rec({ id: 'd1', type: 'entity' }), rec({ id: 'd2', type: 'memory' }), rec({ id: 'd3', type: 'chrono' })];
+
+    it('offers only the types actually present, so no choice can yield nothing', () => {
+      const { c } = setup({ listDuplicates: () => of({ duplicates: mixed }) });
+      expect(c.availableTypes()).toEqual(['chrono', 'entity', 'memory']);
+    });
+
+    it('hides the control entirely when everything is one type', () => {
+      // A filter with a single real option is noise on a queue that is already one kind of thing.
+      const { f, c } = setup({ listDuplicates: () => of({ duplicates: [rec({ type: 'entity' }), rec({ id: 'd2', type: 'entity' })] }) });
+      expect(c.availableTypes().length).toBe(1);
+      expect((f.nativeElement as HTMLElement).querySelector('#review-type-filter')).toBeNull();
+    });
+
+    it('keeps the control visible whenever a filter is applied, even where the type is absent', () => {
+      // The signal is shared across sub-tabs. Filtering Duplicates to `memory` and switching to a
+      // Contradictions queue with no memory findings must not hide the control while it is still
+      // constraining the list — that leaves an empty view with no way to clear it.
+      const { f, c } = setup({ listDuplicates: () => of({ duplicates: [rec({ type: 'entity' })] }) });
+      expect((f.nativeElement as HTMLElement).querySelector('#review-type-filter')).toBeNull();
+      c.typeFilter.set('memory');
+      f.detectChanges();
+      expect(c.showTypeFilter()).toBe(true);
+      expect((f.nativeElement as HTMLElement).querySelector('#review-type-filter')).not.toBeNull();
+    });
+
+    it('offers the active filter as an option even when this tab has none of that type', () => {
+      // Otherwise the <select> holds a value with no matching <option> and renders blank — looking unset
+      // while still filtering.
+      const { c } = setup({ listDuplicates: () => of({ duplicates: [rec({ type: 'entity' })] }) });
+      c.typeFilter.set('memory');
+      expect(c.typeOptions()).toContain('memory');
+    });
+
+    it('narrows the duplicate list to the chosen type', () => {
+      const { c } = setup({ listDuplicates: () => of({ duplicates: mixed }) });
+      expect(c.filteredRows().length).toBe(3);
+      c.typeFilter.set('memory');
+      expect(c.filteredRows().map(r => r.id)).toEqual(['d2']);
+    });
+
+    it('applies to contradictions too, from the same control', () => {
+      // One shared signal: "I am looking at chrono findings" should survive a tab switch rather than
+      // meaning something different on each side.
+      const { c } = setup({}, true, { listContradictions: () => of({ contradictions: [
+        { id: 'c1', type: 'memory' }, { id: 'c2', type: 'chrono' },
+      ] }) });
+      c.typeFilter.set('chrono');
+      expect(c.conFilteredRows().map((r: { id: string }) => r.id)).toEqual(['c2']);
+    });
+
+    it('combines with the search box rather than replacing it', () => {
+      const { c } = setup({ listDuplicates: () => of({ duplicates: [
+        rec({ id: 'd1', type: 'memory', aSummary: 'kafka broker' }),
+        rec({ id: 'd2', type: 'memory', aSummary: 'postgres tuning' }),
+        rec({ id: 'd3', type: 'entity', aSummary: 'kafka broker' }),
+      ] }) });
+      c.typeFilter.set('memory');
+      c.query.set('kafka');
+      expect(c.filteredRows().map(r => r.id)).toEqual(['d1']);
+    });
+
+    it('says the queue is not empty when only the FILTER is', () => {
+      // "Nothing to review" would be a lie — there are findings, just not of this type.
+      const { f, c } = setup({ listDuplicates: () => of({ duplicates: mixed }) });
+      c.typeFilter.set('memory');
+      c.query.set('nothing-matches-this');
+      f.detectChanges();
+      expect(c.filteredRows().length).toBe(0);
+      expect(c.rows().length).toBeGreaterThan(0);
+    });
+
+    it('warns that filters only cover the first 500 when the server cap was hit', () => {
+      // Both list endpoints cap at 500 per space with no pagination. A filter over a truncated set would
+      // imply completeness it cannot have.
+      const many = Array.from({ length: 500 }, (_, i) => rec({ id: `d${i}`, type: i % 2 ? 'memory' : 'entity' }));
+      const { c } = setup({ listDuplicates: () => of({ duplicates: many }) });
+      expect(c.listCapped()).toBe(true);
+    });
+
+    it('does not warn when the list is comfortably under the cap', () => {
+      const { c } = setup({ listDuplicates: () => of({ duplicates: mixed }) });
+      expect(c.listCapped()).toBe(false);
+    });
+  });
+
   describe('sub-tabs', () => {
     it('offers Duplicates and Contradictions as real tabs, Duplicates first', () => {
       const { f } = setup();

@@ -16,6 +16,7 @@ import { deleteMemory } from './memory.js';
 import { deleteEntity } from './entities.js';
 import { deleteEdge } from './edges.js';
 import { deleteChrono } from './chrono.js';
+import { deleteFileCascade } from '../files/delete-cascade.js';
 
 const SWEEP_INTERVAL_MS = 5 * 60_000; // 5 min
 const SWEEP_BATCH = 500;              // max deletions per collection per cycle
@@ -28,6 +29,14 @@ const DELETERS: Record<(typeof TTL_COLLECTIONS)[number], (spaceId: string, id: s
   entities: deleteEntity,
   edges: deleteEdge,
   chrono: deleteChrono,
+  // A file record's `_id` is its path (toDocId); the full cascade removes blob + chunks + meta + jobs.
+  files: (spaceId, id, actor) => deleteFileCascade(spaceId, id, actor).then(() => true),
+};
+
+/** Extra filter for the sweep query, per collection. Files: only the file-level records (chunk/face
+ *  records carry `parentFileId` and never an `_expireAt`) and not already soft-deleted. */
+const SWEEP_FILTER: Partial<Record<(typeof TTL_COLLECTIONS)[number], Record<string, unknown>>> = {
+  files: { parentFileId: { $exists: false }, deletedAt: { $exists: false } },
 };
 
 /** Delete all records past their `_expireAt`, across every space. Returns the number deleted. */
@@ -41,7 +50,7 @@ export async function sweepExpired(now: Date = new Date()): Promise<number> {
       let expired;
       try {
         expired = await col(`${space.id}_${c}`)
-          .find(asFilter({ _expireAt: { $lte: now } }), { projection: { _id: 1 } })
+          .find(asFilter({ _expireAt: { $lte: now }, ...(SWEEP_FILTER[c] ?? {}) }), { projection: { _id: 1 } })
           .limit(SWEEP_BATCH)
           .toArray() as unknown as Array<{ _id: string }>;
       } catch { continue; } // collection may not exist yet

@@ -71,6 +71,18 @@ function webhookToken(req: Request): { tokenId?: string; tokenLabel?: string } {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Parse an optional `?ttlDays=` upload query param (per-record file TTL, F12). Must be a query param,
+ * not a body field, so it works for raw-binary uploads too. A non-negative number wins; `0` means
+ * "never expire" (explicit); anything invalid/absent → undefined (fall back to the space default).
+ */
+function parseTtlDaysQuery(req: Request): number | undefined {
+  const raw = req.query['ttlDays'];
+  if (raw == null || raw === '') return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
 /** Validate and return the `path` query param; 404 if missing. */
 function requireQueryPath(req: Request, res: Response): string | null {
   const p = req.query['path'];
@@ -410,7 +422,7 @@ fileStoreRouter.post(
           const absTarget = resolveSafePath(targetSpace, filePath);
           await assertNoSymlinkEscape(targetSpace, absTarget);
           const sha256 = await assembleChunks(targetSpace, filePath, range.total, absTarget);
-          await upsertFileMeta(targetSpace, filePath, range.total).catch(err => {
+          await upsertFileMeta(targetSpace, filePath, range.total, { ttlDays: parseTtlDaysQuery(req) }).catch(err => {
             log.warn(`upsertFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
           });
 
@@ -485,12 +497,14 @@ fileStoreRouter.post(
       }
 
       // Persist file metadata to MongoDB
-      const metaOpts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> } = {};
+      const metaOpts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; ttlDays?: number } = {};
       if (typeof req.body?.description === 'string') metaOpts.description = req.body.description;
       if (Array.isArray(req.body?.tags)) metaOpts.tags = req.body.tags as string[];
       if (req.body?.properties != null && typeof req.body.properties === 'object' && !Array.isArray(req.body.properties)) {
         metaOpts.properties = req.body.properties as Record<string, string | number | boolean>;
       }
+      const ttlDaysQ = parseTtlDaysQuery(req);
+      if (ttlDaysQ !== undefined) metaOpts.ttlDays = ttlDaysQ;
       await upsertFileMeta(targetSpace, filePath, incomingBytes, metaOpts).catch(err => {
         log.warn(`upsertFileMeta error for space ${targetSpace}, path ${filePath}: ${err}`);
       });

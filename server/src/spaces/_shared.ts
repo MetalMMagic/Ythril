@@ -43,7 +43,15 @@ export async function syncSchemaFiles(spaceId: string, meta: SpaceMeta | undefin
   }
 }
 
-export const SPACE_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'tombstones', 'conflicts', 'files', 'dupe_candidates'] as const;
+/**
+ * Per-space collections `initSpace` creates and indexes.
+ *
+ * **Add new per-space collections here when you add them.** Omission is silent: the collection still works
+ * (Mongo creates it lazily on first insert) but is never explicitly created and never indexed.
+ * `contradiction_candidates` shipped that way — no indexes at all, while the Review list filtered and
+ * sorted over it — and `file_tombstones` had the same hole before it (see `repairStaleSpaceIds` below).
+ */
+export const SPACE_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'tombstones', 'conflicts', 'files', 'dupe_candidates', 'contradiction_candidates'] as const;
 
 // ── Embedding model mismatch tracking ──────────────────────────────────────
 const _reindexNeeded = new Set<string>();
@@ -108,6 +116,8 @@ export async function repairStaleSpaceIds(spaceId: string): Promise<number> {
   // list was itself the bug.
   let collections: string[];
   try {
+    // Prefix match with no boundary check — safe only because a space id cannot contain an underscore
+    // (validated `^[a-z0-9-]+$`), so `_` separates unambiguously. See space-id-prefix-safety.test.js.
     collections = (await db.listCollections().toArray())
       .map(c => c.name)
       .filter(n => n.startsWith(prefix));

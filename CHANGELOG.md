@@ -1737,6 +1737,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Wiping a space left its contradiction findings behind, pointing at records that no longer exist.** The
+  wipe cleared `dupe_candidates` on both the full and per-type paths and never touched
+  `contradiction_candidates`, so after wiping a space's memories the Review tab kept listing contradictions
+  whose records were gone — and following one led nowhere. Both collections are now cleared together, on
+  both paths, using the same type mapping (extracted as a pure `candidateTypesForWipe`, so a missing entry
+  fails a test instead of silently orphaning findings).
+
+- **The contradiction-candidate collection had no indexes at all.** It was never added to
+  `SPACE_COLLECTIONS`, so it was never explicitly created or indexed — while the Review list filtered on
+  `status` and sorted by `{confidence, detectedAt}` over it, i.e. a collection scan plus an in-memory sort
+  on every load. It now gets `{status, confidence, detectedAt}` and `{type}` like its duplicate sibling.
+  (`file_tombstones` had the same omission once; that list now warns, since forgetting it is silent.)
+
+- **The `{spaceId}_` collection prefix now has a guarded invariant.** Three operations select collections by
+  that prefix with no boundary check — rename (moves data), space delete (**drops** collections), and the
+  stale-`spaceId` repair. They are correct only because a space id is validated `^[a-z0-9-]+$`, so `_`
+  cannot occur inside an id and separates unambiguously: a sibling space `work-archive` owns
+  `work-archive_memories`, which does not start with `work_`. That dependency was written down nowhere, and
+  relaxing the charset to permit `_` — a plausible thing to do for readability, or to accept an id from an
+  external system — would make deleting space `work` silently drop `work_archive`'s collections, with no
+  confirmation and no recovery outside a backup. All three sites now document it, and a test asserts the
+  pattern excludes `_` so relaxing it fails CI rather than a customer's data.
+
 - **The contradiction sweep's limits are now configurable instead of hard-coded**, and the similarity floor
   is documented on the right scale. `structuredThreshold`, `nliThreshold`, `maxJudgedPairsPerRun`,
   `batchSize` and `maxPerRun` were all fixed constants; only `dupeScanner` had equivalents.

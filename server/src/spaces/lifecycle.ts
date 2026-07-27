@@ -57,13 +57,15 @@ export async function initSpace(
   const tombstonesColl = db.collection(`${spaceId}_tombstones`);
   const conflictsColl = db.collection(`${spaceId}_conflicts`);
   const dupeColl = db.collection(`${spaceId}_dupe_candidates`);
+  const contraColl = db.collection(`${spaceId}_contradiction_candidates`);
   const filesColl = db.collection(`${spaceId}_files`);
 
   await Promise.all([
     dropLegacyPrefixedIndexes(memoriesColl), dropLegacyPrefixedIndexes(entitiesColl),
     dropLegacyPrefixedIndexes(edgesColl), dropLegacyPrefixedIndexes(chronoColl),
     dropLegacyPrefixedIndexes(tombstonesColl), dropLegacyPrefixedIndexes(conflictsColl),
-    dropLegacyPrefixedIndexes(dupeColl), dropLegacyPrefixedIndexes(filesColl),
+    dropLegacyPrefixedIndexes(dupeColl), dropLegacyPrefixedIndexes(contraColl),
+    dropLegacyPrefixedIndexes(filesColl),
   ]);
 
   await memoriesColl.createIndex({ seq: 1 });
@@ -83,6 +85,12 @@ export async function initSpace(
   // Serves the list query: equality on `status` (now the leading field) + sort by (score desc,
   // detectedAt desc).
   await dupeColl.createIndex({ status: 1, score: -1, detectedAt: -1 });
+  // Mirrors the Review list's query exactly: filter on status, then sort by confidence and recency
+  // (`api/contradictions.ts` — `.sort({ confidence: -1, detectedAt: -1 })`). Without it that endpoint was a
+  // collection scan plus an in-memory sort on every load, because this collection had no indexes at all.
+  await contraColl.createIndex({ status: 1, confidence: -1, detectedAt: -1 });
+  // The type filter in the Review tab narrows on this, and the per-type wipe below deletes by it.
+  await contraColl.createIndex({ type: 1 });
   await filesColl.createIndex({ tags: 1 });
   await filesColl.createIndex({ updatedAt: -1 });
 
@@ -224,7 +232,15 @@ export async function dropSpaceData(spaceId: string): Promise<string[]> {
     }
   }
 
-  // 2. Drop all MongoDB collections associated with this space
+  // 2. Drop all MongoDB collections associated with this space.
+  //
+  // **This is a prefix match with no boundary check, and it DROPS.** It is safe only because a space id is
+  // validated `^[a-z0-9-]+$` everywhere one is accepted (`api/spaces.ts` create + rename,
+  // `api/networks/join.ts`), so `_` can never appear inside an id and is therefore an unambiguous
+  // separator: a sibling space `work-archive` owns `work-archive_memories`, which does not start with
+  // `work_`. Relax that charset to permit `_` and deleting `work` would silently drop `work_archive`'s
+  // collections — another space's data, with no confirmation and no recovery outside a backup.
+  // `space-id-prefix-safety.test.js` pins the pattern for exactly this reason.
   const prefix = `${spaceId}_`;
   const existingColls = await db.listCollections().toArray();
   for (const coll of existingColls.filter(c => c.name.startsWith(prefix))) {
@@ -317,6 +333,24 @@ export type WipeCollectionType = 'memories' | 'entities' | 'edges' | 'chrono' | 
 
 export const WIPE_COLLECTION_TYPES: readonly WipeCollectionType[] = ['memories', 'entities', 'edges', 'chrono', 'files'];
 
+/**
+ * Which review-finding `type` values a partial wipe should clear.
+ *
+ * A finding is a claim about two records; once those records are wiped the claim is not just stale, it is
+ * unopenable — the Review tab lists it and following it leads nowhere. Both `dupe_candidates` and
+ * `contradiction_candidates` key their rows by the same singular vocabulary, so one map serves both.
+ *
+ * Pure, and exported, because it is the part with a decision in it: the collection-name plural
+ * (`memories`) and the finding `type` (`memory`) are different vocabularies, and a missing entry here
+ * silently orphans findings rather than failing.
+ */
+export function candidateTypesForWipe(targets: ReadonlySet<WipeCollectionType>): string[] {
+  const MAP: Partial<Record<WipeCollectionType, string>> = {
+    memories: 'memory', entities: 'entity', edges: 'edge', chrono: 'chrono', files: 'file',
+  };
+  return Array.from(targets).map(t => MAP[t]).filter((t): t is string => t !== undefined);
+}
+
 export interface WipeResult {
   memories: number;
   entities: number;
@@ -386,16 +420,22 @@ export async function wipeSpace(spaceId: string, types?: WipeCollectionType[]): 
       await col(`${spaceId}_tombstones`).deleteMany({ type: { $in: tombstoneTypes } });
     }
   }
-  // Clear duplicate-scanner candidates that reference the wiped types.
+  // Clear review findings that reference the wiped types — BOTH candidate collections. See
+  // `candidateTypesForWipe` for the mapping.
+  //
+  // A finding is a claim about two records. Once those records are gone the claim is not merely stale, it
+  // is unopenable: the Review tab lists it, and following it leads nowhere. Contradictions were missed here
+  // when the collection was added, so wiping a space's memories left its contradiction queue intact and
+  // pointing at nothing.
   if (isFullWipe) {
     await col(`${spaceId}_dupe_candidates`).deleteMany({});
+    await col(`${spaceId}_contradiction_candidates`).deleteMany({});
   } else {
-    const DUPE_TYPE_MAP: Partial<Record<WipeCollectionType, string>> = {
-      memories: 'memory', entities: 'entity', edges: 'edge', chrono: 'chrono', files: 'file',
-    };
-    const dupeTypes = Array.from(targets).map(t => DUPE_TYPE_MAP[t]).filter((t): t is string => t !== undefined);
+    const dupeTypes = candidateTypesForWipe(targets);
     if (dupeTypes.length > 0) {
+      // Both collections key their rows by the same `type` vocabulary, so one map serves both.
       await col(`${spaceId}_dupe_candidates`).deleteMany({ type: { $in: dupeTypes } });
+      await col(`${spaceId}_contradiction_candidates`).deleteMany({ type: { $in: dupeTypes } });
     }
   }
 

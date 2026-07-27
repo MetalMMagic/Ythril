@@ -119,7 +119,7 @@ export const routes: Routes = [
             path: 'media-processing',
             title: 'titles.models',
             loadComponent: () =>
-              import('./pages/settings/models/models-page.component').then(m => m.ModelsPageComponent),
+              import('./pages/settings/media-processing/media-processing-page.component').then(m => m.MediaProcessingPageComponent),
           },
           // The page was called "Models" until it grew to cover the whole media/document pipeline. Keep the
           // old path working: it is in bookmarks, in older docs, and in links people have already shared.

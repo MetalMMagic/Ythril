@@ -1,7 +1,7 @@
 /**
  * Shared types for Settings → Models & Pipelines.
  *
- * Lifted out of the single 656-line `models.component.ts` so the three tabs and the provider card can
+ * Lifted out of the single 656-line `mediaProcessing.component.ts` so the three tabs and the provider card can
  * agree on one shape. They previously existed once, inside the component that also rendered them —
  * which is why four provider cards written in that one file each ended up with their own field order.
  */

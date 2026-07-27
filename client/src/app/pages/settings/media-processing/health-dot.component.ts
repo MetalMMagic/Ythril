@@ -16,7 +16,7 @@
  */
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
-import { HealthState } from './models.types';
+import { HealthState } from './media-processing.types';
 
 @Component({
   selector: 'app-health-dot',
@@ -59,8 +59,8 @@ import { HealthState } from './models.types';
   `],
   template: `
     <span class="dot" [class]="cls()" role="img"
-      [attr.aria-label]="prefix() + ('models.health.' + cls() | transloco)"
-      [attr.title]="prefix() + ('models.health.' + cls() | transloco)"></span>
+      [attr.aria-label]="prefix() + ('mediaProcessing.health.' + cls() | transloco)"
+      [attr.title]="prefix() + ('mediaProcessing.health.' + cls() | transloco)"></span>
   `,
 })
 export class HealthDotComponent {

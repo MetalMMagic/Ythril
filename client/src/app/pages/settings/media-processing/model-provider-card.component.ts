@@ -25,7 +25,7 @@ import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../../shared/ph-icon.component';
 import { HealthDotComponent } from './health-dot.component';
-import { HealthState } from './models.types';
+import { HealthState } from './media-processing.types';
 
 @Component({
   selector: 'app-model-provider-card',
@@ -88,8 +88,8 @@ import { HealthState } from './models.types';
         @if (infra()) {
           <!-- Names the variable that owns the value. Without it "managed by infra" tells an operator
                they cannot change it here but not where they can. -->
-          <span class="pill env" [attr.title]="'models.card.infraTitle' | transloco">
-            {{ 'models.card.infraPill' | transloco: { envVar: envVar() } }}
+          <span class="pill env" [attr.title]="'mediaProcessing.card.infraTitle' | transloco">
+            {{ 'mediaProcessing.card.infraPill' | transloco: { envVar: envVar() } }}
           </span>
         }
       </div>

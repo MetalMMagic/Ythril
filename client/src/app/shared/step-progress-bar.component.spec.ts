@@ -18,7 +18,7 @@ import { StepProgressBarComponent } from './step-progress-bar.component';
 /** Real translations, so a key that skipped the pipe is distinguishable from one that went through
  *  it. With an empty translation map transloco echoes the key back and both look identical. */
 const TRANSLATIONS = {
-  en: { 'models.step.vlm': 'Transcribing', 'models.step.ocr': 'Reading text', 'files.progress.working': 'Working' },
+  en: { 'mediaProcessing.step.vlm': 'Transcribing', 'mediaProcessing.step.ocr': 'Reading text', 'files.progress.working': 'Working' },
 };
 
 function render(inputs: Record<string, unknown>) {
@@ -67,7 +67,7 @@ describe('StepProgressBarComponent — the accessible contract', () => {
   });
 
   it('THE ONE THAT MATTERS: the accessible name is TRANSLATED, not a raw i18n key', () => {
-    // Building this label in a `computed()` instead of through the pipe puts `models.step.vlm` into
+    // Building this label in a `computed()` instead of through the pipe puts `mediaProcessing.step.vlm` into
     // aria-valuetext and looks perfect on screen. Asserting the resolved words are present is what
     // separates "went through the pipe" from "echoed the key back" — with an empty translation map
     // those two are indistinguishable, which is why TRANSLATIONS above is not empty.

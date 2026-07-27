@@ -10,7 +10,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { of } from 'rxjs';
 import { getTranslocoModule } from '../../../testing/transloco-testing';
 import { ModelsTabComponent } from './models-tab.component';
-import { ModelsStateService } from './models-state.service';
+import { MediaProcessingStateService } from './media-processing-state.service';
 import { PipelineStatusService } from './pipeline-status.service';
 import { SchemaApi } from '../../../core/schema-api.service';
 
@@ -26,7 +26,7 @@ function setup(libEntries: { knowledgeType: string; typeName: string }[] = [], i
   TestBed.configureTestingModule({
     imports: [ModelsTabComponent, getTranslocoModule()],
     providers: [
-      { provide: ModelsStateService, useValue: state },
+      { provide: MediaProcessingStateService, useValue: state },
       { provide: PipelineStatusService, useValue: { status: () => null, bySidecarKey: () => new Map() } },
       { provide: SchemaApi, useValue: { listSchemaLibrary: () => of({ entries: libEntries }) } },
     ],

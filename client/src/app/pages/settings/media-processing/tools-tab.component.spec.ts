@@ -14,7 +14,7 @@ import { PipelineStatusService } from './pipeline-status.service';
 import { SpacesApi } from '../../../core/spaces-api.service';
 import { ToastService } from '../../../core/toast.service';
 import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
-import { SpaceIndexStatus } from './models.types';
+import { SpaceIndexStatus } from './media-processing.types';
 
 function makeSpace(over: Partial<SpaceIndexStatus> = {}): SpaceIndexStatus {
   return { id: 'general', label: 'General', stored: 'ready', live: 'missing', collections: [], drifted: true, ...over };

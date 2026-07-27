@@ -25,7 +25,7 @@ import { StatusPillComponent, StatusVariant } from '../../../shared/status-pill.
 import { HealthDotComponent } from './health-dot.component';
 import { ModelProviderCardComponent } from './model-provider-card.component';
 import { PipelineStatusService } from './pipeline-status.service';
-import { SpaceIndexStatus } from './models.types';
+import { SpaceIndexStatus } from './media-processing.types';
 import { SpacesApi } from '../../../core/spaces-api.service';
 import { ToastService } from '../../../core/toast.service';
 import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
@@ -82,19 +82,19 @@ import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
          bespoke card, for one card vocabulary across all three Models tabs. -->
     <div class="tools-grid">
       <app-model-provider-card id="splitter" icon="scissors"
-        [heading]="'models.tools.splitter' | transloco"
-        [purpose]="'models.tools.splitterPurpose' | transloco"
+        [heading]="'mediaProcessing.tools.splitter' | transloco"
+        [purpose]="'mediaProcessing.tools.splitterPurpose' | transloco"
         [health]="'ok'">
         <app-status-pill pill variant="ok">ffmpeg</app-status-pill>
-        <div class="meta">{{ 'models.tools.splitterDetail' | transloco }}</div>
+        <div class="meta">{{ 'mediaProcessing.tools.splitterDetail' | transloco }}</div>
       </app-model-provider-card>
 
       <app-model-provider-card id="chunker" icon="text-align-left"
-        [heading]="'models.tools.chunker' | transloco"
-        [purpose]="'models.tools.chunkerPurpose' | transloco"
+        [heading]="'mediaProcessing.tools.chunker' | transloco"
+        [purpose]="'mediaProcessing.tools.chunkerPurpose' | transloco"
         [health]="'ok'">
-        <app-status-pill pill variant="ok">{{ 'models.tools.inProcess' | transloco }}</app-status-pill>
-        <div class="meta">{{ 'models.tools.chunkerDetail' | transloco }}</div>
+        <app-status-pill pill variant="ok">{{ 'mediaProcessing.tools.inProcess' | transloco }}</app-status-pill>
+        <div class="meta">{{ 'mediaProcessing.tools.chunkerDetail' | transloco }}</div>
       </app-model-provider-card>
     </div>
 
@@ -104,10 +104,10 @@ import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
         <span class="ic"><ph-icon name="database" [size]="17"/></span>
         <div class="t">
           <h3>
-            {{ 'models.tools.vectorIndex' | transloco }}
-            <app-health-dot [state]="indexHealth()" [subject]="'models.tools.vectorIndex' | transloco"/>
+            {{ 'mediaProcessing.tools.vectorIndex' | transloco }}
+            <app-health-dot [state]="indexHealth()" [subject]="'mediaProcessing.tools.vectorIndex' | transloco"/>
           </h3>
-          <p>{{ 'models.tools.vectorIndexPurpose' | transloco }}</p>
+          <p>{{ 'mediaProcessing.tools.vectorIndexPurpose' | transloco }}</p>
         </div>
       </header>
       <div class="tool-b">
@@ -115,39 +115,39 @@ import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
           <div class="drift">
             <ph-icon name="warning" [size]="16"/>
             <span>
-              <b>{{ 'models.tools.driftTitle' | transloco: { count: drifted().length } }}</b>
-              {{ 'models.tools.driftBody' | transloco }}
+              <b>{{ 'mediaProcessing.tools.driftTitle' | transloco: { count: drifted().length } }}</b>
+              {{ 'mediaProcessing.tools.driftBody' | transloco }}
             </span>
           </div>
         }
 
         @if (unavailable(); as u) {
-          <div class="empty">{{ 'models.tools.indexUnavailable' | transloco: { detail: u } }}</div>
+          <div class="empty">{{ 'mediaProcessing.tools.indexUnavailable' | transloco: { detail: u } }}</div>
         } @else if (!spaces().length) {
-          <div class="empty">{{ 'models.tools.indexEmpty' | transloco }}</div>
+          <div class="empty">{{ 'mediaProcessing.tools.indexEmpty' | transloco }}</div>
         } @else {
           <div class="tablewrap">
             <table>
               <thead>
                 <tr>
-                  <th>{{ 'models.tools.colSpace' | transloco }}</th>
-                  <th>{{ 'models.tools.colLive' | transloco }}</th>
+                  <th>{{ 'mediaProcessing.tools.colSpace' | transloco }}</th>
+                  <th>{{ 'mediaProcessing.tools.colLive' | transloco }}</th>
                   <!-- "Recorded" needs a word: it is what config.json believes, which "In the database"
                        is checked against — a mismatch is the drift this table exists to surface. -->
-                  <th><span class="th-hint" [attr.title]="'models.tools.colStoredHint' | transloco">{{ 'models.tools.colStored' | transloco }}</span></th>
-                  <th class="act-h"><span class="sr-only">{{ 'models.tools.colAction' | transloco }}</span></th>
+                  <th><span class="th-hint" [attr.title]="'mediaProcessing.tools.colStoredHint' | transloco">{{ 'mediaProcessing.tools.colStored' | transloco }}</span></th>
+                  <th class="act-h"><span class="sr-only">{{ 'mediaProcessing.tools.colAction' | transloco }}</span></th>
                 </tr>
               </thead>
               <tbody>
                 @for (sp of spaces(); track sp.id) {
                   <tr>
                     <td class="space">{{ sp.label }}</td>
-                    <td><app-status-pill [variant]="liveVariant(sp)" [dot]="true">{{ 'models.indexState.' + sp.live | transloco }}</app-status-pill></td>
-                    <td><app-status-pill [variant]="sp.drifted ? 'error' : 'off'">{{ 'models.indexState.' + sp.stored | transloco }}</app-status-pill></td>
+                    <td><app-status-pill [variant]="liveVariant(sp)" [dot]="true">{{ 'mediaProcessing.indexState.' + sp.live | transloco }}</app-status-pill></td>
+                    <td><app-status-pill [variant]="sp.drifted ? 'error' : 'off'">{{ 'mediaProcessing.indexState.' + sp.stored | transloco }}</app-status-pill></td>
                     <td class="act">
                       <button class="btn btn-danger btn-sm" type="button" [disabled]="rebuilding().has(sp.id)" (click)="rebuildIndexes(sp)">
                         @if (rebuilding().has(sp.id)) { <span class="spinner"></span> } @else { <ph-icon name="arrows-clockwise" [size]="14"/> }
-                        {{ 'models.tools.rebuildRowButton' | transloco }}
+                        {{ 'mediaProcessing.tools.rebuildRowButton' | transloco }}
                       </button>
                     </td>
                   </tr>

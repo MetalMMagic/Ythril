@@ -1,14 +1,14 @@
 /**
- * ModelsStateService — the CHARACTERIZATION tests from #347, ported to the extracted service.
+ * MediaProcessingStateService — the CHARACTERIZATION tests from #347, ported to the extracted service.
  *
- * These were written against the original 656-line `models.component.ts` and proven green there
+ * These were written against the original 656-line `mediaProcessing.component.ts` and proven green there
  * BEFORE the split, per characterization-tests-before-refactor. The page has since been rebuilt into
  * three tabs; all of the behaviour they pin moved into this service, and every assertion about
  * *behaviour* is unchanged — the save payload, the locks, both confirmations, the derived states.
  *
  * **One category of assertion was rewritten, deliberately and visibly:** the display helpers used to
  * return English prose (`'OCR fallback'`, `'Read by OCR only'`) and now return i18n keys
- * (`'models.docPill.fallback'`). Prose in a service is prose no transloco pipe can reach, which is
+ * (`'mediaProcessing.docPill.fallback'`). Prose in a service is prose no transloco pipe can reach, which is
  * exactly how the rebuilt page rendered "As much as this instance can do…" underneath a fully German
  * heading. The states reported are identical and the branch conditions are untouched; only the
  * representation moved. That is the one kind of edit these tests permit, and it is called out here
@@ -36,7 +36,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { of, throwError } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 import { getTranslocoModule } from '../../../testing/transloco-testing';
-import { ModelsStateService } from './models-state.service';
+import { MediaProcessingStateService } from './media-processing-state.service';
 import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 
 /** The shape GET /api/admin/media-config returns, with keys masked as the server masks them. */
@@ -70,12 +70,12 @@ function make(cfg: Record<string, unknown> = cfgFixture(), confirmResult = true)
   TestBed.configureTestingModule({
     imports: [getTranslocoModule()],
     providers: [
-      ModelsStateService,
+      MediaProcessingStateService,
       { provide: HttpClient, useValue: http },
       { provide: ConfirmDialogService, useValue: { confirm } },
     ],
   });
-  const c = TestBed.inject(ModelsStateService);
+  const c = TestBed.inject(MediaProcessingStateService);
   c.load();
   return { c, confirm, patch, post, http };
 }
@@ -83,7 +83,7 @@ function make(cfg: Record<string, unknown> = cfgFixture(), confirmResult = true)
 /** The body handed to PATCH by the most recent save(). */
 const sent = (patch: ReturnType<typeof vi.fn>) => patch.mock.calls.at(-1)?.[1] as Record<string, never>;
 
-describe('ModelsStateService — load', () => {
+describe('MediaProcessingStateService — load', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('drops the masked API keys from the form so they can never be sent back', () => {
@@ -111,19 +111,19 @@ describe('ModelsStateService — load', () => {
     TestBed.configureTestingModule({
       imports: [getTranslocoModule()],
       providers: [
-        ModelsStateService,
+        MediaProcessingStateService,
         { provide: HttpClient, useValue: http },
         { provide: ConfirmDialogService, useValue: { confirm: vi.fn() } },
       ],
     });
-    const c = TestBed.inject(ModelsStateService);
+    const c = TestBed.inject(MediaProcessingStateService);
     c.load();
     expect(c.loadError()).toContain('boom');
     expect(c.loading()).toBe(false);
   });
 });
 
-describe('ModelsStateService — infra locks', () => {
+describe('MediaProcessingStateService — infra locks', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('locks every field when the whole config is infra-managed', () => {
@@ -147,7 +147,7 @@ describe('ModelsStateService — infra locks', () => {
   });
 });
 
-describe('ModelsStateService — save payload', () => {
+describe('MediaProcessingStateService — save payload', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('omits apiKey entirely unless the operator typed a new one', async () => {
@@ -206,7 +206,7 @@ describe('ModelsStateService — save payload', () => {
     await c.save();
     expect(c.visionApiKeyInput).toBe('');
     expect(c.embeddingApiKeyInput).toBe('');
-    expect(c.saveOk()).toBe('models.saved');
+    expect(c.saveOk()).toBe('mediaProcessing.saved');
   });
 
   it('surfaces the server error rather than reporting success', async () => {
@@ -219,7 +219,7 @@ describe('ModelsStateService — save payload', () => {
   });
 });
 
-describe('ModelsStateService — the two confirmations', () => {
+describe('MediaProcessingStateService — the two confirmations', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('re-index: prompts when the embedding model changes, and aborts the WHOLE save if declined', async () => {
@@ -289,7 +289,7 @@ describe('ModelsStateService — the two confirmations', () => {
  * decoration: someone switching this off is acting on a privacy decision, and the one thing the
  * product must not do is let them believe the stored face vectors went away with it.
  */
-describe('ModelsStateService — turning face recognition off', () => {
+describe('MediaProcessingStateService — turning face recognition off', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   const withFace = (enabled: boolean) => cfgFixture({ faceRecognition: { enabled, confidenceThreshold: 0.6, minFaceSizeFraction: 0.05, personEntityTypes: ['person'] } });
@@ -343,16 +343,16 @@ describe('ModelsStateService — turning face recognition off', () => {
   });
 });
 
-describe('ModelsStateService — derived display state', () => {
+describe('MediaProcessingStateService — derived display state', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('warns that a VLM mode silently falls back to OCR when no vision model is set', () => {
     const { c } = make();
     c.setMode('vlm');
     expect(c.vlmNeededButMissing()).toBe(true);
-    expect(c.docPillLabelKey()).toBe('models.docPill.fallback');
+    expect(c.docPillLabelKey()).toBe('mediaProcessing.docPill.fallback');
     expect(c.docVariant()).toBe('warn');
-    expect(c.docSummary().key).toBe('models.docSummary.fallback');
+    expect(c.docSummary().key).toBe('mediaProcessing.docSummary.fallback');
     // The affected stages are flagged rather than shown as running normally.
     expect(c.stageClass('vlm')).toBe('warn');
   });
@@ -360,7 +360,7 @@ describe('ModelsStateService — derived display state', () => {
   it('describes a configured VLM mode as actually running', () => {
     const { c } = make(cfgFixture({ documentProcessing: { mode: 'vlm', vlmModel: 'llava' } }));
     expect(c.vlmNeededButMissing()).toBe(false);
-    expect(c.docPillLabelKey()).toBe('models.docPill.active');
+    expect(c.docPillLabelKey()).toBe('mediaProcessing.docPill.active');
     expect(c.docSummary().params['model']).toBe('llava');
     expect(c.stageClass('vlm')).toBe('on');
   });
@@ -369,7 +369,7 @@ describe('ModelsStateService — derived display state', () => {
     const { c } = make();
     c.setMode('ocr');
     expect(c.vlmNeededButMissing()).toBe(false);
-    expect(c.docSummary().key).toBe('models.docSummary.ocr');
+    expect(c.docSummary().key).toBe('mediaProcessing.docSummary.ocr');
   });
 
   it('mediaClassOn reflects the per-class level (no master switch)', () => {
@@ -403,10 +403,10 @@ describe('ModelsStateService — derived display state', () => {
   it("'off' reads as off, not as a missing model or a fallback", () => {
     const { c } = make();
     c.setMode('off');
-    expect(c.docPillLabelKey()).toBe('models.docPill.off');
+    expect(c.docPillLabelKey()).toBe('mediaProcessing.docPill.off');
     expect(c.docVariant()).toBe('off');
     expect(c.vlmNeededButMissing()).toBe(false); // nothing runs, so nothing can be missing
-    expect(c.docSummary().key).toBe('models.docSummary.off');
+    expect(c.docSummary().key).toBe('mediaProcessing.docSummary.off');
     expect(c.stageClass('ocr')).toBe('dim');
   });
 
@@ -417,7 +417,7 @@ describe('ModelsStateService — derived display state', () => {
   });
 });
 
-describe('ModelsStateService — test connection', () => {
+describe('MediaProcessingStateService — test connection', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('distinguishes unreachable from reachable-but-missing-model', () => {
@@ -443,7 +443,7 @@ describe('ModelsStateService — test connection', () => {
  * on a real change and stay quiet otherwise: a prompt that appears every time you look at another tab
  * is one an operator learns to dismiss without reading, which is worse than no prompt at all.
  */
-describe('ModelsStateService — the cross-tab unsaved-changes guard', () => {
+describe('MediaProcessingStateService — the cross-tab unsaved-changes guard', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('is clean immediately after load', () => {
@@ -489,7 +489,7 @@ describe('ModelsStateService — the cross-tab unsaved-changes guard', () => {
   });
 });
 
-describe('ModelsStateService — assist "in use" reflects real configuration (repair-pass pill bug)', () => {
+describe('MediaProcessingStateService — assist "in use" reflects real configuration (repair-pass pill bug)', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   const withAssist = (assist: Record<string, unknown>) =>

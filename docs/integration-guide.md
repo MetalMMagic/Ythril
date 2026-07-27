@@ -5497,6 +5497,34 @@ Base path: `/api/admin/audit-log` — **requires admin token** on all endpoints.
 
 Ythril maintains an append-only, immutable audit log of every authenticated API operation. The log captures who performed what action, when, on which space, and the resulting HTTP status — providing a full access trail for compliance and security review.
 
+### What changed (`changes`)
+
+Some operations additionally record the field values they altered:
+
+```json
+"changes": [
+  { "field": "label", "from": "General", "to": "Renamed Workspace" },
+  { "field": "strictLinkage", "to": true }
+]
+```
+
+**Only explicitly allowlisted fields are ever recorded, per operation.** This is deliberate and it is the
+opposite of redaction: audit entries are readable by any admin and retained for `retentionDays`, and several
+audited routes handle credentials (token create/regenerate, webhook targets and signing secrets, model API
+keys). Diffing a request body and stripping known-secret names would mean that forgetting one name writes a
+live key into long-lived storage. Listing what *may* be recorded means forgetting one simply omits it.
+
+Consequences worth knowing when reading the log:
+
+- An operation with no allowlist has **no `changes` field at all** — absence means "not recorded", never
+  "nothing changed".
+- Values are **scalars**. A field whose value is an object or array is skipped rather than serialised.
+- `from` absent means the field did not previously exist; `from: null` means it existed and was null.
+- A request that **failed** (status ≥ 400) records no changes, because it changed nothing.
+
+Currently allowlisted: `space.update`. Coverage expands per release; token and webhook operations are
+excluded by design, since the interesting value in those payloads is the secret itself.
+
 ### Configuration
 
 Add an `audit` block to `config.json`:

@@ -25,7 +25,13 @@ import { SpacesApi } from '../../core/spaces-api.service';
 import { NetworksApi } from '../../core/networks-api.service';
 import type { Space } from '../../core/api.types';
 
-async function setup(space: Partial<Space> = {}, ceiling?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto') {
+type MediaCeilings = ReturnType<SpacesStore['mediaCeilings']>;
+
+async function setup(
+  space: Partial<Space> = {},
+  ceiling?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto',
+  mediaCeilings?: Partial<MediaCeilings>,
+) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [SpaceSettingsTabComponent, getTranslocoModule()],
@@ -36,7 +42,9 @@ async function setup(space: Partial<Space> = {}, ceiling?: 'off' | 'ocr' | 'vlm'
       { provide: NetworksApi, useValue: { listNetworks: () => of({ networks: [] }) } },
     ],
   });
-  if (ceiling) TestBed.inject(SpacesStore).docExtractionCeiling.set(ceiling);
+  const store = TestBed.inject(SpacesStore);
+  if (ceiling) store.docExtractionCeiling.set(ceiling);
+  if (mediaCeilings) store.mediaCeilings.set({ ...store.mediaCeilings(), ...mediaCeilings });
   const fixture = TestBed.createComponent(SpaceSettingsTabComponent);
   const state = TestBed.inject(SpaceSettingsState);
   // Populate every editable field exactly as opening a space's settings dialog would.
@@ -114,5 +122,40 @@ describe('SpaceSettingsTabComponent — U9 pt3 arrangement', () => {
   it('still renders no pills once a quota, TTL, and per-space extraction override are set', async () => {
     const { el } = await setup({ maxGiB: 5, recordTtlDays: 30, documentExtraction: 'vlm' } as Partial<Space>);
     expect(el.querySelectorAll('app-status-pill').length).toBe(0);
+  });
+
+  // The four media pickers follow the DOM order image · audio · video · text, after the extraction
+  // select — so selects[1] is the image picker (selects[0] is extraction).
+  const imageSelect = (el: HTMLElement) => [...el.querySelectorAll('select')][1] as HTMLSelectElement;
+  const imageOpts = (el: HTMLElement) => [...imageSelect(el).options].map(o => o.value);
+
+  it('offers only media levels within the per-class instance ceiling', async () => {
+    // Image ceiling 'caption' → off/caption allowed, recognition hidden (it would be silently capped).
+    const { el } = await setup({}, undefined, { image: 'caption' });
+    expect(imageOpts(el)).toContain('caption');
+    expect(imageOpts(el)).not.toContain('recognition');
+    // Inherit / auto / off are always offered (a space can always do less, or follow the ceiling).
+    expect(imageOpts(el)).toEqual(expect.arrayContaining(['', 'auto', 'off']));
+  });
+
+  it('offers every media level when the class ceiling is auto (no limit)', async () => {
+    const { el } = await setup(); // default mediaCeilings are all 'auto'
+    expect(imageOpts(el)).toEqual(expect.arrayContaining(['', 'auto', 'off', 'caption', 'recognition']));
+  });
+
+  it('keeps a since-excluded stored media level visible in its picker', async () => {
+    // A space stored 'recognition' before the ceiling dropped to 'caption' must still show it (not blank).
+    const { el } = await setup({ imageAnalysis: 'recognition' } as Partial<Space>, undefined, { image: 'caption' });
+    expect(imageOpts(el)).toContain('recognition');
+  });
+
+  it('shows a ceiling hint for a limited class but not for an unlimited or at-max one', async () => {
+    // 'caption' is below the image max ('recognition') → the "capped by the instance" hint shows.
+    const limited = await setup({}, undefined, { image: 'caption' });
+    expect(limited.el.textContent).toContain('caption');
+    // A ceiling AT the class max caps nothing, so no hint — recognition is the top of the image ladder.
+    const atMax = await setup({}, undefined, { image: 'recognition' });
+    const imageField = [...atMax.el.querySelectorAll('.field')].find(f => f.querySelector('select') === imageSelect(atMax.el));
+    expect(imageField?.querySelectorAll('div').length ?? 0).toBe(0); // no hint div under the at-max picker
   });
 });

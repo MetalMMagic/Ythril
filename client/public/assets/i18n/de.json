@@ -804,6 +804,7 @@
   "spaces.settings.media.lvl.embed": "Einbetten",
   "spaces.settings.media.lvl.chunk": "Chunk + Einbetten",
   "spaces.settings.media.hint": "Auf \"Übernehmen\" belassen, um den Instanz-Standard zu nutzen. Ein Level über der Instanz-Obergrenze wird auf die Obergrenze begrenzt.",
+  "spaces.settings.media.ceilingHint": "Auf die Instanz-Obergrenze ('{{ceiling}}') begrenzt. Unter Einstellungen → Modelle anheben, um mehr anzubieten.",
   "spaces.settings.validationMode": "Validierungsmodus",
   "spaces.settings.validation.off": "Aus – uneingeschränkte Schreibvorgänge",
   "spaces.settings.validation.warn": "Warnen – Nur Verstöße protokollieren",

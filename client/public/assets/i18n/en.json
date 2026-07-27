@@ -804,6 +804,7 @@
   "spaces.settings.media.lvl.embed": "Embed",
   "spaces.settings.media.lvl.chunk": "Chunk + embed",
   "spaces.settings.media.hint": "Leave on \"Inherit\" to use the instance default. A level above the instance ceiling is capped to the ceiling.",
+  "spaces.settings.media.ceilingHint": "Capped to the instance ceiling ('{{ceiling}}'). Raise it under Settings → Models to offer more.",
   "spaces.settings.validationMode": "Validation mode",
   "spaces.settings.validation.off": "Off — unrestricted writes",
   "spaces.settings.validation.warn": "Warn — log violations only",

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import path from 'path';
 import { requireAuth, requireAdmin, requireAdminMfa, requireAdminMfaScoped } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
-import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig } from '../config/loader.js';
+import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig, getMediaEmbeddingConfig } from '../config/loader.js';
 import { capDocExtractionMode } from '../files/converters/extraction-level.js';
 import { slugify } from '../spaces/_shared.js';
 import { createSpace, removeSpace } from '../spaces/lifecycle.js';
@@ -371,7 +371,18 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
   // only the extraction modes a space could actually reach, so the per-space dropdown can't propose a
   // level the runtime would silently cap. 'auto' means the instance imposes no policy limit.
   const docExtractionCeiling = getDocumentProcessingConfig().mode ?? 'auto';
-  res.json({ spaces, docExtractionCeiling, ...(storage ? { storage } : {}) });
+  // The per-class media-analysis ceilings — the highest level any space may pick for each class.
+  // Same contract as docExtractionCeiling: the client offers only levels within each ceiling so a
+  // per-space picker can't propose a level the runtime would silently cap. 'auto' = no policy limit.
+  // (Config keys images/audio/video/text; the image class is exposed singular to match the space field.)
+  const mediaLevels = getMediaEmbeddingConfig().levels ?? {};
+  const mediaCeilings = {
+    image: mediaLevels.images ?? 'auto',
+    audio: mediaLevels.audio ?? 'auto',
+    video: mediaLevels.video ?? 'auto',
+    text: mediaLevels.text ?? 'auto',
+  };
+  res.json({ spaces, docExtractionCeiling, mediaCeilings, ...(storage ? { storage } : {}) });
 });
 
 // POST /api/spaces

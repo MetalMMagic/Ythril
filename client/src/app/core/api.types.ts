@@ -125,6 +125,15 @@ export interface SpacesResponse {
   /** The instance document-extraction ceiling — the highest mode any space may pick. 'auto' = no
    *  policy limit. Used to constrain the per-space extraction dropdown. */
   docExtractionCeiling?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto';
+  /** The instance per-class media-analysis ceilings — the highest level any space may pick for each
+   *  class. 'auto' = no policy limit. Used to constrain the per-space media pickers so they can't
+   *  propose a level the runtime would silently cap. */
+  mediaCeilings?: {
+    image: 'off' | 'caption' | 'recognition' | 'auto';
+    audio: 'off' | 'on' | 'auto';
+    video: 'off' | 'audio' | 'full' | 'auto';
+    text: 'off' | 'embed' | 'chunk' | 'auto';
+  };
   storage?: {
     usageGiB: { files: number; brain: number; total: number };
     limits?: StorageLimits;

@@ -332,6 +332,18 @@ export interface MediaEmbeddingConfig {
   sttProvider?: 'local' | 'external';
   /** Pluggable vision provider settings (endpoint + model + optional API key). */
   vision?: MediaProviderConfig;
+  /**
+   * NLI (natural-language-inference) provider — the contradiction judge (F-REVIEW).
+   *
+   * An encoder classifier (roberta/deberta-MNLI class, ~100-400M) that labels a premise/hypothesis pair
+   * as entailment / neutral / contradiction. Configured exactly like `vision` and `stt`: a local sidecar
+   * or an external endpoint, per-field env pins, key in secrets.json.
+   *
+   * Deliberately NOT an embedding model. Similarity is not contradiction — two opposite claims about the
+   * same subject are usually MORE embedding-similar, not less. Embeddings only pick the candidate PAIRS
+   * (same subject); this decides whether they agree or oppose.
+   */
+  nli?: MediaProviderConfig;
   /** Pluggable STT provider settings (endpoint + model + optional API key). */
   stt?: MediaProviderConfig;
   /** @deprecated Use `vision.baseUrl`. Kept for backward compatibility. */
@@ -1064,6 +1076,7 @@ export interface SecretsFile {
   mediaEmbedding?: {
     visionApiKey?: string;
     sttApiKey?: string;
+    nliApiKey?: string;
   };
 }
 

@@ -10,7 +10,7 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey, getEmbeddingConfig, getEmbeddingApiKey } from '../config/loader.js';
+import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey, getNliApiKey, getEmbeddingConfig, getEmbeddingApiKey } from '../config/loader.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
 import type { MediaLevelCeilings } from '../config/types.js';
 import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
@@ -365,7 +365,7 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
 // the media worker reaches them.
 
 const TestConnectionSchema = z.object({
-  target: z.enum(['vision', 'stt', 'assist', 'embedding']),
+  target: z.enum(['vision', 'stt', 'assist', 'embedding', 'nli']),
 }).strict();
 
 mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => {
@@ -387,6 +387,11 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
   } else if (target === 'stt') {
     baseUrl = cfg.stt?.baseUrl; model = cfg.stt?.model; apiKey = cfg.stt?.apiKey;
     external = cfg.sttProvider === 'external';
+  } else if (target === 'nli') {
+    // The contradiction judge. External whenever the endpoint is not the bundled sidecar — the probe
+    // itself lists models and sends no record text, so it is safe to run before anything is classified.
+    baseUrl = cfg.nli?.baseUrl; model = cfg.nli?.model; apiKey = getNliApiKey();
+    external = !!baseUrl && !/^https?:\/\/(localhost|127\.0\.0\.1|\[?::1\]?|[^./:]+)(:|\/|$)/.test(baseUrl);
   } else if (target === 'embedding') {
     const e = getEmbeddingConfig();
     baseUrl = e.baseUrl; model = e.model; apiKey = getEmbeddingApiKey();

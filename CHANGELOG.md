@@ -2525,6 +2525,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been added to any locale, so the field rendered the literal text `schemaLib.field.schema`. Both are now
   present in en/de/pl. Found by the new i18n key-coverage test below — it had been broken on main.
 
+- **An NLI provider can be configured, for the contradiction judge (F-REVIEW slice 2).** A natural-language
+  -inference endpoint — an encoder classifier of the roberta/deberta-MNLI class — now configures exactly like
+  the vision and STT providers: local sidecar or external endpoint, per-field env pins (`NLI_URL`,
+  `NLI_MODEL`, `NLI_API_KEY`) that lock the field in the UI, key in `secrets.json`, and a **Test connection**
+  target that lists models without sending any record text. Nothing uses it yet — the scanner that will is
+  the next slice. Deliberately not an embedding comparison: two opposite claims about the same subject are
+  usually *more* embedding-similar, not less, so embeddings can only pick candidate pairs while an
+  entailment model decides whether they agree. When the judge cannot answer it returns **no verdict**, never
+  a passing one — an unreachable judge that resolved to "these agree" would empty the review queue and look
+  exactly like a clean instance.
+
 - **Duplicate review moved out of global Settings into a per-space Brain "Review" tab (F-REVIEW slice 1).**
   A duplicate pair only ever means something *inside* one space, so reviewing them from an instance-wide
   page meant reading a mixed list and checking a space badge on every row. The Review tab shows one space's

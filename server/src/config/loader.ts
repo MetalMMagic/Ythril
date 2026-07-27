@@ -705,7 +705,7 @@ export function getDataRoot(): string {
 
 import type { MediaEmbeddingConfig, MediaProviderConfig, FaceRecognitionConfig, DocumentProcessingConfig, EmbeddingConfig } from './types.js';
 
-const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
+const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'nli' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
   // Media embedding is always on (no master switch). Each class is gated by its `levels` entry, which
   // defaults to `auto` (no policy limit of its own). The bundled ollama + whisper services (K8s
   // manifests + the workstation docker-compose) back the default `vision`/`stt` endpoints, which resolve
@@ -779,7 +779,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const visionModelEnv = process.env['VISION_MODEL'];
   const visionApiKeyEnv = process.env['VISION_API_KEY'];
   // API keys: env var > secrets.json > legacy config.json (deprecated)
-  let mediaSecrets: { visionApiKey?: string; sttApiKey?: string } = {};
+  let mediaSecrets: { visionApiKey?: string; sttApiKey?: string; nliApiKey?: string } = {};
   try { mediaSecrets = getSecrets().mediaEmbedding ?? {}; } catch { /* secrets file may not exist pre-setup */ }
   const vision: MediaProviderConfig = {
     baseUrl: visionBaseUrlEnv
@@ -824,6 +824,22 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   if (sttModelEnv) locked.push('stt.model');
   if (sttApiKeyEnv) locked.push('stt.apiKey');
 
+  // NLI provider block (F-REVIEW contradiction judge) — same env → config → default precedence as
+  // vision/stt, so infra can pin it on a managed deployment. Left unconfigured by default: contradiction
+  // detection is opt-in, and an unset endpoint simply means the judge does not run.
+  const nliBaseUrlEnv = process.env['NLI_URL'];
+  const nliModelEnv = process.env['NLI_MODEL'];
+  const nliApiKeyEnv = process.env['NLI_API_KEY'];
+  const nli: MediaProviderConfig = {
+    baseUrl: nliBaseUrlEnv ?? base.nli?.baseUrl,
+    model: nliModelEnv ?? base.nli?.model,
+    apiKey: nliApiKeyEnv ?? mediaSecrets.nliApiKey ?? base.nli?.apiKey,
+    label: base.nli?.label ?? 'NLI provider (contradiction judge)',
+  };
+  if (nliBaseUrlEnv) locked.push('nli.baseUrl');
+  if (nliModelEnv) locked.push('nli.model');
+  if (nliApiKeyEnv) locked.push('nli.apiKey');
+
   // F11-b — when the external assist model's endpoint is pinned by env, lock the whole block in the UI.
   if (process.env['DOC_ASSIST_URL'] || process.env['DOC_ASSIST_MODEL'] || process.env['DOC_ASSIST_API_KEY']) {
     locked.push('documentProcessing.assistModel');
@@ -848,6 +864,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
     sttProvider,
     vision,
     stt,
+    nli,
     workerConcurrency: pick('WORKER_CONCURRENCY', 'workerConcurrency', base.workerConcurrency, MEDIA_EMBEDDING_DEFAULTS.workerConcurrency),
     workerPollIntervalMs: pick('WORKER_POLL_INTERVAL_MS', 'workerPollIntervalMs', base.workerPollIntervalMs, MEDIA_EMBEDDING_DEFAULTS.workerPollIntervalMs),
     workerMaxPollIntervalMs: pick('WORKER_MAX_POLL_INTERVAL_MS', 'workerMaxPollIntervalMs', base.workerMaxPollIntervalMs, MEDIA_EMBEDDING_DEFAULTS.workerMaxPollIntervalMs),
@@ -935,6 +952,14 @@ export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig
 }
 
 /** F11-b — the external assist model's API key: env (DOC_ASSIST_API_KEY) > secrets.json. Never in config.json. */
+/** The NLI provider key (env > secrets.json > legacy config), for the contradiction judge. */
+export function getNliApiKey(): string | undefined {
+  const env = process.env['NLI_API_KEY'];
+  if (env) return env;
+  try { return getSecrets().mediaEmbedding?.nliApiKey ?? getConfig().mediaEmbedding?.nli?.apiKey; }
+  catch { return undefined; }
+}
+
 export function getDocAssistApiKey(): string | undefined {
   if (process.env['DOC_ASSIST_API_KEY']) return process.env['DOC_ASSIST_API_KEY'];
   try { return (getSecrets().mediaEmbedding as { docAssistApiKey?: string } | undefined)?.docAssistApiKey; }

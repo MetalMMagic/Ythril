@@ -571,8 +571,16 @@ export interface MediaLevelCeilings {
  */
 export interface FaceRecognitionConfig {
   /**
-   * Master switch. When false, face detection/embedding is skipped entirely.
-   * Default: false (opt-in; requires local model files to be present).
+   * **Infra pin, not a user switch. Defaults to TRUE.**
+   *
+   * Whether faces run is decided by the image LEVEL (`recognition`, or `auto` resolving to it) — this
+   * field only lets an operator hard-disable the pipeline regardless of any level, via
+   * `FACE_RECOGNITION_ENABLED=false`, for deployments where biometric processing must be impossible
+   * rather than merely switched off. Setting it `true` enables nothing by itself.
+   *
+   * It used to be the opt-in master switch with a checkbox and a `false` default. That was removed
+   * because two controls meant an image level of `recognition` could silently do nothing; the ladder is
+   * now the single gate, and images default to `caption` so faces stay off until a level is raised.
    */
   enabled?: boolean;
   /**

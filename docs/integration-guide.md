@@ -2502,7 +2502,16 @@ When `visionProvider: external` or `sttProvider: external`, file bytes (image fr
 
 The face recognition pipeline detects and embeds faces in uploaded images, builds a per-space face gallery, and automatically links images to person entities when a match exceeds a configurable confidence threshold. It runs **entirely in-process** on the CPU — no GPU, no sidecar, no Python — using `@vladmandic/human` (TF.js CPU backend).
 
-**Opt-in** — disabled by default. Enable it on **Settings → Media Processing → Face recognition**, via `PATCH /api/admin/media-config` with a `faceRecognition` block, or by setting `mediaEmbedding.faceRecognition.enabled: true` in `config.json`.
+**Faces are governed by the image LEVEL, not by a switch of their own.** They run only where the effective
+image level is `recognition` (or `auto`, which resolves to the most the instance allows). The instance
+default is `caption`, so **no face detection happens until someone raises a level** — on
+**Settings → Media Processing** for the instance ceiling, or per space in that space's media settings.
+
+There is no longer a face-recognition checkbox: it was redundant with the ladder, and having two controls
+meant an image level of `recognition` could still silently do nothing. `mediaEmbedding.faceRecognition.enabled`
+survives as an **infra pin only** — it defaults to `true` and exists so `FACE_RECOGNITION_ENABLED=false`
+can hard-disable the pipeline regardless of any level, for deployments where biometric processing must be
+impossible rather than merely off. Setting it to `true` does not enable anything by itself.
 
 **Turning it off stops new detection; it does not erase what was collected.** Existing face vectors and person labels stay stored and searchable until the files they came from are deleted. The admin UI states this in a confirmation before saving, because switching this off is usually a privacy decision and the two are easy to confuse.
 
@@ -2517,11 +2526,12 @@ The model files are not bundled with Ythril. Download and place them in `DATA_RO
 
 Download from `https://vladmandic.github.io/human/models/` — use the exact filenames listed above.
 
-Also create the Atlas vector index for face embeddings (per space, 128 dimensions, cosine similarity, field path `faceEmbedding`, index name `{spaceId}_files_faceEmbedding`) on the `{spaceId}_files` collection. This is done automatically when a space is initialised if face recognition is enabled.
+Also create the Atlas vector index for face embeddings (per space, 128 dimensions, cosine similarity, field path `faceEmbedding`, index name `{spaceId}_files_faceEmbedding`) on the `{spaceId}_files` collection. This is done automatically when a space is initialised.
 
 #### How It Works
 
-When a media-embedding job processes an image and `faceRecognition.enabled` is `true`:
+When a media-embedding job processes an image whose effective level permits faces (`recognition` or `auto`,
+and the infra pin not turned off):
 
 1. **Decode** — image bytes decoded to raw RGBA via `sharp`.
 2. **Detect** — `@vladmandic/human` runs BlazeFace Back detection. Faces below `minFaceSizeFraction` (default: 5% of the shorter image side) are skipped.

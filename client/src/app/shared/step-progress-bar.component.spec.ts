@@ -98,6 +98,33 @@ describe('StepProgressBarComponent — the accessible contract', () => {
   });
 });
 
+describe('StepProgressBarComponent — an unlabelled stage fails silently', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  // A stage the component does not recognise falls back to a generic "working" label. That is the right
+  // behaviour for an unknown stage, but it means a stage the pipeline REALLY runs — one with a perfectly
+  // good translation sitting in the locale files — degrades to "working" for want of a set entry, with no
+  // error anywhere. `faces` was exactly that: labelled in en/de/pl, absent from the set.
+  const PIPELINE_STAGES = ['ocr', 'render', 'vlm', 'validate', 'repair', 'verify',
+    'embed', 'chunk', 'caption', 'transcribe', 'split', 'faces'];
+
+  it('names every stage the pipeline can report, rather than shrugging at some of them', () => {
+    // A recognised stage resolves to its own `mediaProcessing.step.*` key; an unrecognised one resolves to
+    // the shared "working" fallback. Matched case-insensitively — the fixture translates it as "Working",
+    // and a case-sensitive check would report every stage as fine whether or not it was.
+    const unlabelled = PIPELINE_STAGES.filter(step => {
+      const f = render({ progress: { step, steps: [step] } });
+      return /working/i.test(f.nativeElement.querySelector('.label .step')?.textContent ?? '');
+    });
+    expect(unlabelled).toEqual([]);
+  });
+
+  it('still degrades gracefully for a stage it genuinely does not know', () => {
+    const f = render({ progress: { step: 'teleport', steps: ['teleport'] } });
+    expect(f.nativeElement.querySelector('.label .step')?.textContent).toMatch(/working/i);
+  });
+});
+
 describe('StepProgressBarComponent — a stalled job does not look like a working one', () => {
   beforeEach(() => TestBed.resetTestingModule());
 

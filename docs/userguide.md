@@ -282,6 +282,18 @@ generic "Embedding" that looked the same for every file and every stage. If the 
 longer than the stall timeout the bar turns amber and says **stalled**, so a wedged job no longer looks like
 a working one. The moment the file finishes, the row goes back to its status pill.
 
+**What will run for a file:** open a file and its detail pane lists the stages it goes through — a PDF is
+rendered, read, transcribed by the vision model and validated; an image is captioned, embedded and (where
+enabled) scanned for faces; audio and video are transcribed, chunked and embedded. The list reflects the
+level **actually in effect** for this space, which is your choice for the space capped by the instance
+ceiling — so it shows what will really happen, not what was requested.
+
+If **nothing** will run, it says so and why: the file's type is switched off for this space, or the file is
+larger than the processing size limit. If a stage isn't available (for example a vision level with no page
+renderer configured), it says that it falls back to plain text extraction. That is the answer to *"why did
+nothing happen to my scan?"* — previously only findable by cross-checking Settings → Media Processing
+against the space's own overrides.
+
 **Sorting:** click the **Name**, **Status**, **Size** or **Modified** header to sort the current folder. Clicking cycles ascending → descending → back to the folder's own order. **Folders always stay at the top** — a file explorer where directories interleave with files by size or date is hard to navigate. Sorting applies to the folder you are looking at, which is the whole set the view holds.
 
 ### Detail pane (preview + description ⇄ file meta)

@@ -110,8 +110,16 @@ export class StepProgressBarComponent {
   });
 }
 
-/** Stage names that already have a translated label on the Pipelines tab (`mediaProcessing.step.*`). */
+/**
+ * Stage names that have a translated label (`mediaProcessing.step.*`).
+ *
+ * Keep this in step with what the pipeline can actually report. A stage that runs but is missing here does
+ * NOT error — it silently renders as the generic "working", which is indistinguishable from a job whose
+ * stage is genuinely unknown. `faces` was in exactly that state: translated in all three locales, absent
+ * from this set. `step-progress-bar.component.spec.ts` now asserts every pipeline stage resolves to its
+ * own label.
+ */
 const KNOWN_STEPS = new Set([
   'ocr', 'render', 'vlm', 'validate', 'repair', 'verify',
-  'embed', 'chunk', 'caption', 'transcribe', 'split',
+  'embed', 'chunk', 'caption', 'transcribe', 'split', 'faces',
 ]);

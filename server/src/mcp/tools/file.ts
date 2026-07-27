@@ -1,13 +1,12 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { recall } from '../../brain/recall.js';
-import { getConfig } from '../../config/loader.js';
-import { type InputFormat, deleteConversionArtifacts } from '../../files/converters/pipeline.js';
-import { deleteFileMeta, markFileMetaDeleted, renameFileMeta, renameFileMetaByPrefix, upsertFileMeta } from '../../files/file-meta.js';
-import { createDir, deleteFile, listDir, listFilesRecursive, moveFile, readFile, writeFile } from '../../files/files.js';
-import { cancelMediaJob } from '../../files/media/job-queue.js';
+import { type InputFormat } from '../../files/converters/pipeline.js';
+import { renameFileMeta, renameFileMetaByPrefix, upsertFileMeta } from '../../files/file-meta.js';
+import { createDir, listDir, listFilesRecursive, moveFile, readFile, writeFile } from '../../files/files.js';
 import { dispatchFileProcessing } from '../../files/dispatch.js';
 import { writeFileTombstones } from '../../files/tombstones.js';
-import { QuotaError, checkQuota, invalidateUsageCache } from '../../quota/quota.js';
+import { deleteFileCascade } from '../../files/delete-cascade.js';
+import { QuotaError, checkQuota } from '../../quota/quota.js';
 import { resolveMemberSpaces, resolveWriteTarget } from '../../spaces/proxy.js';
 import { emitWebhookEvent } from '../../webhooks/dispatcher.js';
 import { log } from '../../util/log.js';
@@ -165,21 +164,9 @@ export const delete_fileTool: ToolHandler = {
     if (!filePath.trim()) throw new Error('path must not be empty');
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
-    await deleteFile(wt.target, filePath);
-    // Propagate the deletion to sync peers (else the peer's manifest re-pushes the file).
-    await writeFileTombstones(wt.target, [filePath]);
-    // Soft-flag (retain for audit) or hard-delete the metadata, per softDeleteFileMeta.
-    if (getConfig().softDeleteFileMeta === true) {
-      await markFileMetaDeleted(wt.target, filePath);
-    } else {
-      await deleteFileMeta(wt.target, filePath);
-    }
-    // Cancel any queued embedding job and remove conversion artifacts so nothing
-    // outlives the file (a stale job would retry forever against the missing path).
-    await cancelMediaJob(wt.target, filePath).catch(() => {});
-    await deleteConversionArtifacts(wt.target, filePath).catch(() => {});
-    invalidateUsageCache(); // freed disk — reflect it in the next quota check
-    emitWebhookEvent({ event: 'file.deleted', spaceId: wt.target, entry: { path: filePath }, ...(ctx.actor ?? {}) });
+    // Full cascade (blob + tombstone + meta + job + artifacts + usage + webhook) — shared with the REST
+    // DELETE route and the TTL sweep so every delete path cleans up identically.
+    await deleteFileCascade(wt.target, filePath, ctx.actor);
     return { content: [{ type: 'text' as const, text: `Deleted '${filePath}'.` }] };
   },
 };

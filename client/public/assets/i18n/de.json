@@ -1533,5 +1533,11 @@
   "mediaProcessing.assist.gatedByPipeline": "Wird für den Dokumenten-Reparaturlauf verwendet. Stelle die Dokumentenextraktion auf \"Reparatur\" (oder Auto), um Reparaturen darüber zu leiten; die Datenübermittlung muss dabei bestätigt werden.",
   "schemaLib.field.schema": "Schema (JSON)",
   "schemaLib.field.schemaHint": "Die Eigenschaftsdefinitionen für diesen Typ als JSON-Objekt. Ungültiges JSON wird beim Speichern abgelehnt.",
-  "brain.tab.review": "Prüfung"
+  "brain.tab.review": "Prüfung",
+  "review.title": "Prüfung",
+  "review.sub.duplicates": "Duplikate",
+  "review.sub.contradictions": "Widersprüche",
+  "review.contradictions.intro": "Datensätze in diesem Space, die sich widersprechen — gleiches Thema, gegenteilige Aussagen.",
+  "review.contradictions.pendingTitle": "Die Widerspruchserkennung läuft noch nicht",
+  "review.contradictions.pendingBody": "Sie benötigt ein NLI-Modell (Entailment). Konfiguriere eines unter Einstellungen → Medienverarbeitung; danach füllt sich diese Liste, sobald der Scanner läuft."
 }

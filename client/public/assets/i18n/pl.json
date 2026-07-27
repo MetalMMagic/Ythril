@@ -1533,5 +1533,11 @@
   "mediaProcessing.assist.gatedByPipeline": "Używany do przebiegu naprawy dokumentów. Ustaw ekstrakcję dokumentów na \"Naprawa\" (lub Auto), aby kierować naprawy przez ten model; konieczne będzie potwierdzenie transferu danych.",
   "schemaLib.field.schema": "Schemat (JSON)",
   "schemaLib.field.schemaHint": "Definicje właściwości dla tego typu jako obiekt JSON. Nieprawidłowy JSON zostanie odrzucony przy zapisie.",
-  "brain.tab.review": "Przegląd"
+  "brain.tab.review": "Przegląd",
+  "review.title": "Przegląd",
+  "review.sub.duplicates": "Duplikaty",
+  "review.sub.contradictions": "Sprzeczności",
+  "review.contradictions.intro": "Rekordy w tej przestrzeni, które są ze sobą sprzeczne — ten sam temat, przeciwne twierdzenia.",
+  "review.contradictions.pendingTitle": "Wykrywanie sprzeczności jeszcze nie działa",
+  "review.contradictions.pendingBody": "Wymaga modelu NLI (entailment). Skonfiguruj go w Ustawienia → Przetwarzanie mediów, a ta lista wypełni się po uruchomieniu skanera."
 }

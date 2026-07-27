@@ -816,7 +816,11 @@ Migration is a one-way operation. Keep your old database available until you hav
 
 ## Brain — Review tab (duplicates)
 
-The **Review** tab inside a space's Brain surfaces near-duplicate records found by the background semantic-duplicate scanner, **for that space**. It used to be a global page at Settings → Duplicates; a duplicate pair only ever means something *inside* one space, so it now lives beside that space's data. (The old `/settings/duplicates` link still works — it redirects to the Brain.)
+The **Review** tab inside a space's Brain is that space's record-QA queue, split into sub-tabs:
+**Duplicates** and **Contradictions**. (Contradictions needs an NLI model configured under
+**Settings → Media Processing**; until the scanner has run, the tab explains what it needs.)
+
+**Duplicates** surfaces near-duplicate records found by the background semantic-duplicate scanner, **for that space**. It used to be a global page at Settings → Duplicates; a duplicate pair only ever means something *inside* one space, so it now lives beside that space's data. (The old `/settings/duplicates` link still works — it redirects to the Brain.)
 
 A summary row at the top shows how many pairs are **open**, the **average match confidence**, and how many are **shown**, alongside a **search box**, a status filter (**open / dismissed / all**) and a **Scan now** button. The search box narrows the list by record summary, type, or space — handy once a **dismissed** pile has grown. Each duplicate pair is a **comparison card**: the space and record type, a **confidence meter** (the similarity as a coloured percentage), when it was detected, and record **A** shown side-by-side with record **B**. For an entity pair you can **Merge** the two records (the older one is kept); any open pair can be **Dismiss**ed — dismissing asks for confirmation first, since it removes the pair from the open list.
 

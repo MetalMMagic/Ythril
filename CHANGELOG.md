@@ -838,6 +838,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A space can now set its own media-analysis levels.** Settings → Spaces → *space* → Settings gains a
+  **Media analysis** card with per-space overrides for **images**, **audio**, **video**, and **text** (each
+  defaulting to *Inherit instance default*) — previously only document-extraction was per-space overridable
+  from the UI, even though the server already stored and honoured all four. A level above the instance ceiling
+  is capped to the ceiling. (First half of "a space cannot see that its level was capped"; showing the
+  effective capped level inline follows next.)
+
 - **The Brain Overview gains a Governance panel.** When this space's networks have **open votes** awaiting a
   decision, the landing dashboard lists them — subject, type, deadline, and the running `yes · veto` tally —
   with a link to Settings → Networks to cast a vote. Hidden when there are none. Assembled from the existing

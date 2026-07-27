@@ -62,7 +62,11 @@ export class SpaceSettingsState {
   schemaCollTab = signal<KnowledgeType>('entity');
 
   // ── settings tab ───────────────────────────────────────────────────────────
-  stForm = { label: '', purpose: '', usageNotes: '', maxGiB: null as number | null, recordTtlDays: null as number | null, documentExtraction: '' as '' | 'off' | 'ocr' | 'vlm' | 'repair' | 'auto' };
+  stForm = { label: '', purpose: '', usageNotes: '', maxGiB: null as number | null, recordTtlDays: null as number | null, documentExtraction: '' as '' | 'off' | 'ocr' | 'vlm' | 'repair' | 'auto',
+    imageAnalysis: '' as '' | 'off' | 'caption' | 'recognition' | 'auto',
+    audioAnalysis: '' as '' | 'off' | 'on' | 'auto',
+    videoAnalysis: '' as '' | 'off' | 'audio' | 'full' | 'auto',
+    textAnalysis: '' as '' | 'off' | 'embed' | 'chunk' | 'auto' };
 
   // ── duplicates tab ─────────────────────────────────────────────────────────
   dupeRulesState: DupeActionRule[] = [];
@@ -114,7 +118,8 @@ export class SpaceSettingsState {
     this.schemaCollTab.set('entity');
     this.settingsError.set('');
     this.settingsSaving.set(false);
-    this.stForm = { label: s.label, purpose: s.meta?.purpose ?? '', usageNotes: s.meta?.usageNotes ?? '', maxGiB: s.maxGiB ?? null, recordTtlDays: s.recordTtlDays ?? null, documentExtraction: s.documentExtraction ?? '' };
+    this.stForm = { label: s.label, purpose: s.meta?.purpose ?? '', usageNotes: s.meta?.usageNotes ?? '', maxGiB: s.maxGiB ?? null, recordTtlDays: s.recordTtlDays ?? null, documentExtraction: s.documentExtraction ?? '',
+      imageAnalysis: s.imageAnalysis ?? '', audioAnalysis: s.audioAnalysis ?? '', videoAnalysis: s.videoAnalysis ?? '', textAnalysis: s.textAnalysis ?? '' };
     this.dupeRulesState = (s.dupeRules ?? []).map(r => ({ ...r }));
     this.dupeSurvivor = s.dupeMergeSurvivor ?? 'older';
     this.dupeOnInsert = s.dupeRulesOnInsert ?? false;
@@ -192,6 +197,10 @@ export class SpaceSettingsState {
       maxGiB: this.stForm.maxGiB,
       recordTtlDays: this.stForm.recordTtlDays,
       documentExtraction: this.stForm.documentExtraction,
+      imageAnalysis: this.stForm.imageAnalysis,
+      audioAnalysis: this.stForm.audioAnalysis,
+      videoAnalysis: this.stForm.videoAnalysis,
+      textAnalysis: this.stForm.textAnalysis,
       meta: this.buildMeta(),
     });
   }

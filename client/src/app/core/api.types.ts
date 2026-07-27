@@ -26,6 +26,12 @@ export interface Space {
   /** Per-space document-extraction mode override (F11-c). Absent = inherit the instance default
    *  (Settings → Models). Local/operational, like dupe rules. */
   documentExtraction?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto';
+  /** Per-space media-analysis level overrides. Absent = inherit the instance default (Settings → Models).
+   *  Capped to the instance ceiling server-side. */
+  imageAnalysis?: 'off' | 'caption' | 'recognition' | 'auto';
+  audioAnalysis?: 'off' | 'on' | 'auto';
+  videoAnalysis?: 'off' | 'audio' | 'full' | 'auto';
+  textAnalysis?: 'off' | 'embed' | 'chunk' | 'auto';
   /** Vector-index build state for a newly created space (B1). 'building' while the
    *  Atlas indexes finish; absent means ready. Semantic recall waits for READY. */
   indexStatus?: 'building' | 'ready' | 'failed';

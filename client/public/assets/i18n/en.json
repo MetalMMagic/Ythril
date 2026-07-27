@@ -1511,7 +1511,7 @@
   "mediaProcessing.class.audio": "Audio",
   "mediaProcessing.class.video": "Video",
   "mediaProcessing.class.text": "Text",
-  "mediaProcessing.pipelines.ceilingHint": "The most any space may do with this class. A space can choose less, never more — lowering this caps every space already above it, and those spaces keep their own choice if you raise it again.",
+  "mediaProcessing.pipelines.ceilingHint": "Each pipeline below carries an instance ceiling — the most any space may do with that class. A space can choose less, never more: lowering a ceiling caps every space already above it, and those spaces keep their own choice if you raise it again.",
   "mediaProcessing.pipelines.ceilingOffWarning": "Off applies everywhere — no space can process this class.",
   "files.progress.working": "Working",
   "files.progress.stalled": "No progress reported — this job may be stuck",

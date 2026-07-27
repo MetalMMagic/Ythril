@@ -12,9 +12,10 @@ import { EdgesTabComponent } from './edges-tab.component';
 import { ChronoTabComponent } from './chrono-tab.component';
 import { OverviewTabComponent } from './overview-tab.component';
 import { FormsModule } from '@angular/forms';
-import { Space, SpaceStats } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
+import { AdminApi } from '../../core/admin-api.service';
 import { GraphComponent } from '../graph/graph.component';
 import { FileManagerComponent } from '../files/file-manager.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
@@ -271,7 +272,7 @@ interface SpaceView {
         @if (activeTab() === 'overview') {
           @if (activeSpace(); as sp) {
             <app-overview-tab [space]="sp" [stats]="activeStats()" [needsReindex]="needsReindex()"
-              [reindexing]="reindexing()" (reindex)="runReindex()" />
+              [reindexing]="reindexing()" [about]="aboutInfo()" (reindex)="runReindex()" />
           }
         }
         @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }
@@ -289,6 +290,7 @@ export class BrainComponent implements OnInit, OnDestroy {
   readonly recordList = inject(RecordListState);
   private spacesApi = inject(SpacesApi);
   private brainApi = inject(BrainApi);
+  private adminApi = inject(AdminApi);
   private transloco = inject(TranslocoService);
 
   // File Meta merged into the Files tab (rendered separately, after these, in the same group).
@@ -305,6 +307,8 @@ export class BrainComponent implements OnInit, OnDestroy {
   activeSpaceId = signal('');
   activeTab = signal<BrainTab>('overview');
   loadingSpaces = signal(true);
+  /** Instance identity/health for the Overview's Instance panel — fetched once (instance-wide, not per space). */
+  aboutInfo = signal<AboutInfo | null>(null);
 
   // Reindex
   needsReindex = signal(false);
@@ -349,6 +353,8 @@ export class BrainComponent implements OnInit, OnDestroy {
       },
       error: () => this.loadingSpaces.set(false),
     });
+    // Instance identity/health for the Overview's Instance panel — one instance-wide fetch, best-effort.
+    this.adminApi.getAbout().subscribe({ next: a => this.aboutInfo.set(a), error: () => {} });
   }
 
   ngOnDestroy(): void {

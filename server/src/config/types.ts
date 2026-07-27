@@ -424,8 +424,24 @@ export interface DocumentProcessingConfig {
   mode?: DocExtractionMode;
   /** F11 — DPI for page rasterization in VLM modes. Default 150. */
   renderDpi?: number;
-  /** F11 — max pages rasterized + sent to the VLM per document (cost/latency bound). Default 50. */
+  /**
+   * F11 — max pages rasterized per RENDER CALL (memory/latency bound on one sidecar round trip).
+   * Default 50.
+   *
+   * This is no longer how much of a document gets read: long documents are walked in windows of this size
+   * via the sidecars' `startPage`. Use `maxTotalPages` to bound the whole job.
+   */
   maxPages?: number;
+  /**
+   * F11 — max pages read from ONE document across all windows. Default 200. Beyond this the extraction
+   * stops and says so, in the log and in the stored markdown.
+   *
+   * Deliberately separate from `maxPages`, because they bound different things: `maxPages` is one round
+   * trip's memory, this is the job's total cost. Every page is a VLM call, so an unbounded walk over a
+   * 600-page scan means 600 model calls and — with an external endpoint — 600 pages of content leaving the
+   * instance, on an upload nobody is watching. Raise it deliberately.
+   */
+  maxTotalPages?: number;
   /** F11 — per-page model-call timeout in ms (VLM/repair). Default 60000. */
   pageTimeoutMs?: number;
   /** F11 — max concurrent per-page model calls within one document. Default 2. */

@@ -852,6 +852,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Long documents are now read in full instead of being cut at 50 pages.** A document longer than
+  `maxPages` became its first `maxPages` pages, permanently — a 400-page report was indexed as its first
+  fifty, and recall then answered confidently from an eighth of it. The page sidecars accept a `startPage`,
+  so a document is walked in windows rather than truncated.
+
+  **`maxPages` keeps its real job and loses the one it should never have had.** It bounds a single render
+  call — that call's memory and latency — which is a genuine constraint. It was never meant to be the limit
+  on how much of a document gets read; it just was, because nothing looped.
+
+  The whole-job limit is now its own setting, `documentProcessing.maxTotalPages` (default **200**, four
+  times the old effective limit). It is deliberately separate and deliberately not unlimited: every page is
+  a VLM call, so an unbounded walk over a 600-page scan is 600 model calls and — with an external endpoint —
+  600 pages of content leaving the instance, triggered by an upload nobody is watching. A document beyond
+  the budget still stops, and still says so loudly in the log and in the stored markdown. The bug being
+  fixed is the silence and the tiny cap, not the existence of a cap.
+
+  The `max`-mode consensus pass is **skipped for a segmented document**, and says so. It re-transcribes
+  every page with a second model, so on a walked document it would double the page cost the budget exists
+  to bound and require every window's images alive at once. Not a regression: before this change a long
+  document was truncated to one window, so consensus never saw more than that anyway.
+
 - **The Chrono tab now has a Created column, and it sorts.** Entities, edges and memories all showed one;
   chrono did not, even though the API has accepted `sort=createdAt` for chrono all along — the column simply
   was never added, so the capability existed and could not be reached.

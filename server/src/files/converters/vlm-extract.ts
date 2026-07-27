@@ -21,6 +21,15 @@ import { transcribePageImage, repairMarkdown, repairMarkdownExternal, reconcileC
 import type { StepProgress } from './types.js';
 import { decideRoute, validateExtraction, bestByEvidence } from './extraction-policy.js';
 
+/**
+ * Pages read from one document across all render windows, when unconfigured.
+ *
+ * 200 rather than "no limit": every page is a VLM call, so the budget is the cost ceiling for a single
+ * upload. Four times the old effective limit of 50, which was never a budget at all — it was one render
+ * call's memory bound doing double duty as the document's reading limit.
+ */
+const DEFAULT_MAX_TOTAL_PAGES = 200;
+
 const TRANSCRIBE_PROMPT =
   'Transcribe this document page to GitHub-Flavored Markdown, verbatim. Preserve headings, lists, and ' +
   'tables (use Markdown tables; use minimal HTML only if a table is too complex for Markdown). Do NOT ' +
@@ -66,36 +75,79 @@ export async function vlmExtractDocument(
   // ── VLM path ────────────────────────────────────────────────────────────────
   const baseUrl = cfg.vlmBaseUrl || getMediaEmbeddingConfig().vision?.baseUrl || 'http://ollama:11434';
   try {
-    const { pages, truncated, total: totalPages } = await renderDocumentPages(fileBytes, {
-      fileName,
-      dpi: cfg.renderDpi,
-      maxPages: cfg.maxPages,
-      timeoutMs: cfg.pageTimeoutMs * Math.min(cfg.maxPages, 20),
-    });
-    if (pages.length === 0) throw new Error('render produced no pages');
-    onProgress?.({ step: 'render', steps, done: pages.length, total: pages.length });
+    // ── Segmented render + transcribe ─────────────────────────────────────────────────────────────
+    //
+    // A long document used to become its first `maxPages` pages, full stop. `maxPages` bounds ONE render
+    // call — memory and latency per call — which is a real constraint and is kept; what it should never
+    // have been is the limit on how much of the document is read. The sidecars now take a `startPage`, so
+    // the work is walked in windows of `maxPages` instead.
+    //
+    // `maxTotalPages` is the separate, deliberate limit on the whole job, and it is not the same knob:
+    // every extra page is a VLM call, so an unbounded loop over a 600-page scan is 600 model calls and —
+    // on an external endpoint — 600 pages of content leaving the instance, triggered by an upload with
+    // nobody watching. When a document exceeds the budget we do exactly what today's code does, but
+    // honestly: extract what the budget allows and say plainly that the rest was skipped.
+    const pageBudget = Math.max(1, cfg.maxTotalPages ?? DEFAULT_MAX_TOTAL_PAGES);
+    const windowSize = Math.max(1, cfg.maxPages);
+    const parts: string[] = [];
+    let pagesRead = 0;
+    let totalPages = 0;
+    let moreAfterBudget = false;
     let pagesDone = 0;
+    let segmented = false;
+    // Kept ONLY for the single-window case, so the consensus pass below can re-read the same images.
+    // Holding every window's buffers would defeat the per-call memory bound that `maxPages` exists for.
+    let firstWindowPages: Buffer[] = [];
 
-    const parts = await mapLimit(pages, cfg.concurrency, async (img) => {
-      const t = await transcribePageImage(img, {
-        baseUrl, model: cfg.vlmModel, prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
+    for (let startPage = 0; pagesRead < pageBudget; startPage += windowSize) {
+      const take = Math.min(windowSize, pageBudget - pagesRead);
+      const window = await renderDocumentPages(fileBytes, {
+        fileName,
+        dpi: cfg.renderDpi,
+        maxPages: take,
+        startPage,
+        timeoutMs: cfg.pageTimeoutMs * Math.min(take, 20),
       });
-      // A finished page is the smallest honest unit of progress on this path — it is what makes a
-      // long document slow rather than wedged. Counting completions rather than using the map index
-      // keeps the number monotonic: pages run concurrently, so index order is not completion order
-      // and a bar driven by it would jump backwards.
-      onProgress?.({ step: 'vlm', steps, done: ++pagesDone, total: pages.length });
-      return t.text.trim();
-    });
+      totalPages = window.total;
+      if (window.pages.length === 0) {
+        // Only an error on the FIRST window: a later empty window just means we reached the end, which
+        // `truncated: false` would normally have told us already.
+        if (startPage === 0) throw new Error('render produced no pages');
+        break;
+      }
+      if (startPage === 0) firstWindowPages = window.pages; else { segmented = true; firstWindowPages = []; }
+      pagesRead += window.pages.length;
+      onProgress?.({ step: 'render', steps, done: pagesRead, total: Math.min(totalPages, pageBudget) });
+
+      const windowParts = await mapLimit(window.pages, cfg.concurrency, async (img) => {
+        const t = await transcribePageImage(img, {
+          baseUrl, model: cfg.vlmModel, prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
+        });
+        // A finished page is the smallest honest unit of progress on this path — it is what makes a
+        // long document slow rather than wedged. Counting completions rather than using the map index
+        // keeps the number monotonic: pages run concurrently, so index order is not completion order
+        // and a bar driven by it would jump backwards. Across windows the count keeps rising, so the
+        // bar does not restart at each segment.
+        onProgress?.({ step: 'vlm', steps, done: ++pagesDone, total: Math.min(totalPages, pageBudget) });
+        return t.text.trim();
+      });
+      parts.push(...windowParts);
+
+      if (!window.truncated) break;          // no pages after this window — done
+      if (pagesRead >= pageBudget) { moreAfterBudget = true; break; }
+    }
+
     let markdown = parts.filter(Boolean).join('\n\n---\n\n').trim();
-    if (truncated) {
+    if (moreAfterBudget) {
       // Truncation used to leave ONLY this HTML comment buried in the converted markdown: not
       // logged, not stored, and the file still reported success. A 400-page document silently
-      // became its first 50 pages, and recall then answered confidently from a tenth of it.
-      markdown += `\n\n<!-- document truncated to ${pages.length} of ${totalPages} pages -->`;
+      // became its first 50 pages, and recall then answered confidently from a tenth of it. It is now
+      // reached far less often — the cap is the whole-job budget, not one render — but when it IS hit it
+      // must still be loud.
+      markdown += `\n\n<!-- document truncated to ${pagesRead} of ${totalPages} pages -->`;
       log.warn(
-        `VLM extract: '${fileName}' truncated — read ${pages.length} of ${totalPages} pages ` +
-        `(documentProcessing.maxPages = ${cfg.maxPages}). The rest was NOT indexed.`,
+        `VLM extract: '${fileName}' truncated — read ${pagesRead} of ${totalPages} pages ` +
+        `(documentProcessing.maxTotalPages = ${pageBudget}). The rest was NOT indexed.`,
       );
     }
 
@@ -107,8 +159,15 @@ export async function vlmExtractDocument(
       // ── F11-d max-mode consensus: an independent second-VLM pass + reconcile, kept only if it covers the
       // OCR evidence at least as well as the primary (never worse). Precision step on an ALREADY-accepted
       // draft; failure-gated to `max` (route has the verify stage) and to a configured verify model.
-      if (route.stages.includes('verify') && cfg.verifyModel && evidence.trim()) {
-        const consensus = await runConsensus(pages, markdown, evidence, cfg, baseUrl).catch(err => {
+      // Skipped for a SEGMENTED document, deliberately. `runConsensus` re-transcribes every page with a
+      // second model, so on a walked document it would double the page cost the budget exists to bound and
+      // require every window's buffers alive at once. Not a regression either: before segmentation a long
+      // document was truncated to one window, so consensus never saw more than this anyway.
+      if (segmented && route.stages.includes('verify') && cfg.verifyModel) {
+        log.info(`VLM extract: '${fileName}' was read in segments — skipping the consensus pass (it would re-transcribe all ${pagesRead} pages).`);
+      }
+      if (!segmented && route.stages.includes('verify') && cfg.verifyModel && evidence.trim()) {
+        const consensus = await runConsensus(firstWindowPages, markdown, evidence, cfg, baseUrl).catch(err => {
           log.warn(`VLM extract: consensus pass errored (${err instanceof Error ? err.message : err}) — keeping primary`);
           return null;
         });
@@ -117,7 +176,7 @@ export async function vlmExtractDocument(
           return { markdown: consensus.text, extractedImages: ocr?.extractedImages ?? [], extractionPath: `${ranLabel}+verify` };
         }
       }
-      log.debug(`VLM extract: accepted ${ranLabel} (${pages.length} pages, coverage ${(v.coverage * 100).toFixed(0)}%)`);
+      log.debug(`VLM extract: accepted ${ranLabel} (${pagesRead} pages, coverage ${(v.coverage * 100).toFixed(0)}%)`);
       return { markdown, extractedImages: ocr?.extractedImages ?? [], extractionPath: ranLabel };
     }
 

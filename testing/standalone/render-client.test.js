@@ -19,6 +19,7 @@ function mockSidecar(state) {
       return;
     }
     if (url.startsWith('/render') && req.method === 'POST') {
+      state.lastUrl = url;   // so a test can assert the window that was actually requested
       req.on('data', () => {}); // drain the multipart body
       req.on('end', () => {
         res.writeHead(state.status, { 'content-type': 'application/json' });
@@ -80,6 +81,53 @@ describe('render client — availability probes', () => {
     R._resetRenderHealthCache();
     assert.equal(await R.isRenderAvailableFor('report.docx'), false); // office sidecar down
     officeState.health = 200;
+  });
+});
+
+describe('render client — page windows', () => {
+  // A long document used to become its first `maxPages` pages, permanently. The sidecars now take a
+  // `startPage` so the caller can walk the document in windows; these pin the request the client builds,
+  // because a dropped or mis-typed parameter degrades silently back to "always page 0" — the exact bug
+  // being fixed, and one where every page still renders and nothing errors.
+  it('asks for page 0 by default, so an un-windowed call is unchanged', async () => {
+    renderState.lastUrl = '';
+    await R.renderDocumentPages(Buffer.from('%PDF'), { fileName: 'x.pdf', maxPages: 2 });
+    assert.match(renderState.lastUrl, /startPage=0/);
+  });
+
+  it('passes the requested window through to the sidecar', async () => {
+    renderState.lastUrl = '';
+    await R.renderDocumentPages(Buffer.from('%PDF'), { fileName: 'x.pdf', maxPages: 50, startPage: 150 });
+    assert.match(renderState.lastUrl, /maxPages=50/);
+    assert.match(renderState.lastUrl, /startPage=150/);
+  });
+
+  it('never sends a negative or fractional startPage', async () => {
+    // These would be a 422 from the sidecar's `ge=0` int query, turning a caller bug into a failed
+    // extraction rather than a clamped one.
+    renderState.lastUrl = '';
+    await R.renderDocumentPages(Buffer.from('%PDF'), { fileName: 'x.pdf', startPage: -5 });
+    assert.match(renderState.lastUrl, /startPage=0/);
+    renderState.lastUrl = '';
+    await R.renderDocumentPages(Buffer.from('%PDF'), { fileName: 'x.pdf', startPage: 12.7 });
+    assert.match(renderState.lastUrl, /startPage=12(&|$)/);
+  });
+
+  it('reports the window offset back, falling back to what was asked', async () => {
+    // An older sidecar that does not echo `startPage` still windows correctly; the client must not then
+    // report 0 and make a caller think it was handed the start of the document.
+    renderState.body = JSON.stringify({ pages: [], count: 0, total: 300, truncated: true, dpi: 150 });
+    const r = await R.renderDocumentPages(Buffer.from('%PDF'), { fileName: 'x.pdf', startPage: 100 });
+    assert.equal(r.startPage, 100);
+    renderState.body = null;
+  });
+
+  it('windows office documents too, not just PDFs', async () => {
+    // Segmenting only PDFs would leave long .docx/.odt silently truncated — the same bug, half-fixed.
+    officeState.lastUrl = '';
+    await R.renderDocumentPages(Buffer.from('PK'), { fileName: 'report.docx', maxPages: 25, startPage: 25 });
+    assert.match(officeState.lastUrl, /startPage=25/);
+    assert.match(officeState.lastUrl, /maxPages=25/);
   });
 });
 

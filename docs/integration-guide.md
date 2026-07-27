@@ -2270,7 +2270,14 @@ They are never queued, so they do not sit at `pending` waiting for work that wil
 | `verifyModel` | `""` | Engages on the **`repair`** level, and on **`auto`** when a repair model is set (F11-d consensus). A *second* document VLM. When set, the repair level runs it as an independent second transcription of each page, reconciles it with the primary draft against the OCR text, and keeps the highest-coverage result — **never worse** than the primary. Empty ⇒ no consensus pass. Best set to a *different* model than `vlmModel`. Env override: `DOC_VERIFY_MODEL`. |
 | `verifyBaseUrl` | `""` | Endpoint for the verify model. Empty ⇒ reuses `vlmBaseUrl`. Env override: `DOC_VERIFY_URL`. |
 | `renderDpi` | `150` | Page rasterization DPI for the render sidecar (VLM modes only). |
-| `maxPages` | `50` | Cap on pages rendered/transcribed per document (VLM modes only). |
+| `maxPages` | `50` | Pages rendered per **render call** — one sidecar round trip's memory/latency bound. Not how much of a document is read: longer documents are walked in windows of this size. |
+| `maxTotalPages` | `200` | Pages read from **one document** in total, across windows. Beyond this the extraction stops and says so, in the log and in the stored markdown. |
+
+> **Why two numbers.** They bound different things. `maxPages` is one round trip; `maxTotalPages` is the
+> job's cost ceiling — every page is a VLM call, so an unbounded walk over a 600-page scan means 600 model
+> calls and, with an external endpoint, 600 pages of content leaving the instance, on an upload nobody is
+> watching. Raise `maxTotalPages` deliberately. In `max` mode the consensus pass is skipped for a document
+> that had to be walked, since it re-transcribes every page with a second model.
 | `pageTimeoutMs` | `60000` | Per-page VLM transcription timeout (VLM modes only). |
 | `concurrency` | `2` | How many pages are transcribed in parallel (VLM modes only). |
 | `ocrTimeoutMs` | `120000` | Timeout (ms) for a single OCR-sidecar call. Applies to **all** modes — OCR is the engine in `ocr` mode and the grounding evidence + fallback floor in the VLM modes — so raise it when large/complex scanned documents need longer than the 2-min default (especially under `repair`). Env override: `DOC_OCR_TIMEOUT_MS`. |

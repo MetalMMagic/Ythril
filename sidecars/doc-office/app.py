@@ -19,7 +19,10 @@ See LICENSES.md.
 Endpoints:
   GET  /health                      -> {"status": "ok"}
   POST /render  (multipart 'file')  -> {"pages": [<base64 png>...], "count", "total", "truncated", "dpi"}
-    query: dpi (72..600), maxPages (1..RENDER_MAX_PAGES)
+    query: dpi (72..600), maxPages (1..RENDER_MAX_PAGES), startPage (>=0)
+
+`startPage` mirrors doc-render so a caller can walk either sidecar the same way, taking one window of pages
+at a time instead of losing everything past `maxPages`.
 """
 import base64
 import io
@@ -77,6 +80,7 @@ async def render(
     file: UploadFile = File(...),
     dpi: int = Query(150, ge=72, le=600),
     maxPages: int = Query(50, ge=1, le=MAX_PAGES_HARD),
+    startPage: int = Query(0, ge=0),
 ) -> dict:
     data = await file.read()
     if not data:
@@ -94,11 +98,14 @@ async def render(
 
         try:
             total = len(pdf)
-            n = min(total, maxPages)
+            # Window [start, end) — see doc-render for the rationale; kept identical so a caller can walk
+            # either sidecar the same way. A startPage past the end renders nothing rather than erroring.
+            start = min(startPage, total)
+            end = min(total, start + maxPages)
             scale = dpi / 72.0  # pypdfium2 render scale is relative to 72 DPI
             pages = []
             # Render page-by-page and release each bitmap/page promptly — bound memory to ~one page.
-            for i in range(n):
+            for i in range(start, end):
                 page = pdf[i]
                 bitmap = page.render(scale=scale)
                 pil = bitmap.to_pil()
@@ -114,6 +121,8 @@ async def render(
         "pages": pages,
         "count": len(pages),
         "total": total,
-        "truncated": total > n,
+        # "there are pages after this window" — lets a caller loop without knowing `total` up front.
+        "truncated": end < total,
+        "startPage": start,
         "dpi": dpi,
     }

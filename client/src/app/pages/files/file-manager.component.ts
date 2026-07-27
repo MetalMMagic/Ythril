@@ -14,6 +14,7 @@ import { Subscription } from 'rxjs';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { ErrorStateComponent } from '../../shared/error-state.component';
+import { StepProgressBarComponent } from '../../shared/step-progress-bar.component';
 import { httpErrorReason } from '../../core/http-error';
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -140,7 +141,7 @@ function xlsxCellText(v: unknown): string {
   // regardless of zone. Text fields (`newFolderName`, `renameValue`) are ngModel two-way bindings
   // whose input events mark the view dirty. So OnPush re-checks exactly when state changes.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, PhIconComponent, TranslocoPipe, ErrorStateComponent, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, ChronoRefFieldComponent, SortableHeaderComponent, StepProgressBarComponent],
   styles: [`
     .toolbar {
       display: flex;
@@ -612,7 +613,15 @@ function xlsxCellText(v: unknown): string {
                       }
                     </td>
                     <td>
-                      @if (entry.isFile && entry.embeddingStatus) {
+                      @if (entry.isFile && entry.progress) {
+                        <!-- In flight AND the worker has reported a stage: show WHICH stage of this
+                             file's own route is running, rather than a generic "embedding" + spinner
+                             that looks identical whether the job is working or wedged. Falls back to
+                             the pill below the moment the job finishes or before it reports. -->
+                        <app-step-progress-bar
+                          [progress]="entry.progress"
+                          [progressAt]="entry.progressAt" />
+                      } @else if (entry.isFile && entry.embeddingStatus) {
                         <span class="emb-pill" [class]="'emb-' + entry.embeddingStatus">
                           <span class="emb-dot"></span>{{ 'files.embStatus.' + entry.embeddingStatus | transloco }}
                         </span>

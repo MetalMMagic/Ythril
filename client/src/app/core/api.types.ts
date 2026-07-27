@@ -314,6 +314,10 @@ export interface FileEntry {
   // ── Joined from the file's metadata record (files only) — for the merged Files list ──
   embeddingStatus?: 'pending' | 'processing' | 'complete' | 'partial' | 'failed' | 'skipped' | 'disabled';
   tags?: string[];
+  /** Live stage of this file's media job — present only while it is in flight and has reported a step. */
+  progress?: { step: string; steps: string[]; done?: number; total?: number };
+  /** ISO8601 of the job's last report, so a wedged job does not look like a working one. */
+  progressAt?: string | null;
 }
 
 export interface FileMeta {

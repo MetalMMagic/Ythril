@@ -24,6 +24,9 @@ export class FilesApi {
           modified: e.modifiedAt ?? '',
           embeddingStatus: e.embeddingStatus,
           tags: e.tags,
+          // Present only for files still in flight; absent leaves the row on its plain status pill.
+          progress: e.progress,
+          progressAt: e.progressAt,
         } as FileEntry)),
       })),
     );

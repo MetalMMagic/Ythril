@@ -852,6 +852,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Files list now shows which processing stage a file is actually in, instead of "embedding" and a
+  spinner.** An in-flight file's row draws a segmented bar for **that file's own route** — a PDF might run
+  render → VLM → repair, an image caption → embed — with the active stage filling as its pages land, a
+  `12 / 40` unit count where the stage is countable, and a **stalled** state when the worker has not
+  reported for longer than the stall timeout. Previously every in-flight file said the same generic thing
+  for the whole job and looked identical whether it was working or wedged.
+
+  Both halves of this already existed and had never been connected: the worker has been reporting steps to
+  the job record for a while, and `app-step-progress-bar` was built, unit-tested and imported by **nothing**.
+  What is new is the join — `GET /api/files/:spaceId` now decorates in-flight entries with their job's
+  `progress`/`progressAt`. Finished files cost **no** extra query at all (a listing of completed files is
+  the common case and must not pay for the rare one), the lookup is grouped **per member space** so a proxy
+  space's listing makes one query per member rather than one per file, and it is best-effort throughout: a
+  failed lookup leaves the row on its plain status pill rather than failing the listing. A job that has been
+  claimed but has not yet reported a step keeps the pill too — "not known yet" must not render as an empty
+  bar, which reads as zero progress.
+
 - **Chrono entries are now covered by duplicate and contradiction detection — both on insert and in the
   nightly sweep.** They previously had neither: `create_chrono` ran no near-duplicate check, and
   `dupeScanner.types` defaulted to `["memory", "entity"]` — which the new contradiction scanner inherited —
@@ -1671,6 +1688,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of a third-party signed cast, tampered cast rejected).
 
 ### Fixed
+
+- **The Files list showed no status, no tags and no folder sizes at the root — which is most listings.**
+  The directory listing joins each row to its file-metadata record over an indexed path-prefix range, but
+  the prefix was derived by comparing the **raw** request path against `'.'`. The client asks for the root
+  as `/`, and `toDocId('/')` is `''`, so the expression produced the prefix `'/'` — and file records store
+  their paths with no leading slash, so the range `['/', '/￿')` matched **nothing**. Every file still
+  listed (the filesystem walk is separate), they just arrived stripped of their metadata, which reads as
+  "nothing has been processed yet" rather than as a bug. The prefix is now normalised **before** the
+  root check, so every spelling of the root (`/`, `.`, `//`, `./`) means the same thing, and a leading
+  slash on a sub-folder path no longer produces a prefix that can match no record. Found while wiring the
+  per-file stage bar, which could not appear for the same reason.
 
 - **The contradiction sweep recorded every finding in a space under one row, and its model pass never ran
   at all.** The scanner mapped a vector-search hit onto the judge's input with a cast that silenced the type

@@ -184,6 +184,11 @@ interface StatCard { key: string; icon: string; label: string; value: number }
                 }
               </ul>
             }
+            @if (q.failed > 0) {
+              <button class="btn btn-sm btn-secondary retry-failed-btn" type="button" style="margin-top:12px;" (click)="requestRetryFailed()">
+                <ph-icon name="arrows-clockwise" [size]="14" style="margin-right:5px;vertical-align:-2px;"/>{{ 'brain.overview.queue.retryFailed' | transloco }}
+              </button>
+            }
           </div>
         </section>
       }
@@ -274,6 +279,8 @@ export class OverviewTabComponent {
   openVotes = input<VoteRound[]>([]);
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
   reindex = output<void>();
+  /** Emitted so the shell re-queues every failed embedding job and reloads the queue (fetch-free tab). */
+  retryFailed = output<void>();
 
   private confirmDialog = inject(ConfirmDialogService);
   private transloco = inject(TranslocoService);
@@ -349,5 +356,17 @@ export class OverviewTabComponent {
     });
     if (!ok) return;
     this.reindex.emit();
+  }
+
+  async requestRetryFailed(): Promise<void> {
+    const failed = this.embeddingQueue()?.failed ?? 0;
+    if (failed <= 0) return;
+    const ok = await this.confirmDialog.confirm({
+      title: this.transloco.translate('brain.overview.confirmRetryFailedTitle'),
+      message: this.transloco.translate('brain.overview.confirmRetryFailed', { count: failed }),
+      confirmLabel: this.transloco.translate('brain.overview.queue.retryFailed'),
+    });
+    if (!ok) return;
+    this.retryFailed.emit();
   }
 }

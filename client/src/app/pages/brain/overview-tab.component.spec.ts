@@ -133,6 +133,26 @@ describe('OverviewTabComponent', () => {
     expect((noQ.fixture.nativeElement as HTMLElement).querySelector('.fail-list')).toBeNull();
   });
 
+  it('shows a "retry all failed" button only when failed > 0, and emits after the confirm', async () => {
+    // failed > 0 → button present; the confirm-accepted click emits retryFailed once.
+    const withFail = setup({ confirm: true });
+    const spy = vi.fn(); withFail.c.retryFailed.subscribe(spy);
+    withFail.fixture.componentRef.setInput('embeddingQueue', { pending: 0, processing: 0, complete: 3, failed: 2, failedSample: [] });
+    withFail.fixture.detectChanges();
+    const btn = (withFail.fixture.nativeElement as HTMLElement).querySelector('.retry-failed-btn') as HTMLButtonElement | null;
+    expect(btn).toBeTruthy();
+    btn!.click();
+    await withFail.fixture.whenStable();
+    expect(withFail.confirm).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledOnce();
+
+    // failed === 0 → no retry button (nothing to retry).
+    const noFail = setup();
+    noFail.fixture.componentRef.setInput('embeddingQueue', { pending: 1, processing: 0, complete: 3, failed: 0, failedSample: [] });
+    noFail.fixture.detectChanges();
+    expect((noFail.fixture.nativeElement as HTMLElement).querySelector('.retry-failed-btn')).toBeNull();
+  });
+
   it('Governance panel lists open votes with tallies; absent when there are none', () => {
     const withVotes = setup();
     withVotes.fixture.componentRef.setInput('openVotes', [{

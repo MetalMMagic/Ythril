@@ -620,6 +620,34 @@ export async function retryJob(
   return 'ok';
 }
 
+/**
+ * Reset every FAILED job in a space back to pending for a bulk manual re-trigger (F9 "retry all
+ * failed"). Skips jobs currently processing (the `status: 'failed'` filter excludes them). Returns
+ * the number reset. Mirrors `retryJob` for the whole failed set rather than one file at a time.
+ */
+export async function retryFailedJobs(spaceId: string): Promise<number> {
+  const jc = jobCollection(spaceId);
+  const failed = await jc
+    .find(asFilter<MediaJobDoc>({ status: 'failed' }), { projection: { _id: 1 } })
+    .toArray() as Array<{ _id: string }>;
+  if (!failed.length) return 0;
+
+  const now = new Date().toISOString();
+  await jc.updateMany(
+    asFilter<MediaJobDoc>({ status: 'failed' }),
+    asUpdate<MediaJobDoc>({
+      $set: { status: 'pending', attempts: 0, lastError: null, claimedAt: null, claimableAfter: null, updatedAt: now },
+    }),
+  );
+  await fileCollection(spaceId).updateMany(
+    asFilter<FileMetaDoc>({ _id: { $in: failed.map(f => f._id) } }),
+    { $set: { embeddingStatus: 'pending', mediaJobError: undefined, updatedAt: now } },
+  );
+  // Same reason as retryJob: announce the work or the claim walk waits up to a full scan (~30 s).
+  markSpaceMayHaveWork(spaceId);
+  return failed.length;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /**

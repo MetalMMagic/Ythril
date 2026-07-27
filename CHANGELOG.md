@@ -838,6 +838,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Brain Overview embedding-queue panel gains a "Retry all failed" button.** When a space has failed
+  media-embedding jobs, one click (behind a confirmation) re-queues every one of them — previously the only
+  way to retry was per file, via the file's own retry action. Backed by a new
+  `POST /api/brain/spaces/:spaceId/embedding-queue/retry-failed` (space-scoped, `denyReadOnly`, audited as
+  `file.retry_embedding_all`, summed across a proxy space's members) that resets each failed job to pending and
+  wakes the claim walk so the pipeline resumes immediately. Verified end-to-end on a scratch instance: a seeded
+  failed job was re-queued (`{retried:1}`) and picked straight back up by the worker.
+
 - **The per-space media pickers now show the instance ceiling instead of silently capping.** Each of the
   four Media-analysis pickers (images / audio / video / text) offers only the levels within its per-class
   instance ceiling — higher levels are hidden and a note names the ceiling — exactly as the document-extraction

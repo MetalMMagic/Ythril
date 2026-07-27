@@ -276,7 +276,7 @@ interface SpaceView {
           @if (activeSpace(); as sp) {
             <app-overview-tab [space]="sp" [stats]="activeStats()" [needsReindex]="needsReindex()"
               [reindexing]="reindexing()" [about]="aboutInfo()" [embeddingQueue]="embeddingQueue()"
-              [openVotes]="overviewVotes()" (reindex)="runReindex()" />
+              [openVotes]="overviewVotes()" (reindex)="runReindex()" (retryFailed)="runRetryFailedEmbeddings()" />
           }
         }
         @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }
@@ -523,6 +523,15 @@ export class BrainComponent implements OnInit, OnDestroy {
         this.loadStats(this.activeSpaceId());
       },
       error: () => { this.reindexing.set(false); this.reindexResult.set('Reindex failed — check server logs.'); },
+    });
+  }
+
+  /** Re-queue every failed embedding job for the active space, then refresh the queue panel. */
+  runRetryFailedEmbeddings(): void {
+    const spaceId = this.activeSpaceId();
+    this.brainApi.retryFailedEmbeddings(spaceId).subscribe({
+      next: () => { if (this.activeSpaceId() === spaceId) this.loadEmbeddingQueue(spaceId); },
+      error: () => {},
     });
   }
 

@@ -118,6 +118,23 @@ fileMetaRouter.get('/spaces/:spaceId/embedding-queue', globalRateLimit, requireS
   res.json(total);
 });
 
+// POST /api/brain/spaces/:spaceId/embedding-queue/retry-failed — re-queue every failed media job in
+// this space (F9 Overview "retry all failed"). Sums across member spaces like the GET above.
+fileMetaRouter.post('/spaces/:spaceId/embedding-queue/retry-failed', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  const { retryFailedJobs } = await import('../../files/media/job-queue.js');
+  let retried = 0;
+  for (const mid of resolveMemberSpaces(spaceId)) {
+    retried += await retryFailedJobs(mid);
+  }
+  res.status(202).json({ retried });
+});
+
 
 // DELETE /api/brain/spaces/:spaceId/files — delete file metadata record by path (does NOT delete the file on disk)
 fileMetaRouter.delete('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, denyReadOnly, async (req, res) => {

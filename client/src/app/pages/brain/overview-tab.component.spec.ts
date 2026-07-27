@@ -76,6 +76,28 @@ describe('OverviewTabComponent', () => {
     expect(spy2).not.toHaveBeenCalled();
   });
 
+  it('maps networkStatus to a pill variant (idle/undefined → ok)', () => {
+    expect(setup({ space: space({ networkStatus: 'degraded' }) }).c.netVariant()).toBe('error');
+    expect(setup({ space: space({ networkStatus: 'syncing' }) }).c.netVariant()).toBe('pending');
+    expect(setup({ space: space({ networkStatus: 'vote' }) }).c.netVariant()).toBe('warn');
+    expect(setup({ space: space() }).c.netVariant()).toBe('ok'); // no status → idle/healthy
+  });
+
+  it('Networks panel lists the space networks; shows the empty note when there are none', () => {
+    const withNet = setup({ space: space({ networks: [{ id: 'n1', label: 'Braintree', type: 'braintree' as never }], networkStatus: 'idle' }) });
+    withNet.fixture.detectChanges();
+    const items = [...(withNet.fixture.nativeElement as HTMLElement).querySelectorAll('.net-list li')];
+    expect(items.length).toBe(1);
+    expect(items[0].textContent).toContain('Braintree');
+
+    const noNet = setup({ space: space() });
+    noNet.fixture.detectChanges();
+    const el = noNet.fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.net-list')).toBeNull();
+    // The empty-state note renders (test transloco emits the raw key).
+    expect(el.textContent).toContain('brain.overview.noNetworks');
+  });
+
   it('renders the counts and a Reindex button; shows the reindex note when stale', () => {
     const { fixture } = setup({ stats: STATS, needsReindex: true });
     fixture.detectChanges();

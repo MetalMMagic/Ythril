@@ -838,6 +838,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Brain Overview gains a Networks panel.** Alongside Statistics and Indexing, the landing dashboard
+  now shows the networks a space syncs with — each network's label and type plus the aggregate sync status
+  (Idle / Syncing / Degraded / Vote pending), or a note when the space belongs to no network. Assembled from
+  data the Brain already holds (no extra request).
+
 - **Files can now carry a per-record TTL (auto-expiry), like every other knowledge type.** Pass `ttlDays`
   as a query param on upload — `POST /api/files/:spaceId?path=…&ttlDays=30` — or the `ttlDays` field on the
   MCP `write_file` tool; `0`/`null` means never expire, and a space's `recordTtlDays` default applies to

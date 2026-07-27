@@ -1209,7 +1209,6 @@
   "spaces.schema.libRef.unlinkTitle": "Copy the library schema inline so you can customise it for this space (breaks the link)",
   "spaces.schema.libRef.noProps": "This library schema defines no properties.",
   "spaces.schema.libRef.unlinkFailed": "Couldn't unlink — the library entry could not be loaded.",
-  "nav.duplicates": "Duplicates",
   "spaces.popup.tab.duplicates": "Duplicates",
   "spaces.dupe.intro": "Configure how this space handles semantic duplicates found by the background scanner. Rules are evaluated highest-score-first; the first match decides the action.",
   "spaces.dupe.survivor": "Merge survivor",
@@ -1533,5 +1532,6 @@
   "mediaProcessing.face.gatedByPipeline": "Face recognition follows the Images pipeline: raise it to \"Caption + face recognition\" to detect and embed faces. Requires the local model files to be present.",
   "mediaProcessing.assist.gatedByPipeline": "Used for the document repair pass. Raise Document extraction to \"Repair\" (or Auto) to route repairs through it; you will be asked to acknowledge the egress.",
   "schemaLib.field.schema": "Schema (JSON)",
-  "schemaLib.field.schemaHint": "The property definitions for this type, as a JSON object. Invalid JSON is rejected on save."
+  "schemaLib.field.schemaHint": "The property definitions for this type, as a JSON object. Invalid JSON is rejected on save.",
+  "brain.tab.review": "Review"
 }

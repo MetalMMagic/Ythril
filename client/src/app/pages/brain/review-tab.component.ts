@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, OnInit } from '@angular/core';
+import { Component, inject, signal, computed, OnInit, OnChanges, SimpleChanges, Input } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { DuplicateRecord } from '../../core/api.types';
 import { DuplicatesApi } from '../../core/duplicates-api.service';
@@ -11,7 +11,7 @@ import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 
 @Component({
-  selector: 'app-duplicates',
+  selector: 'app-review-tab',
   standalone: true,
   imports: [FormsModule, PhIconComponent, TranslocoPipe, SummaryStripComponent, StatusPillComponent, RelativeTimeComponent],
   styles: [`
@@ -90,7 +90,6 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
         @for (d of filteredRows(); track d.id) {
           <div class="dup-card">
             <div class="dup-card-h">
-              <span class="badge badge-blue mono">{{ d.spaceId }}</span>
               <span class="dup-type">{{ d.type }}</span>
               <span class="conf" [attr.title]="'duplicates.confidence' | transloco">
                 <span class="conf-track"><span class="conf-fill" [class]="scoreVariant(d.score)" [style.width.%]="scorePct(d.score)"></span></span>
@@ -142,7 +141,10 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
     }
   `,
 })
-export class DuplicatesComponent implements OnInit {
+export class ReviewTabComponent implements OnInit, OnChanges {
+  /** The space being reviewed. Required: this view is per-space now, never instance-wide. */
+  @Input({ required: true }) spaceId = '';
+
   private duplicatesApi = inject(DuplicatesApi);
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
@@ -183,11 +185,13 @@ export class DuplicatesComponent implements OnInit {
   scoreVariant(s: number): 'high' | 'mid' | 'low' { return s >= 0.95 ? 'high' : s >= 0.85 ? 'mid' : 'low'; }
 
   ngOnInit(): void { this.load(); }
+  /** Switching space in the Brain re-points this tab rather than leaving another space's pairs on screen. */
+  ngOnChanges(ch: SimpleChanges): void { if (ch['spaceId'] && !ch['spaceId'].firstChange) this.load(); }
 
   load(): void {
     this.loading.set(true);
     this.error.set(false);
-    this.duplicatesApi.listDuplicates(this.statusFilter).subscribe({
+    this.duplicatesApi.listDuplicates(this.statusFilter, this.spaceId).subscribe({
       next: ({ duplicates }) => { this.rows.set(duplicates); this.loading.set(false); },
       error: () => { this.error.set(true); this.loading.set(false); },
     });
@@ -195,7 +199,7 @@ export class DuplicatesComponent implements OnInit {
 
   scan(): void {
     this.scanning.set(true);
-    this.duplicatesApi.scanDuplicates().subscribe({
+    this.duplicatesApi.scanDuplicates(this.spaceId).subscribe({
       next: () => { this.scanning.set(false); this.load(); },
       error: (e) => {
         this.scanning.set(false);

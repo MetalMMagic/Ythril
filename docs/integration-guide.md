@@ -5610,7 +5610,7 @@ Base path: `/api/duplicates`.
 | `POST` | `/api/duplicates/:id/merge` | non-read-only | Merge an entity candidate losslessly. `409` with the merge plan if there is a value conflict. |
 | `POST` | `/api/duplicates/scan?space=<id>` | admin + MFA | Trigger an on-demand full re-scan (all accessible spaces, or one). Requires `X-TOTP-Code` when MFA is enabled. |
 
-A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, score, status, resolution?, detectedAt, updatedAt }`. The web UI (**Settings → Duplicates**) lists candidates with dismiss / merge / re-rate actions, a **search box** (handy for a large dismissed pile), and a "Scan now" button.
+A candidate is `{ id, spaceId, type, aId, aSummary, bId, bSummary, score, status, resolution?, detectedAt, updatedAt }`. The web UI (a space's **Brain → Review** tab) lists that space's candidates with dismiss / merge / re-rate actions, a **search box** (handy for a large dismissed pile), and a "Scan now" button.
 
 > **Cost note:** the initial full scan of a large existing space is O(N) vector searches — inherently the expensive part. It is bounded per run (`maxPerRun`) and runs off-hours; steady-state runs only touch new or edited records. Keep `notify` rules and automation idempotent, since an edited record re-fires its pair's action.
 

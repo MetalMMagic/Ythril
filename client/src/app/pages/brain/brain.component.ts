@@ -11,6 +11,7 @@ import { EntitiesTabComponent } from './entities-tab.component';
 import { EdgesTabComponent } from './edges-tab.component';
 import { ChronoTabComponent } from './chrono-tab.component';
 import { OverviewTabComponent } from './overview-tab.component';
+import { ReviewTabComponent } from './review-tab.component';
 import { FormsModule } from '@angular/forms';
 import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
@@ -24,7 +25,7 @@ import { FileManagerComponent } from '../files/file-manager.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
-type BrainTab = 'overview' | 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono';
+type BrainTab = 'overview' | 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono' | 'review';
 
 interface SpaceView {
   space: Space;
@@ -43,7 +44,7 @@ interface SpaceView {
   // or happens in a template event handler, both of which mark the view dirty. That coupling is
   // load-bearing and pinned by the specs (the drawer's own version lives in the drawer component).
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, OverviewTabComponent, TranslocoPipe],
+  imports: [CommonModule, FormsModule, GraphComponent, FileManagerComponent, PhIconComponent, RecordDrawerComponent, QueryTabComponent, MemoriesTabComponent, EntitiesTabComponent, EdgesTabComponent, ChronoTabComponent, OverviewTabComponent, ReviewTabComponent, TranslocoPipe],
   providers: [BrainStore, EntityRefPicker, RecordDrawerState, RecordListState],
   styles: [`
     .space-tabs {
@@ -229,6 +230,10 @@ interface SpaceView {
             <span class="tab-count">{{ s.files }}</span>
           }
         </button>
+        <!-- Review (F-REVIEW): duplicate pairs awaiting a decision in this space. -->
+        <button class="tab" [class.active]="activeTab() === 'review'" (click)="setTab('review')">
+          <ph-icon name="copy" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.review' | transloco }}
+        </button>
       </div>
 
       <!-- Content. Tabs are gated by activeTab() ONLY — NEVER wrapped in @else of
@@ -287,6 +292,10 @@ interface SpaceView {
           }
         }
         @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }
+
+        <!-- Review (F-REVIEW): duplicate pairs for THIS space. Was a global Settings page; a duplicate
+             pair only ever means something inside one space, so it belongs beside the space's data. -->
+        @if (activeTab() === 'review') { <app-review-tab [spaceId]="activeSpaceId()" /> }
       </div>
 
       <!-- Detail Drawer -->

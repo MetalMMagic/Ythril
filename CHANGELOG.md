@@ -838,6 +838,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Files can now carry a per-record TTL (auto-expiry), like every other knowledge type.** Pass `ttlDays`
+  as a query param on upload — `POST /api/files/:spaceId?path=…&ttlDays=30` — or the `ttlDays` field on the
+  MCP `write_file` tool; `0`/`null` means never expire, and a space's `recordTtlDays` default applies to
+  uploads that omit it. When a file lapses, the sweep runs the **full delete cascade** (blob + embedding
+  chunks + conversion artifacts + any queued job + the record's sync tombstone) — never just the record —
+  so an expired file leaves nothing orphaned. (F12; files were previously the only type excluded from TTL.)
+
 - **The file list now shows each file's embedding status and tags inline.** Every file row carries a
   **status pill** (Embedded / Embedding / Partial / Failed / Skipped…) and its **tags**, joined from the
   file's metadata record — so you can see a space's file-processing state without leaving the file

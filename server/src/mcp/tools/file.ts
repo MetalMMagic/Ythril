@@ -1,5 +1,6 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { recall } from '../../brain/recall.js';
+import { TTL_DAYS_SCHEMA, ttlDaysFromArgs } from './shared.js';
 import { type InputFormat } from '../../files/converters/pipeline.js';
 import { renameFileMeta, renameFileMetaByPrefix, upsertFileMeta } from '../../files/file-meta.js';
 import { createDir, listDir, listFilesRecursive, moveFile, readFile, writeFile } from '../../files/files.js';
@@ -57,6 +58,7 @@ export const write_fileTool: ToolHandler = {
               additionalProperties: { oneOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }] },
             },
             targetSpace: { type: 'string', description: 'Required for proxy spaces: the member space to write to.' },
+            ttlDays: TTL_DAYS_SCHEMA,
             inputFormat: {
               type: 'string',
               enum: ['pdf', 'docx', 'epub', 'html', 'md', 'txt', 'text', 'auto'],
@@ -79,12 +81,13 @@ export const write_fileTool: ToolHandler = {
     const sizeBytes = Buffer.byteLength(content, 'utf8');
     const wfQuota = await checkQuota('files', sizeBytes);
     const { sha256 } = await writeFile(wt.target, filePath, content);
-    const metaOpts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> } = {};
+    const metaOpts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; ttlDays?: number | null } = {};
     if (typeof a['description'] === 'string') metaOpts.description = a['description'];
     if (Array.isArray(a['tags'])) metaOpts.tags = a['tags'] as string[];
     if (a['properties'] != null && typeof a['properties'] === 'object' && !Array.isArray(a['properties'])) {
       metaOpts.properties = a['properties'] as Record<string, string | number | boolean>;
     }
+    metaOpts.ttlDays = ttlDaysFromArgs(a);
     await upsertFileMeta(wt.target, filePath, sizeBytes, metaOpts);
     // Resolve format, record media state, and enqueue the async embedding job — one shared policy
     // with the REST upload path. Documents are converted by the background worker (not inline), so

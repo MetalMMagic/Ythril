@@ -740,8 +740,14 @@ instance; expiry is eventual (granularity is days), not to-the-second. A `ttlDay
 fields) is a valid write — use it to set, extend, or clear an existing record's expiry.
 
 `ttlDays` is accepted on the **MCP** write tools as well (`remember`, `update_memory`, `upsert_entity`,
-`update_entity`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`) and per item in
+`update_entity`, `upsert_edge`, `update_edge`, `create_chrono`, `update_chrono`, `write_file`) and per item in
 `bulk_write` / `POST /bulk`, with the same semantics — so agents can set an expiry directly.
+
+**Files** carry TTL too: pass `ttlDays` as a **query parameter** on the upload — `POST /api/files/:spaceId?path=…&ttlDays=30`
+(a query param so it works for raw-binary bodies) — or the `ttlDays` field on the MCP `write_file` tool. The
+expiry is stamped on the file's metadata record; when it lapses, the sweep runs the **full file delete**
+(the blob, its embedding chunks, conversion artifacts and any queued job — not just the record), the same as
+`DELETE /api/files/:spaceId`. The space-wide `recordTtlDays` default applies to uploads that omit `ttlDays`.
 
 ---
 

@@ -18,6 +18,7 @@ import { escapeRegex } from '../util/redos.js';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate } from '../db/mongo.js';
 import { embed } from '../brain/embedding.js';
+import { expiryForCreate } from '../brain/ttl.js';
 import { fileEmbedText } from '../brain/embed-text.js';
 import { getConfig } from '../config/loader.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../config/types.js';
@@ -45,7 +46,7 @@ export async function upsertFileMeta(
   spaceId: string,
   filePath: string,
   sizeBytes: number,
-  opts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean> } = {},
+  opts: { description?: string; tags?: string[]; properties?: Record<string, string | number | boolean>; ttlDays?: number | null } = {},
 ): Promise<void> {
   const normalised = toDocId(filePath);
   const now = new Date().toISOString();
@@ -73,11 +74,20 @@ export async function upsertFileMeta(
     if (opts.tags !== undefined) $set['tags'] = opts.tags;
     if (opts.properties !== undefined) $set['properties'] = opts.properties;
     // A write to a soft-deleted path means the file is live again — clear the flag.
+    const $unset: Record<string, unknown> = { deletedAt: '' };
+    // Only an EXPLICIT ttlDays on a re-upload touches expiry: >0 (re)stamps, 0/null clears it. A plain
+    // overwrite (ttlDays omitted) leaves any existing TTL untouched — it must not silently reset.
+    if (opts.ttlDays !== undefined) {
+      const expireAt = expiryForCreate(spaceId, opts.ttlDays);
+      if (expireAt) $set['_expireAt'] = expireAt; else $unset['_expireAt'] = '';
+    }
     await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
       asFilter<FileMetaDoc>({ _id: normalised }),
-      asUpdate<FileMetaDoc>({ $set, $unset: { deletedAt: '' } }),
+      asUpdate<FileMetaDoc>({ $set, $unset }),
     );
   } else {
+    // A per-record ttlDays wins; otherwise the space's recordTtlDays default applies (expiryForCreate).
+    const expireAt = expiryForCreate(spaceId, opts.ttlDays);
     const doc: FileMetaDoc = {
       _id: normalised,
       spaceId,
@@ -89,6 +99,7 @@ export async function upsertFileMeta(
       updatedAt: now,
       sizeBytes,
       author: authorRef(),
+      ...(expireAt ? { _expireAt: expireAt } : {}),
       ...embeddingFields,
     };
     await col<FileMetaDoc>(`${spaceId}_files`).insertOne(asDoc<FileMetaDoc>(doc));

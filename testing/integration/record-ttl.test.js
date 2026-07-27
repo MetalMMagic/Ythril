@@ -90,6 +90,40 @@ describe('record TTL (F10)', () => {
     await del(INSTANCES.a, tokenA, `/api/brain/spaces/general/memories/${w.body._id}`).catch(() => {});
   });
 
+  // ── files (F12): per-record TTL on uploads, stamped on the file-level FileMeta record ────────────
+  // Upload carries ttlDays as a QUERY param (works for raw-binary bodies); _expireAt surfaces on the
+  // filemeta read. The sweep's files-deleter runs the full cascade — same enforcement path as F10.
+
+  async function uploadWithTtl(pathName, ttlDays) {
+    const q = ttlDays === undefined ? '' : `&ttlDays=${ttlDays}`;
+    return fetch(`${INSTANCES.a}/api/files/general?path=${encodeURIComponent(pathName)}${q}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokenA}`, 'Content-Type': 'application/octet-stream' },
+      body: `ttl file body ${RUN}`,
+    });
+  }
+  async function fileMeta(pathName) {
+    return get(INSTANCES.a, tokenA, `/api/brain/spaces/general/files?path=${encodeURIComponent(pathName)}`);
+  }
+
+  it('file upload with ttlDays > 0 stamps _expireAt on the file record', async () => {
+    const p = `ttl-file-${RUN}.txt`;
+    const up = await uploadWithTtl(p, 10);
+    assert.ok([200, 201, 202].includes(up.status), `upload status ${up.status}`);
+    const g = await fileMeta(p);
+    assertAboutDaysFromNow(g.body.files?.[0]?._expireAt, 10);
+    await del(INSTANCES.a, tokenA, `/api/files/general?path=${encodeURIComponent(p)}`).catch(() => {});
+  });
+
+  it('file upload with ttlDays = 0 gets no _expireAt', async () => {
+    const p = `ttl-file-zero-${RUN}.txt`;
+    const up = await uploadWithTtl(p, 0);
+    assert.ok([200, 201, 202].includes(up.status), `upload status ${up.status}`);
+    const g = await fileMeta(p);
+    assert.equal(g.body.files?.[0]?._expireAt, undefined);
+    await del(INSTANCES.a, tokenA, `/api/files/general?path=${encodeURIComponent(p)}`).catch(() => {});
+  });
+
   // ── space-wide recordTtlDays auto-TTL ─────────────────────────────────────
 
   it('space recordTtlDays applies to writes that omit ttlDays; per-record overrides; 0 opts out', async () => {

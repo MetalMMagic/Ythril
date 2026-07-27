@@ -13,8 +13,9 @@ import { log } from '../util/log.js';
 
 const DAY_MS = 86_400_000;
 
-/** Collections that carry per-record TTL. */
-export const TTL_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono'] as const;
+/** Collections that carry per-record TTL. (`files` = the file-level FileMeta records; the sweep's
+ *  deleter runs the full file cascade, and only file-level records ever carry `_expireAt`.) */
+export const TTL_COLLECTIONS = ['memories', 'entities', 'edges', 'chrono', 'files'] as const;
 
 function spaceRecordTtlDays(spaceId: string): number | undefined {
   try { return getConfig().spaces.find(s => s.id === spaceId)?.recordTtlDays; } catch { return undefined; }

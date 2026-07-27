@@ -863,6 +863,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Two more operations record what changed: network settings and backup configuration.** Slice 3 of
+  the audit old→new work. `network.update` records `label`, `syncSchedule` and `requireSignedVotes` —
+  the last is why the entry earns its place, because turning signed votes off silently weakens vote
+  verification for the entire network, and "an admin patched the network at 14:02" does not tell you
+  that is what happened. `data.backup_config.update` records the schedule, both retention counts and
+  the offsite destination path.
+
+  Neither can leak a credential by construction: the network record also holds `inviteKeyHash` and
+  every member's `tokenHash`, and the allowlist reads three named fields rather than diffing the
+  record. Two new cross-checks extend the ones added in slice 2 — one asserts every field named for
+  `network.update` is actually assigned by that PATCH route, the other that each dotted backup-config
+  path exists in the schema validating the body. Both failure modes are silent: a field the route
+  never writes, or a mistyped nested path, records nothing forever while the list claims coverage.
+  Verified by mutation — five plausible slips, including a route that forgets to snapshot at all,
+  were each caught.
+
 - **Three more operations record what changed: space rename, token rename, and media/extraction
   levels.** The first slice allowlisted four operations and wired one, so three of those allowlists could
   never fire — silent, which is the safe direction, but the list claimed coverage the code did not deliver.

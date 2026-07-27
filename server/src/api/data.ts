@@ -319,6 +319,10 @@ dataRouter.put('/backup-config', requireAdminMfa, (req, res) => {
     return;
   }
 
+  // Snapshot before the write. This is a whole-document PUT, so the previous file IS the before-state;
+  // the allowlist decides which of its fields may be recorded.
+  req.auditSnapshots = { before: loadBackupConfig(), after: cfg };
+
   try {
     fs.mkdirSync(path.dirname(BACKUP_CONFIG_PATH), { recursive: true });
     fs.writeFileSync(BACKUP_CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');

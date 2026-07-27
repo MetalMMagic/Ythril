@@ -213,6 +213,18 @@ crudRouter.patch('/:id', globalRateLimit, requireAdmin, (req, res) => {
   const net = cfg.networks.find(n => n.id === req.params['id']);
   if (!net) { res.status(404).json({ error: 'Network not found' }); return; }
 
+  // Snapshot before mutating. Only the three fields this route can change — the record also holds
+  // `inviteKeyHash` and members' `tokenHash`, and handing the whole thing over would rest entirely on
+  // the allowlist in audit-changes.ts rather than being obvious here.
+  req.auditSnapshots = {
+    before: { label: net.label, syncSchedule: net.syncSchedule, requireSignedVotes: net.requireSignedVotes },
+    after: {
+      label: parsed.data.label ?? net.label,
+      syncSchedule: parsed.data.syncSchedule !== undefined ? (parsed.data.syncSchedule || undefined) : net.syncSchedule,
+      requireSignedVotes: parsed.data.requireSignedVotes ?? net.requireSignedVotes,
+    },
+  };
+
   if (parsed.data.syncSchedule !== undefined) {
     net.syncSchedule = parsed.data.syncSchedule || undefined;
     // Re-register cron timer for this network with the new schedule

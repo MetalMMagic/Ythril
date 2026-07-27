@@ -12,6 +12,7 @@ import { of, throwError } from 'rxjs';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { ReviewTabComponent } from './review-tab.component';
 import { DuplicatesApi } from '../../core/duplicates-api.service';
+import { ContradictionsApi } from '../../core/contradictions-api.service';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import type { DuplicateRecord } from '../../core/api.types';
@@ -21,7 +22,7 @@ const rec = (over: Partial<DuplicateRecord> = {}): DuplicateRecord => ({
   score: 0.9, status: 'open', detectedAt: '2026-01-01', updatedAt: '2026-01-01', ...over,
 });
 
-function setup(api: Partial<Record<string, unknown>> = {}, confirmResult = true) {
+function setup(api: Partial<Record<string, unknown>> = {}, confirmResult = true, conApi: Partial<Record<string, unknown>> = {}) {
   const toastErrors: string[] = [];
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -33,6 +34,13 @@ function setup(api: Partial<Record<string, unknown>> = {}, confirmResult = true)
         dismissDuplicate: () => of({ status: 'ok' }),
         mergeDuplicate: () => of({ status: 'ok' }),
         ...api,
+      } },
+      { provide: ContradictionsApi, useValue: {
+        listContradictions: () => of({ contradictions: [] }),
+        dismissContradiction: () => of({ status: 'ok' }),
+        reopenContradiction: () => of({ status: 'ok' }),
+        resolveContradiction: () => of({ status: 'resolved', resolution: 'edited' }),
+        ...conApi,
       } },
       { provide: ToastService, useValue: { error: (m: string) => toastErrors.push(m), success: () => {}, show: () => {} } },
       { provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(confirmResult) } },
@@ -230,6 +238,51 @@ describe('ReviewTabComponent', () => {
       const tabs = [...(f.nativeElement as HTMLElement).querySelectorAll('nav.tabs button[role="tab"]')];
       expect(tabs[0].getAttribute('aria-controls')).toBe('review-panel-duplicates');
       expect(tabs[1].getAttribute('aria-controls')).toBe('review-panel-contradictions');
+    });
+  });
+
+  // The card must keep the two bases distinct. A deterministic field conflict and a model's opinion are
+  // different kinds of claim — flattening both into one percentage would tell a reviewer that "these
+  // disagree on `port`" and "a model thinks these disagree" are the same statement. They are not.
+  describe('contradictions sub-view', () => {
+    const con = (over: Record<string, unknown> = {}) => ({
+      id: 'a:b', spaceId: 'work', type: 'memory',
+      aId: 'a', aSummary: 'runs on 8080', bId: 'b', bSummary: 'does not run on 8080',
+      basis: 'structured-field', confidence: 1,
+      fields: [{ key: 'port', aValue: 8080, bValue: 9090 }],
+      status: 'open', detectedAt: '2026-07-27T00:00:00Z', updatedAt: '2026-07-27T00:00:00Z',
+      ...over,
+    });
+
+    it('names the disagreeing field for a structured verdict, with BOTH values', () => {
+      const { f, c } = setup({}, true, { listContradictions: () => of({ contradictions: [con()] }) });
+      c.sub.set('contradictions');
+      f.detectChanges();
+      const el = f.nativeElement as HTMLElement;
+      const field = el.querySelector('.con-fields li');
+      expect(field).toBeTruthy();
+      expect(field!.textContent).toContain('port');
+      expect(field!.textContent).toContain('8080');
+      expect(field!.textContent).toContain('9090');
+      // A deterministic conflict must NOT be dressed up as a confidence percentage.
+      expect(el.querySelector('#review-panel-contradictions .conf-pct')).toBeNull();
+    });
+
+    it('shows the model confidence for an NLI verdict, and no field list', () => {
+      const nli = con({ basis: 'nli', confidence: 0.91, fields: undefined });
+      const { f, c } = setup({}, true, { listContradictions: () => of({ contradictions: [nli] }) });
+      c.sub.set('contradictions');
+      f.detectChanges();
+      const el = f.nativeElement as HTMLElement;
+      expect(el.querySelector('.con-fields')).toBeNull('a model verdict has no field to name');
+      expect(el.querySelector('#review-panel-contradictions .conf-pct')?.textContent).toContain('91');
+    });
+
+    it('a load failure surfaces an error instead of rendering "nothing to review"', () => {
+      const { f, c, toastErrors } = setup({}, true, { listContradictions: () => throwError(() => ({})) });
+      c.sub.set('contradictions');
+      f.detectChanges();
+      expect(toastErrors.length).toBeGreaterThan(0);
     });
   });
 });

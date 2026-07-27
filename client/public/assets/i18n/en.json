@@ -1539,5 +1539,12 @@
   "review.sub.contradictions": "Contradictions",
   "review.contradictions.intro": "Records in this space that disagree with each other — same subject, opposite claims.",
   "review.contradictions.pendingTitle": "Contradiction detection is not running yet",
-  "review.contradictions.pendingBody": "It needs an NLI (entailment) model. Configure one under Settings → Media Processing, then this list fills as the scanner runs."
+  "review.contradictions.pendingBody": "It needs an NLI (entailment) model. Configure one under Settings → Media Processing, then this list fills as the scanner runs.",
+  "review.contradictions.basis.structured": "Field conflict",
+  "review.contradictions.basis.nli": "Model verdict",
+  "review.contradictions.confidence": "Model confidence",
+  "review.contradictions.versus": "vs",
+  "review.contradictions.action.edited": "Resolved by edit",
+  "review.contradictions.action.linked": "Link as contradiction",
+  "review.contradictions.loadError": "Could not load contradictions."
 }

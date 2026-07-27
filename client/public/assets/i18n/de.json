@@ -1511,7 +1511,7 @@
   "mediaProcessing.class.audio": "Audio",
   "mediaProcessing.class.video": "Video",
   "mediaProcessing.class.text": "Text",
-  "mediaProcessing.pipelines.ceilingHint": "Das Maximum, das ein Bereich mit dieser Klasse tun darf. Ein Bereich kann weniger wählen, nie mehr — wenn Sie das hier senken, werden alle Bereiche darüber gekappt, und sie behalten ihre eigene Wahl, falls Sie es wieder anheben.",
+  "mediaProcessing.pipelines.ceilingHint": "Jede Pipeline unten hat eine Instanz-Obergrenze — das Maximum, das ein Space mit dieser Klasse tun darf. Ein Space kann weniger wählen, nie mehr: Wird eine Obergrenze gesenkt, werden alle bereits höher eingestellten Spaces begrenzt; ihre eigene Wahl bleibt erhalten, wenn du sie wieder anhebst.",
   "mediaProcessing.pipelines.ceilingOffWarning": "Aus gilt überall — kein Bereich kann diese Klasse verarbeiten.",
   "files.progress.working": "Läuft",
   "files.progress.stalled": "Kein Fortschritt gemeldet — dieser Auftrag hängt möglicherweise",

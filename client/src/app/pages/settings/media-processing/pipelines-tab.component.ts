@@ -105,6 +105,8 @@ interface Step {
       width: auto; min-width: 190px; max-width: 260px; }
     .ceiling select:disabled { opacity: .6; cursor: not-allowed; }
     .ceiling-hint { font-size: 12px; color: var(--text-muted); margin: 0 0 11px; max-width: 70ch; }
+    /* Hoisted to the top of the tab: needs the breathing room a knobs block used to give it. */
+    .tab-hint { margin: 0 0 16px; }
     /* Not a warning box: choosing "off" is legitimate. It states the blast radius, which is easy to
        miss when the control sits next to three that only affect thoroughness. */
     .ceiling-warn { color: var(--warning); font-size: 11.5px; }
@@ -129,6 +131,11 @@ interface Step {
         <span>{{ 'mediaProcessing.pipelines.statusUnavailable' | transloco: { detail: e } }}</span>
       </div>
     }
+
+    <!-- The ceiling rule is one rule for the whole tab, so it is stated once here rather than repeated
+         under every pipeline's ceiling control — five copies of the same paragraph is noise a reader
+         learns to skip, which defeats the point of explaining it at all. -->
+    <p class="ceiling-hint tab-hint">{{ 'mediaProcessing.pipelines.ceilingHint' | transloco }}</p>
 
     <!-- ── Documents ──────────────────────────────────────────────────── -->
     <section class="pipe-card">
@@ -230,7 +237,6 @@ interface Step {
 
         <div class="knobs">
           <div class="knobs-h">{{ 'mediaProcessing.pipelines.ceiling' | transloco }}</div>
-          <p class="ceiling-hint">{{ 'mediaProcessing.pipelines.ceilingHint' | transloco }}</p>
           @for (c of p.ceilings; track c.cls) {
             <div class="ceiling">
               <label>{{ 'mediaProcessing.class.' + c.cls | transloco }}</label>

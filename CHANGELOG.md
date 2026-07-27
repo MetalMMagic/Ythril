@@ -2525,6 +2525,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been added to any locale, so the field rendered the literal text `schemaLib.field.schema`. Both are now
   present in en/de/pl. Found by the new i18n key-coverage test below — it had been broken on main.
 
+- **The instance-ceiling explanation is stated once at the top of the Pipelines tab, not under every
+  pipeline.** The same paragraph was repeated beneath all five ceiling controls — five copies of one rule is
+  noise a reader learns to skip, which defeats the point of explaining it. It now sits once above the cards,
+  reworded for that position: it used to say "the most any space may do with **this** class", which only
+  parsed while it sat under one specific pipeline. The per-pipeline **Instance ceiling** control labels stay
+  where they are — those name the control, they do not repeat the rule.
+
 - **`remember` and `upsert_entity` can warn about CONTRADICTING records at write time, not just duplicates.**
   The write already searches for near-neighbours before inserting (that is how the duplicate check works), so
   the candidate pairs are already in hand — judging whether one of them *disagrees* costs a single lookup of

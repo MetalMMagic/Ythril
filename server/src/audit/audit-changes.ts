@@ -45,12 +45,13 @@ export const AUDIT_CHANGE_FIELDS: Readonly<Record<string, readonly string[]>> = 
   // Space settings a reader would actually want explained after the fact.
   'space.update': ['label', 'purpose', 'validationMode', 'strictLinkage', 'dupeRulesOnInsert', 'dupeMergeSurvivor'],
   'space.rename': ['id'],
-  // Token metadata ONLY. Never the token, its hash, or its prefix — `token.create` and `token.regenerate`
-  // are absent entirely, because the interesting value there IS the secret.
-  'token.update': ['label', 'level', 'expiresAt'],
+  // Token metadata ONLY, and only what this route can actually change: `PATCH /api/tokens/:id` renames.
+  // Never `hash` or `prefix`; `token.create` and `token.regenerate` are absent entirely, because the
+  // interesting value there IS the secret.
+  'token.update': ['name'],
   // Media levels and extraction mode: the settings that decide what gets processed and what leaves the
   // instance. The provider blocks in the same payload carry API keys and are NOT listed.
-  'media-config.update': ['levels.images', 'levels.audio', 'levels.video', 'levels.text', 'documentProcessing.mode'],
+  'config.media.update': ['levels.images', 'levels.audio', 'levels.video', 'levels.text', 'documentProcessing.mode'],
 };
 
 /** Scalars only — anything else is dropped rather than stringified. */

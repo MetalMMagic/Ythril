@@ -252,6 +252,10 @@ spacesRouter.patch('/:id/rename', globalRateLimit, requireAdminMfaScoped('id'), 
     return;
   }
 
+  // The rename IS the change, so the snapshot is just the two ids. Set before the attempt and only read
+  // by the audit middleware on a <400 response, so a failed rename records nothing.
+  req.auditSnapshots = { before: { id: oldId }, after: { id: parsed.data.newId } };
+
   try {
     const space = await renameSpace(oldId, parsed.data.newId);
     res.json({ space });

@@ -154,6 +154,18 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
 
   const activeCfg = getMediaEmbeddingConfig();
 
+  // Levels and extraction mode only — these decide what gets processed and what leaves the instance, which
+  // is exactly what an operator needs explained after the fact. The SAME payload carries provider API
+  // keys; handing the whole thing over is safe because `audit-changes.ts` reads only the allowlisted
+  // paths, but the snapshot is narrowed here as well so the intent is visible at the call site.
+  req.auditSnapshots = {
+    before: { levels: { ...(activeCfg.levels ?? {}) }, documentProcessing: { mode: activeCfg.documentProcessing?.mode } },
+    after: {
+      levels: { ...(activeCfg.levels ?? {}), ...(parsed.data.levels ?? {}) },
+      documentProcessing: { mode: parsed.data.documentProcessing?.mode ?? activeCfg.documentProcessing?.mode },
+    },
+  };
+
   // F11 — whole-config infra lock (like YTHRIL_MONGO_INFRA_MANAGED for the database). When the media/model
   // configuration is managed by infrastructure, the admin API refuses all edits — change config.json / env.
   if (activeCfg.infraManaged) {

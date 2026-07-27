@@ -17,6 +17,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 let auditChanges, AUDIT_CHANGE_FIELDS;
 
@@ -66,6 +67,48 @@ describe('audit changes — nothing is recorded unless it was named', () => {
   });
 });
 
+describe('audit changes — every allowlist is actually reachable', () => {
+  before(async () => {
+    ({ AUDIT_CHANGE_FIELDS } = await import('../../server/dist/audit/audit-changes.js'));
+  });
+
+  const read = (rel) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
+  const ROUTE_SOURCES = [
+    'server/src/api/spaces.ts', 'server/src/api/tokens.ts', 'server/src/api/media-config.ts',
+  ];
+
+  it('every allowlisted key is a REAL operation name from the middleware', () => {
+    // The failure this catches, found end-to-end rather than by any unit test: the media route's
+    // operation is `config.media.update`, and the allowlist said `media-config.update`. A key that
+    // matches no operation is silent forever — the entry is written, `changes` never appears, and
+    // nothing anywhere reports the mismatch.
+    const middleware = read('server/src/audit/middleware.ts');
+    const known = new Set([...middleware.matchAll(/operation:\s*'([^']+)'/g)].map(m => m[1]));
+    assert.ok(known.size > 50, `expected the middleware operation table, parsed ${known.size}`);
+    for (const key of Object.keys(AUDIT_CHANGE_FIELDS)) {
+      assert.ok(known.has(key), `"${key}" is not an operation name in middleware.ts — it can never match`);
+    }
+  });
+
+  it('every allowlisted operation has a route that supplies snapshots', () => {
+    // An allowlist with no route behind it records nothing while claiming coverage — which is how the
+    // FIRST slice shipped: four operations listed, one wired. Harmless (silence is the safe direction)
+    // but misleading to anyone reading the list to find out what is audited.
+    const wiredFiles = ROUTE_SOURCES.filter(f => read(f).includes('auditSnapshots'));
+    assert.equal(wiredFiles.length, ROUTE_SOURCES.length,
+      `these route files should set auditSnapshots but do not: ${ROUTE_SOURCES.filter(f => !wiredFiles.includes(f))}`);
+  });
+
+  it('allowlists the field names the routes can actually change', () => {
+    // The second half of the same mistake: `token.update` was allowlisted as label/level/expiresAt when
+    // the record field is `name` and the route changes nothing else. Entries that can never match are
+    // silent forever, so nothing would have reported it.
+    assert.deepEqual(AUDIT_CHANGE_FIELDS['token.update'], ['name']);
+    assert.ok(read('server/src/api/tokens.ts').includes('name: parsed.data.name.trim()'),
+      'the token route should snapshot the same field the allowlist names');
+  });
+});
+
 describe('audit changes — scalars only', () => {
   before(async () => {
     ({ auditChanges } = await import('../../server/dist/audit/audit-changes.js'));
@@ -100,7 +143,7 @@ describe('audit changes — scalars only', () => {
   });
 
   it('reads dotted paths without touching their siblings', () => {
-    const changes = auditChanges('media-config.update',
+    const changes = auditChanges('config.media.update',
       { levels: { images: 'caption', audio: 'off' }, vision: { apiKey: 'sk-AAA' } },
       { levels: { images: 'recognition', audio: 'off' }, vision: { apiKey: 'sk-BBB' } });
     assert.deepEqual(changes, [{ field: 'levels.images', from: 'caption', to: 'recognition' }]);

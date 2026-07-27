@@ -2525,6 +2525,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been added to any locale, so the field rendered the literal text `schemaLib.field.schema`. Both are now
   present in en/de/pl. Found by the new i18n key-coverage test below — it had been broken on main.
 
+- **The contradiction judge decides whether a candidate pair actually disagrees (F-REVIEW slice 3a).** Pure
+  logic, so it is testable without a database or a model; finding and storing the pairs is the scanner slice
+  that follows. Two judges, cheapest first: a **deterministic** pass (both records set the same single-valued
+  property to different values — the same rule that raises a merge conflict) and, only when that finds
+  nothing, the **NLI** model over the two texts. Its verdict has **three** states, not two: `contradiction`,
+  `agree`, and **`unjudged`**. That third one matters — when the endpoint is unset, unreachable, unreadable
+  or merely unconfident, the pair is unjudged and gets re-examined later. Collapsing it into "agree" would
+  permanently mark every pair seen during an outage as fine, so the review queue would look cleanest exactly
+  when the judge was most broken.
+
 - **An NLI provider can be configured, for the contradiction judge (F-REVIEW slice 2).** A natural-language
   -inference endpoint — an encoder classifier of the roberta/deberta-MNLI class — now configures exactly like
   the vision and STT providers: local sidecar or external endpoint, per-field env pins (`NLI_URL`,

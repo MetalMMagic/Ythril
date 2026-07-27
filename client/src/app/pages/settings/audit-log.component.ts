@@ -105,6 +105,16 @@ import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-st
       letter-spacing: 0.04em;
     }
     .detail-grid dd { margin: 0; color: var(--text-primary); word-break: break-word; }
+    /* What the request changed. */
+    .changes-block { margin-top: 12px; }
+    .changes-block h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .changes-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .changes-table th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); padding: 2px 8px 4px 0; font-weight: 600; }
+    .changes-table td { padding: 3px 8px 3px 0; vertical-align: top; word-break: break-word; }
+    .changes-table .val-from { color: var(--text-muted); }
+    .changes-table .val-to { color: var(--text-primary); font-weight: 550; }
+    .changes-none { margin: 12px 0 0; font-size: 11px; color: var(--text-muted); font-style: italic; }
+
     .detail-raw { margin-top: 8px; }
     .detail-raw summary { cursor: pointer; font-size: 12px; color: var(--text-secondary); }
 
@@ -346,6 +356,37 @@ import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-st
               <dd class="mono">{{ e.entryId }}</dd>
             }
           </dl>
+          <!-- What the request actually changed. Only allowlisted operations record this, so its ABSENCE
+               means "not recorded for this operation" — never "nothing changed". Saying so explicitly
+               matters: an empty detail pane that looks authoritative is how a reader concludes a rename
+               never happened. -->
+          @if (e.changes?.length) {
+            <div class="changes-block">
+              <h4>{{ 'auditLog.detail.changes' | transloco }}</h4>
+              <table class="changes-table">
+                <thead>
+                  <tr>
+                    <th>{{ 'auditLog.detail.changeField' | transloco }}</th>
+                    <th>{{ 'auditLog.detail.changeFrom' | transloco }}</th>
+                    <th>{{ 'auditLog.detail.changeTo' | transloco }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (c of e.changes; track c.field) {
+                    <tr>
+                      <td class="mono">{{ c.field }}</td>
+                      <!-- "not set" and "set to null" are different facts and must not both render as a
+                           dash: one means the field did not exist, the other that it existed and was null. -->
+                      <td class="mono val-from">{{ c.from === undefined ? ('auditLog.detail.notSet' | transloco) : fmtValue(c.from) }}</td>
+                      <td class="mono val-to">{{ c.to === undefined ? ('auditLog.detail.notSet' | transloco) : fmtValue(c.to) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="changes-none">{{ 'auditLog.detail.changesNotRecorded' | transloco }}</p>
+          }
           <details class="detail-raw">
             <summary>{{ 'auditLog.detail.rawJson' | transloco }}</summary>
             <pre>{{ e | json }}</pre>
@@ -501,6 +542,20 @@ export class AuditLogComponent implements OnInit, OnDestroy {
         this.loading.set(false);
       },
     });
+  }
+
+  /**
+   * Render an audited value for display.
+   *
+   * `null` is printed as `null` rather than a dash, because the template already uses "not set" for a
+   * field that did not exist — collapsing the two would lose the difference between "this field was
+   * introduced" and "this field was cleared", which is exactly the kind of distinction someone reads an
+   * audit log to recover. Strings are quoted so a value of `"null"` cannot be mistaken for the literal.
+   */
+  fmtValue(v: string | number | boolean | null | undefined): string {
+    if (v === null) return 'null';
+    if (typeof v === 'string') return `"${v}"`;
+    return String(v);
   }
 
   /** Map an HTTP status to the shared status-pill vocabulary. */

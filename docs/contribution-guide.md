@@ -146,6 +146,17 @@ npm run test:client          # → vitest run
 
 Runs the Angular component/service specs under `client/` in a jsdom environment. This suite runs in CI as the dedicated **"Client unit tests"** step (`.github/workflows/ci.yml`).
 
+#### Characterization tests before a refactor
+
+Before splitting or restructuring a large component, add a `*.characterization.spec.ts` next to it and prove it against the **original** file, in its own commit or PR. A characterization test written against already-restructured code pins the new behaviour, which tells you nothing about whether the restructure preserved anything.
+
+Two conventions make these worth the effort:
+
+- **Record what the code does today, not what it should do.** Where behaviour is surprising, say so in the comment and pin it anyway — that turns a later "tidy-up" into a visible decision instead of a silent change. `graph.component.characterization.spec.ts` is the worked example.
+- **Validate the suite by mutation.** A test that passes both before and after a change is worth nothing. Apply plausible refactor slips to the original one at a time (drop a cache guard, loosen an `&&` to `||`, remove a fallback) and confirm each one fails the suite. Anything that survives is a gap in the tests, not a harmless mutation.
+
+At the rendering boundary, pin the **model** handed to the library rather than the library's output — e.g. the element list given to cytoscape, not what it draws. That lets the renderer move without the tests moving with it.
+
 ### Standalone tests (no Docker required)
 
 ```bash

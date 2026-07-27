@@ -45,7 +45,8 @@
               "dayjs/plugin/advancedFormat.js",
               "dayjs/plugin/customParseFormat.js",
               "dayjs/plugin/duration.js",
-              "dayjs/plugin/isoWeek.js"
+              "dayjs/plugin/isoWeek.js",
+              "exceljs"
             ]
           },
           "configurations": {

@@ -57,7 +57,12 @@ interface TreeNode {
   children: TreeNode[] | null;  // null = not yet loaded
 }
 
-type PreviewKind = 'text' | 'markdown' | 'image' | 'pdf' | 'unknown';
+type PreviewKind = 'text' | 'markdown' | 'image' | 'pdf' | 'xlsx' | 'unknown';
+
+/** A parsed spreadsheet preview: the first sheet as a capped grid, with a note when truncated. */
+interface XlsxPreview { sheet: string; header: string[]; rows: string[][]; note: string | null; }
+const XLSX_MAX_ROWS = 200;
+const XLSX_MAX_COLS = 40;
 
 type UploadStatus = 'queued' | 'uploading' | 'done' | 'failed';
 
@@ -79,6 +84,8 @@ const TEXT_EXTS = new Set([
 const MARKDOWN_EXTS = new Set(['.md', '.markdown']);
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp']);
 const PDF_EXTS = new Set(['.pdf']);
+// exceljs reads the OOXML formats (.xlsx/.xlsm), not the legacy binary .xls — don't promise what won't parse.
+const XLSX_EXTS = new Set(['.xlsx', '.xlsm']);
 
 const EXT_LANG: Record<string, string> = {
   '.js': 'javascript', '.ts': 'typescript', '.json': 'json',
@@ -98,12 +105,28 @@ function previewKind(name: string): PreviewKind {
   if (TEXT_EXTS.has(ext)) return 'text';
   if (IMAGE_EXTS.has(ext)) return 'image';
   if (PDF_EXTS.has(ext)) return 'pdf';
+  if (XLSX_EXTS.has(ext)) return 'xlsx';
   return 'unknown';
 }
 
 const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, c => HTML_ESCAPES[c]);
+}
+
+/** Coerce an exceljs cell value (string | number | Date | formula | richText | hyperlink | error) to display text. */
+function xlsxCellText(v: unknown): string {
+  if (v == null) return '';
+  if (v instanceof Date) return v.toLocaleDateString();
+  if (typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    if (Array.isArray(o['richText'])) return (o['richText'] as Array<{ text?: string }>).map(t => t.text ?? '').join('');
+    if ('result' in o) return o['result'] == null ? '' : String(o['result']);   // formula → computed result
+    if ('text' in o) return String(o['text']);                                   // hyperlink label
+    if ('error' in o) return String(o['error']);
+    return '';
+  }
+  return String(v);
 }
 
 @Component({
@@ -334,6 +357,13 @@ function escapeHtml(s: string): string {
     .md-rendered img { max-width: 100%; }
     .mermaid-diagram { display: flex; justify-content: center; margin: 0.8em 0; }
     .mermaid-diagram svg { max-width: 100%; height: auto; }
+    /* xlsx grid preview */
+    .xlsx-note { font-size: 0.8em; color: var(--text-muted); margin-bottom: 8px; }
+    .xlsx-wrap { overflow: auto; max-width: 100%; }
+    .xlsx-grid { border-collapse: collapse; font-size: 0.82em; font-variant-numeric: tabular-nums; }
+    .xlsx-grid th, .xlsx-grid td { border: 1px solid var(--border); padding: 3px 8px; text-align: left; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+    .xlsx-grid th { background: var(--bg-muted); font-weight: 600; position: sticky; top: 0; }
+    .xlsx-grid tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg-muted) 40%, transparent); }
     /* Full-screen preview overlay */
     .preview-fs-overlay {
       position: fixed; inset: 0; z-index: 1200;
@@ -731,6 +761,23 @@ function escapeHtml(s: string): string {
           @case ('text') { <pre class="preview-code"><code [innerHTML]="previewHtml()"></code></pre> }
           @case ('image') { <img [src]="previewMediaUrl()" [alt]="pf.name" /> }
           @case ('pdf') { <iframe [src]="previewSafeUrl()"></iframe> }
+          @case ('xlsx') {
+            @if (previewTable(); as t) {
+              @if (t.note) { <div class="xlsx-note">{{ t.note }}</div> }
+              <div class="xlsx-wrap">
+                <table class="xlsx-grid">
+                  @if (t.header.length) {
+                    <thead><tr>@for (h of t.header; track $index) { <th>{{ h }}</th> }</tr></thead>
+                  }
+                  <tbody>
+                    @for (row of t.rows; track $index) {
+                      <tr>@for (cell of row; track $index) { <td>{{ cell }}</td> }</tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          }
           @default {
             <dl class="preview-meta">
               <dt>{{ 'files.preview.name' | transloco }}</dt><dd>{{ pf.name }}</dd>
@@ -817,6 +864,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   previewSafeUrl = signal<SafeResourceUrl>('');
   /** Set when preview fetch fails (e.g. auth/404) so we show a reason, not a blank pane. */
   previewError = signal<string | null>(null);
+  /** Parsed spreadsheet preview (first sheet, capped) when previewKind is 'xlsx'. */
+  previewTable = signal<XlsxPreview | null>(null);
   /** Blob object URL backing the current image/PDF preview; revoked on close/next. */
   private _previewObjectUrl: string | null = null;
   /** True while the preview is expanded to a full-screen overlay (Escape collapses it first). */
@@ -1207,6 +1256,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.revokePreviewUrl();
     this.previewMediaUrl.set('');
     this.previewSafeUrl.set('');
+    this.previewTable.set(null);
     // Selecting a file always shows the preview face first; the meta record loads alongside so the
     // description shows here and the (embedded-only) edit form is ready when the toggle is used.
     this.detailMode.set('preview');
@@ -1250,6 +1300,17 @@ export class FileManagerComponent implements OnInit, OnDestroy {
           this._previewObjectUrl = objUrl;
           if (kind === 'image') this.previewMediaUrl.set(objUrl);
           else this.previewSafeUrl.set(this.sanitizer.bypassSecurityTrustResourceUrl(objUrl));
+          this.previewLoading.set(false);
+        })
+        .catch((e) => { this.previewError.set(httpErrorReason(e)); this.previewLoading.set(false); });
+    } else if (kind === 'xlsx') {
+      this.previewLoading.set(true);
+      fetch(url, { headers })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
+        .then(async buf => {
+          const table = await this.renderXlsx(buf);
+          if (this.previewFile()?.name !== entry.name) return; // fast arrow-nav moved on
+          this.previewTable.set(table);
           this.previewLoading.set(false);
         })
         .catch((e) => { this.previewError.set(httpErrorReason(e)); this.previewLoading.set(false); });
@@ -1389,6 +1450,36 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     }
 
     return DOMPurify.sanitize(html, { USE_PROFILES: { html: true, svg: true, svgFilters: true }, ADD_TAGS: ['foreignObject'] });
+  }
+
+  /**
+   * Parse an .xlsx/.xlsm buffer into a capped first-sheet grid. exceljs is heavy, so it's lazy-imported
+   * only when a spreadsheet is actually opened. Rows/cols are capped (with a visible note) so a huge sheet
+   * can't lock the tab — no silent truncation.
+   */
+  private async renderXlsx(buf: ArrayBuffer): Promise<XlsxPreview> {
+    const mod = await import('exceljs') as unknown as { default?: unknown };
+    // exceljs ships a UMD browser build; the workbook factory is the module default (or the namespace).
+    const ExcelJS = (mod.default ?? mod) as { Workbook: new () => { xlsx: { load(b: ArrayBuffer): Promise<unknown> }; worksheets: Array<{ name: string; rowCount: number; columnCount: number; getRow(r: number): { getCell(c: number): { value: unknown } } }> } };
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf);
+    const ws = wb.worksheets[0];
+    if (!ws) return { sheet: '', header: [], rows: [], note: this.transloco.translate('files.preview.xlsxEmpty') };
+
+    const totalRows = ws.rowCount, totalCols = ws.columnCount;
+    const capRows = Math.min(totalRows, XLSX_MAX_ROWS), capCols = Math.min(totalCols, XLSX_MAX_COLS);
+    const grid: string[][] = [];
+    for (let r = 1; r <= capRows; r++) {
+      const row = ws.getRow(r);
+      const cells: string[] = [];
+      for (let c = 1; c <= capCols; c++) cells.push(xlsxCellText(row.getCell(c).value));
+      grid.push(cells);
+    }
+    const note = (totalRows > capRows || totalCols > capCols)
+      ? this.transloco.translate('files.preview.xlsxTruncated', { rows: capRows, totalRows, cols: capCols, totalCols })
+      : null;
+    // First row as a header band — the near-universal spreadsheet convention for a quick-look preview.
+    return { sheet: ws.name, header: grid[0] ?? [], rows: grid.slice(1), note };
   }
 
   /** Revoke the current preview blob URL (if any) to avoid leaking object URLs. */

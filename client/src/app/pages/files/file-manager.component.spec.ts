@@ -140,6 +140,28 @@ describe('FileManagerComponent (OnPush)', () => {
     expect(html.toLowerCase()).not.toContain('<script');
   });
 
+  it('parses an .xlsx into a capped first-sheet grid (header + rows, no note when small)', async () => {
+    const mod = await import('exceljs');
+    const ExcelJS = (mod as unknown as { default?: unknown }).default ?? mod;
+    const wb = new (ExcelJS as { Workbook: new () => any }).Workbook();
+    const ws = wb.addWorksheet('Data');
+    ws.addRow(['Name', 'Age']);
+    ws.addRow(['Alice', 30]);
+    ws.addRow(['Bob', 25]);
+    const buf = await wb.xlsx.writeBuffer();
+
+    const fixture = create([fileEntry('sheet.xlsx')]);
+    const table = await (fixture.componentInstance as unknown as {
+      renderXlsx(b: ArrayBuffer): Promise<{ sheet: string; header: string[]; rows: string[][]; note: string | null }>;
+    }).renderXlsx(buf as ArrayBuffer);
+
+    expect(table.sheet).toBe('Data');
+    expect(table.header).toEqual(['Name', 'Age']);
+    expect(table.rows[0]).toEqual(['Alice', '30']); // values coerced to display text
+    expect(table.rows[1]).toEqual(['Bob', '25']);
+    expect(table.note).toBeNull(); // small sheet → not truncated
+  });
+
   it('toggles the full-screen preview overlay; Escape collapses it before closing the pane', () => {
     const fixture = create([fileEntry('doc.md')]);
     fixture.componentInstance.previewFile.set(fileEntry('doc.md'));

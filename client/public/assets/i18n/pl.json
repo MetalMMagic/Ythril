@@ -511,6 +511,8 @@
   "files.preview.modified": "Zmodyfikowany",
   "files.preview.fullscreen": "Pełny ekran",
   "files.preview.exitFullscreen": "Zamknij pełny ekran",
+  "files.preview.xlsxEmpty": "Ten arkusz nie zawiera kart do podglądu.",
+  "files.preview.xlsxTruncated": "Pokazano {{rows}} z {{totalRows}} wierszy i {{cols}} z {{totalCols}} kolumn.",
   "files.detail.tabsAriaLabel": "Widok szczegółów",
   "files.detail.previewTab": "Podgląd i opis",
   "files.detail.metaTab": "Metadane pliku",

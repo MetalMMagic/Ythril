@@ -2525,6 +2525,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been added to any locale, so the field rendered the literal text `schemaLib.field.schema`. Both are now
   present in en/de/pl. Found by the new i18n key-coverage test below — it had been broken on main.
 
+- **`remember` and `upsert_entity` can warn about CONTRADICTING records at write time, not just duplicates.**
+  The write already searches for near-neighbours before inserting (that is how the duplicate check works), so
+  the candidate pairs are already in hand — judging whether one of them *disagrees* costs a single lookup of
+  their properties, no second vector search. When a neighbour sets the same single-valued property to a
+  different value, the response names the property and **both** values, so an agent can tell whether it is
+  correcting an outdated fact or is itself mistaken. Three deliberate limits: it is **its own flag**
+  (`checkContradictions`, default off — "is this redundant?" and "does this conflict?" are different
+  questions); it is **deterministic only**, because putting the entailment model on the write path would add
+  latency and egress to every insert while the nightly scanner already covers the same pairs; and it **never
+  blocks the write**, since an agent correcting a fact should be able to contradict the record it supersedes.
+  Memories and entities only — edge writes are the bulk path (imports, peer sync) where a per-insert search
+  would be felt most, and a file record "disagreeing" with another is not a meaningful claim.
+
 - **The Review tab's Contradictions sub-view is real (F-REVIEW slice 4, client half).** It replaces the
   placeholder with the actual candidate list, reusing the Duplicates card so the two halves of the queue read
   as one thing. The card keeps the two bases apart rather than flattening them into a single percentage: a

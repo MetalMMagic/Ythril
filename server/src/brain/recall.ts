@@ -214,6 +214,17 @@ const DEFAULT_DUPE_TOPK = 3;
 /** Options controlling the optional insert-time duplicate check on remember/upsertEntity. */
 export interface DupeCheckOpts {
   checkDuplicates?: boolean;
+  /**
+   * Also report near-neighbours that structurally CONTRADICT the incoming record (same single-valued
+   * property, different value). Its own flag rather than a rider on `checkDuplicates`: "is this redundant?"
+   * and "does this conflict with what we already believe?" are different questions, and a caller may well
+   * want the second without the first.
+   *
+   * Only the deterministic judge runs on the write path — no model call, so no added latency or egress per
+   * insert. The nightly scanner still runs the NLI pass. The warning NEVER blocks the write: an agent
+   * correcting an outdated fact should be able to contradict the record it supersedes.
+   */
+  checkContradictions?: boolean;
   dupeThreshold?: number;
   dupeTopK?: number;
 }

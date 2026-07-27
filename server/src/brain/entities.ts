@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { authorRef } from '../config/author.js';
+import { findInsertContradictions, type ContradictionWarning } from './insert-contradictions.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
@@ -65,6 +66,9 @@ export interface UpsertResult {
   warning?: string;
   /** Near-duplicate entities surfaced by an opt-in insert-time similarity check. */
   similar?: SimilarMatch[];
+  /** Near-neighbours that structurally CONTRADICT this entity (same single-valued property, different
+   *  value). Advisory — the entity is stored regardless. */
+  contradicts?: ContradictionWarning[];
 }
 
 
@@ -143,12 +147,17 @@ export async function upsertEntity(
     }
   }
 
-  // Opt-in insert-time duplicate check, using the freshly computed vector
-  // BEFORE insert so it can never self-match.
+  // Opt-in insert-time duplicate / contradiction checks, using the freshly computed vector BEFORE insert
+  // so it can never self-match. ONE neighbour search serves both flags.
   let similar: SimilarMatch[] | undefined;
-  if (opts?.checkDuplicates && embeddingFields.embedding) {
+  let contradicts: ContradictionWarning[] | undefined;
+  if ((opts?.checkDuplicates || opts?.checkContradictions) && embeddingFields.embedding) {
     const hits = await checkDuplicates(spaceId, 'entity', embeddingFields.embedding, opts.dupeThreshold, opts.dupeTopK);
-    if (hits.length > 0) similar = hits;
+    if (opts.checkDuplicates && hits.length > 0) similar = hits;
+    if (opts.checkContradictions && hits.length > 0) {
+      const found = await findInsertContradictions(spaceId, 'entity', { properties }, hits);
+      if (found.length > 0) contradicts = found;
+    }
   }
 
   const doc: EntityDoc = {
@@ -173,7 +182,8 @@ export async function upsertEntity(
     import('./dupe-scanner.js').then(m => m.evaluateRecordForDuplicates(spaceId, 'entity', doc._id)).catch(() => { /* best-effort */ });
   }
   if (actor) emitWebhookEvent({ event: 'entity.created', spaceId, entry: { ...doc, embedding: undefined }, ...actor });
-  return { entity: doc, warning, similar };
+  // Advisory only — the entity is stored either way.
+  return { entity: doc, warning, similar, contradicts };
 }
 
 /**

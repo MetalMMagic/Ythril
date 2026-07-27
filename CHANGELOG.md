@@ -1652,6 +1652,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three more columns can be sorted: edges Weight, chrono Status and Ends.** They were rendered but not
+  sortable — the original sort slice covered the identity/type/date columns and closed, and nothing tracked
+  the rest. Each needed both a server whitelist entry (or the route 400s) and a client header. `properties`
+  and the `entityIds`/`memoryIds` reference arrays stay unsortable **by decision, not omission** — a JSON
+  blob has no single orderable value and an array of ids orders by nothing a reader can see; a test now
+  asserts they stay out of the whitelist so it is not "corrected" later.
+
 - **The Files tab can be sorted again — and the dead File Meta component is gone.** PR #388 gave the old
   *File Meta* tab sortable headers plus a tag filter; #421 then merged File Meta into the Files tab, and the
   surviving `file-manager` carried none of it — Name / Status / Tags / Size / Modified were all plain,

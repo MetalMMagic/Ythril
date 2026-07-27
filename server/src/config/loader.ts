@@ -899,6 +899,9 @@ const DOCUMENT_PROCESSING_DEFAULTS: Required<DocumentProcessingConfig> = {
   mode: 'vlm',
   renderDpi: 150,
   maxPages: 50,
+  // Pages read from one document in total, across render windows. Separate from `maxPages`, which bounds
+  // ONE render call: this is the job's cost ceiling, and every page beyond it is another VLM call.
+  maxTotalPages: 200,
   pageTimeoutMs: 60_000,
   concurrency: 2,
   ocrTimeoutMs: 120_000, // 2 min — the historical hardcoded OCR-sidecar ceiling, now tunable
@@ -931,6 +934,7 @@ export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig
     mode: normalizeDocExtractionMode(base.mode) ?? d.mode,
     renderDpi: base.renderDpi ?? d.renderDpi,
     maxPages: base.maxPages ?? d.maxPages,
+    maxTotalPages: base.maxTotalPages ?? d.maxTotalPages,
     pageTimeoutMs: base.pageTimeoutMs ?? d.pageTimeoutMs,
     concurrency: base.concurrency ?? d.concurrency,
     ocrTimeoutMs: process.env['DOC_OCR_TIMEOUT_MS'] ? Number(process.env['DOC_OCR_TIMEOUT_MS']) : (base.ocrTimeoutMs ?? d.ocrTimeoutMs),

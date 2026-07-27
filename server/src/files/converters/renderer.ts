@@ -68,10 +68,12 @@ export function _resetRenderHealthCache(): void { _renderHealth = null; _officeH
 /** Rendered document pages (PNG bytes per page). */
 export interface RenderedPages {
   pages: Buffer[];
-  /** Total pages in the document (may exceed `pages.length` when the maxPages cap was hit). */
+  /** Total pages in the document (may exceed `pages.length` when only a window was rendered). */
   total: number;
-  /** True when `total > pages.length` — the render was capped. */
+  /** True when there are pages AFTER this window — i.e. keep going, or stop and say you truncated. */
   truncated: boolean;
+  /** First page index of the returned window. Echoed by the sidecar; 0 for a from-the-start render. */
+  startPage: number;
 }
 
 /**
@@ -82,10 +84,11 @@ export interface RenderedPages {
  */
 export async function renderDocumentPages(
   bytes: Buffer,
-  opts: { fileName: string; dpi?: number; maxPages?: number; timeoutMs?: number },
+  opts: { fileName: string; dpi?: number; maxPages?: number; timeoutMs?: number; startPage?: number },
 ): Promise<RenderedPages> {
   const dpi = opts.dpi ?? 150;
   const maxPages = opts.maxPages ?? 50;
+  const startPage = Math.max(0, Math.trunc(opts.startPage ?? 0));
   const office = isOfficeDocument(opts.fileName);
   const base = office ? OFFICE_URL : RENDER_URL;
 
@@ -94,7 +97,7 @@ export async function renderDocumentPages(
   // treated as PDF); the PDF sidecar ignores it.
   form.append('file', new Blob([new Uint8Array(bytes)]), opts.fileName || (office ? 'document' : 'document.pdf'));
 
-  const url = `${base}/render?dpi=${dpi}&maxPages=${maxPages}`;
+  const url = `${base}/render?dpi=${dpi}&maxPages=${maxPages}&startPage=${startPage}`;
   const which = office ? 'doc-office' : 'doc-render';
   let res: Response;
   try {
@@ -107,8 +110,15 @@ export async function renderDocumentPages(
     throw new Error(`${which} sidecar error ${res.status}: ${detail.slice(0, 200)}`);
   }
 
-  const body = await res.json() as { pages?: string[]; total?: number; truncated?: boolean };
+  const body = await res.json() as { pages?: string[]; total?: number; truncated?: boolean; startPage?: number };
   const pages = (body.pages ?? []).map(b64 => Buffer.from(b64, 'base64'));
-  if (body.truncated) log.debug(`render: document truncated to ${pages.length}/${body.total} pages`);
-  return { pages, total: body.total ?? pages.length, truncated: body.truncated ?? false };
+  if (body.truncated) log.debug(`render: pages ${startPage}–${startPage + pages.length} of ${body.total}; more follow`);
+  // `startPage` falls back to what we asked for: an older sidecar that does not echo it still windows
+  // correctly, it just cannot confirm the offset.
+  return {
+    pages,
+    total: body.total ?? pages.length,
+    truncated: body.truncated ?? false,
+    startPage: body.startPage ?? startPage,
+  };
 }

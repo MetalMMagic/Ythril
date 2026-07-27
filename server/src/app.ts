@@ -9,6 +9,7 @@ import { spacesRouter } from './api/spaces.js';
 import { fileStoreRouter } from './api/files.js';
 import { conflictsRouter } from './api/conflicts.js';
 import { duplicatesRouter } from './api/duplicates.js';
+import { contradictionsRouter } from './api/contradictions.js';
 import { syncRouter } from './api/sync/index.js';
 import { networksRouter } from './api/networks/index.js';
 import { notifyRouter } from './api/notify.js';
@@ -235,6 +236,7 @@ export function createApp() {
   app.use('/api/files', fileStoreRouter);
   app.use('/api/conflicts', conflictsRouter);
   app.use('/api/duplicates', duplicatesRouter);
+  app.use('/api/contradictions', contradictionsRouter);
   app.use('/api/sync', syncRouter);
   app.use('/api/networks', networksRouter);
   app.use('/api/notify', notifyRouter);

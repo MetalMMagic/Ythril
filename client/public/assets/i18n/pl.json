@@ -1209,7 +1209,6 @@
   "spaces.schema.libRef.unlinkTitle": "Skopiuj schemat biblioteki bezpośrednio, aby dostosować go do tej przestrzeni (zrywa połączenie)",
   "spaces.schema.libRef.noProps": "Ten schemat biblioteki nie definiuje żadnych właściwości.",
   "spaces.schema.libRef.unlinkFailed": "Nie udało się odłączyć — nie można załadować wpisu biblioteki.",
-  "nav.duplicates": "Duplikaty",
   "spaces.popup.tab.duplicates": "Duplikaty",
   "spaces.dupe.intro": "Skonfiguruj, jak ta przestrzeń obsługuje semantyczne duplikaty znalezione przez skaner w tle. Reguły są oceniane od najwyższego wyniku; pierwsze dopasowanie decyduje o akcji.",
   "spaces.dupe.survivor": "Rekord zachowywany przy scalaniu",
@@ -1533,5 +1532,6 @@
   "mediaProcessing.face.gatedByPipeline": "Rozpoznawanie twarzy podąża za potokiem Obrazy: ustaw go na \"Opis + rozpoznawanie twarzy\", aby wykrywać i osadzać twarze. Wymaga obecności lokalnych plików modelu.",
   "mediaProcessing.assist.gatedByPipeline": "Używany do przebiegu naprawy dokumentów. Ustaw ekstrakcję dokumentów na \"Naprawa\" (lub Auto), aby kierować naprawy przez ten model; konieczne będzie potwierdzenie transferu danych.",
   "schemaLib.field.schema": "Schemat (JSON)",
-  "schemaLib.field.schemaHint": "Definicje właściwości dla tego typu jako obiekt JSON. Nieprawidłowy JSON zostanie odrzucony przy zapisie."
+  "schemaLib.field.schemaHint": "Definicje właściwości dla tego typu jako obiekt JSON. Nieprawidłowy JSON zostanie odrzucony przy zapisie.",
+  "brain.tab.review": "Przegląd"
 }

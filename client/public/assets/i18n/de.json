@@ -1209,7 +1209,6 @@
   "spaces.schema.libRef.unlinkTitle": "Das Bibliotheksschema inline kopieren, um es für diesen Space anzupassen (löst die Verknüpfung)",
   "spaces.schema.libRef.noProps": "Dieses Bibliotheksschema definiert keine Eigenschaften.",
   "spaces.schema.libRef.unlinkFailed": "Verknüpfung konnte nicht gelöst werden — der Bibliothekseintrag konnte nicht geladen werden.",
-  "nav.duplicates": "Duplikate",
   "spaces.popup.tab.duplicates": "Duplikate",
   "spaces.dupe.intro": "Legen Sie fest, wie dieser Raum mit semantischen Duplikaten umgeht, die der Hintergrund-Scanner findet. Regeln werden nach höchstem Score zuerst ausgewertet; die erste Übereinstimmung bestimmt die Aktion.",
   "spaces.dupe.survivor": "Beibehaltener Datensatz beim Zusammenführen",
@@ -1533,5 +1532,6 @@
   "mediaProcessing.face.gatedByPipeline": "Die Gesichtserkennung folgt der Bilder-Pipeline: Stelle sie auf \"Beschreibung + Gesichtserkennung\", um Gesichter zu erkennen und einzubetten. Setzt voraus, dass die lokalen Modelldateien vorhanden sind.",
   "mediaProcessing.assist.gatedByPipeline": "Wird für den Dokumenten-Reparaturlauf verwendet. Stelle die Dokumentenextraktion auf \"Reparatur\" (oder Auto), um Reparaturen darüber zu leiten; die Datenübermittlung muss dabei bestätigt werden.",
   "schemaLib.field.schema": "Schema (JSON)",
-  "schemaLib.field.schemaHint": "Die Eigenschaftsdefinitionen für diesen Typ als JSON-Objekt. Ungültiges JSON wird beim Speichern abgelehnt."
+  "schemaLib.field.schemaHint": "Die Eigenschaftsdefinitionen für diesen Typ als JSON-Objekt. Ungültiges JSON wird beim Speichern abgelehnt.",
+  "brain.tab.review": "Prüfung"
 }

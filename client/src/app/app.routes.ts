@@ -124,12 +124,10 @@ export const routes: Routes = [
           // The page was called "Models" until it grew to cover the whole media/document pipeline. Keep the
           // old path working: it is in bookmarks, in older docs, and in links people have already shared.
           { path: 'models', redirectTo: 'media-processing', pathMatch: 'full' },
-          {
-            path: 'duplicates',
-            title: 'nav.duplicates',
-            loadComponent: () =>
-              import('./pages/settings/duplicates.component').then(m => m.DuplicatesComponent),
-          },
+          // Duplicate review moved out of global Settings and into the per-space Brain "Review" tab
+          // (F-REVIEW): a duplicate pair only ever means something inside one space. The old path stays
+          // as a redirect — it was a sidebar entry, so it is in muscle memory and in bookmarks.
+          { path: 'duplicates', redirectTo: '/brain', pathMatch: 'full' },
         ],
       },
     ],

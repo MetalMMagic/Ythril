@@ -2518,7 +2518,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been added to any locale, so the field rendered the literal text `schemaLib.field.schema`. Both are now
   present in en/de/pl. Found by the new i18n key-coverage test below — it had been broken on main.
 
-- **Settings → Models is now Settings → Media Processing.** The page long ago stopped being about model
+- **Duplicate review moved out of global Settings into a per-space Brain "Review" tab (F-REVIEW slice 1).**
+  A duplicate pair only ever means something *inside* one space, so reviewing them from an instance-wide
+  page meant reading a mixed list and checking a space badge on every row. The Review tab shows one space's
+  pairs, and **Scan now** scans that space instead of every space you can see. The old `/settings/duplicates`
+  path redirects to the Brain — it was a sidebar entry, so it is in muscle memory as well as bookmarks. The
+  per-space *duplicate rules* stay where they are, on the space's own Duplicates settings tab. The page long ago stopped being about model
   endpoints — it governs the whole media and document pipeline: per-class analysis ladders, extraction
   rungs, face recognition, the external assist model. The **route moved too**
   (`/settings/models` → `/settings/media-processing`), because renaming only the label leaves the URL, the

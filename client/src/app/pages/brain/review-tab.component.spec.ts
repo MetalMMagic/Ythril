@@ -1,5 +1,5 @@
 /**
- * DuplicatesComponent characterization tests.
+ * ReviewTabComponent characterization tests.
  *
  * Written BEFORE the PR-U8 UX rework (comparison cards, confidence meter, guarded Dismiss, SummaryStrip)
  * and proven green against the ORIGINAL component. Pins the load/scan/dismiss/merge behaviour that must
@@ -10,7 +10,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { of, throwError } from 'rxjs';
 import { getTranslocoModule } from '../../testing/transloco-testing';
-import { DuplicatesComponent } from './duplicates.component';
+import { ReviewTabComponent } from './review-tab.component';
 import { DuplicatesApi } from '../../core/duplicates-api.service';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
@@ -25,7 +25,7 @@ function setup(api: Partial<Record<string, unknown>> = {}, confirmResult = true)
   const toastErrors: string[] = [];
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
-    imports: [DuplicatesComponent, getTranslocoModule()],
+    imports: [ReviewTabComponent, getTranslocoModule()],
     providers: [
       { provide: DuplicatesApi, useValue: {
         listDuplicates: () => of({ duplicates: [] }),
@@ -38,12 +38,13 @@ function setup(api: Partial<Record<string, unknown>> = {}, confirmResult = true)
       { provide: ConfirmDialogService, useValue: { confirm: () => Promise.resolve(confirmResult) } },
     ],
   });
-  const f = TestBed.createComponent(DuplicatesComponent);
+  const f = TestBed.createComponent(ReviewTabComponent);
+  f.componentInstance.spaceId = 'work';   // per-space now: the tab always reviews one space
   f.detectChanges(); // ngOnInit → load()
   return { f, c: f.componentInstance, toastErrors };
 }
 
-describe('DuplicatesComponent', () => {
+describe('ReviewTabComponent', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
   it('load populates rows and clears loading', () => {
@@ -175,5 +176,24 @@ describe('DuplicatesComponent', () => {
     expect(btn).not.toBeNull();
     btn!.click();
     expect(reopen).toHaveBeenCalledWith('d1');
+  });
+
+  it('scopes every query to its space, and reloads when the space changes', async () => {
+    // The move out of global Settings is only real if the space reaches the API — otherwise the tab would
+    // quietly show every space's pairs inside one space's Brain.
+    const listDuplicates = vi.fn(() => of({ duplicates: [] }));
+    const scanDuplicates = vi.fn(() => of({ scannedSpaces: 1, scanned: 0, pairs: 0 }));
+    const { f, c } = setup({ listDuplicates, scanDuplicates });
+    expect(listDuplicates).toHaveBeenCalledWith('open', 'work');
+
+    c.scan();
+    expect(scanDuplicates).toHaveBeenCalledWith('work');
+
+    // Switching space in the Brain must re-point the tab, not leave the previous space's pairs on screen.
+    listDuplicates.mockClear();
+    c.spaceId = 'other';
+    f.componentRef.setInput?.('spaceId', 'other');
+    c.ngOnChanges({ spaceId: { currentValue: 'other', previousValue: 'work', firstChange: false, isFirstChange: () => false } });
+    expect(listDuplicates).toHaveBeenCalledWith('open', 'other');
   });
 });

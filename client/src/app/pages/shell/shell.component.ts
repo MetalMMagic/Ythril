@@ -271,9 +271,6 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
         <a class="nav-link" routerLink="/settings/media-processing" routerLinkActive="active">
           <span class="nav-icon"><ph-icon name="brain" [size]="16"/></span>{{ 'nav.models' | transloco }}
         </a>
-        <a class="nav-link" routerLink="/settings/duplicates" routerLinkActive="active">
-          <span class="nav-icon"><ph-icon name="copy" [size]="16"/></span>{{ 'nav.duplicates' | transloco }}
-        </a>
         <a class="nav-link" routerLink="/settings/about" routerLinkActive="active">
           <span class="nav-icon"><ph-icon name="info" [size]="16"/></span>{{ 'nav.about' | transloco }}
         </a>

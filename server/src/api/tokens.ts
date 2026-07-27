@@ -87,6 +87,12 @@ tokensRouter.patch('/:id', requireAdminMfa, (req, res) => {
     return;
   }
   const id = req.params['id'] as string;
+  // Only the name. The record also holds `hash` and `prefix`; handing the whole thing over would be safe
+  // (the allowlist reads `name` and nothing else), but naming the two fields keeps the intent legible at
+  // the call site rather than resting entirely on a list in another file.
+  const previous = listTokens().find(t => t.id === id);
+  req.auditSnapshots = { before: { name: previous?.name }, after: { name: parsed.data.name.trim() } };
+
   const ok = renameToken(id, parsed.data.name.trim());
   if (!ok) {
     res.status(404).json({ error: 'Token not found' });

@@ -852,6 +852,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Three more operations record what changed: space rename, token rename, and media/extraction
+  levels.** The first slice allowlisted four operations and wired one, so three of those allowlists could
+  never fire — silent, which is the safe direction, but the list claimed coverage the code did not deliver.
+  One of them could not have worked at all: the media route emits `config.media.update` while the
+  allowlist said `media-config.update`, a key that matches no operation and would have stayed silent
+  forever. A test now cross-checks every allowlist key against the operation names in the audit middleware,
+  and another asserts each allowlisted route actually supplies snapshots.
+
 - **The audit log shows what changed.** The entry detail gains a **What changed** table — field, from, to —
   for the operations that record it. Two readings are kept distinct because conflating them is how an audit
   log misleads: a field that **was not set** before renders as *not set* rather than a dash, so "this field

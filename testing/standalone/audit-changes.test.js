@@ -119,6 +119,19 @@ describe('audit changes — every allowlist is actually reachable', () => {
     }
   });
 
+  it('the maintenance toggle snapshots the CURRENT state, not the requested one twice', () => {
+    // The failure this guards is a plausible copy-paste: `before: { active: parsed.data.active }`.
+    // from === to on every request, so `auditChanges` returns [] and maintenance mode looks like it
+    // was never toggled — silent, and indistinguishable from the feature working.
+    // Must match the ASSIGNMENT, not just the expression: data.ts has a second snapshot site
+    // (backup-config), so a check for the bare pattern would pass with this one deleted, and one for
+    // `auditSnapshots` anywhere in the file would pass with it assigned to a dead variable.
+    const src = read('server/src/api/data.ts');
+    assert.ok(/req\.auditSnapshots\s*=\s*\{\s*before:\s*\{\s*active:\s*isMaintenanceActive\(\)\s*\}/.test(src),
+      'the maintenance route must assign req.auditSnapshots with isMaintenanceActive() as the before-state');
+    assert.deepEqual(AUDIT_CHANGE_FIELDS['data.maintenance.toggle'], ['active']);
+  });
+
   it('the backup-config allowlist matches the schema that validates the body', () => {
     // These are dotted paths into a nested config. A typo (retention.keepLocal -> retention.keep) reads
     // as "nothing changed" forever, so pin them against the schema that defines the shape.

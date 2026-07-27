@@ -61,6 +61,10 @@ export const AUDIT_CHANGE_FIELDS: Readonly<Record<string, readonly string[]>> = 
   // Backup schedule and retention. `offsite.destPath` is a container filesystem path (mounted volume),
   // not a URL, so it cannot carry credentials in userinfo the way a webhook target can.
   'data.backup_config.update': ['schedule', 'retention.keepLocal', 'offsite.destPath', 'offsite.retention.keepCount'],
+  // Maintenance mode blocks writes instance-wide. One boolean, and the direction is the whole story:
+  // an entry saying only "an admin hit the maintenance route" cannot distinguish starting an outage
+  // from ending one.
+  'data.maintenance.toggle': ['active'],
 };
 
 /** Scalars only — anything else is dropped rather than stringified. */

@@ -2403,6 +2403,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Brain landing page is much lighter.** The Graph and Files tabs (which carry cytoscape and the
+  file-manager's markdown / mermaid / xlsx renderers) are now `@defer`-loaded on first visit instead of
+  being downloaded with the Brain page. Opening a space (which lands on Overview) no longer pulls those
+  libraries — the Brain route chunk drops from ~828 kB to ~183 kB raw (~186 kB → ~25 kB transfer); Graph
+  and Files each load their own chunk the first time you open the tab. A build-size budget was added so
+  bundle growth is caught. No behavioural change to either tab.
+
 - **Spreadsheets (`.xlsx` / `.xlsm`) now preview as a table.** Opening a spreadsheet in the Files tab renders
   its first sheet as a grid (first row as a header band, formula cells shown as their computed result). The
   parser (exceljs) is **lazy-loaded** — only fetched when a spreadsheet is opened, out of the initial bundle.

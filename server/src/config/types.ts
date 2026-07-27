@@ -823,8 +823,27 @@ export interface DupeScannerConfig {
   batchSize?: number;
   /** Max records scanned per space per run (bounds resource use; the rest is picked up next run). Default: 5000. */
   maxPerRun?: number;
-  /** Knowledge types to scan. Default: ['memory', 'entity']. */
+  /** Knowledge types to scan. Default: ['memory', 'entity', 'chrono']. */
   types?: DupeScanType[];
+}
+
+/**
+ * Background contradiction scanner (F-REVIEW).
+ *
+ * Separate from `dupeScanner` rather than a flag on it, because the two answer different questions and
+ * cost differently: a duplicate is a cosine score that always answers and costs nothing, while a
+ * contradiction may need an entailment (NLI) model — a call per candidate pair, and with an external
+ * endpoint that means record text leaving the instance. Sharing one switch would make enabling duplicate
+ * detection silently start paying for model inference.
+ *
+ * **Off by default**, like the duplicate scanner. Until it is enabled, contradictions are only found when
+ * an admin runs `POST /api/contradictions/scan` by hand.
+ */
+export interface ContradictionScannerConfig {
+  /** Master switch. Default: false. */
+  enabled?: boolean;
+  /** Cron schedule for the sweep. Default: '30 3 * * *' (03:30 daily). */
+  schedule?: string;
 }
 
 /**
@@ -973,6 +992,8 @@ export interface Config {
   audit?: AuditConfig;
   /** Optional background semantic-duplicate scanner. Off by default. */
   dupeScanner?: DupeScannerConfig;
+  /** Optional background contradiction scanner. Off by default. */
+  contradictionScanner?: ContradictionScannerConfig;
   /**
    * Allow sync peers to live on private/reserved addresses (RFC-1918, CGNAT,
    * IPv6 ULA) — for same-host or LAN deployments. Default false (public peers

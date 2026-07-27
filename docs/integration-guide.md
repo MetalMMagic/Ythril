@@ -5695,6 +5695,24 @@ judgement call — so `resolve` records the outcome (`edited`: a record was corr
 **`nliStalled`** is surfaced rather than swallowed: a sweep that stopped because the NLI judge was
 unreachable has *not* cleared the space, and that must be distinguishable from a genuinely clean result.
 
+**Scheduling the sweep.** Off by default, and **its own switch** — enabling the duplicate scanner must not
+silently start paying for model inference, since the NLI pass is a call per candidate pair and, with an
+external endpoint, sends record text off the instance:
+
+```jsonc
+{
+  "contradictionScanner": {
+    "enabled": true,
+    "schedule": "30 3 * * *"   // cron — 03:30 daily (default), half an hour after the dupe sweep
+  }
+}
+```
+
+Until it is enabled, contradictions are found **only** when an admin runs `POST /api/contradictions/scan`
+by hand — so the Review tab's Contradictions view stays empty on an instance nobody has scanned manually.
+An invalid cron expression is refused at boot with a warning rather than silently ignored, and a scheduled
+run that parks because the judge was unreachable logs that it did **not** clear the queue.
+
 **What the sweep covers.** Memories, entities and **chrono** entries. For a chrono pair the structured pass
 compares the stored `status` as well as `properties` — the dates are deliberately not compared, for the
 reason given under [Duplicate Detection on Insert](#what-counts-as-a-claim). Edges are excluded until edge

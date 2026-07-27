@@ -1737,6 +1737,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The contradiction sweep was never scheduled — it only ever ran if an admin triggered it by hand.**
+  `runContradictionScanAllSpaces` was written, exported and tested, and **nothing called it**: the boot
+  sequence started the duplicate scanner, the backup scheduler and the TTL sweep, with no contradiction
+  equivalent. So on any instance where nobody had manually hit `POST /api/contradictions/scan`, the Review
+  tab's Contradictions view was permanently empty — indistinguishable from a space with nothing to review.
+  It now has its own scheduler (`contradictionScanner: { enabled, schedule }`, **off by default**, 03:30
+  daily when switched on), deliberately separate from `dupeScanner` so that enabling duplicate detection
+  does not silently start paying for NLI inference and egressing record text. An invalid cron is refused at
+  boot with a warning, and a scheduled run that parks because the judge was unreachable now says it did
+  **not** clear the queue — the two-cursor design exists precisely so an outage cannot look like a clean
+  review list.
+
+  A new `scheduler-wiring` test asserts every background scheduler's `start*` export is actually **called**
+  in the boot sequence (and paired with a `stop*`), because nothing else can detect a function that is
+  simply never reached: the code compiles, its own unit tests pass, and the resulting empty queue looks
+  exactly like a healthy one.
+
 - **A `faces` processing stage displayed as a generic "working" despite being translated in all three
   locales.** The progress bar maps a stage to its `mediaProcessing.step.*` label only if the stage is in its
   known-stages set, and falls back to "working" otherwise — correct for a genuinely unknown stage, but

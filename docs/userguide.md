@@ -220,7 +220,7 @@ Example — find memories tagged `infra`:
 
 ### File metadata (merged into Files)
 
-There is no longer a separate **File Meta** tab. The metadata Ythril keeps for each uploaded file — the searchable side of a file (its caption/extracted text, tags, and links to entities, memories, and chrono entries) as distinct from the raw bytes — is being folded into the **[Files](#files)** tab, so files and their metadata live in one explorer-style view. Each file row already shows its **embedding status** and **tags** inline (see [Files](#files)); a docked detail view that opens the full metadata record next to the file preview follows in a subsequent update.
+There is no longer a separate **File Meta** tab. The metadata Ythril keeps for each uploaded file — the searchable side of a file (its caption/extracted text, tags, and links to entities, memories, and chrono entries) as distinct from the raw bytes — lives in the **[Files](#files)** tab, so files and their metadata are one explorer-style view. Each file row shows its **embedding status** (or a live stage bar while it is being processed) and its **tags** inline, and opening a file docks a detail pane beside the preview with the full metadata record — description, tags, entity/memory/chrono links — plus **what will run** for that file. See [Files](#files).
 
 ---
 
@@ -602,7 +602,7 @@ When both providers are set to *Local*, no file content ever leaves your instanc
 
 The **External assist model** card lets you point a bigger, hosted model at the **document repair pass** — the one used by the `repair` extraction level (and by `auto` when a repair model is configured). There is no separate "used for" tick: repair is the only thing it does, so the **extraction level is the switch**. Fill in an **Endpoint** + **Model**, then raise **Document extraction** to **Repair** (or **Auto**) to route repairs through it. At that point you are asked to **acknowledge the egress** — document content (OCR text, and page images) is sent to that host. The acknowledgement is recorded against the host and re-checked at run time, so an endpoint you have not acknowledged is never contacted: repairs fall back to the local model instead.
 
-This is the one document setting that sends content off your instance: when a task is assigned, the model receives OCR-extracted text and draft transcriptions (and, for future image tasks, rendered page images). Because of that, saving with a task assigned pops an **acknowledgment dialog** naming exactly what data goes to which host — you must confirm before it's enabled, and Ythril records that consent so content is never sent to a host you didn't acknowledge. Endpoints are checked to be public addresses, and the API key is stored in the encrypted secrets file. Leave it unconfigured (or untick every task) to keep document processing fully local.
+This is the one document setting that sends content off your instance: the model receives OCR-extracted text and draft transcriptions (and, for future image tasks, rendered page images). Because of that, configuring a host pops an **acknowledgment dialog** naming exactly what data goes where — you must confirm before it is used, and Ythril records that consent against the host and re-checks it at run time, so content is never sent somewhere you did not acknowledge. Endpoints are checked to be public addresses, and the API key is stored in the encrypted secrets file. Leave it unconfigured — or keep **Document extraction** below **Repair** — to keep document processing fully local.
 
 ---
 

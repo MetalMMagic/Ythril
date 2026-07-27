@@ -2505,6 +2505,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Settings → Models is now Settings → Media Processing.** The page long ago stopped being about model
+  endpoints — it governs the whole media and document pipeline: per-class analysis ladders, extraction
+  rungs, face recognition, the external assist model. The **route moved too**
+  (`/settings/models` → `/settings/media-processing`), because renaming only the label leaves the URL, the
+  folder and the i18n keys all saying something the UI no longer says. **The old path still works**, as a
+  full-match redirect — it is in bookmarks, in shipped docs, and in links already shared. Every in-app
+  "Settings → Models" hint and both guides were updated with it.
+
 - **`auto` is never the default where `auto` means the heaviest rung.** `auto` keeps its meaning — *as much
   as this instance can do* — but two ladders no longer start there, because in both cases "as much as
   possible" is a decision an operator should make rather than inherit:

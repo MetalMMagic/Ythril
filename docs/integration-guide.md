@@ -2135,7 +2135,7 @@ runs as a separate process, so it does not affect Ythril's licensing.
 
 #### Document Processing Configuration
 
-The unstructured sidecar strategy and image extraction behaviour can be tuned under `mediaEmbedding.documentProcessing` in `config.json`. All settings are optional — the defaults are designed for maximum data extraction out of the box. The extraction `mode` and the render DPI / max-pages / timeout / concurrency knobs are also editable in the admin UI under **Settings → Models → Pipelines**, attached to the Documents pipeline they govern (the `vlmModel` / `repairModel` / `verifyModel` endpoints stay environment-only and are shown read-only there).
+The unstructured sidecar strategy and image extraction behaviour can be tuned under `mediaEmbedding.documentProcessing` in `config.json`. All settings are optional — the defaults are designed for maximum data extraction out of the box. The extraction `mode` and the render DPI / max-pages / timeout / concurrency knobs are also editable in the admin UI under **Settings → Media Processing → Pipelines**, attached to the Documents pipeline they govern (the `vlmModel` / `repairModel` / `verifyModel` endpoints stay environment-only and are shown read-only there).
 
 **The admin page has three tabs**, one route:
 
@@ -2145,9 +2145,9 @@ The unstructured sidecar strategy and image extraction behaviour can be tuned un
 
 Switching tabs with unsaved changes prompts rather than discarding them.
 
-**Infra-managed lock (F11).** On managed infrastructure you can set every media/model value in `config.json` (or the environment) and forbid changes through the admin UI/API — the same posture as `YTHRIL_MONGO_INFRA_MANAGED` for the database. Set `mediaEmbedding.infraManaged: true` in `config.json`, **or** `YTHRIL_MEDIA_INFRA_MANAGED=true` in the environment. When active, `PATCH /api/admin/media-config` returns **409** with `code: "INFRA_MANAGED"` and **Settings → Models** renders read-only (a "managed by infrastructure" banner is shown; *Test connection* still works). Individual fields can instead be pinned one at a time by setting their env var (e.g. `VISION_MODEL`, `DOC_ASSIST_URL`) — those appear in `lockedByInfra` and are locked individually. Use `infraManaged` when the whole block is owned by infrastructure.
+**Infra-managed lock (F11).** On managed infrastructure you can set every media/model value in `config.json` (or the environment) and forbid changes through the admin UI/API — the same posture as `YTHRIL_MONGO_INFRA_MANAGED` for the database. Set `mediaEmbedding.infraManaged: true` in `config.json`, **or** `YTHRIL_MEDIA_INFRA_MANAGED=true` in the environment. When active, `PATCH /api/admin/media-config` returns **409** with `code: "INFRA_MANAGED"` and **Settings → Media Processing** renders read-only (a "managed by infrastructure" banner is shown; *Test connection* still works). Individual fields can instead be pinned one at a time by setting their env var (e.g. `VISION_MODEL`, `DOC_ASSIST_URL`) — those appear in `lockedByInfra` and are locked individually. Use `infraManaged` when the whole block is owned by infrastructure.
 
-**Test connection (F11).** `POST /api/admin/media-config/test-connection` (admin + MFA) probes a configured endpoint — `{ "target": "vision" | "stt" | "assist" }` — by listing its models (OpenAI-compatible `/v1/models`, falling back to Ollama `/api/tags`). It performs **no inference and sends no document content**, so it is safe to run before acknowledging egress. External endpoints go through the SSRF-guarded fetch; local (trusted) endpoints use a direct fetch. The response reports `{ reachable, modelPresent?, models, latencyMs, detail? }`. Settings → Models exposes a **Test connection** button per provider card.
+**Test connection (F11).** `POST /api/admin/media-config/test-connection` (admin + MFA) probes a configured endpoint — `{ "target": "vision" | "stt" | "assist" }` — by listing its models (OpenAI-compatible `/v1/models`, falling back to Ollama `/api/tags`). It performs **no inference and sends no document content**, so it is safe to run before acknowledging egress. External endpoints go through the SSRF-guarded fetch; local (trusted) endpoints use a direct fetch. The response reports `{ reachable, modelPresent?, models, latencyMs, detail? }`. Settings → Media Processing exposes a **Test connection** button per provider card.
 
 **Pipeline status.** `GET /api/admin/pipeline-status` (admin) returns the health of the whole pipeline in one read-only payload — it mutates nothing and sends no document content. It reports three things:
 
@@ -2155,7 +2155,7 @@ Switching tabs with unsaved changes prompts rather than discarding them.
 - `models[]` — per stage (`embedding`, `vision`, `stt`, `doc-vlm`, `doc-repair`, `doc-verify`, `assist`): the configured model, the endpoint **host** (never the full URL), and a `state` of `ok` / `degraded` / `down` / `blocked` / `off` / `unconfigured`. `degraded` means the endpoint answered but does not list the configured model, and `unconfigured` means nothing is set — an optional stage left empty is not reported as a fault. API keys authenticate the probes and never appear in the response.
 - `index.spaces[]` — per space, the **live** `$vectorSearch` index state read from MongoDB (`live`) alongside what `config.json` claims (`stored`), plus a `drifted` flag when `stored` says `ready` and the database disagrees. Proxy spaces own no collections and are omitted. A deployment whose MongoDB has no Atlas Search support reports `unknown` rather than `missing`.
 
-Results are cached for 20 seconds and single-flighted, so several admins on **Settings → Models & Pipelines** produce one set of probes rather than one per viewer per step. Stages sharing an endpoint (typically `doc-vlm` / `doc-repair` / `doc-verify` on one Ollama) are probed once.
+Results are cached for 20 seconds and single-flighted, so several admins on **Settings → Media Processing** produce one set of probes rather than one per viewer per step. Stages sharing an endpoint (typically `doc-vlm` / `doc-repair` / `doc-verify` on one Ollama) are probed once.
 
 **Per-space override (F11-c).** The `mode` above is a **ceiling, not a default**: a space may choose anything up to it and nothing beyond it. Set the override from the space's **Settings → Document extraction** picker, or via `PATCH /api/spaces/:id` with `{ "documentExtraction": "off" | "ocr" | "vlm" | "repair" | "auto" }` (send `null` to clear it and follow the instance setting again). A request **above** the ceiling is **capped to the ceiling** before it is stored — the API never persists a level the runtime would only clamp later, and the Settings picker offers only the modes at or below the ceiling. Like dupe rules and record-TTL, this is a **local, per-instance** operational setting: it is never governed or synced across a network.
 
@@ -2178,7 +2178,7 @@ ceiling under `mediaEmbedding.levels`:
 | `videoAnalysis` | `off` · `audio` · `full` · `auto` | no audio extraction, no transcription |
 | `textAnalysis` | `off` · `embed` · `chunk` · `auto` | text is never indexed — nothing in the file is findable by search |
 
-**Setting the ceilings.** `PATCH /api/admin/media-config` accepts a `levels` block — `{ "levels": { "images": "caption" } }` — or use the pickers on **Settings → Models → Pipelines**. Three things about it are deliberate:
+**Setting the ceilings.** `PATCH /api/admin/media-config` accepts a `levels` block — `{ "levels": { "images": "caption" } }` — or use the pickers on **Settings → Media Processing → Pipelines**. Three things about it are deliberate:
 
 - **Each class is merged independently.** A patch naming only `images` leaves the other three exactly as they were. This matters more than it looks: an absent class reads back as `auto`, so a whole-object replace would silently *raise* the ceiling on every class the request did not mention.
 - **Video's `audio` vs `full` is a real choice.** At `audio` a video "takes the audio pipeline instead of a model": its audio track is transcribed and embedded, and the vision model is never called. At `full` (and `auto`, which resolves to full) it additionally captions sampled keyframes with the vision model and folds those into the transcript segments. Both are accepted and stored.
@@ -2204,7 +2204,7 @@ short notes. `off` stores the file and indexes nothing.
 extract the audio track, transcribe, embed — so a video is searchable by what is said without ever
 invoking the vision model. `full` adds **keyframe captioning**: frames are sampled at an interval,
 captioned by the vision model, and prepended to the transcript segment they overlap before re-embedding.
-`auto` resolves to `full`. (Video is its own pipeline on **Settings → Models → Pipelines**, separate
+`auto` resolves to `full`. (Video is its own pipeline on **Settings → Media Processing → Pipelines**, separate
 from Audio.)
 
 Uploads to a class whose effective level is `off` are stored and marked `embeddingStatus: "skipped"`.
@@ -2282,7 +2282,7 @@ point a **bigger, external model** at specific tasks under `documentProcessing.a
 
 ⚠️ **This is the only setting that sends document content off the instance.** When a task is assigned, the
 external model receives OCR-extracted text and draft transcriptions (and, for future image-based tasks,
-rendered page images). Settings → Models surfaces an **acknowledgment dialog** on save that states exactly
+rendered page images). Settings → Media Processing surfaces an **acknowledgment dialog** on save that states exactly
 what egresses to which host; that acknowledgment sets `acknowledgedHost`. Pinning `DOC_ASSIST_URL` (etc.) via
 env locks the whole block read-only in the UI. When no assist model is configured, or its `uses` is empty, the
 repair pass stays entirely local exactly as before.
@@ -2333,7 +2333,7 @@ This means a PDF containing five embedded photographs will produce:
 
 ### Media Embedding Pipeline (Images, Audio, Video)
 
-Binary media files (images, audio, video) are automatically captioned or transcribed and embedded into the vector space for semantic recall. The pipeline is **enabled by default** — the bundled workstation `docker-compose.yml` and the Kubernetes manifests both ship with the required `ollama` (vision) and `whisper` (STT) services. To disable it (or point Ythril at external providers), use **Settings → Models** in the web UI or `PATCH /api/admin/media-config`.
+Binary media files (images, audio, video) are automatically captioned or transcribed and embedded into the vector space for semantic recall. The pipeline is **enabled by default** — the bundled workstation `docker-compose.yml` and the Kubernetes manifests both ship with the required `ollama` (vision) and `whisper` (STT) services. To disable it (or point Ythril at external providers), use **Settings → Media Processing** in the web UI or `PATCH /api/admin/media-config`.
 
 #### Overview
 
@@ -2347,7 +2347,7 @@ All media ultimately produces text that passes through the same `nomic-embed-tex
 
 #### Disabling or Switching Providers
 
-Media embedding is **always on** — there is no master on/off switch. To turn a class off, set its **level** to `off` per class (images / audio / video) on **Settings → Models**, or via `PATCH /api/admin/media-config` with a `levels` block (e.g. `{ "levels": { "images": "off", "audio": "off", "video": "off" } }` turns all media off instance-wide). *(Breaking change: the old `MEDIA_EMBEDDING_ENABLED` env var and `mediaEmbedding.enabled` config flag were removed; an existing `enabled:false` is auto-migrated to those three levels = `off` on upgrade.)*
+Media embedding is **always on** — there is no master on/off switch. To turn a class off, set its **level** to `off` per class (images / audio / video) on **Settings → Media Processing**, or via `PATCH /api/admin/media-config` with a `levels` block (e.g. `{ "levels": { "images": "off", "audio": "off", "video": "off" } }` turns all media off instance-wide). *(Breaking change: the old `MEDIA_EMBEDDING_ENABLED` env var and `mediaEmbedding.enabled` config flag were removed; an existing `enabled:false` is auto-migrated to those three levels = `off` on upgrade.)*
 
 Required services (bundled by default; override only when you point at external providers):
 
@@ -2414,7 +2414,7 @@ Authorization: Bearer ythril_…
 
 #### Configuration
 
-All settings can be managed at `GET/PATCH /api/admin/media-config` or via **Settings → Models** in the web UI. Fields set via environment variables are locked (the UI shows an `env` badge; PATCH returns `403` for those fields).
+All settings can be managed at `GET/PATCH /api/admin/media-config` or via **Settings → Media Processing** in the web UI. Fields set via environment variables are locked (the UI shows an `env` badge; PATCH returns `403` for those fields).
 
 **Changes take effect without a restart.** Provider settings — `visionProvider`/`sttProvider`, the `vision.*`/`stt.*` endpoint, model, and API key, and `fallbackToExternal` — are applied by a dedicated refresh timer that re-reads the config every ~2 s, independent of the job loop. A provider or model switch is therefore picked up within a couple of seconds **even when the queue is empty or a job is stuck on a slow/unreachable provider** — which matters because you often change providers precisely because one is hanging. A job already in flight keeps the provider it started with, so a swap can never happen mid-job.
 
@@ -2433,7 +2433,7 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 | `stt.baseUrl` | `WHISPER_URL` | `http://whisper:8000` | STT service endpoint |
 | `stt.model` | `WHISPER_MODEL` | `base` | Whisper model size/name |
 | `stt.apiKey` | `STT_API_KEY` | — | API key for external STT provider (stored in `secrets.json`) |
-| `embedding.provider` | `EMBEDDING_PROVIDER` | `local` | Text-embedding endpoint trust: `local` (bundled ONNX or an internal HTTP endpoint, plain fetch) or `external` (public endpoint, reached through the SSRF-guarded fetch). Config lives at top-level `config.embedding` but is edited on **Settings → Models**. |
+| `embedding.provider` | `EMBEDDING_PROVIDER` | `local` | Text-embedding endpoint trust: `local` (bundled ONNX or an internal HTTP endpoint, plain fetch) or `external` (public endpoint, reached through the SSRF-guarded fetch). Config lives at top-level `config.embedding` but is edited on **Settings → Media Processing**. |
 | `embedding.baseUrl` | `EMBEDDING_URL` | — | Embedding HTTP endpoint (OpenAI-compatible `/v1/embeddings`). Blank = the bundled in-process ONNX model. |
 | `embedding.model` | `EMBEDDING_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | Embedding model. **Changing the model / `dimensions` / `similarity` re-indexes every vector** (the UI requires an explicit confirmation; `POST /api/brain/spaces/:id/reindex` runs it). |
 | `embedding.apiKey` | `EMBEDDING_API_KEY` | — | API key for an external embedding endpoint (stored in `secrets.json`, masked in the API). |
@@ -2454,7 +2454,7 @@ When `visionProvider: external` or `sttProvider: external`, file bytes (image fr
 
 The face recognition pipeline detects and embeds faces in uploaded images, builds a per-space face gallery, and automatically links images to person entities when a match exceeds a configurable confidence threshold. It runs **entirely in-process** on the CPU — no GPU, no sidecar, no Python — using `@vladmandic/human` (TF.js CPU backend).
 
-**Opt-in** — disabled by default. Enable it on **Settings → Models → Face recognition**, via `PATCH /api/admin/media-config` with a `faceRecognition` block, or by setting `mediaEmbedding.faceRecognition.enabled: true` in `config.json`.
+**Opt-in** — disabled by default. Enable it on **Settings → Media Processing → Face recognition**, via `PATCH /api/admin/media-config` with a `faceRecognition` block, or by setting `mediaEmbedding.faceRecognition.enabled: true` in `config.json`.
 
 **Turning it off stops new detection; it does not erase what was collected.** Existing face vectors and person labels stay stored and searchable until the files they came from are deleted. The admin UI states this in a confirmation before saving, because switching this off is usually a privacy decision and the two are easy to confuse.
 

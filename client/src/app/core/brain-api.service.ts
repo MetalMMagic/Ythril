@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import type {
   Memory, Entity, Edge, ChronoEntry, ChronoType, ChronoStatus,
   QueryCollection, QueryResult, RecallKnowledgeType, RecallResponse, TraverseResult, EmbeddingQueue,
+  TokenAccessEntry,
 } from './api.types';
 
 /**
@@ -54,6 +55,11 @@ export class BrainApi {
   /** Re-queue every failed media job in a space (F9 Overview "retry all failed"). Returns the count reset. */
   retryFailedEmbeddings(spaceId: string): Observable<{ retried: number }> {
     return this.http.post<{ retried: number }>(`/api/brain/spaces/${spaceId}/embedding-queue/retry-failed`, {});
+  }
+
+  /** Which tokens can reach a space and at what level (F9 Overview matrix). ADMIN-only — 403 for others. */
+  getTokenAccess(spaceId: string): Observable<{ tokens: TokenAccessEntry[] }> {
+    return this.http.get<{ tokens: TokenAccessEntry[] }>(`/api/brain/spaces/${spaceId}/token-access`);
   }
 
   recallBrain(

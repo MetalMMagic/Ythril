@@ -269,6 +269,10 @@ export class SpacesComponent implements OnInit {
       maxGiB: this.state.stForm.maxGiB,
       recordTtlDays: this.state.stForm.recordTtlDays, // F10 (null clears; 0/undefined = no auto-TTL)
       documentExtraction: this.state.stForm.documentExtraction || null, // F11-c ('' = inherit instance default)
+      imageAnalysis: this.state.stForm.imageAnalysis || null,           // '' = inherit instance default
+      audioAnalysis: this.state.stForm.audioAnalysis || null,
+      videoAnalysis: this.state.stForm.videoAnalysis || null,
+      textAnalysis: this.state.stForm.textAnalysis || null,
       meta:   this.state.buildMeta(),
     }).subscribe({
       next: ({ space }) => {

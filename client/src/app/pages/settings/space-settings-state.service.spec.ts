@@ -61,7 +61,7 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
   it('copies the space into the settings form', () => {
     const c = make();
     c.openSettings(rich);
-    expect(c.stForm).toEqual({ label: 'Work', purpose: 'p', usageNotes: 'u', maxGiB: 7, recordTtlDays: 90, documentExtraction: '' });
+    expect(c.stForm).toEqual({ label: 'Work', purpose: 'p', usageNotes: 'u', maxGiB: 7, recordTtlDays: 90, documentExtraction: '', imageAnalysis: '', audioAnalysis: '', videoAnalysis: '', textAnalysis: '' });
   });
 
   it('copies duplicate rules by VALUE — editing the form must not mutate the space object', () => {
@@ -106,11 +106,21 @@ describe('SpaceSettingsState — openSettings populates every tab', () => {
     expect(c.stForm.documentExtraction).toBe('');
   });
 
+  it('copies per-space media-analysis overrides into the form, clearing to "" when absent', () => {
+    const c = make();
+    c.openSettings(space({ id: 'm', label: 'M', imageAnalysis: 'recognition', audioAnalysis: 'off', videoAnalysis: 'full', textAnalysis: 'chunk' } as Partial<Space>));
+    expect([c.stForm.imageAnalysis, c.stForm.audioAnalysis, c.stForm.videoAnalysis, c.stForm.textAnalysis])
+      .toEqual(['recognition', 'off', 'full', 'chunk']);
+    c.openSettings(space({ id: 'plain2', label: 'Plain2' } as Partial<Space>));
+    expect([c.stForm.imageAnalysis, c.stForm.audioAnalysis, c.stForm.videoAnalysis, c.stForm.textAnalysis])
+      .toEqual(['', '', '', '']);
+  });
+
   it('defaults everything when the space has no meta at all', () => {
     const bare = space({ id: 'bare', label: 'Bare' });
     const c = make();
     c.openSettings(bare);
-    expect(c.stForm).toEqual({ label: 'Bare', purpose: '', usageNotes: '', maxGiB: null, recordTtlDays: null, documentExtraction: '' });
+    expect(c.stForm).toEqual({ label: 'Bare', purpose: '', usageNotes: '', maxGiB: null, recordTtlDays: null, documentExtraction: '', imageAnalysis: '', audioAnalysis: '', videoAnalysis: '', textAnalysis: '' });
     expect(c.schValidation).toBe('off');
     expect(c.schStrictLinkage).toBe(false);
     expect(c.schTagSuggestions).toEqual([]);

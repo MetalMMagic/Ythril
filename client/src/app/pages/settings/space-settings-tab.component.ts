@@ -82,6 +82,51 @@ import { SettingsCardComponent } from '../../shared/settings-card.component';
     </div>
   </app-settings-card>
 
+  <app-settings-card icon="image" [heading]="'spaces.settings.card.media' | transloco" [purpose]="'spaces.settings.card.mediaHint' | transloco">
+    <div style="display:flex; flex-wrap:wrap; gap:16px;">
+      <div class="field" style="margin:0; max-width:190px;">
+        <label>{{ 'spaces.settings.media.image' | transloco }}</label>
+        <select [(ngModel)]="state.stForm.imageAnalysis">
+          <option value="">{{ 'spaces.settings.media.lvl.inherit' | transloco }}</option>
+          <option value="auto">{{ 'spaces.settings.media.lvl.auto' | transloco }}</option>
+          <option value="off">{{ 'spaces.settings.media.lvl.off' | transloco }}</option>
+          <option value="caption">{{ 'spaces.settings.media.lvl.caption' | transloco }}</option>
+          <option value="recognition">{{ 'spaces.settings.media.lvl.recognition' | transloco }}</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0; max-width:190px;">
+        <label>{{ 'spaces.settings.media.audio' | transloco }}</label>
+        <select [(ngModel)]="state.stForm.audioAnalysis">
+          <option value="">{{ 'spaces.settings.media.lvl.inherit' | transloco }}</option>
+          <option value="auto">{{ 'spaces.settings.media.lvl.auto' | transloco }}</option>
+          <option value="off">{{ 'spaces.settings.media.lvl.off' | transloco }}</option>
+          <option value="on">{{ 'spaces.settings.media.lvl.on' | transloco }}</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0; max-width:190px;">
+        <label>{{ 'spaces.settings.media.video' | transloco }}</label>
+        <select [(ngModel)]="state.stForm.videoAnalysis">
+          <option value="">{{ 'spaces.settings.media.lvl.inherit' | transloco }}</option>
+          <option value="auto">{{ 'spaces.settings.media.lvl.auto' | transloco }}</option>
+          <option value="off">{{ 'spaces.settings.media.lvl.off' | transloco }}</option>
+          <option value="audio">{{ 'spaces.settings.media.lvl.audioOnly' | transloco }}</option>
+          <option value="full">{{ 'spaces.settings.media.lvl.full' | transloco }}</option>
+        </select>
+      </div>
+      <div class="field" style="margin:0; max-width:190px;">
+        <label>{{ 'spaces.settings.media.text' | transloco }}</label>
+        <select [(ngModel)]="state.stForm.textAnalysis">
+          <option value="">{{ 'spaces.settings.media.lvl.inherit' | transloco }}</option>
+          <option value="auto">{{ 'spaces.settings.media.lvl.auto' | transloco }}</option>
+          <option value="off">{{ 'spaces.settings.media.lvl.off' | transloco }}</option>
+          <option value="embed">{{ 'spaces.settings.media.lvl.embed' | transloco }}</option>
+          <option value="chunk">{{ 'spaces.settings.media.lvl.chunk' | transloco }}</option>
+        </select>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">{{ 'spaces.settings.media.hint' | transloco }}</div>
+  </app-settings-card>
+
 </div>
   `,
 })

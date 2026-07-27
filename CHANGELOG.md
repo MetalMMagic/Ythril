@@ -852,6 +852,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A file's detail pane now says what WILL run for it — and, when nothing will, why.** Opening a file
+  shows the chain it goes through (a PDF: render → OCR evidence → vision → validate → repair; an image:
+  caption → embed → faces; audio/video: transcribe → chunk → embed, with keyframe sampling for video), the
+  effective level behind that chain, and a plain-language reason when the answer is *nothing*: the class is
+  switched off for this space, or the file is over the processing size limit. This is the other half of the
+  per-file pipeline view — the stage bar says *where it is now*, this says *what was ever going to happen*
+  — and it answers "why did nothing happen to my scan?" without a trip to Settings → Media Processing and
+  then to the space's own overrides.
+
+  The chain is computed **server-side**, because the effective level is the space's choice capped by the
+  instance ceiling and only the server knows both. Documents reuse `decideRoute` — the very function the
+  extractor runs — so the preview cannot drift from reality, including its fallback case (a VLM level with
+  no renderer wired in falls back to plain extraction, and now says so). Images, audio and video had **no**
+  equivalent function; their chains existed only as whatever the worker happened to call, and are now
+  declared in one place. Attached only to a single-file fetch, since deciding it probes the renderer.
+
 - **The Files list now shows which processing stage a file is actually in, instead of "embedding" and a
   spinner.** An in-flight file's row draws a segmented bar for **that file's own route** — a PDF might run
   render → VLM → repair, an image caption → embed — with the active stage filling as its pages land, a
@@ -1688,6 +1704,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of a third-party signed cast, tampered cast rejected).
 
 ### Fixed
+
+- **A `faces` processing stage displayed as a generic "working" despite being translated in all three
+  locales.** The progress bar maps a stage to its `mediaProcessing.step.*` label only if the stage is in its
+  known-stages set, and falls back to "working" otherwise — correct for a genuinely unknown stage, but
+  `faces` was missing from the set while having a perfectly good translation, so face detection reported
+  itself as nothing in particular. Nothing errored. The bar's spec now asserts that every stage the pipeline
+  can report resolves to its own label rather than the fallback.
 
 - **The Files list showed no status, no tags and no folder sizes at the root — which is most listings.**
   The directory listing joins each row to its file-metadata record over an indexed path-prefix range, but

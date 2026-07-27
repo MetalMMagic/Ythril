@@ -460,6 +460,18 @@ function xlsxCellText(v: unknown): string {
     .tree-caret.expanded { transform: rotate(90deg); }
     .tree-children { padding-left: 12px; }
     .tree-spinner { font-size: 10px; color: var(--text-muted); padding: 2px 8px 2px 28px; }
+
+    /* "What will run" — the per-file pipeline preview in the detail pane. */
+    .plan-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .plan-block h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .plan-lead { margin: 0 0 6px; font-size: 12px; color: var(--text-secondary); }
+    .plan-lead.plan-none { color: var(--text-muted); font-style: italic; }
+    /* A numbered chain: the order is the information, so it is an ordered list, not chips. */
+    .plan-chain { margin: 0 0 6px; padding-left: 18px; font-size: 12px; color: var(--text-primary); }
+    .plan-chain li { margin: 1px 0; }
+    .plan-reason { margin: 0 0 6px; font-size: 11px; color: var(--warning); }
+    .plan-level { margin: 0; font-size: 11px; color: var(--text-muted); }
+    .plan-level code { font-size: 11px; }
   `],
   template: `
     @if (loadingSpaces()) {
@@ -732,6 +744,28 @@ function xlsxCellText(v: unknown): string {
                     </div>
                   </form>
                 }
+                <!-- What WILL run for THIS file. Answers "why did nothing happen to my scan" without a
+                     trip to Media Processing: the chain is the space's effective rung after instance
+                     capping, and when nothing will run it says which of the two reasons applies. -->
+                @if (selectedMeta()?.plannedRoute; as plan) {
+                  <div class="plan-block">
+                    <h4>{{ 'files.plan.title' | transloco }}</h4>
+                    @if (plan.willRun) {
+                      <p class="plan-lead">{{ 'files.plan.willRun' | transloco }}</p>
+                      <ol class="plan-chain">
+                        @for (s of plan.stages; track $index) {
+                          <li>{{ stageLabel(s) | transloco }}</li>
+                        }
+                      </ol>
+                    } @else {
+                      <p class="plan-lead plan-none">{{ 'files.plan.nothing' | transloco }}</p>
+                    }
+                    @if (plan.reason) {
+                      <p class="plan-reason">{{ 'files.plan.reason.' + plan.reason | transloco }}</p>
+                    }
+                    <p class="plan-level">{{ 'files.plan.level' | transloco }}: <code>{{ plan.level }}</code></p>
+                  </div>
+                }
               </div>
             </div>
           }
@@ -930,6 +964,15 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   detailMode = signal<'preview' | 'meta'>('preview');
   /** The FileMeta record for the open file (its description + links); null until the fetch lands. */
   selectedMeta = signal<FileMeta | null>(null);
+
+  /**
+   * i18n key for a planned stage — the SAME `mediaProcessing.step.*` labels the live progress bar uses,
+   * so the preview and the running job name a stage identically. A stage with no label would otherwise
+   * render as a raw internal identifier; `step-progress-bar`'s own spec asserts the set stays complete.
+   */
+  stageLabel(step: string): string {
+    return `mediaProcessing.step.${step}`;
+  }
   /** Edit model for the meta form — same shape the Brain File Meta tab uses (entityIds is comma-joined
    *  for app-entity-ref-field; memory/chrono are id arrays). Mutated in place by the ref-field widgets. */
   metaEditModel = { description: '', tags: [] as string[], entityIds: '', memoryIds: [] as string[], chronoIds: [] as string[] };

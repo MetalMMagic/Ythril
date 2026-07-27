@@ -25,6 +25,34 @@ import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
 import type { FileMetaDoc } from '../../config/types.js';
 import { fetchJobProgress, getMediaJobCounts, type MediaJobCounts } from '../../files/media/job-queue.js';
+import { planFileRoute } from '../../files/converters/planned-route.js';
+import { isRenderAvailableFor } from '../../files/converters/renderer.js';
+import { getDocumentProcessingConfig, getMediaEmbeddingConfig, DEFAULT_MEDIA_MAX_FILE_SIZE_BYTES } from '../../config/loader.js';
+
+/**
+ * Attach the plan — which stages this file will go through, and why it might go through none.
+ *
+ * Availability is assembled here exactly as `vlmExtractDocument` assembles it, so the preview and the run
+ * agree; a preview derived from a second, hand-rolled notion of "is the VLM wired in" would be worse than
+ * no preview, because there would be no way to tell which one was wrong.
+ *
+ * Best-effort: a file listing must not fail because the renderer probe timed out.
+ */
+export async function attachPlannedRoute(spaceId: string, file: Record<string, unknown>): Promise<void> {
+  try {
+    const name = String(file['path'] ?? '');
+    if (!name) return;
+    const docCfg = getDocumentProcessingConfig();
+    const render = await isRenderAvailableFor(name);
+    const plan = planFileRoute(spaceId, name, {
+      ocr: true, render, vlm: !!docCfg.vlmModel, repair: !!docCfg.vlmModel, verify: !!docCfg.verifyModel,
+    }, {
+      ...(typeof file['sizeBytes'] === 'number' ? { sizeBytes: file['sizeBytes'] as number } : {}),
+      maxBytes: getMediaEmbeddingConfig().maxFileSizeBytes ?? DEFAULT_MEDIA_MAX_FILE_SIZE_BYTES,
+    });
+    file['plannedRoute'] = plan;
+  } catch { /* best-effort — the record matters, the preview does not */ }
+}
 
 export const fileMetaRouter = Router();
 
@@ -97,7 +125,15 @@ fileMetaRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, 
     // to that member's job collection, and looking them up in another's would silently find nothing.
     return attachJobProgress(mid, files as Array<Record<string, unknown>>);
   });
-  res.json({ files: capPage(all, limit, sortParse.sort), limit, skip });
+  const files = capPage(all, limit, sortParse.sort);
+  // "What WILL run for this file" is attached only to a SINGLE-file fetch (`?path=`), which is exactly how
+  // the detail pane asks for it. Deciding the plan needs `isRenderAvailableFor`, which probes the renderer
+  // — one await for one file is nothing, one per row of a 50-row page is a burst of sidecar traffic to
+  // populate a column nobody is looking at. The owner's scope is per-FILE, so the route follows it.
+  if (typeof req.query['path'] === 'string' && files.length === 1) {
+    await attachPlannedRoute(spaceId, files[0] as Record<string, unknown>);
+  }
+  res.json({ files, limit, skip });
 });
 
 // GET /api/brain/spaces/:spaceId/embedding-queue — this space's embedding-job backlog by status (F9 Overview).

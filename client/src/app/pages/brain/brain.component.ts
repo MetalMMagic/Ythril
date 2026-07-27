@@ -238,14 +238,21 @@ interface SpaceView {
           <div class="loading-overlay loading-overlay--float"><span class="spinner"></span></div>
         }
 
-        <!-- Graph tab -->
-        @if (activeTab() === 'graph') {
+        <!-- Graph + Files carry heavy libraries (cytoscape; the file-manager's markdown/mermaid/xlsx
+             renderers). @defer keeps them OUT of the brain chunk downloaded on landing (Overview is the
+             default tab) — the chunk loads on first visit to that tab. Trigger is the SAME activeTab()
+             gate as the record tabs, so the storm-safe "gate on activeTab() alone" rule still holds. -->
+        @defer (when activeTab() === 'graph') {
           <app-graph-view [embeddedSpaceId]="activeSpaceId()" />
+        } @loading (minimum 200ms) {
+          <div class="loading-overlay loading-overlay--float"><span class="spinner"></span></div>
         }
 
         <!-- Files tab (merged: file manager + File Meta) -->
-        @if (activeTab() === 'files') {
+        @defer (when activeTab() === 'files') {
           <app-file-manager [embeddedSpaceId]="activeSpaceId()" (filesChanged)="loadStats(activeSpaceId())" />
+        } @loading (minimum 200ms) {
+          <div class="loading-overlay loading-overlay--float"><span class="spinner"></span></div>
         }
 
         <!-- Memories -->

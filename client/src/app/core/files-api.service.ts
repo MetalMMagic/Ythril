@@ -185,7 +185,7 @@ export class FilesApi {
 
   // ── File conflicts ────────────────────────────────────────────────────────
 
-  listConflicts(): Observable<{ conflicts: ConflictRecord[] }> {
+  listConflicts(): Observable<{ conflicts: ConflictRecord[]; truncated?: boolean; returned?: number }> {
     return this.http.get<any>('/api/conflicts');
   }
 

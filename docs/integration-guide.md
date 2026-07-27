@@ -4484,6 +4484,11 @@ Base path: `/api/conflicts`
 GET /api/conflicts?spaceId=general
 ```
 
+Returns `{ conflicts: [...], returned: <n>, truncated: <bool> }`. The list is bounded — capped per space
+and to a total across all accessible spaces — so a token spanning many spaces cannot force an unbounded
+response. When `truncated` is `true` the caller has **not** seen every conflict (resolve some and re-list to
+see the rest); `returned` is how many were included. The `link-violations` list is bounded the same way.
+
 ---
 
 ### Get Conflict

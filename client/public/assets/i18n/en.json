@@ -605,6 +605,7 @@
   "conflicts.action.keepBoth": "Keep both",
   "conflicts.action.saveToSpace": "Save to space…",
   "conflicts.unresolvedCount": "Unresolved conflicts: {{ count }}.",
+  "conflicts.truncated": "Showing the first {{ count }} conflicts — there are more than can be listed at once. Resolve some to see the rest.",
   "conflicts.resolveSelected": "Resolve {{ count }} selected",
   "conflicts.resolving": "Resolving…",
   "conflicts.resolveButton": "Resolve",

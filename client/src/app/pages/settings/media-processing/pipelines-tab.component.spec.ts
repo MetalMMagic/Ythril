@@ -9,9 +9,9 @@ import { TestBed } from '@angular/core/testing';
 import { describe, it, expect } from 'vitest';
 import { getTranslocoModule } from '../../../testing/transloco-testing';
 import { PipelinesTabComponent } from './pipelines-tab.component';
-import { ModelsStateService } from './models-state.service';
+import { MediaProcessingStateService } from './media-processing-state.service';
 import { PipelineStatusService } from './pipeline-status.service';
-import { AUDIO_LEVELS, VIDEO_LEVELS } from './models.types';
+import { AUDIO_LEVELS, VIDEO_LEVELS } from './media-processing.types';
 
 function setup() {
   const state = {
@@ -25,7 +25,7 @@ function setup() {
   TestBed.configureTestingModule({
     imports: [PipelinesTabComponent, getTranslocoModule()],
     providers: [
-      { provide: ModelsStateService, useValue: state },
+      { provide: MediaProcessingStateService, useValue: state },
       { provide: PipelineStatusService, useValue: { modelState: () => 'ok', status: () => null } },
     ],
   });

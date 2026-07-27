@@ -23,9 +23,9 @@ import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../../shared/ph-icon.component';
 import { StatusPillComponent } from '../../../shared/status-pill.component';
 import { HealthDotComponent } from './health-dot.component';
-import { ModelsStateService } from './models-state.service';
+import { MediaProcessingStateService } from './media-processing-state.service';
 import { PipelineStatusService } from './pipeline-status.service';
-import { HealthState, MODE_STAGES, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, MediaClass } from './models.types';
+import { HealthState, MODE_STAGES, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, MediaClass } from './media-processing.types';
 
 /** One drawn step. `actor` is a model or tool name; `health` is looked up from the status payload. */
 interface Step {
@@ -126,7 +126,7 @@ interface Step {
       <!-- A failed status fetch must not read as "everything is off" — say which it is. -->
       <div class="statuswarn">
         <ph-icon name="warning" [size]="15"/>
-        <span>{{ 'models.pipelines.statusUnavailable' | transloco: { detail: e } }}</span>
+        <span>{{ 'mediaProcessing.pipelines.statusUnavailable' | transloco: { detail: e } }}</span>
       </div>
     }
 
@@ -135,7 +135,7 @@ interface Step {
       <header class="pipe-h">
         <span class="ic"><ph-icon name="file" [size]="17"/></span>
         <div class="t">
-          <h3>{{ 'models.pipelines.documents' | transloco }}</h3>
+          <h3>{{ 'mediaProcessing.pipelines.documents' | transloco }}</h3>
           <p>{{ s.docSummary().key | transloco: s.docSummary().params }}</p>
         </div>
         <app-status-pill [variant]="s.docVariant()" [dot]="true">{{ s.docPillLabelKey() | transloco }}</app-status-pill>
@@ -149,7 +149,7 @@ interface Step {
               <div class="actor">
                 @if (st.cardId; as cid) {
                   <button type="button" class="link" [class.infra]="isInfra(cid)" (click)="s.requestFocusCard(cid)"
-                    [attr.title]="'models.pipelines.configureLink' | transloco">{{ st.actor }}</button>
+                    [attr.title]="'mediaProcessing.pipelines.configureLink' | transloco">{{ st.actor }}</button>
                 } @else {
                   {{ st.actor }}
                 }
@@ -160,15 +160,15 @@ interface Step {
       </div>
 
       <div class="knobs">
-        <div class="knobs-h">{{ 'models.pipelines.extractionMode' | transloco }}</div>
-        <div class="modeseg" role="group" [attr.aria-label]="'models.pipelines.extractionMode' | transloco">
+        <div class="knobs-h">{{ 'mediaProcessing.pipelines.extractionMode' | transloco }}</div>
+        <div class="modeseg" role="group" [attr.aria-label]="'mediaProcessing.pipelines.extractionMode' | transloco">
           @for (m of s.MODES; track m) {
             <button type="button" [class.on]="s.docMode() === m" (click)="s.setMode(m)" [disabled]="s.managed">
-              {{ 'models.mode.' + m | transloco }}
+              {{ 'mediaProcessing.mode.' + m | transloco }}
             </button>
           }
         </div>
-        <p class="modedesc"><b>{{ 'models.mode.' + s.docMode() | transloco }}</b> — {{ s.modeDescKey() | transloco }}</p>
+        <p class="modedesc"><b>{{ 'mediaProcessing.mode.' + s.docMode() | transloco }}</b> — {{ s.modeDescKey() | transloco }}</p>
 
         <!-- The "no vision model configured, falls back to OCR" case is already carried by the header
              pill ("OCR fallback") and the pipeline summary line, so the extra warning box was redundant
@@ -176,23 +176,23 @@ interface Step {
 
         <div class="grid">
           <div class="field">
-            <label for="dp-dpi">{{ 'models.knob.renderDpi' | transloco }}</label>
+            <label for="dp-dpi">{{ 'mediaProcessing.knob.renderDpi' | transloco }}</label>
             <input id="dp-dpi" type="number" min="72" max="600" [(ngModel)]="s.form.documentProcessing!.renderDpi" [disabled]="s.managed" />
           </div>
           <div class="field">
-            <label for="dp-maxpages">{{ 'models.knob.maxPages' | transloco }}</label>
+            <label for="dp-maxpages">{{ 'mediaProcessing.knob.maxPages' | transloco }}</label>
             <input id="dp-maxpages" type="number" min="1" max="2000" [(ngModel)]="s.form.documentProcessing!.maxPages" [disabled]="s.managed" />
           </div>
           <div class="field">
-            <label for="dp-pagetimeout">{{ 'models.knob.pageTimeout' | transloco }}</label>
+            <label for="dp-pagetimeout">{{ 'mediaProcessing.knob.pageTimeout' | transloco }}</label>
             <input id="dp-pagetimeout" type="number" min="1000" max="600000" [(ngModel)]="s.form.documentProcessing!.pageTimeoutMs" [disabled]="s.managed" />
           </div>
           <div class="field">
-            <label for="dp-concurrency">{{ 'models.knob.pageConcurrency' | transloco }}</label>
+            <label for="dp-concurrency">{{ 'mediaProcessing.knob.pageConcurrency' | transloco }}</label>
             <input id="dp-concurrency" type="number" min="1" max="8" [(ngModel)]="s.form.documentProcessing!.concurrency" [disabled]="s.managed" />
           </div>
           <div class="field">
-            <label for="dp-ocrtimeout">{{ 'models.knob.ocrTimeout' | transloco }}</label>
+            <label for="dp-ocrtimeout">{{ 'mediaProcessing.knob.ocrTimeout' | transloco }}</label>
             <input id="dp-ocrtimeout" type="number" min="10000" max="1800000" [(ngModel)]="s.form.documentProcessing!.ocrTimeoutMs" [disabled]="s.managed" />
           </div>
         </div>
@@ -218,7 +218,7 @@ interface Step {
                 <div class="actor">
                   @if (st.cardId; as cid) {
                     <button type="button" class="link" [class.infra]="isInfra(cid)" (click)="s.requestFocusCard(cid)"
-                      [attr.title]="'models.pipelines.configureLink' | transloco">{{ st.actor }}</button>
+                      [attr.title]="'mediaProcessing.pipelines.configureLink' | transloco">{{ st.actor }}</button>
                   } @else {
                     {{ st.actor }}
                   }
@@ -229,26 +229,26 @@ interface Step {
         </div>
 
         <div class="knobs">
-          <div class="knobs-h">{{ 'models.pipelines.ceiling' | transloco }}</div>
-          <p class="ceiling-hint">{{ 'models.pipelines.ceilingHint' | transloco }}</p>
+          <div class="knobs-h">{{ 'mediaProcessing.pipelines.ceiling' | transloco }}</div>
+          <p class="ceiling-hint">{{ 'mediaProcessing.pipelines.ceilingHint' | transloco }}</p>
           @for (c of p.ceilings; track c.cls) {
             <div class="ceiling">
-              <label>{{ 'models.class.' + c.cls | transloco }}</label>
+              <label>{{ 'mediaProcessing.class.' + c.cls | transloco }}</label>
               <!-- Every media pipeline is single-class, so each uses the same segmented buttons as the
                    document extraction mode — one control vocabulary across all of them. -->
-              <div class="modeseg" role="group" [attr.aria-label]="'models.class.' + c.cls | transloco">
+              <div class="modeseg" role="group" [attr.aria-label]="'mediaProcessing.class.' + c.cls | transloco">
                 @for (rung of c.ladder; track rung) {
                   <button type="button" [class.on]="ceilingOf(c.cls) === rung" (click)="setCeiling(c.cls, rung)"
                     [disabled]="s.isLocked('levels.' + c.cls) || s.managed">
-                    {{ 'models.level.' + rung | transloco }}
+                    {{ 'mediaProcessing.level.' + rung | transloco }}
                   </button>
                 }
               </div>
-              @if (s.isLocked('levels.' + c.cls)) { <app-status-pill variant="env">{{ 'models.pill.env' | transloco }}</app-status-pill> }
+              @if (s.isLocked('levels.' + c.cls)) { <app-status-pill variant="env">{{ 'mediaProcessing.pill.env' | transloco }}</app-status-pill> }
               @if (ceilingOf(c.cls) === 'off') {
                 <!-- "off" is a floor as well as a ceiling: it takes the class offline for every space,
                      whatever that space asked for. Worth saying where it is chosen, not in a doc. -->
-                <span class="ceiling-warn">{{ 'models.pipelines.ceilingOffWarning' | transloco }}</span>
+                <span class="ceiling-warn">{{ 'mediaProcessing.pipelines.ceilingOffWarning' | transloco }}</span>
               }
             </div>
           }
@@ -258,7 +258,7 @@ interface Step {
   `,
 })
 export class PipelinesTabComponent {
-  readonly s = inject(ModelsStateService);
+  readonly s = inject(MediaProcessingStateService);
   readonly pipeline = inject(PipelineStatusService);
 
   /** Which document stages the current mode actually runs — dims the rest rather than hiding them. */
@@ -311,15 +311,15 @@ export class PipelinesTabComponent {
     const doc = this.s.docCfg();
     const ps = this.pipeline;
     return [
-      { key: 'ocr', name: 'models.step.ocr', actor: 'Tesseract', health: ps.sidecarState('unstructured'), conditional: false, cardId: 'unstructured' },
-      { key: 'render', name: 'models.step.render', actor: 'doc-render', health: ps.sidecarState('doc-render'), conditional: true, cardId: 'doc-render' },
-      { key: 'vlm', name: 'models.step.vlm', actor: doc.vlmModel || this.notSet, health: ps.modelState('doc-vlm'), conditional: true, cardId: 'vision' },
+      { key: 'ocr', name: 'mediaProcessing.step.ocr', actor: 'Tesseract', health: ps.sidecarState('unstructured'), conditional: false, cardId: 'unstructured' },
+      { key: 'render', name: 'mediaProcessing.step.render', actor: 'doc-render', health: ps.sidecarState('doc-render'), conditional: true, cardId: 'doc-render' },
+      { key: 'vlm', name: 'mediaProcessing.step.vlm', actor: doc.vlmModel || this.notSet, health: ps.modelState('doc-vlm'), conditional: true, cardId: 'vision' },
       // Validate is pure in-process arithmetic (does the VLM output cover the OCR text?), so it has no
       // endpoint and therefore no dot to report — undefined health, not a green one it has not earned.
-      { key: 'validate', name: 'models.step.validate', actor: 'in-process', health: null, conditional: true },
-      { key: 'repair', name: 'models.step.repair', actor: doc.repairModel || doc.vlmModel || this.notSet, health: ps.modelState('doc-repair'), conditional: true, cardId: 'assist' },
-      { key: 'verify', name: 'models.step.verify', actor: doc.verifyModel || this.notSet, health: ps.modelState('doc-verify'), conditional: true, cardId: 'vision' },
-      { key: 'embed', name: 'models.step.embed', actor: this.s.embedding.model || this.notSet, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
+      { key: 'validate', name: 'mediaProcessing.step.validate', actor: 'in-process', health: null, conditional: true },
+      { key: 'repair', name: 'mediaProcessing.step.repair', actor: doc.repairModel || doc.vlmModel || this.notSet, health: ps.modelState('doc-repair'), conditional: true, cardId: 'assist' },
+      { key: 'verify', name: 'mediaProcessing.step.verify', actor: doc.verifyModel || this.notSet, health: ps.modelState('doc-verify'), conditional: true, cardId: 'vision' },
+      { key: 'embed', name: 'mediaProcessing.step.embed', actor: this.s.embedding.model || this.notSet, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
     ];
   });
 
@@ -328,21 +328,21 @@ export class PipelinesTabComponent {
     const embedModel = this.s.embedding.model || this.notSet;
     return [
       {
-        id: 'images', icon: 'image', title: 'models.pipelines.images', purpose: 'models.pipelines.imagesPurpose',
+        id: 'images', icon: 'image', title: 'mediaProcessing.pipelines.images', purpose: 'mediaProcessing.pipelines.imagesPurpose',
         ceilings: [{ cls: 'images' as MediaClass, ladder: IMAGE_LEVELS }],
         steps: [
-          { key: 'caption', name: 'models.step.caption', actor: this.s.form.vision?.model || this.notSet, health: ps.modelState('vision'), conditional: false, cardId: 'vision' },
-          { key: 'img-embed', name: 'models.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
+          { key: 'caption', name: 'mediaProcessing.step.caption', actor: this.s.form.vision?.model || this.notSet, health: ps.modelState('vision'), conditional: false, cardId: 'vision' },
+          { key: 'img-embed', name: 'mediaProcessing.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
           // Only at the `recognition` rung, and only when faceRecognition is enabled — genuinely conditional.
-          { key: 'faces', name: 'models.step.faces', actor: 'BlazeFace + FaceRes', health: ps.status()?.faceRecognition.state ?? null, conditional: true, cardId: 'face' },
+          { key: 'faces', name: 'mediaProcessing.step.faces', actor: 'BlazeFace + FaceRes', health: ps.status()?.faceRecognition.state ?? null, conditional: true, cardId: 'face' },
         ] as Step[],
       },
       {
-        id: 'audio', icon: 'microphone', title: 'models.pipelines.audio', purpose: 'models.pipelines.audioPurpose',
+        id: 'audio', icon: 'microphone', title: 'mediaProcessing.pipelines.audio', purpose: 'mediaProcessing.pipelines.audioPurpose',
         ceilings: [{ cls: 'audio' as MediaClass, ladder: AUDIO_LEVELS }],
         steps: [
-          { key: 'transcribe', name: 'models.step.transcribe', actor: this.s.form.stt?.model || this.notSet, health: ps.modelState('stt'), conditional: false, cardId: 'stt' },
-          { key: 'aud-embed', name: 'models.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
+          { key: 'transcribe', name: 'mediaProcessing.step.transcribe', actor: this.s.form.stt?.model || this.notSet, health: ps.modelState('stt'), conditional: false, cardId: 'stt' },
+          { key: 'aud-embed', name: 'mediaProcessing.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
         ] as Step[],
       },
       {
@@ -350,24 +350,24 @@ export class PipelinesTabComponent {
         // (ffmpeg → transcribe → embed); at the `full`/`auto` level it ALSO captions keyframes with the
         // vision model. The `audio` level is "take the audio pipeline instead of a model" — the keyframe
         // step is skipped (conditional). ffmpeg + the chunker are bundled/in-process, so they report 'ok'.
-        id: 'video', icon: 'video-camera', title: 'models.pipelines.video', purpose: 'models.pipelines.videoPurpose',
+        id: 'video', icon: 'video-camera', title: 'mediaProcessing.pipelines.video', purpose: 'mediaProcessing.pipelines.videoPurpose',
         ceilings: [{ cls: 'video' as MediaClass, ladder: VIDEO_LEVELS }],
         steps: [
-          { key: 'vid-split', name: 'models.step.split', actor: 'ffmpeg', health: 'ok', conditional: false },
-          { key: 'vid-transcribe', name: 'models.step.transcribe', actor: this.s.form.stt?.model || this.notSet, health: ps.modelState('stt'), conditional: false, cardId: 'stt' },
+          { key: 'vid-split', name: 'mediaProcessing.step.split', actor: 'ffmpeg', health: 'ok', conditional: false },
+          { key: 'vid-transcribe', name: 'mediaProcessing.step.transcribe', actor: this.s.form.stt?.model || this.notSet, health: ps.modelState('stt'), conditional: false, cardId: 'stt' },
           // Only at the `full`/`auto` rung — at `audio` the vision model is not called.
-          { key: 'vid-keyframe', name: 'models.step.keyframe', actor: this.s.form.vision?.model || this.notSet, health: ps.modelState('vision'), conditional: true, cardId: 'vision' },
-          { key: 'vid-embed', name: 'models.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
+          { key: 'vid-keyframe', name: 'mediaProcessing.step.keyframe', actor: this.s.form.vision?.model || this.notSet, health: ps.modelState('vision'), conditional: true, cardId: 'vision' },
+          { key: 'vid-embed', name: 'mediaProcessing.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
         ] as Step[],
       },
       {
-        id: 'text', icon: 'text-align-left', title: 'models.pipelines.text', purpose: 'models.pipelines.textPurpose',
+        id: 'text', icon: 'text-align-left', title: 'mediaProcessing.pipelines.text', purpose: 'mediaProcessing.pipelines.textPurpose',
         ceilings: [{ cls: 'text' as MediaClass, ladder: TEXT_LEVELS }],
         steps: [
           // Chunking only happens at the `chunk` rung; `embed` produces one vector for the whole
           // document. The chunker is bundled and always available in-process, so it reports 'ok'.
-          { key: 'chunk', name: 'models.step.chunk', actor: 'text chunker', health: 'ok', conditional: true },
-          { key: 'txt-embed', name: 'models.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
+          { key: 'chunk', name: 'mediaProcessing.step.chunk', actor: 'text chunker', health: 'ok', conditional: true },
+          { key: 'txt-embed', name: 'mediaProcessing.step.embed', actor: embedModel, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
         ] as Step[],
       },
     ];

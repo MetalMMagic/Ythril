@@ -9,7 +9,7 @@
  */
 import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { PipelineStatus, HealthState, ModelStageStatus, SidecarStatus } from './models.types';
+import { PipelineStatus, HealthState, ModelStageStatus, SidecarStatus } from './media-processing.types';
 
 @Injectable()
 export class PipelineStatusService {

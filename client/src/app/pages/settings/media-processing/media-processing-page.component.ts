@@ -1,7 +1,7 @@
 /**
  * Settings → Models & Pipelines — the page shell.
  *
- * Replaces the 656-line `models.component.ts`, whose six cards sat in the order they were added
+ * Replaces the 656-line `mediaProcessing.component.ts`, whose six cards sat in the order they were added
  * rather than any order a reader would choose ("very wild, no logic structure or consistent layout" —
  * owner, 2026-07-21).
  *
@@ -11,7 +11,7 @@
  *
  * The shell owns the three things the tabs cannot own individually:
  *
- *   - **One load, one save.** All three tabs edit one config object, so `ModelsStateService` is
+ *   - **One load, one save.** All three tabs edit one config object, so `MediaProcessingStateService` is
  *     provided here and lives exactly as long as the page.
  *   - **One status fetch**, shared by Pipelines and Tools. Requested once on entry, never per tab.
  *   - **The unsaved-changes guard spans the tabs.** Switching tabs with a dirty form prompts rather
@@ -24,7 +24,7 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../../shared/ph-icon.component';
 import { StatusPillComponent } from '../../../shared/status-pill.component';
 import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
-import { ModelsStateService } from './models-state.service';
+import { MediaProcessingStateService } from './media-processing-state.service';
 import { PipelineStatusService } from './pipeline-status.service';
 import { ModelsTabComponent } from './models-tab.component';
 import { PipelinesTabComponent } from './pipelines-tab.component';
@@ -38,7 +38,7 @@ type Tab = 'models' | 'pipelines' | 'tools';
   changeDetection: ChangeDetectionStrategy.OnPush,
   // Both services are page-scoped, not root: leaving and re-entering must start from the server's
   // state rather than a previous visit's half-finished edits.
-  providers: [ModelsStateService, PipelineStatusService],
+  providers: [MediaProcessingStateService, PipelineStatusService],
   imports: [
     FormsModule, TranslocoPipe, PhIconComponent,
     ModelsTabComponent, PipelinesTabComponent, ToolsTabComponent,
@@ -80,17 +80,17 @@ type Tab = 'models' | 'pipelines' | 'tools';
       @if (s.managed) {
         <div class="managed-banner">
           <ph-icon name="lock" [size]="16"/>
-          <span [innerHTML]="'models.page.managedBanner' | transloco"></span>
+          <span [innerHTML]="'mediaProcessing.page.managedBanner' | transloco"></span>
         </div>
       }
 
-      <nav class="tabs" role="tablist" [attr.aria-label]="'models.page.title' | transloco">
+      <nav class="tabs" role="tablist" [attr.aria-label]="'mediaProcessing.page.title' | transloco">
         @for (t of TABS; track t) {
           <button class="tab" type="button" role="tab" [class.active]="tab() === t"
             [attr.aria-selected]="tab() === t" [attr.id]="'tab-' + t" [attr.aria-controls]="'panel-' + t"
             (click)="switchTo(t)">
-            {{ 'models.tab.' + t | transloco }}
-            @if (t === 'models' && s.isDirty()) { <span class="unsaved" [attr.aria-label]="'models.page.unsaved' | transloco"></span> }
+            {{ 'mediaProcessing.tab.' + t | transloco }}
+            @if (t === 'models' && s.isDirty()) { <span class="unsaved" [attr.aria-label]="'mediaProcessing.page.unsaved' | transloco"></span> }
           </button>
         }
       </nav>
@@ -119,8 +119,8 @@ type Tab = 'models' | 'pipelines' | 'tools';
     }
   `,
 })
-export class ModelsPageComponent implements OnInit {
-  readonly s = inject(ModelsStateService);
+export class MediaProcessingPageComponent implements OnInit {
+  readonly s = inject(MediaProcessingStateService);
   readonly pipeline = inject(PipelineStatusService);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly transloco = inject(TranslocoService);
@@ -177,10 +177,10 @@ export class ModelsPageComponent implements OnInit {
     if (t === this.tab()) return;
     if (this.s.isDirty()) {
       const ok = await this.confirmDialog.confirm({
-        title: this.transloco.translate('models.confirm.discardTitle'),
-        message: this.transloco.translate('models.confirm.discardMessage'),
-        confirmLabel: this.transloco.translate('models.confirm.discardConfirm'),
-        cancelLabel: this.transloco.translate('models.confirm.discardCancel'),
+        title: this.transloco.translate('mediaProcessing.confirm.discardTitle'),
+        message: this.transloco.translate('mediaProcessing.confirm.discardMessage'),
+        confirmLabel: this.transloco.translate('mediaProcessing.confirm.discardConfirm'),
+        cancelLabel: this.transloco.translate('mediaProcessing.confirm.discardCancel'),
         danger: true,
       });
       if (!ok) return;

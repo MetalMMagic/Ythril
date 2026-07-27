@@ -752,6 +752,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
+- **Translation keys are now verified against the source, so a missing one can't ship silently.** A missing
+  key fails invisibly: Transloco renders the key itself, the build succeeds, and the unit tests pass — the
+  test harness deliberately echoes raw keys — so the only detector is a human looking at that exact screen.
+  A new spec cross-checks every statically-referenced key against `en.json` and asserts de/pl carry exactly
+  the same key set. It found two keys that had been missing on main all along (the Schema Library fix above)
+  on its first run, and it is what made the 182-key `models.*` → `mediaProcessing.*` migration verifiable
+  rather than hopeful.
+
 - **Backfilled the one overnight gap: the networks per-peer sync-health row (#431) now has a render
   test.** That display shipped template-only (no method to characterize), so it had no assertion. A
   focused render test in `networks.component.spec` expands a network and asserts a member on a failing
@@ -2504,6 +2512,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the migration. Covered by `testing/integration/auth.test.js`.
 
 ### Changed
+
+- **The Schema Library's schema field showed a raw translation key instead of a label.**
+  `schemaLib.field.schema` and `schemaLib.field.schemaHint` were referenced by the template but had never
+  been added to any locale, so the field rendered the literal text `schemaLib.field.schema`. Both are now
+  present in en/de/pl. Found by the new i18n key-coverage test below — it had been broken on main.
 
 - **Settings → Models is now Settings → Media Processing.** The page long ago stopped being about model
   endpoints — it governs the whole media and document pipeline: per-class analysis ladders, extraction

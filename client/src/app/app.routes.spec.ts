@@ -38,7 +38,7 @@ describe('app routes — Models → Media Processing rename', () => {
     const legacy = find('settings/models');
     expect(legacy, 'the old path must keep working — it is in bookmarks and shipped docs').toBeDefined();
     expect(legacy!.route.redirectTo).toBe('media-processing');
-    // pathMatch:'full' matters: a prefix match would also swallow any future settings/models/* child.
+    // pathMatch:'full' matters: a prefix match would also swallow any future settings/media-processing/* child.
     expect(legacy!.route.pathMatch).toBe('full');
     expect(legacy!.route.loadComponent, 'the legacy path redirects, it does not load the page again').toBeUndefined();
   });

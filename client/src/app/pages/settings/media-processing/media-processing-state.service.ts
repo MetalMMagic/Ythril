@@ -1,8 +1,8 @@
 /**
  * All the state and behaviour behind Settings → Models & Pipelines, with no template attached.
  *
- * This is the load-bearing half of the page rebuild. It was extracted from `models.component.ts`
- * essentially verbatim, because `models.component.spec.ts` (the characterization tests written in
+ * This is the load-bearing half of the page rebuild. It was extracted from `mediaProcessing.component.ts`
+ * essentially verbatim, because `mediaProcessing.component.spec.ts` (the characterization tests written in
  * #347, before any of this moved) pins its behaviour: masked keys never being echoed back, env-only
  * document fields never being sent, and both confirmations aborting the WHOLE save when declined.
  * Those tests now drive this service directly — the same assertions through a new seam. An assertion
@@ -19,10 +19,10 @@ import { StatusVariant } from '../../../shared/status-pill.component';
 import {
   MediaCfg, MediaClass, DocProcCfg, DocAssistCfg, DocMode, EmbeddingCfg,
   TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES,
-} from './models.types';
+} from './media-processing.types';
 
 @Injectable()
-export class ModelsStateService {
+export class MediaProcessingStateService {
   private readonly http = inject(HttpClient);
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly transloco = inject(TranslocoService);
@@ -88,10 +88,10 @@ export class ModelsStateService {
   }
   testPillVariant(r: TestResult): StatusVariant { return !r.reachable ? 'error' : (r.modelPresent === false ? 'warn' : 'ok'); }
   testPillLabelKey(r: TestResult): string {
-    if (!r.reachable) return 'models.test.unreachable';
-    if (r.modelPresent === false) return 'models.test.modelMissing';
-    if (r.modelPresent === true) return 'models.test.modelFound';
-    return 'models.test.reachable';
+    if (!r.reachable) return 'mediaProcessing.test.unreachable';
+    if (r.modelPresent === false) return 'mediaProcessing.test.modelMissing';
+    if (r.modelPresent === true) return 'mediaProcessing.test.modelFound';
+    return 'mediaProcessing.test.reachable';
   }
 
   // ── F11-b: external assist model ──
@@ -185,7 +185,7 @@ export class ModelsStateService {
   private vlmConfigured(): boolean { return !!this.docCfg().vlmModel; }
   // 'off' runs nothing, so a missing vision model is not a problem it can have.
   vlmNeededButMissing(): boolean { return this.docMode() !== 'ocr' && this.docMode() !== 'off' && !this.vlmConfigured(); }
-  modeDescKey(): string { return `models.modeDesc.${this.docMode()}`; }
+  modeDescKey(): string { return `mediaProcessing.modeDesc.${this.docMode()}`; }
   stageClass(key: string): string {
     if (!MODE_STAGES[this.docMode()].has(key)) return 'dim';
     if (this.vlmNeededButMissing() && (key === 'render' || key === 'vlm' || key === 'repair')) return 'warn';
@@ -195,14 +195,14 @@ export class ModelsStateService {
   docSummary(): { key: string; params: Record<string, string> } {
     const m = this.docMode();
     const params = { mode: m.toUpperCase(), model: this.docCfg().vlmModel ?? '' };
-    if (m === 'off') return { key: 'models.docSummary.off', params };
-    if (m === 'ocr') return { key: 'models.docSummary.ocr', params };
-    if (this.vlmNeededButMissing()) return { key: 'models.docSummary.fallback', params };
-    return { key: m === 'repair' || m === 'auto' ? 'models.docSummary.repaired' : 'models.docSummary.vlm', params };
+    if (m === 'off') return { key: 'mediaProcessing.docSummary.off', params };
+    if (m === 'ocr') return { key: 'mediaProcessing.docSummary.ocr', params };
+    if (this.vlmNeededButMissing()) return { key: 'mediaProcessing.docSummary.fallback', params };
+    return { key: m === 'repair' || m === 'auto' ? 'mediaProcessing.docSummary.repaired' : 'mediaProcessing.docSummary.vlm', params };
   }
   docPillLabelKey(): string {
-    if (this.docMode() === 'off') return 'models.docPill.off';
-    return this.vlmNeededButMissing() ? 'models.docPill.fallback' : 'models.docPill.active';
+    if (this.docMode() === 'off') return 'mediaProcessing.docPill.off';
+    return this.vlmNeededButMissing() ? 'mediaProcessing.docPill.fallback' : 'mediaProcessing.docPill.active';
   }
   docVariant(): StatusVariant {
     if (this.docMode() === 'off') return 'off';
@@ -268,9 +268,9 @@ export class ModelsStateService {
     // host already acknowledged, requires an explicit confirmation that document content leaves the box.
     if (!this.assistLocked() && this.assistNeedsAck()) {
       const ok = await this.confirmDialog.confirm({
-        title: this.transloco.translate('models.confirm.egressTitle'),
-        message: this.transloco.translate('models.confirm.egressMessage', { host }),
-        confirmLabel: this.transloco.translate('models.confirm.egressConfirm'),
+        title: this.transloco.translate('mediaProcessing.confirm.egressTitle'),
+        message: this.transloco.translate('mediaProcessing.confirm.egressMessage', { host }),
+        confirmLabel: this.transloco.translate('mediaProcessing.confirm.egressConfirm'),
         cancelLabel: this.transloco.translate('common.cancel'),
         danger: true,
       });
@@ -284,9 +284,9 @@ export class ModelsStateService {
     // of quiet failure: they would have been told the opposite of what happened.
     if (this.faceBeingDisabled()) {
       const ok = await this.confirmDialog.confirm({
-        title: this.transloco.translate('models.confirm.faceOffTitle'),
-        message: this.transloco.translate('models.confirm.faceOffMessage'),
-        confirmLabel: this.transloco.translate('models.confirm.faceOffConfirm'),
+        title: this.transloco.translate('mediaProcessing.confirm.faceOffTitle'),
+        message: this.transloco.translate('mediaProcessing.confirm.faceOffMessage'),
+        confirmLabel: this.transloco.translate('mediaProcessing.confirm.faceOffConfirm'),
         cancelLabel: this.transloco.translate('common.cancel'),
         danger: true,
       });
@@ -297,9 +297,9 @@ export class ModelsStateService {
     // vector in every space. Make the operator acknowledge it — and that it takes a while.
     if (this.embeddingNeedsReindex()) {
       const ok = await this.confirmDialog.confirm({
-        title: this.transloco.translate('models.confirm.reindexTitle'),
-        message: this.transloco.translate('models.confirm.reindexMessage'),
-        confirmLabel: this.transloco.translate('models.confirm.reindexConfirm'),
+        title: this.transloco.translate('mediaProcessing.confirm.reindexTitle'),
+        message: this.transloco.translate('mediaProcessing.confirm.reindexMessage'),
+        confirmLabel: this.transloco.translate('mediaProcessing.confirm.reindexConfirm'),
         cancelLabel: this.transloco.translate('common.cancel'),
         danger: true,
       });
@@ -328,7 +328,7 @@ export class ModelsStateService {
     const body = JSON.parse(JSON.stringify(payload)) as MediaCfg;
     this.http.patch<{ ok: boolean; config: MediaCfg }>('/api/admin/media-config', body).subscribe({
       next: () => {
-        this.saveOk.set(this.transloco.translate('models.saved'));
+        this.saveOk.set(this.transloco.translate('mediaProcessing.saved'));
         this.visionApiKeyInput = '';
         this.sttApiKeyInput = '';
         this.assistApiKeyInput = '';

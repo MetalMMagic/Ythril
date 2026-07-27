@@ -92,7 +92,7 @@ export class StepProgressBarComponent {
   stepLabel = computed(() => {
     const step = this.progress()?.step;
     if (!step) return 'files.progress.working';
-    return KNOWN_STEPS.has(step) ? `models.step.${step}` : 'files.progress.working';
+    return KNOWN_STEPS.has(step) ? `mediaProcessing.step.${step}` : 'files.progress.working';
   });
 
   /** "12 / 40" for a countable stage, else empty — never a fabricated count. */
@@ -110,7 +110,7 @@ export class StepProgressBarComponent {
   });
 }
 
-/** Stage names that already have a translated label on the Pipelines tab (`models.step.*`). */
+/** Stage names that already have a translated label on the Pipelines tab (`mediaProcessing.step.*`). */
 const KNOWN_STEPS = new Set([
   'ocr', 'render', 'vlm', 'validate', 'repair', 'verify',
   'embed', 'chunk', 'caption', 'transcribe', 'split',

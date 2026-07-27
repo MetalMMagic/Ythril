@@ -1737,6 +1737,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Review findings whose records were deleted are now cleaned up.** Neither candidate collection had any
+  retention: deleting a record individually stranded every finding about it forever, so the Review tab
+  could list a pair where clicking through leads nowhere. A background prune (every 6h, always on) now
+  removes findings that **can never resurface** — orphans, and duplicate pairs resolved by `merged`, where
+  the absorbed record is gone by construction.
+
+  **It is deliberately not a time policy.** "Delete settled findings older than N days" would forget
+  *dismissals* and let the scanner re-flag the pair — precisely what the sticky-dismissal machinery exists
+  to prevent — and would equally forget resolutions whose records still exist and still look conflicting.
+  Dismissals and those resolutions are kept indefinitely; a few hundred bytes each is a better trade than
+  silently re-asking a question somebody already answered.
+
+  It runs on its own timer rather than off the duplicate or contradiction scanner, because both are off by
+  default and orphans accumulate regardless of whether anyone enabled scanning. It is also **fail-closed**:
+  any error, or any record type it cannot resolve, leaves that collection entirely alone — the dangerous
+  failure here is not a missed prune but a lookup that comes back empty for an unrelated reason and makes
+  every finding look orphaned.
+
 - **Wiping a space left its contradiction findings behind, pointing at records that no longer exist.** The
   wipe cleared `dupe_candidates` on both the full and per-type paths and never touched
   `contradiction_candidates`, so after wiping a space's memories the Review tab kept listing contradictions

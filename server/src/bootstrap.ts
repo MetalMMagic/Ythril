@@ -65,6 +65,11 @@ export async function startConfiguredInstanceServices(): Promise<void> {
   startContradictionScanner();
   const { startTtlSweep } = await import('./brain/ttl-sweep.js');
   startTtlSweep();
+  // Housekeeping for review findings whose records are gone. Deliberately NOT hung off the duplicate or
+  // contradiction scanner: both are off by default, so orphans would accumulate on exactly the instances
+  // that never enabled them.
+  const { startCandidatePrune } = await import('./brain/candidate-prune.js');
+  startCandidatePrune();
 
   const { cleanupStaleChunks } = await import('./files/chunks.js');
   cleanupStaleChunks().catch(err => log.error(`Stale chunk cleanup failed: ${err}`));

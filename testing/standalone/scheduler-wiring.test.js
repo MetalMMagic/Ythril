@@ -26,6 +26,7 @@ const SCHEDULERS = [
   { module: 'server/src/brain/dupe-scanner.ts', start: 'startDupeScanner' },
   { module: 'server/src/brain/contradiction-scanner.ts', start: 'startContradictionScanner' },
   { module: 'server/src/brain/ttl-sweep.ts', start: 'startTtlSweep' },
+  { module: 'server/src/brain/candidate-prune.ts', start: 'startCandidatePrune' },
   { module: 'server/src/db/backup-scheduler.ts', start: 'startBackupScheduler' },
 ];
 

@@ -5744,6 +5744,13 @@ by hand — so the Review tab's Contradictions view stays empty on an instance n
 An invalid cron expression is refused at boot with a warning rather than silently ignored, and a scheduled
 run that parks because the judge was unreachable logs that it did **not** clear the queue.
 
+**Retention.** A background prune (every 6 hours, always on, no configuration) removes review findings that
+can never resurface: those whose records have been deleted, and duplicate pairs resolved by **merge** — the
+absorbed record is gone, so the pair cannot be detected again. Everything else is kept indefinitely, on
+purpose: deleting a **dismissed** finding would forget the dismissal and let the next sweep re-flag the same
+pair, and deleting a resolution whose records still exist invites the same. Findings are small; re-asking a
+settled question is expensive.
+
 **What the sweep covers.** Memories, entities and **chrono** entries. For a chrono pair the structured pass
 compares the stored `status` as well as `properties` — the dates are deliberately not compared, for the
 reason given under [Duplicate Detection on Insert](#what-counts-as-a-claim). Edges are excluded until edge

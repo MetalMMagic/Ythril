@@ -2525,6 +2525,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   been added to any locale, so the field rendered the literal text `schemaLib.field.schema`. Both are now
   present in en/de/pl. Found by the new i18n key-coverage test below — it had been broken on main.
 
+- **Contradiction candidates have a home and a decision (F-REVIEW slice 3b).** A
+  `{space}_contradiction_candidates` collection shaped after the duplicates one — same canonical pair id,
+  same sticky-dismissal contract — so the Review tab's two sub-views share one vocabulary and one
+  `decideDismissed`, rather than growing a second copy of a rule that was hard to get right once. What a
+  duplicate expresses as a *score*, a contradiction expresses as a **basis**: `structured-field` (the
+  records literally set the same single-valued property to different values — deterministic) or `nli`
+  (a model's opinion, carrying its confidence), so a reviewer can tell "these disagree on `port`" from
+  "a model thinks these disagree". An **unjudged** pair writes nothing at all — not an unjudged row, not a
+  clean one — because every status query filters on open/dismissed/resolved, so any row would make an
+  outage look like a completed review.
+
 - **The contradiction judge decides whether a candidate pair actually disagrees (F-REVIEW slice 3a).** Pure
   logic, so it is testable without a database or a model; finding and storing the pairs is the scanner slice
   that follows. Two judges, cheapest first: a **deterministic** pass (both records set the same single-valued

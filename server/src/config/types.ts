@@ -1321,6 +1321,50 @@ export interface SpaceCounterDoc {
  * `${spaceId}_dupe_candidates`. The `_id` is a canonical pair key so the same
  * pair is only ever recorded once regardless of which member is scanned first.
  */
+/**
+ * One contradiction candidate — a pair of records in a space that appear to DISAGREE (F-REVIEW).
+ *
+ * Shaped after `DupeCandidateDoc` on purpose: same identity scheme, same sticky-dismissal contract, so the
+ * Review tab's two sub-views share one vocabulary and `decideDismissed` serves both.
+ *
+ * The difference that matters is `basis`. A duplicate has a similarity SCORE; a contradiction has a REASON,
+ * and the two reasons are not equally strong. `structured-field` is deterministic — the records literally
+ * set the same single-valued property to different values. `nli` is a model's opinion, so it carries a
+ * confidence and deserves to be labelled as such in the UI: a reviewer should be able to tell "these two
+ * disagree on `port`" from "a model thinks these disagree".
+ *
+ * There is deliberately NO record for an *unjudged* pair. When the judge cannot answer (no endpoint,
+ * outage, low confidence), nothing is written and the scan cursor does not treat the pair as settled — so
+ * it is re-examined later. Writing an "unjudged" row would be worse than useless: it would look like a
+ * reviewed-and-clean pair to every query that filters on status.
+ */
+export interface ContradictionCandidateDoc {
+  _id: string;            // canonical `${aId}:${bId}` with aId < bId
+  spaceId: string;
+  /** Which collection the pair lives in — contradictions are judged within one kind of record. */
+  type: DupeScanType;
+  aId: string;
+  aSummary: string;
+  aSeq: number;
+  bId: string;
+  bSummary: string;
+  bSeq: number;
+  /** How the disagreement was established. */
+  basis: 'structured-field' | 'nli';
+  /** 1 for a deterministic structured conflict; the model's confidence for an `nli` verdict. */
+  confidence: number;
+  /** The disagreeing single-valued properties — present only when `basis` is `structured-field`. */
+  fields?: { key: string; aValue: string | number | boolean; bValue: string | number | boolean }[];
+  status: 'open' | 'dismissed' | 'resolved';
+  /** How a resolved candidate was actioned. `edited` = a record was corrected; `linked` = a
+   *  contradicts/supersedes edge was drawn instead of changing either record. */
+  resolution?: 'edited' | 'linked';
+  /** Same sticky-dismissal contract as duplicates — see `decideDismissed`. */
+  dismissedContentHash?: string;
+  detectedAt: string;
+  updatedAt: string;
+}
+
 export interface DupeCandidateDoc {
   _id: string;            // canonical `${type}:${aId}:${bId}` with aId < bId
   spaceId: string;

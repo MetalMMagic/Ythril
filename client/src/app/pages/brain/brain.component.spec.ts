@@ -37,6 +37,7 @@ function makeApi() {
     getEntitiesByIds: () => of({ entities: [] }),
     mintEventsTicket: () => of({ ticket: 't', expiresInMs: 60000 }),
     getAbout: () => of(null), // Overview Instance panel — null keeps it hidden in tests
+    getEmbeddingQueue: () => of(null), // Overview embedding-queue panel — null keeps it hidden in tests
   } as any;
 }
 

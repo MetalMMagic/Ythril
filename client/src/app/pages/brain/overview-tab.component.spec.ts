@@ -115,6 +115,23 @@ describe('OverviewTabComponent', () => {
     expect((noAbout.fixture.nativeElement as HTMLElement).querySelector('.kv')).toBeNull();
   });
 
+  it('Embedding-queue panel shows counts + failed reasons when provided, and is absent without it', () => {
+    const withQ = setup();
+    withQ.fixture.componentRef.setInput('embeddingQueue', {
+      pending: 2, processing: 1, complete: 9, failed: 1,
+      failedSample: [{ path: 'docs/bad.pdf', lastError: 'vision model down' }],
+    });
+    withQ.fixture.detectChanges();
+    const el = withQ.fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.err-stat')).toBeTruthy();          // failed > 0 highlights
+    expect(el.querySelector('.fail-list')?.textContent).toContain('docs/bad.pdf');
+    expect(el.textContent).toContain('vision model down');
+
+    const noQ = setup();
+    noQ.fixture.detectChanges();
+    expect((noQ.fixture.nativeElement as HTMLElement).querySelector('.fail-list')).toBeNull();
+  });
+
   it('renders the counts and a Reindex button; shows the reindex note when stale', () => {
     const { fixture } = setup({ stats: STATS, needsReindex: true });
     fixture.detectChanges();

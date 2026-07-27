@@ -23,7 +23,7 @@ import { parseSortParam, toMongoSort, SORTABLE_FIELDS } from '../../brain/list-s
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
 import type { FileMetaDoc } from '../../config/types.js';
-import { fetchJobProgress } from '../../files/media/job-queue.js';
+import { fetchJobProgress, getMediaJobCounts, type MediaJobCounts } from '../../files/media/job-queue.js';
 
 export const fileMetaRouter = Router();
 
@@ -97,6 +97,25 @@ fileMetaRouter.get('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth, 
     return attachJobProgress(mid, files as Array<Record<string, unknown>>);
   });
   res.json({ files: capPage(all, limit, sortParse.sort), limit, skip });
+});
+
+// GET /api/brain/spaces/:spaceId/embedding-queue — this space's embedding-job backlog by status (F9 Overview).
+// Read-only summary; sums across member spaces for a proxy space (resolveMemberSpaces → [spaceId] otherwise).
+fileMetaRouter.get('/spaces/:spaceId/embedding-queue', globalRateLimit, requireSpaceAuth, async (req, res) => {
+  const spaceId = req.params['spaceId'] as string;
+  const cfg = getConfig();
+  if (!cfg.spaces.some(s => s.id === spaceId)) {
+    res.status(404).json({ error: `Space '${spaceId}' not found` });
+    return;
+  }
+  const total: MediaJobCounts = { pending: 0, processing: 0, complete: 0, failed: 0, failedSample: [] };
+  for (const mid of resolveMemberSpaces(spaceId)) {
+    const c = await getMediaJobCounts(mid);
+    total.pending += c.pending; total.processing += c.processing; total.complete += c.complete; total.failed += c.failed;
+    total.failedSample.push(...c.failedSample);
+  }
+  total.failedSample = total.failedSample.slice(0, 5);
+  res.json(total);
 });
 
 

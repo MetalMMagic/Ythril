@@ -12,7 +12,7 @@ import { EdgesTabComponent } from './edges-tab.component';
 import { ChronoTabComponent } from './chrono-tab.component';
 import { OverviewTabComponent } from './overview-tab.component';
 import { FormsModule } from '@angular/forms';
-import { Space, SpaceStats, AboutInfo } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { AdminApi } from '../../core/admin-api.service';
@@ -272,7 +272,7 @@ interface SpaceView {
         @if (activeTab() === 'overview') {
           @if (activeSpace(); as sp) {
             <app-overview-tab [space]="sp" [stats]="activeStats()" [needsReindex]="needsReindex()"
-              [reindexing]="reindexing()" [about]="aboutInfo()" (reindex)="runReindex()" />
+              [reindexing]="reindexing()" [about]="aboutInfo()" [embeddingQueue]="embeddingQueue()" (reindex)="runReindex()" />
           }
         }
         @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }
@@ -309,6 +309,8 @@ export class BrainComponent implements OnInit, OnDestroy {
   loadingSpaces = signal(true);
   /** Instance identity/health for the Overview's Instance panel — fetched once (instance-wide, not per space). */
   aboutInfo = signal<AboutInfo | null>(null);
+  /** Embedding-job backlog for the ACTIVE space (Overview embedding-queue panel); refreshed on space switch + live events. */
+  embeddingQueue = signal<EmbeddingQueue | null>(null);
 
   // Reindex
   needsReindex = signal(false);
@@ -424,6 +426,7 @@ export class BrainComponent implements OnInit, OnDestroy {
     clearTimeout(this.liveRefreshTimer);
     this.liveRefreshTimer = setTimeout(() => {
       this.loadStats(spaceId);
+      this.loadEmbeddingQueue(spaceId); // file/embed events change the queue
       const collection = event.split('.')[0] ?? '';
       if (event.startsWith('bulk') || BrainComponent.TAB_FOR_COLLECTION[collection] === this.activeTab()) {
         this.store.liveRefreshTick.update(t => t + 1);
@@ -441,8 +444,18 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.store.chronoSearch.set('');
     this.recordList.confirmDeleteId.set('');
     this.reindexResult.set('');
+    this.embeddingQueue.set(null);
     this.loadStats(id);
     this.loadSpaceMeta(id);
+    this.loadEmbeddingQueue(id);
+  }
+
+  /** Fetch the embedding-job backlog for a space; only stores it while that space is still active. */
+  private loadEmbeddingQueue(spaceId: string): void {
+    this.brainApi.getEmbeddingQueue(spaceId).subscribe({
+      next: q => { if (this.activeSpaceId() === spaceId) this.embeddingQueue.set(q); },
+      error: () => {},
+    });
   }
 
   setTab(tab: BrainTab): void {

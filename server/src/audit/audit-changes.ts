@@ -26,11 +26,21 @@
  * through nesting.
  */
 
-/** A single recorded field change. `from`/`to` are scalars; absent means "was not set". */
+/**
+ * A single recorded field change.
+ *
+ * Two shapes, and a change is only ever one of them:
+ *   - scalar: `from`/`to`, where absent means "was not set";
+ *   - set: `added`/`removed`, for a list-valued field like `tags`.
+ */
 export interface AuditChange {
   field: string;
   from?: string | number | boolean | null;
   to?: string | number | boolean | null;
+  /** Members present after but not before. Only for allowlisted list fields. */
+  added?: (string | number | boolean)[];
+  /** Members present before but not after. */
+  removed?: (string | number | boolean)[];
 }
 
 /**
@@ -61,6 +71,23 @@ export const AUDIT_CHANGE_FIELDS: Readonly<Record<string, readonly string[]>> = 
   // Backup schedule and retention. `offsite.destPath` is a container filesystem path (mounted volume),
   // not a URL, so it cannot carry credentials in userinfo the way a webhook target can.
   'data.backup_config.update': ['schedule', 'retention.keepLocal', 'offsite.destPath', 'offsite.retention.keepCount'],
+  // ── Brain record edits ─────────────────────────────────────────────────────────────────────────
+  //
+  // These carry USER CONTENT — a memory's old text, an entity's old description — which is why they
+  // were an owner decision rather than another slice, and why their `changes` expire on a much shorter
+  // clock than the entry (see `change-retention.ts`, default 14 days).
+  //
+  // `properties` is deliberately absent from every one of them. It is a free-form bag whose keys the
+  // user chooses, so it is the one field on a record that could hold a pasted credential, and the
+  // allowlist cannot vet names it has never seen. Same reasoning that keeps webhook routes out.
+  'memory.update': ['fact', 'description', 'type', 'tags', 'entityIds'],
+  'entity.update': ['name', 'type', 'description', 'tags'],
+  'edge.update': ['label', 'from', 'to', 'weight', 'type'],
+  'chrono.update': ['title', 'description', 'type', 'status', 'startsAt', 'endsAt', 'tags', 'entityIds', 'memoryIds'],
+  // NOT YET LISTED: `file.meta.update` and `entity.merge`. Both are real candidates, but their routes
+  // do not supply snapshots yet, and an allowlist without a route behind it records nothing while the
+  // list claims coverage — the exact mistake the first audit slice shipped. They land with their
+  // wiring, in one change, or not at all.
   // Maintenance mode blocks writes instance-wide. One boolean, and the direction is the whole story:
   // an entry saying only "an admin hit the maintenance route" cannot distinguish starting an outage
   // from ending one.
@@ -73,6 +100,51 @@ function scalarOrDrop(v: unknown): string | number | boolean | null | undefined 
   const t = typeof v;
   if (t === 'string' || t === 'number' || t === 'boolean') return v as string | number | boolean;
   return undefined;   // objects, arrays, functions, undefined — never recorded
+}
+
+/**
+ * Fields whose value is a LIST, recorded as added/removed rather than dropped.
+ *
+ * `scalarOrDrop` discards arrays, which is right for the general case — allowing an object or array
+ * through would let one allowlisted parent name silently ship every child it gains later. But it means
+ * `tags` and `entityIds` record NOTHING, and that failure is invisible: the entry appears, the field
+ * is simply missing from `changes`, and an audit reader concludes the tags were untouched.
+ *
+ * So list handling is opt-in per field and deliberately narrow:
+ *   - the field must be named here AND in the operation's allowlist;
+ *   - every member must be a primitive. One object in the array and the whole field is dropped, which
+ *     is the same fail-closed direction as everywhere else in this module.
+ *
+ * Recording added/removed rather than the whole before/after list keeps the entry proportional to the
+ * change. Re-tagging one memory should not copy forty tags into the audit log twice.
+ */
+const LIST_FIELDS: ReadonlySet<string> = new Set(['tags', 'entityIds', 'memoryIds']);
+
+/** An array of primitives, or undefined if it is not one. Nested values disqualify the whole field. */
+function primitiveListOrDrop(v: unknown): (string | number | boolean)[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: (string | number | boolean)[] = [];
+  for (const item of v) {
+    const t = typeof item;
+    if (t !== 'string' && t !== 'number' && t !== 'boolean') return undefined;
+    out.push(item as string | number | boolean);
+  }
+  return out;
+}
+
+/** Set difference for a list field, or null when either side is not a primitive list. */
+function listDelta(beforeV: unknown, afterV: unknown): { added: (string | number | boolean)[]; removed: (string | number | boolean)[] } | null {
+  // An absent side is an empty list, so adding tags to a record that had none still records them.
+  const b = beforeV === undefined ? [] : primitiveListOrDrop(beforeV);
+  const a = afterV === undefined ? [] : primitiveListOrDrop(afterV);
+  if (b === undefined || a === undefined) return null;
+
+  const bSet = new Set(b);
+  const aSet = new Set(a);
+  return {
+    added: a.filter(x => !bSet.has(x)),
+    removed: b.filter(x => !aSet.has(x)),
+  };
 }
 
 /** Read a dotted path (`levels.images`) without touching anything else on the object. */
@@ -95,6 +167,19 @@ export function auditChanges(operation: string, before: unknown, after: unknown)
 
   const out: AuditChange[] = [];
   for (const field of fields) {
+    // List fields first: they would otherwise be dropped by scalarOrDrop and record nothing at all.
+    if (LIST_FIELDS.has(field.split('.').pop() ?? field)) {
+      const delta = listDelta(at(before, field), at(after, field));
+      if (delta && (delta.added.length || delta.removed.length)) {
+        out.push({
+          field,
+          ...(delta.added.length ? { added: delta.added } : {}),
+          ...(delta.removed.length ? { removed: delta.removed } : {}),
+        });
+      }
+      continue;
+    }
+
     const from = scalarOrDrop(at(before, field));
     const to = scalarOrDrop(at(after, field));
     if (from === undefined && to === undefined) continue;   // absent on both sides — nothing happened

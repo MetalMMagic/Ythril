@@ -5592,6 +5592,33 @@ used to say" ages out.
 `changesRedacted` exists so a reader can distinguish *"this operation records no changes"* from *"it did, and
 they have expired"*. Without it an absent `changes` would quietly imply nothing was ever captured.
 
+#### What a record edit records
+
+| Operation | Recorded fields |
+|---|---|
+| `memory.update` | `fact`, `description`, `type`, `tags`, `entityIds` |
+| `entity.update` | `name`, `type`, `description`, `tags` |
+| `edge.update` | `label`, `from`, `to`, `weight`, `type` |
+| `chrono.update` | `title`, `description`, `type`, `status`, `startsAt`, `endsAt`, `tags`, `entityIds`, `memoryIds` |
+
+**`properties` is never recorded, for any record type.** It is a free-form bag whose keys you choose, so it
+is the one field on a record that could hold a pasted credential — and an allowlist cannot vet names it has
+never seen.
+
+List-valued fields (`tags`, `entityIds`, `memoryIds`) are recorded as what moved rather than as the whole
+list, so re-tagging one memory does not copy forty tags into the log twice:
+
+```json
+{ "field": "tags", "added": ["urgent"], "removed": ["draft"] }
+```
+
+Reordering a list records nothing — these are compared as sets. A list containing anything other than a
+string, number or boolean is dropped entirely rather than partially recorded.
+
+Only **single-record** edits carry changes. `POST /api/brain/spaces/:id/bulk` is a separate operation with
+no change allowlist, and records arriving via peer sync never pass through these routes at all — so bulk
+paths do not fill the audit log with content.
+
 ### Tracked operations
 
 Audit entries are recorded for all write operations and (when `logReads` is enabled) read operations across the API surface:

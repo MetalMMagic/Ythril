@@ -221,8 +221,11 @@ edgesRouter.patch('/spaces/:spaceId/edges/:id', globalRateLimit, requireSpaceAut
         return;
       }
     }
+    // Snapshot for the audit change list — see the note in memories.ts.
+    const prior = await getEdgeById(mid, id);
     const updated = await updateEdgeById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
     if (updated) {
+      req.auditSnapshots = { before: prior ?? {}, after: updated };
       res.json(updated);
       return;
     }

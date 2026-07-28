@@ -222,11 +222,18 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   const ttlErr = ttlDaysError(req.body);
   if (ttlErr) { res.status(400).json({ error: ttlErr }); return; }
 
+  // Snapshot for the audit change list — see the note in memories.ts. Read before the write, since
+  // `updateChrono` returns only the new document.
+  const prior = await findFirstAcrossMembers(wt.target, mid => getChronoById(mid, id));
   const updated = await findFirstAcrossMembers(wt.target, mid => updateChrono(mid, id, {
     title, type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,
   }, webhookToken(req), ttlDaysFromBody(req.body)));
-  if (updated) { res.json(updated); return; }
+  if (updated) {
+    req.auditSnapshots = { before: prior ?? {}, after: updated };
+    res.json(updated);
+    return;
+  }
   res.status(404).json({ error: 'Chrono entry not found' });
 });
 

@@ -269,3 +269,73 @@ describe('audit changes — list fields record what moved, not the whole list', 
     }
   });
 });
+
+describe('audit changes — file meta and entity merge (the two held back from slice 2)', () => {
+  before(async () => {
+    ({ auditChanges, AUDIT_CHANGE_FIELDS } = await import('../../server/dist/audit/audit-changes.js'));
+  });
+
+  const read = (rel) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
+
+  it('file meta records all THREE reference lists, not just entityIds', () => {
+    // A file links to entities, chrono entries AND memories. Missing one means a link nobody can
+    // account for later — and the symptom is a traversal that comes back empty, not an error.
+    const changes = auditChanges('file.meta.update',
+      { entityIds: ['e1'], chronoIds: ['c1'], memoryIds: ['m1'] },
+      { entityIds: ['e1', 'e2'], chronoIds: [], memoryIds: ['m1'] });
+    assert.deepEqual(changes, [
+      { field: 'entityIds', added: ['e2'] },
+      { field: 'chronoIds', removed: ['c1'] },
+    ]);
+  });
+
+  it('file meta never records properties', () => {
+    assert.ok(!AUDIT_CHANGE_FIELDS['file.meta.update'].includes('properties'));
+    assert.deepEqual(
+      auditChanges('file.meta.update', { properties: { k: 'a' } }, { properties: { k: 'sk-live-X' } }), []);
+  });
+
+  it('a merge records the absorbed name going to null', () => {
+    // The id is in the path and the survivor is the entry id; the NAME is the only thing that stops
+    // being resolvable once the record is gone.
+    assert.deepEqual(
+      auditChanges('entity.merge', { absorbedName: 'Acme Corp' }, { absorbedName: null }),
+      [{ field: 'absorbedName', from: 'Acme Corp', to: null }]);
+  });
+
+  it('both routes actually supply snapshots — checked per SITE, not per file', () => {
+    // The #471 rule: an allowlist with no route behind it records nothing while claiming coverage.
+    //
+    // Per-site matters because entities.ts now has TWO snapshot sites (the PATCH and the merge). A
+    // file-level "does it mention auditSnapshots" check passes when either one is deleted — mutation
+    // proved it, by removing the PATCH snapshot while every test stayed green.
+    const entities = read('server/src/api/brain/entities.ts');
+    assert.match(entities, /req\.auditSnapshots = \{ before: prior \?\? \{\}, after: updated \}/,
+      'entity.update must snapshot around its PATCH');
+    assert.match(entities, /before: \{ absorbedName: absorbed\.name \}/,
+      'entity.merge must snapshot the absorbed name');
+
+    assert.match(read('server/src/api/brain/file-meta.ts'),
+      /req\.auditSnapshots = \{ before: prior \?\? \{\}, after: updated \}/);
+  });
+
+  it('every record route that was wired still has its snapshot', () => {
+    // Derived rather than enumerated, same lesson as the If-Match coverage fix: a per-file check rots
+    // the moment a file gains a second site.
+    const WIRED = {
+      'server/src/api/brain/memories.ts': /req\.auditSnapshots = \{ before: prior\[0\] \?\? \{\}, after: updated \}/,
+      'server/src/api/brain/edges.ts': /req\.auditSnapshots = \{ before: prior \?\? \{\}, after: updated \}/,
+      'server/src/api/brain/chrono.ts': /req\.auditSnapshots = \{ before: prior \?\? \{\}, after: updated \}/,
+    };
+    for (const [file, pattern] of Object.entries(WIRED)) {
+      assert.match(read(file), pattern, `${file} lost its audit snapshot`);
+    }
+  });
+
+  it('the merge snapshot reads the absorbed entity, not the survivor', () => {
+    // Recording `survivor.name` here would look correct and be useless — the survivor still exists.
+    const src = read('server/src/api/brain/entities.ts');
+    assert.match(src, /before: \{ absorbedName: absorbed\.name \}/,
+      'the before-snapshot must come from the ABSORBED entity');
+  });
+});

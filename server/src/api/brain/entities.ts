@@ -359,6 +359,15 @@ entitiesRouter.post('/spaces/:spaceId/entities/:survivorId/merge/:absorbedId', g
     plan.absorbedOnlyProperties,
   );
 
+  // Snapshot for the audit change list. A merge is a deletion wearing an edit's clothes: the entry
+  // already carries the survivor's id and the path carries the absorbed one, but an id means nothing
+  // once the record it pointed at is gone. The absorbed NAME is the only fact that becomes
+  // unrecoverable, so it is recorded as name → null.
+  req.auditSnapshots = {
+    before: { absorbedName: absorbed.name },
+    after: { absorbedName: null },
+  };
+
   const mergeResult = await executeMerge(spaceId, survivor, absorbed, mergedProperties, webhookToken(req));
   const mergedEntity = mergeResult.entity;
 

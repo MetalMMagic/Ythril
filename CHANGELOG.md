@@ -880,6 +880,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name, so nothing reads as "the default" when you look at the code. Both are now gated in both
   directions — change the seed or change the doc, either fails.
 
+- **The pre-release documentation audit is complete.** Seven classes swept: environment variables,
+  config keys, route paths, the MCP tool split, default values, restart/reload semantics, and
+  failure-behaviour claims. Three real errors found — offsite backup retention (silently deleting
+  archives someone believed were kept), `strictLinkage` documented as `false` when it is `true` in both
+  senses (inverting a safety property), and `validationMode` not mentioning that every space you create
+  is seeded `strict`. Seven undocumented local-connector settings were also brought into the guide.
+
+  The distribution of those findings is the useful result. **The four mechanical classes — env vars,
+  config keys, 182 route paths, the MCP tool split — contained zero errors between them**, while the
+  scanners written to check them produced around thirteen classes of *false* finding, each needing to
+  be chased down and none reaching a doc. Every real error was in prose about defaults or behaviour,
+  and two of the three misrepresented how safe the system is. Scan to build a worklist, then read: the
+  scanner is wrong far more often than the documentation is.
+
+  Six gates now run in CI so these classes cannot drift again, including the last three cited constants
+  added here — the SSRF redirect limit, the minimum detectable face size, and the contradiction
+  similarity threshold.
+
 - **Numbers the docs quote are now checked against the constants they quote.** Slice 4d of the
   pre-release audit. Failure-behaviour claims verified clean by reading — a peer that fails is caught
   per-member and the cycle continues, `max` mode runs exactly one repair pass, catalog fetch failures

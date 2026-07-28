@@ -1,5 +1,6 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, model, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { Memory, ChronoEntry } from '../../core/api.types';
 import { DetailRef } from './graph-details';
@@ -25,9 +26,20 @@ import { GRAPH_LINKED_RECORDS_STYLES } from './graph.styles';
   selector: 'app-graph-linked-records',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, TranslocoPipe],
+  imports: [CommonModule, FormsModule, TranslocoPipe],
   styles: [GRAPH_LINKED_RECORDS_STYLES],
   template: `
+    <div class="detail-filters">
+      <select [ngModel]="typeFilter()" (ngModelChange)="typeFilter.set($event)" name="detailType"
+              [attr.aria-label]="'graph.panel.filterTypeAriaLabel' | transloco">
+        <option value="all">{{ 'graph.panel.filterAll' | transloco }}</option>
+        <option value="memory">{{ 'graph.panel.memories' | transloco }}</option>
+        <option value="chrono">{{ 'graph.panel.chrono' | transloco }}</option>
+      </select>
+      <input type="search" [ngModel]="descFilter()" (ngModelChange)="descFilter.set($event)" name="detailDesc"
+             [placeholder]="'graph.panel.filterPlaceholder' | transloco"
+             [attr.aria-label]="'graph.panel.filterPlaceholder' | transloco" />
+    </div>
     <div class="list-section">
       <div class="list-section-header">
         {{ 'graph.panel.memories' | transloco }} <span class="count-chip">{{ memories().length }}</span>
@@ -63,6 +75,18 @@ import { GRAPH_LINKED_RECORDS_STYLES } from './graph.styles';
 export class GraphLinkedRecordsComponent {
   memories = input.required<Memory[]>();
   chrono = input.required<ChronoEntry[]>();
+
+  /**
+   * The filter bar lives HERE rather than at each call site.
+   *
+   * Both side panels need it, and inlining it twice would rebuild exactly the duplication this
+   * component was extracted to remove. The state stays in the parent (only one panel is open at a
+   * time, so one pair of signals serves both) and arrives through `model()` two-way bindings.
+   *
+   * Always rendered — both panels want it, so a `showFilters` toggle would be a knob with no caller.
+   */
+  typeFilter = model<'all' | 'memory' | 'chrono'>('all');
+  descFilter = model<string>('');
 
   /** Translation key for "this node/edge has no memories". Differs per panel, on purpose. */
   emptyMemoriesKey = input.required<string>();

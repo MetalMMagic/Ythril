@@ -226,10 +226,12 @@ import { GRAPH_STYLES } from './graph.styles';
 
             <!-- Lists pane: memories + chrono -->
             <app-graph-linked-records
-              [memories]="nodeMemories()"
-              [chrono]="nodeChrono()"
-              [emptyMemoriesKey]="'graph.panel.noMemories'"
-              [emptyChronoKey]="'graph.panel.noChronoEntries'"
+              [memories]="filteredMemories()"
+              [chrono]="filteredChrono()"
+              [(typeFilter)]="detailTypeFilter"
+              [(descFilter)]="detailDescFilter"
+              [emptyMemoriesKey]="detailFilterActive() ? 'graph.panel.noMatches' : 'graph.panel.noMemories'"
+              [emptyChronoKey]="detailFilterActive() ? 'graph.panel.noMatches' : 'graph.panel.noChronoEntries'"
               (open)="openDetailPopup($event)" />
 
           </div>
@@ -315,10 +317,12 @@ import { GRAPH_STYLES } from './graph.styles';
 
             <!-- Lists pane: memories + chrono for both endpoints -->
             <app-graph-linked-records
-              [memories]="nodeMemories()"
-              [chrono]="nodeChrono()"
-              [emptyMemoriesKey]="'graph.panel.noLinkedMemories'"
-              [emptyChronoKey]="'graph.panel.noLinkedChrono'"
+              [memories]="filteredMemories()"
+              [chrono]="filteredChrono()"
+              [(typeFilter)]="detailTypeFilter"
+              [(descFilter)]="detailDescFilter"
+              [emptyMemoriesKey]="detailFilterActive() ? 'graph.panel.noMatches' : 'graph.panel.noLinkedMemories'"
+              [emptyChronoKey]="detailFilterActive() ? 'graph.panel.noMatches' : 'graph.panel.noLinkedChrono'"
               (open)="openDetailPopup($event)" />
 
           </div>
@@ -364,6 +368,17 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
       this.drawerState.spaceId.set(id);
       this.picker.spaceId.set(id);
       this.loadSpaceMeta(id);
+    });
+
+    // Clear the panel filters whenever the selection changes. Tied to the selection rather than added
+    // to the three places that clear the lists, because a fourth path added later would silently skip
+    // it — and the symptom is nasty: filter one node, click another, and its panel reads as "no
+    // memories" while the filter that hid them sits several rows up, unmentioned.
+    effect(() => {
+      this.selectedNode();
+      this.selectedEdge();
+      this.detailTypeFilter.set('all');
+      this.detailDescFilter.set('');
     });
 
     // The drawer patches the `BrainStore` lists, which this page does not render. Its per-node arrays
@@ -445,6 +460,31 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     field: this.sortField(),
     asc: this.sortAsc(),
   }));
+
+  /** True when the panel is showing less than everything — drives the "no matches" empty state. */
+  detailFilterActive = computed(() => this.detailTypeFilter() !== 'all' || this.detailDescFilter().trim() !== '');
+
+  /**
+   * The surviving row ids, used to narrow the two lists.
+   *
+   * The lists render `Memory`/`ChronoEntry` records, not `DetailRow`s, and that matters: a chrono row
+   * shows `startsAt` (when the thing happens) while a `DetailRow` only carries `createdAt` (when it was
+   * written). Feeding rows straight through would silently swap the date on every chrono entry. So the
+   * tested pipeline decides WHICH records survive, and the records themselves still supply what is drawn.
+   */
+  private visibleDetailIds = computed<Set<string>>(() => new Set(this.filteredDetails().map(r => r.id)));
+
+  filteredMemories = computed<Memory[]>(() => {
+    if (!this.detailFilterActive()) return this.nodeMemories();
+    const ids = this.visibleDetailIds();
+    return this.nodeMemories().filter(m => ids.has(m._id));
+  });
+
+  filteredChrono = computed<ChronoEntry[]>(() => {
+    if (!this.detailFilterActive()) return this.nodeChrono();
+    const ids = this.visibleDetailIds();
+    return this.nodeChrono().filter(c => ids.has(c._id));
+  });
 
   nodeColor = computed(() => {
     const n = this.selectedNode();

@@ -506,4 +506,32 @@ export const GRAPH_LINKED_RECORDS_STYLES = `
     text-align: center;
     padding: 16px 12px;
   }
+
+  /* Filter bar. flex-shrink:0 so it stays put while the lists below take the remaining height. */
+  .detail-filters {
+    display: flex;
+    gap: 6px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .detail-filters select,
+  .detail-filters input {
+    padding: 3px 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 11px;
+    min-width: 0;
+  }
+  /* The select must state width:auto explicitly. A global select rule sets width:100%, which becomes a
+     100% flex-basis here: it ate the whole row and left the text box a 14px sliver. Declaring nothing
+     means inheriting whatever global rule exists, which is how that slipped past the unit tests. */
+  .detail-filters select { flex: 0 0 auto; width: auto; }
+  /* The text box takes the slack. */
+  .detail-filters input { flex: 1 1 auto; }
+  .detail-filters select:focus,
+  .detail-filters input:focus { outline: none; border-color: var(--accent); }
 `;

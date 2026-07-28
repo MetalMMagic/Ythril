@@ -27,6 +27,8 @@ import { DetailRef } from './graph-details';
     <app-graph-linked-records
       [memories]="mems()"
       [chrono]="chrono()"
+      [(typeFilter)]="typeFilter"
+      [(descFilter)]="descFilter"
       [emptyMemoriesKey]="'graph.panel.noMemories'"
       [emptyChronoKey]="'graph.panel.noChronoEntries'"
       (open)="opened.push($event)" />
@@ -35,6 +37,8 @@ import { DetailRef } from './graph-details';
 class Host {
   mems = signal<any[]>([]);
   chrono = signal<any[]>([]);
+  typeFilter = signal<'all' | 'memory' | 'chrono'>('all');
+  descFilter = signal('');
   opened: DetailRef[] = [];
 }
 
@@ -95,6 +99,30 @@ describe('GraphLinkedRecordsComponent', () => {
     const empties = [...fixture.nativeElement.querySelectorAll('.list-empty')].map((e: any) => e.textContent.trim());
     // Both lists empty → both keys, in order. A hard-coded key would show the same text twice.
     expect(empties).toEqual(['graph.panel.noMemories', 'graph.panel.noChronoEntries']);
+  });
+
+  it('actually RENDERS the filter controls', () => {
+    // The bug being fixed was filter logic that existed, was tested, and was reachable by nobody —
+    // no control was ever bound to it. Driving the signals in a test reproduces that blind spot
+    // exactly, so this asserts the controls are in the DOM. Mutation-checked: hiding the bar fails here
+    // and nowhere else.
+    const fixture = create();
+    const select = fixture.nativeElement.querySelector('.detail-filters select');
+    const input = fixture.nativeElement.querySelector('.detail-filters input');
+    expect(select, 'the type filter must be reachable').toBeTruthy();
+    expect(input, 'the description filter must be reachable').toBeTruthy();
+    expect([...select.options].map((o: any) => o.value)).toEqual(['all', 'memory', 'chrono']);
+  });
+
+  it('writes the user\'s typing back to the bound filter state', () => {
+    // A control that renders but is bound to nothing looks identical to a working one.
+    const fixture = create();
+    const input: HTMLInputElement = fixture.nativeElement.querySelector('.detail-filters input');
+    input.value = 'alpha';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.descFilter()).toBe('alpha');
   });
 
   it('counts each list independently in its header chip', () => {

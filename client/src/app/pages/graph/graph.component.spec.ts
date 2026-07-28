@@ -108,6 +108,62 @@ describe('GraphComponent (OnPush)', () => {
     expect(fixture.nativeElement.textContent).toContain('linked fact');
   });
 
+  it('narrows the panel lists by type and by description text', () => {
+    // The userguide has promised these filters all along; until now nothing was wired to them.
+    const fixture = create();
+    const c = fixture.componentInstance;
+    c.nodeMemories.set([
+      { _id: 'm1', fact: 'alpha memory', createdAt: '2026-01-01' } as any,
+      { _id: 'm2', fact: 'beta memory', createdAt: '2026-01-02' } as any,
+    ]);
+    c.nodeChrono.set([{ _id: 'c1', title: 'alpha event', createdAt: '2026-01-03' } as any]);
+    c.selectedNode.set({ _id: 'n1', name: 'Node', type: 'x', depth: 1 } as any);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.list-row').length).toBe(3);
+
+    c.detailTypeFilter.set('memory');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.list-row').length, 'type filter').toBe(2);
+
+    c.detailTypeFilter.set('all');
+    c.detailDescFilter.set('alpha');
+    fixture.detectChanges();
+    // One memory and one chrono match — proving the text filter reaches BOTH lists, not just the first.
+    const texts = [...fixture.nativeElement.querySelectorAll('.list-row-text')].map((e: any) => e.textContent.trim());
+    expect(texts).toEqual(['alpha memory', 'alpha event']);
+  });
+
+  it('says "no matches" rather than "no memories" when a filter hides everything', () => {
+    // Otherwise a filtered-empty panel is indistinguishable from a node that genuinely has nothing.
+    const fixture = create();
+    const c = fixture.componentInstance;
+    c.nodeMemories.set([{ _id: 'm1', fact: 'alpha', createdAt: '2026-01-01' } as any]);
+    c.selectedNode.set({ _id: 'n1', name: 'Node', type: 'x', depth: 1 } as any);
+    fixture.detectChanges();          // selection settles first — this is the pass that clears filters
+    c.detailDescFilter.set('nothing-matches-this');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('graph.panel.noMatches');
+    expect(fixture.nativeElement.textContent).not.toContain('graph.panel.noMemories');
+  });
+
+  it('clears the filters when the selection changes', () => {
+    // Filter one node, click the next, and a stale filter would present the new node as empty while
+    // the control that hid its rows sits several rows up, saying nothing.
+    const fixture = create();
+    const c = fixture.componentInstance;
+    c.selectedNode.set({ _id: 'n1', name: 'A', type: 'x', depth: 1 } as any);
+    fixture.detectChanges();
+    c.detailTypeFilter.set('chrono');
+    c.detailDescFilter.set('alpha');
+    fixture.detectChanges();
+
+    c.selectedNode.set({ _id: 'n2', name: 'B', type: 'x', depth: 1 } as any);
+    fixture.detectChanges();
+
+    expect([c.detailTypeFilter(), c.detailDescFilter()]).toEqual(['all', '']);
+  });
+
   it('opens the SHARED record drawer, whose plain form model renders under this page\'s OnPush', () => {
     // The page no longer forks the drawer — `openBrainDrawer` delegates to `RecordDrawerState.open()`.
     // The coupling under test is unchanged and still load-bearing: `open()` writes the `drawerRecord`

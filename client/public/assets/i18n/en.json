@@ -1535,8 +1535,6 @@
   "mediaProcessing.pipelines.ceilingOffWarning": "Off applies everywhere — no space can process this class.",
   "files.progress.working": "Working",
   "files.progress.stalled": "No progress reported — this job may be stuck",
-  "mediaProcessing.face.pillOn": "On",
-  "mediaProcessing.face.pillOff": "Off",
   "mediaProcessing.face.confidence": "Auto-label threshold",
   "mediaProcessing.face.confidenceHint": "Similarity (0–1) above which a face is labelled automatically. Below it the face is embedded but left unlabelled.",
   "mediaProcessing.face.minSize": "Minimum face size",

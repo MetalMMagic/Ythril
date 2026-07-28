@@ -3184,6 +3184,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Face Recognition card drops its On/Off pill.** The health dot beside the heading already says
+  whether it is running, so the pill repeated it.
+
 - **A processing file's status now updates by itself in the Files list.** The status pill and the
   processing stage bar are both drawn from the directory listing, and the list never refreshed — so a
   file's status sat at whatever it was when you opened the folder. A file could finish and still read

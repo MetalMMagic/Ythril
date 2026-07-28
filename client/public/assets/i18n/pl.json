@@ -1535,8 +1535,6 @@
   "mediaProcessing.pipelines.ceilingOffWarning": "Wyłączenie obowiązuje wszędzie — żadna przestrzeń nie przetworzy tej klasy.",
   "files.progress.working": "W toku",
   "files.progress.stalled": "Brak zgłoszonego postępu — to zadanie mogło się zaciąć",
-  "mediaProcessing.face.pillOn": "Włączone",
-  "mediaProcessing.face.pillOff": "Wyłączone",
   "mediaProcessing.face.confidence": "Próg automatycznego oznaczania",
   "mediaProcessing.face.confidenceHint": "Podobieństwo (0–1), powyżej którego twarz jest oznaczana automatycznie. Poniżej twarz zostaje osadzona, ale bez oznaczenia.",
   "mediaProcessing.face.minSize": "Minimalny rozmiar twarzy",

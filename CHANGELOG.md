@@ -3184,6 +3184,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The graph's node and edge panels now share one linked-records list instead of two copies of it.**
+  Both panels rendered the "linked memories + chrono entries" lists from blocks that were byte-identical
+  apart from their two empty-state messages, and **nothing tested either of them** — the 45 graph
+  characterization tests set the underlying data and assert on it, never on a rendered row. So the two
+  copies could have drifted apart, or one could have been dropped, without a single test noticing.
+
+  They are now one `app-graph-linked-records` component used twice, with the empty-state wording kept
+  as an input (a node with no memories and an edge whose endpoints share none are different
+  sentences). No behaviour changes; the 45 characterization tests pass untouched, and the list
+  rendering has real coverage for the first time.
+
 - **The Graph tab now uses the same record drawer as the rest of Brain, instead of its own copy.**
   Editing a memory or chrono entry from the graph's detail panel opened a drawer that had been forked
   from Brain's and then left behind: no schema-defined property fields, no `confidence` on chrono

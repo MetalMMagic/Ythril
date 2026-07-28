@@ -36,6 +36,7 @@ import { AuthApi } from '../../core/auth-api.service';
 import { EntryPopupComponent } from '../../shared/entry-popup.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PropertiesViewComponent } from '../../shared/properties-view.component';
+import { GraphLinkedRecordsComponent } from './graph-linked-records.component';
 import { TranslocoPipe } from '@jsverse/transloco';
 // The record drawer and its state are shared with the Brain page rather than forked here: this page
 // used to carry a copy that had drifted behind (no schema-driven properties, no confidence field, no
@@ -69,7 +70,7 @@ import { GRAPH_STYLES } from './graph.styles';
   // `openBrainDrawer` alongside the `drawerRecord` signal that guards the drawer's `@if`, the same
   // load-bearing coupling pinned by the brain spec.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe, RecordDrawerComponent],
+  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe, RecordDrawerComponent, GraphLinkedRecordsComponent],
   // Its own drawer collaborators, so the standalone `/graph` route works with nothing above it. When
   // this page is embedded as Brain's Graph tab these SHADOW Brain's instances, which is deliberate:
   // the drawer then patches this page's per-node lists, exactly as the forked drawer did. The cost is
@@ -224,38 +225,12 @@ import { GRAPH_STYLES } from './graph.styles';
             </div>
 
             <!-- Lists pane: memories + chrono -->
-            <div class="lists-pane">
-              <div class="list-section">
-                <div class="list-section-header">
-                  {{ 'graph.panel.memories' | transloco }} <span class="count-chip">{{ nodeMemories().length }}</span>
-                </div>
-                <div class="list-body">
-                  @for (m of nodeMemories(); track m._id) {
-                    <div class="list-row" (click)="openDetailPopup({ id: m._id, kind: 'memory' })">
-                      <span class="list-row-text" [title]="m.fact || m.description">{{ m.fact || m.description || 'â€”' }}</span>
-                      <span class="list-row-date">{{ m.createdAt | date:'dd.MM.yy' }}</span>
-                    </div>
-                  } @empty {
-                    <div class="list-empty">{{ 'graph.panel.noMemories' | transloco }}</div>
-                  }
-                </div>
-              </div>
-              <div class="list-section">
-                <div class="list-section-header">
-                  {{ 'graph.panel.chrono' | transloco }} <span class="count-chip">{{ nodeChrono().length }}</span>
-                </div>
-                <div class="list-body">
-                  @for (c of nodeChrono(); track c._id) {
-                    <div class="list-row" (click)="openDetailPopup({ id: c._id, kind: 'chrono' })">
-                      <span class="list-row-text" [title]="c.title || c.description">{{ c.title || c.description || 'â€”' }}</span>
-                      <span class="list-row-date">{{ c.startsAt | date:'dd.MM.yy' }}</span>
-                    </div>
-                  } @empty {
-                    <div class="list-empty">{{ 'graph.panel.noChronoEntries' | transloco }}</div>
-                  }
-                </div>
-              </div>
-            </div>
+            <app-graph-linked-records
+              [memories]="nodeMemories()"
+              [chrono]="nodeChrono()"
+              [emptyMemoriesKey]="'graph.panel.noMemories'"
+              [emptyChronoKey]="'graph.panel.noChronoEntries'"
+              (open)="openDetailPopup($event)" />
 
           </div>
         </div>
@@ -339,38 +314,12 @@ import { GRAPH_STYLES } from './graph.styles';
             </div>
 
             <!-- Lists pane: memories + chrono for both endpoints -->
-            <div class="lists-pane">
-              <div class="list-section">
-                <div class="list-section-header">
-                  {{ 'graph.panel.memories' | transloco }} <span class="count-chip">{{ nodeMemories().length }}</span>
-                </div>
-                <div class="list-body">
-                  @for (m of nodeMemories(); track m._id) {
-                    <div class="list-row" (click)="openDetailPopup({ id: m._id, kind: 'memory' })">
-                      <span class="list-row-text" [title]="m.fact || m.description">{{ m.fact || m.description || 'â€”' }}</span>
-                      <span class="list-row-date">{{ m.createdAt | date:'dd.MM.yy' }}</span>
-                    </div>
-                  } @empty {
-                    <div class="list-empty">{{ 'graph.panel.noLinkedMemories' | transloco }}</div>
-                  }
-                </div>
-              </div>
-              <div class="list-section">
-                <div class="list-section-header">
-                  {{ 'graph.panel.chrono' | transloco }} <span class="count-chip">{{ nodeChrono().length }}</span>
-                </div>
-                <div class="list-body">
-                  @for (c of nodeChrono(); track c._id) {
-                    <div class="list-row" (click)="openDetailPopup({ id: c._id, kind: 'chrono' })">
-                      <span class="list-row-text" [title]="c.title || c.description">{{ c.title || c.description || 'â€”' }}</span>
-                      <span class="list-row-date">{{ c.startsAt | date:'dd.MM.yy' }}</span>
-                    </div>
-                  } @empty {
-                    <div class="list-empty">{{ 'graph.panel.noLinkedChrono' | transloco }}</div>
-                  }
-                </div>
-              </div>
-            </div>
+            <app-graph-linked-records
+              [memories]="nodeMemories()"
+              [chrono]="nodeChrono()"
+              [emptyMemoriesKey]="'graph.panel.noLinkedMemories'"
+              [emptyChronoKey]="'graph.panel.noLinkedChrono'"
+              (open)="openDetailPopup($event)" />
 
           </div>
         </div>

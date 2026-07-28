@@ -399,82 +399,6 @@ export const GRAPH_STYLES = `
       margin: 2px 3px 2px 0;
     }
 
-    /* Right column: memory + chrono lists */
-    .lists-pane {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      overflow: hidden;
-    }
-    .list-section {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
-      border-bottom: 1px solid var(--border);
-    }
-    .list-section:last-child { border-bottom: none; }
-    .list-section-header {
-      font-size: 10px;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 8px 12px 6px;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .list-section-header .count-chip {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 16px;
-      height: 16px;
-      padding: 0 4px;
-      background: var(--bg-overlay);
-      border-radius: 8px;
-      font-size: 10px;
-      color: var(--text-muted);
-    }
-    .list-body { overflow-y: auto; flex: 1; }
-    .list-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 12px;
-      border-bottom: 1px solid var(--border);
-      cursor: pointer;
-      transition: background var(--transition);
-    }
-    .list-row:last-child { border-bottom: none; }
-    .list-row:hover { background: var(--bg-elevated); }
-    .list-row-text {
-      flex: 1;
-      font-size: 12px;
-      color: var(--text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .list-row-date {
-      font-size: 10px;
-      color: var(--text-muted);
-      font-family: var(--font-mono);
-      white-space: nowrap;
-      flex-shrink: 0;
-    }
-    .list-empty {
-      font-size: 12px;
-      color: var(--text-muted);
-      font-style: italic;
-      text-align: center;
-      padding: 16px 12px;
-    }
 
     /* â”€â”€ Shared badge, button helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
     .tag {
@@ -495,4 +419,91 @@ export const GRAPH_STYLES = `
       background: var(--accent-dim); border: 1px solid var(--accent);
       font-size: 11px; color: var(--text-primary);
     }
+`;
+
+
+/**
+ * Styles for `GraphLinkedRecordsComponent` — the memory/chrono lists under a node or edge panel.
+ *
+ * These left `GRAPH_STYLES` when the markup did. A parent component's styles do not reach a child's
+ * template, so leaving them behind would have rendered the lists unstyled: still present, still
+ * clickable, just visually wrong — which no unit test can see.
+ */
+export const GRAPH_LINKED_RECORDS_STYLES = `
+  /* The pane itself — this component IS the right column of a side panel. */
+  :host {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .list-section {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border-bottom: 1px solid var(--border);
+  }
+  .list-section:last-child { border-bottom: none; }
+  .list-section-header {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 8px 12px 6px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .list-section-header .count-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    background: var(--bg-overlay);
+    border-radius: 8px;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  .list-body { overflow-y: auto; flex: 1; }
+  .list-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background var(--transition);
+  }
+  .list-row:last-child { border-bottom: none; }
+  .list-row:hover { background: var(--bg-elevated); }
+  .list-row-text {
+    flex: 1;
+    font-size: 12px;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .list-row-date {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .list-empty {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-style: italic;
+    text-align: center;
+    padding: 16px 12px;
+  }
 `;

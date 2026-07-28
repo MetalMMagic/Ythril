@@ -3184,6 +3184,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The graph detail panel's type and description filters now exist.** The user guide has told people to
+  "use the type filter and description filter to narrow what you see" for a long time; there were no such
+  controls. The filtering logic was built and had 23 passing tests — nothing was ever bound to it, so it
+  ran for nobody. The panel now has the two controls, they clear themselves when you select another node
+  or edge, and a list emptied by a filter says "No matches for this filter" rather than "No memories",
+  which previously made a filtered panel look like an empty record set.
+
 - **The graph's node and edge panels now share one linked-records list instead of two copies of it.**
   Both panels rendered the "linked memories + chrono entries" lists from blocks that were byte-identical
   apart from their two empty-state messages, and **nothing tested either of them** — the 45 graph

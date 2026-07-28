@@ -44,6 +44,22 @@ jobs:
         # build: OnPush's failure mode is a silently-stale view, invisible to `ng build`.
         run: npm run test:client
 
+      - name: Build client (production)
+        # The production build already runs in CI — the Dockerfile's client-builder stage does
+        # `npm run build:prod --workspace=client`, so the image build below would fail on it. What this
+        # step changes is WHEN and HOW LEGIBLY: there it fails ~10 minutes in, inside a buildx log
+        # interleaved with layer caching. Here it fails in about ten seconds. Same reasoning as the
+        # unit-test step above.
+        #
+        # It is not redundant with `test:client`. Measured by injecting a template reference to a
+        # non-existent member:
+        #   - in a component that HAS a render spec, Vitest catches it (the render throws);
+        #   - in a component that has NO spec, Vitest passes 680/680 green and only the AOT build
+        #     reports it (TS2339 from the angular-compiler plugin).
+        # 19 of this repo's 67 components have no spec, so that second case is the common one.
+        # Bundle budgets (`all`: warn 8mb / error 12mb in angular.json) are likewise enforced only here.
+        run: npm run build:client
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 

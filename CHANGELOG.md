@@ -862,6 +862,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **⚠️ The integration guide said `strictLinkage` defaults to `false`. It defaults to `true`.** The
+  second real error the documentation audit has found, and it inverted a safety property: a reader
+  concluded reference validation was off unless they turned it on, when it is on unless they turn it
+  off. Both senses of "default" contradicted the doc — an absent value resolves to `true`
+  (`strictLinkage !== false`), and new spaces are seeded `strictLinkage: true`. The code's own comment
+  is explicit that disabling it is "a deliberate per-space choice… not something you get by saying
+  nothing".
+
+  The same paragraph turned up a milder version: `validationMode` was documented as defaulting to `off`
+  without mentioning that **every space you create is seeded `strict`**. That one is technically
+  defensible — an absent value really does resolve to `off` — but it describes a state most readers
+  will never be in. Both are now stated precisely, including why `strict` does not block a brand-new
+  empty space (with no `typeSchemas` yet, everything validates).
+
+  Seeded defaults drift more easily than constants because they live in a route rather than behind a
+  name, so nothing reads as "the default" when you look at the code. Both are now gated in both
+  directions — change the seed or change the doc, either fails.
+
 - **Numbers the docs quote are now checked against the constants they quote.** Slice 4d of the
   pre-release audit. Failure-behaviour claims verified clean by reading — a peer that fails is caught
   per-member and the cycle continues, `max` mode runs exactly one repair pass, catalog fetch failures

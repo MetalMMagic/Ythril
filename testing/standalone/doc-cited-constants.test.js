@@ -86,6 +86,31 @@ const CITED = [
   },
 ];
 
+/**
+ * Defaults a NEW SPACE is seeded with, which the docs state separately from the absent-value default.
+ *
+ * These are the second and third real findings of the audit, and they are the same shape as the first:
+ * a documented default that contradicts what the code actually does. `strictLinkage` was documented as
+ * `false` when an absent value resolves to `true` AND new spaces are seeded `true` — inverting a
+ * safety property, so a reader believes reference validation is off when it is on. `validationMode`
+ * was documented as defaulting to `off` without mentioning that every space you create is `strict`.
+ *
+ * Seeded defaults drift more easily than constants because they live in a route rather than in a
+ * named constant, so nothing looks like "the default" when you read the code.
+ */
+const SEEDED_SPACE_DEFAULTS = [
+  {
+    what: 'a new space is seeded strictLinkage: true',
+    code: /strictLinkage: true/,
+    doc: /\*\*Default: `true`\*\* — and an absent value also resolves to `true`/,
+  },
+  {
+    what: 'a new space is seeded validationMode: strict',
+    code: /validationMode: 'strict'/,
+    doc: /A space you create is `strict`, not `off`/,
+  },
+];
+
 describe('numbers quoted in the docs match the constants they quote', () => {
   it('every cited constant still exists in its source', () => {
     // Guards the check itself: a renamed constant would otherwise make the pair silently untestable.
@@ -106,6 +131,22 @@ describe('numbers quoted in the docs match the constants they quote', () => {
         `${row.source} says ${raw}${row.scale ? ` (${value}s)` : ''}, but ${row.doc} does not state ` +
         'that value. A quoted number that no longer matches is read as authoritative and planned ' +
         'around — update the doc, or the constant.');
+    });
+  }
+});
+
+describe('the defaults a new space is seeded with are documented as such', () => {
+  const spacesSrc = read('server/src/api/spaces.ts');
+  const guide = read('docs/integration-guide.md');
+
+  for (const row of SEEDED_SPACE_DEFAULTS) {
+    it(row.what, () => {
+      assert.match(spacesSrc, row.code,
+        'the seeded default changed in api/spaces.ts — update the doc and this pairing together');
+      assert.match(guide, row.doc,
+        'the integration guide no longer states this seeded default. A space-creation default that ' +
+        'contradicts the docs is how strictLinkage came to be documented as `false` while both an ' +
+        'absent value and a new space resolved to `true`.');
     });
   }
 });

@@ -3091,9 +3091,15 @@ Each space can define a schema in its `meta` block that governs what data is acc
 
 | Mode | Behaviour |
 |------|-----------|
-| `off` | No validation (default). All writes accepted. |
+| `off` | No validation. All writes accepted. This is what an **absent** `validationMode` resolves to. |
 | `warn` | Violations are returned as `warnings` in the response but writes proceed. |
 | `strict` | Violations cause a `400` with `{ "error": "schema_violation", "violations": [...] }`. |
+
+> **A space you create is `strict`, not `off`.** New spaces are seeded with `validationMode: "strict"`
+> and `strictLinkage: true`. Only a space whose meta never had the field — one created before those
+> defaults, or through a path that does not seed meta — falls back to `off`. With no `typeSchemas`
+> defined yet, `strict` still accepts every type and label, so it never blocks a brand-new empty space;
+> it starts mattering the moment you define a schema.
 
 **Schema structure — `typeSchemas`:**
 
@@ -3175,7 +3181,7 @@ What the schema enforces:
 |-------|-------------|
 | `typeSchemas` | Per-type schema definitions (see above). |
 | `tagSuggestions` | **Retired.** A space-wide list of non-enforced tag hints. It is still accepted and stored (so an existing list is preserved untouched, and the change is reversible) but nothing reads it: it no longer feeds tag autocomplete in the Brain record forms, and no longer appears in the schema guidance returned to MCP clients. It was one list, editable in a single place, applied to every type and every form in the space — easy to set once and forget while quietly steering what got tagged. Autocomplete now comes from the tags actually in use, which maintains itself. Per-type `typeSchemas.<kind>.<type>.tagSuggestions` is a separate field and is unaffected. |
-| `strictLinkage` | When `true`, all reference fields (`from`/`to`, `entityIds`, `memoryIds`) must be valid UUID v4 values, and entity deletion is blocked while inbound backlinks exist. Default: `false`. |
+| `strictLinkage` | When `true`, all reference fields (`from`/`to`, `entityIds`, `memoryIds`) must be valid UUID v4 values, and entity deletion is blocked while inbound backlinks exist. **Default: `true`** — and an absent value also resolves to `true`. Turning it off is a deliberate per-space choice to accept dangling references (the case it exists for is bulk import, where targets are resolved in a later pass); you do not get that by saying nothing. |
 | `purpose` | Short description of the space (max 4000 chars). Returned by `get_space_meta`. |
 | `usageNotes` | Extended Markdown-formatted guidance for LLM clients (max 50 000 chars). Returned by `get_space_meta`. |
 

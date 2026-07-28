@@ -719,9 +719,11 @@ Configure automatic backups and an optional offsite destination from **Settings 
 | Field | Description |
 |---|---|
 | `schedule` | Cron expression for automatic backups (e.g. `"0 2 * * *"` = daily at 02:00). |
-| `retention.keepLocal` | Maximum number of local backups to retain. Oldest are deleted after each run. |
+| `retention.keepLocal` | Maximum number of local backups to retain. Oldest are deleted after each run. **Default: unlimited** — local backups are never pruned unless you set this. |
 | `offsite.destPath` | Absolute path **on the server's filesystem** to copy each backup to. See [Configuring the offsite path](#configuring-the-offsite-path) below. |
-| `offsite.retention.keepCount` | Maximum number of offsite backup sets to retain (default: unlimited). |
+| `offsite.retention.keepCount` | Maximum number of offsite backup sets to retain. **Default: 14** — offsite sets older than the 14 most recent are deleted after each run. Set this explicitly if you are keeping long-term archives. |
+
+> **The two retention settings default in opposite directions.** Local backups are kept forever until you set `keepLocal`; offsite sets are pruned to the 14 most recent unless you set `keepCount`. If you rely on the offsite copy as a long-term archive, set `keepCount` to the number of sets you actually want — otherwise older ones are removed on the next run.
 
 Each backup set at the offsite destination contains:
 

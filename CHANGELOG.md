@@ -862,6 +862,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **⚠️ The user guide said offsite backups are kept forever. They are pruned to the 14 most recent.**
+  The first real error the documentation audit has found, and the one class of check that cannot be
+  mechanised — a prose claim about behaviour.
+
+  `offsite.retention.keepCount` was documented as *"default: unlimited"*. The scheduler reads
+  `cfg.offsite.retention?.keepCount ?? 14` and prunes after every run, so an operator who read that
+  line, treated the offsite copy as a long-term archive and never set the value has been losing every
+  set older than the most recent fourteen — silently, with the documentation as the reason they never
+  looked.
+
+  What makes it easy to get wrong is that the two retention settings genuinely default in **opposite**
+  directions: `retention.keepLocal` is guarded by `if (cfg?.retention?.keepLocal)`, so absent really
+  does mean never pruned, while the offsite one falls back to 14. Both defaults are now stated
+  explicitly, with a note calling out the asymmetry. The integration guide already had this right,
+  which is what surfaced the contradiction.
+
 - **Every API path named in the docs is verified to exist in a router.** Slice 3 of the pre-release
   audit, and the third clean result: all 182 documented endpoints resolve. A documented endpoint that
   does not exist is the most expensive doc bug there is — someone writes an integration, gets a 404,

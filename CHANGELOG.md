@@ -862,6 +862,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **Every key in every documented `config.json` example is now verified against the config types.**
+  Slice 2 of the pre-release audit, and the happier kind of result: all 14 config examples across the
+  docs check out, so nothing needed fixing. The check is kept anyway, because this is the failure that
+  gives an operator the least to work with — unknown config keys are *ignored*, so a wrong key means
+  editing config.json, restarting, and watching the setting do nothing, with no error to search for.
+
+  Getting the check to be trustworthy took three attempts, which is the part worth recording. Scanning
+  every dotted `a.b` in backticks proposed 69 findings, almost all audit *operation* names and
+  hostnames. Parsing any JSON block containing a config-ish key proposed 36, mostly API *response*
+  fields. The rule that actually works: a block is a config example only when **every** top-level key
+  is a declared field of the `Config` interface — a response body fails that on its first key. A fourth
+  correction was needed on the other side, matching field names anywhere rather than at line start,
+  because inline literals like `total?: { softLimitGiB: number; hardLimitGiB: number }` declare fields
+  on one line.
+
 - **Seven local-connector settings existed only in the source; they are documented now, and a test
   keeps it that way.** The pre-release doc audit's first slice compared every environment variable the
   code reads against every one the docs name. The connector's token, port, bind host, tunnel name,

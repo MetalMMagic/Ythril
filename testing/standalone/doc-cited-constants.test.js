@@ -84,6 +84,28 @@ const CITED = [
     doc: 'docs/userguide.md',
     text: (v) => new RegExp(`Default: ${v}\\*\\*`),
   },
+  {
+    what: 'SSRF redirect hop limit',
+    source: 'server/src/util/ssrf.ts',
+    code: /const maxRedirects = opts\.maxRedirects \?\? ([0-9_]+);/,
+    doc: 'docs/integration-guide.md',
+    text: (v) => new RegExp(`defaults to ${v} and is configurable via \`webhookMaxRedirects\``),
+  },
+  {
+    what: 'minimum detectable face size, as a fraction of the shorter image side',
+    source: 'server/src/config/loader.ts',
+    code: /minFaceSizeFraction: (0\.[0-9]+),/,
+    scale: 0.01,   // fraction in code, percent in prose
+    doc: 'docs/integration-guide.md',
+    text: (v) => new RegExp(`default: ${v}% of the shorter image side`),
+  },
+  {
+    what: 'contradiction-scanner similarity threshold',
+    source: 'server/src/config/types.ts',
+    code: /Default: (0\.[0-9]+)\./,
+    doc: 'docs/integration-guide.md',
+    text: (v) => new RegExp(`default is therefore left at ${v}`),
+  },
 ];
 
 /**

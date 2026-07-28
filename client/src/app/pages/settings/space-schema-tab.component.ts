@@ -14,7 +14,7 @@
  * unrendered. That hazard is exactly why OnPush was not retrofitted onto the 1600-line parent and
  * is applied per component instead.
  */
-import { Component, ChangeDetectionStrategy, inject, signal, ElementRef, ViewChild, OnInit } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, signal, ElementRef, ViewChild, OnInit, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
@@ -127,6 +127,7 @@ const SCHEMA_MD_STYLES = `
   <button class="btn btn-secondary btn-sm" type="button" (click)="exportSchema()" [attr.title]="'spaces.schema.exportTitle' | transloco"><ph-icon name="upload" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.exportJsonButton' | transloco }}</button>
   <button class="btn btn-secondary btn-sm" type="button" (click)="triggerImportSchema()" [attr.title]="'spaces.schema.importTitle' | transloco"><ph-icon name="download-simple" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.importJsonButton' | transloco }}</button>
   <button class="btn btn-secondary btn-sm" type="button" (click)="openExportToLibrary()" [attr.title]="'spaces.schema.exportToLibraryTitle' | transloco"><ph-icon name="bookmarks" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.exportToLibraryButton' | transloco }}</button>
+  <button class="btn btn-secondary btn-sm" type="button" (click)="triggerImportFromLibraryAny()" [attr.title]="'spaces.schema.importFromLibraryTitle' | transloco"><ph-icon name="bookmarks" [size]="13" style="margin-right:5px;"/>{{ 'spaces.schema.importLibraryButton' | transloco }}</button>
   <input #schImportInput type="file" accept=".json,application/json" style="display:none" (change)="onImportSchemaFile($event)" />
   <input #schTypeImportInput type="file" accept=".json,application/json" style="display:none" (change)="onImportTypeSchemaFile($event)" />
   <span style="font-size:11px;color:var(--text-muted);margin-left:4px;">{{ 'spaces.schema.autoSyncHint' | transloco }}</span>
@@ -224,15 +225,12 @@ const SCHEMA_MD_STYLES = `
       <!-- Imports stay at the bottom: they are the occasional path, and putting them beside the
            everyday control is what made the top of this column busy. -->
       <div class="sch-add-imports">
-        <button class="btn btn-ghost btn-sm" type="button"
-          (click)="triggerImportTypeSchemaNew(kt)"
-          [attr.title]="'spaces.schema.importFromFileButton' | transloco"><ph-icon name="download-simple" [size]="12" style="margin-right:3px;vertical-align:-2px;"/>{{ 'spaces.schema.importFromFileButton' | transloco }}</button>
-        <button class="btn btn-ghost btn-sm" type="button"
-          (click)="triggerImportFromLibraryNew(kt)"
-          [attr.title]="'spaces.schema.importFromLibraryTitle' | transloco"><ph-icon name="bookmarks" [size]="12" style="margin-right:3px;vertical-align:-2px;"/>{{ 'spaces.schema.importFromLibraryButton' | transloco }}</button>
       </div>
       @if (schImportError()) {
         <div class="sch-msg err">{{ schImportError() }}</div>
+      }
+      @if (libImportSkipped().length) {
+        <div class="sch-msg err">{{ 'spaces.schema.libPicker.skipped' | transloco: { names: libImportSkipped().join(', ') } }}</div>
       }
       @if (schImportInfo()) {
         <div class="sch-msg ok">{{ schImportInfo() }}</div>
@@ -477,7 +475,14 @@ const SCHEMA_MD_STYLES = `
         <p style="font-size:13px;color:var(--text-muted);">{{ 'spaces.schema.libPicker.empty' | transloco }}</p>
       } @else {
         <div style="display:grid;gap:8px;">
-          @for (entry of libPickerEntries(); track entry.name) {
+          @for (g of libPickerGroups(); track g.group) {
+            @if (g.group) {
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;">
+                <strong style="font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);">{{ g.group }}</strong>
+                <button class="btn btn-secondary btn-sm" type="button" (click)="importGroupFromLibrary(g.group)">{{ 'spaces.schema.libPicker.importGroup' | transloco }}</button>
+              </div>
+            }
+          @for (entry of g.entries; track entry.name) {
             <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-surface);">
               <div>
                 <div style="font-weight:600;font-size:13px;font-family:var(--font-mono);">{{ entry.name }}</div>
@@ -489,7 +494,9 @@ const SCHEMA_MD_STYLES = `
               </div>
             </div>
           }
+          }
         </div>
+
       }
     </div>
   </div>
@@ -536,7 +543,11 @@ export class SpaceSchemaTabComponent implements OnInit {
   @ViewChild('schImportInput') schImportInputRef?: ElementRef<HTMLInputElement>;
   @ViewChild('schTypeImportInput') schTypeImportInputRef?: ElementRef<HTMLInputElement>;
   private _typeImportTarget: { kt: KnowledgeType; name: string } | null = null;
-  private _libPickerTarget: { kt: KnowledgeType; name: string } | null = null;
+  /**
+   * Where a library import lands. `kt: null` means the pick came from the TOP action row, which is not
+   * scoped to a knowledge type — the entry carries its own, so the target is derived per entry.
+   */
+  private _libPickerTarget: { kt: KnowledgeType | null; name: string } | null = null;
 
   schImportError = signal('');
 
@@ -815,12 +826,6 @@ export class SpaceSchemaTabComponent implements OnInit {
     this.schTypeImportInputRef?.nativeElement.click();
   }
 
-  /** Open the file picker to import a type schema as a new type (name derived from file). */
-  triggerImportTypeSchemaNew(kt: KnowledgeType): void {
-    this._typeImportTarget = { kt, name: '' };
-    this.schImportError.set('');
-    this.schTypeImportInputRef?.nativeElement.click();
-  }
 
   /** Handle the file chosen for per-type import. */
   onImportTypeSchemaFile(event: Event): void {
@@ -977,21 +982,66 @@ export class SpaceSchemaTabComponent implements OnInit {
     });
   }
 
-  triggerImportFromLibraryNew(kt: KnowledgeType): void {
-    this._libPickerTarget = { kt, name: '' };
+
+  /**
+   * Open the library picker unscoped — every entry, from the top action row.
+   *
+   * Replaces the per-knowledge-type buttons that used to sit under each section: those existed only to
+   * tell the importer where the schema belonged, and the library entry already records that.
+   */
+  triggerImportFromLibraryAny(): void {
+    this.libImportSkipped.set([]);
+    this._libPickerTarget = { kt: null, name: '' };
     this.libPickerLoading.set(true);
     this.showLibPickerDialog.set(true);
     this.schemaApi.listSchemaLibrary().subscribe({
-      next: ({ entries }) => {
-        this.libPickerEntries.set(entries.filter(e => e.knowledgeType === kt));
-        this.libPickerLoading.set(false);
-      },
-      error: () => {
-        this.libPickerEntries.set([]);
-        this.libPickerLoading.set(false);
-      },
+      next: ({ entries }) => { this.libPickerEntries.set(entries); this.libPickerLoading.set(false); },
+      error: () => { this.libPickerEntries.set([]); this.libPickerLoading.set(false); },
     });
   }
+
+  /** Entries bucketed by `schemaGroup`, so a whole group can be taken in one action. Ungrouped last. */
+  libPickerGroups = computed<{ group: string; entries: SchemaLibraryEntry[] }[]>(() => {
+    const byGroup = new Map<string, SchemaLibraryEntry[]>();
+    for (const e of this.libPickerEntries()) {
+      const g = e.schemaGroup?.trim() || '';
+      byGroup.set(g, [...(byGroup.get(g) ?? []), e]);
+    }
+    return [...byGroup.entries()]
+      .map(([group, entries]) => ({ group, entries }))
+      .sort((a, b) => (a.group === '' ? 1 : b.group === '' ? -1 : a.group.localeCompare(b.group)));
+  });
+
+  /**
+   * Import every entry in a group.
+   *
+   * Silently SKIPS a type that already exists rather than raising the single-import conflict dialog:
+   * a group can hold many entries, and a modal per collision would be unusable. The skipped names are
+   * surfaced so the outcome is never a silent partial import.
+   */
+  importGroupFromLibrary(group: string): void {
+    const entries = this.libPickerGroups().find(g => g.group === group)?.entries ?? [];
+    const skipped: string[] = [];
+    let next: Record<string, Record<string, TypeSchemaState>> =
+      { ...this.state.schTypeSchemas } as Record<string, Record<string, TypeSchemaState>>;
+    for (const entry of entries) {
+      const kt = entry.knowledgeType;
+      const typeName = entry.typeName;
+      if (!typeName) continue;
+      if (Object.keys(next[kt] ?? {}).includes(typeName)) { skipped.push(typeName); continue; }
+      const refState: TypeSchemaState & { _libRef?: string } = {
+        namingPattern: '', tagSuggestions: [], propertySchemas: [],
+        _newPropInput: '', _newTagInput: '', _libRef: entry.name,
+      };
+      next = { ...next, [kt]: { ...(next[kt] ?? {}), [typeName]: refState } };
+    }
+    this.state.schTypeSchemas = next as typeof this.state.schTypeSchemas;
+    this.libImportSkipped.set(skipped);
+    this.closeLibPicker();
+  }
+
+  /** Type names a group import left alone because the space already had them. */
+  libImportSkipped = signal<string[]>([]);
 
   closeLibPicker(): void {
     this.showLibPickerDialog.set(false);
@@ -1002,6 +1052,9 @@ export class SpaceSchemaTabComponent implements OnInit {
   importFromLibraryRef(entry: SchemaLibraryEntry): void {
     const target = this._libPickerTarget;
     if (!target) return;
+    // An unscoped (top-row) pick takes the knowledge type from the ENTRY. That is what lets one button
+    // replace the per-type ones: the library already records where each schema belongs.
+    const kt = target.kt ?? entry.knowledgeType;
     const typeName = target.name || entry.typeName;
     if (!typeName) return;
     // Store as a special sentinel state that renders as a $ref in buildMeta()
@@ -1014,14 +1067,14 @@ export class SpaceSchemaTabComponent implements OnInit {
       _libRef:         entry.name,
     };
     // When adding a new type from lib (no pre-existing name), check for collision
-    if (!target.name && this.state.typeNames(target.kt).includes(typeName)) {
+    if (!target.name && this.state.typeNames(kt).includes(typeName)) {
       this.closeLibPicker();
-      this.importConflict.set({ kt: target.kt, name: typeName, state: refState, allowAddAs: false });
+      this.importConflict.set({ kt, name: typeName, state: refState, allowAddAs: false });
       return;
     }
     this.state.schTypeSchemas = {
       ...this.state.schTypeSchemas,
-      [target.kt]: { ...(this.state.schTypeSchemas[target.kt] ?? {}), [typeName]: refState },
+      [kt]: { ...(this.state.schTypeSchemas[kt] ?? {}), [typeName]: refState },
     };
     this.closeLibPicker();
   }

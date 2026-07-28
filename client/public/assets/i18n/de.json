@@ -1535,8 +1535,6 @@
   "mediaProcessing.pipelines.ceilingOffWarning": "Aus gilt überall — kein Bereich kann diese Klasse verarbeiten.",
   "files.progress.working": "Läuft",
   "files.progress.stalled": "Kein Fortschritt gemeldet — dieser Auftrag hängt möglicherweise",
-  "mediaProcessing.face.pillOn": "An",
-  "mediaProcessing.face.pillOff": "Aus",
   "mediaProcessing.face.confidence": "Schwelle für automatische Zuordnung",
   "mediaProcessing.face.confidenceHint": "Ähnlichkeit (0–1), ab der ein Gesicht automatisch zugeordnet wird. Darunter wird das Gesicht eingebettet, aber nicht zugeordnet.",
   "mediaProcessing.face.minSize": "Mindestgröße des Gesichts",

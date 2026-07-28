@@ -349,9 +349,6 @@ import { TestTarget } from './media-processing.types';
         [purpose]="'mediaProcessing.face.purpose' | transloco"
         [health]="faceState()"
         [infra]="s.faceLocked('enabled')" envVar="FACE_RECOGNITION_ENABLED">
-        <app-status-pill pill [variant]="s.face.enabled ? 'active' : 'off'">
-          {{ (s.face.enabled ? 'mediaProcessing.face.pillOn' : 'mediaProcessing.face.pillOff') | transloco }}
-        </app-status-pill>
 
         <!-- Not wrapped in .field: that rule styles a direct child label as a small-caps field
              caption, which turned the checkbox's own label into what looked like a section header

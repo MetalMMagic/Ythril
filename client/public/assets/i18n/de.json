@@ -490,8 +490,6 @@
   "graph.panel.noLinkedMemories": "Keine verknüpften Erinnerungen",
   "graph.panel.noLinkedChrono": "Kein verknüpfter Chrono",
   "graph.panel.loading": "Laden…",
-  "graph.drawer.badge.memory": "Erinnerung",
-  "graph.drawer.badge.chrono": "Chrono",
   "graph.drawer.badge.edge": "Rand",
   "files.newFolder": "+ Neuer Ordner",
   "files.newFolderPlaceholder": "Ordnername",

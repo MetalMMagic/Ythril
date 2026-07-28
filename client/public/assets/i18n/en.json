@@ -490,8 +490,6 @@
   "graph.panel.noLinkedMemories": "No linked memories",
   "graph.panel.noLinkedChrono": "No linked chrono",
   "graph.panel.loading": "Loading…",
-  "graph.drawer.badge.memory": "memory",
-  "graph.drawer.badge.chrono": "chrono",
   "graph.drawer.badge.edge": "edge",
   "files.newFolder": "+ New folder",
   "files.newFolderPlaceholder": "Folder name",

@@ -17,6 +17,7 @@ import { type FileEntry, type UploadProgress } from '../../core/api.types';
 import { FilesApi } from '../../core/files-api.service';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { AuthService } from '../../core/auth.service';
+import { BrainStore } from '../brain/brain-store.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { FileManagerComponent } from './file-manager.component';
 
@@ -438,5 +439,64 @@ describe('FileManagerComponent — preview/download auth', () => {
     // #134 scoped the ?token= fallback to SSE only — the token must NOT ride in the URL.
     expect(String(calls[0].url)).not.toContain('token=');
     expect(calls[0].opts.headers.Authorization).toBe('Bearer T');
+  });
+});
+
+/**
+ * Live refresh while a file is processing.
+ *
+ * The shell opens an SSE stream and bumps `BrainStore.liveRefreshTick` on a `file.*` event — that is how
+ * every record tab stays current. This list never read it. Status pill and processing stage bar are both
+ * built from the DIRECTORY LISTING, so with no reload they sat at whatever they were when the folder was
+ * opened: a file could finish and still read "Embedding" until you navigated away and back.
+ *
+ * Nothing errored, which is exactly why it presented as a slow pipeline rather than a stale view — so the
+ * test asserts the RELOAD happens, not that a particular pill is drawn.
+ */
+describe('FileManagerComponent — live refresh on the shell tick', () => {
+  function create(entries: FileEntry[]) {
+    const api = makeApi(entries);
+    const listFiles = vi.fn().mockReturnValue(of({ entries }));
+    api.listFiles = listFiles;
+    const store = new BrainStore();
+    TestBed.configureTestingModule({
+      imports: [FileManagerComponent, getTranslocoModule()],
+      providers: [
+        { provide: FilesApi, useValue: api },
+        { provide: SpacesApi, useValue: api },
+        { provide: AuthService, useValue: { token: () => '' } },
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => '' } } } },
+        { provide: BrainStore, useValue: store },
+      ],
+    });
+    const fixture = TestBed.createComponent(FileManagerComponent);
+    fixture.componentRef.setInput('embeddedSpaceId', 'work');
+    fixture.detectChanges();
+    return { fixture, store, listFiles };
+  }
+
+  const PROCESSING: FileEntry[] = [
+    { name: 'big.pdf', size: 10, isFile: true, isDirectory: false, modified: '2026-01-01', embeddingStatus: 'processing' } as FileEntry,
+  ];
+
+  it('re-lists the directory when the shell signals a change', () => {
+    const { fixture, store, listFiles } = create(PROCESSING);
+    const before = listFiles.mock.calls.length;
+
+    store.liveRefreshTick.update(t => t + 1);
+    fixture.detectChanges();
+
+    expect(listFiles.mock.calls.length, 'a tick must re-list the directory').toBeGreaterThan(before);
+  });
+
+  it('lists the directory exactly ONCE on open — the effect must not double-load', () => {
+    // The effect skips its own first run, because creating the component already listed the folder.
+    // Without that guard every folder open costs two identical requests. Asserting the absolute count is
+    // what catches it: measuring "no further calls AFTER creation" is blind, since the duplicate already
+    // happened by then.
+    // Two, not one: opening a folder lists the folder AND the tree root. Three would mean the effect
+    // ran on its own first tick and re-listed on top of the initial load.
+    const { listFiles } = create(PROCESSING);
+    expect(listFiles.mock.calls.length, 'folder + tree root, and nothing more').toBe(2);
   });
 });

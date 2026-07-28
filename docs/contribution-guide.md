@@ -138,6 +138,20 @@ The Dockerfile is a three-stage build:
 
 Server-side and integration tests use Node.js' built-in `node --test` runner — no extra framework. The **client** has its own unit suite built on **Vitest + jsdom**.
 
+### Before you push
+
+```bash
+npm run preflight
+```
+
+Runs every structural gate that does **not** need Docker — icon registry, scheduler wiring, route guards, audit-route coverage, the four documentation gates, docs lint, and the client suite (which includes i18n key coverage). Seconds, no containers.
+
+These are grouped into one command because they share a property: **each catches something that produces no error, no failed build and no failed unit test.** An unregistered icon renders as a blank space. A scheduler nobody starts looks like one with nothing to do. A documented endpoint that doesn't exist returns a 404 with nothing to explain it. A translation key missing from `de`/`pl` renders the raw key.
+
+Deciding *which* of those applies to a given change is exactly the judgement people get wrong at the end of a long task — a PR shipped a blank icon that way, past a green docs lint, 685 green client tests and a green production build. Run the lot; it's cheap.
+
+Docker-dependent suites (integration, sync, red-team) still run in CI.
+
 ### Client unit tests (no Docker required)
 
 ```bash

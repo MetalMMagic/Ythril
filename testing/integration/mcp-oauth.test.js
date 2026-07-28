@@ -20,6 +20,28 @@
  * Requires the rebuilt Docker stack:
  *   npm run test:up:rebuild   (or `build ythril-a` if only this changed)
  * Run: node --test testing/integration/mcp-oauth.test.js
+ *
+ * ── Why re-running this suite degrades, and how far that is fixable ──────────────────────────────
+ *
+ * `POST /register` is rate-limited to **20 per hour** by the MCP SDK itself (`clientRegistrationHandler`:
+ * `windowMs: 1h, max: 20`) — not by Ythril's rate-limit middleware, so it is not configurable from here.
+ * The bucket lives in server memory, so ONLY a server restart clears it, which is exactly what
+ * `npm run test:up` does. That is the whole reason this suite is green on a fresh stack and degrades on
+ * a bare re-run.
+ *
+ * Measured 2026-07-28 against a scratch server, consecutive runs without restarting:
+ *
+ *      registrations/run   run 1   run 2   run 3
+ *   before      9          10/12    8/12    0/12   ← total collapse once the 20 is spent
+ *   after       5          10/12    8/12    5/12
+ *
+ * Sharing one client across the tests that merely need "a client that exists" roughly doubles the
+ * headroom, from about two consecutive runs to about four. It does NOT make the suite idempotent, and
+ * nothing in this file can: registering is the one thing several of these tests exist to exercise.
+ * What IS fixed is the diagnosis — a 429 now fails loudly at the source instead of surfacing three
+ * assertions later as "consent returned 400", which is what made this look like a consent bug for
+ * months. If true idempotency is ever needed, the lever is upstream: `mcpAuthRouter` would have to
+ * expose the SDK's `rateLimit` option so tests could disable it.
  */
 
 import { describe, it, before } from 'node:test';
@@ -32,7 +54,12 @@ import { INSTANCES, get } from '../sync/helpers.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIGS = path.join(__dirname, '..', 'sync', 'configs');
-const BASE = INSTANCES.a;
+
+// Overridable so this suite can run against any instance, not only the Docker test stack. MCP OAuth
+// needs an `https://` publicUrl STRING (it is never dialled), so a scratch server started with
+// `publicUrl: https://scratch.example.test` enables the whole flow with no containers:
+//   MCP_OAUTH_BASE=http://127.0.0.1:3260 MCP_OAUTH_TOKEN=ythril_... node --test <this file>
+const BASE = process.env['MCP_OAUTH_BASE'] ?? INSTANCES.a;
 
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 const pkce = () => {
@@ -41,7 +68,19 @@ const pkce = () => {
   return { verifier, challenge };
 };
 
-// Register a fresh DCR client and return its client_id.
+/**
+ * Register a fresh DCR client and return its client_id.
+ *
+ * **Registration is the scarce resource in this suite**, which is why most tests share one client
+ * (see `sharedClientId` below). The MCP SDK rate-limits `POST /register` to 20 per hour
+ * (`clientRegistrationHandler`: `windowMs: 1h, max: 20`) — that is the SDK's own limiter, not ours,
+ * and the bucket lives in server memory, so only a server restart clears it. `npm run test:up`
+ * restarts the stack, which is why the suite is green on a fresh one and fails on a bare re-run.
+ *
+ * Left unchecked, a 429 here returns no `client_id`, and the failure then surfaces three assertions
+ * later as "consent returned 400 (Unknown or unregistered client)" — which reads like a consent bug
+ * and sent an earlier diagnosis down the wrong path entirely. So it is asserted at the source.
+ */
 async function registerClient(redirectUri) {
   const r = await fetch(`${BASE}/register`, {
     method: 'POST',
@@ -55,6 +94,10 @@ async function registerClient(redirectUri) {
     }),
   });
   const body = await r.json();
+  assert.notEqual(r.status, 429,
+    'Client registration was RATE LIMITED (MCP SDK allows 20/hour, and the bucket only resets when ' +
+    'the server restarts). This is not a product bug — re-run `npm run test:up`, or wait out the hour. ' +
+    `Response: ${JSON.stringify(body)}`);
   return { status: r.status, clientId: body.client_id, body };
 }
 
@@ -96,9 +139,27 @@ const REDIRECT = 'https://claude.ai/api/mcp/auth_callback';
 
 let adminToken;
 
+/**
+ * One registration shared by every test that merely needs "a client that exists".
+ *
+ * The suite used to register a fresh client in all nine tests, which put it within one run of the
+ * SDK's 20-per-hour registration cap — so a second run inside the hour failed six or eight tests on
+ * pure state. Sharing drops it to three registrations per run, which leaves room for roughly six
+ * consecutive runs.
+ *
+ * Deliberately NOT shared by the tests that MINT tokens against a client. `repeat consent … rotates
+ * rather than accumulates` asserts how many tokens a client ends up holding, so it must own a client
+ * nothing else has minted against, or it would pass or fail on other tests' leftovers. The
+ * registration test keeps its own for the obvious reason.
+ */
+let sharedClientId;
+
 describe('MCP OAuth: discovery metadata', () => {
-  before(() => {
-    adminToken = fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+  before(async () => {
+    adminToken = process.env['MCP_OAUTH_TOKEN']
+      ?? fs.readFileSync(path.join(CONFIGS, 'a', 'token.txt'), 'utf8').trim();
+    ({ clientId: sharedClientId } = await registerClient(REDIRECT));
+    assert.ok(sharedClientId, 'the shared client must register before the suite runs');
   });
 
   it('unauthenticated /mcp returns 401 with WWW-Authenticate resource_metadata', async () => {
@@ -146,7 +207,7 @@ describe('MCP OAuth: dynamic client registration', () => {
 
 describe('MCP OAuth: authorization + consent', () => {
   it('GET /authorize renders the consent page', async () => {
-    const { clientId } = await registerClient(REDIRECT);
+    const clientId = sharedClientId;
     const { challenge } = pkce();
     const q = new URLSearchParams({
       response_type: 'code',
@@ -165,7 +226,7 @@ describe('MCP OAuth: authorization + consent', () => {
   });
 
   it('consent with an INVALID token does not issue a code', async () => {
-    const { clientId } = await registerClient(REDIRECT);
+    const clientId = sharedClientId;
     const { challenge } = pkce();
     const r = await submitConsent({ clientId, redirectUri: REDIRECT, challenge, token: 'ythril_notarealtoken' });
     assert.equal(r.status, 401, 'invalid token must be rejected, not redirected');
@@ -173,7 +234,7 @@ describe('MCP OAuth: authorization + consent', () => {
   });
 
   it('consent to an UNREGISTERED redirect_uri is refused', async () => {
-    const { clientId } = await registerClient(REDIRECT);
+    const clientId = sharedClientId;
     const { challenge } = pkce();
     const r = await submitConsent({
       clientId, redirectUri: 'https://evil.example/callback', challenge, token: adminToken,
@@ -183,7 +244,7 @@ describe('MCP OAuth: authorization + consent', () => {
   });
 
   it('consent with a valid PAT issues an auth code (302)', async () => {
-    const { clientId } = await registerClient(REDIRECT);
+    const clientId = sharedClientId;
     const { challenge } = pkce();
     const r = await submitConsent({ clientId, redirectUri: REDIRECT, challenge, state: 'st8', token: adminToken });
     assert.equal(r.status, 302);
@@ -196,7 +257,7 @@ describe('MCP OAuth: authorization + consent', () => {
 
 describe('MCP OAuth: token exchange', () => {
   it('rejects an exchange with the wrong PKCE verifier (invalid_grant)', async () => {
-    const { clientId } = await registerClient(REDIRECT);
+    const clientId = sharedClientId;
     const { challenge } = pkce();
     const wrong = pkce(); // different verifier
     const consent = await submitConsent({ clientId, redirectUri: REDIRECT, challenge, token: adminToken });

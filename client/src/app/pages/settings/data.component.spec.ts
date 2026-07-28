@@ -260,3 +260,85 @@ describe('DataComponent — API flows and error fallbacks', () => {
     expect(startMigration).not.toHaveBeenCalled();
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Summary strip vs translation loading
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('DataComponent — the summary strip waits for translations', () => {
+  /**
+   * `summaryItems` is a computed that translates IMPERATIVELY. A computed memoises on its signal
+   * dependencies, and `transloco.translate()` is not one — so without care it evaluates during the
+   * first render, before the language file resolves, logs "Missing translation key" and bakes the raw
+   * key into the label, then never re-runs to correct it.
+   *
+   * On the real page that was invisible: `backups()` and `backupConfig()` land after their HTTP calls,
+   * which happens to be after translations load, so the strip re-evaluated and looked right. It was
+   * correct by luck, and three console errors said so.
+   *
+   * ── What these tests do and do NOT cover ──────────────────────────────────────────────────────
+   *
+   * They do NOT reproduce the timing defect. `TranslocoTestingModule` preloads synchronously
+   * (`preloadLangs: true`), so `translate()` works on the first evaluation and the bug cannot occur
+   * here. Mutation confirms it: deleting the readiness guard entirely leaves every test below green.
+   *
+   * The fix is verified in a BROWSER — three `Missing translation key` console errors before, zero
+   * after, on both a direct navigation and a re-navigation.
+   *
+   * What these tests DO guard is the regression the fix could introduce: gating on readiness must not
+   * blank the strip. The first attempt required a non-empty dictionary and did exactly that, and the
+   * mutation for it is caught below. That is worth having — it is just not coverage of the defect.
+   */
+  it('produces items at all — the loop below is worthless on an empty array', () => {
+    // Asserted separately and FIRST because the original version of the next test iterated the labels
+    // and passed vacuously while the strip was empty. A per-item assertion over zero items proves
+    // nothing, which is the same shape as a green test over deleted code.
+    const { c, fixture } = make();
+    fixture.detectChanges();
+    expect(c.summaryItems().length).toBeGreaterThan(0);
+  });
+
+  it('renders resolved labels when a dictionary is present', () => {
+    // The default harness deliberately ships an EMPTY `en` and echoes unknown keys, so a raw key there
+    // is correct behaviour rather than the defect — asserting against it would fail for the wrong
+    // reason. Give it a real dictionary and the assertion becomes meaningful.
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [DataComponent, getTranslocoModule({
+        translation: { en: { 'data.summary.database': 'Database', 'data.summary.backups': 'Backups' } },
+      })],
+      providers: [
+        { provide: AdminApi, useValue: makeAdmin() },
+        { provide: ConfirmDialogService, useValue: { confirm: vi.fn().mockResolvedValue(true) } },
+      ],
+    });
+    const fixture = TestBed.createComponent(DataComponent);
+    fixture.detectChanges();
+
+    const labels = fixture.componentInstance.summaryItems().map(i => String(i.label));
+    expect(labels.length).toBeGreaterThan(0);
+    // Only the keys supplied above can resolve — the harness echoes the rest, correctly. Asserting
+    // "no raw keys at all" would mean mirroring the whole dictionary here, which rots on every copy
+    // edit and would fail for a reason that has nothing to do with this defect.
+    expect(labels).toContain('Backups');
+    expect(labels).toContain('Database');
+  });
+
+  it('still renders when translations were ALREADY loaded before the component mounted', () => {
+    // The regression the first attempt at this fix would have caused. `events$` does not replay, so a
+    // check that waited only for the load EVENT would leave a component mounted after that event with
+    // an empty strip forever — worse than the bug being fixed. The synchronous `getTranslation()` half
+    // is what covers it, and in TestBed translations are already present, which is exactly this case.
+    const { c, fixture } = make();
+    fixture.detectChanges();
+    expect(c.summaryItems().length, 'the strip must not be empty when translations pre-exist').toBeGreaterThan(0);
+  });
+
+  it('reports the backup count from the loaded backups', () => {
+    // Guards that gating on translations did not also gate away the data.
+    const { c, fixture } = make();
+    fixture.detectChanges();
+    const backupItem = c.summaryItems().find(i => String(i.label).toLowerCase().includes('backup'));
+    expect(backupItem, 'a backups item should be present').toBeTruthy();
+  });
+});

@@ -2164,6 +2164,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Data page built its summary labels before translations had loaded.** `summaryItems` is a
+  `computed` that calls `transloco.translate()` imperatively — and a computed memoises on its SIGNAL
+  dependencies, which "the language file finished loading" is not. So it evaluated during the first
+  render, got raw keys back, logged three `Missing translation key` errors, and never re-ran to
+  correct itself.
+
+  It looked fine only by luck: `backups()` and `backupConfig()` land after their HTTP calls, which
+  happens to be after translations load, forcing a re-evaluation. Reorder or remove those loads and the
+  strip would read `data.summary.backups` permanently. Readiness is now a real dependency, and it asks
+  whether the active language has been LOADED rather than whether it has content — an empty-but-loaded
+  dictionary is legitimate, and the first attempt at this fix blanked the strip on exactly that.
+
+  Found by a pre-release sweep of 16 routes looking for defects that pass every test. Verified in a
+  browser: three console errors before, zero after, on both a direct navigation and a re-navigation.
+  The unit tests deliberately do NOT claim to cover it — TestBed preloads translations synchronously so
+  the timing defect cannot occur there, and mutation confirms that deleting the fix leaves them green.
+  What they do guard is the blank-strip regression.
+
+- **The client test suite could fail at random.** Two different specs were measured at 5063ms and
+  5729ms against Vitest's 5000ms default — each passing alone, failing intermittently in a full run,
+  and never the same test twice. These are Angular TestBed specs running across 71 parallel forks: the
+  ceiling was wrong, not the tests. Raised to 20s, after which three consecutive full runs were clean.
+  It matters more now that `npm run preflight` asks every push to run this suite — a gate that fails at
+  random is one people stop trusting, and then stop running.
+
 - **An invite could advertise a `publicUrl` and space list that were already out of date when it was
   printed.** `POST /api/invite/generate` snapshots config on entry, then generates an RSA-4096 key pair
   and bcrypt-hashes the handshake id — both deliberately slow — before building its response from that

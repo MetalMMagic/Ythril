@@ -117,10 +117,34 @@ describe('If-Match — both meta-writing routes check it, and check it FIRST', (
     assert.match(src, /checkMetaPrecondition\(req\.get\('If-Match'\)/);
   });
 
-  it('both meta-writing routes consult it — not just the one that was easy', () => {
-    const checks = src.match(/checkMetaPrecondition\(/g) ?? [];
-    assert.ok(checks.length >= 2,
-      `expected PATCH /:id and PUT /:id/schema to both check, found ${checks.length}`);
+  it('EVERY route that writes meta consults it — derived, not counted', () => {
+    // This is the check that was missing when the feature first shipped, and the gap it would have
+    // caught is the one that actually happened: `If-Match` went onto PATCH /:id and PUT /:id/schema,
+    // and the single-type upsert and delete routes — which write meta just as much — were left
+    // unguarded. A caller could hold a precondition on one route and lose an edit through another.
+    //
+    // Asserting a COUNT would rot the moment a fifth route appeared. So derive the set: every
+    // `updateSpace(..., { meta })` call is a meta write, and each must sit in a handler that checked
+    // the precondition first.
+    const writeSites = [...src.matchAll(/updateSpace\([^)]*\{\s*[^}]*\bmeta\b/g)].map(m => m.index);
+    assert.ok(writeSites.length >= 4,
+      `expected at least 4 meta-write sites, found ${writeSites.length} — has the shape changed?`);
+
+    const checkSites = [...src.matchAll(/checkMetaPrecondition\(/g)].map(m => m.index);
+
+    for (const write of writeSites) {
+      // The handler containing this write starts at the nearest preceding `spacesRouter.<verb>(`.
+      const handlerStart = Math.max(
+        ...[...src.matchAll(/spacesRouter\.(get|post|put|patch|delete)\(/g)]
+          .map(m => m.index)
+          .filter(i => i < write),
+      );
+      const guarded = checkSites.some(c => c > handlerStart && c < write);
+      assert.ok(guarded,
+        `a meta write at index ${write} is in a handler that never calls checkMetaPrecondition — ` +
+        `that route can silently discard a concurrent edit. Handler starts at ${handlerStart}: ` +
+        JSON.stringify(src.slice(handlerStart, handlerStart + 90)));
+    }
   });
 
   it('the schema route checks BEFORE writing its backup file', () => {

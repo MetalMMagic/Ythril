@@ -787,6 +787,13 @@ spacesRouter.put('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLim
     return;
   }
 
+  // Same optimistic-concurrency contract as PATCH /:id — this writes meta too.
+  const upsertPrecondition = checkMetaPrecondition(req.get('If-Match'), space.meta?.version ?? 0);
+  if (!upsertPrecondition.ok) {
+    res.status(upsertPrecondition.status).json(preconditionErrorBody(upsertPrecondition));
+    return;
+  }
+
   const kt = knowledgeType as 'entity' | 'memory' | 'edge' | 'chrono';
   const existingMeta: SpaceMeta = space.meta ?? {};
   const existingKtMap: Record<string, import('../config/types.js').TypeSchema> = { ...(existingMeta.typeSchemas?.[kt] ?? {}) };
@@ -833,6 +840,13 @@ spacesRouter.delete('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRate
   const space = cfg.spaces.find(s => s.id === id);
   if (!space) {
     res.status(404).json({ error: `Space '${id}' not found` });
+    return;
+  }
+
+  // Same optimistic-concurrency contract as PATCH /:id — removing a type is a meta write.
+  const deletePrecondition = checkMetaPrecondition(req.get('If-Match'), space.meta?.version ?? 0);
+  if (!deletePrecondition.ok) {
+    res.status(deletePrecondition.status).json(preconditionErrorBody(deletePrecondition));
     return;
   }
 

@@ -2807,7 +2807,9 @@ Notes:
 - `meta.version` is returned by `GET /api/spaces`. A space that has never had meta written is version `0`, so `If-Match: 0` means "only if nobody has configured this yet".
 - Bare (`7`), quoted (`"7"`) and weak (`W/"7"`) forms are all accepted, as is `*` (matches any existing space).
 - A value that is not a version — `If-Match: abc` — is rejected with **400**, never ignored. Silently ignoring an unparseable precondition would give you the false impression that your write was protected.
-- The same header is honoured by `PUT /api/spaces/:id/schema`, and is checked before that route writes its schema backup file.
+- The same header is honoured by **every route that writes space meta**: `PUT /api/spaces/:id/schema` (checked before that route writes its schema backup file), and the single-type `PUT` and `DELETE` on `/api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName`.
+
+**Removing a type schema.** `PATCH` deep-merges, so omitting a type does not delete it — a merge that could delete would make every PATCH potentially destructive, and a client that round-trips a space would silently drop schemas whenever its serialiser emitted `null` for an unset field. Deletion is explicit instead: `DELETE /api/spaces/:id/meta/typeSchemas/:knowledgeType/:typeName` for one type (404 if it does not exist), or `PUT /api/spaces/:id/schema` to replace the whole map.
 
 ```json
 {

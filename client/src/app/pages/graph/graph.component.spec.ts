@@ -87,6 +87,27 @@ describe('GraphComponent (OnPush)', () => {
     expect(fixture.nativeElement.querySelector('.side-panel')).toBeNull();
   });
 
+  it('renders the linked-records lists in BOTH the node panel and the edge panel', () => {
+    // The two panels used to carry byte-identical copies of this block. Now they share one component,
+    // so a mis-wire affects one call site and not the other — and nothing else in the suite would
+    // notice: the 45 characterization tests set `nodeMemories`/`nodeChrono` and assert on the signals,
+    // never on a rendered row. Asserting BOTH panels is the whole point of this test.
+    const fixture = create();
+    const c = fixture.componentInstance;
+    c.nodeMemories.set([{ _id: 'm1', fact: 'linked fact', createdAt: '2026-01-01' } as any]);
+
+    c.selectedNode.set({ _id: 'n1', name: 'Node', type: 'x', depth: 1 } as any);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-graph-linked-records'), 'node panel').toBeTruthy();
+    expect(fixture.nativeElement.textContent).toContain('linked fact');
+
+    c.selectedNode.set(null);
+    c.selectedEdge.set({ _id: 'e1', label: 'knows', from: 'a', to: 'b' } as any);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('app-graph-linked-records'), 'edge panel').toBeTruthy();
+    expect(fixture.nativeElement.textContent).toContain('linked fact');
+  });
+
   it('opens the SHARED record drawer, whose plain form model renders under this page\'s OnPush', () => {
     // The page no longer forks the drawer — `openBrainDrawer` delegates to `RecordDrawerState.open()`.
     // The coupling under test is unchanged and still load-bearing: `open()` writes the `drawerRecord`

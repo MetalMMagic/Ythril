@@ -32,6 +32,7 @@ import { resolveSyncCron } from './schedule.js';
 import { createCoalescingRunner } from './coalescing-runner.js';
 import { remoteToLocal, localToRemote } from './space-map.js';
 import { retagToLocalSpace, planSeqUpserts } from './upsert-plan.js';
+import { decideFilePull, conflictCopyPath } from './file-conflict.js';
 import {
   syncCyclesTotal,
   syncItemsPulledTotal,
@@ -1161,7 +1162,10 @@ async function syncFiles(
 
     if (doPull) for (const remote of manifest) {
       const local = oursMap.get(remote.path);
-      if (local && local.sha256 === remote.sha256) continue; // already in sync
+      // See ./file-conflict.ts — a file has no `seq`, so a differing hash cannot be resolved by
+      // last-writer-wins the way records are. Ours is kept and theirs lands beside it.
+      const action = decideFilePull(local, remote);
+      if (action === 'skip') continue;
 
       try {
         const dl = await peerSafeFetch(
@@ -1184,15 +1188,9 @@ async function syncFiles(
         } else {
           // File exists locally with a different hash — keep local, save incoming
           // under a conflict-copy name so the user can decide which version to keep.
-          const ext = path.extname(remote.path);
-          const base = path.basename(remote.path, ext);
-          const dir = path.dirname(remote.path);
-          // Sanitise peer label so the filename stays filesystem-safe on all OSes
-          const safeLabel = member.label.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 20);
-          // ISO timestamp with colons/dots replaced to be valid on Windows/macOS/Linux
-          const ts = new Date().toISOString().replace(/:/g, '-').replace(/\./g, '-');
-          const conflictName = `${base}_${ts}_${safeLabel}${ext}`;
-          const conflictRelPath = dir === '.' ? conflictName : `${dir}/${conflictName}`;
+          // The peer's label reaches a filesystem path, so it is sanitised there — see
+          // ./file-conflict.ts for why that is an allowlist rather than a strip-list.
+          const conflictRelPath = conflictCopyPath(remote.path, member.label, new Date());
           const absConflictPath = path.join(spaceRoot, conflictRelPath);
           await fs.mkdir(path.dirname(absConflictPath), { recursive: true });
           await fs.writeFile(absConflictPath, buf);

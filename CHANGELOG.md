@@ -862,6 +862,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **The documented split of MCP tools into mutating and read-only is now checked against what the code
+  actually blocks.** Slice 4c of the pre-release audit — the security-posture class — and a clean
+  result: all 31 tools are classified correctly, 18 mutating and 12 read-only, with `list_peers`
+  covered by its own admin-gated sentence.
+
+  It is worth a gate because the guide and the enforcement are two independent statements of the same
+  fact, and one direction of drift is genuinely dangerous. A tool missing from the doc's mutating list
+  only misleads an integrator; a tool *listed* as mutating that carries no `mutating: true` flag tells
+  someone a write is blocked for read-only tokens when nothing blocks it. The test covers both, plus
+  the read-only list, plus the two-part enforcement itself — `router.ts` filters mutating tools out of
+  `tools/list` **and** rejects them if called, and only the second is a control, since a client can
+  call a tool it was never shown. Verified by deleting the call-time rejection while leaving the list
+  filter intact: caught.
+
 - **⚠️ The user guide said offsite backups are kept forever. They are pruned to the 14 most recent.**
   The first real error the documentation audit has found, and the one class of check that cannot be
   mechanised — a prose claim about behaviour.

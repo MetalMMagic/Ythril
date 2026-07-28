@@ -72,12 +72,19 @@ interface Step {
     .nm { font-size: 12px; font-weight: 620; display: flex; align-items: center; gap: 6px; }
     /* The actor is the model, the dot is the state — kept visually separate on purpose. */
     .actor { font-size: 10.5px; color: var(--text-muted); margin-top: 3px;
-      font-family: var(--font-mono, monospace); overflow-wrap: anywhere; }
+      font-family: var(--font-mono, monospace); }
+    /* Model ids are long and their TAIL is the identifying part: "nomic-ai/nomic-embed-text-v1.5" is
+       told apart from its siblings by the version, not the vendor. So this truncates from the START.
+       direction:rtl puts the overflow (and therefore the ellipsis) on the left; the value itself is
+       wrapped in <bdi> so it still reads left-to-right instead of being reordered by the rtl context.
+       Previously this wrapped (overflow-wrap:anywhere) and spilled out of the fixed-height box. */
+    .actor .val { display: block; direction: rtl; text-align: left;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
     /* A configurable step's actor is a link back to the Models-tab card that configures it. A real
        button (not an anchor) so keyboard + screen readers get it for free. */
     .actor button.link { background: none; border: 0; padding: 0; font: inherit; text-align: left;
       color: var(--text-secondary); text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
-      overflow-wrap: anywhere; }
+      display: block; max-width: 100%; }
     .actor button.link.infra { text-decoration-style: dotted; }
     .actor button.link:hover { color: var(--text-primary); }
     .actor button.link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
@@ -156,9 +163,9 @@ interface Step {
               <div class="actor">
                 @if (st.cardId; as cid) {
                   <button type="button" class="link" [class.infra]="isInfra(cid)" (click)="s.requestFocusCard(cid)"
-                    [attr.title]="'mediaProcessing.pipelines.configureLink' | transloco">{{ st.actor }}</button>
+                    [attr.title]="st.actor" [attr.aria-label]="('mediaProcessing.pipelines.configureLink' | transloco) + ': ' + st.actor"><span class="val"><bdi>{{ st.actor }}</bdi></span></button>
                 } @else {
-                  {{ st.actor }}
+                  <span class="val" [attr.title]="st.actor"><bdi>{{ st.actor }}</bdi></span>
                 }
               </div>
             </div>
@@ -225,9 +232,9 @@ interface Step {
                 <div class="actor">
                   @if (st.cardId; as cid) {
                     <button type="button" class="link" [class.infra]="isInfra(cid)" (click)="s.requestFocusCard(cid)"
-                      [attr.title]="'mediaProcessing.pipelines.configureLink' | transloco">{{ st.actor }}</button>
+                      [attr.title]="st.actor" [attr.aria-label]="('mediaProcessing.pipelines.configureLink' | transloco) + ': ' + st.actor"><span class="val"><bdi>{{ st.actor }}</bdi></span></button>
                   } @else {
-                    {{ st.actor }}
+                    <span class="val" [attr.title]="st.actor"><bdi>{{ st.actor }}</bdi></span>
                   }
                 </div>
               </div>

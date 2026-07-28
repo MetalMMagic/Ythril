@@ -786,7 +786,7 @@ Optional filters:
 
 | Parameter | Description |
 |-----------|-------------|
-| `tag` | Filter by tag (case-insensitive) |
+| `tag` | Filter by tag — case-insensitive **substring** match, so `arch` finds `architecture` |
 | `entity` | Filter by linked entity ID |
 | `limit` | Results per page (default 100, max 500) |
 | `skip` | Offset for pagination |
@@ -1745,28 +1745,7 @@ GET /api/brain/spaces/:spaceId/files?limit=50&skip=0&tag=design&path=docs/archit
 
 Returns metadata rows stored in the brain collection for files (`path`, tags, description, properties, size, author, timestamps).
 
-**`plannedRoute` — what will run for a file.** Requesting a **single** file (`?path=…`, one row returned)
-additionally attaches the plan:
-
-```json
-{
-  "mediaClass": "document",
-  "level": "vlm",
-  "stages": ["render", "ocr-evidence", "vlm", "validate"],
-  "willRun": true,
-  "reason": "fallback-ocr",
-  "detail": "mode 'vlm' needs render + vlm; fell back to OCR"
-}
-```
-
-- `level` is the **effective** rung — the space's choice already capped by the instance ceiling — so it is
-  what will really happen, not what was requested.
-- `stages` uses the same identifiers the worker reports in `progress.step`, so a preview and a running job
-  name a stage identically. For documents the chain comes from the extractor's own routing function.
-- `willRun: false` means the file is stored but not analysed. `reason` says why, as a **code** for the
-  caller to localise: `level-off` (this class is off for the space), `too-large` (over the media size cap),
-  or `fallback-ocr` (a stage was unavailable, so extraction degrades). `detail` carries the engine's own
-  English explanation naming the missing capability — diagnostic, not display copy.
+ation naming the missing capability — diagnostic, not display copy.
 
 It is attached only to single-file fetches because deciding it probes the page renderer; a 50-row listing
 would turn that into a burst of sidecar traffic for a column nobody is reading.
@@ -1775,7 +1754,7 @@ would turn that into a burst of sidecar traffic for a column nobody is reading.
 |-------------|-------------|
 | `limit` | Default `50`, max `200` |
 | `skip` | Offset for pagination |
-| `tag` | Exact tag filter |
+| `tag` | Tag filter — case-insensitive **substring** match. For an exact set use `tags` (AND) or `tagsAny` (OR), which are unchanged |
 | `path` | Exact path filter |
 | `sort` | Sort field: `createdAt`, `updatedAt`, or `path` (see [Sorting](#sorting-all-brain-list-endpoints)). Unknown field → `400` |
 | `dir` | `asc` or `desc` (default `desc`) |

@@ -39,6 +39,13 @@ import { TestTarget } from './media-processing.types';
     .field input[data-mono] { font-family: var(--font-mono, monospace); font-size: 12.5px; }
     .field input:disabled, .field select:disabled { opacity: .6; cursor: not-allowed; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+    /* Each field stacks label / input / hint. Left to themselves the two columns lay those out
+       independently, so as soon as one label wraps to a second line and its neighbour does not, the
+       two inputs sit at different heights. Subgrid makes both columns share the SAME three rows, so
+       the inputs line up whatever the labels do -- at any width, in any language. Row alignment is the
+       fix; nudging margins only moves the mismatch to the next viewport width. */
+    .grid2 > .field { display: grid; grid-template-rows: subgrid; grid-row: span 3; margin-bottom: 0;
+      align-content: start; }
     @media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } }
     .hint { font-size: 11.5px; color: var(--text-muted); margin-top: 5px; }
     .ro { font-family: var(--font-mono, monospace); font-size: 12.5px; color: var(--text-primary);

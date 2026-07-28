@@ -211,6 +211,11 @@ interface SpaceView {
         <button class="tab" [class.active]="activeTab() === 'graph'" (click)="setTab('graph')">
           <ph-icon name="binoculars" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.graph' | transloco }}
         </button>
+        <!-- Review (F-REVIEW): duplicate pairs awaiting a decision in this space. Grouped with the
+             other whole-space views rather than after Files — it is a workflow, not a record collection. -->
+        <button class="tab" [class.active]="activeTab() === 'review'" (click)="setTab('review')">
+          <ph-icon name="copy" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.review' | transloco }}
+        </button>
         <span class="tab-spacer"></span>
         @for (tab of collectionTabs; track tab.key) {
           <button class="tab" [class.active]="activeTab() === tab.key" (click)="setTab(tab.key)">
@@ -229,10 +234,6 @@ interface SpaceView {
           @if (activeStats(); as s) {
             <span class="tab-count">{{ s.files }}</span>
           }
-        </button>
-        <!-- Review (F-REVIEW): duplicate pairs awaiting a decision in this space. -->
-        <button class="tab" [class.active]="activeTab() === 'review'" (click)="setTab('review')">
-          <ph-icon name="copy" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ 'brain.tab.review' | transloco }}
         </button>
       </div>
 
@@ -288,7 +289,8 @@ interface SpaceView {
           @if (activeSpace(); as sp) {
             <app-overview-tab [space]="sp" [stats]="activeStats()" [needsReindex]="needsReindex()"
               [reindexing]="reindexing()" [about]="aboutInfo()" [embeddingQueue]="embeddingQueue()"
-              [openVotes]="overviewVotes()" [tokenAccess]="tokenAccess()" (reindex)="runReindex()" (retryFailed)="runRetryFailedEmbeddings()" />
+              [openVotes]="overviewVotes()" [tokenAccess]="tokenAccess()" (reindex)="runReindex()" (retryFailed)="runRetryFailedEmbeddings()"
+              (openTab)="setTab($event)" />
           }
         }
         @if (activeTab() === 'query') { <app-query-tab [spaceId]="activeSpaceId()" /> }

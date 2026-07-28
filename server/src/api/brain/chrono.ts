@@ -273,7 +273,8 @@ chronoRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, a
   } else if (typeof req.query['tags'] === 'string') {
     filter.tags = req.query['tags'].split(',').map(s => s.trim()).filter(Boolean);
   } else if (typeof req.query['tag'] === 'string') {
-    filter.tags = [req.query['tag']];
+    // Singular `?tag=` is the UI's search box: substring, not an exact set.
+    filter.tagLike = req.query['tag'];
   }
 
   // tagsAny — comma-separated or repeated — OR semantics

@@ -3184,6 +3184,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Tag search matches part of a word.** Typing `arch` now finds a record tagged `architecture`. It used
+  to require the whole tag, which reads as "no results" rather than "keep typing" — a tag was effectively
+  unfindable unless you already knew it exactly. The five record types had also drifted into five
+  different answers to what a tag match even is (memories ignored case, entities, edges, file meta and
+  chrono did not), so the same query behaved differently per tab; they now share one matcher. The plural
+  `tags` / `tagsAny` API parameters keep their exact AND/OR semantics — integrations use those to select
+  an exact set.
+
+- **Opening a file is no longer slow to show its description.** The detail fetch waited on a health probe
+  of the document-render sidecar — up to three seconds, and only briefly cached, so the first click after
+  each expiry paid it. The probe existed solely to compute the "What will run" panel, which is gone (see
+  below), so the wait is gone with it.
+
+- **The "What will run" panel is removed from the file detail pane.** Pipeline stages are shown where they
+  are useful — as the status on the file's own row, and only while it is actually processing. A static
+  list of steps for a file that already finished was noise.
+
+- **Long model names no longer overflow their box in the Pipelines view.** They are truncated from the
+  START, so `nomic-ai/nomic-embed-text-v1.5` keeps the part that identifies it; the full name is on hover.
+
+- **The Review tab sits next to Graph** instead of at the far end after Files — it is a whole-space
+  workflow, not a record collection.
+
+- **The Overview tab's record tiles are clickable** and open that record's tab.
+
+- **"Auto-label threshold" and "Minimum face size" line up again.** The two inputs drifted out of
+  alignment whenever one label wrapped and the other did not; the columns now share their rows, so the
+  inputs stay level at any width and in any language.
+
 - **The graph detail panel's type and description filters now exist.** The user guide has told people to
   "use the type filter and description filter to narrow what you see" for a long time; there were no such
   controls. The filtering logic was built and had 23 passing tests — nothing was ever bound to it, so it

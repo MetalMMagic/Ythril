@@ -5,7 +5,7 @@
  * pieces every sub-router needs: webhook token attribution, space-meta lookup, the schema
  * validation gate, the memory list filter, and the UUID matcher.
  */
-import { escapeRegex } from '../../util/redos.js';
+import { tagContains } from '../../brain/tag-filter.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import type express from 'express';
 import { getConfig } from '../../config/loader.js';
@@ -91,7 +91,7 @@ export function buildMemoryFilter(query: Record<string, unknown>): Record<string
   const tag = typeof query['tag'] === 'string' ? query['tag'] : undefined;
   const entity = typeof query['entity'] === 'string' ? query['entity'] : undefined;
   const type = typeof query['type'] === 'string' ? query['type'] : undefined;
-  if (tag) filter['tags'] = { $regex: `^${escapeRegex(tag)}$`, $options: 'i' };
+  if (tag) filter['tags'] = tagContains(tag);
   if (entity) filter['entityIds'] = entity;
   if (type) filter['type'] = type;
   // Freetext substring over fact + description (2b-iii-a).

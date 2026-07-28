@@ -220,7 +220,7 @@ Example — find memories tagged `infra`:
 
 ### File metadata (merged into Files)
 
-There is no longer a separate **File Meta** tab. The metadata Ythril keeps for each uploaded file — the searchable side of a file (its caption/extracted text, tags, and links to entities, memories, and chrono entries) as distinct from the raw bytes — lives in the **[Files](#files)** tab, so files and their metadata are one explorer-style view. Each file row shows its **embedding status** (or a live stage bar while it is being processed) and its **tags** inline, and opening a file docks a detail pane beside the preview with the full metadata record — description, tags, entity/memory/chrono links — plus **what will run** for that file. See [Files](#files).
+There is no longer a separate **File Meta** tab. The metadata Ythril keeps for each uploaded file — the searchable side of a file (its caption/extracted text, tags, and links to entities, memories, and chrono entries) as distinct from the raw bytes — lives in the **[Files](#files)** tab, so files and their metadata are one explorer-style view. Each file row shows its **embedding status** (or a live stage bar while it is being processed) and its **tags** inline, and opening a file docks a detail pane beside the preview with the full metadata record — description, tags, entity/memory/chrono links. See [Files](#files).
 
 ---
 
@@ -291,12 +291,6 @@ the current stage filling as its pages land and a `12 / 40` count where the work
 generic "Embedding" that looked the same for every file and every stage. If the worker stops reporting for
 longer than the stall timeout the bar turns amber and says **stalled**, so a wedged job no longer looks like
 a working one. The moment the file finishes, the row goes back to its status pill.
-
-**What will run for a file:** open a file and its detail pane lists the stages it goes through — a PDF is
-rendered, read, transcribed by the vision model and validated; an image is captioned, embedded and (where
-enabled) scanned for faces; audio and video are transcribed, chunked and embedded. The list reflects the
-level **actually in effect** for this space, which is your choice for the space capped by the instance
-ceiling — so it shows what will really happen, not what was requested.
 
 If **nothing** will run, it says so and why: the file's type is switched off for this space, or the file is
 larger than the processing size limit. If a stage isn't available (for example a vision level with no page

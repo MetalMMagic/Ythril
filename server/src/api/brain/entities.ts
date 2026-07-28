@@ -17,6 +17,7 @@ import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEntity } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { tagContains } from '../../brain/tag-filter.js';
 
 export const entitiesRouter = Router();
 
@@ -104,7 +105,7 @@ entitiesRouter.get('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAut
   const filter: Record<string, unknown> = {};
   if (typeof req.query['name'] === 'string') filter['name'] = req.query['name'];
   if (typeof req.query['type'] === 'string') filter['type'] = req.query['type'];
-  if (typeof req.query['tag'] === 'string') filter['tags'] = req.query['tag'];
+  if (typeof req.query['tag'] === 'string') filter['tags'] = tagContains(req.query['tag']);
   const search = textSearchOr(req.query['search'] as string | undefined, SEARCHABLE_FIELDS.entities);
   if (search) Object.assign(filter, search);
   const all = await collectAcrossMembers(spaceId, mid => listEntities(mid, filter, limit, skip, sortParse.sort));

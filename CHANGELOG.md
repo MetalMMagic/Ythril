@@ -2919,6 +2919,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sync's last-writer-wins decision is now a tested unit, not four lines inside a Mongo helper.**
+  `batchUpsertBySeq` decided which pulled documents to write, and that decision *is* the conflict
+  resolution — sync applies a record as a whole-document replace, so `seq` alone picks the winner. It
+  had no direct test, and each way it can be wrong is silent: loosening `>` to `>=` makes every cycle
+  rewrite every document it has ever seen (correct data, write volume scaling with the size of the
+  space instead of with what changed), while dropping the lower-seq guard lets a peer restored from a
+  backup roll newer local records *backwards*, with reverting records as the only evidence.
+
+  Both, plus the space re-tagging that keeps synced documents visible to `listEntities` and
+  `findEntityByName`, moved to a pure module with 15 tests, mutation-proven 7/7. The engine keeps the
+  IO; only the decisions moved.
+
 - **The sync engine's per-network lock is now a separate, testable unit — which is the entire point of
   the change.** `runSyncForNetwork` guarded sync cycles with a Map and a Set inlined in the engine, and
   two of its three behaviours could not be verified from outside: that a concurrent trigger starts no

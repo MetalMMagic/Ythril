@@ -5600,6 +5600,12 @@ they have expired"*. Without it an absent `changes` would quietly imply nothing 
 | `entity.update` | `name`, `type`, `description`, `tags` |
 | `edge.update` | `label`, `from`, `to`, `weight`, `type` |
 | `chrono.update` | `title`, `description`, `type`, `status`, `startsAt`, `endsAt`, `tags`, `entityIds`, `memoryIds` |
+| `file.meta.update` | `description`, `tags`, `entityIds`, `chronoIds`, `memoryIds` |
+| `entity.merge` | `absorbedName` (recorded as name → `null`) |
+
+A merge is a deletion wearing an edit's clothes. The entry already carries the survivor's id, and the request
+path carries the absorbed one — but an id means nothing once the record it pointed at is gone, so the
+absorbed entity's **name** is recorded as it disappears.
 
 **`properties` is never recorded, for any record type.** It is a free-form bag whose keys you choose, so it
 is the one field on a record that could hold a pasted credential — and an allowlist cannot vet names it has

@@ -112,6 +112,18 @@ export async function upsertFileMeta(
  * every successful update.  Returns the updated document, or null if the
  * record does not exist.
  */
+/**
+ * Read one file-metadata record by path, or null.
+ *
+ * Exists for the audit before-snapshot: `updateFileMeta` reads the same document internally but returns
+ * only the new one, and the audit change list needs the prior state. Kept as a plain getter rather than
+ * changing that signature, so nothing else has to care.
+ */
+export async function getFileMeta(spaceId: string, filePath: string): Promise<FileMetaDoc | null> {
+  return await col<FileMetaDoc>(`${spaceId}_files`)
+    .findOne(asFilter<FileMetaDoc>({ _id: toDocId(filePath) })) as FileMetaDoc | null;
+}
+
 export async function updateFileMeta(
   spaceId: string,
   filePath: string,

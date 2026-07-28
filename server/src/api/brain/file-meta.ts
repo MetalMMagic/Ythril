@@ -14,7 +14,7 @@ import { toDocId } from '../../util/paths.js';
 import { requireSpaceAuth, denyReadOnly, requireAdmin } from '../../auth/middleware.js';
 import { listTokens } from '../../auth/tokens.js';
 import { globalRateLimit } from '../../rate-limit/middleware.js';
-import { updateFileMeta, deleteFileMeta } from '../../files/file-meta.js';
+import { updateFileMeta, deleteFileMeta, getFileMeta } from '../../files/file-meta.js';
 import { assertRefsResolve } from '../../brain/entity-refs.js';
 import { fileExists } from '../../files/files.js';
 import { getConfig } from '../../config/loader.js';
@@ -270,8 +270,15 @@ fileMetaRouter.patch('/spaces/:spaceId/files', globalRateLimit, requireSpaceAuth
     }
   }
 
+  // Snapshot for the audit change list — see the note in memories.ts. `properties` is not allowlisted,
+  // so handing the record over cannot publish it.
+  const prior = await findFirstAcrossMembers(wt.target, mid => getFileMeta(mid, path));
   const updated = await findFirstAcrossMembers(wt.target,
     mid => updateFileMeta(mid, path, { description, tags, entityIds, chronoIds, memoryIds, properties }));
-  if (updated) { res.json(updated); return; }
+  if (updated) {
+    req.auditSnapshots = { before: prior ?? {}, after: updated };
+    res.json(updated);
+    return;
+  }
   res.status(404).json({ error: 'File metadata record not found' });
 });

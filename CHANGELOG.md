@@ -988,6 +988,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **File-metadata edits and entity merges complete the record-change coverage.** The two operations
+  held back from the previous entry — because their routes did not supply snapshots yet, and an
+  allowlist with no route behind it records nothing while claiming coverage — now ship with their
+  wiring.
+
+  A file carries **three** reference lists (`entityIds`, `chronoIds`, `memoryIds`); missing one would
+  leave a link nobody could account for, and the symptom is a traversal coming back empty rather than
+  an error. A merge is a deletion wearing an edit's clothes: the entry already has the survivor's id
+  and the path has the absorbed one, but an id means nothing once its record is gone — so the absorbed
+  entity's **name** is recorded as it disappears.
+
+  A mutation found a real gap in the tests while verifying this, worth noting because it is the same
+  shape as an earlier fix: `entities.ts` now has two snapshot sites, and a file-level "does it mention
+  `auditSnapshots`" check passes when either one is deleted. Deleting the PATCH snapshot left every
+  test green. The check is now per-site.
+
 - **Brain record edits now record what actually changed — including tags and entity links.** The second
   half of the owner's "yes, with a TTL": `memory.update`, `entity.update`, `edge.update` and
   `chrono.update` capture their old→new values, which expire on the short clock shipped in the previous

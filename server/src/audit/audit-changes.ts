@@ -84,10 +84,14 @@ export const AUDIT_CHANGE_FIELDS: Readonly<Record<string, readonly string[]>> = 
   'entity.update': ['name', 'type', 'description', 'tags'],
   'edge.update': ['label', 'from', 'to', 'weight', 'type'],
   'chrono.update': ['title', 'description', 'type', 'status', 'startsAt', 'endsAt', 'tags', 'entityIds', 'memoryIds'],
-  // NOT YET LISTED: `file.meta.update` and `entity.merge`. Both are real candidates, but their routes
-  // do not supply snapshots yet, and an allowlist without a route behind it records nothing while the
-  // list claims coverage — the exact mistake the first audit slice shipped. They land with their
-  // wiring, in one change, or not at all.
+  // A file's metadata carries THREE reference lists, and losing track of what a file was linked to is
+  // exactly the kind of change nobody notices until a traversal comes back empty.
+  'file.meta.update': ['description', 'tags', 'entityIds', 'chronoIds', 'memoryIds'],
+  // A merge is a deletion wearing an edit's clothes: the absorbed entity ceases to exist. The entry
+  // already carries the survivor's id and the path carries the absorbed one, so the only fact that
+  // becomes UNRECOVERABLE is the absorbed entity's name — an id alone means nothing once the record it
+  // pointed at is gone. Recorded as name → null, which reads as "this entity no longer exists".
+  'entity.merge': ['absorbedName'],
   // Maintenance mode blocks writes instance-wide. One boolean, and the direction is the whole story:
   // an entry saying only "an admin hit the maintenance route" cannot distinguish starting an outage
   // from ending one.
@@ -118,7 +122,7 @@ function scalarOrDrop(v: unknown): string | number | boolean | null | undefined 
  * Recording added/removed rather than the whole before/after list keeps the entry proportional to the
  * change. Re-tagging one memory should not copy forty tags into the audit log twice.
  */
-const LIST_FIELDS: ReadonlySet<string> = new Set(['tags', 'entityIds', 'memoryIds']);
+const LIST_FIELDS: ReadonlySet<string> = new Set(['tags', 'entityIds', 'memoryIds', 'chronoIds']);
 
 /** An array of primitives, or undefined if it is not one. Nested values disqualify the whole field. */
 function primitiveListOrDrop(v: unknown): (string | number | boolean)[] | undefined {

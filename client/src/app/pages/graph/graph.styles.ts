@@ -488,81 +488,11 @@ export const GRAPH_STYLES = `
       margin-right: 3px;
     }
 
-    /* â”€â”€ Brain-style record drawer modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-    .bdrawer-overlay {
-      position: fixed; inset: 0;
-      background: var(--bg-scrim);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 1100;
-    }
-    .bdrawer-modal {
-      background: var(--bg-surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      width: 100%; max-width: 640px;
-      max-height: 88vh; overflow: hidden;
-      display: flex; flex-direction: column;
-    }
-    .bdrawer-header {
-      display: flex; align-items: flex-start; justify-content: space-between;
-      padding: 16px 20px; border-bottom: 1px solid var(--border); gap: 12px; flex-shrink: 0;
-    }
-    .bdrawer-title { font-size: 15px; font-weight: 600; color: var(--text-primary); word-break: break-word; }
-    .bdrawer-body { overflow-y: auto; flex: 1; padding: 20px; }
-    .bdrawer-footer {
-      display: flex; align-items: center; justify-content: flex-end;
-      gap: 8px; padding: 12px 20px; border-top: 1px solid var(--border); flex-shrink: 0;
-    }
-    .bdrawer-field { margin-bottom: 16px; }
-    .bdrawer-label {
-      font-size: 10px; font-weight: 600; color: var(--text-muted);
-      text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px;
-    }
-    .bdrawer-readonly {
-      font-size: 12px; color: var(--text-muted); padding: 5px 8px;
-      border: 1px solid var(--border-muted, var(--border)); border-radius: var(--radius-sm);
-      background: var(--bg-elevated); word-break: break-all; line-height: 1.4;
-      font-family: var(--font-mono);
-    }
-    .bdrawer-muted { color: var(--text-muted); font-size: 11px; }
-    .bdrawer-hr { border: none; border-top: 1px solid var(--border); margin: 16px 0; }
-    .bdrawer-modal input[type=text], .bdrawer-modal input[type=number],
-    .bdrawer-modal input[type=datetime-local], .bdrawer-modal textarea, .bdrawer-modal select {
-      width: 100%; padding: 6px 9px;
-      border: 1px solid var(--border); border-radius: var(--radius-sm);
-      font-size: 13px; background: var(--bg-primary); color: var(--text-primary);
-      box-sizing: border-box; font-family: var(--font);
-    }
-    .bdrawer-modal textarea { resize: vertical; }
-    .bdrawer-modal input:focus, .bdrawer-modal select:focus, .bdrawer-modal textarea:focus {
-      outline: none; border-color: var(--accent);
-    }
     /* entity chips */
-    .entity-multi {
-      display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
-      padding: 4px 6px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-      background: var(--bg-primary); min-height: 34px;
-    }
     .chip {
       display: inline-flex; align-items: center; gap: 3px;
       padding: 2px 8px; border-radius: 10px;
       background: var(--accent-dim); border: 1px solid var(--accent);
       font-size: 11px; color: var(--text-primary);
-    }
-    .chip-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .chip-remove {
-      background: none; border: none; color: var(--text-muted); cursor: pointer;
-      padding: 0 1px; font-size: 12px; line-height: 1;
-    }
-    .chip-add {
-      background: none; border: none; color: var(--accent); cursor: pointer;
-      font-size: 12px; padding: 2px 4px;
-    }
-    .flyout-wrap { position: relative; }
-    .flyout-panel {
-      position: absolute; top: 100%; left: 0; right: 0; z-index: 200;
-      background: var(--bg-surface); border: 1px solid var(--border);
-      border-radius: var(--radius-md); padding: 10px; margin-top: 4px;
-      box-shadow: var(--shadow-lg);
     }
 `;

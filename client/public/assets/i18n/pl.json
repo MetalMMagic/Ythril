@@ -490,8 +490,6 @@
   "graph.panel.noLinkedMemories": "Żadnych powiązanych wspomnień",
   "graph.panel.noLinkedChrono": "Brak połączonego chronometrażu",
   "graph.panel.loading": "Załadunek…",
-  "graph.drawer.badge.memory": "pamięć",
-  "graph.drawer.badge.chrono": "chrono",
   "graph.drawer.badge.edge": "krawędź",
   "files.newFolder": "+ Nowy folder",
   "files.newFolderPlaceholder": "Nazwa folderu",

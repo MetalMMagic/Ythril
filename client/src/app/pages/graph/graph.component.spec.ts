@@ -26,12 +26,15 @@ import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { AuthApi } from '../../core/auth-api.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
+import { RecordDrawerState } from '../brain/record-drawer-state.service';
 import { GraphComponent } from './graph.component';
 
 function makeApi() {
   return {
     getMe: () => of({ readOnly: false }),
     listSpaces: () => of({ spaces: [] }),
+    // The page feeds `BrainStore.spaceMeta` so the shared drawer's property editors get their schema.
+    getSpaceMeta: () => of({ typeSchemas: {} }),
   } as any;
 }
 
@@ -84,10 +87,14 @@ describe('GraphComponent (OnPush)', () => {
     expect(fixture.nativeElement.querySelector('.side-panel')).toBeNull();
   });
 
-  it('opens the brain drawer and renders its plain (non-signal) form model', () => {
-    // Same load-bearing coupling as brain: openBrainDrawer writes the drawerRecord SIGNAL (guards the
-    // drawer @if) and the plain drawerEditMemory field in the same turn. The title binds the plain
-    // field, so if the sibling signal write were dropped this would render empty rather than ship stale.
+  it('opens the SHARED record drawer, whose plain form model renders under this page\'s OnPush', () => {
+    // The page no longer forks the drawer — `openBrainDrawer` delegates to `RecordDrawerState.open()`.
+    // The coupling under test is unchanged and still load-bearing: `open()` writes the `drawerRecord`
+    // SIGNAL (which guards the drawer's @if) and the plain `drawerEditMemory` field in the same turn,
+    // and the title binds the PLAIN field. Drop the sibling signal write and this renders empty.
+    //
+    // Asserting through the shared drawer's own markup (`.drawer`/`.drawer-title`) is the point: it is
+    // what proves the reuse is real rather than a renamed copy.
     const fixture = create();
     const c = fixture.componentInstance;
     expect(fixture.nativeElement.querySelector('.drawer')).toBeNull();
@@ -95,9 +102,25 @@ describe('GraphComponent (OnPush)', () => {
     c.openBrainDrawer('memory', { _id: 'm1', fact: 'a graph-drawer fact', tags: [], entityIds: [], properties: {} });
     fixture.detectChanges();
 
-    const drawer = fixture.nativeElement.querySelector('.bdrawer-modal');
+    const drawer = fixture.nativeElement.querySelector('.drawer');
     expect(drawer, 'the drawer should be open').toBeTruthy();
-    expect((fixture.nativeElement.querySelector('.bdrawer-title') as HTMLElement).textContent)
+    expect((fixture.nativeElement.querySelector('.drawer-title') as HTMLElement).textContent)
       .toContain('a graph-drawer fact');
+  });
+
+  it('patches the node panel list when the shared drawer saves (the store it patches is not this page\'s)', () => {
+    // The drawer updates `BrainStore.memories`, which this page never renders — it keeps its own
+    // per-node arrays. Without the `lastSaved` bridge a save would succeed and leave the pre-save row
+    // on screen: a silent staleness that no error and no drawer-side test can see.
+    const fixture = create();
+    const c = fixture.componentInstance;
+    c.nodeMemories.set([{ _id: 'm1', fact: 'before' } as any]);
+
+    // From the COMPONENT's injector, not TestBed's — the page provides its own drawer collaborators.
+    const drawerState = fixture.debugElement.injector.get(RecordDrawerState);
+    drawerState.lastSaved.set({ kind: 'memory', record: { _id: 'm1', fact: 'after' } });
+    fixture.detectChanges();
+
+    expect(c.nodeMemories()[0].fact).toBe('after');
   });
 });

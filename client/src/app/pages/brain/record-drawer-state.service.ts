@@ -34,6 +34,17 @@ export class RecordDrawerState {
   drawerSaving = signal(false);
   drawerError = signal('');
 
+  /**
+   * The last record a `save()` persisted, for hosts that keep their OWN copies of records.
+   *
+   * `save()` already patches the `BrainStore` lists, which is all the brain page needs. The graph
+   * page holds per-node `nodeMemories`/`nodeChrono` arrays the store never sees, so without this it
+   * would save successfully and still show the stale row underneath — the silent-staleness shape.
+   * Deliberately a signal rather than a callback so a host reacts declaratively and one host cannot
+   * overwrite another's handler.
+   */
+  readonly lastSaved = signal<{ kind: 'memory' | 'entity' | 'edge' | 'chrono'; record: any } | null>(null);
+
   drawerEditMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
   drawerEditEdge = { label: '', type: '', weight: null as number | null, tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
@@ -130,6 +141,7 @@ export class RecordDrawerState {
           this.drawerSaving.set(false);
           this.drawerRecord.set({ kind: 'memory', record: updated });
           this.store.memories.update(list => list.map(m => m._id === id ? updated : m));
+          this.lastSaved.set({ kind: 'memory', record: updated });
         },
         error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
       });
@@ -146,6 +158,7 @@ export class RecordDrawerState {
           this.drawerSaving.set(false);
           this.drawerRecord.set({ kind: 'entity', record: updated });
           this.store.entities.update(list => list.map(e => e._id === id ? updated : e));
+          this.lastSaved.set({ kind: 'entity', record: updated });
         },
         error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
       });
@@ -163,6 +176,7 @@ export class RecordDrawerState {
           this.drawerSaving.set(false);
           this.drawerRecord.set({ kind: 'edge', record: updated });
           this.store.edges.update(list => list.map(e => e._id === id ? updated : e));
+          this.lastSaved.set({ kind: 'edge', record: updated });
         },
         error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
       });
@@ -188,6 +202,7 @@ export class RecordDrawerState {
           this.drawerSaving.set(false);
           this.drawerRecord.set({ kind: 'chrono', record: updated });
           this.store.chrono.update(list => list.map(c => c._id === id ? updated : c));
+          this.lastSaved.set({ kind: 'chrono', record: updated });
         },
         error: (err) => { this.drawerSaving.set(false); this.drawerError.set(fmtApiError(err, 'Failed to save')); },
       });

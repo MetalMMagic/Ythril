@@ -125,7 +125,9 @@ function create(brain: any = makeBrain()) {
   TestBed.configureTestingModule({
     imports: [GraphComponent, getTranslocoModule()],
     providers: [
-      { provide: SpacesApi, useValue: { listSpaces: () => of({ spaces: [] }) } },
+      // `getSpaceMeta` feeds the shared record drawer's property schema. Added to the stub, not to any
+      // assertion: every behaviour characterized below is unchanged by the drawer swap.
+      { provide: SpacesApi, useValue: { listSpaces: () => of({ spaces: [] }), getSpaceMeta: () => of({ typeSchemas: {} }) } },
       { provide: BrainApi, useValue: brain },
       { provide: AuthApi, useValue: { getMe: () => of({ readOnly: false }) } },
       { provide: ActivatedRoute, useValue: { snapshot: { queryParams: {} } } },

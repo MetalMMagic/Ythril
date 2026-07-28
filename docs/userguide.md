@@ -256,6 +256,8 @@ The Graph view lets you explore how entities relate to each other visually.
 
 The detail panel below the canvas shows all memories and chrono entries linked to the selected entity. Use the type filter and description filter to narrow what you see.
 
+**Editing from the graph:** click any memory or chrono row in that panel to open the same editable detail drawer used on the Brain tabs — including tag suggestions, the entity and memory pickers, and the property fields defined by the record type's schema. Saving updates the row in the panel behind it.
+
 ---
 
 ## Files

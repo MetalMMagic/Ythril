@@ -8,6 +8,7 @@
   inject,
   signal,
   computed,
+  effect,
   viewChild,
   ElementRef,
 } from '@angular/core';
@@ -18,15 +19,12 @@ import { Subscription, forkJoin, of } from 'rxjs';
 import { catchError, map } from 'rxjs/operators';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ErrorStateComponent } from '../../shared/error-state.component';
-import { ModalDirective } from '../../shared/modal.directive';
 import { httpErrorReason } from '../../core/http-error';
 import {
   Space,
   Entity,
   Memory,
   ChronoEntry,
-  ChronoType,
-  ChronoStatus,
   Edge,
   TraverseNode,
   TraverseEdge,
@@ -38,9 +36,14 @@ import { AuthApi } from '../../core/auth-api.service';
 import { EntryPopupComponent } from '../../shared/entry-popup.component';
 import { EntitySearchComponent } from '../../shared/entity-search.component';
 import { PropertiesViewComponent } from '../../shared/properties-view.component';
-import { TagInputComponent } from '../../shared/tag-input.component';
-import { PropertiesEditorComponent } from '../../shared/properties-editor.component';
 import { TranslocoPipe } from '@jsverse/transloco';
+// The record drawer and its state are shared with the Brain page rather than forked here: this page
+// used to carry a copy that had drifted behind (no schema-driven properties, no confidence field, no
+// tag suggestions, and its own retired entity-picker flyout).
+import { RecordDrawerComponent } from '../brain/record-drawer.component';
+import { RecordDrawerState } from '../brain/record-drawer-state.service';
+import { BrainStore } from '../brain/brain-store.service';
+import { EntityRefPicker } from '../brain/entity-ref-picker.service';
 import {
   DetailRow, DetailRef, buildDetailRows, filterAndSortDetails, nextSort,
 } from './graph-details';
@@ -66,7 +69,12 @@ import { GRAPH_STYLES } from './graph.styles';
   // `openBrainDrawer` alongside the `drawerRecord` signal that guards the drawer's `@if`, the same
   // load-bearing coupling pinned by the brain spec.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, TagInputComponent, PropertiesEditorComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe, ModalDirective],
+  imports: [CommonModule, FormsModule, EntryPopupComponent, EntitySearchComponent, PropertiesViewComponent, PhIconComponent, ErrorStateComponent, TranslocoPipe, RecordDrawerComponent],
+  // Its own drawer collaborators, so the standalone `/graph` route works with nothing above it. When
+  // this page is embedded as Brain's Graph tab these SHADOW Brain's instances, which is deliberate:
+  // the drawer then patches this page's per-node lists, exactly as the forked drawer did. The cost is
+  // one extra space-meta fetch while embedded.
+  providers: [BrainStore, EntityRefPicker, RecordDrawerState],
   host: { '[class.embedded]': 'isEmbedded()' },
   styles: [GRAPH_STYLES],
   template: `
@@ -382,181 +390,8 @@ import { GRAPH_STYLES } from './graph.styles';
       />
     }
 
-    <!-- â•â•â• Brain-style drawer modal (memory / chrono) â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-    @if (drawerRecord(); as dr) {
-      <div class="bdrawer-overlay">
-        <div class="bdrawer-modal" [appModal]="'brain.drawer.recordDetailsAriaLabel' | transloco" (dismiss)="closeBrainDrawer()" (click)="$event.stopPropagation()">
-          <div class="bdrawer-header">
-            <div style="flex:1; min-width:0;">
-              @if (dr.kind === 'memory') { <span class="badge badge-blue" style="margin-bottom:6px; display:inline-block;">{{ 'graph.drawer.badge.memory' | transloco }}</span> }
-              @if (dr.kind === 'chrono') { <span class="badge" style="margin-bottom:6px; display:inline-block;">{{ 'graph.drawer.badge.chrono' | transloco }}</span> }
-              <div class="bdrawer-title">
-                @if (dr.kind === 'memory') { {{ drawerEditMemory.fact.length > 80 ? (drawerEditMemory.fact | slice:0:80) + 'â€¦' : drawerEditMemory.fact }} }
-                @if (dr.kind === 'chrono') { {{ drawerEditChrono.title || dr.record.title }} }
-              </div>
-            </div>
-            <div style="display:flex; gap:8px; flex-shrink:0; align-items:flex-start; padding-top:2px;">
-              <button class="btn btn-sm btn-primary" [disabled]="drawerSaving()" (click)="saveBrainDrawer()">
-                @if (drawerSaving()) { <span class="spinner" style="width:11px;height:11px;border-width:2px;"></span> } {{ 'common.save' | transloco }}
-              </button>
-              <button class="icon-btn" [attr.title]="'common.close' | transloco" (click)="closeBrainDrawer()"><ph-icon name="x" [size]="16"/></button>
-            </div>
-          </div>
-
-          <div class="bdrawer-body">
-            @if (drawerError()) {
-              <div class="alert alert-error" style="margin-bottom:16px; font-size:13px;">{{ drawerError() }}</div>
-            }
-            <form>
-
-              <!-- â”€â”€ MEMORY â”€â”€ -->
-              @if (dr.kind === 'memory') {
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.form.fact' | transloco }} <span style="color:var(--error)">*</span></div>
-                  <textarea [(ngModel)]="drawerEditMemory.fact" name="drwMemFact" rows="4"></textarea>
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.form.description' | transloco }}</div>
-                  <textarea [(ngModel)]="drawerEditMemory.description" name="drwMemDesc" rows="3" style="resize:vertical;"></textarea>
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.form.tags' | transloco }}</div>
-                  <app-tag-input [(value)]="drawerEditMemory.tags" [suggestions]="[]" inputName="drwMemTags" />
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.entityIds' | transloco }}</div>
-                  <div class="flyout-wrap">
-                    <div class="entity-multi">
-                      @for (chip of entityChips(drawerEditMemory.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id">
-                          <span class="chip-name">{{ chip.name }}</span>
-                          <button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditMemory, chip.id)"><ph-icon name="x" [size]="12"/></button>
-                        </span>
-                      }
-                      <button type="button" class="chip-add" (click)="openFlyout('drawer-memory-entityIds')">{{ 'common.addMore' | transloco }}</button>
-                    </div>
-                    @if (flyoutField() === 'drawer-memory-entityIds') {
-                      <div class="flyout-panel">
-                        <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="common.searchEntitiesPlaceholder"
-                          (selected)="pickDrawerEntity($event, 'drawer-memory-entityIds')" />
-                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                          <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">{{ 'common.done' | transloco }}</button>
-                        </div>
-                      </div>
-                    }
-                  </div>
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.form.properties' | transloco }}</div>
-                  <app-properties-editor [(value)]="drawerEditMemory.properties" />
-                </div>
-                <hr class="bdrawer-hr">
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">_id</div>
-                  <div class="bdrawer-readonly">{{ dr.record._id }}</div>
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.seq' | transloco }}</div>
-                  <div class="bdrawer-readonly">{{ dr.record.seq }}</div>
-                </div>
-                <div class="bdrawer-field" style="margin-bottom:0;">
-                  <div class="bdrawer-label">{{ 'common.createdAt' | transloco }}</div>
-                  <div class="bdrawer-readonly">{{ dr.record.createdAt | date:'yyyy-MM-dd HH:mm:ss' }}</div>
-                </div>
-              }
-
-              <!-- â”€â”€ CHRONO â”€â”€ -->
-              @if (dr.kind === 'chrono') {
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.form.title' | transloco }} <span style="color:var(--error)">*</span></div>
-                  <input type="text" [(ngModel)]="drawerEditChrono.title" name="drwChronoTitle" />
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.form.kind' | transloco }} <span style="color:var(--error)">*</span></div>
-                  @if (drawerEditChrono.kind !== '__custom__') {
-                    <select [(ngModel)]="drawerEditChrono.kind" name="drwChronoKind">
-                      @for (k of chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
-                      <option value="__custom__">{{ 'brain.chrono.form.customKind' | transloco }}</option>
-                    </select>
-                  } @else {
-                    <div style="display:flex; gap:4px;">
-                      <input type="text" [(ngModel)]="drawerEditChrono.customKind" name="drwChronoCustomKind" style="flex:1;" />
-                      <button type="button" class="btn btn-sm btn-secondary" style="padding:4px 8px;" (click)="drawerEditChrono.kind = 'event'; drawerEditChrono.customKind = ''"><ph-icon name="x" [size]="14"/></button>
-                    </div>
-                  }
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'brain.chrono.table.status' | transloco }}</div>
-                  <select [(ngModel)]="drawerEditChrono.status" name="drwChronoStatus">
-                    @for (s of chronoStatusOptions; track s) { <option [value]="s">{{ s }}</option> }
-                  </select>
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.form.startsAt' | transloco }} <span style="color:var(--error)">*</span></div>
-                  <input type="datetime-local" [(ngModel)]="drawerEditChrono.startsAt" name="drwChronoStarts" />
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.form.endsAt' | transloco }}</div>
-                  <input type="datetime-local" [(ngModel)]="drawerEditChrono.endsAt" name="drwChronoEnds" />
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.form.description' | transloco }}</div>
-                  <textarea [(ngModel)]="drawerEditChrono.description" name="drwChronoDesc" rows="3"></textarea>
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.form.tags' | transloco }}</div>
-                  <app-tag-input [(value)]="drawerEditChrono.tags" [suggestions]="[]" inputName="drwChronoTags" />
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.entityIds' | transloco }}</div>
-                  <div class="flyout-wrap">
-                    <div class="entity-multi">
-                      @for (chip of entityChips(drawerEditChrono.entityIds); track chip.id) {
-                        <span class="chip" [title]="chip.id">
-                          <span class="chip-name">{{ chip.name }}</span>
-                          <button type="button" class="chip-remove" (mousedown)="removeEntityId(drawerEditChrono, chip.id)"><ph-icon name="x" [size]="12"/></button>
-                        </span>
-                      }
-                      <button type="button" class="chip-add" (click)="openFlyout('drawer-chrono-entityIds')">{{ 'common.addMore' | transloco }}</button>
-                    </div>
-                    @if (flyoutField() === 'drawer-chrono-entityIds') {
-                      <div class="flyout-panel">
-                        <app-entity-search mode="picker" [spaceId]="activeSpaceId()" placeholder="common.searchEntitiesPlaceholder"
-                          (selected)="pickDrawerEntity($event, 'drawer-chrono-entityIds')" />
-                        <div style="display:flex; justify-content:flex-end; margin-top:8px;">
-                          <button type="button" class="btn btn-sm btn-secondary" (click)="closeFlyout()">{{ 'common.done' | transloco }}</button>
-                        </div>
-                      </div>
-                    }
-                  </div>
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.memoryIds' | transloco }} <span class="bdrawer-muted">{{ 'common.commaSeparatedIds' | transloco }}</span></div>
-                  <textarea [(ngModel)]="drawerEditChrono.memoryIds" name="drwChronoMemIds" rows="2" style="font-family:var(--font-mono,monospace); font-size:11px;"></textarea>
-                </div>
-                <hr class="bdrawer-hr">
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">_id</div>
-                  <div class="bdrawer-readonly">{{ dr.record._id }}</div>
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.seq' | transloco }}</div>
-                  <div class="bdrawer-readonly">{{ dr.record.seq }}</div>
-                </div>
-                <div class="bdrawer-field">
-                  <div class="bdrawer-label">{{ 'common.createdAt' | transloco }}</div>
-                  <div class="bdrawer-readonly">{{ dr.record.createdAt | date:'yyyy-MM-dd HH:mm:ss' }}</div>
-                </div>
-                <div class="bdrawer-field" style="margin-bottom:0;">
-                  <div class="bdrawer-label">{{ 'common.updatedAt' | transloco }}</div>
-                  <div class="bdrawer-readonly">{{ dr.record.updatedAt | date:'yyyy-MM-dd HH:mm:ss' }}</div>
-                </div>
-              }
-            </form>
-          </div>
-        </div>
-      </div>
-    }
+    <!-- Record drawer (memory / chrono) - the shared brain drawer, not a copy -->
+    <app-record-drawer />
   `,
 })
 export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
@@ -566,6 +401,35 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   private authApi = inject(AuthApi);
   private location = inject(Location);
   private route = inject(ActivatedRoute);
+  private store = inject(BrainStore);
+  private picker = inject(EntityRefPicker);
+  protected drawerState = inject(RecordDrawerState);
+
+  constructor() {
+    // One propagation point for the three places `activeSpaceId` is written (the embedded @Input
+    // setter, the initial route read, and the space picker). An effect rather than three call sites
+    // so a fourth writer added later cannot forget to feed the drawer — that failure mode is silent:
+    // the drawer opens and saves into the empty space id.
+    effect(() => {
+      const id = this.activeSpaceId();
+      this.drawerState.spaceId.set(id);
+      this.picker.spaceId.set(id);
+      this.loadSpaceMeta(id);
+    });
+
+    // The drawer patches the `BrainStore` lists, which this page does not render. Its per-node arrays
+    // are its own, so without this a save would succeed and leave the stale row on screen underneath.
+    effect(() => {
+      const saved = this.drawerState.lastSaved();
+      if (!saved) return;
+      const rec = saved.record;
+      if (saved.kind === 'memory') {
+        this.nodeMemories.update(list => list.map(m => m._id === rec._id ? rec : m));
+      } else if (saved.kind === 'chrono') {
+        this.nodeChrono.update(list => list.map(c => c._id === rec._id ? rec : c));
+      }
+    });
+  }
 
   // â”€â”€ Element refs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   cyContainer = viewChild<ElementRef<HTMLDivElement>>('cyContainer');
@@ -612,16 +476,9 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
   popupType = signal<'entity' | 'edge' | 'memory' | 'chrono'>('entity');
   canEdit = signal(false);
 
-  // â”€â”€ Brain-style drawer for memory / chrono â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  drawerRecord = signal<{ kind: 'memory' | 'chrono'; record: any } | null>(null);
-  drawerSaving = signal(false);
-  drawerError = signal('');
-  drawerEditMemory = { fact: '', tags: [] as string[], entityIds: '', description: '', properties: {} as Record<string, string | number | boolean> };
-  drawerEditChrono = { title: '', kind: 'event' as string, customKind: '', status: 'upcoming' as string, startsAt: '', endsAt: '', description: '', tags: [] as string[], entityIds: '', memoryIds: '' };
-  entityNameCache = signal<Record<string, string>>({});
-  flyoutField = signal('');
-  readonly chronoKinds: ChronoType[] = ['event', 'deadline', 'plan', 'prediction', 'milestone'];
-  readonly chronoStatusOptions: ChronoStatus[] = ['upcoming', 'active', 'completed', 'overdue', 'cancelled'];
+  // -- Record drawer (memory / chrono) ----------------------------------------
+  // Drawer state lives in the shared `RecordDrawerState` provided above. This page only opens it
+  // and reacts to `lastSaved`; it holds no edit models of its own.
 
   loading = signal(false);
   /** Failure reason for the last traversal; null when it succeeded (U3). A
@@ -1047,148 +904,28 @@ export class GraphComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  /**
+   * Open the shared record drawer on a graph node's memory or chrono record.
+   *
+   * Kept as a method rather than calling `drawerState.open()` from each of the three call sites,
+   * so this page keeps one seam for the open path.
+   */
   openBrainDrawer(kind: 'memory' | 'chrono', record: any): void {
-    this.drawerError.set('');
-    this.drawerSaving.set(false);
-    this.flyoutField.set('');
-    const ids: string[] = record.entityIds ?? [];
-    if (ids.length) this.resolveEntityNamesById(ids);
-    if (kind === 'memory') {
-      this.drawerEditMemory = {
-        fact: record.fact ?? '',
-        tags: [...(record.tags ?? [])],
-        entityIds: (record.entityIds ?? []).join(', '),
-        description: record.description ?? '',
-        properties: { ...(record.properties ?? {}) },
-      };
-    } else {
-      const isPredefined = this.chronoKinds.includes(record.type as ChronoType);
-      this.drawerEditChrono = {
-        title: record.title ?? '',
-        kind: isPredefined ? record.type : '__custom__',
-        customKind: isPredefined ? '' : (record.type ?? ''),
-        status: record.status ?? 'upcoming',
-        startsAt: record.startsAt ? this.toLocalDatetime(record.startsAt) : '',
-        endsAt: record.endsAt ? this.toLocalDatetime(record.endsAt) : '',
-        description: record.description ?? '',
-        tags: [...(record.tags ?? [])],
-        entityIds: (record.entityIds ?? []).join(', '),
-        memoryIds: (record.memoryIds ?? []).join(', '),
-      };
-    }
-    this.drawerRecord.set({ kind, record });
+    this.drawerState.open(kind, record);
   }
 
-  closeBrainDrawer(): void {
-    this.drawerRecord.set(null);
-    this.drawerError.set('');
-    this.flyoutField.set('');
-  }
-
-  saveBrainDrawer(): void {
-    const dr = this.drawerRecord();
-    if (!dr) return;
-    const spaceId = this.activeSpaceId();
-    const id = dr.record._id;
-    this.drawerSaving.set(true);
-    this.drawerError.set('');
-    if (dr.kind === 'memory') {
-      const props = this.drawerEditMemory.properties;
-      this.brainApi.updateMemory(spaceId, id, {
-        fact: this.drawerEditMemory.fact.trim(),
-        tags: this.drawerEditMemory.tags,
-        entityIds: this.drawerEditMemory.entityIds.split(',').map(s => s.trim()).filter(Boolean),
-        description: this.drawerEditMemory.description.trim(),
-        ...(Object.keys(props).length ? { properties: props } : {}),
-      }).subscribe({
-        next: (updated) => {
-          this.drawerSaving.set(false);
-          this.drawerRecord.set({ kind: 'memory', record: updated });
-          this.nodeMemories.update(list => list.map(m => m._id === id ? updated : m));
-        },
-        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(err?.error?.error ?? err?.message ?? 'Save failed'); },
-      });
-    } else {
-      const resolvedKind = this.drawerEditChrono.kind === '__custom__'
-        ? (this.drawerEditChrono.customKind.trim() as ChronoType)
-        : this.drawerEditChrono.kind as ChronoType;
-      this.brainApi.updateChrono(spaceId, id, {
-        title: this.drawerEditChrono.title.trim(),
-        type: resolvedKind,
-        status: this.drawerEditChrono.status as ChronoStatus,
-        ...(this.drawerEditChrono.startsAt ? { startsAt: new Date(this.drawerEditChrono.startsAt).toISOString() } : {}),
-        ...(this.drawerEditChrono.endsAt ? { endsAt: new Date(this.drawerEditChrono.endsAt).toISOString() } : {}),
-        description: this.drawerEditChrono.description.trim(),
-        tags: this.drawerEditChrono.tags,
-        entityIds: this.drawerEditChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean),
-        ...(this.drawerEditChrono.memoryIds.trim() ? { memoryIds: this.drawerEditChrono.memoryIds.split(',').map(s => s.trim()).filter(Boolean) } : {}),
-      }).subscribe({
-        next: (updated) => {
-          this.drawerSaving.set(false);
-          this.drawerRecord.set({ kind: 'chrono', record: updated });
-          this.nodeChrono.update(list => list.map(c => c._id === id ? updated : c));
-        },
-        error: (err) => { this.drawerSaving.set(false); this.drawerError.set(err?.error?.error ?? err?.message ?? 'Save failed'); },
-      });
-    }
-  }
-
-  entityChips(ids: string): Array<{ id: string; name: string }> {
-    const cache = this.entityNameCache();
-    return ids.split(',').map(s => s.trim()).filter(Boolean).map(id => ({ id, name: cache[id] ?? id }));
-  }
-
-  removeEntityId(target: { entityIds: string }, id: string): void {
-    target.entityIds = target.entityIds.split(',').map(s => s.trim()).filter(s => s && s !== id).join(', ');
-  }
-
-  openFlyout(key: string): void {
-    this.flyoutField.set(key);
-    let ids = '';
-    if (key === 'drawer-memory-entityIds') ids = this.drawerEditMemory.entityIds;
-    if (key === 'drawer-chrono-entityIds') ids = this.drawerEditChrono.entityIds;
-    const spaceId = this.activeSpaceId();
-    if (spaceId && ids) {
-      const unknown = ids.split(',').map(s => s.trim()).filter(s => s && !this.entityNameCache()[s]);
-      if (unknown.length) this.resolveEntityNamesById(unknown);
-    }
-  }
-
-  closeFlyout(): void { this.flyoutField.set(''); }
-
-  pickDrawerEntity(ent: Entity, field: string): void {
-    this.entityNameCache.update(c => ({ ...c, [ent._id]: ent.name }));
-    if (field === 'drawer-memory-entityIds') {
-      const parts = this.drawerEditMemory.entityIds.split(',').map(s => s.trim()).filter(Boolean);
-      if (!parts.includes(ent._id)) parts.push(ent._id);
-      this.drawerEditMemory.entityIds = parts.join(', ');
-    } else if (field === 'drawer-chrono-entityIds') {
-      const parts = this.drawerEditChrono.entityIds.split(',').map(s => s.trim()).filter(Boolean);
-      if (!parts.includes(ent._id)) parts.push(ent._id);
-      this.drawerEditChrono.entityIds = parts.join(', ');
-    }
-  }
-
-  private resolveEntityNamesById(ids: string[]): void {
-    const spaceId = this.activeSpaceId();
-    if (!spaceId || !ids.length) return;
-    const unknown = ids.filter(id => !this.entityNameCache()[id]);
-    if (!unknown.length) return;
-    this.brainApi.getEntitiesByIds(spaceId, unknown).subscribe({
-      next: ({ entities }) => {
-        const patch: Record<string, string> = {};
-        for (const e of entities) patch[e._id] = e.name;
-        this.entityNameCache.update(c => ({ ...c, ...patch }));
-      },
-      error: () => {},
+  /**
+   * Feed the schema the drawer's property editors and tag suggestions read.
+   *
+   * A space with no typeSchemas is not an error: `buildPropertiesObject` returns the record's own
+   * properties untouched, which is exactly what the forked drawer used to do for every space.
+   */
+  private loadSpaceMeta(spaceId: string): void {
+    if (!spaceId) { this.store.spaceMeta.set(null); return; }
+    this.spacesApi.getSpaceMeta(spaceId).subscribe({
+      next: (meta) => this.store.spaceMeta.set(meta),
+      error: () => this.store.spaceMeta.set(null),
     });
-  }
-
-  private toLocalDatetime(iso: string): string {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
 
   asRecord(obj: unknown): Record<string, unknown> {

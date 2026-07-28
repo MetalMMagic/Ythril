@@ -3184,6 +3184,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Graph tab now uses the same record drawer as the rest of Brain, instead of its own copy.**
+  Editing a memory or chrono entry from the graph's detail panel opened a drawer that had been forked
+  from Brain's and then left behind: no schema-defined property fields, no `confidence` on chrono
+  entries, no tag suggestions (it passed an empty list), no memory picker, and its own copy of the
+  entity-picker flyout that was retired everywhere else. Nothing about it looked broken — it simply
+  offered less than the identical-looking drawer one tab over, and every improvement made to the real
+  one since the fork had silently skipped it.
+
+  The forked drawer is gone: **300 lines** out of `graph.component.ts` (1231 → 931, of which ~175 were
+  inline template) and **70 lines** of now-unreachable styles. The page renders `<app-record-drawer />`
+  and provides the same collaborators Brain does, so it gains all of the above and cannot drift again.
+  It also now *looks* the same: editing from the graph opens the familiar right-side drawer rather
+  than the fork's centred modal.
+
+  One addition made the reuse possible: `RecordDrawerState` now announces a successful save on a
+  `lastSaved` signal. Saving already patched the shared record lists, which is all Brain needs — but
+  the Graph tab renders its own per-node arrays, so without the announcement a save would succeed and
+  leave the pre-save row on screen. All 45 graph characterization tests pass with their assertions
+  untouched.
+
 - **File-conflict handling in sync is now a tested unit, including the peer-controlled filename.**
   Slice 2b of the sync/engine split — which had been written off as thin returns, wrongly. Two pure
   decisions came out of `syncFiles`, and both had a quiet failure mode.

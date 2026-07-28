@@ -880,6 +880,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name, so nothing reads as "the default" when you look at the code. Both are now gated in both
   directions — change the seed or change the doc, either fails.
 
+- **`npm run preflight` runs every structural gate that does not need Docker, in one command.** Icon
+  registry, scheduler wiring, route guards, audit-route coverage, the four documentation gates, docs
+  lint, and the client suite. Seconds, no containers.
+
+  It exists because of a failure in this release. A PR shipped `icon="activity"`, which is not in the
+  ICONS registry — `PhIconComponent` resolves an unknown name to an empty string, so it rendered as a
+  blank space with no error. Docs lint passed, 685 client tests passed, the production build passed.
+  The one gate that catches it was the one not run.
+
+  Every gate in the set shares that shape: it catches something producing **no error, no failed build
+  and no failed test**. An unregistered icon renders blank. A scheduler nobody starts looks like one
+  with nothing to do. A documented endpoint that does not exist 404s with nothing to explain it. A
+  translation key missing from de/pl renders the raw key. Deciding which of those applies to a given
+  change is precisely the judgement that gets made badly at the end of a long task, so the answer is
+  now "all of them, it takes seconds". Verified by reintroducing the blank-icon regression and
+  confirming preflight fails on it and says why.
+
 - **The About page now shows that component liveness, closing the loop on the endpoint above.** A
   Components card lists each optional service with its state, and — only when something is actually
   down — what breaks while it is. Printing the consequence beside a healthy component turns the panel

@@ -31,6 +31,7 @@ import { schedule as cronSchedule, type ScheduledTask } from 'node-cron';
 import { resolveSyncCron } from './schedule.js';
 import { createCoalescingRunner } from './coalescing-runner.js';
 import { remoteToLocal, localToRemote } from './space-map.js';
+import { retagToLocalSpace, planSeqUpserts } from './upsert-plan.js';
 import {
   syncCyclesTotal,
   syncItemsPulledTotal,
@@ -1279,18 +1280,8 @@ async function batchUpsertBySeq<T extends { _id: string; seq: number }>(
 ): Promise<void> {
   if (docs.length === 0) return;
 
-  // Re-tag incoming documents to the LOCAL space.
-  //
-  // A peer's document carries ITS space id, and with `spaceMap` aliasing that is not our
-  // space id — but we store it in OUR collection. The read paths filter on this field
-  // (listEntities, findEntityByName, the edge-dedup lookup, cascade deletes), so leaving
-  // the remote id in place would make every synced document invisible to list and lookup
-  // while still being counted: the data looks lost, and `findEntityByName` stops matching,
-  // so `remember` starts creating duplicates. The collection name is the only real scope,
-  // so a document we write into `{localSpaceId}_*` belongs to `localSpaceId` by definition.
-  for (const doc of docs) {
-    (doc as unknown as { spaceId?: string }).spaceId = localSpaceId;
-  }
+  // See ./upsert-plan.ts for why re-tagging is load-bearing and why the seq comparison is strict.
+  retagToLocalSpace(docs, localSpaceId);
 
   const collection = col<T>(collName);
   const ids = docs.map(d => d._id);
@@ -1299,15 +1290,11 @@ async function batchUpsertBySeq<T extends { _id: string; seq: number }>(
     .toArray() as Array<{ _id: string; seq: number }>;
   const existingSeq = new Map(existing.map(e => [e._id, e.seq]));
 
-  const ops = [];
-  for (const doc of docs) {
-    const prev = existingSeq.get(doc._id);
-    if (prev === undefined || doc.seq > prev) {
-      ops.push({ replaceOne: { filter: { _id: doc._id }, replacement: doc, upsert: true } });
-    }
-  }
-  if (ops.length > 0) {
-    await collection.bulkWrite(asBulk<T>(ops));
+  const toWrite = planSeqUpserts(docs, existingSeq);
+  if (toWrite.length > 0) {
+    await collection.bulkWrite(asBulk<T>(
+      toWrite.map(doc => ({ replaceOne: { filter: { _id: doc._id }, replacement: doc, upsert: true } })),
+    ));
   }
 }
 

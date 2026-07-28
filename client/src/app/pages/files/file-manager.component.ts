@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, computed, effect, untracked, OnInit, OnDestroy, HostListener, ElementRef, viewChild, Input, Output, EventEmitter } from '@angular/core';
 import { SortableHeaderComponent } from '../brain/sortable-header.component';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -26,6 +26,7 @@ import { EntityRefFieldComponent } from '../brain/entity-ref-field.component';
 import { MemoryRefFieldComponent } from '../brain/memory-ref-field.component';
 import { ChronoRefFieldComponent } from '../brain/chrono-ref-field.component';
 import { EntityRefPicker } from '../brain/entity-ref-picker.service';
+import { BrainStore } from '../brain/brain-store.service';
 import hljs from 'highlight.js/lib/core';
 import javascript from 'highlight.js/lib/languages/javascript';
 import typescript from 'highlight.js/lib/languages/typescript';
@@ -827,6 +828,29 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   // Brain-provided (only present when embedded in the Brain). Optional so the standalone /files route,
   // where the Brain injector isn't in the tree, still constructs — there the meta edit mode is hidden.
   private picker = inject(EntityRefPicker, { optional: true });
+  /** Optional for the same reason as `picker`: this component also runs outside the Brain shell. */
+  private store = inject(BrainStore, { optional: true });
+
+  constructor() {
+    /**
+     * Live refresh while a file is processing.
+     *
+     * The shell already opens an SSE stream and bumps `liveRefreshTick` on a `file.*` event — that is how
+     * every record tab stays current. This list never read it. The status pill and the processing stage
+     * bar are both built from the DIRECTORY LISTING, so with no reload they sat at whatever they were
+     * when the folder was first opened: a file could finish and still read "Embedding" until you clicked
+     * away and back. Nothing errored, which is why it looked like a slow pipeline rather than a stale view.
+     *
+     * `untracked` around the reload so the effect depends on the tick ALONE — `loadDir` reads
+     * `currentPath()`, and tracking that would reload the directory on every navigation as well.
+     */
+    let firstTick = true;
+    effect(() => {
+      this.store?.liveRefreshTick();
+      if (firstTick) { firstTick = false; return; }
+      untracked(() => this.reloadDir());
+    });
+  }
 
   /** When set (embedded in brain), skip space loading and use this space. */
   @Input() embeddedSpaceId = '';

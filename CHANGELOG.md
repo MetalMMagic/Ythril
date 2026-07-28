@@ -3184,6 +3184,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **A processing file's status now updates by itself in the Files list.** The status pill and the
+  processing stage bar are both drawn from the directory listing, and the list never refreshed — so a
+  file's status sat at whatever it was when you opened the folder. A file could finish and still read
+  "Embedding" until you navigated away and back. The shell was already broadcasting the change (it is how
+  every record tab stays current); the file list simply was not listening.
+
 - **Each model card on Media Processing has its own Save button, shown only when that card changed.**
   There was one Save at the bottom of the page for every card at once. Now the button appears in the box
   you edited and saves only that box — and only its own confirmation runs, so saving a speech-to-text

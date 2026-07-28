@@ -3104,6 +3104,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **File-conflict handling in sync is now a tested unit, including the peer-controlled filename.**
+  Slice 2b of the sync/engine split — which had been written off as thin returns, wrongly. Two pure
+  decisions came out of `syncFiles`, and both had a quiet failure mode.
+
+  The first is three-way and load-bearing: skip a file whose bytes we already have, write one we do
+  not, and for the same path with *different* bytes keep ours and save theirs alongside. Records are
+  resolved last-writer-wins by `seq`; a file has no `seq`, so neither side can be shown to be newer.
+  Collapsing that third case into a plain write would look exactly like working sync until somebody
+  lost a file with nothing to recover from.
+
+  The second is a security surface hiding in a filename. A conflict copy embeds the **peer's label** —
+  whatever that instance's operator typed — and it reaches a filesystem path. A label containing
+  `../`, a drive letter or a colon would escape the space directory or produce a name Windows cannot
+  create. The sanitiser is an allowlist rather than a strip-list, for the same reason the audit change
+  fields are: a forgotten entry in a denylist is a hole, a forgotten entry in an allowlist is a
+  slightly uglier filename. The timestamp is now a parameter rather than read from the clock, which is
+  what makes the whole thing assertable.
+
+  14 tests, mutation-proven 8/8 — including a differing file being overwritten instead of copied
+  aside, the sanitiser degraded to a denylist so traversal survives, and colons left in the timestamp.
+
 - **Sync's last-writer-wins decision is now a tested unit, not four lines inside a Mongo helper.**
   `batchUpsertBySeq` decided which pulled documents to write, and that decision *is* the conflict
   resolution — sync applies a record as a whole-document replace, so `seq` alone picks the winner. It

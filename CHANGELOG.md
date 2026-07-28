@@ -752,6 +752,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
+- **CI builds the client for production as its own step, so an AOT-only failure surfaces in seconds
+  rather than ten minutes into a Docker build.** The tracker recorded this as "the client prod build
+  isn't in CI"; it already was, via the Dockerfile's client-builder stage, which the image build runs.
+  What was missing was a fast, legible failure — it surfaced inside a buildx log interleaved with layer
+  caching, for what is usually a one-line template error.
+
+  It is not redundant with the unit suite, and that was measured rather than assumed. Injecting a
+  template reference to a non-existent member: in a component that **has** a render spec, Vitest catches
+  it; in a component that has **no** spec, Vitest passes 680/680 green and only the AOT build reports it.
+  19 of this repo's 67 components have no spec, so the second case is the common one. Bundle budgets are
+  likewise enforced only by this build.
+
 - **The MCP OAuth suite now says why it failed, and survives about twice as many consecutive runs.**
   Re-running it without `npm run test:up` degraded badly, and the cause on record — registered
   `oauthClients` accumulating in config — was wrong. The real one: `POST /register` is rate-limited to

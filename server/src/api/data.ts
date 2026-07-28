@@ -174,6 +174,10 @@ dataRouter.post('/maintenance', requireAdminMfa, (req, res) => {
     res.status(400).json({ error: 'Body must be { active: boolean }' });
     return;
   }
+  // Read the current state BEFORE flipping it — the direction is the point, and a no-op re-toggle
+  // should record nothing rather than look like a state change.
+  req.auditSnapshots = { before: { active: isMaintenanceActive() }, after: { active: parsed.data.active } };
+
   setMaintenanceActive(parsed.data.active);
   res.json({ active: parsed.data.active });
 });

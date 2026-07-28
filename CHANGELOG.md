@@ -863,6 +863,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Maintenance mode records which direction it was toggled.** One boolean, and the direction is the
+  whole story: an entry saying only "an admin hit the maintenance route" cannot distinguish the start of
+  an outage from the end of one. The route snapshots the CURRENT state before flipping it, so a no-op
+  re-toggle correctly records nothing — a test pins that, because copying the requested value into both
+  sides would make every toggle look like no change at all, silently.
+
+  This completes the mechanical half of the audit old→new work. The original estimate of "~100 per-route
+  rules" turned out to be wrong: of 103 audited operations, most are **actions with no before/after
+  state** — a query, a backup, a reindex, a bulk resolve, every create and delete — for which a change
+  record is meaningless rather than missing. Every operation that does have a meaningful scalar
+  before/after now has one. What remains is two design questions rather than more of the same work:
+  whether brain RECORD edits should copy user content into a retained, admin-queryable store, and how to
+  represent SCHEMA changes given the allowlist is deliberately scalars-only.
+
 - **Two more operations record what changed: network settings and backup configuration.** Slice 3 of
   the audit old→new work. `network.update` records `label`, `syncSchedule` and `requireSignedVotes` —
   the last is why the entry earns its place, because turning signed votes off silently weakens vote

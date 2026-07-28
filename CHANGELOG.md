@@ -881,6 +881,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Space meta writes can now be made conditional with `If-Match`, so two admins editing one space no
+  longer silently lose an edit.** `meta.version` was already incremented on every write, with every
+  previous version kept in `previousVersions` — but nothing ever compared it. The counter *recorded*
+  collisions; it never prevented one. The second save replaced the first in full, and the only trace
+  was a history entry nobody reads.
+
+  Send the version you read as `If-Match: 7` on `PATCH /api/spaces/:id` or `PUT /api/spaces/:id/schema`
+  and a stale write is rejected with **412 Precondition Failed**, naming both versions and the recovery
+  step. The header is **optional** — omit it and behaviour is exactly as before, so no existing client
+  or script changes. Bare, quoted and weak entity-tag spellings are all accepted, as is `*`; a value
+  that is not a version is rejected with **400** rather than ignored, because silently dropping an
+  unparseable precondition hands back the false safety the header was asked for.
+
+  Note this is **412, not the 409** the internal note proposed: 409 describes a conflict the request
+  itself carries, while 412 is the defined outcome of an unmet precondition and is what HTTP clients
+  already handle. On the schema route the check runs before the schema-backup file is written — a
+  precondition evaluated after a side effect is not a precondition — and a test pins that ordering
+  rather than just the check's existence.
+
 - **Maintenance mode records which direction it was toggled.** One boolean, and the direction is the
   whole story: an entry saying only "an admin hit the maintenance route" cannot distinguish the start of
   an outage from the end of one. The route snapshots the CURRENT state before flipping it, so a no-op

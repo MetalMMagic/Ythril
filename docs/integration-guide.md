@@ -2784,6 +2784,31 @@ PATCH /api/spaces/:id
 
 Update space properties. Requires an admin token (+ TOTP if MFA is enabled). At least one of `label`, `description`, or `meta` must be provided.
 
+**Optimistic concurrency (`If-Match`).** Meta writes are last-write-wins by default: if two clients read a space, both edit it, and both save, the second save replaces the first in full. To make your write conditional, send the `meta.version` you read as an `If-Match` header:
+
+```http
+PATCH /api/spaces/research
+If-Match: 7
+```
+
+If the space's `meta.version` is no longer 7, the request is rejected with **412 Precondition Failed** and a body naming both versions — re-read the space, re-apply your change, and retry:
+
+```json
+{
+  "error": "Space meta has changed since you read it (you expected version 7, it is now 9). Re-read the space and re-apply your change.",
+  "expectedVersion": 7,
+  "currentVersion": 9
+}
+```
+
+Notes:
+
+- **The header is optional.** Omit it and the write proceeds unconditionally, exactly as before — existing clients are unaffected.
+- `meta.version` is returned by `GET /api/spaces`. A space that has never had meta written is version `0`, so `If-Match: 0` means "only if nobody has configured this yet".
+- Bare (`7`), quoted (`"7"`) and weak (`W/"7"`) forms are all accepted, as is `*` (matches any existing space).
+- A value that is not a version — `If-Match: abc` — is rejected with **400**, never ignored. Silently ignoring an unparseable precondition would give you the false impression that your write was protected.
+- The same header is honoured by `PUT /api/spaces/:id/schema`, and is checked before that route writes its schema backup file.
+
 ```json
 {
   "label": "Research Notes (Updated)",

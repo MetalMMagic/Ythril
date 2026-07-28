@@ -752,6 +752,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
+- **The sync engine's per-network lock and space-id mapping are now pinned, before that file is
+  split.** `sync/engine.ts` is 1396 lines and had no dedicated unit test — only red-team and cron
+  tests touched it, and the only direct coverage was 8 tests over vote-round pruning. The two pieces
+  now covered are the ones that fail *silently*: a dedup lock that stops coalescing still syncs
+  correctly, just several cycles at once competing for connections; a lock that leaked on error would
+  be worse, wedging one network forever while every other network stays fine and nothing logs again.
+  Space-id mapping is the same shape — a wrong answer syncs a space under the wrong id or quietly
+  stops syncing one that worked, rather than throwing.
+
+  Two behaviours are explicitly **not** covered, and the test file says so rather than omitting them
+  quietly: that a concurrent trigger starts no second cycle, and that a mid-cycle trigger fires
+  exactly one more afterwards. Neither is observable through the module's public surface —
+  `runSyncForNetwork` is `async`, so the "return the in-flight promise" it documents is true
+  semantically but not referentially, and a cycle with no reachable members resolves in microtasks, so
+  a queued rerun begins and ends before any caller resumes. Observing either needs the cycle
+  implementation injected, which is a refactor; that is now a stated goal of the split rather than a
+  gap nobody wrote down.
+
 - **The graph page is now pinned by 45 characterization tests, written before it is split.** At 2065 lines
   and 53 methods it had four tests, all of which covered the OnPush conversion — the traversal cache, the
   depth filter, the model handed to cytoscape and the out-of-zone tap handlers were entirely unpinned, and

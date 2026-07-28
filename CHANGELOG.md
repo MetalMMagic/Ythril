@@ -3184,6 +3184,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Each model card on Media Processing has its own Save button, shown only when that card changed.**
+  There was one Save at the bottom of the page for every card at once. Now the button appears in the box
+  you edited and saves only that box — and only its own confirmation runs, so saving a speech-to-text
+  endpoint no longer asks whether to re-embed every vector in every space. The two cards that report
+  env-only infrastructure get no button, because there is nothing there to save. Pipelines keeps its page
+  bar: its knobs are not grouped into per-provider boxes, so there is no "the box that changed" to put a
+  button in.
+
 - **Tag search matches part of a word.** Typing `arch` now finds a record tagged `architecture`. It used
   to require the whole tag, which reads as "no results" rather than "keep typing" — a tag was effectively
   unfindable unless you already knew it exactly. The five record types had also drifted into five

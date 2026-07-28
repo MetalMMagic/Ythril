@@ -13,6 +13,8 @@ import { ModelsTabComponent } from './models-tab.component';
 import { MediaProcessingStateService } from './media-processing-state.service';
 import { PipelineStatusService } from './pipeline-status.service';
 import { SchemaApi } from '../../../core/schema-api.service';
+import { HttpClient } from '@angular/common/http';
+import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 
 function setup(libEntries: { knowledgeType: string; typeName: string }[] = [], initialTypes?: string[]) {
   const touched = vi.fn();
@@ -79,5 +81,94 @@ describe('ModelsTabComponent — person-types picker', () => {
     expect(c.availablePersonTypes()).toEqual(['person']);   // library options don't include the stored 'legacy'
     c.removePersonType('legacy');
     expect(state.face.personEntityTypes).toEqual([]);
+  });
+});
+
+/**
+ * The per-card Save button, asserted in the DOM.
+ *
+ * The service tests drive `cardDirty`/`saveCard` directly, which is exactly the blind spot that let the
+ * graph panel's filters ship documented-but-unreachable: logic that works, wired to no control. A
+ * mutation that stopped rendering these buttons entirely survived the service suite. So this renders the
+ * real template against the real service and asserts the button is THERE, in the right card and no other.
+ */
+describe('ModelsTabComponent — per-card Save button', () => {
+  function render(cfg: Record<string, unknown>) {
+    TestBed.resetTestingModule();
+    const patch = vi.fn().mockReturnValue(of({ ok: true, config: cfg }));
+    const http = { get: vi.fn().mockReturnValue(of(cfg)), patch, post: vi.fn().mockReturnValue(of({})) };
+    TestBed.configureTestingModule({
+      imports: [ModelsTabComponent, getTranslocoModule()],
+      providers: [
+        MediaProcessingStateService,
+        { provide: HttpClient, useValue: http },
+        { provide: ConfirmDialogService, useValue: { confirm: vi.fn().mockResolvedValue(true) } },
+        // The rendered template asks for more of this service than the logic-only tests do.
+        { provide: PipelineStatusService, useValue: {
+          status: () => null, bySidecarKey: () => new Map(),
+          modelState: () => null, sidecarState: () => null,
+        } },
+        { provide: SchemaApi, useValue: { listSchemaLibrary: () => of({ entries: [] }) } },
+      ],
+    });
+    const state = TestBed.inject(MediaProcessingStateService);
+    state.load();
+    const fixture = TestBed.createComponent(ModelsTabComponent);
+    fixture.detectChanges();
+    return { fixture, state };
+  }
+
+  const CFG = {
+    visionProvider: 'local', sttProvider: 'local',
+    vision: { baseUrl: 'http://ollama:11434', model: 'llava' },
+    stt: { baseUrl: 'http://whisper:9000', model: 'base' },
+    embedding: { provider: 'local', model: 'nomic', dimensions: 768, similarity: 'cosine' },
+    documentProcessing: { mode: 'ocr', assistModel: {} },
+    faceRecognition: { enabled: false },
+    lockedByInfra: [],
+  };
+
+  const saveIn = (fixture: { nativeElement: HTMLElement }, card: string) =>
+    fixture.nativeElement.querySelector(`#model-card-${card} .card-save`);
+
+  it('shows no Save button until something changes', () => {
+    const { fixture } = render(CFG);
+    expect(fixture.nativeElement.querySelectorAll('.card-save').length).toBe(0);
+  });
+
+  it('shows Save in the edited card and in NO other', () => {
+    const { fixture, state } = render(CFG);
+    state.form.stt!.model = 'large-v3';
+    state.touched.set(true);
+    fixture.detectChanges();
+
+    expect(saveIn(fixture, 'stt'), 'the edited card').toBeTruthy();
+    for (const other of ['embedding', 'vision', 'assist', 'face']) {
+      expect(saveIn(fixture, other), `${other} must not offer a save`).toBeNull();
+    }
+  });
+
+  it('never offers Save on the env-only cards', () => {
+    // doc-render and unstructured report infrastructure and have no editable field; a button there
+    // would be a control that cannot do anything.
+    const { fixture, state } = render(CFG);
+    state.form.stt!.model = 'large-v3';
+    state.touched.set(true);
+    fixture.detectChanges();
+
+    expect(saveIn(fixture, 'doc-render')).toBeNull();
+    expect(saveIn(fixture, 'unstructured')).toBeNull();
+  });
+
+  it('clicking it saves that card', () => {
+    const { fixture, state } = render(CFG);
+    const spy = vi.spyOn(state, 'saveCard');
+    state.form.vision!.model = 'moondream';
+    state.touched.set(true);
+    fixture.detectChanges();
+
+    (saveIn(fixture, 'vision') as HTMLButtonElement).click();
+
+    expect(spy).toHaveBeenCalledWith('vision');
   });
 });

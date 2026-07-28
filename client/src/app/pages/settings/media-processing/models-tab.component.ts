@@ -79,6 +79,9 @@ import { TestTarget } from './media-processing.types';
     .testrow { display: flex; gap: 10px; align-items: center; flex-wrap: nowrap; min-height: 34px; }
     .testrow > :not(.hint) { flex: none; }
     .testrow .hint { margin: 0; min-width: 0; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* Save belongs to the card it sits in and appears only when that card has an unsaved change, so it
+       is pushed to the far end of the row rather than sitting beside Test as a peer action. */
+    .testrow .card-save { margin-left: auto; }
   `],
   template: `
     <div class="cards">
@@ -145,6 +148,12 @@ import { TestTarget } from './media-processing.types';
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
             <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
           }
+          @if (s.cardDirty('embedding')) {
+            <button class="btn btn-sm btn-primary card-save" type="button"
+              [disabled]="s.saving()" (click)="s.saveCard('embedding')">
+              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
+            </button>
+          }
         </div>
       </app-model-provider-card>
 
@@ -187,6 +196,12 @@ import { TestTarget } from './media-processing.types';
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
             <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
           }
+          @if (s.cardDirty('vision')) {
+            <button class="btn btn-sm btn-primary card-save" type="button"
+              [disabled]="s.saving()" (click)="s.saveCard('vision')">
+              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
+            </button>
+          }
         </div>
       </app-model-provider-card>
 
@@ -228,6 +243,12 @@ import { TestTarget } from './media-processing.types';
           @if (s.testOf('stt')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
             <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+          }
+          @if (s.cardDirty('stt')) {
+            <button class="btn btn-sm btn-primary card-save" type="button"
+              [disabled]="s.saving()" (click)="s.saveCard('stt')">
+              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
+            </button>
           }
         </div>
       </app-model-provider-card>
@@ -279,6 +300,12 @@ import { TestTarget } from './media-processing.types';
           @if (s.testOf('assist')?.res; as r) {
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
             <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+          }
+          @if (s.cardDirty('assist')) {
+            <button class="btn btn-sm btn-primary card-save" type="button"
+              [disabled]="s.saving()" (click)="s.saveCard('assist')">
+              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
+            </button>
           }
         </div>
       </app-model-provider-card>
@@ -379,6 +406,14 @@ import { TestTarget } from './media-processing.types';
         <div class="field" style="margin-bottom:0;">
           <label>{{ 'mediaProcessing.face.actorLabel' | transloco }}</label>
           <div class="ro">BlazeFace + FaceRes</div>
+        </div>
+        <div footer class="testrow">
+          @if (s.cardDirty('face')) {
+            <button class="btn btn-sm btn-primary card-save" type="button"
+              [disabled]="s.saving()" (click)="s.saveCard('face')">
+              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
+            </button>
+          }
         </div>
       </app-model-provider-card>
     </div>

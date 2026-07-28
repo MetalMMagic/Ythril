@@ -13,6 +13,7 @@ import { applyDeleteFields } from './delete-fields.js';
 import { getEntityById } from './entities.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
+import { tagContains } from './tag-filter.js';
 
 export interface TraverseNode {
   _id: string;
@@ -158,7 +159,7 @@ export async function listEdges(
   if (filter.label) q['label'] = filter.label;
   if (filter.type) q['type'] = filter.type;
   // `tags` is an array field; a scalar match is Mongo array-contains (edge HAS this tag).
-  if (filter.tag) q['tags'] = filter.tag;
+  if (filter.tag) q['tags'] = tagContains(filter.tag);
   // Freetext substring over the edge's text fields (2b-iii-a).
   const search = textSearchOr(filter.search, SEARCHABLE_FIELDS.edges);
   if (search) Object.assign(q, search);

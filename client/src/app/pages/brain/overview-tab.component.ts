@@ -20,7 +20,9 @@ import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry } from '../../core/api.types';
 
-interface StatCard { key: string; icon: string; label: string; value: number }
+/** `key` doubles as the Brain tab this tile jumps to — the five collection tabs. */
+type StatKey = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
+interface StatCard { key: StatKey; icon: string; label: string; value: number }
 
 @Component({
   selector: 'app-overview-tab',
@@ -70,6 +72,13 @@ interface StatCard { key: string; icon: string; label: string; value: number }
     .stat { background: var(--bg-elevated); border: 1px solid var(--border-muted); border-radius: 8px; padding: 11px 12px; }
     .stat .v { font-size: 22px; font-weight: 700; font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; line-height: 1.1; }
     .stat .l { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 11.5px; color: var(--text-secondary); }
+    /* The five collection tiles are buttons now. Reset the UA button styling so they still read as
+       tiles, and give them a real affordance — a clickable thing that looks inert gets clicked by
+       nobody. The total tile stays a div: it has no single tab to open. */
+    .stat-link { font: inherit; color: inherit; text-align: left; width: 100%; cursor: pointer;
+      transition: border-color var(--transition), background var(--transition); }
+    .stat-link:hover { border-color: var(--accent); background: var(--bg-surface); }
+    .stat-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .stat.total { border-color: color-mix(in srgb, var(--accent) 45%, transparent);
       background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated)); }
     .stat.total .v { color: var(--accent-ink, var(--accent)); }
@@ -141,10 +150,11 @@ interface StatCard { key: string; icon: string; label: string; value: number }
           @if (stats(); as s) {
             <div class="stat-grid">
               @for (c of statCards(); track c.key) {
-                <div class="stat">
+                <button type="button" class="stat stat-link" (click)="openTab.emit(c.key)"
+                        [attr.aria-label]="('brain.overview.openTabAriaLabel' | transloco) + ' ' + (c.label | transloco)">
                   <div class="v">{{ c.value }}</div>
                   <div class="l"><ph-icon [name]="c.icon" [size]="13"/>{{ c.label | transloco }}</div>
-                </div>
+                </button>
               }
               <div class="stat total">
                 <div class="v">{{ total() }}</div>
@@ -348,6 +358,9 @@ export class OverviewTabComponent {
   /** Tokens that can reach this space (from the shell). Null for non-admins → the panel stays hidden. */
   tokenAccess = input<TokenAccessEntry[] | null>(null);
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
+  /** A collection tile was clicked — the shell switches to that tab. */
+  openTab = output<StatKey>();
+
   reindex = output<void>();
   /** Emitted so the shell re-queues every failed embedding job and reloads the queue (fetch-free tab). */
   retryFailed = output<void>();

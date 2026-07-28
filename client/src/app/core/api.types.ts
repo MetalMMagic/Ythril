@@ -343,20 +343,6 @@ export interface FileMeta {
   progress?: { step: string; steps: string[]; done?: number; total?: number };
   /** ISO8601 of the job's last report — lets the UI tell "working" from "wedged". */
   progressAt?: string | null;
-  /**
-   * What WILL run for this file — the space's effective rung after instance capping, turned into the
-   * stage chain. Attached only to a single-file fetch (`?path=`), since deciding it probes the renderer.
-   * `reason` is a CODE the client translates, never prose; `detail` is the engine's own English
-   * explanation, kept for operators rather than for display.
-   */
-  plannedRoute?: {
-    mediaClass: 'document' | 'image' | 'audio' | 'video';
-    level: string;
-    stages: string[];
-    willRun: boolean;
-    reason?: 'level-off' | 'too-large' | 'fallback-ocr';
-    detail?: string;
-  };
   /** Error message when embeddingStatus is "failed". */
   mediaJobError?: string;
   chunkCount?: number;

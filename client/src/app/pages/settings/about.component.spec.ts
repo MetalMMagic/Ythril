@@ -23,11 +23,16 @@ const INFO: AboutInfo = {
   diskInfo: { total: 100, used: 40, available: 60, dataUsed: 25 },
 };
 
-function make(getAbout: () => unknown) {
+/**
+ * @param getAboutHealth Optional component-liveness double. Defaults to an error, because that is the
+ *   shape every pre-existing test wants: the health card is a SEPARATE request and its failure must
+ *   leave the rest of the page intact, not error it.
+ */
+function make(getAbout: () => unknown, getAboutHealth: () => unknown = () => throwError(() => new Error('probe unavailable'))) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [AboutComponent, getTranslocoModule()],
-    providers: [{ provide: AdminApi, useValue: { getAbout } }],
+    providers: [{ provide: AdminApi, useValue: { getAbout, getAboutHealth } }],
   });
   const f = TestBed.createComponent(AboutComponent);
   f.detectChanges(); // ngOnInit → load()
@@ -115,5 +120,83 @@ describe('AboutComponent', () => {
     const f = make(() => throwError(() => ({ error: { error: 'nope' } })));
     expect(el(f).querySelector('app-error-state')).toBeTruthy();
     expect(el(f).textContent).toContain('nope');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Component liveness card
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('AboutComponent — optional component liveness', () => {
+  const ok = () => of(INFO);
+  const health = (over: Record<string, unknown> = {}) => () => of({
+    level: 'ok',
+    down: [],
+    components: [
+      { id: 'doc-render', label: 'Document renderer', configured: true, reachable: true, impact: 'PDFs fall back to text.' },
+    ],
+    ...over,
+  });
+
+  it('renders a card per component once the probe answers', () => {
+    const f = make(ok, health());
+    f.detectChanges();
+    const text = f.nativeElement.textContent as string;
+    expect(text).toContain('Document renderer');
+  });
+
+  it('does NOT render the card when the probe fails — the rest of About still loads', () => {
+    // The health request is deliberately separate. A failed probe must not error the page or leave an
+    // empty card, which would read as "nothing configured" — a different claim entirely.
+    const f = make(ok, () => throwError(() => new Error('probe down')));
+    f.detectChanges();
+    expect(f.componentInstance.health()).toBeNull();
+    expect((f.nativeElement.textContent as string)).toContain(INFO.instanceLabel);
+  });
+
+  it('shows the impact line ONLY for a component that is actually down', () => {
+    // Printing the consequence next to a healthy component turns the panel into a wall of warnings.
+    const healthy = make(ok, health());
+    healthy.detectChanges();
+    expect(healthy.nativeElement.querySelector('.component-impact')).toBeNull();
+
+    const broken = make(ok, health({
+      level: 'degraded',
+      down: ['doc-render'],
+      components: [
+        { id: 'doc-render', label: 'Document renderer', configured: true, reachable: false, impact: 'PDFs fall back to text.' },
+      ],
+    }));
+    broken.detectChanges();
+    const impact = broken.nativeElement.querySelector('.component-impact');
+    expect(impact, 'a down component must explain what it costs').toBeTruthy();
+    expect(impact.textContent).toContain('PDFs fall back to text.');
+  });
+
+  it('an unconfigured component is neutral, not an error', () => {
+    // It was never asked for. Marking it as a fault makes the panel permanently red.
+    const f = make(ok, health({
+      components: [
+        { id: 'nli', label: 'Contradiction judge', configured: false, reachable: null, impact: 'x' },
+      ],
+    }));
+    f.detectChanges();
+    const c = f.componentInstance;
+    expect(c.componentVariant({ id: 'nli', label: '', configured: false, reachable: null, impact: '' } as never)).toBe('off');
+    expect(f.nativeElement.querySelector('.component-impact')).toBeNull();
+  });
+
+  it('maps each level to a pill variant, with unknown as warn rather than error', () => {
+    // "Could not check" is not "is broken" — showing it as an error trains people to ignore the colour.
+    const f = make(ok, health());
+    f.detectChanges();
+    const c = f.componentInstance;
+
+    c.health.set({ level: 'ok', components: [], down: [] } as never);
+    expect(c.healthPill().variant).toBe('ok');
+    c.health.set({ level: 'degraded', components: [], down: ['x'] } as never);
+    expect(c.healthPill().variant).toBe('error');
+    c.health.set({ level: 'unknown', components: [], down: [] } as never);
+    expect(c.healthPill().variant).toBe('warn');
   });
 });

@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
-  AboutInfo, AuditLogParams, AuditLogResponse, BackupConfigData,
+  AboutInfo, HealthSummary, AuditLogParams, AuditLogResponse, BackupConfigData,
   WebhookSubscription, WebhookUpsert, WebhookDelivery,
 } from './api.types';
 
@@ -15,6 +15,11 @@ export class AdminApi {
 
   getAbout(): Observable<AboutInfo> {
     return this.http.get<AboutInfo>('/api/about');
+  }
+
+  /** Optional-component liveness for the Instance panel. Admin-only. */
+  getAboutHealth(): Observable<HealthSummary> {
+    return this.http.get<HealthSummary>('/api/about/health');
   }
 
   getAboutLogs(lines: number = 200): Observable<{ lines: string[] }> {

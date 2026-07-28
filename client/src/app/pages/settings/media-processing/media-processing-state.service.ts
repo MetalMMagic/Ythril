@@ -21,6 +21,19 @@ import {
   TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES,
 } from './media-processing.types';
 
+/**
+ * The Models tab's cards that own editable config and therefore get their own Save button.
+ *
+ * `doc-render` and `unstructured` are deliberately absent: neither has a single `ngModel` — they report
+ * env-only infrastructure, so a Save button on them would be a control that cannot do anything.
+ */
+export type ModelCardId = 'embedding' | 'vision' | 'stt' | 'assist' | 'face';
+export const MODEL_CARDS: readonly ModelCardId[] = ['embedding', 'vision', 'stt', 'assist', 'face'];
+
+/** A card, or everything the cards do not own (the Pipelines knobs, ceilings and limits). */
+export type CfgSection = ModelCardId | 'rest';
+export const ALL_SECTIONS: readonly CfgSection[] = [...MODEL_CARDS, 'rest'];
+
 @Injectable()
 export class MediaProcessingStateService {
   private readonly http = inject(HttpClient);
@@ -45,8 +58,15 @@ export class MediaProcessingStateService {
 
   /** Serialized model|dimensions|similarity at load — changing any of these re-indexes every vector. */
   private embeddingReindexBaseline = '';
-  /** The saved payload as it stood at load, for the unsaved-changes guard. */
-  private savedSnapshot = '';
+  /**
+   * The saved payload PER SECTION, as it stood at the last save of that section.
+   *
+   * One snapshot for the whole config used to be enough, because one button saved everything. With
+   * per-card saves it is actively wrong: saving the vision card would re-baseline the entire config and
+   * mark an edited embedding card clean, so the operator's unsaved change would stop warning them and
+   * then be lost on navigate. Each section re-baselines only itself.
+   */
+  private savedSnapshots: Partial<Record<CfgSection, string>> = {};
   /** Flipped by a delegated input/change listener on the page. See `isDirty`. */
   touched = signal(false);
 
@@ -144,9 +164,9 @@ export class MediaProcessingStateService {
         this.embeddingApiKeyInput = '';
         this.docCfgSig.set(dp);
         this.docMode.set(dp.mode ?? 'ocr');
-        this.savedSnapshot = this.snapshot();
+        this.loading.set(false);   // before rebaseline: sectionSnapshot is inert while loading
+        this.rebaseline(ALL_SECTIONS);
         this.touched.set(false);
-        this.loading.set(false);
       },
       error: err => { this.loadError.set(`Failed to load configuration: ${err?.message ?? 'Unknown error'}`); this.loading.set(false); },
     });
@@ -156,6 +176,73 @@ export class MediaProcessingStateService {
   get managed(): boolean { return !!this.form.infraManaged; }
   // When infra-managed, EVERY field is locked (the API refuses edits) — so isLocked() short-circuits.
   isLocked(field: string): boolean { return this.managed || this.lockedByInfra.includes(field); }
+
+  // ── per-card sections ──
+
+  /**
+   * The complete PATCH block a single card owns.
+   *
+   * Each block is sent WHOLE. `media-config.ts` shallow-merges top-level keys, so omitting a key leaves
+   * it untouched (which is what makes a per-card save safe) but a key that IS sent replaces its previous
+   * value outright — send `vision: { model }` without `baseUrl` and the base URL is erased.
+   *
+   * `assist` is the exception that proves it: it lives under `documentProcessing`, which the handler
+   * DEEP-merges one level precisely so a patch naming only `assistModel` keeps `mode`/`renderDpi`/the
+   * rest. That is why the assist card can be saved on its own at all.
+   */
+  private cardBlock(card: ModelCardId): MediaCfg {
+    const base = this.payload();
+    switch (card) {
+      case 'embedding': return { embedding: base.embedding };
+      case 'vision': return { visionProvider: this.form.visionProvider, vision: base.vision };
+      case 'stt': return { sttProvider: this.form.sttProvider, stt: base.stt };
+      case 'face': return { faceRecognition: base.faceRecognition };
+      case 'assist': {
+        const a = this.assist;
+        return { documentProcessing: { assistModel: {
+          baseUrl: a.baseUrl || undefined, model: a.model || undefined, acknowledgedHost: a.acknowledgedHost,
+        } } };
+      }
+    }
+  }
+
+  /** Everything the cards do NOT own — the Pipelines knobs, ceilings and limits. Saved by the page bar. */
+  private restBlock(): Record<string, unknown> {
+    const b = this.payload();
+    const dp = { ...b.documentProcessing };
+    return { levels: b.levels, documentProcessing: dp, fallbackToExternal: b.fallbackToExternal,
+      maxFileSizeBytes: b.maxFileSizeBytes, workerConcurrency: b.workerConcurrency };
+  }
+
+  private sectionSnapshot(section: CfgSection): string {
+    return JSON.stringify(section === 'rest' ? this.restBlock() : this.cardBlock(section));
+  }
+
+  private rebaseline(sections: readonly CfgSection[]): void {
+    for (const sec of sections) this.savedSnapshots[sec] = this.sectionSnapshot(sec);
+  }
+
+  /** The typed-but-unsaved API key belonging to this card, if it has one. */
+  private cardKeyInput(card: ModelCardId): string {
+    return card === 'vision' ? this.visionApiKeyInput
+      : card === 'stt' ? this.sttApiKeyInput
+      : card === 'assist' ? this.assistApiKeyInput
+      : card === 'embedding' ? this.embeddingApiKeyInput
+      : '';
+  }
+
+  /**
+   * True when THIS card has something a save would change — what its own Save button keys off.
+   *
+   * Same two-part rule as the global guard: a typed API key counts even though it is absent from the
+   * snapshot (it is deliberately not in `payload()`), and otherwise it is a real diff, not merely a
+   * keystroke that was undone.
+   */
+  cardDirty(card: ModelCardId): boolean {
+    if (this.managed || this.loading()) return false;
+    if (this.cardKeyInput(card)) return true;
+    return this.touched() && this.sectionSnapshot(card) !== (this.savedSnapshots[card] ?? '');
+  }
 
   // ── unsaved-changes guard ──
 
@@ -172,7 +259,10 @@ export class MediaProcessingStateService {
   isDirty(): boolean {
     if (this.managed || this.loading()) return false;
     if (this.visionApiKeyInput || this.sttApiKeyInput || this.assistApiKeyInput || this.embeddingApiKeyInput) return true;
-    return this.touched() && this.snapshot() !== this.savedSnapshot;
+    if (!this.touched()) return false;
+    // Derived from the sections rather than one whole-config snapshot, so that saving one card leaves the
+    // guard still warning about the others. A single snapshot would have gone clean for all of them.
+    return ALL_SECTIONS.some(sec => this.sectionSnapshot(sec) !== (this.savedSnapshots[sec] ?? ''));
   }
 
   // ── document extraction helpers ──
@@ -258,6 +348,87 @@ export class MediaProcessingStateService {
     };
   }
 
+  /**
+   * Save ONE card.
+   *
+   * Only that card's block is sent, and only its confirmation gate runs. Both halves matter: each gate in
+   * the global `save()` belongs to exactly one card (egress consent to assist, the face-off warning to
+   * face, the re-embed warning to embedding), so running all three from a card would ask about re-indexing
+   * every vector because someone edited a speech-to-text URL.
+   *
+   * On success only this card is re-baselined and only its API-key box is cleared — an edit sitting in
+   * another card must keep reporting itself as unsaved.
+   */
+  async saveCard(card: ModelCardId): Promise<void> {
+    if (this.managed || this.saving()) return;
+
+    if (card === 'assist' && !this.assistLocked() && this.assistNeedsAck()) {
+      const host = this.assistHost();
+      const ok = await this.confirmDialog.confirm({
+        title: this.transloco.translate('mediaProcessing.confirm.egressTitle'),
+        message: this.transloco.translate('mediaProcessing.confirm.egressMessage', { host }),
+        confirmLabel: this.transloco.translate('mediaProcessing.confirm.egressConfirm'),
+        cancelLabel: this.transloco.translate('common.cancel'),
+        danger: true,
+      });
+      if (!ok) return;
+      this.assist.acknowledgedHost = host;
+    }
+    if (card === 'face' && this.faceBeingDisabled()) {
+      const ok = await this.confirmDialog.confirm({
+        title: this.transloco.translate('mediaProcessing.confirm.faceOffTitle'),
+        message: this.transloco.translate('mediaProcessing.confirm.faceOffMessage'),
+        confirmLabel: this.transloco.translate('mediaProcessing.confirm.faceOffConfirm'),
+        cancelLabel: this.transloco.translate('common.cancel'),
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    if (card === 'embedding' && this.embeddingNeedsReindex()) {
+      const ok = await this.confirmDialog.confirm({
+        title: this.transloco.translate('mediaProcessing.confirm.reindexTitle'),
+        message: this.transloco.translate('mediaProcessing.confirm.reindexMessage'),
+        confirmLabel: this.transloco.translate('mediaProcessing.confirm.reindexConfirm'),
+        cancelLabel: this.transloco.translate('common.cancel'),
+        danger: true,
+      });
+      if (!ok) return;
+    }
+
+    this.saving.set(true);
+    this.saveError.set('');
+    this.saveOk.set('');
+
+    // The typed key is grafted on here for the same reason the global save does it: `payload()` holds the
+    // server's MASK, and echoing a mask back would overwrite a real credential with asterisks.
+    const key = this.cardKeyInput(card);
+    const block = this.cardBlock(card);
+    if (key) {
+      if (card === 'vision') block.vision = { ...block.vision, apiKey: key };
+      else if (card === 'stt') block.stt = { ...block.stt, apiKey: key };
+      else if (card === 'embedding') block.embedding = { ...block.embedding, apiKey: key };
+      else if (card === 'assist') {
+        block.documentProcessing = { assistModel: { ...block.documentProcessing?.assistModel, apiKey: key } };
+      }
+    }
+
+    const body = JSON.parse(JSON.stringify(block)) as MediaCfg;
+    this.http.patch<{ ok: boolean; config: MediaCfg }>('/api/admin/media-config', body).subscribe({
+      next: () => {
+        this.saveOk.set(this.transloco.translate('mediaProcessing.saved'));
+        if (card === 'vision') this.visionApiKeyInput = '';
+        else if (card === 'stt') this.sttApiKeyInput = '';
+        else if (card === 'assist') this.assistApiKeyInput = '';
+        else if (card === 'embedding') { this.embeddingApiKeyInput = ''; this.embeddingReindexBaseline = this.reindexKey(); }
+        if (card === 'face') this.faceEnabledBaseline = this.face.enabled === true;
+        this.rebaseline([card]);
+        this.saving.set(false);
+        setTimeout(() => this.saveOk.set(''), 3000);
+      },
+      error: err => { this.saveError.set(`Save failed: ${err?.error?.error ?? err?.message ?? 'Unknown error'}`); this.saving.set(false); },
+    });
+  }
+
   async save(): Promise<void> {
     if (this.managed) return; // infra-managed: the API would reject it anyway
     const dp = this.form.documentProcessing ?? {};
@@ -334,7 +505,7 @@ export class MediaProcessingStateService {
         this.assistApiKeyInput = '';
         this.embeddingApiKeyInput = '';
         this.embeddingReindexBaseline = this.reindexKey(); // re-baseline so a second save won't re-prompt
-        this.savedSnapshot = this.snapshot();
+        this.rebaseline(ALL_SECTIONS);
         this.faceEnabledBaseline = this.face.enabled === true;
         this.touched.set(false);
         this.saving.set(false);

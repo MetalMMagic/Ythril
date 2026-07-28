@@ -128,8 +128,16 @@ export class MediaProcessingPageComponent implements OnInit {
   readonly TABS: Tab[] = ['models', 'pipelines', 'tools'];
   readonly tab = signal<Tab>('models');
 
-  /** Tools is read-only, so it never needs the save bar. */
-  readonly showsSave = computed(() => this.tab() !== 'tools');
+  /**
+   * Tools is read-only, so it never needs the save bar — and Models no longer does either: each of its
+   * cards carries its own Save, shown only when that card has an unsaved change. Owner, 2026-07-28:
+   * "save button on model page should appear only after change in the changed models box and not one
+   * global on the bottom of the page."
+   *
+   * Pipelines keeps the bar. Its knobs are not grouped into per-provider boxes, so there is no "the box
+   * that changed" to put a button in.
+   */
+  readonly showsSave = computed(() => this.tab() === 'pipelines');
 
   /**
    * A pipeline step actor was clicked (see `focusCard`): jump to the Models tab and reveal the card

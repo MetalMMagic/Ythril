@@ -532,3 +532,137 @@ describe('MediaProcessingStateService — assist "in use" reflects real configur
     expect(c.assistInUse()).toBe(false);
   });
 });
+
+/**
+ * Per-card saving (owner, 2026-07-28: the Save button belongs in the box that changed).
+ *
+ * The failure this guards against is not a broken button — it is a button that lies about its scope.
+ * With one global `save()` behind a per-card button, saving card A silently writes card B's pending
+ * edits too, and nobody finds out until an edit they never confirmed is live. So these assert on the
+ * PATCH BODY, not on the click.
+ */
+describe('MediaProcessingStateService — per-card save', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('reports only the edited card as dirty', () => {
+    const { c } = make();
+    c.form.stt!.model = 'large-v3';
+    c.touched.set(true);
+
+    expect(c.cardDirty('stt'), 'the edited card').toBe(true);
+    for (const other of ['embedding', 'vision', 'assist', 'face'] as const) {
+      expect(c.cardDirty(other), `${other} must stay clean`).toBe(false);
+    }
+  });
+
+  it('sends ONLY the edited card\'s block — a sibling\'s pending edit is not swept in', () => {
+    const { c, patch } = make();
+    c.form.stt!.model = 'large-v3';
+    c.embedding.model = 'some-other-embedder';   // pending, NOT confirmed by the operator
+    c.touched.set(true);
+
+    c.saveCard('stt');
+
+    const body = sent(patch);
+    expect(body['stt']).toMatchObject({ model: 'large-v3' });
+    expect(body['embedding'], 'the untouched card must not be in the body at all').toBeUndefined();
+    expect(body['faceRecognition']).toBeUndefined();
+  });
+
+  it('sends each card\'s block WHOLE, because the server replaces a key it receives', () => {
+    // media-config.ts shallow-merges top level: `{...existing, ...patch}`. A block that omits a field
+    // ERASES it rather than leaving it alone — so this checks EVERY card, not a representative one. The
+    // single-card version of this test passed while the vision block was silently dropping `baseUrl`.
+    const EXPECTED: Record<string, Record<string, unknown>> = {
+      stt: { baseUrl: 'http://whisper:9000', model: 'base' },
+      vision: { baseUrl: 'http://ollama:11434', model: 'llava' },
+      embedding: { provider: 'local', baseUrl: null, model: 'nomic-embed-text-v1.5', dimensions: 768, similarity: 'cosine' },
+    };
+    for (const [card, block] of Object.entries(EXPECTED)) {
+      const { c, patch } = make();
+      c.touched.set(true);
+      c.saveCard(card as 'stt');
+      expect(sent(patch)[card], `${card} must be sent complete`).toEqual(block);
+    }
+  });
+
+  it('keeps the OTHER cards dirty after one card is saved', async () => {
+    const { c } = make();
+    c.form.stt!.model = 'large-v3';
+    c.embedding.model = 'other';
+    c.touched.set(true);
+
+    await c.saveCard('stt');
+
+    expect(c.cardDirty('stt'), 'saved card is clean').toBe(false);
+    expect(c.cardDirty('embedding'), 'the unsaved card must still warn').toBe(true);
+    expect(c.isDirty(), 'and the tab-switch guard must still fire').toBe(true);
+  });
+
+  it('runs only the gate that belongs to the card', async () => {
+    // Each confirmation in the global save belongs to exactly ONE card. Saving speech-to-text must not
+    // ask whether to re-embed every vector in every space.
+    const { c, confirm } = make();
+    c.form.stt!.model = 'large-v3';
+    c.touched.set(true);
+
+    await c.saveCard('stt');
+
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('still asks before re-indexing when the EMBEDDING card is saved', async () => {
+    const { c, confirm, patch } = make();
+    c.embedding.model = 'a-different-model';
+    c.touched.set(true);
+
+    await c.saveCard('embedding');
+
+    expect(confirm).toHaveBeenCalled();
+    expect(patch).toHaveBeenCalled();
+  });
+
+  it('aborts the card save when its confirmation is declined', async () => {
+    const { c, patch } = make(cfgFixture(), false);
+    c.embedding.model = 'a-different-model';
+    c.touched.set(true);
+
+    await c.saveCard('embedding');
+
+    expect(patch, 'declining must send nothing').not.toHaveBeenCalled();
+  });
+
+  it('grafts a typed API key onto its own card only, and clears only that box', async () => {
+    const { c, patch } = make();
+    c.sttApiKeyInput = 'sk-typed';
+    c.visionApiKeyInput = 'sk-other-card';
+
+    expect(c.cardDirty('stt')).toBe(true);
+    await c.saveCard('stt');
+
+    expect((sent(patch)['stt'] as Record<string, unknown>)['apiKey']).toBe('sk-typed');
+    expect(c.sttApiKeyInput, 'saved card cleared').toBe('');
+    expect(c.visionApiKeyInput, 'the other card keeps its unsaved key').toBe('sk-other-card');
+  });
+
+  it('sends the assist card under documentProcessing, which the server deep-merges', () => {
+    // Nested, unlike every other card. The handler merges documentProcessing one level deep precisely so
+    // a patch naming only assistModel keeps mode/renderDpi — without that this card could not be saved
+    // on its own at all.
+    const { c, patch } = make();
+    c.assist.model = 'gpt-4o-mini';
+    c.touched.set(true);
+    c.saveCard('assist');
+
+    const dp = sent(patch)['documentProcessing'] as Record<string, unknown>;
+    expect(dp['assistModel']).toMatchObject({ model: 'gpt-4o-mini' });
+    expect(dp['mode'], 'the knobs are NOT resent — the deep merge preserves them').toBeUndefined();
+  });
+
+  it('is never dirty while infra-managed', () => {
+    const { c } = make(cfgFixture({ infraManaged: true }));
+    c.form.stt!.model = 'x';
+    c.touched.set(true);
+    expect(c.cardDirty('stt')).toBe(false);
+  });
+});

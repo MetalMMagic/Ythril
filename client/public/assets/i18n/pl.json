@@ -562,7 +562,7 @@
   "about.disk.critical": "Krytyczny",
   "about.error.load": "Nie udało się wczytać informacji o instancji",
   "about.card.components": "Komponenty",
-  "about.card.componentsDesc": "Opcjonalne usługi, z których korzysta ta instancja. Tylko informacyjnie — żadna nie wpływa na gotowość.",
+  "about.card.componentsDesc": "Opcjonalne usługi i ich stan.",
   "about.health.ok": "Wszystkie dostępne",
   "about.health.degraded": "Ograniczona sprawność",
   "about.health.unknown": "Nieznany",

@@ -562,7 +562,7 @@
   "about.disk.critical": "Kritisch",
   "about.error.load": "Instanzinformationen konnten nicht geladen werden",
   "about.card.components": "Komponenten",
-  "about.card.componentsDesc": "Optionale Dienste, die diese Instanz nutzt. Nur zur Anzeige — keiner beeinflusst die Bereitschaft.",
+  "about.card.componentsDesc": "Optionale Dienste und ihr Status.",
   "about.health.ok": "Alle erreichbar",
   "about.health.degraded": "Beeinträchtigt",
   "about.health.unknown": "Unbekannt",

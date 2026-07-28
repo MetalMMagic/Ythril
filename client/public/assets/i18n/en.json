@@ -562,7 +562,7 @@
   "about.disk.critical": "Critical",
   "about.error.load": "Couldn't load instance info",
   "about.card.components": "Components",
-  "about.card.componentsDesc": "Optional services this instance delegates to. Reporting only — none of these affect readiness.",
+  "about.card.componentsDesc": "Optional services and their status.",
   "about.health.ok": "All reachable",
   "about.health.degraded": "Degraded",
   "about.health.unknown": "Unknown",

@@ -897,6 +897,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now "all of them, it takes seconds". Verified by reintroducing the blank-icon regression and
   confirming preflight fails on it and says why.
 
+- **The Components card header now matches its siblings.** Browser-verified after shipping: the card
+  purpose wrapped to four lines where Instance and System use a single short phrase, leaving the icon
+  and pill visibly misaligned and the card taller than its neighbours. Shortened to match. Also
+  confirmed in the DOM what no unit test can see — the card icon resolves to a real 18x18 glyph rather
+  than the empty string an unregistered name produces, which is the defect that turned CI red earlier
+  in this release.
+
 - **The About page now shows that component liveness, closing the loop on the endpoint above.** A
   Components card lists each optional service with its state, and — only when something is actually
   down — what breaks while it is. Printing the consequence beside a healthy component turns the panel

@@ -3184,6 +3184,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Saving a space's settings no longer leaves it looking unsaved.** The unsaved-changes snapshot was
+  only taken when a space was opened, so after a save the editor still compared against the pre-save
+  values — closing it could then warn you about discarding changes that were already persisted.
+
 - **The Face Recognition card drops its On/Off pill.** The health dot beside the heading already says
   whether it is running, so the pill repeated it.
 

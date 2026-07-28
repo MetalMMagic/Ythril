@@ -5,7 +5,9 @@ import path from 'node:path';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { requireAuth, requireAdmin } from '../auth/middleware.js';
 import { mintSseTicket } from '../auth/sse-ticket.js';
-import { getConfig } from '../config/loader.js';
+import { getConfig, getDocumentProcessingConfig, getMediaEmbeddingConfig } from '../config/loader.js';
+import { isRenderAvailable, isOfficeRenderAvailable } from '../files/converters/renderer.js';
+import { summariseHealth } from './health-summary.js';
 import { getMongo } from '../db/mongo.js';
 import { getLogLines, subscribeLogLines } from '../util/log.js';
 import { computeSecurityPosture, securityStrict } from '../config/security-posture.js';
@@ -93,6 +95,52 @@ aboutRouter.get('/', async (_req, res) => {
 aboutRouter.get('/logs', requireAdmin, (_req, res) => {
   const lines = Math.min(Math.max(1, Number(_req.query['lines']) || 200), 1000);
   res.json({ lines: getLogLines(lines) });
+});
+
+// Component liveness for the Instance panel (F9 follow-up). Admin-only: it names which optional
+// services an instance is wired to, which is deployment shape.
+//
+// NOT part of `/ready`, deliberately — see health-summary.ts. Everything probed here is optional, and
+// a dead render sidecar must degrade a feature, not pull a healthy instance out of the load balancer.
+aboutRouter.get('/health', requireAdmin, async (_req, res) => {
+  const docCfg = getDocumentProcessingConfig();
+  // The NLI judge is a media-embedding PROVIDER (same shape as vision/stt), not a field on the
+  // contradiction-scanner block — the scanner consumes it but does not own it.
+  const nli = getMediaEmbeddingConfig().nli;
+
+  // Each probe is already cached and timeout-bounded at its source, so this route cannot hang on a
+  // sidecar that accepts connections and never answers.
+  const [render, office] = await Promise.all([
+    isRenderAvailable().catch(() => false),
+    isOfficeRenderAvailable().catch(() => false),
+  ]);
+
+  const renderWanted = docCfg.mode !== 'off';
+  const components = [
+    {
+      id: 'doc-render',
+      label: 'Document renderer',
+      configured: renderWanted,
+      reachable: renderWanted ? render : null,
+      impact: 'PDFs fall back to plain text extraction — no page images, so no VLM or OCR route.',
+    },
+    {
+      id: 'doc-office',
+      label: 'Office renderer',
+      configured: renderWanted,
+      reachable: renderWanted ? office : null,
+      impact: 'Office formats (docx, pptx, xlsx…) cannot be rasterised; they fall back to text.',
+    },
+    {
+      id: 'nli',
+      label: 'Contradiction judge (NLI)',
+      configured: !!nli?.baseUrl,
+      reachable: null,   // no cheap liveness probe — the endpoint shape varies by provider
+      impact: 'Contradiction findings stay at the structured pass; the NLI cursor parks.',
+    },
+  ];
+
+  res.json(summariseHealth(components));
 });
 
 // Security posture report (PR-S3). Admin-only — reveals the instance's security configuration.

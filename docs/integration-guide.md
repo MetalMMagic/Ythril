@@ -271,6 +271,21 @@ GET /api/about/security      # admin token
 → { "checks": [ { "id": "transport.tls", "level": "warn", "message": "…" }, … ], "worst": "warn", "strict": false }
 ```
 
+**Component liveness** is a separate, admin-only endpoint:
+
+```http
+GET /api/about/health        # admin token
+→ { "level": "degraded", "down": ["doc-render"], "components": [ { "id": "doc-render", "configured": true, "reachable": false, "impact": "…" }, … ] }
+```
+
+`level` is `ok`, `degraded`, or `unknown`, and it is **reporting, never gating**:
+
+- Everything probed here is **optional** — the render sidecars are opt-in, and the NLI judge ships with no endpoint at all. A component the operator never configured reports `configured: false` and does **not** count as a fault; otherwise the panel would be permanently yellow.
+- A configured component that is unreachable is `degraded`, never "down". It degrades a feature, it does not stop the instance serving.
+- `reachable: null` means the probe could not run, which is reported as `unknown` rather than folded into `degraded` — "we could not check" and "it is broken" want different responses.
+
+**This is not `/ready`.** `/ready` is the orchestration probe and gates on MongoDB and vector search only. Adding an optional sidecar to it would let a dead render container pull a healthy instance out of the load balancer — turning a degraded feature into an outage.
+
 Levels are `pass` / `warn` / `fail` (`fail` = actively broken, e.g. `requireEncryptedTransport` on without
 `trustProxy`, so requests would 403). Set **`security.strict`** (config) or **`YTHRIL_SECURITY_STRICT=true`**
 to make any `fail` finding abort boot — the aggregate "don't start if misconfigured" switch, on top of the

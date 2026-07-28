@@ -880,6 +880,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name, so nothing reads as "the default" when you look at the code. Both are now gated in both
   directions — change the seed or change the doc, either fails.
 
+- **The Instance panel can now tell you which optional components are actually alive.**
+  `GET /api/about/health` (admin) reports the render sidecars and the NLI judge with, for each, whether
+  it is configured, whether it is reachable, and what breaks when it is not. Until now "documents
+  stopped being extracted" and "the renderer container died" were the same screen.
+
+  **It reports; it does not gate.** `/ready` is the orchestration probe — a 503 there takes the
+  instance out of service — and it still depends on MongoDB and vector search alone. Everything in the
+  new endpoint is optional: the render sidecars are opt-in, the NLI judge ships with no endpoint and
+  its scanner is off by default. Folding any of them into readiness would let a dead render container
+  pull a healthy instance out of the load balancer, turning a degraded feature into an outage. A test
+  asserts `ready.ts` never references them, because that is a change someone would make in good faith.
+
+  Two smaller distinctions the summary keeps: a component nobody configured is not a fault (otherwise
+  the panel is permanently yellow, and a warning that is always on is one nobody reads), and a probe
+  that could not run reports `unknown` rather than `degraded` — "we could not check" and "it is broken"
+  want different responses. Mutation-proven 7/7.
+
 - **The pre-release documentation audit is complete.** Seven classes swept: environment variables,
   config keys, route paths, the MCP tool split, default values, restart/reload semantics, and
   failure-behaviour claims. Three real errors found — offsite backup retention (silently deleting

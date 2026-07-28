@@ -823,6 +823,18 @@ export interface AuditConfig {
   logReads?: boolean;
   /** Number of days to retain audit entries (TTL). Default: 90. */
   retentionDays?: number;
+  /**
+   * Days a brain record edit's `changes` payload survives before being redacted. Default: 14.
+   *
+   * Separate from `retentionDays` on purpose. Record-edit changes carry USER CONTENT — a memory's old
+   * text, an entity's old description — so they get a short life, while the entry itself (who, when,
+   * which route) keeps the full retention. A sweep unsets the payload and marks `changesRedacted`;
+   * the audit trail is never shortened, only the content inside it.
+   *
+   * Admin/config changes (`space.update`, `network.update`, …) are unaffected — a label or a boolean
+   * an operator set is not user content, and is the audit log's core value.
+   */
+  recordChangeRetentionDays?: number;
 }
 
 /** Knowledge types the background duplicate scanner can sweep (same values as RecallKnowledgeType). */

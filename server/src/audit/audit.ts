@@ -96,6 +96,13 @@ export interface AuditEntryInput {
   durationMs: number;
   /** Allowlisted field changes — see `audit-changes.ts`. Omitted when the operation has no allowlist. */
   changes?: AuditChange[];
+  /**
+   * Set once a record-edit entry's `changes` have aged out and been unset (see `change-retention.ts`).
+   *
+   * Distinguishes "this operation records no changes" from "it did, and they have expired" — without
+   * it, an absent `changes` quietly implies nothing was ever captured.
+   */
+  changesRedacted?: boolean;
 }
 
 /** Insert an audit log entry. Fire-and-forget — never throws. */

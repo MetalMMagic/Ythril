@@ -5560,7 +5560,8 @@ Add an `audit` block to `config.json`:
 {
   "audit": {
     "logReads": false,
-    "retentionDays": 90
+    "retentionDays": 90,
+    "recordChangeRetentionDays": 14
   }
 }
 ```
@@ -5569,6 +5570,27 @@ Add an `audit` block to `config.json`:
 |-------|------|---------|-------------|
 | `logReads` | `boolean` | `false` | When `true`, read operations (recall, query, list, traverse, stats) are also logged. By default only write operations and auth failures are recorded. |
 | `retentionDays` | `number` | `90` | Number of days before audit entries are automatically purged by MongoDB's TTL daemon. |
+| `recordChangeRetentionDays` | `number` | `14` | Days a **brain record edit's** `changes` payload survives before being redacted. See below. |
+
+#### Why record changes expire sooner than the entries that carry them
+
+An audit entry answers *who changed what, when, and through which route*. For admin and configuration
+operations the `changes` payload is part of that answer — a label, a cron schedule, a `requireSignedVotes`
+boolean — and it keeps the full `retentionDays`.
+
+For **brain record edits** (`memory.update`, `entity.update`, `edge.update`, `chrono.update`,
+`file.meta.update`, `entity.merge`) the payload is different in kind: it contains user content, the old text
+of a memory or the previous description of an entity. That is a copy of your data in a second store with
+different access rules — any admin can read the audit log, including for spaces their token could not
+otherwise reach.
+
+So the payload alone expires early. A background sweep unsets `changes` on those entries once they pass
+`recordChangeRetentionDays` and marks them `changesRedacted: true`. **The entry itself is never shortened** —
+who edited that memory and when remains answerable for the full retention period. Only "and here is what it
+used to say" ages out.
+
+`changesRedacted` exists so a reader can distinguish *"this operation records no changes"* from *"it did, and
+they have expired"*. Without it an absent `changes` would quietly imply nothing was ever captured.
 
 ### Tracked operations
 

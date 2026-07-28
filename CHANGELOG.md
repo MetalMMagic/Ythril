@@ -988,6 +988,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Audit entries can now carry brain record changes, and that payload expires on its own short clock.**
+  Owner decision: record edits MAY record old→new values, with a TTL. This ships the TTL first — the
+  guard before the thing it guards — so content can never land without the mechanism that ages it out.
+
+  The obvious implementation would be a nearer `_expireAt`, letting MongoDB's TTL index handle it. That
+  is wrong: a TTL index deletes the whole **document**, so it would take who / when / route with it and
+  shorten the audit TRAIL for exactly the operations the feature exists to make auditable. The trail is
+  the durable part, the content is the sensitive part, and they need different lifetimes. A sweep unsets
+  `changes` in place instead; the entry keeps its full `audit.retentionDays`.
+
+  New `audit.recordChangeRetentionDays` (default **14**). Only the six brain record operations expire
+  early — admin and config changes keep the full retention, because a label or a boolean an operator set
+  is not user content and is the log's core value. Redaction is recorded as `changesRedacted: true`
+  rather than silent, so a reader can tell "this operation records no changes" from "it did, and they
+  have aged out".
+
 - **`If-Match` now covers every route that writes space meta, not the two it shipped with.** The
   previous entry guarded `PATCH /api/spaces/:id` and `PUT /api/spaces/:id/schema` — but the single-type
   upsert and delete routes (`PUT`/`DELETE /api/spaces/:id/meta/typeSchemas/:kt/:type`) write meta too,

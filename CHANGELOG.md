@@ -988,6 +988,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Brain record edits now record what actually changed — including tags and entity links.** The second
+  half of the owner's "yes, with a TTL": `memory.update`, `entity.update`, `edge.update` and
+  `chrono.update` capture their old→new values, which expire on the short clock shipped in the previous
+  entry.
+
+  The blocker was invisible rather than hard. `scalarOrDrop` discards arrays — correct in general,
+  since letting an object through would allow one allowlisted parent to silently ship every child it
+  gains later — but it meant `tags` and `entityIds` recorded **nothing at all**, with no error and no
+  empty value. The entry would appear with the field simply missing, and a reader would conclude the
+  tags were untouched. List fields are now opt-in per name, must contain only primitives (one object
+  and the whole field is dropped), and record what moved rather than the whole list: re-tagging one
+  memory does not copy forty tags into the log twice. Reordering records nothing, since these compare
+  as sets.
+
+  **`properties` is not recorded for any record type** — it is the one field on a record whose keys the
+  user chooses, so it is where a pasted credential would land, and an allowlist cannot vet names it has
+  never seen. `file.meta.update` and `entity.merge` are deliberately absent until their routes supply
+  snapshots, rather than shipping a list that claims coverage it does not have.
+
+  Only single-record edits carry changes: `bulk.write` has no allowlist and peer sync never reaches
+  these routes, so the bulk paths cannot flood the audit collection with content.
+
 - **Audit entries can now carry brain record changes, and that payload expires on its own short clock.**
   Owner decision: record edits MAY record old→new values, with a TTL. This ships the TTL first — the
   guard before the thing it guards — so content can never land without the mechanism that ages it out.

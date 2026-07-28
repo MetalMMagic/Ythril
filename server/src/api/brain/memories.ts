@@ -216,8 +216,15 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
         return;
       }
     }
+    // Snapshot for the audit change list. One extra read, on the interactive single-record path only —
+    // bulk writes go through `bulk.write`, which has no allowlist, and peer sync never reaches this
+    // route at all. `audit-changes.ts` reads only the allowlisted fields, so handing the whole record
+    // over cannot publish `properties` (deliberately unlisted: its keys are user-chosen and could hold
+    // a pasted credential).
+    const prior = await listMemories(mid, { _id: id }, 1, 0);
     const updated = await updateMemory(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
     if (updated) {
+      req.auditSnapshots = { before: prior[0] ?? {}, after: updated };
       res.json(updated);
       return;
     }

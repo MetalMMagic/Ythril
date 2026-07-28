@@ -76,6 +76,9 @@ describe('audit changes — every allowlist is actually reachable', () => {
   const ROUTE_SOURCES = [
     'server/src/api/spaces.ts', 'server/src/api/tokens.ts', 'server/src/api/media-config.ts',
     'server/src/api/networks/crud.ts', 'server/src/api/data.ts',
+    // Brain record edits — the operations whose changes carry user content and expire early.
+    'server/src/api/brain/memories.ts', 'server/src/api/brain/entities.ts',
+    'server/src/api/brain/edges.ts', 'server/src/api/brain/chrono.ts',
   ];
 
   it('every allowlisted key is a REAL operation name from the middleware', () => {
@@ -190,5 +193,79 @@ describe('audit changes — scalars only', () => {
     assert.deepEqual(auditChanges('space.update', null, { label: 'x' }), []);
     assert.deepEqual(auditChanges('space.update', undefined, undefined), []);
     assert.deepEqual(auditChanges('space.update', 'not-an-object', 42), []);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Brain record edits — list fields, and the content that must NOT be recorded
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('audit changes — list fields record what moved, not the whole list', () => {
+  before(async () => {
+    ({ auditChanges, AUDIT_CHANGE_FIELDS } = await import('../../server/dist/audit/audit-changes.js'));
+  });
+
+  it('records tags as added/removed rather than dropping them', () => {
+    // The bug this exists to prevent is silent: `scalarOrDrop` discards arrays, so before this the
+    // entry appeared with `tags` simply missing from `changes` — and a reader concludes the tags were
+    // untouched. No error, no empty value, just absence.
+    const changes = auditChanges('memory.update',
+      { tags: ['a', 'b'] }, { tags: ['b', 'c'] });
+    assert.deepEqual(changes, [{ field: 'tags', added: ['c'], removed: ['a'] }]);
+  });
+
+  it('treats an absent list as empty, so first-time tagging still records', () => {
+    assert.deepEqual(auditChanges('memory.update', {}, { tags: ['new'] }),
+      [{ field: 'tags', added: ['new'] }]);
+  });
+
+  it('records a cleared list as removals', () => {
+    assert.deepEqual(auditChanges('memory.update', { tags: ['gone'] }, { tags: [] }),
+      [{ field: 'tags', removed: ['gone'] }]);
+  });
+
+  it('says nothing when a list is merely reordered', () => {
+    // Set semantics, not sequence — a reorder is not a change anyone needs explained, and recording
+    // one would make every save look like an edit.
+    assert.deepEqual(auditChanges('memory.update', { tags: ['a', 'b'] }, { tags: ['b', 'a'] }), []);
+  });
+
+  it('drops the whole field when a list contains a non-primitive', () => {
+    // Fail-closed, same direction as everywhere else here: one object in the array and nothing is
+    // recorded, rather than recording part of it or stringifying the object.
+    assert.deepEqual(auditChanges('memory.update',
+      { tags: ['a'] }, { tags: [{ nested: 'sk-live-AAA' }] }), []);
+  });
+
+  it('never records `properties` for any record type', () => {
+    // The one field on a record whose KEYS the user chooses, so it is where a pasted credential would
+    // land. The allowlist cannot vet names it has never seen, so the whole bag stays out.
+    for (const op of ['memory.update', 'entity.update', 'edge.update', 'chrono.update']) {
+      assert.ok(!(AUDIT_CHANGE_FIELDS[op] ?? []).includes('properties'),
+        `${op} must not allowlist the free-form properties bag`);
+      assert.deepEqual(
+        auditChanges(op, { properties: { k: 'old' } }, { properties: { k: 'sk-live-AAA' } }), [],
+        `${op} must record nothing from properties`);
+    }
+  });
+
+  it('records the content fields the owner asked for', () => {
+    // "Yes with a TTL" means content IS in scope — the TTL is the mitigation, not omission.
+    const changes = auditChanges('memory.update',
+      { fact: 'old text' }, { fact: 'new text' });
+    assert.deepEqual(changes, [{ field: 'fact', from: 'old text', to: 'new text' }]);
+  });
+
+  it('every record operation that expires early has an allowlist, and vice versa', async () => {
+    // The two lists are written in different files and must not drift: an operation with content in
+    // `changes` but no early expiry would keep user content for the full 90 days.
+    const { RECORD_CHANGE_OPERATIONS } = await import('../../server/dist/audit/change-retention.js');
+    for (const op of Object.keys(AUDIT_CHANGE_FIELDS)) {
+      const isRecordOp = /^(memory|entity|edge|chrono|file\.meta)\./.test(op);
+      if (!isRecordOp) continue;
+      assert.ok(RECORD_CHANGE_OPERATIONS.includes(op),
+        `${op} records record content but is not in RECORD_CHANGE_OPERATIONS — its changes would ` +
+        'keep the full audit retention instead of the short one.');
+    }
   });
 });

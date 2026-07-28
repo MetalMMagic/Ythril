@@ -265,8 +265,12 @@ entitiesRouter.patch('/spaces/:spaceId/entities/:id', globalRateLimit, requireSp
         return;
       }
     }
+    // Snapshot for the audit change list — see the note in memories.ts. Interactive single-record path
+    // only; `properties` is deliberately not allowlisted, so handing the record over cannot publish it.
+    const prior = await getEntityById(mid, id);
     const updated = await updateEntityById(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
     if (updated) {
+      req.auditSnapshots = { before: prior ?? {}, after: updated };
       res.json(updated);
       return;
     }

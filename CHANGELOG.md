@@ -862,6 +862,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **Seven local-connector settings existed only in the source; they are documented now, and a test
+  keeps it that way.** The pre-release doc audit's first slice compared every environment variable the
+  code reads against every one the docs name. The connector's token, port, bind host, tunnel name,
+  cloudflared path and service-install toggle — plus the two Ythril-side token variables — were all
+  configurable and all undiscoverable. An undocumented setting is not a missing feature; it is one
+  nobody can find, and nothing reports it.
+
+  The check is now a permanent gate rather than a one-off sweep, in both directions: a variable the
+  code reads but no doc mentions fails, and so does one the docs name but nothing reads — the nastier
+  case, because a reader copies it into `.env`, it does nothing, and no error explains why. Verified by
+  introducing each kind of drift and confirming all three are caught.
+
+  Worth recording that the scan produced three classes of false finding before it was trustworthy: it
+  missed reads routed through an `envTrue(...)` helper, it did not count `docker-compose.yml` as a place
+  a variable can be used (`YTHRIL_PORT` lives only there), and its compose-interpolation pattern matched
+  ordinary `${CONSTANT}` template literals in TypeScript. Every finding was opened in the source before
+  being believed, which is the only reason none of those became a doc change.
+
 - **Documentation staleness sweep — one statement was wrong, not merely out of date.** The integration
   guide told operators that *"any change to the `oidc` block requires `POST /api/admin/reload-config`
   or a container restart to take effect"*. Since the config watcher landed, an OIDC edit is picked up

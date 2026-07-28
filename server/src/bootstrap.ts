@@ -70,6 +70,10 @@ export async function startConfiguredInstanceServices(): Promise<void> {
   // that never enabled them.
   const { startCandidatePrune } = await import('./brain/candidate-prune.js');
   startCandidatePrune();
+  // Redacts the `changes` payload on brain record-edit audit entries past their shorter retention.
+  // The entry itself keeps `audit.retentionDays` — only the user content inside it expires early.
+  const { startAuditChangeRetention } = await import('./audit/change-retention.js');
+  startAuditChangeRetention();
 
   const { cleanupStaleChunks } = await import('./files/chunks.js');
   cleanupStaleChunks().catch(err => log.error(`Stale chunk cleanup failed: ${err}`));

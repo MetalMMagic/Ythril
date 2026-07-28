@@ -2848,6 +2848,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The sync engine's per-network lock is now a separate, testable unit — which is the entire point of
+  the change.** `runSyncForNetwork` guarded sync cycles with a Map and a Set inlined in the engine, and
+  two of its three behaviours could not be verified from outside: that a concurrent trigger starts no
+  second cycle, and that a mid-cycle trigger fires exactly one follow-up however many arrive. Both need
+  the cycle counted, and counting needs it injectable. `createCoalescingRunner` takes the work as a
+  parameter, so a test can hand it a counter and a promise it controls — and 11 new tests now cover
+  exactly what the previous release had to document as untestable, including that ten concurrent
+  triggers start one job and that five mid-cycle triggers produce one rerun rather than five.
+
+  Note this is not a line-count win: the engine goes from 1396 to 1371 lines, and the ~600 lines of
+  per-member transfer logic are untouched. What changed is that the piece whose failures are invisible
+  — a lock that stops coalescing merely multiplies load; one that leaks on error wedges a single
+  network forever while everything else looks healthy — now has tests, and they are mutation-proven
+  7/7. Space-id mapping moved out alongside it as a pure module. The 19 characterization tests from the
+  previous release pass unchanged.
+
 - **The graph page is no longer a god file: 2065 lines split into a component plus four focused
   modules.** The traversal cache, the detail-table derivation, the cytoscape boundary and 556 lines of
   CSS each moved to their own file, following the `pages/brain/` precedent (pure module by default, and

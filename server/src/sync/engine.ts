@@ -29,6 +29,8 @@ import { enqueueMediaJob } from '../files/media/job-queue.js';
 import { resolveInputFormat } from '../files/converters/pipeline.js';
 import { schedule as cronSchedule, type ScheduledTask } from 'node-cron';
 import { resolveSyncCron } from './schedule.js';
+import { createCoalescingRunner } from './coalescing-runner.js';
+import { remoteToLocal, localToRemote } from './space-map.js';
 import {
   syncCyclesTotal,
   syncItemsPulledTotal,
@@ -74,24 +76,9 @@ const PUSH_BATCH_SIZE = 200;
 const STALE_FAILURE_THRESHOLD = 10;
 
 // ── Space ID resolution ────────────────────────────────────────────────────
+// Moved to ./space-map.ts (pure). Re-exported so existing importers are unaffected.
 
-/** Resolve a remote (peer-side) space ID to its local equivalent.
- *  Returns the mapped local ID from `net.spaceMap` if one exists, otherwise
- *  returns `remoteId` unchanged (no aliasing). */
-export function remoteToLocal(net: NetworkConfig, remoteId: string): string {
-  return net.spaceMap?.[remoteId] ?? remoteId;
-}
-
-/** Resolve a local space ID to its remote (peer-side) equivalent.
- *  Performs a reverse lookup on `net.spaceMap`. If no mapping exists the local
- *  ID is returned unchanged. */
-export function localToRemote(net: NetworkConfig, localId: string): string {
-  if (!net.spaceMap) return localId;
-  for (const [remote, local] of Object.entries(net.spaceMap)) {
-    if (local === localId) return remote;
-  }
-  return localId;
-}
+export { remoteToLocal, localToRemote } from './space-map.js';
 
 // ── Cron scheduler ─────────────────────────────────────────────────────────
 
@@ -191,41 +178,29 @@ export function pruneExpiredRounds(net: NetworkConfig, now: number = Date.now())
 // bcrypt cache, MongoDB connections, and peer HTTP sockets.  When a trigger
 // arrives while a cycle is in-flight, we set a "rerun requested" flag so the
 // running cycle fires one more round after completion.
-const _syncRunning = new Map<string, Promise<{ synced: number; errors: number }>>();
-const _syncRerunRequested = new Set<string>();
+// The coalescing + rerun-once behaviour lives in ./coalescing-runner.ts, where the job is a
+// parameter and can therefore be counted by a test. It could not be verified while inlined here:
+// `runSyncForNetwork` is async, so the in-flight promise it returns is never referentially equal to
+// the one it holds, and a members-less cycle resolves in microtasks, so a queued rerun starts and
+// finishes before any caller resumes.
+const _syncRunner = createCoalescingRunner<{ synced: number; errors: number }>({
+  onQueued: (id) => log.debug(`Sync cycle already running for network ${id} — queuing rerun`),
+  onRerun: (id) => log.debug(`Rerun requested for network ${id} — starting`),
+});
 
 /** True while a sync cycle for the given network is in-flight. Cheap, in-memory —
  *  used by GET /api/spaces to show a "syncing" status on a space's network chip. */
 export function isNetworkSyncing(networkId: string): boolean {
-  return _syncRunning.has(networkId);
+  return _syncRunner.isRunning(networkId);
 }
 
-/** Run a full sync cycle for a network: iterate members and sync each space. */
+/** Run a full sync cycle for a network: iterate members and sync each space.
+ *
+ *  Concurrent triggers for the same network join the running cycle rather than starting another, and
+ *  schedule exactly one follow-up. Resolves with the result of the cycle the caller JOINED, not of
+ *  any rerun. */
 export async function runSyncForNetwork(networkId: string): Promise<{ synced: number; errors: number }> {
-  const inflight = _syncRunning.get(networkId);
-  if (inflight) {
-    // A cycle is already running — schedule one more cycle after it finishes and
-    // return the CURRENT inflight promise (resolves when THIS cycle ends, not the
-    // next one).  Callers that need to wait for the rerun must call again after
-    // this promise resolves.
-    _syncRerunRequested.add(networkId);
-    log.debug(`Sync cycle already running for network ${networkId} — queuing rerun`);
-    return inflight;
-  }
-
-  const run = _runSyncForNetworkImpl(networkId);
-  _syncRunning.set(networkId, run);
-  try {
-    const result = await run;
-    return result;
-  } finally {
-    _syncRunning.delete(networkId);
-    // If a trigger arrived while we were running, fire one more cycle.
-    if (_syncRerunRequested.delete(networkId)) {
-      log.debug(`Rerun requested for network ${networkId} — starting`);
-      void runSyncForNetwork(networkId);
-    }
-  }
+  return _syncRunner.run(networkId, () => _runSyncForNetworkImpl(networkId));
 }
 
 async function _runSyncForNetworkImpl(networkId: string): Promise<{ synced: number; errors: number }> {

@@ -482,6 +482,25 @@ export interface SyncHistoryRecord {
   errors?: string[];
 }
 
+/** One optional component's liveness, from GET /api/about/health. */
+export interface ComponentHealth {
+  id: string;
+  label: string;
+  /** Whether this instance is set up to use it at all. */
+  configured: boolean;
+  /** Reachability. null = not configured, or no probe available — absence of a check, not a failure. */
+  reachable: boolean | null;
+  /** What breaks while it is down. */
+  impact: string;
+}
+
+/** Instance component liveness. REPORTING only — never gates readiness. */
+export interface HealthSummary {
+  level: 'ok' | 'degraded' | 'unknown';
+  components: ComponentHealth[];
+  down: string[];
+}
+
 export interface AboutInfo {
   instanceId: string;
   instanceLabel: string;

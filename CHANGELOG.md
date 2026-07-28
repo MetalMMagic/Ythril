@@ -880,6 +880,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name, so nothing reads as "the default" when you look at the code. Both are now gated in both
   directions — change the seed or change the doc, either fails.
 
+- **The About page now shows that component liveness, closing the loop on the endpoint above.** A
+  Components card lists each optional service with its state, and — only when something is actually
+  down — what breaks while it is. Printing the consequence beside a healthy component turns the panel
+  into a wall of warnings nobody reads.
+
+  Three states, deliberately distinguished rather than collapsed into a traffic light: reachable,
+  unreachable, and *not configured*. The last is neutral, not a fault — it was never asked for, and
+  colouring it red would make the card permanently alarming on a plain instance. `unknown` (a probe
+  that could not run) is warn rather than error for the same reason.
+
+  The probe is a separate request from the rest of About, so a slow or failing one does not hold up or
+  error the page — the card simply does not appear. It renders only once the probe answers: an empty
+  card that fills in a moment later reads as "nothing configured", which is a different claim.
+
 - **The Instance panel can now tell you which optional components are actually alive.**
   `GET /api/about/health` (admin) reports the render sidecars and the NLI judge with, for each, whether
   it is configured, whether it is reachable, and what breaks when it is not. Until now "documents

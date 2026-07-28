@@ -1,5 +1,5 @@
 import { Component, inject, signal, computed, OnInit } from '@angular/core';
-import { type AboutInfo } from '../../core/api.types';
+import { type AboutInfo, type HealthSummary, type ComponentHealth } from '../../core/api.types';
 import { AdminApi } from '../../core/admin-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { SettingsCardComponent } from '../../shared/settings-card.component';
@@ -33,6 +33,14 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
       font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;
     }
     .disk-fig .pct { font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+    .components { display: flex; flex-direction: column; gap: 10px; }
+    .component-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .component-label { font-size: 13px; color: var(--text-primary); }
+    .component-impact {
+      margin: 4px 0 0; font-size: 12px; line-height: 1.45; color: var(--text-secondary);
+      border-left: 2px solid var(--danger, #f85149); padding-left: 8px;
+    }
   `,
   template: `
     @if (loading()) {
@@ -89,6 +97,33 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
             <app-usage-bar [used]="i.diskInfo.used" [total]="i.diskInfo.total" [warnAtPercent]="80" />
           </div>
         </app-settings-card>
+
+        <!-- Optional components. Rendered only once the probe has answered: an empty card that fills in
+             a moment later reads as "nothing configured", which is a different claim entirely. -->
+        @if (health(); as h) {
+          <app-settings-card icon="activity"
+                             [heading]="'about.card.components' | transloco"
+                             [purpose]="'about.card.componentsDesc' | transloco">
+            <app-status-pill pill [variant]="healthPill().variant" [dot]="true">{{ healthPill().label | transloco }}</app-status-pill>
+            <div class="components">
+              @for (c of h.components; track c.id) {
+                <div class="component" [class.is-down]="c.configured && c.reachable === false">
+                  <div class="component-head">
+                    <span class="component-label">{{ c.label }}</span>
+                    <app-status-pill [variant]="componentVariant(c)" [dot]="true">
+                      {{ componentLabel(c) | transloco }}
+                    </app-status-pill>
+                  </div>
+                  <!-- The impact line is shown ONLY when something is actually broken. Printing it for a
+                       healthy component turns the panel into a wall of warnings nobody reads. -->
+                  @if (c.configured && c.reachable === false) {
+                    <p class="component-impact">{{ c.impact }}</p>
+                  }
+                </div>
+              }
+            </div>
+          </app-settings-card>
+        }
       </div>
     }
   `,
@@ -114,6 +149,37 @@ export class AboutComponent implements OnInit {
     }
   });
 
+  health = signal<HealthSummary | null>(null);
+
+  /**
+   * Pill for the components card.
+   *
+   * `unknown` is warn, not error: it means a probe could not run, which is a different thing from a
+   * component that answered and failed. Showing it as an error would train people to ignore the colour.
+   */
+  healthPill = computed<{ variant: StatusVariant; label: string }>(() => {
+    switch (this.health()?.level) {
+      case 'degraded': return { variant: 'error', label: 'about.health.degraded' };
+      case 'unknown':  return { variant: 'warn',  label: 'about.health.unknown' };
+      default:         return { variant: 'ok',    label: 'about.health.ok' };
+    }
+  });
+
+  /** Per-component pill. An unconfigured component reads as `off` — not a fault, it was never asked for. */
+  componentVariant(c: ComponentHealth): StatusVariant {
+    if (!c.configured) return 'off';
+    if (c.reachable === false) return 'error';
+    if (c.reachable === null) return 'warn';
+    return 'ok';
+  }
+
+  componentLabel(c: ComponentHealth): string {
+    if (!c.configured) return 'about.health.notConfigured';
+    if (c.reachable === false) return 'about.health.unreachable';
+    if (c.reachable === null) return 'about.health.unknown';
+    return 'about.health.reachable';
+  }
+
   ngOnInit(): void { this.load(); }
 
   reload(): void { this.load(); }
@@ -132,6 +198,14 @@ export class AboutComponent implements OnInit {
         this.error.set(err?.error?.error ?? 'Failed to load about info');
         this.loading.set(false);
       },
+    });
+
+    // Separate request, deliberately not awaited with the one above: component probes can take a
+    // moment, and the whole page should not wait on them. A failure here leaves the card unrendered
+    // rather than erroring the page — the rest of About is still worth showing.
+    this.adminApi.getAboutHealth().subscribe({
+      next: (h) => this.health.set(h),
+      error: () => this.health.set(null),
     });
   }
 

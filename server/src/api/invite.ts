@@ -222,16 +222,32 @@ inviteRouter.post('/generate', globalRateLimit, requireAdmin, async (req, res) =
     reparentInstanceId ? ` [reparent target: ${reparentInstanceId}]` : ''
   }`);
 
+  // Re-read config AFTER the awaits above rather than reusing the snapshot taken at the top of the
+  // handler. `bcrypt.hash` is deliberately slow (BCRYPT_ROUNDS) and RSA-4096 generation is not fast
+  // either, so that snapshot can be hundreds of milliseconds old by the time the response is built.
+  // An admin correcting `publicUrl`, or a space being added to the network, inside that window would
+  // otherwise be silently ignored — and the invite would hand the joining instance a URL and a space
+  // list that were already wrong when it was printed.
+  const fresh = getConfig();
+  const freshNet = fresh.networks.find(n => n.id === networkId);
+  if (!freshNet) {
+    // The network was deleted while this handshake was being prepared. The session is now useless —
+    // drop it rather than leaving a live invite pointing at nothing.
+    _sessions.delete(sessionKey);
+    res.status(404).json({ error: 'Network not found' });
+    return;
+  }
+
   // Use the operator-configured publicUrl when available to prevent Host header
   // injection (a crafted Host header could point the inviteUrl at an attacker's server).
-  const baseUrl = (cfg.publicUrl ?? `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  const baseUrl = (fresh.publicUrl ?? `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
   res.status(201).json({
     handshakeId,
     networkId,
     inviteUrl: `${baseUrl}/api/invite/apply`,
     rsaPublicKeyPem: publicKey,
     expiresAt: new Date(expiresAt).toISOString(),
-    spaces: net.spaces,
+    spaces: freshNet.spaces,
   });
 });
 

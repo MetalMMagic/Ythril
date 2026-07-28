@@ -171,3 +171,43 @@ describe('a reload detaches nested references', () => {
     );
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// The response side of the same mechanism
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+
+describe('invite generate — the RESPONSE is built from fresh config, not the entry snapshot', () => {
+  const src = fs.readFileSync(new URL('../../server/src/api/invite.ts', import.meta.url), 'utf8');
+  const generateAt = src.indexOf("inviteRouter.post('/generate'");
+  const applyAt = src.indexOf("inviteRouter.post('/apply'");
+  const handler = src.slice(generateAt, applyAt);
+
+  it('re-reads config after the slow awaits rather than reusing the entry snapshot', () => {
+    // This handler generates an RSA-4096 key pair and bcrypt-hashes the handshake id before it
+    // responds — both deliberately slow. The config snapshot taken on entry can be hundreds of
+    // milliseconds stale by the time the response is assembled, so an admin correcting `publicUrl`
+    // in that window would have the invite hand out the OLD url anyway. No lost write, but a wrong
+    // answer that looks authoritative.
+    const hashAt = handler.indexOf('bcrypt.hash(');
+    const refreshAt = handler.indexOf('const fresh = getConfig();');
+    assert.ok(hashAt > 0, 'expected the bcrypt hash to still be in this handler');
+    assert.ok(refreshAt > hashAt, 'config must be re-read AFTER the slow awaits, not before');
+  });
+
+  it('builds both stale-able response fields from the fresh read', () => {
+    // `publicUrl` and the network's `spaces` are the two fields the joining instance acts on.
+    const responseAt = handler.indexOf('res.status(201)');
+    const response = handler.slice(responseAt);
+    assert.match(handler.slice(0, responseAt), /const baseUrl = \(fresh\.publicUrl/,
+      'the invite URL must come from the fresh config');
+    assert.match(response, /spaces: freshNet\.spaces/,
+      'the advertised space list must come from the freshly re-found network');
+  });
+
+  it('drops the session when the network vanished during the window', () => {
+    // A live invite pointing at a network that no longer exists is worse than no invite: the
+    // handshake would be accepted right up until apply, then fail with nothing to explain it.
+    assert.match(handler, /_sessions\.delete\(sessionKey\)/,
+      'a network deleted mid-handshake must invalidate the session it created');
+  });
+});

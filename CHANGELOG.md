@@ -1894,6 +1894,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An invite could advertise a `publicUrl` and space list that were already out of date when it was
+  printed.** `POST /api/invite/generate` snapshots config on entry, then generates an RSA-4096 key pair
+  and bcrypt-hashes the handshake id — both deliberately slow — before building its response from that
+  snapshot. An admin correcting `publicUrl`, or a space being added to the network, inside that window
+  was silently ignored: no lost write, but a wrong answer that looks authoritative, handed to the one
+  party who has no way to check it. Both fields now come from a read taken after the awaits.
+
+  A network deleted during the same window now invalidates the handshake session it created, instead of
+  leaving a live invite pointing at nothing — which would have been accepted right up until apply and
+  then failed with nothing to explain it.
+
 - **Review findings whose records were deleted are now cleaned up.** Neither candidate collection had any
   retention: deleting a record individually stranded every finding about it forever, so the Review tab
   could list a pair where clicking through leads nowhere. A background prune (every 6h, always on) now

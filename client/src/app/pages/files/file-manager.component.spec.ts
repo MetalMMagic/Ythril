@@ -228,6 +228,9 @@ describe('FileManagerComponent (OnPush)', () => {
     expect(table.rows[1]).toEqual(['Bob', '25']);
     expect(table.note).toBeNull(); // small sheet → not truncated
   });
+  // ^ One of the two specs that exposed the suite-wide timeout ceiling: it imports `exceljs` twice
+  // (here for the fixture workbook, and again inside `renderXlsx`), so it runs long under a full
+  // parallel run. No per-test override needed — `testTimeout` in vitest.config.ts covers the class.
 
   it('toggles the full-screen preview overlay; Escape collapses it before closing the pane', () => {
     const fixture = create([fileEntry('doc.md')]);

@@ -1,4 +1,6 @@
 import { Component, inject, signal, computed, OnInit } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { filter } from 'rxjs/operators';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AdminApi } from '../../core/admin-api.service';
@@ -291,8 +293,47 @@ export class DataComponent implements OnInit {
   /** The most-recent backup id, for the "Latest" marker (backups come newest-first from the API). */
   latestBackupId = computed(() => this.backups()[0]?.id ?? null);
 
+  /**
+   * Flips whenever a translation file finishes loading.
+   *
+   * `computed` memoises on its SIGNAL dependencies, and `transloco.translate()` is not one — it is a
+   * plain method call. So a computed that translates imperatively evaluates once during the first
+   * render, BEFORE the language file has resolved, gets the raw key back (Transloco logs
+   * "Missing translation key"), and then never re-runs to pick up the real string.
+   *
+   * That was not visible here only by luck: `backups()` and `backupConfig()` land after their HTTP
+   * calls, which happens to be after translations load, so the strip re-evaluated and looked correct.
+   * Remove or reorder those loads and the labels would read `data.summary.backups` permanently.
+   *
+   * Reading this signal inside the computed makes "translations arrived" a real dependency.
+   */
+  private translationLoad = toSignal(
+    this.transloco.events$.pipe(filter(e => e.type === 'translationLoadSuccess')),
+    { initialValue: null },
+  );
+
+  /**
+   * Are translations actually available to `translate()` right now?
+   *
+   * Both halves are needed. `events$` does NOT replay, so a component mounted after the language file
+   * already loaded would never see the event and — if that were the only check — would render an empty
+   * strip forever, which is a worse bug than the one being fixed. `getTranslation()` is synchronous and
+   * covers exactly that case; the signal covers the first-load case and supplies the reactivity.
+   */
+  private translationsReady = computed<boolean>(() => {
+    this.translationLoad();   // dependency, not a value
+    // Ask whether the active language has been LOADED, not whether it has content. An empty-but-loaded
+    // dictionary is a legitimate state — the spec harness uses exactly that, and so would a minimal
+    // locale — and treating it as "not ready" would blank the strip permanently.
+    return this.transloco.getTranslation().has(this.transloco.getActiveLang());
+  });
+
   /** Operator overview strip: DB source, maintenance state, backup count, and the saved schedule. */
   summaryItems = computed<SummaryItem[]>(() => {
+    // Render nothing rather than translate too early. Calling `translate()` before the language file
+    // resolves logs "Missing translation key" and bakes the raw key into the label; an empty strip for
+    // one frame is honest, since the data behind it has not loaded either.
+    if (!this.translationsReady()) return [];
     const t = (k: string) => this.transloco.translate(k);
     const items: SummaryItem[] = [];
     const src = this.uriSource();

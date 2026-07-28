@@ -862,6 +862,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **Every API path named in the docs is verified to exist in a router.** Slice 3 of the pre-release
+  audit, and the third clean result: all 182 documented endpoints resolve. A documented endpoint that
+  does not exist is the most expensive doc bug there is — someone writes an integration, gets a 404,
+  and has nothing telling them the endpoint was never real.
+
+  Resolving the routing table was the entire difficulty, and a naive extractor proposed 89 findings out
+  of 182 — half the documented API, which is a broken scanner rather than a doc crisis. Five defects
+  had to be fixed: path-less sub-router composition (the whole `/api/sync` surface is built that way,
+  so it was invisible), routes declared straight on the app, routers mounted at more than one prefix
+  (`setupRouter` serves both `/api/setup` and `/setup`), concrete example values in docs
+  (`PATCH /api/spaces/research` is an example of `/api/spaces/:id`, not a different endpoint), and
+  brace-alternation shorthand documenting four endpoints in one line. The test header lists all five,
+  so a future failure is checked against them before anyone edits a doc.
+
 - **Every key in every documented `config.json` example is now verified against the config types.**
   Slice 2 of the pre-release audit, and the happier kind of result: all 14 config examples across the
   docs check out, so nothing needed fixing. The check is kept anyway, because this is the failure that

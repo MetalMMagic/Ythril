@@ -101,7 +101,7 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
         <!-- Optional components. Rendered only once the probe has answered: an empty card that fills in
              a moment later reads as "nothing configured", which is a different claim entirely. -->
         @if (health(); as h) {
-          <app-settings-card icon="activity"
+          <app-settings-card icon="broadcast"
                              [heading]="'about.card.components' | transloco"
                              [purpose]="'about.card.componentsDesc' | transloco">
             <app-status-pill pill [variant]="healthPill().variant" [dot]="true">{{ healthPill().label | transloco }}</app-status-pill>

@@ -45,6 +45,7 @@ function makeApi(spaces: Space[] = []) {
     listNetworks: () => of({ networks: [] }),
     getSpaceStats: () => of(STATS),
     listSchemaLibrary: () => of({ entries: [] }),
+    updateSpace: (_id: string, _body: unknown) => of({ space: space() }),
   } as any;
 }
 
@@ -257,5 +258,32 @@ describe('SpacesComponent — settings dialog rendering', () => {
     c.showCreateDialog.set(true);
     fixture.detectChanges();
     expect(c.showCreateDialog()).toBe(true);
+  });
+});
+
+/**
+ * The dirty snapshot must be re-baselined by a successful save.
+ *
+ * It was only ever taken when a space was OPENED, so after saving, the editor still compared against the
+ * pre-save values and reported unsaved changes for edits it had just persisted. Closing the dialog on
+ * success hid it in the common path, but any flow that kept the editor open produced a discard prompt
+ * for nothing — and a discard prompt that fires after a save is worse than none, because it trains
+ * people to click through discard prompts.
+ */
+describe('SpacesComponent — save re-baselines the unsaved-changes guard', () => {
+  it('is not dirty after a successful save', () => {
+    const fixture = create([space()]);
+    const c = fixture.componentInstance as any;
+
+    c.state.settingsSpace.set(space());
+    c.state.markPristine();
+    c.state.stForm.label = 'Renamed';
+    expect(c.state.isDirty(), 'an edit must be dirty').toBe(true);
+
+    c.saveSettings();
+
+    // Asserted on the STATE, not on whether the dialog closed: closing is what used to mask this.
+    c.state.settingsSpace.set(space());
+    expect(c.state.isDirty(), 'a saved edit must not still count as unsaved').toBe(false);
   });
 });

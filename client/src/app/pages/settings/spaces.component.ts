@@ -278,6 +278,12 @@ export class SpacesComponent implements OnInit {
       next: ({ space }) => {
         this.state.settingsSaving.set(false);
         this.store.applySpace(space);
+        // Re-baseline BEFORE closing. The dirty snapshot was only ever taken when a space was opened, so
+        // a successful save left it stale: the editor still compared against the pre-save values and
+        // reported unsaved changes for edits that were already persisted. Closing here happened to hide
+        // it, but any path that keeps the dialog open (or reopens it without a full load) nagged — and a
+        // discard prompt after a save teaches people to click through discard prompts.
+        this.state.markPristine();
         this.state.closeSettings();
       },
       error: (err) => { this.state.settingsSaving.set(false); this.state.settingsError.set(err.error?.error ?? this.transloco.translate('spaces.error.saveFailed')); },

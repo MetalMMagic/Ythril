@@ -8,6 +8,7 @@ import { slugify } from '../spaces/_shared.js';
 import { createSpace, removeSpace } from '../spaces/lifecycle.js';
 import { renameSpace } from '../spaces/rename.js';
 import { updateSpace, reorderSpaces } from '../spaces/spaces.js';
+import { checkMetaPrecondition, preconditionErrorBody } from '../spaces/meta-precondition.js';
 import { ensureTtlIndex } from '../brain/ttl.js';
 import { measureUsage, dirSizeBytes } from '../quota/quota.js';
 import { col } from '../db/mongo.js';
@@ -452,6 +453,15 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     return;
   }
 
+  // Optimistic concurrency: honour If-Match against the current meta version, if the client sent one.
+  // Runs before validation, the audit snapshot and every side effect — a rejected write must change
+  // nothing and record nothing.
+  const precondition = checkMetaPrecondition(req.get('If-Match'), space.meta?.version ?? 0);
+  if (!precondition.ok) {
+    res.status(precondition.status).json(preconditionErrorBody(precondition));
+    return;
+  }
+
   const parsed = UpdateSpaceBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
@@ -606,6 +616,14 @@ spacesRouter.put('/:id/schema', globalRateLimit, requireAdminMfaScoped('id'), as
   const space = cfg.spaces.find(s => s.id === id);
   if (!space) {
     res.status(404).json({ error: `Space '${id}' not found` });
+    return;
+  }
+
+  // Optimistic concurrency: honour If-Match against the current meta version, if the client sent one.
+  // Checked BEFORE the schema backup is written — a rejected write must leave no trace on disk.
+  const schemaPrecondition = checkMetaPrecondition(req.get('If-Match'), space.meta?.version ?? 0);
+  if (!schemaPrecondition.ok) {
+    res.status(schemaPrecondition.status).json(preconditionErrorBody(schemaPrecondition));
     return;
   }
 

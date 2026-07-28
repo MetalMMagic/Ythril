@@ -862,6 +862,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Documentation
 
+- **Numbers the docs quote are now checked against the constants they quote.** Slice 4d of the
+  pre-release audit. Failure-behaviour claims verified clean by reading — a peer that fails is caught
+  per-member and the cycle continues, `max` mode runs exactly one repair pass, catalog fetch failures
+  normalise to 502 with 504 passed through only when the remote itself says 504 — and every figure
+  those claims cite matches: 10 s and 60 s peer timeouts, an 8 s catalog timeout, 90-day audit
+  retention, 14-day record-change retention, 14 offsite backup sets.
+
+  A cited number is the most quietly dangerous thing a doc can hold. Vague prose reads as vague; a
+  specific figure reads as authoritative and gets planned around — a client's own timeout, a compliance
+  answer. Nothing fails when the constant moves; the sentence just becomes false. That is precisely
+  what the audit's one real finding was, so the class is now gated.
+
+  Deliberately **explicit pairs rather than a scanner**. Matching prose numbers to constants
+  generically is exactly the kind of cleverness that produced 69, then 36, then 89 false proposals in
+  earlier slices. This names each pair: more typing, no noise, and every failure it reports is real —
+  which is what decides whether a check survives or gets skipped. Verified by moving each constant and
+  confirming the gate breaks.
+
 - **The documented split of MCP tools into mutating and read-only is now checked against what the code
   actually blocks.** Slice 4c of the pre-release audit — the security-posture class — and a clean
   result: all 31 tools are classified correctly, 18 mutating and 12 read-only, with `list_peers`

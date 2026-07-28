@@ -1,0 +1,111 @@
+/**
+ * Numbers the docs quote must match the constants they are quoting.
+ *
+ * Slice 4d of the pre-release documentation audit. The audit's only real finding so far (#489) was
+ * exactly this shape: the user guide said offsite backups were kept forever, the constant said 14, and
+ * the mismatch had been silently deleting archives.
+ *
+ * A cited number is the most quietly dangerous thing a doc can contain. Prose that is vaguely out of
+ * date reads as vague; a specific figure reads as authoritative and gets planned around. "Requests
+ * time out after 30 s" sets a client's own timeout. "Entries are kept for 90 days" sets a compliance
+ * answer. Nothing fails when the constant moves — the sentence just quietly becomes false.
+ *
+ * ── Explicit pairs, not a scanner ───────────────────────────────────────────────────────────────
+ *
+ * Earlier slices taught the cost of a clever scanner: matching prose numbers to code constants
+ * generically produced far more noise than signal (69 and then 36 false proposals on config keys, 89
+ * on routes). So this file names each pair. It is more typing and it will not catch a constant nobody
+ * listed — but every failure it reports is real, which is the property that decides whether a check
+ * survives or gets skipped.
+ *
+ * To extend: add a row. The `doc` pattern should be specific enough that it only matches the sentence
+ * making the claim.
+ *
+ * Run: node --test testing/standalone/doc-cited-constants.test.js
+ */
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
+const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
+
+/**
+ * Each row: a constant in the source, and the doc sentence that quotes its value.
+ *
+ * `code` must capture the number in group 1. `doc` must MATCH (the value is interpolated into it), so
+ * a changed constant makes the pattern stop matching and the test names both sides.
+ */
+const CITED = [
+  {
+    what: 'sync peer request timeout',
+    source: 'server/src/sync/engine.ts',
+    code: /const FETCH_TIMEOUT_MS = ([0-9_]+);/,
+    scale: 1000,   // ms in code, seconds in prose
+    doc: 'docs/network-types.md',
+    text: (v) => new RegExp(`${v}\\s*s\\b[^.]*small requests`, 'i'),
+  },
+  {
+    what: 'sync batch transfer timeout',
+    source: 'server/src/sync/engine.ts',
+    code: /const BATCH_FETCH_TIMEOUT_MS = ([0-9_]+);/,
+    scale: 1000,
+    doc: 'docs/network-types.md',
+    text: (v) => new RegExp(`${v}\\s*s\\b[^.]*batch transfers`, 'i'),
+  },
+  {
+    what: 'schema-library catalog proxy timeout',
+    source: 'server/src/api/schema-library.ts',
+    code: /const CATALOG_PROXY_TIMEOUT_MS = ([0-9_]+);/,
+    scale: 1000,
+    doc: 'docs/integration-guide.md',
+    text: (v) => new RegExp(`request times out\\*\\*\\s*\\(${v}\\s*s\\)`, 'i'),
+  },
+  {
+    what: 'audit entry retention',
+    source: 'server/src/audit/audit.ts',
+    code: /const DEFAULT_RETENTION_DAYS = ([0-9_]+);/,
+    doc: 'docs/integration-guide.md',
+    text: (v) => new RegExp(`retentionDays\`? \\(default ${v}\\)`),
+  },
+  {
+    what: 'record-change retention',
+    source: 'server/src/audit/change-retention.ts',
+    code: /export const DEFAULT_RECORD_CHANGE_RETENTION_DAYS = ([0-9_]+);/,
+    doc: 'docs/integration-guide.md',
+    text: (v) => new RegExp(`recordChangeRetentionDays\`[^|]*\\|[^|]*\\|\\s*\`${v}\``),
+  },
+  {
+    what: 'offsite backup retention — the claim that was WRONG and started this slice',
+    source: 'server/src/db/backup-scheduler.ts',
+    code: /const DEFAULT_KEEP_OFFSITE = ([0-9_]+);/,
+    doc: 'docs/userguide.md',
+    text: (v) => new RegExp(`Default: ${v}\\*\\*`),
+  },
+];
+
+describe('numbers quoted in the docs match the constants they quote', () => {
+  it('every cited constant still exists in its source', () => {
+    // Guards the check itself: a renamed constant would otherwise make the pair silently untestable.
+    for (const row of CITED) {
+      const m = read(row.source).match(row.code);
+      assert.ok(m, `${row.what}: no longer found in ${row.source} — rename, or update this pairing`);
+    }
+  });
+
+  for (const row of CITED) {
+    it(`${row.what}`, () => {
+      const m = read(row.source).match(row.code);
+      assert.ok(m, `constant not found in ${row.source}`);
+      const raw = Number(m[1].replace(/_/g, ''));
+      const value = row.scale ? raw / row.scale : raw;
+
+      assert.match(read(row.doc), row.text(value),
+        `${row.source} says ${raw}${row.scale ? ` (${value}s)` : ''}, but ${row.doc} does not state ` +
+        'that value. A quoted number that no longer matches is read as authoritative and planned ' +
+        'around — update the doc, or the constant.');
+    });
+  }
+});

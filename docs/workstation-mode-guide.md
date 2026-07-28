@@ -400,6 +400,28 @@ Keep this terminal open (or set it up as a startup item) — the connector must 
 
 Why: the wizard communicates with a small HTTP helper process (`local-agent-connector`) that runs on Windows and executes cloudflared on your behalf. This process cannot be started from inside the Docker container.
 
+#### Local connector environment variables
+
+Every one is optional — the defaults are what the wizard expects, so change these only if your setup differs.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `YTHRIL_CONNECTOR_PORT` | `38123` | Port the connector listens on. The Ythril container reaches it at this port via host-gateway, so changing it means changing the local-agent URL to match. |
+| `YTHRIL_CONNECTOR_BIND_HOST` | `0.0.0.0` | Bind address. `0.0.0.0` is deliberate so the container can reach it; see the security note below before narrowing it. |
+| `YTHRIL_CONNECTOR_TOKEN` | *(none)* | Bearer token the connector requires. Ythril injects this automatically when it spawns the connector; set it by hand only when running the connector standalone. |
+| `YTHRIL_CONNECTOR_TOKEN_FILE` | `~/.ythril-local-connector/token` | Where the token is read from when it is not supplied via the environment. |
+| `YTHRIL_CONNECTOR_TUNNEL_NAME` | `ythril-local` | Name of the cloudflared tunnel the connector creates or reuses. |
+| `YTHRIL_CONNECTOR_CLOUDFLARED_BIN` | `cloudflared` (from `PATH`) | Full path to the cloudflared executable. Set this when installation succeeded but the binary is not yet on `PATH` in the current session. |
+| `YTHRIL_CONNECTOR_ALLOW_SERVICE_INSTALL` | `true` on Windows, `false` elsewhere | Whether cloudflared may be installed as a service so the tunnel survives reboots. See "Service install" below. |
+
+The Ythril side of the same link:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `YTHRIL_LOCAL_AGENT_URL` | loopback default | Where Ythril reaches the connector. |
+| `YTHRIL_LOCAL_AGENT_TOKEN` | *(none)* | Bearer token Ythril presents to the connector. Normally generated at spawn time. |
+| `YTHRIL_LOCAL_AGENT_TOKEN_FILE` | connector's token file | Read when the token is not supplied via the environment. |
+
 ### Run the wizard
 
 Once the connector is running:

@@ -881,6 +881,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`If-Match` now covers every route that writes space meta, not the two it shipped with.** The
+  previous entry guarded `PATCH /api/spaces/:id` and `PUT /api/spaces/:id/schema` — but the single-type
+  upsert and delete routes (`PUT`/`DELETE /api/spaces/:id/meta/typeSchemas/:kt/:type`) write meta too,
+  and were left unguarded. A caller could hold a precondition on one route and still lose an edit
+  through another, which is worse than no precondition because it looks like protection.
+
+  Both now check it, and the coverage test no longer counts call sites — it **derives** them: every
+  `updateSpace(…, { meta })` in the router must sit in a handler that evaluated the precondition first.
+  A count would have passed the moment it was written and rotted the moment a fifth route appeared;
+  the derived version fails on exactly the gap that shipped, which is how it was verified.
+
 - **Space meta writes can now be made conditional with `If-Match`, so two admins editing one space no
   longer silently lose an edit.** `meta.version` was already incremented on every write, with every
   previous version kept in `previousVersions` — but nothing ever compared it. The counter *recorded*

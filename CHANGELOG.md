@@ -752,6 +752,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
+- **The MCP OAuth suite now says why it failed, and survives about twice as many consecutive runs.**
+  Re-running it without `npm run test:up` degraded badly, and the cause on record — registered
+  `oauthClients` accumulating in config — was wrong. The real one: `POST /register` is rate-limited to
+  **20 per hour by the MCP SDK itself**, not by our middleware, and the bucket lives in server memory,
+  so only a restart clears it. `test:up` restarts the stack, which is why the suite was green there and
+  nowhere else.
+
+  The old theory is now disproven rather than merely replaced: with 20 clients in config the oldest
+  still resolves fine, because the cap keeps the newest. Measured on consecutive runs, the baseline
+  collapses from 10/12 to 8/12 to **0/12** — exactly when cumulative registrations cross 20.
+
+  Registering fewer clients (9 per run down to 5, by sharing one across the tests that only need a
+  client to exist) roughly doubles the headroom. Full idempotency is not reachable from this file —
+  registering is what several of these tests exist to exercise — so the more useful fix is that a 429
+  now fails loudly at the source instead of surfacing three assertions later as "consent returned 400",
+  which is what made this look like a consent bug in the first place. The suite also gained
+  `MCP_OAUTH_BASE` / `MCP_OAUTH_TOKEN` overrides so it can run against any instance without Docker.
+
 - **The sync engine's per-network lock and space-id mapping are now pinned, before that file is
   split.** `sync/engine.ts` is 1396 lines and had no dedicated unit test — only red-team and cron
   tests touched it, and the only direct coverage was 8 tests over vote-round pruning. The two pieces

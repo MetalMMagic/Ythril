@@ -188,6 +188,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction, and two tests walk that list through the real handler — a shared type alone would not
   prove the tab is actually reachable.
 
+### Testing
+
+- **The last simulation test is retired.** `testing/standalone/build-properties-schema.test.js`
+  asserted against a hand-written *copy* of `buildPropertiesObject` / `stripEmptyOptionalProps`, so it
+  could only ever prove the copy self-consistent — the functions live in client code and a node
+  standalone test cannot import them. The cases it held that the real spec lacked (first-schema fallback
+  vs unknown type name, per-knowledge-type lookup, `0`/`false` surviving the empty-string strip) moved
+  into `brain-store.service.spec.ts` against the real functions; the rest duplicated what was already
+  there and went with the file. Both ported rules were mutation-checked.
+- **`spaces/schema-validation.ts` had no importing test; its fail-closed rule now has one.** When a
+  type's `$ref` points at a library entry that no longer exists, every `validate*` must raise a violation
+  and stop. The permissive reading is the dangerous one — an unresolved ref leaves a type with no naming
+  pattern, no required properties and no property schemas, so a `strict` space would accept everything
+  for that type and the only symptom is bad data quietly getting in. Deleting a referenced library entry
+  is an ordinary admin action that causes exactly this. Verified by mutation: the permissive branch kills
+  5 of the 7 tests.
+
 ### Fixed
 
 - **Lazy chunks had no size ceiling, so one could grow past the initial bundle unnoticed** — which is how

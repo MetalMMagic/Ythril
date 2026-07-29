@@ -6722,7 +6722,7 @@ Omit `space` to search across all accessible spaces. `recall` searches all knowl
 
 **Response format:**
 
-The tool returns a JSON object with a `results` array and a `count`. Each result has five top-level keys — search metadata and a quick-read text field cleanly separated from the stored document:
+The tool returns a JSON object with a `results` array and a `count`. Each result has four top-level keys — search metadata cleanly separated from the stored document:
 
 ```json
 {
@@ -6731,7 +6731,6 @@ The tool returns a JSON object with a `results` array and a `count`. Each result
       "score": 0.91,
       "spaceId": "general",
       "type": "memory",
-      "matchedText": "portal-backend Traefik routing configuration uses path-prefix matchers",
       "record": {
         "_id": "a1b2c3d4-e5f6-4789-abcd-ef1234567890",
         "fact": "Traefik routing configuration uses path-prefix matchers",
@@ -6747,7 +6746,6 @@ The tool returns a JSON object with a `results` array and a `count`. Each result
       "score": 0.87,
       "spaceId": "general",
       "type": "entity",
-      "matchedText": "traefik-ingress ingress-controller portal-backend Handles HTTP routing for portal services.",
       "record": {
         "_id": "b2c3d4e5-f6a7-4890-bcde-f12345678901",
         "name": "traefik-ingress",
@@ -6769,14 +6767,20 @@ The tool returns a JSON object with a `results` array and a `count`. Each result
 | `score` | Cosine similarity score (0.0–1.0). Higher is more relevant. |
 | `spaceId` | Space this result came from. Critical for cross-space recall (no `space` arg). |
 | `type` | Knowledge type discriminator: `memory`, `entity`, `edge`, `chrono`, or `file`. |
-| `matchedText` | The full multi-field text that was fed to the embedding model for this document (e.g. for a memory: `tags + entity names + fact + description + properties`). Lets you scan results without knowing which fields to look at per type. Pre-computed at write time — not reconstructed on demand. |
-| `record` | The full stored document with all user-visible fields. `_id` is always present and can be used directly in follow-up tool calls (`update_memory`, `upsert_entity`, `delete_memory`, etc.) without a second lookup. Embedding vector excluded. |
+| `record` | The stored document with its user-visible fields. `_id` is always present and can be used directly in follow-up tool calls (`update_memory`, `upsert_entity`, `delete_memory`, etc.) without a second lookup. Embedding vector excluded. |
 
 For cross-space recall (omit `space`), `spaceId` on each result identifies which space it came from.
 
+> **The MCP response is deliberately smaller than the REST one.** Every field is multiplied by `topK` and
+> paid for in the calling model's context, so three things REST returns are dropped here:
+> `matchedText` (for a file chunk it is `headingText + ' ' + content` — the passage a second time; the
+> passage is returned once, as `content`), `embeddingModel` (identical for every record in a space) and
+> `seq` (the sync counter — not an input to any tool). The REST endpoint still returns all three.
+> To drop the passage bodies as well and get locations only, pass `includeContent: false`.
+
 **What is vector-indexed:**
 
-| Data type | Embedded? | Fields included in embedding text (`matchedText`) | Returned by `recall`? |
+| Data type | Embedded? | Fields included in the pre-embedding text (`matchedText`, REST only) | Returned by `recall`? |
 |-----------|:---------:|---------------------------------------------------|:---------------------:|
 | `memory` | ✅ | `tags` + entity names + `fact` + `description` + `properties` | ✅ |
 | `entity` | ✅ | `name` + `type` + `tags` + `description` + `properties` | ✅ |
@@ -6795,6 +6799,7 @@ For cross-space recall (omit `space`), `spaceId` on each result identifies which
 | `types` | `string[]` | — | Optional knowledge-type filter — restrict results to one or more of `memory`, `entity`, `edge`, `chrono`, `file`. Omit to search all types. |
 | `minPerType` | `object` | — | Optional minimum result count per type. Guarantees at least that many results of each specified type if available (e.g. `{"entity": 2, "edge": 1}`). Uses two-phase search: guaranteed slots filled first, remaining slots filled by score. Omit to use pure score ranking. |
 | `minScore` | `number` | — | Minimum cosine similarity score (0.0–1.0). Results below this threshold are excluded. Applies before `topK` — so `topK=10, minScore=0.7` returns at most 10 results, all with score ≥ 0.7. |
+| `includeContent` | `boolean` | — | Whether to return each file chunk's `content` — the passage body (default `true`). Set `false` for locations and metadata only (path, heading, chunk index, tags, properties), then read back only the chunk you decided you need. Passage bodies are by far the largest field in a response. |
 | `filter` | `object` | — | Property equality/comparison filter applied to the vector-search results. Same shape and allowed key prefixes as the [recall filter](#prefiltered-recall-filter-parameter) (`properties.`, `tags`, `type`, `name`, `status`, `label`) with `eq`/`ne`/`in`/`exists`/`gt`/`gte`/`lt`/`lte` operators. Records not matching **all** conditions are excluded. |
 | `traverse` | `number` | — | Graph-expansion depth (integer `0`–`5`, default `0`). When `> 0`, each semantic match is expanded along knowledge-graph edges up to this many hops; connected entities are returned alongside the seeds, annotated with `source` (`recall`/`traverse`), `hops`, and `path`. |
 

@@ -287,11 +287,18 @@ describe('MCP brain tools — remember / recall / query', () => {
       assert.ok('score' in item, 'each result must have score');
       assert.ok('spaceId' in item, 'each result must have spaceId');
       assert.ok('type' in item, 'each result must have type');
-      assert.ok('matchedText' in item, 'each result must have matchedText');
+      // `matchedText` was the pre-embedding source string, and for a file chunk it is
+      // `headingText + ' ' + content` — i.e. the passage a second time. Dropped from MCP
+      // responses so the passage is paid for once, under its named field. REST still has it.
+      assert.ok(!('matchedText' in item), 'MCP recall must not duplicate the passage as matchedText');
       assert.ok('record' in item, 'each result must have record');
       assert.ok(typeof item.record === 'object' && item.record !== null, 'record must be an object');
       assert.ok('_id' in item.record, 'record must have _id');
       assert.ok(!('embedding' in item.record), 'record must not expose embedding vector');
+      // Per-row cost with no per-row information: `embeddingModel` is identical for every record in a
+      // space, `seq` is the sync counter and is not an input to any tool.
+      assert.ok(!('embeddingModel' in item.record), 'record must not repeat embeddingModel per row');
+      assert.ok(!('seq' in item.record), 'record must not carry the sync seq counter');
     }
   });
 
@@ -1552,9 +1559,13 @@ describe('MCP brain tools � recall and recall_global with minPerType', () => {
     });
     assert.ok(!result?.isError, `recall with minPerType error: ${JSON.stringify(result)}`);
     const text = result?.content?.[0]?.text ?? '';
-    // Response is formatted text � verify entity name appears somewhere in the output
-    // (embedded entity should match the exact name we seeded)
-    assert.ok(text.includes(entityName) || text.toLowerCase().includes('[entity]') || text.includes('"type": "entity"'), `Expected entity in recall output: ${text}`);
+    // Parse rather than substring-match: the response is compact JSON, so a literal
+    // `"type": "entity"` (pretty-printed spacing) silently stopped matching.
+    const parsed = JSON.parse(text);
+    assert.ok(
+      Array.isArray(parsed.results) && parsed.results.some(r => r.type === 'entity'),
+      `Expected an entity result with minPerType={entity:1}: ${text}`,
+    );
   });
 
   it('recall_global with minPerType does not return isError', async (t) => {

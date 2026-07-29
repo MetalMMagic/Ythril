@@ -212,3 +212,45 @@ describe('the behaviour change is documented where callers actually look', () =>
     assert.ok(/matches meaning \*and\* exact wording/.test(userguide));
   });
 });
+
+describe('every aggregation site orders by rankOf, not by raw score', () => {
+  // The bug this pins: `recall()` orders each space's results by the best signal it has, and BOTH
+  // aggregation sites then re-sorted the merged list by raw `.score` — throwing the fused and reranked
+  // ordering away at the last step. It was not a proxy-space edge case: a single-space REST recall still
+  // passes through the member merge with one member, so hybrid ranking and reranking were undone on
+  // effectively every request that was not the MCP global path. Nothing errored; results were just
+  // ordered as if neither feature had shipped.
+  const rest = readFileSync(new URL('../../server/src/api/brain/search.ts', import.meta.url), 'utf8');
+  const mcp = readFileSync(new URL('../../server/src/mcp/tools/search.ts', import.meta.url), 'utf8');
+  const recall = readFileSync(new URL('../../server/src/brain/recall.ts', import.meta.url), 'utf8');
+
+  const sortsByRawScore = src =>
+    (src.match(/\.sort\(\([^)]*\)\s*=>\s*\(?[a-z]\.score\s*\?\?\s*0\)?\s*-/g) ?? []).length;
+
+  it('the REST recall route merges member spaces with rankOf', () => {
+    assert.ok(/all\.sort\(\(x, y\) => rankOf\(y\) - rankOf\(x\)\)/.test(rest));
+    assert.equal(sortsByRawScore(rest), 0, 'no recall path in this file may sort by raw score');
+  });
+
+  it('the MCP recall tool merges member spaces with rankOf', () => {
+    assert.ok(/all\.sort\(\(x, y\) => rankOf\(y\) - rankOf\(x\)\)/.test(mcp));
+    assert.equal(sortsByRawScore(mcp), 0, 'no recall path in this file may sort by raw score');
+  });
+
+  it('rankOf is exported, so there is one ordering rule rather than three', () => {
+    assert.ok(/export function rankOf\(/.test(recall),
+      'a private rankOf is what let two callers invent their own ordering');
+  });
+
+  it('the raw-score sorts left in recall.ts are the ones that MUST be raw', () => {
+    // Three survive on purpose, and none of them is an output ordering:
+    //   1. the pre-fusion sort, which ESTABLISHES the vector ranking fusion consumes;
+    //   2. the vector channel handed to RRF, which must be the vector order by definition;
+    //   3. `findSimilar`, which starts from a stored vector with no query text — there is no lexical
+    //      or cross-encoder signal to prefer, so raw similarity is the only signal there is.
+    // A fourth raw-score sort exists in `applyRerank` (choosing which candidates survive the cap) but
+    // reads through a Map, so it does not match this pattern. Counted rather than listed so a NEW raw
+    // sort appearing anywhere in this file fails here.
+    assert.equal(sortsByRawScore(recall), 3);
+  });
+});

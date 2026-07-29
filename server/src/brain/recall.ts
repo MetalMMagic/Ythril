@@ -249,7 +249,7 @@ export function mergeRecallResults(
  * and the vector score saw one. `??` rather than branches so a partial signal — some records reranked,
  * some not — still orders sensibly instead of collapsing the unscored ones to the bottom.
  */
-function rankOf(r: RecallResult): number {
+export function rankOf(r: RecallResult): number {
   return r.rerankScore ?? r.fusedScore ?? r.score ?? 0;
 }
 

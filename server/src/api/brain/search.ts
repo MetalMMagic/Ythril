@@ -9,7 +9,7 @@ import { globalRateLimit } from '../../rate-limit/middleware.js';
 import { NotFoundError } from '../../util/errors.js';
 import { countMemories } from '../../brain/memory.js';
 import { queryBrain } from '../../brain/query.js';
-import { findSimilar, recall, type RecallKnowledgeType } from '../../brain/recall.js';
+import { findSimilar, recall, rankOf, type RecallKnowledgeType } from '../../brain/recall.js';
 import { validateFilterExpression, type FilterExpression } from '../../brain/filter.js';
 import { traverseGraph, traverseRecallSeeds, MAX_RECALL_TRAVERSE, resolveEdgeEntityNames } from '../../brain/edges.js';
 import { memoryEmbedText, entityEmbedText, edgeEmbedText, chronoEmbedText, fileEmbedText } from '../../brain/embed-text.js';
@@ -229,7 +229,12 @@ searchRouter.post('/spaces/:spaceId/recall', globalRateLimit, requireSpaceAuth, 
     const all = (await Promise.all(
       memberIds.map(mid => recall(mid, query.trim(), safeTopK, safeTags, safeTypes, safeMinPerType, safeMinScore, safeFilter)),
     )).flat();
-    all.sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
+    // rankOf, NOT `.score`. `recall()` has already ordered each space's results by the best signal it
+    // has — cross-encoder, then RRF fusion, then vector similarity. Re-sorting the merged list by raw
+    // vector score here silently threw both away, so hybrid ranking and reranking were undone at the
+    // last step on every REST recall — including a single-space one, which still passes through this
+    // merge with one member.
+    all.sort((x, y) => rankOf(y) - rankOf(x));
     const seeds = all.slice(0, safeTopK);
 
     if (safeTraverse === 0) {

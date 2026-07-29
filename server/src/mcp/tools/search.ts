@@ -12,7 +12,7 @@ import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uui
 import { MAX_RECALL_TRAVERSE, traverseRecallSeeds } from '../../brain/edges.js';
 import { type FilterExpression, validateFilterExpression } from '../../brain/filter.js';
 import { queryBrain } from '../../brain/query.js';
-import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal } from '../../brain/recall.js';
+import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal, rankOf } from '../../brain/recall.js';
 import { resolveMemberSpaces, collectAcrossMembers } from '../../spaces/proxy.js';
 import { NotFoundError } from '../../util/errors.js';
 
@@ -126,7 +126,8 @@ export const recallTool: ToolHandler = {
     if (callSpace) {
       const memberIds = resolveMemberSpaces(callSpace);
       const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore, filter)))).flat();
-      all.sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
+      // Same rule as everywhere else: rankOf, not `.score`. See the note on the REST recall route.
+      all.sort((x, y) => rankOf(y) - rankOf(x));
       seeds = all.slice(0, topK);
       traverseSpaces = memberIds;
     } else {

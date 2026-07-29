@@ -789,6 +789,8 @@ Optional filters:
 | `tag` | Filter by tag — case-insensitive **substring** match, so `arch` finds `architecture` |
 | `description` | Filter by description — case-insensitive **substring**, this field ALONE (unlike `search`, which also spans the name/fact/title field) |
 | `properties` | Filter by property **value** (not key) — case-insensitive substring across every value in the bag. Values are stringified first, so `12` finds a numeric `12`. **Cannot use an index** (the keys are user-defined), so it is a bounded collection scan |
+| `entityName` | *(memories, chrono)* Filter by LINKED ENTITY name — case-insensitive substring. Resolved to ids server-side; a name matching nothing returns nothing |
+| `fromName` / `toName` | *(edges)* Filter the From/To endpoint by entity name, same resolution |
 | `entity` | Filter by linked entity ID |
 | `limit` | Results per page (default 100, max 500) |
 | `skip` | Offset for pagination |

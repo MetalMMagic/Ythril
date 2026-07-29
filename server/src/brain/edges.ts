@@ -148,7 +148,7 @@ export async function upsertEdge(
 /** List edges for a space, optionally filtering by from/to entity */
 export async function listEdges(
   spaceId: string,
-  filter: { from?: string; to?: string; label?: string; type?: string; tag?: string; search?: string; description?: string; properties?: string } = {},
+  filter: { from?: string; to?: string; label?: string; type?: string; tag?: string; search?: string; description?: string; properties?: string; fromIds?: string[]; toIds?: string[] } = {},
   limit = 50,
   skip = 0,
   sort?: SortSpec,
@@ -163,6 +163,10 @@ export async function listEdges(
   // Per-column description filter. `search` below also spans `label`, so a column control needs its own.
   if (filter.description) q['description'] = textContains(filter.description);
   if (filter.properties) Object.assign(q, propertiesValueContains(filter.properties));
+  // Name filters arrive already resolved to ids (per member). An EMPTY list means "no entity by that
+  // name", so it must filter to nothing — not be skipped, which would silently show everything.
+  if (filter.fromIds) q['from'] = { $in: filter.fromIds };
+  if (filter.toIds) q['to'] = { $in: filter.toIds };
   // Freetext substring over the edge's text fields (2b-iii-a).
   const search = textSearchOr(filter.search, SEARCHABLE_FIELDS.edges);
   if (search) Object.assign(q, search);

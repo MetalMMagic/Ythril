@@ -16,6 +16,7 @@ import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEdge } from '../../spaces/schema-validation.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { resolveEntityIdsByName } from '../../brain/entities.js';
 
 export const edgesRouter = Router();
 
@@ -113,7 +114,7 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
     res.status(400).json({ error: sortParse.error });
     return;
   }
-  const filter: { from?: string; to?: string; label?: string; type?: string; tag?: string; search?: string; description?: string; properties?: string } = {};
+  const filter: { from?: string; to?: string; label?: string; type?: string; tag?: string; search?: string; description?: string; properties?: string; fromIds?: string[]; toIds?: string[] } = {};
   if (typeof req.query['from'] === 'string') filter.from = req.query['from'];
   if (typeof req.query['to'] === 'string') filter.to = req.query['to'];
   if (typeof req.query['label'] === 'string') filter.label = req.query['label'];
@@ -122,7 +123,16 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
   if (typeof req.query['search'] === 'string') filter.search = req.query['search'];
   if (typeof req.query['description'] === 'string') filter.description = req.query['description'];
   if (typeof req.query['properties'] === 'string') filter.properties = req.query['properties'];
-  const all = await collectAcrossMembers(spaceId, mid => listEdges(mid, filter, limit, skip, sortParse.sort));
+  // The From/To columns show entity NAMES; edges store ids. Resolve per member — an id belongs to the
+  // member that owns it, so resolving against another's entities would match nothing while looking fine.
+  const fromName = typeof req.query['fromName'] === 'string' ? req.query['fromName'] : undefined;
+  const toName = typeof req.query['toName'] === 'string' ? req.query['toName'] : undefined;
+  const all = await collectAcrossMembers(spaceId, async mid => {
+    const perMember = { ...filter };
+    if (fromName) perMember.fromIds = await resolveEntityIdsByName(mid, fromName);
+    if (toName) perMember.toIds = await resolveEntityIdsByName(mid, toName);
+    return listEdges(mid, perMember, limit, skip, sortParse.sort);
+  });
   // Batch-resolve entity names for from/to so the client can display names instead of raw UUIDs
   const allEntityIds = [...new Set(all.flatMap(e => [e.from, e.to]))];
   const nameMap = new Map<string, string>();

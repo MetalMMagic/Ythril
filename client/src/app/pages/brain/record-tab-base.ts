@@ -22,6 +22,10 @@ export interface RecordFilter {
    * is debounced like the other typed filters and the query carries its own deadline.
    */
   properties: string;
+  /** Entity-NAME filters. The columns show names; the records store ids, so the server translates. */
+  fromName: string;
+  toName: string;
+  entityName: string;
 }
 
 /**
@@ -66,7 +70,7 @@ export abstract class RecordTabBase {
    * memories tab's tag-badge click writes it — so pushing a value in still reflects into the header
    * control, the round-trip the old filter bar's `[value]` gave. Each tab's `load()` reads it.
    */
-  recordFilter = signal<RecordFilter>({ type: '', tag: '', description: '', properties: '' });
+  recordFilter = signal<RecordFilter>({ type: '', tag: '', description: '', properties: '', fromName: '', toName: '', entityName: '' });
 
   /** Unique datalist id for a tab's docked tag-filter suggestions (multiple tables on one shell). */
   readonly tagListId = `brain-tag-filter-${RecordTabBase._tagSeq++}`;
@@ -185,6 +189,19 @@ export abstract class RecordTabBase {
     this._propsTimer = setTimeout(() => this.load(), 250);
   }
   private _propsTimer?: ReturnType<typeof setTimeout>;
+
+  /**
+   * Docked entity-NAME header filter (From / To / Entities).
+   *
+   * `key` picks which column, so one debounced setter serves all three rather than three near-copies.
+   */
+  setNameFilter(key: 'fromName' | 'toName' | 'entityName', value: string): void {
+    this.recordFilter.update(f => ({ ...f, [key]: value }));
+    this.skip.set(0);
+    if (this._nameTimer) clearTimeout(this._nameTimer);
+    this._nameTimer = setTimeout(() => this.load(), 250);
+  }
+  private _nameTimer?: ReturnType<typeof setTimeout>;
 
   /**
    * Docked freetext header filter changed. Updates the value immediately (so the input stays

@@ -248,7 +248,7 @@ export class EntitiesTabComponent extends RecordTabBase {
   editEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
 
   protected override resetOnSpaceChange(): void {
-    this.recordFilter.set({ type: '', tag: '', description: '', properties: '' });
+    this.recordFilter.set({ type: '', tag: '', description: '', properties: '', fromName: '', toName: '', entityName: '' });
   }
 
   protected override load(): void {

@@ -14,6 +14,7 @@ import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembe
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import type { ChronoStatus } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { resolveEntityIdsByName } from '../../brain/entities.js';
 
 export const chronoRouter = Router();
 
@@ -290,7 +291,15 @@ chronoRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, a
   if (typeof req.query['before'] === 'string') filter.before = req.query['before'];
   if (typeof req.query['search'] === 'string') filter.search = req.query['search'];
 
-  const all = await collectAcrossMembers(spaceId, mid => listChrono(mid, filter, limit, skip, sortParse.sort));
+  // The Entities column shows entity NAMES; records store ids. Resolved per member for the same reason
+  // as edges: an id belongs to the member that owns it. An empty resolution filters to nothing, which is
+  // correct — "no entity by that name" must not fall back to showing everything.
+  const entityName = typeof req.query['entityName'] === 'string' ? req.query['entityName'] : undefined;
+  const all = await collectAcrossMembers(spaceId, async mid => {
+    const perMember: Record<string, unknown> = { ...filter };
+    if (entityName) perMember['entityIds'] = { $in: await resolveEntityIdsByName(mid, entityName) };
+    return listChrono(mid, perMember, limit, skip, sortParse.sort);
+  });
   res.json({ chrono: capPage(all, limit, sortParse.sort), limit, skip });
 });
 

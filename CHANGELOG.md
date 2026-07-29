@@ -3184,6 +3184,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The From, To and Entities columns filter by entity name.** Those columns show names while the
+  records store ids, so the name is resolved to ids on the server — meaning the filter applies to the
+  whole collection, not just the rows already on screen. A name that matches no entity returns no rows,
+  rather than quietly showing everything.
+
 - **The Properties columns filter by property VALUE.** Typing `engineer` finds records whose property
   bag holds that value anywhere; property *names* are not matched. Values are stringified first, so `12`
   finds a numeric `12` rather than nothing. Because property names are yours to choose, this query

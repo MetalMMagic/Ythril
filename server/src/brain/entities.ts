@@ -14,7 +14,7 @@ import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import { log } from '../util/log.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc, FileMetaDoc } from '../config/types.js';
-import { PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
+import { PROPERTIES_SCAN_MAX_MS, textContains } from './tag-filter.js';
 
 /** A backlink entry describing an item that references a given entity. */
 export interface BacklinkEntry {
@@ -456,4 +456,30 @@ export async function findEntityBacklinks(spaceId: string, entityId: string): Pr
   for (const f of faces) backlinks.push({ type: 'face', _id: f._id });
 
   return backlinks;
+}
+
+/** Cap on how many entity ids a name filter may expand to, bounding the `$in` it produces. */
+export const NAME_FILTER_ID_CAP = 500;
+
+/**
+ * Entity ids whose NAME contains `needle` (case-insensitive substring), within one member space.
+ *
+ * The From/To and Entities columns display entity NAMES while the records store ids, so a column filter
+ * has to translate before it can query. Doing it here — rather than post-filtering the page in the
+ * client — means the filter applies to the whole collection, not just the rows that happened to load.
+ *
+ * Called per MEMBER (inside `collectAcrossMembers`): ids belong to the member that owns them, and
+ * resolving against another member's entities would match nothing while looking like it worked.
+ *
+ * Returns at most `NAME_FILTER_ID_CAP` ids. An empty result is meaningful — it means "no entity by that
+ * name", so the caller filters to nothing rather than falling back to unfiltered.
+ */
+export async function resolveEntityIdsByName(spaceId: string, needle: string): Promise<string[]> {
+  const trimmed = needle.trim();
+  if (!trimmed) return [];
+  const docs = await col<EntityDoc>(`${spaceId}_entities`)
+    .find(asFilter<EntityDoc>({ name: textContains(trimmed) }), { projection: { _id: 1 } })
+    .limit(NAME_FILTER_ID_CAP)
+    .toArray();
+  return docs.map(d => String(d._id));
 }

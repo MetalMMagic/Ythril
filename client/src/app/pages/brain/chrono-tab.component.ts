@@ -147,7 +147,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
                     <datalist [id]="tagListId">@for (s of store.chronoTagSuggestions(); track s) { <option [value]="s"></option> }</datalist>
-                  </th><th>{{ 'brain.chrono.table.entities' | transloco }}</th><th app-sort-th field="createdAt" label="brain.chrono.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
+                  </th><th app-sort-th label="brain.chrono.table.entities">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().entityName" (ngModelChange)="setNameFilter('entityName', $event)"
+                      [placeholder]="'brain.filter.entityNamePlaceholder' | transloco" [attr.aria-label]="'brain.filter.entityNamePlaceholder' | transloco" />
+                  </th><th app-sort-th field="createdAt" label="brain.chrono.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -297,7 +300,7 @@ export class ChronoTabComponent extends RecordTabBase {
   }
 
   protected override resetOnSpaceChange(): void {
-    this.recordFilter.set({ type: '', tag: '', description: '', properties: '' });
+    this.recordFilter.set({ type: '', tag: '', description: '', properties: '', fromName: '', toName: '', entityName: '' });
     this.statusFilter.set('');
   }
 
@@ -306,13 +309,14 @@ export class ChronoTabComponent extends RecordTabBase {
     if (!spaceId) return;
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
-    const cf: { search?: string; type?: string; tag?: string; description?: string; status?: string } = {};
+    const cf: { search?: string; type?: string; tag?: string; description?: string; status?: string; entityName?: string } = {};
     // Docked Title column freetext filter → server-side substring (2b-iii-c), matching memories/edges.
     // The top bar is semantic-only now and never feeds this.
     if (this.searchParam()) cf.search = this.searchParam();
     if (this.recordFilter().type) cf.type = this.recordFilter().type;
     if (this.recordFilter().tag) cf.tag = this.recordFilter().tag;
     if (this.recordFilter().description) cf.description = this.recordFilter().description;
+    if (this.recordFilter().entityName) cf.entityName = this.recordFilter().entityName;
     if (this.statusFilter()) cf.status = this.statusFilter();
     this.brainApi.listChrono(spaceId, this.pageSize, this.skip(), cf, this.sortParam()).subscribe({
       next: ({ chrono }) => {

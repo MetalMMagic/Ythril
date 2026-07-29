@@ -418,6 +418,7 @@
   "brain.filter.tagPlaceholder": "tag…",
   "brain.filter.descriptionPlaceholder": "Filtruj opis…",
   "brain.filter.propertiesPlaceholder": "Filtruj wedlug wartosci wlasciwosci…",
+  "brain.filter.entityNamePlaceholder": "Filtruj wedlug nazwy encji…",
   "brain.filter.allStatuses": "Wszystkie statusy",
   "brain.filter.statusLabel": "Filtruj wedlug statusu",
   "brain.filter.searchPlaceholder": "szukaj…",

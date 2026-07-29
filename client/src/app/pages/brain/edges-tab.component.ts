@@ -120,10 +120,16 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <table>
               <thead>
                 <tr>
-                  <th app-sort-th field="from" label="brain.edges.table.from" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="label" label="brain.edges.table.relation" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                  <th app-sort-th field="from" label="brain.edges.table.from" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().fromName" (ngModelChange)="setNameFilter('fromName', $event)"
+                      [placeholder]="'brain.filter.entityNamePlaceholder' | transloco" [attr.aria-label]="'brain.filter.entityNamePlaceholder' | transloco" />
+                  </th><th app-sort-th field="label" label="brain.edges.table.relation" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
                     <input class="col-filter-input" type="text" [ngModel]="search()" (ngModelChange)="setSearchFilter($event)"
                       [placeholder]="'brain.filter.searchPlaceholder' | transloco" [attr.aria-label]="'brain.filter.searchPlaceholder' | transloco" />
-                  </th><th app-sort-th field="to" label="brain.edges.table.to" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="weight" label="brain.edges.table.weight" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
+                  </th><th app-sort-th field="to" label="brain.edges.table.to" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().toName" (ngModelChange)="setNameFilter('toName', $event)"
+                      [placeholder]="'brain.filter.entityNamePlaceholder' | transloco" [attr.aria-label]="'brain.filter.entityNamePlaceholder' | transloco" />
+                  </th><th app-sort-th field="weight" label="brain.edges.table.weight" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
                   <th app-sort-th label="brain.edges.table.tags">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
@@ -266,7 +272,7 @@ export class EdgesTabComponent extends RecordTabBase {
   private _edgeSemTimer: ReturnType<typeof setTimeout> | null = null;
 
   protected override resetOnSpaceChange(): void {
-    this.recordFilter.set({ type: '', tag: '', description: '', properties: '' });
+    this.recordFilter.set({ type: '', tag: '', description: '', properties: '', fromName: '', toName: '', entityName: '' });
   }
 
   protected override load(): void {
@@ -274,11 +280,13 @@ export class EdgesTabComponent extends RecordTabBase {
     if (!spaceId) return;
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
-    const gf: { type?: string; tag?: string; description?: string; properties?: string } = {};
+    const gf: { type?: string; tag?: string; description?: string; properties?: string; fromName?: string; toName?: string } = {};
     if (this.recordFilter().type) gf.type = this.recordFilter().type;
     if (this.recordFilter().tag) gf.tag = this.recordFilter().tag;
     if (this.recordFilter().description) gf.description = this.recordFilter().description;
     if (this.recordFilter().properties) gf.properties = this.recordFilter().properties;
+    if (this.recordFilter().fromName) gf.fromName = this.recordFilter().fromName;
+    if (this.recordFilter().toName) gf.toName = this.recordFilter().toName;
     this.brainApi.listEdges(spaceId, this.pageSize, this.skip(), gf, this.sortParam(), this.searchParam()).subscribe({
       next: ({ edges }) => { this.store.edges.set(edges); this.recordList.loading.set(false); },
       error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },

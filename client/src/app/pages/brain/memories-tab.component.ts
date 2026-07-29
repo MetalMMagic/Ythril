@@ -118,7 +118,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
                     <datalist [id]="tagListId">@for (s of store.memoryTagSuggestions(); track s) { <option [value]="s"></option> }</datalist>
                   </th>
-                  <th>{{ 'brain.memories.table.entities' | transloco }}</th><th app-sort-th label="brain.memories.table.properties">
+                  <th app-sort-th label="brain.memories.table.entities">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().entityName" (ngModelChange)="setNameFilter('entityName', $event)"
+                      [placeholder]="'brain.filter.entityNamePlaceholder' | transloco" [attr.aria-label]="'brain.filter.entityNamePlaceholder' | transloco" />
+                  </th><th app-sort-th label="brain.memories.table.properties">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().properties" (ngModelChange)="setPropertiesFilter($event)"
                       [placeholder]="'brain.filter.propertiesPlaceholder' | transloco" [attr.aria-label]="'brain.filter.propertiesPlaceholder' | transloco" />
                   </th><th app-sort-th field="createdAt" label="brain.memories.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
@@ -247,7 +250,7 @@ export class MemoriesTabComponent extends RecordTabBase {
   private _memSemTimer: ReturnType<typeof setTimeout> | null = null;
 
   protected override resetOnSpaceChange(): void {
-    this.recordFilter.set({ type: '', tag: '', description: '', properties: '' });
+    this.recordFilter.set({ type: '', tag: '', description: '', properties: '', fromName: '', toName: '', entityName: '' });
     this.filterEntity.set('');
   }
 
@@ -256,11 +259,12 @@ export class MemoriesTabComponent extends RecordTabBase {
     if (!spaceId) return;
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
-    const filters: { tag?: string; entity?: string; type?: string; description?: string; properties?: string } = {};
+    const filters: { tag?: string; entity?: string; type?: string; description?: string; properties?: string; entityName?: string } = {};
     if (this.recordFilter().tag) filters.tag = this.recordFilter().tag;
     if (this.filterEntity()) filters.entity = this.filterEntity();
     if (this.recordFilter().type) filters.type = this.recordFilter().type;
     if (this.recordFilter().description) filters.description = this.recordFilter().description;
+    if (this.recordFilter().entityName) filters.entityName = this.recordFilter().entityName;
     if (this.recordFilter().properties) filters.properties = this.recordFilter().properties;
     this.brainApi.listMemories(spaceId, this.pageSize, this.skip(), filters, this.sortParam(), this.searchParam()).subscribe({
       next: ({ memories }) => {

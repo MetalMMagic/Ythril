@@ -12,8 +12,17 @@ _Nothing yet._
 
 ## [2.0.0] — 2026-07-29
 
-**Major release.** Three breaking changes are marked inline below (the media-embedding master switch,
-UUID-only record references, and MCP tool-argument validation). Everything else is additive.
+**Major release.** Four breaking changes are marked inline below — read these before upgrading:
+
+1. The **media-embedding master switch is removed** (`MEDIA_EMBEDDING_ENABLED` / `mediaEmbedding.enabled`);
+   each class is now controlled by its own `images` / `audio` / `video` level.
+2. **Every reference between brain records is a UUID**, and one that cannot resolve is refused rather
+   than silently stored unlinked.
+3. **MCP tool arguments are validated against each tool's `inputSchema`** before the handler runs.
+4. The **legacy `/api/brain/:spaceId/…` route shape is removed**; use the canonical
+   `/api/brain/spaces/:spaceId/…`.
+
+Everything else is additive.
 
 The instance version now reads 2.0.0 across the API, the About page and the published container image.
 

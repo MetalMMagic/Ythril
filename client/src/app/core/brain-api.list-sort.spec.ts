@@ -95,3 +95,47 @@ describe('BrainApi — list sort params (2b)', () => {
     r.flush({ entities: [] });
   });
 });
+
+/**
+ * Per-column `description` filter reaches the request.
+ *
+ * The tab specs mock BrainApi, so they prove the tab CALLS it — not that the param survives into the
+ * HTTP request. Dropping the `params.set` here would leave every one of those green while the column
+ * filter did nothing.
+ */
+describe('BrainApi — description column filter', () => {
+  let api: BrainApi;
+  let http: HttpTestingController;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({ providers: [BrainApi, provideHttpClient(), provideHttpClientTesting()] });
+    api = TestBed.inject(BrainApi);
+    http = TestBed.inject(HttpTestingController);
+  });
+  afterEach(() => http.verify());
+
+  const CASES: Array<[string, () => void, string, string]> = [
+    ['listEntities', () => api.listEntities('work', 50, 0, { description: 'quarterly' }).subscribe(), '/api/brain/spaces/work/entities', 'entities'],
+    ['listMemories', () => api.listMemories('work', 20, 0, { description: 'quarterly' }).subscribe(), '/api/brain/spaces/work/memories', 'memories'],
+    ['listEdges',    () => api.listEdges('work', 50, 0, { description: 'quarterly' }).subscribe(),    '/api/brain/spaces/work/edges',    'edges'],
+    ['listChrono',   () => api.listChrono('work', 50, 0, { description: 'quarterly' }).subscribe(),   '/api/brain/spaces/work/chrono',   'chrono'],
+  ];
+
+  for (const [name, call, url, key] of CASES) {
+    it(`${name} sends ?description=`, () => {
+      call();
+      const r = http.expectOne(req => req.url === url);
+      expect(r.request.params.get('description')).toBe('quarterly');
+      // Not folded into `search` — that spans the name/fact/title column too.
+      expect(r.request.params.get('search')).toBeNull();
+      r.flush({ [key]: [] });
+    });
+  }
+
+  it('omits the param when no description filter is set', () => {
+    api.listEntities('work', 50, 0, {}).subscribe();
+    const r = http.expectOne(req => req.url === '/api/brain/spaces/work/entities');
+    expect(r.request.params.get('description')).toBeNull();
+    r.flush({ entities: [] });
+  });
+});

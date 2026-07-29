@@ -129,12 +129,20 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                   <th app-sort-th field="title" label="brain.chrono.table.title" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
                     <input class="col-filter-input" type="text" [ngModel]="search()" (ngModelChange)="setSearchFilter($event)"
                       [placeholder]="'brain.filter.searchPlaceholder' | transloco" [attr.aria-label]="'brain.filter.searchPlaceholder' | transloco" />
-                  </th><th>{{ 'brain.chrono.table.description' | transloco }}</th><th app-sort-th field="type" label="brain.chrono.table.kind" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                  </th><th app-sort-th label="brain.chrono.table.description">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().description" (ngModelChange)="setDescriptionFilter($event)"
+                      [placeholder]="'brain.filter.descriptionPlaceholder' | transloco" [attr.aria-label]="'brain.filter.descriptionPlaceholder' | transloco" />
+                  </th><th app-sort-th field="type" label="brain.chrono.table.kind" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
                     <select class="col-filter-select" [ngModel]="recordFilter().type" (ngModelChange)="setTypeFilter($event)" [attr.aria-label]="'brain.filter.label' | transloco">
                       <option value="">{{ 'brain.filter.allKinds' | transloco }}</option>
                       @for (k of store.chronoKinds; track k) { <option [value]="k">{{ k }}</option> }
                     </select>
-                  </th><th app-sort-th field="status" label="brain.chrono.table.status" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="startsAt" label="brain.chrono.table.starts" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="endsAt" label="brain.chrono.table.ends" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
+                  </th><th app-sort-th field="status" label="brain.chrono.table.status" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)">
+                    <select class="col-filter-select" [ngModel]="statusFilter()" (ngModelChange)="setStatusFilter($event)" [attr.aria-label]="'brain.filter.statusLabel' | transloco">
+                      <option value="">{{ 'brain.filter.allStatuses' | transloco }}</option>
+                      @for (st of store.chronoStatusOptions; track st) { <option [value]="st">{{ st }}</option> }
+                    </select>
+                  </th><th app-sort-th field="startsAt" label="brain.chrono.table.starts" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th app-sort-th field="endsAt" label="brain.chrono.table.ends" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th>
                   <th app-sort-th label="brain.chrono.table.tags">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
@@ -280,8 +288,17 @@ export class ChronoTabComponent extends RecordTabBase {
 
   private _chronoSemTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Docked Status header filter. Its own signal: `status` is chrono-only, not part of RecordFilter. */
+  statusFilter = signal('');
+  setStatusFilter(value: string): void {
+    this.statusFilter.set(value);
+    this.skip.set(0);
+    this.load();
+  }
+
   protected override resetOnSpaceChange(): void {
-    this.recordFilter.set({ type: '', tag: '' });
+    this.recordFilter.set({ type: '', tag: '', description: '' });
+    this.statusFilter.set('');
   }
 
   protected override load(): void {
@@ -289,12 +306,14 @@ export class ChronoTabComponent extends RecordTabBase {
     if (!spaceId) return;
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
-    const cf: { search?: string; type?: string; tag?: string } = {};
+    const cf: { search?: string; type?: string; tag?: string; description?: string; status?: string } = {};
     // Docked Title column freetext filter → server-side substring (2b-iii-c), matching memories/edges.
     // The top bar is semantic-only now and never feeds this.
     if (this.searchParam()) cf.search = this.searchParam();
     if (this.recordFilter().type) cf.type = this.recordFilter().type;
     if (this.recordFilter().tag) cf.tag = this.recordFilter().tag;
+    if (this.recordFilter().description) cf.description = this.recordFilter().description;
+    if (this.statusFilter()) cf.status = this.statusFilter();
     this.brainApi.listChrono(spaceId, this.pageSize, this.skip(), cf, this.sortParam()).subscribe({
       next: ({ chrono }) => {
         this.store.chrono.set(chrono);

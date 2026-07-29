@@ -26,6 +26,15 @@ import { escapeRegex } from '../util/redos.js';
  * `?tags=` / `?tagsAny=` params keep their documented exact AND/OR semantics — integrations rely on
  * them to select an exact set, and widening those to substring would silently over-match.
  */
-export function tagContains(tag: string): { $regex: string; $options: string } {
-  return { $regex: escapeRegex(tag), $options: 'i' };
+export function textContains(value: string): { $regex: string; $options: string } {
+  return { $regex: escapeRegex(value), $options: 'i' };
 }
+
+/**
+ * Tag search — the same case-insensitive substring match, named for its call sites.
+ *
+ * Kept as its own name because the tag story above is specific: five record types had five different
+ * answers, and a reader at one of those call sites should land on that explanation rather than on a
+ * generic helper.
+ */
+export const tagContains = textContains;

@@ -82,11 +82,12 @@ export class BrainApi {
 
   // ── Brain — memories ──────────────────────────────────────────────────────
 
-  listMemories(spaceId: string, limit = 20, skip = 0, filters?: { tag?: string; entity?: string; type?: string }, sort?: ListSort, search?: string): Observable<{ memories: Memory[]; limit: number; skip: number }> {
+  listMemories(spaceId: string, limit = 20, skip = 0, filters?: { tag?: string; entity?: string; type?: string; description?: string }, sort?: ListSort, search?: string): Observable<{ memories: Memory[]; limit: number; skip: number }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.tag) params = params.set('tag', filters.tag);
     if (filters?.entity) params = params.set('entity', filters.entity);
     if (filters?.type) params = params.set('type', filters.type);
+    if (filters?.description) params = params.set('description', filters.description);
     if (search) params = params.set('search', search);
     params = this.withSort(params, sort);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/memories`, { params });
@@ -112,13 +113,14 @@ export class BrainApi {
 
   // ── Brain — entities ──────────────────────────────────────────────────────
 
-  listEntities(spaceId: string, limit = 50, skip = 0, filters?: { search?: string; type?: string; tag?: string }, sort?: ListSort, search?: string): Observable<{ entities: Entity[] }> {
+  listEntities(spaceId: string, limit = 50, skip = 0, filters?: { search?: string; type?: string; tag?: string; description?: string }, sort?: ListSort, search?: string): Observable<{ entities: Entity[] }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     // `filters.search` is the entity-search bar's exact `name` lookup; `search` is the docked column
     // freetext filter → the server's substring `?search=` (2b-iii). They are distinct params.
     if (filters?.search) params = params.set('name', filters.search);
     if (filters?.type) params = params.set('type', filters.type);
     if (filters?.tag) params = params.set('tag', filters.tag);
+    if (filters?.description) params = params.set('description', filters.description);
     if (search) params = params.set('search', search);
     params = this.withSort(params, sort);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/entities`, { params });
@@ -138,10 +140,11 @@ export class BrainApi {
 
   // ── Brain — edges ─────────────────────────────────────────────────────────
 
-  listEdges(spaceId: string, limit = 50, skip = 0, filters?: { type?: string; tag?: string }, sort?: ListSort, search?: string): Observable<{ edges: Edge[] }> {
+  listEdges(spaceId: string, limit = 50, skip = 0, filters?: { type?: string; tag?: string; description?: string }, sort?: ListSort, search?: string): Observable<{ edges: Edge[] }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.type) params = params.set('type', filters.type);
     if (filters?.tag) params = params.set('tag', filters.tag);
+    if (filters?.description) params = params.set('description', filters.description);
     if (search) params = params.set('search', search);
     params = this.withSort(params, sort);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/edges`, { params });
@@ -194,11 +197,12 @@ export class BrainApi {
 
   // ── Brain — chrono ──────────────────────────────────────────────────────
 
-  listChrono(spaceId: string, limit = 50, skip = 0, filters?: { tags?: string; tagsAny?: string; tag?: string; type?: string; status?: string; after?: string; before?: string; search?: string }, sort?: ListSort): Observable<{ chrono: ChronoEntry[] }> {
+  listChrono(spaceId: string, limit = 50, skip = 0, filters?: { tags?: string; tagsAny?: string; tag?: string; type?: string; status?: string; after?: string; before?: string; search?: string; description?: string }, sort?: ListSort): Observable<{ chrono: ChronoEntry[] }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.tags) params = params.set('tags', filters.tags);
     if (filters?.tagsAny) params = params.set('tagsAny', filters.tagsAny);
     if (filters?.tag) params = params.set('tag', filters.tag);
+    if (filters?.description) params = params.set('description', filters.description);
     // The chrono record "kind" (event/deadline/…) is filtered via the `type` query
     // param server-side; the old `kind` param was silently ignored.
     if (filters?.type) params = params.set('type', filters.type);

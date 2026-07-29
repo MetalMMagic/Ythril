@@ -3184,6 +3184,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Every text column in the Brain record tables can now be filtered from its own header.** The
+  Description columns had no control at all — while the box in the first column was quietly filtering
+  description too, since the server's freetext search spans both fields. So a column looked unfiltered
+  while something else filtered it. Description now has its own control on Entities, Edges, Memories and
+  Chrono, narrowing that field alone, and Chrono's Status column gets a filter as well. The freetext
+  `search` parameter is unchanged for API clients.
+
 - **Face recognition can use an external model, with mandatory consent.** It has always run in-process
   (BlazeFace + FaceRes), which is why the card showed model names and had no endpoint to configure. You
   can now point it at an external recogniser. Because face crops are biometric data, the endpoint is

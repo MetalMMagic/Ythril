@@ -8,6 +8,13 @@ import type { ListSort } from '../../core/brain-api.service';
 export interface RecordFilter {
   type: string;
   tag: string;
+  /**
+   * Per-column description filter.
+   *
+   * Separate from `search`, which the server spans over name/fact/title AND description. A control in
+   * the Description header has to narrow that column alone, or it reports something it does not do.
+   */
+  description: string;
 }
 
 /**
@@ -52,7 +59,7 @@ export abstract class RecordTabBase {
    * memories tab's tag-badge click writes it — so pushing a value in still reflects into the header
    * control, the round-trip the old filter bar's `[value]` gave. Each tab's `load()` reads it.
    */
-  recordFilter = signal<RecordFilter>({ type: '', tag: '' });
+  recordFilter = signal<RecordFilter>({ type: '', tag: '', description: '' });
 
   /** Unique datalist id for a tab's docked tag-filter suggestions (multiple tables on one shell). */
   readonly tagListId = `brain-tag-filter-${RecordTabBase._tagSeq++}`;
@@ -153,6 +160,15 @@ export abstract class RecordTabBase {
     this.skip.set(0);
     this.load();
   }
+
+  /** Docked Description header filter changed. Debounced like the freetext one — it is typed into. */
+  setDescriptionFilter(value: string): void {
+    this.recordFilter.update(f => ({ ...f, description: value }));
+    this.skip.set(0);
+    if (this._descTimer) clearTimeout(this._descTimer);
+    this._descTimer = setTimeout(() => this.load(), 250);
+  }
+  private _descTimer?: ReturnType<typeof setTimeout>;
 
   /**
    * Docked freetext header filter changed. Updates the value immediately (so the input stays

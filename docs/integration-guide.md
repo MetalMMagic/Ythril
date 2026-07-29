@@ -787,6 +787,7 @@ Optional filters:
 | Parameter | Description |
 |-----------|-------------|
 | `tag` | Filter by tag — case-insensitive **substring** match, so `arch` finds `architecture` |
+| `description` | Filter by description — case-insensitive **substring**, this field ALONE (unlike `search`, which also spans the name/fact/title field) |
 | `entity` | Filter by linked entity ID |
 | `limit` | Results per page (default 100, max 500) |
 | `skip` | Offset for pagination |

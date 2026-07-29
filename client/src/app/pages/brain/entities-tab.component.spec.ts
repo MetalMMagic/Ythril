@@ -252,3 +252,47 @@ describe('EntitiesTabComponent', () => {
     } finally { vi.useRealTimers(); }
   });
 });
+
+/**
+ * The Description column filter.
+ *
+ * The column had no control at all, while the box in the NAME column quietly filtered description too
+ * (the server's `?search=` spans both). So it read as unfiltered while something else filtered it.
+ *
+ * These assert the control is IN THE DOM and that using it reaches the request — driving the component
+ * method alone would pass even if the header rendered nothing, which is the exact blind spot that let
+ * the graph panel's filters ship unreachable.
+ */
+describe('EntitiesTabComponent — description column filter', () => {
+  it('renders a filter control in the Description header', () => {
+    const fixture = make();
+    const headers = [...fixture.nativeElement.querySelectorAll('th')] as HTMLElement[];
+    const descTh = headers.find(th => (th.textContent ?? '').includes('brain.entities.table.description'));
+    expect(descTh, 'the Description header must exist').toBeTruthy();
+    expect(descTh!.querySelector('input'), 'and must carry a filter input').toBeTruthy();
+  });
+
+  it('sends the typed text as its own `description` param', async () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    api.listEntities.mockClear();
+
+    c.setDescriptionFilter('quarterly');
+    await new Promise(r => setTimeout(r, 300));   // the input is debounced
+
+    const call = api.listEntities.mock.calls.at(-1);
+    expect(call, 'a reload must happen').toBeTruthy();
+    const filters = call![3] as Record<string, string>;
+    expect(filters['description']).toBe('quarterly');
+    // NOT folded into `search` — that would filter the name column too and defeat the point.
+    expect(call![5]).toBeFalsy();
+  });
+
+  it('resets paging, so filtering does not land on an empty page', () => {
+    const fixture = make();
+    const c = fixture.componentInstance;
+    c.skip.set(50);
+    c.setDescriptionFilter('x');
+    expect(c.skip()).toBe(0);
+  });
+});

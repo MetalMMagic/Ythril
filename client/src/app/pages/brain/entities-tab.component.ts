@@ -119,7 +119,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                       @for (t of store.entityTypeOptions(); track t) { <option [value]="t">{{ t }}</option> }
                     </select>
                   </th>
-                  <th>{{ 'brain.entities.table.description' | transloco }}</th>
+                  <th app-sort-th label="brain.entities.table.description">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().description" (ngModelChange)="setDescriptionFilter($event)"
+                      [placeholder]="'brain.filter.descriptionPlaceholder' | transloco" [attr.aria-label]="'brain.filter.descriptionPlaceholder' | transloco" />
+                  </th>
                   <th app-sort-th label="brain.entities.table.tags">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
@@ -242,7 +245,7 @@ export class EntitiesTabComponent extends RecordTabBase {
   editEntity = { name: '', type: '', tags: [] as string[], description: '', properties: {} as Record<string, string | number | boolean> };
 
   protected override resetOnSpaceChange(): void {
-    this.recordFilter.set({ type: '', tag: '' });
+    this.recordFilter.set({ type: '', tag: '', description: '' });
   }
 
   protected override load(): void {
@@ -250,9 +253,10 @@ export class EntitiesTabComponent extends RecordTabBase {
     if (!spaceId) return;
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
-    const ef: { type?: string; tag?: string } = {};
+    const ef: { type?: string; tag?: string; description?: string } = {};
     if (this.recordFilter().type) ef.type = this.recordFilter().type;
     if (this.recordFilter().tag) ef.tag = this.recordFilter().tag;
+    if (this.recordFilter().description) ef.description = this.recordFilter().description;
     this.brainApi.listEntities(spaceId, this.pageSize, this.skip(), ef, this.sortParam(), this.searchParam()).subscribe({
       next: ({ entities }) => { this.store.entities.set(entities); this.recordList.loading.set(false); },
       error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },

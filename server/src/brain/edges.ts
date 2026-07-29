@@ -13,7 +13,7 @@ import { applyDeleteFields } from './delete-fields.js';
 import { getEntityById } from './entities.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { EdgeDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
-import { tagContains } from './tag-filter.js';
+import { tagContains, textContains } from './tag-filter.js';
 
 export interface TraverseNode {
   _id: string;
@@ -148,7 +148,7 @@ export async function upsertEdge(
 /** List edges for a space, optionally filtering by from/to entity */
 export async function listEdges(
   spaceId: string,
-  filter: { from?: string; to?: string; label?: string; type?: string; tag?: string; search?: string } = {},
+  filter: { from?: string; to?: string; label?: string; type?: string; tag?: string; search?: string; description?: string } = {},
   limit = 50,
   skip = 0,
   sort?: SortSpec,
@@ -160,6 +160,8 @@ export async function listEdges(
   if (filter.type) q['type'] = filter.type;
   // `tags` is an array field; a scalar match is Mongo array-contains (edge HAS this tag).
   if (filter.tag) q['tags'] = tagContains(filter.tag);
+  // Per-column description filter. `search` below also spans `label`, so a column control needs its own.
+  if (filter.description) q['description'] = textContains(filter.description);
   // Freetext substring over the edge's text fields (2b-iii-a).
   const search = textSearchOr(filter.search, SEARCHABLE_FIELDS.edges);
   if (search) Object.assign(q, search);

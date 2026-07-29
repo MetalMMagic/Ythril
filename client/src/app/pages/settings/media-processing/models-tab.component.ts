@@ -168,6 +168,63 @@ import { TestTarget } from './media-processing.types';
         </div>
       </app-model-provider-card>
 
+      <!-- ── Reranker ───────────────────────────────────────────────────── -->
+      <app-model-provider-card id="rerank" icon="sort-descending"
+        [heading]="'mediaProcessing.rerank.title' | transloco"
+        [purpose]="'mediaProcessing.rerank.purpose' | transloco"
+        [health]="pipeline.modelState('rerank')">
+        <app-status-pill pill [variant]="s.rerankConfigured() ? 'active' : 'off'">
+          {{ (s.rerankConfigured() ? 'mediaProcessing.rerank.pillOn' : 'mediaProcessing.rerank.pillOff') | transloco }}
+        </app-status-pill>
+        @if (s.rerankLocked('baseUrl')) { <app-status-pill pill variant="env">{{ 'mediaProcessing.pill.env' | transloco }}</app-status-pill> }
+
+        <div class="field">
+          <label for="rr-endpoint">{{ 'mediaProcessing.field.endpoint' | transloco }}</label>
+          <input id="rr-endpoint" data-mono type="url" [(ngModel)]="s.rerank.baseUrl"
+            [disabled]="s.rerankLocked('baseUrl')" [placeholder]="'mediaProcessing.rerank.endpointPlaceholder' | transloco" />
+          <div class="hint">{{ 'mediaProcessing.rerank.endpointHint' | transloco }}</div>
+        </div>
+        <div class="field">
+          <label for="rr-model">{{ 'mediaProcessing.field.model' | transloco }}</label>
+          <input id="rr-model" data-mono [(ngModel)]="s.rerank.model" [disabled]="s.rerankLocked('model')"
+            placeholder="BAAI/bge-reranker-v2-m3" />
+        </div>
+        <div class="field">
+          <label for="rr-mult">{{ 'mediaProcessing.rerank.multiplierLabel' | transloco }}</label>
+          <input id="rr-mult" type="number" min="2" max="10" [(ngModel)]="s.rerank.candidateMultiplier"
+            [disabled]="s.rerankLocked('candidateMultiplier')" />
+          <div class="hint">{{ 'mediaProcessing.rerank.multiplierHint' | transloco }}</div>
+        </div>
+        <div class="field">
+          <label for="rr-key">{{ 'mediaProcessing.field.apiKeyExternal' | transloco }}</label>
+          <input id="rr-key" type="password" [(ngModel)]="s.rerankApiKeyInput" [disabled]="s.rerankLocked('apiKey')"
+            [placeholder]="(s.rerank.apiKey ? 'mediaProcessing.field.apiKeyKeep' : 'mediaProcessing.field.apiKeyOptional') | transloco" />
+        </div>
+        @if (s.rerankIsExternal()) {
+          <div class="warnline">
+            <ph-icon name="warning" [size]="15"/>
+            <span [innerHTML]="'mediaProcessing.rerank.egressWarning' | transloco"></span>
+          </div>
+        }
+
+        <div footer class="testrow">
+          <button class="btn btn-sm btn-secondary" type="button" (click)="s.testConnection('rerank')"
+            [disabled]="s.testOf('rerank')?.loading || !s.rerank.baseUrl">
+            {{ (s.testOf('rerank')?.loading ? 'mediaProcessing.action.testing' : 'mediaProcessing.action.test') | transloco }}
+          </button>
+          @if (s.testOf('rerank')?.res; as r) {
+            <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
+            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+          }
+          @if (s.cardDirty('rerank')) {
+            <button class="btn btn-sm btn-primary card-save" type="button"
+              [disabled]="s.saving()" (click)="s.saveCard('rerank')">
+              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
+            </button>
+          }
+        </div>
+      </app-model-provider-card>
+
       <!-- ── Vision ─────────────────────────────────────────────────────── -->
       <app-model-provider-card id="vision" icon="image"
         [heading]="'mediaProcessing.vision.title' | transloco"

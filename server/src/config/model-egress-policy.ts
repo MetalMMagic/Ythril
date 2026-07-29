@@ -29,3 +29,21 @@ export function allowPrivateModelEndpoints(): boolean {
     return false; // config not loaded yet (first run) — stay closed
   }
 }
+
+/**
+ * True for a bundled/sidecar endpoint — loopback or a bare hostname with no dot, i.e. a compose or
+ * cluster service name. Those get a plain `fetch`; anything else is egress and goes through
+ * `ssrfSafeFetch`.
+ *
+ * Lives here rather than in one client because more than one provider needs the same rule, and two
+ * copies of a security predicate is how they drift. Deliberately conservative: an unparseable URL is
+ * NOT local, so a malformed endpoint gets the guard rather than the bare fetch.
+ */
+export function isLocalModelEndpoint(rawUrl: string): boolean {
+  try {
+    const h = new URL(rawUrl).hostname;
+    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || !h.includes('.');
+  } catch {
+    return false;
+  }
+}

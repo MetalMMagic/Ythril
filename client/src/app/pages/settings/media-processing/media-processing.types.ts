@@ -14,7 +14,7 @@ export interface TestResult {
   modelPresent?: boolean; detail?: string; latencyMs: number;
 }
 
-export type TestTarget = 'vision' | 'stt' | 'assist' | 'embedding';
+export type TestTarget = 'vision' | 'stt' | 'assist' | 'embedding' | 'rerank';
 
 /** Text-embedding config (top-level `config.embedding`, surfaced on this page). Changing
  *  model/dimensions/similarity/prefixScheme re-indexes every vector — the save gates those behind a
@@ -27,6 +27,14 @@ export interface EmbeddingCfg {
    *  existed (nomic prefixes locally, none over HTTP) — a compatibility default, not a good one. */
   prefixScheme?: 'auto' | 'none' | 'nomic' | 'qwen';
   apiKey?: string;
+}
+
+/** Reranker — a cross-encoder that re-scores retrieval candidates. Configured (endpoint + model) = on;
+ *  there is no master toggle, matching the server. */
+export interface RerankCfg {
+  baseUrl?: string | null; model?: string | null; apiKey?: string;
+  /** Candidates fetched per requested result before reranking, as a multiple of topK. 2..10. */
+  candidateMultiplier?: number;
 }
 
 export type DocMode = 'off' | 'ocr' | 'vlm' | 'repair' | 'auto';
@@ -106,6 +114,7 @@ export interface MediaCfg {
   vision?: ProviderCfg;
   stt?: ProviderCfg;
   embedding?: EmbeddingCfg;
+  rerank?: RerankCfg;
   documentProcessing?: DocProcCfg;
   workerConcurrency?: number;
   fallbackToExternal?: boolean;

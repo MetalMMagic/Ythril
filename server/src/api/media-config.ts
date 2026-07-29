@@ -10,15 +10,16 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey, getNliApiKey, getEmbeddingConfig, getEmbeddingApiKey } from '../config/loader.js';
+import { getConfig, saveConfig, getMediaEmbeddingConfig, getSecrets, saveSecrets, getDocAssistApiKey, getNliApiKey, getEmbeddingConfig, getEmbeddingApiKey, getRerankApiKey } from '../config/loader.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
 import type { MediaLevelCeilings } from '../config/types.js';
 import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl, ssrfSafeFetch } from '../util/ssrf.js';
-import { allowPrivateModelEndpoints } from '../config/model-egress-policy.js';
+import { allowPrivateModelEndpoints, isLocalModelEndpoint } from '../config/model-egress-policy.js';
 import { log } from '../util/log.js';
 import { providerSignature, getActiveProviderSignature } from '../files/media/worker.js';
+import { MIN_CANDIDATE_MULTIPLIER, MAX_CANDIDATE_MULTIPLIER } from '../brain/rerank-client.js';
 
 export const mediaConfigRouter = Router();
 
@@ -93,6 +94,17 @@ const EmbeddingPatchSchema = z.object({
   apiKey: z.string().max(512).optional().nullable(),
 }).strict();
 
+// Reranker — the cross-encoder that re-scores retrieval candidates. `apiKey` → secrets.json, like every
+// other provider. `baseUrl` is nullable so the operator can turn reranking back OFF from the UI: the
+// feature is gated on being configured (no master toggle, matching `nli`), so clearing the URL is how it
+// gets switched off, and a field that can only ever be set would be a one-way door.
+const RerankPatchSchema = z.object({
+  baseUrl: z.string().url().optional().nullable(),
+  model: z.string().max(128).optional().nullable(),
+  apiKey: z.string().max(512).optional().nullable(),
+  candidateMultiplier: z.number().int().min(MIN_CANDIDATE_MULTIPLIER).max(MAX_CANDIDATE_MULTIPLIER).optional(),
+}).strict();
+
 /**
  * Instance CEILINGS per media class — the most any space is allowed to do, not a default it inherits.
  *
@@ -147,6 +159,7 @@ const MediaConfigPatchSchema = z.object({
   vision: ProviderPatchSchema.optional(),
   stt: ProviderPatchSchema.optional(),
   embedding: EmbeddingPatchSchema.optional(),
+  rerank: RerankPatchSchema.optional(),
   documentProcessing: DocumentProcessingPatchSchema.optional(),
   workerConcurrency: z.number().int().min(1).max(16).optional(),
   workerPollIntervalMs: z.number().int().min(100).max(60_000).optional(),
@@ -222,6 +235,22 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
   if (effectiveEmbType === 'external' && parsed.data.embedding?.baseUrl
       && !isSsrfSafeUrl(parsed.data.embedding.baseUrl, allowPrivate)) {
     res.status(400).json({ error: 'embedding.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
+    return;
+  }
+
+  // Reranker endpoint. No `provider` field to branch on — a reranker is either a sidecar or it is not —
+  // so the LOCAL-endpoint predicate decides: loopback/bare-hostname is the bundled shape and skips the
+  // check, anything else is egress and must be a public http(s) URL (or opted in via
+  // allowPrivateModelEndpoints). Gating on a config toggle instead would let a typo'd public hostname
+  // through as "local".
+  const rerankPatch = parsed.data.rerank;
+  if (rerankPatch !== undefined && (locked.has('rerank.baseUrl') || locked.has('rerank.model') || locked.has('rerank.apiKey'))) {
+    res.status(403).json({ error: 'The reranker is locked by infrastructure env vars and cannot be changed via the UI' });
+    return;
+  }
+  if (rerankPatch?.baseUrl && !isLocalModelEndpoint(rerankPatch.baseUrl)
+      && !isSsrfSafeUrl(rerankPatch.baseUrl, allowPrivate)) {
+    res.status(400).json({ error: 'rerank.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
     return;
   }
 
@@ -323,8 +352,12 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const embApiKeyChange = (parsed.data.embedding && 'apiKey' in parsed.data.embedding)
       ? parsed.data.embedding.apiKey ?? null
       : undefined;
+    // Reranker key → secrets.mediaEmbedding.rerankApiKey.
+    const rerankApiKeyChange = (rerankPatch && 'apiKey' in rerankPatch)
+      ? rerankPatch.apiKey ?? null
+      : undefined;
 
-    if (visionApiKeyChange !== undefined || sttApiKeyChange !== undefined || assistApiKeyChange !== undefined || embApiKeyChange !== undefined || faceApiKeyChange !== undefined) {
+    if (visionApiKeyChange !== undefined || sttApiKeyChange !== undefined || assistApiKeyChange !== undefined || embApiKeyChange !== undefined || faceApiKeyChange !== undefined || rerankApiKeyChange !== undefined) {
       const secrets = getSecrets();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sAny = secrets as any;
@@ -344,6 +377,10 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
       if (faceApiKeyChange !== undefined) {
         if (faceApiKeyChange === null || faceApiKeyChange === '') delete sAny.mediaEmbedding.faceApiKey;
         else sAny.mediaEmbedding.faceApiKey = faceApiKeyChange;
+      }
+      if (rerankApiKeyChange !== undefined) {
+        if (rerankApiKeyChange === null || rerankApiKeyChange === '') delete sAny.mediaEmbedding.rerankApiKey;
+        else sAny.mediaEmbedding.rerankApiKey = rerankApiKeyChange;
       }
       if (embApiKeyChange !== undefined) {
         sAny.embedding = sAny.embedding ?? {};
@@ -371,6 +408,17 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
       const s = { ...(merged['stt'] as Record<string, unknown>) };
       delete s['apiKey'];
       merged['stt'] = s;
+    }
+    // Reranker: merge per field (a patch changing only `candidateMultiplier` must not wipe the endpoint)
+    // and strip the key out to secrets.json. An explicit `null` on baseUrl/model DELETES the field —
+    // that is how the operator turns reranking back off, since the feature is gated on being configured.
+    if (rerankPatch) {
+      const r: Record<string, unknown> = { ...(existing.rerank as Record<string, unknown> ?? {}), ...rerankPatch };
+      delete r['apiKey']; // never in config.json
+      for (const k of ['baseUrl', 'model'] as const) {
+        if (rerankPatch[k] === null || rerankPatch[k] === '') delete r[k];
+      }
+      merged['rerank'] = r;
     }
     if (parsed.data.levels) merged['levels'] = mergeLevelCeilings(existing.levels, parsed.data.levels);
     // Face recognition: merge per field for the same reason as the ceilings, and additionally because
@@ -432,7 +480,7 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
 // the media worker reaches them.
 
 const TestConnectionSchema = z.object({
-  target: z.enum(['vision', 'stt', 'assist', 'embedding', 'nli']),
+  target: z.enum(['vision', 'stt', 'assist', 'embedding', 'nli', 'rerank']),
 }).strict();
 
 mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => {
@@ -458,7 +506,12 @@ mediaConfigRouter.post('/test-connection', requireAdminMfa, async (req, res) => 
     // The contradiction judge. External whenever the endpoint is not the bundled sidecar — the probe
     // itself lists models and sends no record text, so it is safe to run before anything is classified.
     baseUrl = cfg.nli?.baseUrl; model = cfg.nli?.model; apiKey = getNliApiKey();
-    external = !!baseUrl && !/^https?:\/\/(localhost|127\.0\.0\.1|\[?::1\]?|[^./:]+)(:|\/|$)/.test(baseUrl);
+    external = !!baseUrl && !isLocalModelEndpoint(baseUrl);
+  } else if (target === 'rerank') {
+    // The cross-encoder. Like the NLI probe this only lists models — no query, no passages — so it is
+    // safe to run before anything is ever reranked.
+    baseUrl = cfg.rerank?.baseUrl; model = cfg.rerank?.model; apiKey = getRerankApiKey();
+    external = !!baseUrl && !isLocalModelEndpoint(baseUrl);
   } else if (target === 'embedding') {
     const e = getEmbeddingConfig();
     baseUrl = e.baseUrl; model = e.model; apiKey = getEmbeddingApiKey();
@@ -594,6 +647,12 @@ function maskSecrets(cfg: ReturnType<typeof getMediaEmbeddingConfig>): unknown {
     ...cfg,
     vision: cfg.vision ? { ...cfg.vision, apiKey: mask(cfg.vision.apiKey) } : cfg.vision,
     stt: cfg.stt ? { ...cfg.stt, apiKey: mask(cfg.stt.apiKey) } : cfg.stt,
+    // `nli` was spread through unmasked: the resolved block carries the key from secrets.json, so this
+    // endpoint returned it in plaintext to any admin. Every other provider was masked; this one was
+    // added later and the mask was not extended with it. Fixed here, and `rerank` is masked from the
+    // start rather than repeating it.
+    nli: cfg.nli ? { ...cfg.nli, apiKey: mask(cfg.nli.apiKey) } : cfg.nli,
+    rerank: cfg.rerank ? { ...cfg.rerank, apiKey: mask(cfg.rerank.apiKey) } : cfg.rerank,
     documentProcessing: dp?.assistModel
       ? { ...dp, assistModel: { ...dp.assistModel, apiKey: mask(getDocAssistApiKey()) } }
       : dp,

@@ -16,7 +16,7 @@
  * attacker-supplied endpoint cannot be used to reach cluster-internal services.
  */
 import { getMediaEmbeddingConfig } from '../config/loader.js';
-import { allowPrivateModelEndpoints } from '../config/model-egress-policy.js';
+import { allowPrivateModelEndpoints, isLocalModelEndpoint as isLocalEndpoint } from '../config/model-egress-policy.js';
 import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
 
@@ -48,15 +48,9 @@ export function nliIsLocal(): boolean {
   return !!url && isLocalEndpoint(url);
 }
 
-/** Loopback/private hosts are the bundled sidecar; anything else is egress and gets the SSRF guard. */
-function isLocalEndpoint(rawUrl: string): boolean {
-  try {
-    const h = new URL(rawUrl).hostname;
-    return h === 'localhost' || h === '127.0.0.1' || h === '::1' || !h.includes('.');
-  } catch {
-    return false;
-  }
-}
+// Loopback/sidecar hosts are the bundled service; anything else is egress and gets the SSRF guard.
+// The predicate now lives in model-egress-policy.ts — the reranker needs the same rule, and two copies
+// of a security predicate is how they drift.
 
 /** Normalise whatever shape the server returned into a verdict, or null when it is unreadable. */
 function parseVerdict(body: unknown): NliVerdict | null {

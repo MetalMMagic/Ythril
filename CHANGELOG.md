@@ -6,17 +6,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **The embedding task prefix was dropped whenever an HTTP endpoint was configured, quietly degrading
-  every search.** `embed()` applied the `search_document:` / `search_query:` prefixes *inside* the local
-  branch, so `if (cfg.baseUrl) return embedViaHttp(text, cfg)` sent the raw text and the `task` argument
-  was discarded. Move the same `nomic-embed-text-v1.5` behind Ollama or any OpenAI-compatible endpoint —
-  a first-class option — and asymmetric retrieval silently stopped working. Nothing errored, nothing
-  warned; results were just worse, which is why it survived a release. The prefix is now applied **once,
-  before the branch**, so both paths embed the same string and the two cannot diverge again.
-
 ### Added
+
+- **Optional reranking: a cross-encoder re-scores search candidates before they are cut to the top
+  results.** The vector search embeds the query and each passage independently, so it can only compare
+  two summaries of meaning; a cross-encoder reads the pair together and scores the actual match, which
+  is what lifts precision in the top few results — the only region a caller sees. Configure an endpoint
+  and a model on **Settings → Models → Reranker** (or `RERANK_URL` / `RERANK_MODEL`) and it is on;
+  leave either blank and it is off. There is no separate toggle, matching the NLI judge.
+  - **Self-hosting is the recommendation, not a footnote.** A reranker receives the query *and* the
+    passages your own corpus returned for it — the most revealing pairing in the system, more than
+    either alone. `bge-reranker-v2-m3` behind text-embeddings-inference keeps both on the instance. A
+    non-loopback endpoint is reached through the SSRF-guarded fetch and the card warns that content
+    leaves the instance.
+  - **Both wire dialects are supported, and the URL picks which.** A `baseUrl` ending in `/rerank` is
+    read as the text-embeddings-inference shape (`{query, texts}` → `[{index, score}]`); anything else
+    gets `/v1/rerank` appended and the Cohere/Jina shape (`{model, query, documents}` →
+    `{results:[{index, relevance_score}]}`). Guessing, or sending a union of both and hoping the server
+    ignores the extra fields, would produce a 422 that reads as "the reranker is broken".
+  - **It can only make search worse, never broken.** Unconfigured, unreachable, non-2xx or unreadable
+    all mean "no opinion" and the vector order stands. A provider's answer is not trusted either: a
+    non-finite score or an out-of-range index is dropped rather than defaulted, because either would
+    reorder the *wrong* passage — a wrong answer rather than a missing one.
+  - `candidateMultiplier` (2–10, default 4) widens the candidate pool, since a reranker can only
+    re-order what was already found. Capped at 100 candidates absolutely: cross-encoder cost is linear
+    in the passage count, so a large `topK` must not turn one search into a several-hundred-passage
+    batch on the request path.
+  - The cross-encoder score is stored beside the vector score, not over it. Ordering prefers it;
+    `minScore` keeps filtering on vector similarity, because the two are different scales and silently
+    reinterpreting a caller's threshold against a cross-encoder logit would change what a fixed
+    threshold returns without anyone touching it.
+  - The reranker appears on `GET /api/admin/pipeline-status` and has a *Test connection* probe, so an
+    endpoint that stopped answering is visible rather than something you notice as "search feels worse".
 
 - **`embedding.prefixScheme` (`EMBEDDING_PREFIX_SCHEME`) — the task-prefix convention, made explicit.**
   The right prefix depends on the model family, not on how it is reached, so it cannot be inferred:
@@ -29,6 +50,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (reported in `lockedByInfra` like every other embedding field), and it counts as a reindex-triggering
   change alongside model / dimensions / similarity, with the same save confirmation — the prefix is part
   of the embedded string, so changing it invalidates the corpus exactly as a model change does.
+
+### Fixed
+
+- **`GET /api/admin/media-config` returned the NLI provider's API key in plaintext.** Every other
+  provider was masked; `nli` was added later and the mask was never extended to it, so the resolved
+  block — which carries the key from `secrets.json` — was serialised as-is to any admin. Masked now,
+  and the new `rerank` block is masked from the start rather than repeating the pattern.
+
+- **The embedding task prefix was dropped whenever an HTTP endpoint was configured, quietly degrading
+  every search.** `embed()` applied the `search_document:` / `search_query:` prefixes *inside* the local
+  branch, so `if (cfg.baseUrl) return embedViaHttp(text, cfg)` sent the raw text and the `task` argument
+  was discarded. Move the same `nomic-embed-text-v1.5` behind Ollama or any OpenAI-compatible endpoint —
+  a first-class option — and asymmetric retrieval silently stopped working. Nothing errored, nothing
+  warned; results were just worse, which is why it survived a release. The prefix is now applied **once,
+  before the branch**, so both paths embed the same string and the two cannot diverge again.
 
 ---
 

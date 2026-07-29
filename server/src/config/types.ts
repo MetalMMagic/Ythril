@@ -339,6 +339,25 @@ export interface MediaProviderConfig {
  * When an env var supplies a value, `lockedByInfra` will list that field so
  * the Settings UI can render it read-only (locked-by-infra).
  */
+
+/**
+ * Reranker settings — a provider block plus the one retrieval knob that is specific to reranking.
+ */
+export interface RerankConfig extends MediaProviderConfig {
+  /**
+   * How many candidates to fetch per requested result before reranking, as a multiple of `topK`.
+   *
+   * A reranker can only re-order what the vector search already found, so this is the whole reason it
+   * helps: over-fetch a wider net, then let the cross-encoder pick. Too low and there is nothing to
+   * rescue (a multiplier of 1 reranks exactly the results you would have got anyway); too high and every
+   * search pays for passages that were never plausible.
+   *
+   * Default 4, clamped to 2..10. The absolute candidate count is capped as well, so a large `topK`
+   * cannot turn one search into a thousand-passage rerank.
+   */
+  candidateMultiplier?: number;
+}
+
 export interface MediaEmbeddingConfig {
   /** Instance CEILINGS per media class — the most a space is allowed to do, not a default a space
    *  inherits. Absent = `auto` (no policy limit). A class set to `off` here takes it offline instance-
@@ -364,6 +383,25 @@ export interface MediaEmbeddingConfig {
    * (same subject); this decides whether they agree or oppose.
    */
   nli?: MediaProviderConfig;
+  /**
+   * Reranker — an optional cross-encoder that re-scores the vector search's candidates before they are
+   * cut to `topK` (e.g. `bge-reranker-v2-m3`, self-hosted).
+   *
+   * **Why it is a separate model and not a better embedding.** A bi-encoder embeds the query and the
+   * passage independently, so it can only ever compare two summaries of meaning. A cross-encoder reads
+   * the pair together and scores the actual match. That is why reranking lifts precision on the top few
+   * results, which is exactly the region a caller sees — and why it cannot replace the vector search:
+   * it has no index, so it can only re-order candidates something else already found.
+   *
+   * **Self-hosting is the point.** A reranker sees the query AND the retrieved passages together, which
+   * is the most revealing pairing in the system — more so than either alone. A hosted reranker egresses
+   * it on every search. So this ships unconfigured, and when it is configured the same local/external
+   * split as every other provider applies.
+   *
+   * Configured (`baseUrl` + `model`) = on. There is no separate master toggle, matching `nli` and the
+   * decision that removed the media-embedding one.
+   */
+  rerank?: RerankConfig;
   /** Pluggable STT provider settings (endpoint + model + optional API key). */
   stt?: MediaProviderConfig;
   /** @deprecated Use `vision.baseUrl`. Kept for backward compatibility. */
@@ -1219,6 +1257,7 @@ export interface SecretsFile {
     visionApiKey?: string;
     sttApiKey?: string;
     nliApiKey?: string;
+    rerankApiKey?: string;
   };
 }
 

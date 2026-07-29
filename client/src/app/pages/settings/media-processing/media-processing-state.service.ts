@@ -18,7 +18,7 @@ import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 import { StatusVariant } from '../../../shared/status-pill.component';
 import {
   MediaCfg, MediaClass, DocProcCfg, DocAssistCfg, DocMode, EmbeddingCfg,
-  TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES, FaceExternalCfg,
+  TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES, FaceExternalCfg, RerankCfg,
 } from './media-processing.types';
 
 /**
@@ -27,8 +27,8 @@ import {
  * `doc-render` and `unstructured` are deliberately absent: neither has a single `ngModel` — they report
  * env-only infrastructure, so a Save button on them would be a control that cannot do anything.
  */
-export type ModelCardId = 'embedding' | 'vision' | 'stt' | 'assist' | 'face';
-export const MODEL_CARDS: readonly ModelCardId[] = ['embedding', 'vision', 'stt', 'assist', 'face'];
+export type ModelCardId = 'embedding' | 'rerank' | 'vision' | 'stt' | 'assist' | 'face';
+export const MODEL_CARDS: readonly ModelCardId[] = ['embedding', 'rerank', 'vision', 'stt', 'assist', 'face'];
 
 /** A card, or everything the cards do not own (the Pipelines knobs, ceilings and limits). */
 export type CfgSection = ModelCardId | 'rest';
@@ -116,6 +116,33 @@ export class MediaProcessingStateService {
   /** True when a reindex-triggering field (model/dimensions/similarity/prefixScheme) differs from load. */
   embeddingNeedsReindex(): boolean { return this.reindexKey() !== this.embeddingReindexBaseline; }
 
+  // ── Reranker ──
+  /** Live handle to the editable rerank block, lazily created so the template can bind its fields. */
+  get rerank(): RerankCfg { return (this.form.rerank ??= {}); }
+  rerankLocked(field: string): boolean { return this.isLocked(`rerank.${field}`); }
+  rerankApiKeyInput = '';
+  /**
+   * Configured = on. There is no master toggle, matching the server: the feature is gated on having an
+   * endpoint AND a model, so clearing either is how an operator turns reranking off.
+   */
+  rerankConfigured(): boolean { return !!this.rerank.baseUrl?.trim() && !!this.rerank.model?.trim(); }
+  /**
+   * True when the configured endpoint is NOT a loopback/sidecar host — i.e. every search would send the
+   * query AND the passages it matched off this instance. Mirrors `isLocalModelEndpoint` on the server;
+   * the warning is the point, so an approximation that is wrong in the safe direction is not acceptable
+   * — a hostname with a dot is treated as remote.
+   */
+  rerankIsExternal(): boolean {
+    const raw = this.rerank.baseUrl?.trim();
+    if (!raw) return false;
+    try {
+      const h = new URL(raw).hostname;
+      return !(h === 'localhost' || h === '127.0.0.1' || h === '::1' || !h.includes('.'));
+    } catch {
+      return false;
+    }
+  }
+
   // ── F11-PR5b: test connection ──
   testState = signal<Partial<Record<TestTarget, { loading?: boolean; res?: TestResult }>>>({});
   testOf(t: TestTarget): { loading?: boolean; res?: TestResult } | undefined { return this.testState()[t]; }
@@ -179,6 +206,7 @@ export class MediaProcessingStateService {
         this.form.vision = { ...cfg.vision, apiKey: undefined };
         this.form.stt = { ...cfg.stt, apiKey: undefined };
         this.form.embedding = { provider: 'local', ...cfg.embedding };
+        this.form.rerank = { ...cfg.rerank, apiKey: undefined };
         // Strip the masked key on the way in, like vision/stt: a mask sitting in `form` is one edit away
         // from being echoed back and overwriting a real credential with asterisks.
         this.form.faceRecognition = {
@@ -191,6 +219,7 @@ export class MediaProcessingStateService {
         this.embeddingReindexBaseline = this.reindexKey();
         this.assistApiKeyInput = '';
         this.embeddingApiKeyInput = '';
+        this.rerankApiKeyInput = '';
         this.docCfgSig.set(dp);
         this.docMode.set(dp.mode ?? 'ocr');
         this.loading.set(false);   // before rebaseline: sectionSnapshot is inert while loading
@@ -223,6 +252,7 @@ export class MediaProcessingStateService {
     const base = this.payload();
     switch (card) {
       case 'embedding': return { embedding: base.embedding };
+      case 'rerank': return { rerank: base.rerank };
       case 'vision': return { visionProvider: this.form.visionProvider, vision: base.vision };
       case 'stt': return { sttProvider: this.form.sttProvider, stt: base.stt };
       case 'face': return { faceRecognition: base.faceRecognition };
@@ -258,6 +288,7 @@ export class MediaProcessingStateService {
       : card === 'assist' ? this.assistApiKeyInput
       : card === 'embedding' ? this.embeddingApiKeyInput
       : card === 'face' ? this.faceApiKeyInput
+      : card === 'rerank' ? this.rerankApiKeyInput
       : '';
   }
 
@@ -288,7 +319,7 @@ export class MediaProcessingStateService {
    */
   isDirty(): boolean {
     if (this.managed || this.loading()) return false;
-    if (this.visionApiKeyInput || this.sttApiKeyInput || this.assistApiKeyInput || this.embeddingApiKeyInput || this.faceApiKeyInput) return true;
+    if (this.visionApiKeyInput || this.sttApiKeyInput || this.assistApiKeyInput || this.embeddingApiKeyInput || this.faceApiKeyInput || this.rerankApiKeyInput) return true;
     if (!this.touched()) return false;
     // Derived from the sections rather than one whole-config snapshot, so that saving one card leaves the
     // guard still warning about the others. A single snapshot would have gone clean for all of them.
@@ -360,6 +391,14 @@ export class MediaProcessingStateService {
         dimensions: this.embedding.dimensions,
         similarity: this.embedding.similarity,
         prefixScheme: this.embedding.prefixScheme,
+      },
+      // Reranker, minus `apiKey` (same mask rule as everywhere else). `|| null` on the endpoint and
+      // model so CLEARING either reaches the server as an explicit delete — that is how reranking gets
+      // switched off, and an empty string would be stored as a configured-but-blank endpoint.
+      rerank: {
+        baseUrl: this.rerank.baseUrl || null,
+        model: this.rerank.model || null,
+        candidateMultiplier: this.rerank.candidateMultiplier,
       },
       // Only the PATCH-writable doc fields (vlmModel/repairModel/URLs are env-only, never sent).
       documentProcessing: {
@@ -457,6 +496,7 @@ export class MediaProcessingStateService {
       if (card === 'vision') block.vision = { ...block.vision, apiKey: key };
       else if (card === 'stt') block.stt = { ...block.stt, apiKey: key };
       else if (card === 'embedding') block.embedding = { ...block.embedding, apiKey: key };
+      else if (card === 'rerank') block.rerank = { ...block.rerank, apiKey: key };
       else if (card === 'assist') {
         block.documentProcessing = { assistModel: { ...block.documentProcessing?.assistModel, apiKey: key } };
       }
@@ -473,6 +513,7 @@ export class MediaProcessingStateService {
         else if (card === 'stt') this.sttApiKeyInput = '';
         else if (card === 'assist') this.assistApiKeyInput = '';
         else if (card === 'embedding') { this.embeddingApiKeyInput = ''; this.embeddingReindexBaseline = this.reindexKey(); }
+        else if (card === 'rerank') { this.rerankApiKeyInput = ''; }
         if (card === 'face') { this.faceEnabledBaseline = this.face.enabled === true; this.faceApiKeyInput = ''; }
         this.rebaseline([card]);
         this.saving.set(false);
@@ -559,6 +600,7 @@ export class MediaProcessingStateService {
       vision: { ...base.vision, ...(this.visionApiKeyInput ? { apiKey: this.visionApiKeyInput } : {}) },
       stt: { ...base.stt, ...(this.sttApiKeyInput ? { apiKey: this.sttApiKeyInput } : {}) },
       embedding: { ...base.embedding, ...(this.embeddingApiKeyInput ? { apiKey: this.embeddingApiKeyInput } : {}) },
+      rerank: { ...base.rerank, ...(this.rerankApiKeyInput ? { apiKey: this.rerankApiKeyInput } : {}) },
       documentProcessing: { ...base.documentProcessing, ...(assistPayload ? { assistModel: assistPayload } : {}) },
     };
     const body = JSON.parse(JSON.stringify(payload)) as MediaCfg;

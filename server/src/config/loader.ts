@@ -707,9 +707,9 @@ export function getDataRoot(): string {
 
 // ── Media Embedding Config ─────────────────────────────────────────────────
 
-import type { MediaEmbeddingConfig, MediaProviderConfig, FaceRecognitionConfig, DocumentProcessingConfig, EmbeddingConfig } from './types.js';
+import type { MediaEmbeddingConfig, MediaProviderConfig, FaceRecognitionConfig, DocumentProcessingConfig, EmbeddingConfig, RerankConfig } from './types.js';
 
-const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'nli' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
+const MEDIA_EMBEDDING_DEFAULTS: Required<Omit<MediaEmbeddingConfig, 'vision' | 'stt' | 'nli' | 'rerank' | 'ollamaUrl' | 'visionModel' | 'whisperUrl' | 'whisperModel' | 'lockedByInfra' | 'infraManaged' | 'faceRecognition' | 'documentProcessing'>> = {
   // Media embedding is always on (no master switch). Each class is gated by its `levels` entry, which
   // defaults to `auto` (no policy limit of its own). The bundled ollama + whisper services (K8s
   // manifests + the workstation docker-compose) back the default `vision`/`stt` endpoints, which resolve
@@ -783,7 +783,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const visionModelEnv = process.env['VISION_MODEL'];
   const visionApiKeyEnv = process.env['VISION_API_KEY'];
   // API keys: env var > secrets.json > legacy config.json (deprecated)
-  let mediaSecrets: { visionApiKey?: string; sttApiKey?: string; nliApiKey?: string } = {};
+  let mediaSecrets: { visionApiKey?: string; sttApiKey?: string; nliApiKey?: string; rerankApiKey?: string } = {};
   try { mediaSecrets = getSecrets().mediaEmbedding ?? {}; } catch { /* secrets file may not exist pre-setup */ }
   const vision: MediaProviderConfig = {
     baseUrl: visionBaseUrlEnv
@@ -844,6 +844,24 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   if (nliModelEnv) locked.push('nli.model');
   if (nliApiKeyEnv) locked.push('nli.apiKey');
 
+  // Reranker — a cross-encoder that re-scores retrieval candidates. Same env → secrets → config ladder
+  // as the other providers; unconfigured by default, since it sees the query AND the retrieved passages.
+  const rerankBaseUrlEnv = process.env['RERANK_URL'];
+  const rerankModelEnv = process.env['RERANK_MODEL'];
+  const rerankApiKeyEnv = process.env['RERANK_API_KEY'];
+  const rerankMultEnv = process.env['RERANK_CANDIDATE_MULTIPLIER'];
+  const rerank: RerankConfig = {
+    baseUrl: rerankBaseUrlEnv ?? base.rerank?.baseUrl,
+    model: rerankModelEnv ?? base.rerank?.model,
+    apiKey: rerankApiKeyEnv ?? mediaSecrets.rerankApiKey ?? base.rerank?.apiKey,
+    label: base.rerank?.label ?? 'Reranker (cross-encoder)',
+    candidateMultiplier: rerankMultEnv ? Number(rerankMultEnv) : base.rerank?.candidateMultiplier,
+  };
+  if (rerankBaseUrlEnv) locked.push('rerank.baseUrl');
+  if (rerankModelEnv) locked.push('rerank.model');
+  if (rerankApiKeyEnv) locked.push('rerank.apiKey');
+  if (rerankMultEnv) locked.push('rerank.candidateMultiplier');
+
   // F11-b — when the external assist model's endpoint is pinned by env, lock the whole block in the UI.
   if (process.env['DOC_ASSIST_URL'] || process.env['DOC_ASSIST_MODEL'] || process.env['DOC_ASSIST_API_KEY']) {
     locked.push('documentProcessing.assistModel');
@@ -870,6 +888,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
     vision,
     stt,
     nli,
+    rerank,
     workerConcurrency: pick('WORKER_CONCURRENCY', 'workerConcurrency', base.workerConcurrency, MEDIA_EMBEDDING_DEFAULTS.workerConcurrency),
     workerPollIntervalMs: pick('WORKER_POLL_INTERVAL_MS', 'workerPollIntervalMs', base.workerPollIntervalMs, MEDIA_EMBEDDING_DEFAULTS.workerPollIntervalMs),
     workerMaxPollIntervalMs: pick('WORKER_MAX_POLL_INTERVAL_MS', 'workerMaxPollIntervalMs', base.workerMaxPollIntervalMs, MEDIA_EMBEDDING_DEFAULTS.workerMaxPollIntervalMs),
@@ -962,6 +981,13 @@ export function getDocumentProcessingConfig(): Required<DocumentProcessingConfig
 
 /** F11-b — the external assist model's API key: env (DOC_ASSIST_API_KEY) > secrets.json. Never in config.json. */
 /** The NLI provider key (env > secrets.json > legacy config), for the contradiction judge. */
+/** The reranker's API key, resolved (env > secrets > legacy inline config). Never surfaced unmasked. */
+export function getRerankApiKey(): string | undefined {
+  if (process.env['RERANK_API_KEY']) return process.env['RERANK_API_KEY'];
+  try { return getSecrets().mediaEmbedding?.rerankApiKey ?? getConfig().mediaEmbedding?.rerank?.apiKey; }
+  catch { return undefined; }
+}
+
 export function getNliApiKey(): string | undefined {
   const env = process.env['NLI_API_KEY'];
   if (env) return env;

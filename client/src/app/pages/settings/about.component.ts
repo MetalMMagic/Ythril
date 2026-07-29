@@ -2,6 +2,7 @@ import { Component, inject, signal, computed, OnInit } from '@angular/core';
 import { type AboutInfo, type HealthSummary, type ComponentHealth } from '../../core/api.types';
 import { AdminApi } from '../../core/admin-api.service';
 import { TranslocoPipe } from '@jsverse/transloco';
+import { RouterLink } from '@angular/router';
 import { SettingsCardComponent } from '../../shared/settings-card.component';
 import { StatusPillComponent, type StatusVariant } from '../../shared/status-pill.component';
 import { UsageBarComponent, usageLevel } from '../../shared/usage-bar.component';
@@ -10,7 +11,7 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
 @Component({
   selector: 'app-about',
   standalone: true,
-  imports: [TranslocoPipe, SettingsCardComponent, StatusPillComponent, UsageBarComponent, ErrorStateComponent],
+  imports: [TranslocoPipe, RouterLink, SettingsCardComponent, StatusPillComponent, UsageBarComponent, ErrorStateComponent],
   styles: `
     .grid {
       display: grid;
@@ -124,6 +125,14 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
             </div>
           </app-settings-card>
         }
+
+        <!-- The guides ship WITH the instance, so About — the page people already open when they want to
+             know what this thing is — is where the pointer to them belongs. -->
+        <app-settings-card icon="question"
+                           [heading]="'about.card.help' | transloco"
+                           [purpose]="'about.card.helpDesc' | transloco">
+          <a class="btn btn-sm btn-secondary" routerLink="/settings/help">{{ 'about.openHelp' | transloco }}</a>
+        </app-settings-card>
       </div>
     }
   `,

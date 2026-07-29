@@ -16,8 +16,7 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { ErrorStateComponent } from '../../shared/error-state.component';
 import { StepProgressBarComponent } from '../../shared/step-progress-bar.component';
 import { httpErrorReason } from '../../core/http-error';
-import { Marked } from 'marked';
-import DOMPurify from 'dompurify';
+import { MarkdownRenderService } from '../../shared/markdown-render.service';
 // The docked detail pane reuses the Brain's file-metadata edit fields. These are dumb, shared
 // ref-field widgets; they resolve chip labels via EntityRefPicker, which the Brain provides — so the
 // "File meta" edit mode is available only when embedded in the Brain (embeddedSpaceId set).
@@ -823,6 +822,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   private route = inject(ActivatedRoute);
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
+  private markdown = inject(MarkdownRenderService);
   private confirmDialog = inject(ConfirmDialogService);
   private detailPaneRef = viewChild<ElementRef<HTMLDivElement>>('detailPane');
   // Brain-provided (only present when embedded in the Brain). Optional so the standalone /files route,
@@ -1484,52 +1484,12 @@ export class FileManagerComponent implements OnInit, OnDestroy {
   /**
    * Render markdown to sanitized HTML, replacing ```mermaid fences with inline SVG.
    *
-   * mermaid is heavy, so it's lazy-imported and only when a diagram is actually present. The final
-   * HTML — prose plus any mermaid SVG — is sanitized with DOMPurify (mermaid runs in `strict` mode too),
-   * then marked trusted; Angular's own HTML sanitizer would otherwise strip the SVG.
+   * The pipeline itself lives in `MarkdownRenderService` — the Help page renders the shipped docs
+   * through the same one, and the sanitization rules are a security boundary that must not exist in two
+   * places. This wrapper stays because the preview's tests drive `renderMarkdown` directly.
    */
-  private async renderMarkdown(text: string): Promise<string> {
-    const mermaidSources: string[] = [];
-    const md = new Marked({
-      renderer: {
-        code({ text: code, lang }) {
-          if ((lang ?? '').trim().toLowerCase() === 'mermaid') {
-            const i = mermaidSources.length;
-            mermaidSources.push(code);
-            return `<div class="mermaid-slot" data-idx="${i}"></div>`;
-          }
-          return false; // fall through to marked's default code renderer
-        },
-      },
-    });
-    let html = md.parse(text, { async: false }) as string;
-
-    if (mermaidSources.length) {
-      try {
-        const mermaid = (await import('mermaid')).default;
-        // htmlLabels:false → labels render as native SVG <text>, not <foreignObject> HTML. That keeps the
-        // labels through DOMPurify's SVG sanitization (which strips foreignObject) and removes the
-        // foreignObject XSS surface entirely.
-        mermaid.initialize({
-          startOnLoad: false, securityLevel: 'strict', theme: 'dark', htmlLabels: false,
-          flowchart: { htmlLabels: false },
-        });
-        for (let i = 0; i < mermaidSources.length; i++) {
-          const slot = `<div class="mermaid-slot" data-idx="${i}"></div>`;
-          try {
-            const { svg } = await mermaid.render(`fm-mmd-${Date.now()}-${i}`, mermaidSources[i]);
-            html = html.replace(slot, `<div class="mermaid-diagram">${svg}</div>`);
-          } catch {
-            // Invalid diagram → show its source rather than breaking the whole preview.
-            html = html.replace(slot, `<pre class="preview-code"><code>${escapeHtml(mermaidSources[i])}</code></pre>`);
-          }
-        }
-      } catch {
-        // mermaid failed to load — leave the empty slots; the surrounding prose still renders.
-      }
-    }
-
-    return DOMPurify.sanitize(html, { USE_PROFILES: { html: true, svg: true, svgFilters: true }, ADD_TAGS: ['foreignObject'] });
+  private renderMarkdown(text: string): Promise<string> {
+    return this.markdown.render(text);
   }
 
   /**

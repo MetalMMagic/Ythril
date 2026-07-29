@@ -9,6 +9,7 @@
 import { TestBed } from '@angular/core/testing';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { of, throwError, Subject } from 'rxjs';
+import { provideRouter } from '@angular/router';
 import { AdminApi } from '../../core/admin-api.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { AboutComponent } from './about.component';
@@ -32,7 +33,8 @@ function make(getAbout: () => unknown, getAboutHealth: () => unknown = () => thr
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [AboutComponent, getTranslocoModule()],
-    providers: [{ provide: AdminApi, useValue: { getAbout, getAboutHealth } }],
+    // About links into the Help page, so the component now needs a router context.
+    providers: [provideRouter([]), { provide: AdminApi, useValue: { getAbout, getAboutHealth } }],
   });
   const f = TestBed.createComponent(AboutComponent);
   f.detectChanges(); // ngOnInit → load()
@@ -109,9 +111,10 @@ describe('AboutComponent', () => {
     expect(healthAt(95)).toMatchObject({ variant: 'error', label: 'about.disk.critical' });
   });
 
-  it('renders the two grouped cards + shared usage bar', () => {
+  it('renders the grouped cards + shared usage bar', () => {
     const f = make(() => of({ ...INFO }));
-    expect(el(f).querySelectorAll('app-settings-card').length).toBe(2);
+    // Instance, System, and the Documentation card that points at the bundled guides.
+    expect(el(f).querySelectorAll('app-settings-card').length).toBe(3);
     expect(el(f).querySelector('app-usage-bar')).toBeTruthy();
     expect(el(f).querySelectorAll('app-status-pill').length).toBe(2);
   });

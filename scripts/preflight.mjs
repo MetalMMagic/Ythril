@@ -35,6 +35,7 @@ const SOURCE_GATES = [
   ['route-path-docs-coverage', 'a documented endpoint that does not exist 404s with nothing to explain it'],
   ['mcp-tool-docs-coverage', 'a tool documented as blocked for read-only tokens that is not actually blocked'],
   ['doc-cited-constants', 'a number the docs quote that no longer matches the constant it quotes'],
+  ['help-docs-coverage', 'a guide that ships but the in-product Help page never offers, or offers and cannot load'],
 ];
 
 /** Gates that import from server/dist and therefore need a build. */

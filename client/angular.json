@@ -29,7 +29,9 @@
             "polyfills": [],
             "tsConfig": "tsconfig.app.json",
             "assets": [
-              { "glob": "**/*", "input": "public" }
+              { "glob": "**/*", "input": "public" },
+              { "glob": "*.md", "input": "../docs", "output": "assets/docs" },
+              { "glob": "**/*", "input": "../docs/assets", "output": "assets/docs/assets" }
             ],
             "styles": [
               "src/styles.scss",

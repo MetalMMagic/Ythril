@@ -116,6 +116,12 @@ export const routes: Routes = [
               import('./pages/settings/about.component').then(m => m.AboutComponent),
           },
           {
+            path: 'help',
+            title: 'nav.help',
+            loadComponent: () =>
+              import('./pages/settings/help.component').then(m => m.HelpComponent),
+          },
+          {
             path: 'media-processing',
             title: 'titles.models',
             loadComponent: () =>

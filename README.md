@@ -13,6 +13,7 @@
 [![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-native-9eec55?labelColor=0d1117)](https://modelcontextprotocol.io)
 [![Self-hosted](https://img.shields.io/badge/self--hosted-docker%20compose%20up-0d1117)](#-quickstart)
 [![Runs offline](https://img.shields.io/badge/works-fully%20offline-6e7681)](#your-data-your-rules)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ythril-network/Ythril)
 
 </div>
 

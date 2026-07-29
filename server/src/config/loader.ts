@@ -661,6 +661,10 @@ export function getEmbeddingConfig() {
     dimensions: process.env['EMBEDDING_DIMENSIONS'] ? Number(process.env['EMBEDDING_DIMENSIONS']) : (base.dimensions ?? 768),
     similarity: base.similarity ?? ('cosine' as const),
     provider: (process.env['EMBEDDING_PROVIDER'] as 'local' | 'external' | undefined) ?? base.provider ?? 'local',
+    // 'auto' resolves to the pre-existing behaviour (see resolvePrefixScheme in brain/embedding.ts), so an
+    // instance that never sets this keeps embedding exactly as it did.
+    prefixScheme: (process.env['EMBEDDING_PREFIX_SCHEME'] as 'auto' | 'none' | 'nomic' | 'qwen' | undefined)
+      ?? base.prefixScheme ?? 'auto',
     apiKey: embApiKey ?? base.apiKey,
   };
 }
@@ -849,6 +853,7 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   if (process.env['EMBEDDING_URL']) locked.push('embedding.baseUrl');
   if (process.env['EMBEDDING_MODEL']) locked.push('embedding.model');
   if (process.env['EMBEDDING_DIMENSIONS']) locked.push('embedding.dimensions');
+  if (process.env['EMBEDDING_PREFIX_SCHEME']) locked.push('embedding.prefixScheme');
   if (process.env['EMBEDDING_API_KEY']) locked.push('embedding.apiKey');
 
   return {

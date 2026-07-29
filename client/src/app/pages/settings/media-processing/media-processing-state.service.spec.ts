@@ -238,6 +238,24 @@ describe('MediaProcessingStateService — the two confirmations', () => {
     expect(c.embeddingNeedsReindex()).toBe(true);
   });
 
+  it('re-index: the task prefix triggers it too — it is part of the embedded string', () => {
+    // Changing the prefix scheme changes the vector for identical text just as surely as changing the
+    // model does. If it did not prompt, an operator would flip it, get no warning, and end up with half
+    // the corpus embedded one way and half the other — a silent recall drop, not an error.
+    const { c } = make();
+    c.embedding.prefixScheme = 'nomic';
+    expect(c.embeddingNeedsReindex()).toBe(true);
+  });
+
+  it('re-index: the task prefix is sent in the save payload', async () => {
+    // A field that warns but is never transmitted is worse than one that does neither: the operator is
+    // told the corpus is being re-embedded under a new scheme that the server never received.
+    const { c, patch } = make();
+    c.embedding.prefixScheme = 'qwen';
+    await c.save();
+    expect((sent(patch) as Record<string, { prefixScheme?: string }>)['embedding'].prefixScheme).toBe('qwen');
+  });
+
   it('re-index: re-baselines after saving so a second save does not prompt again', async () => {
     const { c, confirm } = make();
     c.embedding.model = 'a-different-model';

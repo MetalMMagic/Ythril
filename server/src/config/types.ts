@@ -252,6 +252,26 @@ export interface EmbeddingConfig {
    * part 2). Mirrors `visionProvider`/`sttProvider`. Absent/`local` keeps today's behaviour.
    */
   provider?: 'local' | 'external';
+  /**
+   * Which task-prefix convention the embedding model expects.
+   *
+   * Asymmetric retrieval models want the query and the stored passage marked differently, and get
+   * measurably worse recall without it. The convention is per MODEL FAMILY, not per deployment, so it
+   * cannot be inferred from `baseUrl`:
+   *
+   * - `nomic` — `search_document: ` / `search_query: ` (nomic-embed-text-*).
+   * - `qwen`  — query-side instruction only; passages are embedded bare (Qwen3-Embedding).
+   * - `none`  — no prefix. Correct for OpenAI `text-embedding-3-*`, bge-m3, and anything symmetric,
+   *             where a prefix is just noise in the vector.
+   * - `auto`  — **the default, and exactly what this instance did before the field existed**: `nomic`
+   *             for the bundled local model, `none` for an HTTP endpoint. Chosen so that upgrading
+   *             changes no vector. It is a compatibility default, not a good one — an operator running
+   *             nomic behind Ollama should set `nomic` explicitly and re-index.
+   *
+   * Changing this changes every vector, so a corpus embedded under one scheme cannot be searched under
+   * another. The admin UI treats it like `model`/`dimensions`/`similarity` and requires confirmation.
+   */
+  prefixScheme?: 'auto' | 'none' | 'nomic' | 'qwen';
   /** API key for an external embedding endpoint. Stored in `secrets.json` (never `config.json`), masked in
    *  the admin API. */
   apiKey?: string;

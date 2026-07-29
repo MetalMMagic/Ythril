@@ -110,8 +110,10 @@ export class MediaProcessingStateService {
   // ── Text embedding ──
   get embedding(): EmbeddingCfg { return (this.form.embedding ??= {}); }
   embeddingLocked(field: string): boolean { return this.isLocked(`embedding.${field}`); }
-  private reindexKey(): string { return `${this.embedding.model ?? ''}|${this.embedding.dimensions ?? ''}|${this.embedding.similarity ?? ''}`; }
-  /** True when a reindex-triggering field (model/dimensions/similarity) differs from what was loaded. */
+  // prefixScheme belongs here with the rest: the prefix is part of the string that gets embedded, so
+  // changing it changes the vector for identical text just as surely as changing the model does.
+  private reindexKey(): string { return `${this.embedding.model ?? ''}|${this.embedding.dimensions ?? ''}|${this.embedding.similarity ?? ''}|${this.embedding.prefixScheme ?? ''}`; }
+  /** True when a reindex-triggering field (model/dimensions/similarity/prefixScheme) differs from load. */
   embeddingNeedsReindex(): boolean { return this.reindexKey() !== this.embeddingReindexBaseline; }
 
   // ── F11-PR5b: test connection ──
@@ -357,6 +359,7 @@ export class MediaProcessingStateService {
         model: this.embedding.model,
         dimensions: this.embedding.dimensions,
         similarity: this.embedding.similarity,
+        prefixScheme: this.embedding.prefixScheme,
       },
       // Only the PATCH-writable doc fields (vlmModel/repairModel/URLs are env-only, never sent).
       documentProcessing: {

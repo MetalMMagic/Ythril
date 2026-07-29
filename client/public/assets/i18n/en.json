@@ -417,6 +417,7 @@
   "brain.filter.aria": "Filter records",
   "brain.filter.tagPlaceholder": "tag…",
   "brain.filter.descriptionPlaceholder": "Filter description…",
+  "brain.filter.propertiesPlaceholder": "Filter by property value…",
   "brain.filter.allStatuses": "All statuses",
   "brain.filter.statusLabel": "Filter by status",
   "brain.filter.searchPlaceholder": "search…",

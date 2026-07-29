@@ -297,7 +297,7 @@ export class ChronoTabComponent extends RecordTabBase {
   }
 
   protected override resetOnSpaceChange(): void {
-    this.recordFilter.set({ type: '', tag: '', description: '' });
+    this.recordFilter.set({ type: '', tag: '', description: '', properties: '' });
     this.statusFilter.set('');
   }
 

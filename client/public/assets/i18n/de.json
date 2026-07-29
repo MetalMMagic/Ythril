@@ -417,6 +417,7 @@
   "brain.filter.aria": "Datensätze filtern",
   "brain.filter.tagPlaceholder": "Tag…",
   "brain.filter.descriptionPlaceholder": "Beschreibung filtern…",
+  "brain.filter.propertiesPlaceholder": "Nach Eigenschaftswert filtern…",
   "brain.filter.allStatuses": "Alle Status",
   "brain.filter.statusLabel": "Nach Status filtern",
   "brain.filter.searchPlaceholder": "suchen…",

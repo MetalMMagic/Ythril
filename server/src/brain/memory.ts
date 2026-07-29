@@ -20,6 +20,7 @@ import { applyDeleteFields } from './delete-fields.js';
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import type { MemoryDoc, EntityDoc, TombstoneDoc } from '../config/types.js';
 import { SimilarMatch, DupeCheckOpts, checkDuplicates } from './recall.js';
+import { PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 
 /** Resolve entity IDs to their names from the database. */
 async function resolveEntityNames(spaceId: string, entityIds: string[]): Promise<string[]> {
@@ -227,6 +228,7 @@ export async function listMemories(
 ) {
   return col<MemoryDoc>(`${spaceId}_memories`)
     .find(asFilter<MemoryDoc>(filter))
+    .maxTimeMS(filter['$expr'] ? PROPERTIES_SCAN_MAX_MS : 60_000)
     .project({ embedding: 0 })
     .sort(sort ? toMongoSort(sort) : { createdAt: -1 })
     .skip(parseSkip(skip))

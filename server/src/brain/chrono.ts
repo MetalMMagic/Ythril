@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
-import { tagContains, textContains } from './tag-filter.js';
+import { tagContains, textContains, propertiesValueContains, PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from './text-search.js';
@@ -237,6 +237,8 @@ export interface ChronoFilter {
   tagLike?: string;
   /** Per-column description filter: case-insensitive substring on `description` alone. */
   descriptionLike?: string;
+  /** Per-column properties filter: substring over any VALUE in the bag. Scans; see the helper. */
+  propertiesLike?: string;
   /** ISO 8601 — return entries with createdAt > after */
   after?: string;
   /** ISO 8601 — return entries with createdAt < before */
@@ -276,6 +278,7 @@ export async function listChrono(
   // Single-tag substring search (the UI box). Exclusive with the exact tags/tagsAny set below.
   if (filter.tagLike) query['tags'] = tagContains(filter.tagLike);
   if (filter.descriptionLike) query['description'] = textContains(filter.descriptionLike);
+  if (filter.propertiesLike) Object.assign(query, propertiesValueContains(filter.propertiesLike));
 
   // tags ALL (AND): every tag in the array must be present
   if (filter.tags && filter.tags.length > 0) {
@@ -312,6 +315,7 @@ export async function listChrono(
 
   const entries = await col<ChronoEntry>(`${spaceId}_chrono`)
     .find(asFilter<ChronoEntry>(query))
+    .maxTimeMS(query['$expr'] ? PROPERTIES_SCAN_MAX_MS : 60_000)
     .sort(sort ? toMongoSort(sort) : { createdAt: -1 })
     .skip(parseSkip(skip))
     .limit(parseLimit(limit, 20, 1000))

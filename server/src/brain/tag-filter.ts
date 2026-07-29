@@ -38,3 +38,33 @@ export function textContains(value: string): { $regex: string; $options: string 
  * generic helper.
  */
 export const tagContains = textContains;
+
+/** How long a properties-value scan may run before Mongo aborts it. See `propertiesValueContains`. */
+export const PROPERTIES_SCAN_MAX_MS = 3_000;
+
+/**
+ * Match records whose `properties` bag holds ANY value containing `value` (case-insensitive substring).
+ *
+ * Owner's call: the Properties column filters on VALUE, not key.
+ *
+ * The bag has operator-chosen keys, so there is no field to query — the values have to be walked, which
+ * is what `$objectToArray` inside `$expr` does. **This cannot use an index**, and an unanchored regex
+ * could not use one even if the keys were known, so it is a collection scan by nature. Callers therefore
+ * pair it with `PROPERTIES_SCAN_MAX_MS`: a big space costs a bounded query rather than an unbounded one.
+ *
+ * Values are `string | number | boolean`, so each is stringified before matching — otherwise filtering
+ * `12` would miss a numeric `12`, which is exactly the sort of "filter looks broken" behaviour this
+ * column is meant to remove. The needle is escaped: this is user input becoming a pattern.
+ */
+export function propertiesValueContains(value: string): Record<string, unknown> {
+  return {
+    $expr: {
+      $anyElementTrue: {
+        $map: {
+          input: { $objectToArray: { $ifNull: ['$properties', {}] } },
+          in: { $regexMatch: { input: { $toString: '$$this.v' }, regex: escapeRegex(value), options: 'i' } },
+        },
+      },
+    },
+  };
+}

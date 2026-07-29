@@ -277,6 +277,7 @@ chronoRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, a
     filter.tagLike = req.query['tag'];
   }
   if (typeof req.query['description'] === 'string') filter.descriptionLike = req.query['description'];
+  if (typeof req.query['properties'] === 'string') filter.propertiesLike = req.query['properties'];
 
   // tagsAny — comma-separated or repeated — OR semantics
   if (Array.isArray(req.query['tagsAny'])) {

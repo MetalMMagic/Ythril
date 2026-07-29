@@ -15,6 +15,13 @@ export interface RecordFilter {
    * the Description header has to narrow that column alone, or it reports something it does not do.
    */
   description: string;
+  /**
+   * Per-column properties filter — matches any VALUE in the bag, not a key (owner's call).
+   *
+   * The server side is a collection scan (`$expr` over `$objectToArray` cannot use an index), so this
+   * is debounced like the other typed filters and the query carries its own deadline.
+   */
+  properties: string;
 }
 
 /**
@@ -59,7 +66,7 @@ export abstract class RecordTabBase {
    * memories tab's tag-badge click writes it — so pushing a value in still reflects into the header
    * control, the round-trip the old filter bar's `[value]` gave. Each tab's `load()` reads it.
    */
-  recordFilter = signal<RecordFilter>({ type: '', tag: '', description: '' });
+  recordFilter = signal<RecordFilter>({ type: '', tag: '', description: '', properties: '' });
 
   /** Unique datalist id for a tab's docked tag-filter suggestions (multiple tables on one shell). */
   readonly tagListId = `brain-tag-filter-${RecordTabBase._tagSeq++}`;
@@ -169,6 +176,15 @@ export abstract class RecordTabBase {
     this._descTimer = setTimeout(() => this.load(), 250);
   }
   private _descTimer?: ReturnType<typeof setTimeout>;
+
+  /** Docked Properties header filter changed. Debounced — the server side scans (no index is possible). */
+  setPropertiesFilter(value: string): void {
+    this.recordFilter.update(f => ({ ...f, properties: value }));
+    this.skip.set(0);
+    if (this._propsTimer) clearTimeout(this._propsTimer);
+    this._propsTimer = setTimeout(() => this.load(), 250);
+  }
+  private _propsTimer?: ReturnType<typeof setTimeout>;
 
   /**
    * Docked freetext header filter changed. Updates the value immediately (so the input stays

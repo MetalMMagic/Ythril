@@ -70,3 +70,63 @@ describe('every record type filters its own description column', () => {
     assert.ok(src.includes("entities: ['name', 'description']"), 'search must still span both');
   });
 });
+
+describe('propertiesValueContains — filters on VALUE, not key', () => {
+  let propertiesValueContains, PROPERTIES_SCAN_MAX_MS;
+
+  before(async () => {
+    ({ propertiesValueContains, PROPERTIES_SCAN_MAX_MS } = await import('../../server/dist/brain/tag-filter.js'));
+  });
+
+  it('walks the bag rather than naming a field', () => {
+    // Keys are operator-chosen, so there is no field to query — the values have to be walked.
+    const f = propertiesValueContains('engineer');
+    const json = JSON.stringify(f);
+    assert.match(json, /\$objectToArray/);
+    assert.match(json, /\$regexMatch/);
+    assert.match(json, /\$anyElementTrue/);
+  });
+
+  it('matches the VALUE side of each pair, never the key', () => {
+    // `$$this.v`, not `$$this.k`. Verified live: filtering "role" against {role:'engineer'} returns 0.
+    const json = JSON.stringify(propertiesValueContains('x'));
+    assert.ok(json.includes('$$this.v'), 'must read the value');
+    assert.ok(!json.includes('$$this.k'), 'must NOT read the key');
+  });
+
+  it('stringifies before matching, so a numeric value is still findable', () => {
+    // Values are string | number | boolean. Without $toString, filtering "12" would miss a numeric 12 —
+    // which reads as a broken filter rather than as a type subtlety.
+    assert.match(JSON.stringify(propertiesValueContains('12')), /\$toString/);
+  });
+
+  it('escapes the needle', () => {
+    const f = propertiesValueContains('(a+)+$');
+    const regex = f.$expr.$anyElementTrue.$map.in.$regexMatch.regex;
+    assert.ok(regex.includes('\('), 'metacharacters must be escaped');
+    assert.doesNotMatch('aaaaaaaa', new RegExp(regex));
+  });
+
+  it('is case-insensitive', () => {
+    assert.equal(propertiesValueContains('x').$expr.$anyElementTrue.$map.in.$regexMatch.options, 'i');
+  });
+
+  it('tolerates a missing properties bag instead of erroring', () => {
+    assert.match(JSON.stringify(propertiesValueContains('x')), /\$ifNull/);
+  });
+
+  it('exports a scan deadline, because this query cannot use an index', () => {
+    assert.ok(typeof PROPERTIES_SCAN_MAX_MS === 'number' && PROPERTIES_SCAN_MAX_MS > 0);
+  });
+
+  it('every list function APPLIES the deadline, not merely imports it', () => {
+    // An unbounded collection scan on a large space is the failure mode here — not a wrong result.
+    // Checking for the identifier alone is not enough: deleting the guard leaves the import behind, so
+    // that version of this test passed with the bound gone.
+    for (const f of ['entities.ts', 'memory.ts', 'edges.ts', 'chrono.ts']) {
+      const src = readFileSync(new URL(`../../server/src/brain/${f}`, import.meta.url), 'utf8');
+      assert.match(src, /maxTimeMS\([^)]*PROPERTIES_SCAN_MAX_MS/,
+        `${f} must pass the deadline to maxTimeMS on the properties path`);
+    }
+  });
+});

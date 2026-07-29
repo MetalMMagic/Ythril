@@ -113,7 +113,7 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
     res.status(400).json({ error: sortParse.error });
     return;
   }
-  const filter: { from?: string; to?: string; label?: string; type?: string; tag?: string; search?: string; description?: string } = {};
+  const filter: { from?: string; to?: string; label?: string; type?: string; tag?: string; search?: string; description?: string; properties?: string } = {};
   if (typeof req.query['from'] === 'string') filter.from = req.query['from'];
   if (typeof req.query['to'] === 'string') filter.to = req.query['to'];
   if (typeof req.query['label'] === 'string') filter.label = req.query['label'];
@@ -121,6 +121,7 @@ edgesRouter.get('/spaces/:spaceId/edges', globalRateLimit, requireSpaceAuth, asy
   if (typeof req.query['tag'] === 'string') filter.tag = req.query['tag'];
   if (typeof req.query['search'] === 'string') filter.search = req.query['search'];
   if (typeof req.query['description'] === 'string') filter.description = req.query['description'];
+  if (typeof req.query['properties'] === 'string') filter.properties = req.query['properties'];
   const all = await collectAcrossMembers(spaceId, mid => listEdges(mid, filter, limit, skip, sortParse.sort));
   // Batch-resolve entity names for from/to so the client can display names instead of raw UUIDs
   const allEntityIds = [...new Set(all.flatMap(e => [e.from, e.to]))];

@@ -94,6 +94,26 @@ export async function initSpace(
   await filesColl.createIndex({ tags: 1 });
   await filesColl.createIndex({ updatedAt: -1 });
 
+  // Lexical retrieval index — the BM25-family half of hybrid search (`brain/lexical-search.ts`).
+  //
+  // On `matchedText` ONLY, on purpose: it is the exact pre-embedding source string, so the lexical
+  // channel reads precisely the text the vector channel embedded. Indexing display fields instead would
+  // let a record be findable through text that was never part of its vector.
+  //
+  // MongoDB allows exactly ONE text index per collection, so this field choice is load-bearing — a later
+  // feature wanting a different field set collides with it rather than adding to it.
+  //
+  // Best-effort: an existing collection may already carry a differently-shaped text index from a future
+  // change, and a failure here must not stop a space initialising. Retrieval degrades to vector-only on
+  // its own when the index is absent.
+  for (const collName of VECTOR_INDEXED_COLLECTIONS) {
+    try {
+      await col(`${spaceId}_${collName}`).createIndex({ matchedText: 'text' }, { name: 'lexical_text' });
+    } catch (err) {
+      log.warn(`Space '${spaceId}': lexical text index on ${collName} not created — hybrid search will fall back to vector-only for it (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+
   // Vector search indexes (Atlas Local / Atlas). Created here; READY is polled unless
   // the caller defers it (createSpace, so the API responds without waiting — B1).
   await buildSpaceVectorIndexes(spaceId, waitForVectorReady);

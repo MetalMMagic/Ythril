@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Hybrid retrieval: a lexical channel beside the vector one, fused by Reciprocal Rank Fusion.**
+  Vector search compares *meaning*, which is exactly the wrong tool for the tokens a corpus is most
+  precise about — article numbers, form ids, part codes, clause names, proper nouns. An opaque identifier
+  has no useful semantic neighbourhood, so the right chunk could rank below plausible-looking prose and
+  fall outside `topK`. Nothing errored; the answer was simply assembled from the wrong passages. Recall
+  now also ranks candidates with a MongoDB `$text` (BM25-family) query and fuses the two rankings.
+  - **Fused by rank, never by score.** `textScore` is unbounded and grows with term rarity; cosine is
+    bounded. Normalising one against the other needs a calibration that drifts as a space grows, so RRF
+    (`Σ 1/(60 + rank)`) is used instead — it discards magnitude entirely. A document ranked well by
+    *both* channels beats one that wins a single channel outright, which is the point: agreement between
+    an exact-token match and a semantic match is the strongest signal either can give.
+  - **It reorders the candidate pool; it does not introduce records.** With the reranker's
+    `candidateMultiplier` over-fetching, the exact-token match is normally already in the pool but ranked
+    low — fusion lifts it into the final `topK`. Introducing lexically-found records was rejected: they
+    have no measured vector similarity, so it would take a fabricated `score` that `minScore` would then
+    act on.
+  - **`minScore` still filters on the vector score**, and the new `fusedScore` / `lexicalScore` sit
+    beside it rather than over it — a caller's threshold was written against vector similarity and must
+    not change meaning because this shipped. Ordering precedence is cross-encoder → fused → vector.
+  - **It does not replace the list filters** (owner, 2026-07-29). `?search=` and the column filters decide
+    which records are *eligible*; hybrid decides how eligible records *rank*. The lexical query applies
+    the caller's tag/filter match itself, so a scoped recall cannot resurrect filtered-out records.
+  - The index is on `matchedText` — the exact pre-embedding source string — so the lexical channel reads
+    precisely the text the vector channel embedded. Created per space alongside the existing indexes; an
+    instance that has not re-initialised simply contributes an empty lexical channel and recall stays
+    vector-only. `YTHRIL_HYBRID_SEARCH=off` disables it (env-only: a rollback lever, not a preference).
+
 - **Optional reranking: a cross-encoder re-scores search candidates before they are cut to the top
   results.** The vector search embeds the query and each passage independently, so it can only compare
   two summaries of meaning; a cross-encoder reads the pair together and scores the actual match, which

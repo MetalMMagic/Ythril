@@ -174,3 +174,41 @@ describe('the source keeps its contracts', () => {
     assert.ok(life.includes('lexical_text'), 'the index needs a stable name so it can be replaced later');
   });
 });
+
+describe('the behaviour change is documented where callers actually look', () => {
+  // Shipping a ranking change without updating the docs that describe ranking leaves a guide that is
+  // confidently wrong — worse than one that is silent. `minScore` is the sharpest case: it now means
+  // something narrower than "the score", and a caller who does not know that will misread their results.
+  const guide = readFileSync(new URL('../../docs/integration-guide.md', import.meta.url), 'utf8');
+  const userguide = readFileSync(new URL('../../docs/userguide.md', import.meta.url), 'utf8');
+  const help = readFileSync(new URL('../../server/src/mcp/tools/help.ts', import.meta.url), 'utf8');
+  const search = readFileSync(new URL('../../server/src/mcp/tools/search.ts', import.meta.url), 'utf8');
+
+  it('the integration guide no longer claims results are ranked by vector similarity alone', () => {
+    assert.ok(!/ranked by vector similarity across all types/.test(guide),
+      'that sentence was true before hybrid ranking and is now wrong');
+    assert.ok(/Reciprocal\s+Rank\s+Fusion/.test(guide), 'the fusion stage must be explained');
+    assert.ok(guide.includes('lexicalScore') && guide.includes('fusedScore'),
+      'the new response fields must be documented');
+  });
+
+  it('the integration guide states which score minScore filters on', () => {
+    assert.ok(/`minScore` always filters on `score`/.test(guide));
+  });
+
+  it('the MCP retrieval guide no longer routes exact tokens away from recall', () => {
+    assert.ok(!/Rule of thumb: exact criteria → query; fuzzy meaning → recall; both/.test(help),
+      'the old rule of thumb predates hybrid ranking and now misroutes callers');
+    assert.ok(/HYBRID search/.test(help), 'recall must be described as hybrid');
+  });
+
+  it('the recall tool description says it matches exact tokens too', () => {
+    assert.ok(!/description: 'Semantically search all knowledge types/.test(search),
+      'the description must not still claim purely semantic matching');
+    assert.ok(/lexical \(BM25\) ranking/.test(search));
+  });
+
+  it('the user guide explains it without jargon', () => {
+    assert.ok(/matches meaning \*and\* exact wording/.test(userguide));
+  });
+});

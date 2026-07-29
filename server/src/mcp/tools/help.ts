@@ -46,11 +46,17 @@ Three retrieval modes exist and they are easy to confuse:
    type, a property value, a date range — and want all matches.
    Example: query(space, collection: "entities", filter: { "type": "person" }).
 
-2. **recall** — semantic nearest-neighbour search. Use for "find things ABOUT X"
-   where wording varies. IMPORTANT: the free-text query only RANKS results by
-   meaning — it does NOT hard-filter. "confidential files about the merger" as
-   free text returns things semantically near that phrase, not things tagged
-   "confidential"; to restrict, pass tags/filter (mode 3).
+2. **recall** — HYBRID search: semantic nearest-neighbour ranking fused with a
+   lexical (BM25) ranking. Use for "find things ABOUT X" where wording varies,
+   AND for exact tokens — an article number, form id, part code or clause name
+   ranks on the lexical side even though its embedding is near-arbitrary.
+   IMPORTANT: the free-text query only RANKS results — it does NOT hard-filter.
+   "confidential files about the merger" as free text returns things ranked near
+   that phrase, not things tagged "confidential"; to restrict, pass tags/filter
+   (mode 3). Ranking may be refined further by a cross-encoder when the operator
+   has configured one; results carry score (vector), and lexicalScore /
+   fusedScore / rerankScore when those stages ran. minScore always filters on
+   the VECTOR score, never on the fused or rerank score.
 
 3. **recall with tags/types/filter** — semantic ranking WITHIN a structured
    subset. tags requires ALL listed tags; types restricts knowledge types; filter
@@ -61,8 +67,10 @@ Three retrieval modes exist and they are easy to confuse:
    Other filters (undeclared properties.*, exists) are still correct but scan
    exhaustively, so prefer declared fields on large spaces.
 
-Rule of thumb: exact criteria → query; fuzzy meaning → recall; both → recall +
-tags/filter. find_similar finds records semantically near an EXISTING record;
+Rule of thumb: exact criteria you can name as a FIELD → query; meaning, or an
+exact TOKEN you can only find inside the text → recall; both → recall +
+tags/filter. (Before hybrid ranking, recall was a poor choice for exact tokens
+and this guide said so; it no longer holds.) find_similar finds records semantically near an EXISTING record;
 traverse walks the entity graph structurally (no semantics).`;
 
 const SCHEMA_GUIDE = `## Schemas

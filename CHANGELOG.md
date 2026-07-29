@@ -91,6 +91,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Hybrid retrieval and reranking shipped undocumented outside the config table — and left one doc
+  actively wrong.** The integration guide still said recall results were *"ranked by vector similarity"*,
+  which stopped being true; the MCP retrieval guide still told callers to route exact criteria away from
+  `recall`, which is now the opposite of the advice; and the `recall` tool description still said
+  "semantically search". A guide that is confidently wrong is worse than one that is silent. All four
+  surfaces now describe the three ranking stages, the `lexicalScore` / `fusedScore` / `rerankScore`
+  fields, and — the sharpest point — that **`minScore` filters on the vector score only**, so a threshold
+  set once keeps meaning the same thing. Pinned by tests, so the next ranking change cannot quietly
+  un-document itself.
+
 - **`update_chrono` (MCP) let a record be moved to a chrono type the space does not allow.**
   `create_chrono` checked the type against the space's allowlist and both REST handlers checked it too —
   MCP update was the one write surface of four that did not, so the constraint held right up until

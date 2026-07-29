@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { authorRef } from '../config/author.js';
 import { col, asFilter, asDoc, asUpdate, asBulk } from '../db/mongo.js';
 import { nextSeq, reserveSeqBlock } from '../util/seq.js';
-import { tagContains } from './tag-filter.js';
+import { tagContains, textContains } from './tag-filter.js';
 import { parseLimit, parseSkip } from '../util/pagination.js';
 import { toMongoSort, type SortSpec } from './list-sort.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from './text-search.js';
@@ -235,6 +235,8 @@ export interface ChronoFilter {
    * integrations use those to select an exact set, and widening them would silently over-match.
    */
   tagLike?: string;
+  /** Per-column description filter: case-insensitive substring on `description` alone. */
+  descriptionLike?: string;
   /** ISO 8601 — return entries with createdAt > after */
   after?: string;
   /** ISO 8601 — return entries with createdAt < before */
@@ -273,6 +275,7 @@ export async function listChrono(
 
   // Single-tag substring search (the UI box). Exclusive with the exact tags/tagsAny set below.
   if (filter.tagLike) query['tags'] = tagContains(filter.tagLike);
+  if (filter.descriptionLike) query['description'] = textContains(filter.descriptionLike);
 
   // tags ALL (AND): every tag in the array must be present
   if (filter.tags && filter.tags.length > 0) {

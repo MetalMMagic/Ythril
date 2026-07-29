@@ -110,7 +110,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                   <th app-sort-th label="brain.memories.table.fact">
                     <input class="col-filter-input" type="text" [ngModel]="search()" (ngModelChange)="setSearchFilter($event)"
                       [placeholder]="'brain.filter.searchPlaceholder' | transloco" [attr.aria-label]="'brain.filter.searchPlaceholder' | transloco" />
-                  </th><th>{{ 'brain.memories.table.description' | transloco }}</th><th app-sort-th label="brain.memories.table.tags">
+                  </th><th app-sort-th label="brain.memories.table.description">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().description" (ngModelChange)="setDescriptionFilter($event)"
+                      [placeholder]="'brain.filter.descriptionPlaceholder' | transloco" [attr.aria-label]="'brain.filter.descriptionPlaceholder' | transloco" />
+                  </th><th app-sort-th label="brain.memories.table.tags">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().tag" (ngModelChange)="setTagFilter($event)"
                       [attr.list]="tagListId" [placeholder]="'brain.filter.tagPlaceholder' | transloco" [attr.aria-label]="'brain.filter.tagPlaceholder' | transloco" />
                     <datalist [id]="tagListId">@for (s of store.memoryTagSuggestions(); track s) { <option [value]="s"></option> }</datalist>
@@ -241,7 +244,7 @@ export class MemoriesTabComponent extends RecordTabBase {
   private _memSemTimer: ReturnType<typeof setTimeout> | null = null;
 
   protected override resetOnSpaceChange(): void {
-    this.recordFilter.set({ type: '', tag: '' });
+    this.recordFilter.set({ type: '', tag: '', description: '' });
     this.filterEntity.set('');
   }
 
@@ -250,10 +253,11 @@ export class MemoriesTabComponent extends RecordTabBase {
     if (!spaceId) return;
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
-    const filters: { tag?: string; entity?: string; type?: string } = {};
+    const filters: { tag?: string; entity?: string; type?: string; description?: string } = {};
     if (this.recordFilter().tag) filters.tag = this.recordFilter().tag;
     if (this.filterEntity()) filters.entity = this.filterEntity();
     if (this.recordFilter().type) filters.type = this.recordFilter().type;
+    if (this.recordFilter().description) filters.description = this.recordFilter().description;
     this.brainApi.listMemories(spaceId, this.pageSize, this.skip(), filters, this.sortParam(), this.searchParam()).subscribe({
       next: ({ memories }) => {
         this.store.memories.set(memories);

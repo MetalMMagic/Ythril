@@ -276,6 +276,7 @@ chronoRouter.get('/spaces/:spaceId/chrono', globalRateLimit, requireSpaceAuth, a
     // Singular `?tag=` is the UI's search box: substring, not an exact set.
     filter.tagLike = req.query['tag'];
   }
+  if (typeof req.query['description'] === 'string') filter.descriptionLike = req.query['description'];
 
   // tagsAny — comma-separated or repeated — OR semantics
   if (Array.isArray(req.query['tagsAny'])) {

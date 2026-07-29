@@ -27,7 +27,12 @@ import { ToastService } from '../../core/toast.service';
 import { KnowledgeType, PropertySchema, SchemaLibraryEntry, TypeSchema } from '../../core/api.types';
 
 const SCHEMA_MD_STYLES = `
-.sch-head-row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+/* A floor, so this row cannot collapse and drag the master/detail grid up with it. The row's height is
+   otherwise stable by construction now: one hint string for all four collections, differing by a single
+   field name, so it wraps the same way whichever tab is open. That is what stops the add control below
+   from moving when you switch category. */
+.sch-head-row { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  min-height:20px; }
 .val-controls { display:inline-flex; align-items:center; gap:16px; flex-wrap:wrap; }
 .val-lbl { display:inline-flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
 .val-select { font:inherit; font-size:12px; text-transform:none; letter-spacing:0; padding:3px 8px; border:1px solid var(--border); border-radius:6px; background:var(--bg-elevated); color:var(--text-primary); }
@@ -54,13 +59,20 @@ const SCHEMA_MD_STYLES = `
 .sch-detail { min-width:0; }
 .sch-detail-empty { color:var(--text-muted); font-size:13px; font-style:italic; padding:26px 20px; text-align:center;
   border:1px dashed var(--border); border-radius:10px; }
-.sch-detail-head { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid var(--border); }
+.sch-detail-head { display:flex; align-items:center; gap:10px; min-height:var(--sch-head-h);
+  margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid var(--border); box-sizing:content-box; }
 .sch-detail-head .dt { font-family:var(--font-mono); font-size:15px; color:var(--accent); font-weight:600; flex:1; min-width:0;
   overflow:hidden; text-overflow:ellipsis; }
 .sch-detail-head .acts { display:flex; gap:4px; flex-shrink:0; }
-/* Pinned above the list: a bottom rule, not a top one, because it now heads the column. */
-.sch-add-row { display:flex; gap:6px; align-items:center; margin-bottom:8px; padding-bottom:8px;
-  border-bottom:1px solid var(--border); }
+/* Pinned above the list: a bottom rule, not a top one, because it now heads the column.
+
+   It and the detail pane's head are the two column headers, side by side, so they share one height and
+   one bottom margin — otherwise their rules sit at different y and the two columns read as misaligned
+   even though the grid starts them at the same top edge. --sch-head-h is that shared height; changing
+   it moves both. */
+.sch-md { --sch-head-h:34px; }
+.sch-add-row { display:flex; gap:6px; align-items:center; min-height:var(--sch-head-h);
+  margin-bottom:14px; padding-bottom:10px; border-bottom:1px solid var(--border); box-sizing:content-box; }
 .sch-add-row input { flex:1; min-width:0; }
 .sch-add-btn { display:grid; place-items:center; flex:none; width:30px; height:30px; padding:0;
   border:1px solid var(--border); border-radius:8px; background:var(--bg-primary);
@@ -154,16 +166,15 @@ const SCHEMA_MD_STYLES = `
 <div class="sch-coll-body">
 
   <!-- collection sub-header (per-type guidance for the active collection) -->
+  <!-- ONE hint, with the field name as a parameter. There used to be four near-identical strings that
+       differed only in the field they named (entity.type, edge.label, and so on), which is both the
+       "different styles" the owner saw and the reason this row changed height between collections —
+       and everything below it, the add control included, moved with it. -->
   <div class="sch-head-row">
-    @if (state.schemaCollTab() === 'entity') {
-      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span class="sch-hint">{{ 'spaces.schema.entityTypeHint' | transloco }}</span></div>
-    } @else if (state.schemaCollTab() === 'edge') {
-      <div class="sch-sub">{{ 'spaces.schema.subtitle.labels' | transloco }} <span class="sch-hint">{{ 'spaces.schema.edgeLabelHint' | transloco }}</span></div>
-    } @else if (state.schemaCollTab() === 'memory') {
-      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span class="sch-hint">{{ 'spaces.schema.memoryTypeHint' | transloco }}</span></div>
-    } @else {
-      <div class="sch-sub">{{ 'spaces.schema.subtitle.types' | transloco }} <span class="sch-hint">{{ 'spaces.schema.chronoTypeHint' | transloco }}</span></div>
-    }
+    <div class="sch-sub">
+      {{ (state.schemaCollTab() === 'edge' ? 'spaces.schema.subtitle.labels' : 'spaces.schema.subtitle.types') | transloco }}
+      <span class="sch-hint">{{ 'spaces.schema.typeHint' | transloco: { field: allowlistField() } }}</span>
+    </div>
   </div>
 
   <!-- master / detail -->
@@ -550,6 +561,19 @@ export class SpaceSchemaTabComponent implements OnInit {
   private _libPickerTarget: { kt: KnowledgeType | null; name: string } | null = null;
 
   schImportError = signal('');
+
+  /**
+   * The record field the active collection's allowlist governs — the one word that differs between the
+   * four collections, so the guidance around it can be a single string rather than four near-copies.
+   */
+  readonly allowlistField = computed(() => {
+    switch (this.state.schemaCollTab()) {
+      case 'edge': return 'edge.label';
+      case 'memory': return 'memory.type';
+      case 'chrono': return 'chrono.type';
+      default: return 'entity.type';
+    }
+  });
 
   /** Success/info note after a schema import stages types (cleared on the next action). */
   schImportInfo = signal('');

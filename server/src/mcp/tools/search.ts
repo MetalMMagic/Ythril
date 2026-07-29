@@ -41,7 +41,7 @@ export function resolveFindSimilarScope(
 
 export const recallTool: ToolHandler = {
   name: 'recall',
-  description: 'Search all knowledge types (memories, entities, edges, chrono entries, files) by MEANING and by exact tokens: a semantic vector ranking is fused with a lexical (BM25) ranking, so identifiers such as article numbers or form ids rank even though their embeddings carry little meaning. A cross-encoder refines the top candidates when the operator has configured one. Searches the specified space if provided, otherwise across all accessible spaces. Results carry `score` (vector similarity) plus `lexicalScore`/`fusedScore`/`rerankScore` for whichever stages ran; `minScore` filters on `score` only.',
+  description: 'Search all knowledge types (memories, entities, edges, chrono entries, files) by MEANING and by exact tokens: a semantic vector ranking is fused with a lexical (BM25) ranking, so identifiers such as article numbers or form ids rank even though their embeddings carry little meaning. A cross-encoder refines the top candidates when the operator has configured one. Searches the specified space if provided, otherwise across all accessible spaces. Results carry `score` (vector similarity); `minScore` filters on that score only, never on the fused or rerank ordering. The per-stage scores are deliberately omitted here to keep responses small — the REST endpoint returns them for debugging.',
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {

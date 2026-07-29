@@ -981,6 +981,10 @@ did:
 `lexicalScore` is absent when the record did not match lexically; `fusedScore` when hybrid is off;
 `rerankScore` when no reranker is configured or it did not answer.
 
+**The MCP `recall` tool returns `score` only.** Every field it returns is multiplied by `topK` and paid
+for in tokens by whoever called it, so the per-stage scores are deliberately omitted there and kept here,
+where the caller is a program and the response is not a model's context window.
+
 #### A request using every capability
 
 Nothing here is required — this is one call exercising all eight parameters at once, to show how they

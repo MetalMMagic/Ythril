@@ -206,6 +206,10 @@ describe('the behaviour change is documented where callers actually look', () =>
     assert.ok(!/description: 'Semantically search all knowledge types/.test(search),
       'the description must not still claim purely semantic matching');
     assert.ok(/lexical \(BM25\) ranking/.test(search));
+    // …and must not promise per-stage scores the MCP response does not carry. It returns `score` only,
+    // on purpose: every field is multiplied by topK and paid for in tokens by whoever called the tool.
+    assert.ok(!/plus `lexicalScore`\/`fusedScore`\/`rerankScore`/.test(search),
+      'the MCP description must not advertise fields the MCP response omits');
   });
 
   it('the user guide explains it without jargon', () => {

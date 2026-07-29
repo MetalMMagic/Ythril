@@ -5993,6 +5993,46 @@ All query params are optional:
 | `status` | `number` | HTTP status code of the response |
 | `entryId` | `string \| null` | Entry ID when the operation targets a specific document |
 | `durationMs` | `number` | Request duration in milliseconds |
+| `changes` | `AuditChange[]` | What actually changed — see below. Present only on a successful mutating request that has a recording rule; absent otherwise |
+
+### What `changes` records, and what it deliberately does not
+
+`changes` answers the question the rest of the entry cannot: *"an admin patched the space at 14:02"* does
+not say whether they renamed it or turned strict linkage off.
+
+Each element is one of two shapes:
+
+```jsonc
+{ "field": "validationMode", "from": "warn", "to": "strict" }   // scalar
+{ "field": "tags", "added": ["auth"], "removed": ["draft"] }    // set
+```
+
+**It is an allowlist, never a redaction denylist.** Several audited routes handle secrets directly —
+token create/regenerate, webhook create/update (target URLs and signing secrets), the media-config
+routes (vision / STT / NLI / assist API keys) — and audit entries are queryable by any admin and retained
+for `retentionDays`. Diffing a whole body and stripping known-secret names fails in the worst direction:
+forget one field and a live key sits in a queryable store until retention expires, with nothing to report
+it. Naming the fields that *may* be recorded fails the other way — forget one and the entry simply lacks
+it, which is visible and harmless. **An operation with no rule records nothing.** Token, webhook and
+provider-config routes are deliberately absent, and a record's free-form `properties` bag is excluded
+from every rule because its keys are user-chosen and could hold a pasted credential.
+
+Recorded values are **scalars or primitive lists only**. An allowlisted object would silently ship every
+child it later gained.
+
+**Schema changes are summarised, as names.** `space.schema.update` and `schema_library.update` change
+nested objects, so the scalars-only rule dropped them entirely and no amount of adding field names could
+have recorded them. They are recorded as name-set deltas instead:
+
+```jsonc
+{ "field": "typeSchemas.entity", "added": ["adr"], "removed": ["runbook"] }
+{ "field": "typeSchemas.entity.service.propertySchemas", "added": ["sla"], "removed": ["tier"] }
+```
+
+Type names and property **keys** only — never a property's schema, default, enum or naming pattern, any
+of which can be example data lifted from real records. A type that was added or removed outright is not
+also itemised property-by-property, and the key list is capped at 25 per field. A schema replacement that
+recorded nothing was the gap this closes: the schema decides what the space accepts from then on.
 
 ### Data retention
 

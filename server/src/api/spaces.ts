@@ -675,6 +675,13 @@ spacesRouter.put('/:id/schema', globalRateLimit, requireAdminMfaScoped('id'), as
     res.status(404).json({ error: `Space '${id}' not found` });
     return;
   }
+  // Full-replace: `previousTypeSchemas` was read before the write, so this is a true before/after. The
+  // audit layer summarises it as type and property-key NAMES — a schema replacement that recorded
+  // nothing was the whole gap here.
+  req.auditSnapshots = {
+    before: { typeSchemas: previousTypeSchemas ?? {} },
+    after: { typeSchemas: newMeta.typeSchemas ?? {} },
+  };
   res.json({ space: updated });
 });
 
@@ -841,6 +848,14 @@ spacesRouter.put('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRateLim
     return;
   }
 
+  // A single-type upsert is audited under the same `space.schema.update` operation as the full replace,
+  // so it needs the same snapshot shape. Without it the granular route — the one the Schema tab actually
+  // uses — was the silent half of an already-silent pair.
+  req.auditSnapshots = {
+    before: { typeSchemas: existingMeta.typeSchemas ?? {} },
+    after: { typeSchemas: updatedMeta.typeSchemas ?? {} },
+  };
+
   res.json({ knowledgeType: kt, typeName, schema: parsed.data });
 });
 
@@ -894,6 +909,13 @@ spacesRouter.delete('/:id/meta/typeSchemas/:knowledgeType/:typeName', globalRate
     res.status(404).json({ error: `Space '${id}' not found` });
     return;
   }
+
+  // Deleting a type is the change most worth having in the log: it silently widens what the space
+  // accepts from then on, and the definition it removed is not recoverable from the entry alone.
+  req.auditSnapshots = {
+    before: { typeSchemas: existingMeta.typeSchemas ?? {} },
+    after: { typeSchemas: updatedTypeSchemas },
+  };
 
   res.status(204).end();
 });

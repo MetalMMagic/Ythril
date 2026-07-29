@@ -155,12 +155,23 @@ describe('recall wiring', () => {
       'the candidate pool must widen only when reranking is on');
   });
 
-  it('orders by rerankScore when present, and NEVER filters minScore on it', () => {
+  it('orders by rerankScore when present, and NEVER filters minScore on it', async () => {
     // The two are different scales. Reinterpreting a caller's vector-similarity threshold against a
     // cross-encoder logit would change what a fixed threshold returns without anyone touching it.
-    assert.ok(src.includes('r.rerankScore ?? r.score'), 'ordering must prefer the cross-encoder score');
-    assert.ok(src.includes('final.filter(r => (r.score ?? 0) >= minScore)'),
-      'minScore must keep filtering on the VECTOR score');
+    //
+    // Asserted BEHAVIOURALLY, not by grepping the sort expression. The grep that used to live here
+    // (`r.rerankScore ?? r.score`) broke the moment hybrid retrieval inserted `fusedScore` between the
+    // two — a correct change failing a test that was only ever watching a string.
+    const { mergeRecallResults } = await import('../../server/dist/brain/recall.js');
+    const rec = (id, score, rerankScore) => ({ _id: id, type: 'memory', score, rerankScore, fact: id });
+
+    // Ordering follows the cross-encoder even when it inverts the vector order.
+    const ordered = mergeRecallResults([], [rec('weak', 0.9, 0.1), rec('strong', 0.1, 0.9)], 10);
+    assert.deepEqual(ordered.map(r => r._id), ['strong', 'weak']);
+
+    // …and a vector-similarity floor still drops `strong`, because minScore never sees the rerank score.
+    const filtered = mergeRecallResults([], [rec('weak', 0.9, 0.1), rec('strong', 0.1, 0.9)], 10, 0.5);
+    assert.deepEqual(filtered.map(r => r._id), ['weak']);
   });
 
   it('reranks the passage text, not the truncated summary', () => {

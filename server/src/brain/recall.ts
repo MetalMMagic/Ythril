@@ -14,6 +14,7 @@ import { vectorFilterFieldsFor } from '../spaces/vector-index.js';
 import { FilterExpression, buildMongoFilter, toNativeVectorFilter } from './filter.js';
 import { deriveChronoStatus } from './chrono-status.js';
 import { rerank, rerankConfigured, candidateMultiplier, MAX_CANDIDATES } from './rerank-client.js';
+import { lexicalSearch, rrfFuse, hybridSearchEnabled, LEXICAL_LIMIT_MULTIPLIER } from './lexical-search.js';
 import type { ChronoStatus } from '../config/types.js';
 
 export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
@@ -32,6 +33,14 @@ interface RecallBase {
    * what a caller's threshold means. Ordering prefers this when present; filtering never uses it.
    */
   rerankScore?: number;
+  /** MongoDB `textScore` from the lexical channel, when hybrid retrieval ran and this record matched. */
+  lexicalScore?: number;
+  /**
+   * Reciprocal-Rank-Fusion score over the vector and lexical rankings. Ordering prefers it over the raw
+   * vector score; `minScore` never uses it — the two are different scales and a caller's threshold was
+   * written against vector similarity.
+   */
+  fusedScore?: number;
   createdAt?: string;
   updatedAt?: string;
   seq?: number;
@@ -164,6 +173,16 @@ export async function recall(
   const allResults = (await Promise.all(searches)).flat();
   allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
+  // Phase 2b: the LEXICAL channel, fused into the vector order by RRF.
+  //
+  // Vector search is weakest exactly where the corpus is most precise — article numbers, form ids,
+  // clause names — because an opaque identifier has no useful semantic neighbourhood. This gives those
+  // queries a channel that can actually see them. Best-effort throughout: a space with no text index
+  // contributes an empty channel and the vector order stands unchanged.
+  if (hybridSearchEnabled()) {
+    await applyLexicalFusion(spaceId, query, activeTypes, perTypeK, allResults, tags, filter);
+  }
+
   // Phase 3: rerank the candidate pool, if a cross-encoder is configured. Best-effort by construction —
   // `applyRerank` leaves the vector order untouched when the reranker has no opinion.
   if (reranking) await applyRerank(query, guaranteed, allResults);
@@ -222,9 +241,74 @@ export function mergeRecallResults(
     : final;
 }
 
-/** Sort key: cross-encoder relevance when present, vector similarity otherwise. */
+/**
+ * Sort key, most-precise signal first.
+ *
+ * Cross-encoder > RRF fusion > raw vector similarity. The order is the order of how much each one
+ * actually knows: the reranker read the query and the passage together, fusion only saw two rankings,
+ * and the vector score saw one. `??` rather than branches so a partial signal — some records reranked,
+ * some not — still orders sensibly instead of collapsing the unscored ones to the bottom.
+ */
 function rankOf(r: RecallResult): number {
-  return r.rerankScore ?? r.score ?? 0;
+  return r.rerankScore ?? r.fusedScore ?? r.score ?? 0;
+}
+
+/**
+ * Fuse a lexical ranking into the candidate pool's order, in place.
+ *
+ * **It reorders; it does not introduce.** Only records the vector search already returned are affected.
+ * That is a deliberate bound, and it is enough for the case this exists for: with `candidateMultiplier`
+ * over-fetching, the exact-token match is normally *in* the pool but ranked low behind plausible-looking
+ * prose — lexical agreement lifts it into the final `topK`. A record outside the pool entirely cannot be
+ * rescued; widening `candidateMultiplier` is the lever for that.
+ *
+ * Introducing records was considered and rejected: a lexically-found record has no measured vector
+ * similarity, so it would need either a fabricated `score` (a claim, and one `minScore` would then act
+ * on) or a re-implementation of Atlas's score normalisation from guesswork. Both are worse than a stated
+ * bound.
+ *
+ * Eligibility is applied by the QUERY, using the same `tags`/`filter` match the vector path builds — a
+ * lexical channel that skipped them would resurrect records the caller filtered out.
+ */
+async function applyLexicalFusion(
+  spaceId: string,
+  query: string,
+  activeTypes: RecallKnowledgeType[],
+  perTypeK: number,
+  pool: RecallResult[],
+  tags?: string[],
+  filter?: FilterExpression,
+): Promise<void> {
+  if (pool.length === 0) return;
+
+  // Same two matches `recallByType`'s exhaustive path applies, so the two channels agree on eligibility.
+  const eligibility: Record<string, unknown> = {};
+  if (tags && tags.length > 0) eligibility['tags'] = { $all: tags };
+  const built = filter != null && Object.keys(filter).length > 0 ? buildMongoFilter(filter) : null;
+  const match = built ? { ...eligibility, ...built } : eligibility;
+
+  const limit = perTypeK * LEXICAL_LIMIT_MULTIPLIER;
+  const perType = await Promise.all(
+    activeTypes.map(t => lexicalSearch(spaceId, t, query, limit, match)),
+  );
+  const lexical = perType.flat().sort((a, b) => b.lexicalScore - a.lexicalScore);
+  if (lexical.length === 0) return; // no text index, or nothing matched — vector order stands
+
+  const inPool = new Map(pool.map(r => [r._id, r]));
+  for (const hit of lexical) {
+    const rec = inPool.get(hit._id);
+    if (rec) rec.lexicalScore = hit.lexicalScore;
+  }
+
+  const vectorRanked = [...pool].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).map(r => r._id);
+  // Ranks are the LEXICAL ranks, not re-numbered after dropping out-of-pool ids: a document that placed
+  // 5th lexically genuinely placed 5th, and compressing the ranks would overstate it.
+  const lexicalRanked = lexical.map(h => h._id);
+  const fused = rrfFuse([vectorRanked, lexicalRanked]);
+  for (const rec of pool) {
+    const f = fused.get(rec._id);
+    if (f !== undefined) rec.fusedScore = f;
+  }
 }
 
 /**

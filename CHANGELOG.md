@@ -188,6 +188,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction, and two tests walk that list through the real handler — a shared type alone would not
   prove the tab is actually reachable.
 
+- **A destructive icon button now looks destructive at rest, not on hover.** `.icon-btn.danger` coloured
+  only on `:hover`, so delete and revoke sat in a row looking exactly like the harmless icon beside them
+  — you learned which was which by pointing at it, which is backwards for the one action you cannot undo
+  and is *invisible on touch*, where there is no hover at all. Affects the 10 destructive icon actions
+  across Brain, Files, Tokens and the schema screens. Muted at rest so a row of them is not alarming;
+  hover still escalates to full `--error`.
+- **The MFA success note retires itself after six seconds.** It persisted until the next action, so
+  "MFA enabled" was still on screen the next time the page was opened — reading as a live status rather
+  than the receipt for something done a while ago. The pending dismissal is cancelled on destroy, and
+  both properties are tested (the timer is mutation-checked; a timer that silently stops working
+  restores exactly the old behaviour and reports nothing).
+
 - **Schema tab: the add control stops moving, and four near-identical hints become one.** Owner,
   2026-07-21: *"Schema menu still is a bit messy with guidance text and different fontstyles."*
   - The per-collection guidance was four strings that differed only in the field they named

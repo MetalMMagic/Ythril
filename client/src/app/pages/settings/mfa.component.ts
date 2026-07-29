@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { AuthApi } from '../../core/auth-api.service';
@@ -105,7 +105,7 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
     </app-settings-card>
   `,
 })
-export class MfaComponent implements OnInit {
+export class MfaComponent implements OnInit, OnDestroy {
   private authApi = inject(AuthApi);
   private transloco = inject(TranslocoService);
 
@@ -121,8 +121,25 @@ export class MfaComponent implements OnInit {
 
   disabling = signal(false);
   successMsg = signal('');
+  /** Cleared on destroy so a pending dismissal cannot fire into a torn-down component. */
+  private successTimer: ReturnType<typeof setTimeout> | null = null;
 
   ngOnInit(): void { this.refresh(); }
+
+  ngOnDestroy(): void { if (this.successTimer !== null) clearTimeout(this.successTimer); }
+
+  /**
+   * Show a success note and retire it on its own.
+   *
+   * It used to persist until the next action, so "MFA enabled" stayed on screen indefinitely and was
+   * still there the next time you opened the page — reading as a live status rather than the receipt for
+   * something you did a while ago. Six seconds is long enough to read twice.
+   */
+  private flashSuccess(message: string): void {
+    if (this.successTimer !== null) clearTimeout(this.successTimer);
+    this.successMsg.set(message);
+    this.successTimer = setTimeout(() => { this.successMsg.set(''); this.successTimer = null; }, 6000);
+  }
 
   refresh(): void {
     this.loading.set(true);
@@ -160,7 +177,7 @@ export class MfaComponent implements OnInit {
         if (valid) {
           this.enabled.set(true);
           this.state.set('idle');
-          this.successMsg.set(this.transloco.translate('mfa.success.enabled'));
+          this.flashSuccess(this.transloco.translate('mfa.success.enabled'));
         } else {
           this.enrollError.set(this.transloco.translate('mfa.error.invalidCode'));
         }
@@ -184,7 +201,7 @@ export class MfaComponent implements OnInit {
         this.disabling.set(false);
         this.enabled.set(false);
         this.state.set('idle');
-        this.successMsg.set(this.transloco.translate('mfa.success.disabled'));
+        this.flashSuccess(this.transloco.translate('mfa.success.disabled'));
       },
       error: () => this.disabling.set(false),
     });

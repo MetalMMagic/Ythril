@@ -74,7 +74,7 @@ export const create_chronoTool: ToolHandler = {
 
     const chronoSchemaViolations = chronoMeta ? validateChrono(chronoMeta, { type: chronoType, properties: chronoProps }) : [];
     if (chronoSchemaViolations.length > 0 && chronoMeta?.validationMode === 'strict') {
-      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(chronoSchemaViolations, null, 2)}` }], isError: true };
+      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(chronoSchemaViolations)}` }], isError: true };
     }
 
     const remQuota = await checkQuota('brain');

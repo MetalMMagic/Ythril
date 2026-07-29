@@ -77,17 +77,29 @@ describe('toRecallRecord — common fields appear only when present', () => {
   it('omits absent optional fields rather than emitting undefined', () => {
     // An explicit `"tags": undefined` in an MCP payload is noise an agent has to reason about.
     const rec = toRecallRecord(memory());
-    for (const k of ['createdAt', 'updatedAt', 'seq', 'embeddingModel', 'tags', 'description', 'properties']) {
+    // `seq`/`embeddingModel` are not in this list: they are dropped unconditionally now, present or
+    // not, which the next test pins.
+    for (const k of ['createdAt', 'updatedAt', 'tags', 'description', 'properties']) {
       assert.ok(!(k in rec), `${k} should be absent, got ${JSON.stringify(rec)}`);
     }
   });
 
   it('includes them when they are present', () => {
-    const rec = toRecallRecord(memory({ tags: ['t'], description: 'd', properties: { a: 1 }, seq: 3 }));
+    const rec = toRecallRecord(memory({ tags: ['t'], description: 'd', properties: { a: 1 }, createdAt: '2026-01-01T00:00:00Z' }));
     assert.deepEqual(rec.tags, ['t']);
     assert.equal(rec.description, 'd');
     assert.deepEqual(rec.properties, { a: 1 });
-    assert.equal(rec.seq, 3);
+    assert.equal(rec.createdAt, '2026-01-01T00:00:00Z');
+  });
+
+  it('drops seq and embeddingModel even when the source record carries them', () => {
+    // Cost with no per-row information: `embeddingModel` is identical for every record in a space, and
+    // `seq` is the counter sync orders replication by — not an input to any tool. `createdAt`/
+    // `updatedAt` cost the same and stay, because they answer whether a hit is still current.
+    const rec = toRecallRecord(memory({ seq: 3, embeddingModel: 'nomic-v1.5', updatedAt: '2026-01-02T00:00:00Z' }));
+    assert.ok(!('seq' in rec), `seq must not reach an MCP response: ${JSON.stringify(rec)}`);
+    assert.ok(!('embeddingModel' in rec), `embeddingModel must not be repeated per row: ${JSON.stringify(rec)}`);
+    assert.equal(rec.updatedAt, '2026-01-02T00:00:00Z');
   });
 });
 

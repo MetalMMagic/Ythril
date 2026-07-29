@@ -30,7 +30,7 @@ export const list_peersTool: ToolHandler = {
           type: 'text' as const,
           text: peers.length === 0
             ? 'No peers configured.'
-            : JSON.stringify(peers, null, 2),
+            : JSON.stringify(peers),
         },
       ],
     };

@@ -23,7 +23,7 @@
  * Usage:  npm run preflight
  */
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 /** Gates that read SOURCE only — no build required, so they run first and fail fastest. */
 const SOURCE_GATES = [
@@ -43,6 +43,7 @@ const BUILT_GATES = [
 ];
 
 const run = (cmd, opts = {}) => execSync(cmd, { stdio: 'inherit', ...opts });
+
 const failures = [];
 
 function gate(name, why, file) {
@@ -58,13 +59,36 @@ console.log('Preflight — the checks that catch failures with no error message.
 
 for (const [file, why] of SOURCE_GATES) gate(file, why, file);
 
-// Build once, only if something needs it or dist is missing.
-if (BUILT_GATES.length > 0) {
-  if (!existsSync('server/dist')) {
-    console.log('\n── building server (a gate below imports from server/dist) ──');
-    try { run('npm run build:server'); } catch { failures.push({ name: 'build:server', why: 'the server does not compile' }); }
-  }
-  for (const [file, why] of BUILT_GATES) gate(file, why, file);
+// Build UNCONDITIONALLY before anything that imports from server/dist.
+//
+// This used to build only when `server/dist` was missing, which made every gate below it a check on
+// whatever was compiled last — a different branch, a different commit, code that no longer exists. It
+// cost a red CI run: a PR changed `toRecallRecord`'s output, preflight reported PASSED, and the
+// standalone test that contradicts the change had been run against the PREVIOUS build. A stale pass is
+// worse than no check, because it is indistinguishable from a real one. A `tsc` run is cheap; being
+// told the wrong answer is not.
+console.log('\n── building server (the gates below import from server/dist) ──');
+try { run('npm run build:server'); } catch { failures.push({ name: 'build:server', why: 'the server does not compile' }); }
+
+for (const [file, why] of BUILT_GATES) gate(file, why, file);
+
+// Every standalone test that does NOT need a running instance, rather than the curated handful above.
+//
+// `npm run test:standalone` assumes the Docker stack — a third of those files drive a live server on
+// :3200. The rest are pure: they import from `server/dist` and assert on logic. Those had no reason to
+// wait for CI, and waiting for CI is exactly how a PR that changed `toRecallRecord`'s output shipped
+// with the test contradicting it still asserting the old shape.
+//
+// The split is by grep for an instance marker, and the skipped count is PRINTED. A file that reaches
+// the network without one of these markers fails here with ECONNREFUSED rather than being skipped
+// silently — loud and wrong beats quiet and wrong, and the fix is to add the marker.
+const NEEDS_INSTANCE = /fetch\(|127\.0\.0\.1|localhost:|INSTANCES|BASE_URL/;
+const allStandalone = readdirSync('testing/standalone').filter(f => f.endsWith('.test.js')).sort();
+const pure = allStandalone.filter(f => !NEEDS_INSTANCE.test(readFileSync(`testing/standalone/${f}`, 'utf8')));
+console.log(`\n── standalone tests that need no running instance (${pure.length} of ${allStandalone.length}; ` +
+  `${allStandalone.length - pure.length} drive a live server and run in CI) ──`);
+try { run(`node --test --test-concurrency=1 ${pure.map(f => `testing/standalone/${f}`).join(' ')}`); } catch {
+  failures.push({ name: 'test:standalone (offline subset)', why: 'server contracts and pure logic — no Docker needed, so no reason to learn this from CI' });
 }
 
 console.log('\n── docs lint ──');

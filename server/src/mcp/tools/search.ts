@@ -60,6 +60,11 @@ export const recallTool: ToolHandler = {
               additionalProperties: { type: 'number' },
             },
             minScore: unitScoreSchema('Minimum cosine similarity score (0.0–1.0). Results below this threshold are excluded.'),
+            includeContent: {
+              type: 'boolean',
+              default: true,
+              description: 'Whether to return each file chunk’s `content` — the passage body (default true). Set false to get locations and metadata only: path, heading, chunk index, tags, properties. Use it for a two-phase flow — recall to find WHERE something is, then read only the chunk you decided you need. Every field a result carries is multiplied by topK and paid for in tokens, and passage bodies are by far the largest of them.',
+            },
             traverse: {
               type: 'number',
               minimum: 0,
@@ -100,6 +105,7 @@ export const recallTool: ToolHandler = {
       ? (a['minPerType'] as Partial<Record<RecallKnowledgeType, number>>)
       : undefined;
     const minScore = typeof a['minScore'] === 'number' ? a['minScore'] : undefined;
+    const includeContent = a['includeContent'] !== false;
 
     // Graph-traversal expansion depth. 0 (default) = classic recall, unchanged.
     let traverse = 0;
@@ -141,12 +147,11 @@ export const recallTool: ToolHandler = {
           score: r.score,
           spaceId: r.spaceId,
           type: r.type,
-          matchedText: r.matchedText ?? formatRecallSummary(r),
-          record: toRecallRecord(r),
+          record: toRecallRecord(r, { includeContent }),
         })),
         count: seeds.length,
       };
-      return { content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }] };
+      return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
     }
 
     // Graph-augmented recall: expand seeds along edges, cap the combined output.
@@ -158,11 +163,11 @@ export const recallTool: ToolHandler = {
       Math.max(0, totalCap - seeds.length),
     );
     const results: McpRecallTraverseItem[] = [
-      ...seeds.map(r => ({ score: r.score, source: 'recall' as const, hops: 0, path: [], spaceId: r.spaceId, type: r.type, matchedText: r.matchedText ?? formatRecallSummary(r), record: toRecallRecord(r) })),
-      ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity', matchedText: `${n.record.name} (${n.record.type})`, record: entityDocToRecord(n.record) })),
+      ...seeds.map(r => ({ score: r.score, source: 'recall' as const, hops: 0, path: [], spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent }) })),
+      ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity', record: entityDocToRecord(n.record) })),
     ];
     const output = { results, count: results.length, traverseDepth: traverse };
-    return { content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }] };
+    return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
   },
 };
 
@@ -176,6 +181,7 @@ export const find_similarTool: ToolHandler = {
             space: s.optionalSpace,
             entryId: uuidSchema('UUID v4 of the source entry.'),
             entryType: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'], description: 'Knowledge type of the source entry.' },
+            includeContent: { type: 'boolean', default: true, description: 'Whether to return each file chunk’s `content` (default true). Same meaning as on `recall`: false returns locations and metadata only.' },
             targetTypes: {
               type: 'array',
               items: { type: 'string', enum: ['memory', 'entity', 'edge', 'chrono', 'file'] },
@@ -250,6 +256,7 @@ export const find_similarTool: ToolHandler = {
     }
 
     // Graph-augmented: expand the similar seeds along edges (mirrors recall's traverse), JSON output.
+    const includeContent = a['includeContent'] !== false;
     const traverseSpaces = searchIds ?? [usedBase];
     const totalCap = topK * (traverse + 1) * 4;
     const neighbours = await traverseRecallSeeds(
@@ -259,14 +266,14 @@ export const find_similarTool: ToolHandler = {
       Math.max(0, totalCap - result.results.length),
     );
     const results: McpRecallTraverseItem[] = [
-      ...result.results.map(r => ({ score: r.score, source: 'recall' as const, hops: 0, path: [], spaceId: r.spaceId, type: r.type, matchedText: formatRecallSummary(r), record: toRecallRecord(r) })),
-      ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity', matchedText: `${n.record.name} (${n.record.type})`, record: entityDocToRecord(n.record) })),
+      ...result.results.map(r => ({ score: r.score, source: 'recall' as const, hops: 0, path: [], spaceId: r.spaceId, type: r.type, record: toRecallRecord(r, { includeContent }) })),
+      ...neighbours.map(n => ({ score: null, source: 'traverse' as const, hops: n.hops, path: n.path, spaceId: n.spaceId, type: 'entity', record: entityDocToRecord(n.record) })),
     ];
     const output = {
-      source: { type: result.source.type, id: result.source._id, matchedText: formatRecallSummary(result.source) },
+      source: { type: result.source.type, id: result.source._id, summary: formatRecallSummary(result.source) },
       results, count: results.length, traverseDepth: traverse,
     };
-    return { content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }] };
+    return { content: [{ type: 'text' as const, text: JSON.stringify(output) }] };
   },
 };
 
@@ -327,7 +334,7 @@ export const queryTool: ToolHandler = {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify(docs, null, 2),
+          text: JSON.stringify(docs),
         },
       ],
     };

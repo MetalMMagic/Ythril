@@ -75,12 +75,40 @@ export function formatRecallSummary(r: RecallResult): string {
   }
 }
 
-export function toRecallRecord(r: RecallResult): Record<string, unknown> {
+/**
+ * A recall result, shrunk for an MCP response.
+ *
+ * **Every field here is multiplied by `topK` and paid for in tokens by whoever called the tool.** That is
+ * the whole reason this function exists rather than returning the result object: the REST caller is a
+ * program and can afford detail, the MCP caller is a model's context window and cannot.
+ *
+ * Two things are dropped unconditionally because they carry no information a caller does not already
+ * have, not to save space at the cost of usefulness:
+ *
+ *  - `embeddingModel` — identical for every record in a space. Instance configuration, not a per-record
+ *    signal, and it was being repeated on every row.
+ *  - `seq` — the per-space monotonic counter that sync orders replication by. It is not an input to any
+ *    tool, nothing outside `sync/*` reads it, and it means nothing to a model. A caller that genuinely
+ *    needs it can read the record by `_id`.
+ *
+ * `createdAt` / `updatedAt` deliberately STAY. They cost about the same as `seq` did and, unlike it,
+ * answer a question a caller actually asks — whether what it just found is still current.
+ *  - `matchedText` — the concatenated string that was fed to the embedding model. For a file chunk it is
+ *    `headingText + ' ' + content`; for a media chunk it is byte-identical to `content`; for the other
+ *    types it is a rendering of fields the record already carries. So it was returning the passage TWICE
+ *    per result — measurably the largest single waste in the response — and the copy it duplicated is
+ *    the better one: `content` is a named field with a defined meaning, `matchedText` is a blob. Owner,
+ *    2026-07-29: *"I want the content if not flagged false. matched text does not interest me really."*
+ *    Checked before removing: audio, video and image chunks all write the transcript/caption to BOTH
+ *    `content` and `matchedText`, so nothing is only in the blob.
+ *
+ * `includeContent: false` additionally drops the passage body itself — see the tool schema.
+ */
+export function toRecallRecord(r: RecallResult, opts: { includeContent?: boolean } = {}): Record<string, unknown> {
+  const includeContent = opts.includeContent !== false;
   const common: Record<string, unknown> = { _id: r._id };
   if (r.createdAt !== undefined) common['createdAt'] = r.createdAt;
   if (r.updatedAt !== undefined) common['updatedAt'] = r.updatedAt;
-  if (r.seq !== undefined) common['seq'] = r.seq;
-  if (r.embeddingModel !== undefined) common['embeddingModel'] = r.embeddingModel;
   if (r.tags !== undefined) common['tags'] = r.tags;
   if (r.description !== undefined) common['description'] = r.description;
   if (r.properties !== undefined) common['properties'] = r.properties;
@@ -93,8 +121,11 @@ export function toRecallRecord(r: RecallResult): Record<string, unknown> {
       return { ...common, from: r.from, to: r.to, label: r.label, ...(r.weight !== undefined ? { weight: r.weight } : {}), ...(r.edgeType !== undefined ? { type: r.edgeType } : {}) };
     case 'chrono':
       return { ...common, title: r.title, type: r.chronoType, startsAt: r.startsAt, ...(r.status !== undefined ? { status: r.status } : {}), ...(r.entityIds !== undefined ? { entityIds: r.entityIds } : {}) };
-    case 'file':
-      return { ...common, path: r.path, ...(r.sizeBytes !== undefined ? { sizeBytes: r.sizeBytes } : {}), ...(r.parentFileId !== undefined ? { parentFileId: r.parentFileId } : {}), ...(r.chunkIndex !== undefined ? { chunkIndex: r.chunkIndex } : {}), ...(r.headingText !== undefined ? { headingText: r.headingText } : {}), ...(r.content !== undefined ? { content: r.content } : {}) };
+    case 'file': {
+      // `content` is the passage. It is what a caller asked for unless they said otherwise.
+      const keepContent = includeContent && r.content !== undefined;
+      return { ...common, path: r.path, ...(r.sizeBytes !== undefined ? { sizeBytes: r.sizeBytes } : {}), ...(r.parentFileId !== undefined ? { parentFileId: r.parentFileId } : {}), ...(r.chunkIndex !== undefined ? { chunkIndex: r.chunkIndex } : {}), ...(r.headingText !== undefined ? { headingText: r.headingText } : {}), ...(keepContent ? { content: r.content } : {}) };
+    }
   }
 }
 
@@ -118,6 +149,5 @@ export interface McpRecallTraverseItem {
   path: { from: string; label: string; to: string }[];
   spaceId: string;
   type: string;
-  matchedText: string;
   record: Record<string, unknown>;
 }

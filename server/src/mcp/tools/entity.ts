@@ -56,7 +56,7 @@ export const upsert_entityTool: ToolHandler = {
     const entMeta = entMetaRaw ? resolveMetaRefs(entMetaRaw) : undefined;
     const entSchemaViolations = entMeta ? validateEntity(entMeta, { name: eName.trim(), type: eType.trim(), properties: props }) : [];
     if (entSchemaViolations.length > 0 && entMeta?.validationMode === 'strict') {
-      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(entSchemaViolations, null, 2)}` }], isError: true };
+      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(entSchemaViolations)}` }], isError: true };
     }
 
     // Insert-time duplicate check defaults ON for the interactive upsert tool

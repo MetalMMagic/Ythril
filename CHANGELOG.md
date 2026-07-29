@@ -3184,6 +3184,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **One "Import library" button at the top of a space's Schema tab, and the per-type import buttons are
+  gone.** The top row now carries all four actions — Export JSON, Import JSON, Export to library, Import
+  library — and both imports take either a single schema or a whole group. The buttons that used to sit
+  under each knowledge type existed only to tell the importer where a schema belonged, and the library
+  already records that, so they were removed as redundant. Importing a group skips any type the space
+  already has and names what it skipped, rather than failing or overwriting.
+
 - **Saving a space's settings no longer leaves it looking unsaved.** The unsaved-changes snapshot was
   only taken when a space was opened, so after a save the editor still compared against the pre-save
   values — closing it could then warn you about discarding changes that were already persisted.

@@ -38,6 +38,7 @@ import { updateFileMeta } from '../file-meta.js';
 import { log } from '../../util/log.js';
 import type { FileMetaDoc, AuthorRef, EntityDoc } from '../../config/types.js';
 import type { Config as HumanConfig, Result } from '@vladmandic/human';
+import { detectFacesExternal } from './face-external.js';
 
 // ── Singleton Human instance (lazy init) ──────────────────────────────────
 
@@ -233,17 +234,6 @@ export async function embedFaces(
     return;
   }
 
-  let human: HumanInstance;
-  try {
-    human = await getHuman();
-  } catch (err) {
-    log.warn(
-      `Face recogniser: failed to initialise (model files missing?): ` +
-      `${err instanceof Error ? err.message : String(err)}`,
-    );
-    return;
-  }
-
   // ── 1. Decode image to raw RGBA ─────────────────────────────────────────
   let pixelData: Buffer;
   let width: number;
@@ -261,21 +251,42 @@ export async function embedFaces(
   const shorterSide = Math.min(width, height);
   const minFacePixels = shorterSide * faceCfg.minFaceSizeFraction;
 
-  // ── 2. Create tensor + detect ────────────────────────────────────────────
-  // human.tf is typed as `any` by @vladmandic/human — safe to use directly.
-  const tensor = human.tf.tensor3d(new Uint8Array(pixelData), [height, width, 4], 'int32');
-  let result: Result;
-  try {
-    result = await human.detect(tensor);
-  } catch (err) {
-    log.warn(`Face recogniser: detect() failed for ${spaceId}/${fileId}: ${err instanceof Error ? err.message : String(err)}`);
-    return;
-  } finally {
-    // Always release the tensor — human does not dispose input tensors
-    try { human.tf.dispose(tensor); } catch { /* ignore */ }
+  // ── 2. Detect + embed ────────────────────────────────────────────────────
+  // An external provider gets first refusal, when one is configured AND its host is acknowledged. It
+  // returns null on ANY failure, so an unreachable or malformed endpoint falls through to in-process
+  // recognition rather than dropping faces — degrading, never silently doing nothing. Both paths yield
+  // the same `{ embedding, boxRaw }` shape, so everything below is shared.
+  let faces: Array<{ embedding?: number[]; boxRaw?: number[] }> | undefined =
+    (await detectFacesExternal(imageBytes)) ?? undefined;
+
+  if (!faces) {
+    // The local model is only loaded when no external provider answered — initialising it otherwise
+    // would pay the model-load cost on every image for nothing.
+    let human: HumanInstance;
+    try {
+      human = await getHuman();
+    } catch (err) {
+      log.warn(
+        `Face recogniser: failed to initialise (model files missing?): ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
+    // human.tf is typed as `any` by @vladmandic/human — safe to use directly.
+    const tensor = human.tf.tensor3d(new Uint8Array(pixelData), [height, width, 4], 'int32');
+    let result: Result;
+    try {
+      result = await human.detect(tensor);
+    } catch (err) {
+      log.warn(`Face recogniser: detect() failed for ${spaceId}/${fileId}: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    } finally {
+      // Always release the tensor — human does not dispose input tensors
+      try { human.tf.dispose(tensor); } catch { /* ignore */ }
+    }
+    faces = result.face;
   }
 
-  const faces = result.face;
   if (!faces || faces.length === 0) return;
 
   const now = new Date().toISOString();

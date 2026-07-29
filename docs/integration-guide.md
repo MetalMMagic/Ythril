@@ -2295,6 +2295,29 @@ regress it. It is failure-tolerant (any error keeps the primary) and bounded (on
 one reconcile call, subject to the same max-pages cap). Empty `verifyModel` ⇒ no consensus pass, unchanged
 behaviour. Consensus arbitrates by OCR-evidence coverage; N-pass entropy voting is a possible future refinement.
 
+**External face-recognition model — biometric egress, opt-in and acknowledged.** Face detection and
+embedding run **in-process** by default (BlazeFace + FaceRes from `faceRecognition.modelPath`); no face
+data leaves the instance. You can optionally point at an external recogniser under
+`faceRecognition.externalModel`:
+
+| Field | Description |
+|---|---|
+| `baseUrl` | Endpoint receiving `POST { model?, image }` (`image` is base64) and returning `{ faces: [{ embedding, boxRaw? }] }`, where `embedding` is **exactly 128 floats**. SSRF-validated on save and reached only through the SSRF-guarded fetch. |
+| `model` | Optional model name, passed through in the request body. |
+| `apiKey` | Sent as `Authorization: Bearer`. Stored in `secrets.json`, masked on read, never echoed back. |
+| `acknowledgedHost` | The host you consented to. **Must equal `baseUrl`'s host or the endpoint is not used at all.** |
+
+Three properties worth knowing before enabling it:
+
+- **Consent is mandatory and host-scoped.** Face crops are biometric data. The API rejects a save whose
+  `acknowledgedHost` does not match, and the runtime re-checks it — so a config edited on disk cannot
+  egress faces either. Re-pointing `baseUrl` at a different host revokes consent by construction.
+- **In-process stays the fallback.** An unreachable, erroring or malformed provider falls back to local
+  recognition rather than dropping faces silently.
+- **A provider's answer is not trusted.** Descriptors that are not exactly 128 finite floats are
+  discarded (a wrong width would corrupt gallery similarity rather than fail loudly), and the number of
+  faces accepted from one response is capped.
+
 **External assist model (F11-b) — hosted egress, opt-in and acknowledged.** By default every extraction path
 is local (the bundled Ollama VLM / OCR sidecar): no document content leaves your instance. You can optionally
 point a **bigger, external model** at specific tasks under `documentProcessing.assistModel`:

@@ -359,6 +359,37 @@ import { TestTarget } from './media-processing.types';
              editable here. -->
         <div class="hint" style="margin-bottom:12px;">{{ 'mediaProcessing.face.gatedByPipeline' | transloco }}</div>
 
+        <!-- Optional external provider. In-process (BlazeFace + FaceRes) stays the default and the
+             fallback, so leaving this empty changes nothing. -->
+        <div class="field">
+          <label for="face-endpoint">{{ 'mediaProcessing.face.endpoint' | transloco }}</label>
+          <input id="face-endpoint" data-mono type="url" [(ngModel)]="s.faceExternal.baseUrl"
+            [disabled]="s.faceExternalLocked() || s.managed" placeholder="https://faces.example.com/embed" />
+          <div class="hint">{{ 'mediaProcessing.face.endpointHint' | transloco }}</div>
+        </div>
+        @if (s.faceExternalConfigured()) {
+          <div class="grid2">
+            <div class="field">
+              <label for="face-ext-model">{{ 'mediaProcessing.face.externalModelName' | transloco }}</label>
+              <input id="face-ext-model" data-mono [(ngModel)]="s.faceExternal.model"
+                [disabled]="s.faceExternalLocked() || s.managed" />
+            </div>
+            <div class="field">
+              <label for="face-key">{{ 'mediaProcessing.face.apiKey' | transloco }}</label>
+              <input id="face-key" type="password" [(ngModel)]="s.faceApiKeyInput"
+                [disabled]="s.faceExternalLocked() || s.managed"
+                [placeholder]="'mediaProcessing.face.apiKeyPlaceholder' | transloco" />
+            </div>
+          </div>
+          @if (s.faceExternalNeedsAck()) {
+            <div class="alert alert-warning" style="font-size:12px;margin-bottom:12px;">
+              {{ 'mediaProcessing.face.egressPending' | transloco: { host: s.faceExternalHost() } }}
+            </div>
+          } @else {
+            <app-status-pill [variant]="'ok'">{{ 'mediaProcessing.face.egressAcknowledged' | transloco: { host: s.faceExternal.acknowledgedHost } }}</app-status-pill>
+          }
+        }
+
         <div class="grid2">
           <div class="field">
             <label for="face-conf">{{ 'mediaProcessing.face.confidence' | transloco }}</label>

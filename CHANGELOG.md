@@ -3184,6 +3184,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Face recognition can use an external model, with mandatory consent.** It has always run in-process
+  (BlazeFace + FaceRes), which is why the card showed model names and had no endpoint to configure. You
+  can now point it at an external recogniser. Because face crops are biometric data, the endpoint is
+  unusable until you acknowledge the specific host it sends to — enforced on save *and* re-checked at
+  runtime, so a hand-edited config cannot egress faces either. Re-pointing the URL revokes that consent.
+  In-process remains the default and the fallback: an unreachable endpoint degrades to local recognition
+  rather than dropping faces. Descriptors that are not exactly 128 finite floats are discarded, and the
+  number of faces accepted from one response is capped.
+
 - **One "Import library" button at the top of a space's Schema tab, and the per-type import buttons are
   gone.** The top row now carries all four actions — Export JSON, Import JSON, Export to library, Import
   library — and both imports take either a single schema or a whole group. The buttons that used to sit

@@ -330,10 +330,11 @@ describe('MediaProcessingStateService — turning face recognition off', () => {
   it('sends only the PATCH-writable face fields', async () => {
     // modelPath selects which files the process loads and reprocessSyncedImages decides whether a
     // peer's images are re-analysed locally — both stay env/config-only, so neither may appear here.
+    // `externalModel` IS writable (it is the endpoint the operator configures), so it is expected.
     const { c, patch } = make(withFace(true));
     await c.save();
     const face = sent(patch)['faceRecognition'] as Record<string, unknown>;
-    expect(Object.keys(face).sort()).toEqual(['confidenceThreshold', 'enabled', 'minFaceSizeFraction', 'personEntityTypes']);
+    expect(Object.keys(face).sort()).toEqual(['confidenceThreshold', 'enabled', 'externalModel', 'minFaceSizeFraction', 'personEntityTypes']);
   });
 
   it('reports env-pinned face fields as locked', () => {
@@ -664,5 +665,115 @@ describe('MediaProcessingStateService — per-card save', () => {
     c.form.stt!.model = 'x';
     c.touched.set(true);
     expect(c.cardDirty('stt')).toBe(false);
+  });
+});
+
+/**
+ * External face model — biometric egress consent.
+ *
+ * This endpoint receives face crops. The consent must behave like the assist model's: host-scoped, and
+ * demanded before the endpoint can be used — not a one-time tick that authorises every future host.
+ */
+describe('MediaProcessingStateService — external face model', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  it('asks for acknowledgment before saving a newly configured endpoint', async () => {
+    const { c, confirm, patch } = make();
+    c.faceExternal.baseUrl = 'https://faces.example.com/embed';
+    c.touched.set(true);
+
+    await c.saveCard('face');
+
+    expect(confirm, 'biometric egress must be confirmed').toHaveBeenCalled();
+    expect(patch).toHaveBeenCalled();
+    const face = sent(patch)['faceRecognition'] as Record<string, any>;
+    expect(face['externalModel'].acknowledgedHost, 'consent recorded for the host').toBe('faces.example.com');
+  });
+
+  it('sends nothing when the acknowledgment is declined', async () => {
+    const { c, patch } = make(cfgFixture(), false);
+    c.faceExternal.baseUrl = 'https://faces.example.com/embed';
+    c.touched.set(true);
+
+    await c.saveCard('face');
+
+    expect(patch, 'declining must not egress anything').not.toHaveBeenCalled();
+  });
+
+  it('re-asks when the endpoint is pointed at a DIFFERENT host', () => {
+    // Consent is per-host, so re-pointing revokes it. Otherwise one click authorises every later host.
+    const { c } = make();
+    c.faceExternal.baseUrl = 'https://faces.example.com/embed';
+    c.faceExternal.acknowledgedHost = 'faces.example.com';
+    expect(c.faceExternalNeedsAck()).toBe(false);
+
+    c.faceExternal.baseUrl = 'https://elsewhere.example.net/embed';
+    expect(c.faceExternalNeedsAck(), 'a new host needs new consent').toBe(true);
+  });
+
+  it('does not ask again once the host is acknowledged', async () => {
+    const { c, confirm } = make();
+    c.faceExternal.baseUrl = 'https://faces.example.com/embed';
+    c.faceExternal.acknowledgedHost = 'faces.example.com';
+    c.face.confidenceThreshold = 0.7;
+    c.touched.set(true);
+
+    await c.saveCard('face');
+
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it('keeps the thresholds in the block — the server replaces a key it receives', async () => {
+    const { c, patch } = make(cfgFixture({ faceRecognition: { confidenceThreshold: 0.6, minFaceSizeFraction: 0.05 } }));
+    c.faceExternal.baseUrl = 'https://faces.example.com/embed';
+    c.faceExternal.acknowledgedHost = 'faces.example.com';
+    c.touched.set(true);
+
+    await c.saveCard('face');
+
+    const face = sent(patch)['faceRecognition'] as Record<string, any>;
+    // Sending only the endpoint would erase these, since faceRecognition is shallow-merged.
+    expect(face).toHaveProperty('confidenceThreshold');
+    expect(face).toHaveProperty('minFaceSizeFraction');
+  });
+
+  it('sends a typed API key only for this card, and clears only its box', async () => {
+    const { c, patch } = make();
+    c.faceExternal.baseUrl = 'https://faces.example.com/embed';
+    c.faceExternal.acknowledgedHost = 'faces.example.com';
+    c.faceApiKeyInput = 'sk-face';
+    c.visionApiKeyInput = 'sk-other';
+
+    await c.saveCard('face');
+
+    const face = sent(patch)['faceRecognition'] as Record<string, any>;
+    expect(face['externalModel'].apiKey).toBe('sk-face');
+    expect(c.faceApiKeyInput).toBe('');
+    expect(c.visionApiKeyInput, 'another card keeps its unsaved key').toBe('sk-other');
+  });
+
+  it('drops the masked key at LOAD, so it cannot be echoed back', () => {
+    // First of two independent defenses. The second is that `payload()` omits `apiKey` entirely; both
+    // would have to fail for a mask to reach the wire, which is why no single mutation can expose this.
+    const { c } = make(cfgFixture({
+      faceRecognition: { externalModel: { baseUrl: 'https://faces.example.com/embed', apiKey: '••••••••' } },
+    }));
+    expect(c.faceExternal.apiKey, 'the server mask must not survive into the form').toBeUndefined();
+  });
+
+  it('never echoes the stored key back', async () => {
+    // The fixture must CARRY a masked key — with none stored, a regression would send `undefined` and
+    // JSON would drop it, so the test would pass while the bug was live.
+    const { c, patch } = make(cfgFixture({
+      faceRecognition: { externalModel: { baseUrl: 'https://faces.example.com/embed', acknowledgedHost: 'faces.example.com', apiKey: '••••••••' } },
+    }));
+    c.faceExternal.baseUrl = 'https://faces.example.com/embed';
+    c.faceExternal.acknowledgedHost = 'faces.example.com';
+    c.touched.set(true);
+
+    await c.saveCard('face');
+
+    const face = sent(patch)['faceRecognition'] as Record<string, any>;
+    expect(face['externalModel']).not.toHaveProperty('apiKey');
   });
 });

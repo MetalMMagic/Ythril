@@ -91,6 +91,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Hybrid ranking and reranking were undone at the last step on almost every recall.** `recall()` orders
+  each space's results by the best signal it has — cross-encoder, then RRF fusion, then vector similarity
+  — but both aggregation sites (the REST recall route and the MCP `recall` tool) then re-sorted the merged
+  list by raw `score`, throwing both away. It was not a proxy-space edge case: a single-space REST recall
+  still passes through the member merge with one member, so the only path where #519 and #521 actually
+  took effect was MCP recall with no `space`. Nothing errored — results were simply ordered as if neither
+  feature had shipped. Both sites now use the shared `rankOf`, which is exported for that reason, and a
+  test counts the raw-score sorts left in the retrieval path so a new one fails rather than silently
+  reverting the feature.
+
+- **Hybrid retrieval and reranking shipped undocumented outside the config table — and left one doc
+  actively wrong.** The integration guide still said recall results were *"ranked by vector similarity"*,
+  which stopped being true; the MCP retrieval guide still told callers to route exact criteria away from
+  `recall`, which is now the opposite of the advice; and the `recall` tool description still said
+  "semantically search". A guide that is confidently wrong is worse than one that is silent. All four
+  surfaces now describe the three ranking stages, the `lexicalScore` / `fusedScore` / `rerankScore`
+  fields, and — the sharpest point — that **`minScore` filters on the vector score only**, so a threshold
+  set once keeps meaning the same thing. Pinned by tests, so the next ranking change cannot quietly
+  un-document itself.
+
 - **`update_chrono` (MCP) let a record be moved to a chrono type the space does not allow.**
   `create_chrono` checked the type against the space's allowlist and both REST handlers checked it too —
   MCP update was the one write surface of four that did not, so the constraint held right up until

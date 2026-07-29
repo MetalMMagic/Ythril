@@ -12,7 +12,7 @@ import { UUID_V4_RE, entityDocToRecord, formatRecallSummary, toRecallRecord, uui
 import { MAX_RECALL_TRAVERSE, traverseRecallSeeds } from '../../brain/edges.js';
 import { type FilterExpression, validateFilterExpression } from '../../brain/filter.js';
 import { queryBrain } from '../../brain/query.js';
-import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal } from '../../brain/recall.js';
+import { type RecallKnowledgeType, type RecallResult, findSimilar, recall, recallGlobal, rankOf } from '../../brain/recall.js';
 import { resolveMemberSpaces, collectAcrossMembers } from '../../spaces/proxy.js';
 import { NotFoundError } from '../../util/errors.js';
 
@@ -41,7 +41,7 @@ export function resolveFindSimilarScope(
 
 export const recallTool: ToolHandler = {
   name: 'recall',
-  description: 'Semantically search all knowledge types (memories, entities, edges, chrono entries, files). Searches the specified space if provided, otherwise searches across all accessible spaces.',
+  description: 'Search all knowledge types (memories, entities, edges, chrono entries, files) by MEANING and by exact tokens: a semantic vector ranking is fused with a lexical (BM25) ranking, so identifiers such as article numbers or form ids rank even though their embeddings carry little meaning. A cross-encoder refines the top candidates when the operator has configured one. Searches the specified space if provided, otherwise across all accessible spaces. Results carry `score` (vector similarity); `minScore` filters on that score only, never on the fused or rerank ordering. The per-stage scores are deliberately omitted here to keep responses small — the REST endpoint returns them for debugging.',
   inputSchema: (s: ToolSchemas) => ({
           type: 'object',
           properties: {
@@ -126,7 +126,8 @@ export const recallTool: ToolHandler = {
     if (callSpace) {
       const memberIds = resolveMemberSpaces(callSpace);
       const all = (await Promise.all(memberIds.map(mid => recall(mid, query, topK, tags, types, minPerType, minScore, filter)))).flat();
-      all.sort((x, y) => (y.score ?? 0) - (x.score ?? 0));
+      // Same rule as everywhere else: rankOf, not `.score`. See the note on the REST recall route.
+      all.sort((x, y) => rankOf(y) - rankOf(x));
       seeds = all.slice(0, topK);
       traverseSpaces = memberIds;
     } else {

@@ -912,7 +912,177 @@ Available as both:
 }
 ```
 
-Searches **all knowledge types** (memories, entities, edges, chrono entries, and files) using the built-in embedding model and MongoDB Atlas `$vectorSearch`. Results are ranked by vector similarity across all types and include a `type` discriminator field. No extra configuration needed.
+Searches **all knowledge types** (memories, entities, edges, chrono entries, and files) and includes a
+`type` discriminator field on every result. No configuration needed — the defaults below are what a
+fresh instance does.
+
+#### How a result is ranked
+
+Recall runs up to three stages. Each is independent, each degrades to the previous one if it is
+unavailable, and **none of them can fail a search** — a stage that cannot answer simply has no opinion.
+
+1. **Vector search** (always). The query is embedded with the same model and the same task prefix used at
+   index time, and MongoDB `$vectorSearch` returns the nearest records per type. This produces `score`.
+
+2. **Lexical search + rank fusion** (automatic). In parallel, a MongoDB `$text` (BM25-family) query ranks
+   the same records lexically, producing `lexicalScore`; the two rankings are combined by **Reciprocal
+   Rank Fusion** into `fusedScore`.
+
+   This exists because vector search compares *meaning*, which is the wrong tool for the tokens a corpus
+   is most precise about — article numbers, form ids, part codes, clause names, proper nouns. An opaque
+   identifier has no useful semantic neighbourhood, so the right record could rank below plausible prose
+   and fall outside `topK`. Nothing errored; the answer was just built from the wrong passages.
+
+   Fusion uses **rank, never raw score**: `textScore` is unbounded and grows with term rarity, cosine is
+   bounded, and any normalisation between them would need a calibration that drifts as a space grows. A
+   record ranked well by *both* channels outranks one that wins a single channel — agreement between an
+   exact-token match and a semantic match is the strongest signal either gives.
+
+   It **reorders** the candidate set; it does not introduce records the vector search did not return.
+   Set `YTHRIL_HYBRID_SEARCH=off` to disable it.
+
+3. **Cross-encoder reranking** (only when configured). If `mediaEmbedding.rerank` names an endpoint and a
+   model, a cross-encoder reads the query and each candidate passage *together* and scores the actual
+   match, producing `rerankScore`. A bi-encoder can only compare two independently-computed summaries of
+   meaning; a cross-encoder reads the pair. That is what lifts precision in the top few results.
+
+   It has no index, so it can only re-order what stages 1–2 found — hence `candidateMultiplier`, which
+   widens the pool it gets to choose from. Unreachable or unconfigured means no opinion, and the fused
+   order stands. See the `mediaEmbedding.rerank.*` rows in [Configuration](#configuration) below.
+
+**Ordering precedence is `rerankScore` → `fusedScore` → `score`** — the order of how much each signal
+actually knows.
+
+#### `minScore` always filters on `score`
+
+This is deliberate and worth being explicit about: `minScore` is a **vector-similarity** floor and stays
+one. The three scores are on unrelated scales, so reinterpreting a caller's fixed threshold against a
+fused rank or a cross-encoder logit would change what that threshold returns without anyone touching it.
+Ordering may use the better signal; filtering does not.
+
+The extra scores are returned when they were produced, so a caller can see why a result placed where it
+did:
+
+```json
+{
+  "results": [
+    {
+      "_id": "...", "type": "file", "path": "specs/NMK-240C.md",
+      "score": 0.71,
+      "lexicalScore": 4.83,
+      "fusedScore": 0.0325,
+      "rerankScore": 0.94
+    }
+  ],
+  "count": 1
+}
+```
+
+`lexicalScore` is absent when the record did not match lexically; `fusedScore` when hybrid is off;
+`rerankScore` when no reranker is configured or it did not answer.
+
+**The MCP `recall` tool returns `score` only.** Every field it returns is multiplied by `topK` and paid
+for in tokens by whoever called it, so the per-stage scores are deliberately omitted there and kept here,
+where the caller is a program and the response is not a model's context window.
+
+#### A request using every capability
+
+Nothing here is required — this is one call exercising all eight parameters at once, to show how they
+compose.
+
+```json
+POST /api/brain/spaces/dev-apps/recall
+{
+  "query": "PKCE failures on form NMK-SI-11 during the auth rewrite",
+  "topK": 20,
+  "types": ["memory", "entity", "chrono", "file"],
+  "tags": ["auth", "postmortem"],
+  "minPerType": { "entity": 2, "chrono": 1 },
+  "minScore": 0.55,
+  "traverse": 1,
+  "filter": {
+    "properties.severity": { "in": ["high", "critical"] },
+    "properties.reviewCount": { "gte": 2 },
+    "properties.supersededBy": { "exists": false },
+    "status": { "ne": "cancelled" }
+  }
+}
+```
+
+Read in the order the server applies them:
+
+| Parameter | What it does here |
+|---|---|
+| `query` | Ranked semantically **and** lexically. `NMK-SI-11` is the reason the lexical channel matters — its embedding carries almost no meaning. |
+| `types` | Restricts which collections are searched at all. Edges are excluded. |
+| `tags` | Hard filter, **AND** semantics — a record must carry *both* `auth` and `postmortem`. |
+| `filter` | Hard filter. Keys must start with `properties.`, `tags`, `type`, `name`, `status` or `label`; any other key is rejected. Operators: `eq`, `ne`, `in`, `exists`, `gt`, `gte`, `lt`, `lte`. All conditions must match. |
+| `minPerType` | Guarantees a floor per type *if that many exist*, so a flood of file passages cannot crowd out every entity. Each value is clamped to `topK`. |
+| `minScore` | Applied **last**, on the vector score, and it can drop a `minPerType`-guaranteed result — a floor is a request for coverage, not a licence to return matches you called too weak. |
+| `topK` | The final cut. |
+| `traverse` | After the cut, follows knowledge-graph edges outward from every match (both directions) and returns the connected entities alongside them. |
+
+**`traverse > 0` changes the response shape** — this is the one thing worth knowing before using it. Each
+item becomes a wrapper around the record:
+
+```json
+{
+  "results": [
+    {
+      "source": "recall",
+      "hops": 0,
+      "path": [],
+      "spaceId": "dev-apps",
+      "type": "file",
+      "score": 0.71,
+      "record": {
+        "_id": "…", "type": "file", "path": "runbooks/NMK-SI-11.md",
+        "score": 0.71, "lexicalScore": 4.83, "fusedScore": 0.0325, "rerankScore": 0.94,
+        "matchedText": "Form NMK-SI-11 must be filed within 6 hours…"
+      }
+    },
+    {
+      "source": "traverse",
+      "hops": 1,
+      "path": [{ "from": "runbooks/NMK-SI-11.md", "label": "owned-by", "to": "security-team" }],
+      "spaceId": "dev-apps",
+      "type": "entity",
+      "score": null,
+      "record": { "_id": "…", "type": "entity", "name": "security-team" }
+    }
+  ],
+  "count": 2
+}
+```
+
+`score` is `null` on a traversed neighbour on purpose: it was reached **structurally**, not matched. It
+has no similarity to the query and inventing one would let `minScore` act on a number nobody measured.
+
+The MCP `recall` tool takes the same parameters, plus `space` (omit it to search every accessible space):
+
+```json
+{
+  "space": "dev-apps",
+  "query": "PKCE failures on form NMK-SI-11 during the auth rewrite",
+  "topK": 20,
+  "types": ["memory", "entity", "chrono", "file"],
+  "tags": ["auth", "postmortem"],
+  "minPerType": { "entity": 2, "chrono": 1 },
+  "minScore": 0.55,
+  "traverse": 1,
+  "filter": {
+    "properties.severity": { "in": ["high", "critical"] },
+    "properties.reviewCount": { "gte": 2 },
+    "properties.supersededBy": { "exists": false },
+    "status": { "ne": "cancelled" }
+  }
+}
+```
+
+**Performance note.** `tags`, `type`, `name`, `status`, `label` — and, on spaces whose schema declares
+them, `properties.<key>` — are pushed into the vector index as native pre-filters. Undeclared
+`properties.*` and `exists` are still correct but scan exhaustively, so prefer declared fields on large
+spaces. `traverse` above 2 on a dense graph is slow; narrow the seed set with `tags`/`filter` first.
 
 #### Graph-Augmented Recall (`traverse` parameter)
 

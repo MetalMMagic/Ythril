@@ -181,10 +181,23 @@ The Query tab has two modes, switched with the buttons at the top: **Semantic Se
 
 #### Semantic Search
 
-Type a natural-language query and press Enter (or click **Search**) to find the most relevant records by meaning across the space. Two options sit next to the query box:
+Type a natural-language query and press Enter (or click **Search**) to find the most relevant records
+across the space.
+
+**It matches meaning *and* exact wording.** Two rankings run and are combined: one by meaning (so
+"how do we handle a data breach" finds a passage titled "incident reporting"), and one by the words
+themselves (so a part number, form id or clause name is found even though such a string carries almost no
+meaning for a language model). A record that scores on both ranks highest. If your administrator has
+configured a reranking model, the top candidates are then re-scored by a model that reads your question
+and each passage together.
+
+None of that needs setting up, and none of it can make a search fail — a stage that is unavailable is
+simply skipped.
+
+Two options sit next to the query box:
 
 - **topK** — how many results to return (1–100).
-- **minScore** — drop results below this similarity score (0–1).
+- **minScore** — drop results below this similarity score (0–1). This is always the **meaning** score, even when word-matching or reranking has changed the order — so a threshold you set once keeps meaning the same thing.
 
 Click **Show advanced** for more control:
 

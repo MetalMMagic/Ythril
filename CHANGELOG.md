@@ -29,6 +29,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `find_similar`'s source descriptor field `matchedText` is renamed `summary`, since `matchedText` no
     longer means anything in an MCP response.
 
+- **In-product Help: the full guides, readable inside the instance.** Answering "what does this setting
+  do?" meant leaving the product. **Settings → Help** now renders the shipped guides — user guide,
+  integration guide, use-case examples, workstation mode, network types, sync protocol, dependencies,
+  contributing, docker build protocol — with a linkable `?doc=` per guide.
+  - **Bundled, not linked.** A link to github.com restates the problem rather than solving it, and fails
+    hardest exactly where it matters most: an air-gapped or internal-network install has no route out.
+    `angular.json` copies `docs/*.md` into the client's assets and the Dockerfile carries `docs/` into
+    the client build stage, so Help works with no internet connection.
+  - **No new server route, and no path built from user input.** The offered set is a fixed list compiled
+    into the page; `?doc=` selects from it and never reaches a request path, so there is nothing to
+    traverse. An unknown id falls back to the first guide instead of erroring — a stale bookmark should
+    land somewhere useful.
+  - A new preflight gate keeps the list honest in both directions: a guide that ships but is not offered
+    (unreachable from the product) and a guide that is offered but does not ship (404 for whoever clicks
+    it) both fail the build, as does a missing title in any of the three locales, a dropped asset glob,
+    or a dropped Dockerfile `COPY`. "Ships" means *tracked by git*, not *present in the working tree* —
+    a gitignored local-only doc is invisible to the build, so it must be invisible to the gate too.
+  - The markdown pipeline — marked + mermaid + DOMPurify — moved out of the Files preview into a shared
+    `MarkdownRenderService` that both now use. The sanitization rules are a security boundary; a second
+    copy is a second place for them to drift.
+
 - **Brain → Review gains a Suggestions sub-tab: the whole completeness report, worked as a queue.**
   Overview shows the score and its three heaviest deductions; this is where a reviewer actually fixes
   them. Each failing check becomes a card with what it found, *why it costs points*, the sample, how

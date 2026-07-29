@@ -11,8 +11,14 @@ COPY client/package.json ./client/
 # Install client dependencies
 RUN npm ci --workspace=client
 
-# Copy source and build
+# Copy source and build.
+#
+# `docs/` comes along because the in-product Help page renders the SHIPPED guides: angular.json copies
+# docs/*.md into the client's assets, so an operator can answer "what does this setting do?" without
+# leaving the instance — which matters most exactly where it is hardest, on an air-gapped install with
+# no route to github.com. Without this COPY the asset glob resolves to nothing and Help ships empty.
 COPY client/ ./client/
+COPY docs/ ./docs/
 RUN npm run build:prod --workspace=client
 # Angular output: client/dist/browser/
 

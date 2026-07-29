@@ -65,7 +65,15 @@ The left sidebar is the main navigation. It is divided into two sections:
 
 ### Admin (admin tokens only)
 
-- **Settings** → Tokens, Spaces, Storage, Networks, Preferences, Audit Log, Data, Models, Duplicates, About
+- **Settings** → Tokens, Spaces, Storage, Networks, Preferences, Audit Log, Data, Models, Duplicates,
+  Help, About
+
+**Settings → Help** is this documentation, readable *inside* the instance. Every guide that ships with
+Ythril — this user guide, the integration guide, the use-case examples, workstation mode, network types,
+the sync protocol, dependencies and licences, contributing — is bundled with the application and rendered
+in place. It needs no internet connection, which is the point: the installs that most need the
+documentation are often the ones with no route to the outside. Each guide has its own link
+(`/settings/help?doc=userguide`), so a page can point at the guide that explains it.
 
 There is no global space selector in the sidebar. Space switching happens per page — the Brain page shows a row of space chips, and the Graph tab has its own space picker in the toolbar. Everything you see is scoped to the space you pick there.
 

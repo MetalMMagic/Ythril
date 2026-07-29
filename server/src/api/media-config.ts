@@ -125,6 +125,14 @@ const FaceRecognitionPatchSchema = z.object({
   confidenceThreshold: z.number().min(0).max(1).optional(),
   minFaceSizeFraction: z.number().min(0).max(1).optional(),
   personEntityTypes: z.array(z.string().min(1).max(64)).max(32).optional(),
+  // Optional external face model. Same shape and same rules as `documentProcessing.assistModel`, because
+  // it is the same problem with higher stakes: this one egresses BIOMETRIC data.
+  externalModel: z.object({
+    baseUrl: z.string().url().optional(),
+    model: z.string().max(128).optional(),
+    apiKey: z.string().max(512).optional().nullable(),
+    acknowledgedHost: z.string().max(255).optional(),
+  }).strict().optional(),
 }).strict();
 
 const MediaConfigPatchSchema = z.object({
@@ -214,6 +222,42 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     return;
   }
 
+  // ── External FACE model — locked check + SSRF + biometric-egress acknowledgment ──
+  // Same enforcement as the assist model below, for a stronger reason: this endpoint receives face crops,
+  // which are biometric data. Consent is keyed off the endpoint being USABLE (a base URL is set), not off
+  // a tick, so it cannot be side-stepped by configuring an endpoint and acknowledging nothing.
+  const facePatch = parsed.data.faceRecognition?.externalModel;
+  if (facePatch !== undefined && locked.has('faceRecognition.externalModel')) {
+    res.status(403).json({
+      error: 'The external face model is locked by infrastructure env vars and cannot be changed via the UI',
+      locked: ['faceRecognition.externalModel'],
+    });
+    return;
+  }
+  {
+    // Biometric egress consent. Same rule as the assist model and for a stronger reason: face crops are
+    // biometric data. Keyed off the endpoint being USABLE (a base URL is set) rather than off a tick, so
+    // consent cannot be side-stepped by configuring the endpoint and acknowledging nothing.
+    const existingFace = activeCfg.faceRecognition?.externalModel ?? {};
+    const effBaseUrl = facePatch?.baseUrl ?? existingFace.baseUrl;
+    const effAck = facePatch?.acknowledgedHost ?? existingFace.acknowledgedHost;
+    if (effBaseUrl) {
+      if (!isSsrfSafeUrl(effBaseUrl, allowPrivate)) {
+        res.status(400).json({ error: 'faceRecognition.externalModel.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' });
+        return;
+      }
+      let host: string;
+      try { host = new URL(effBaseUrl).host; } catch { res.status(400).json({ error: 'faceRecognition.externalModel.baseUrl is not a valid URL' }); return; }
+      if (effAck !== host) {
+        res.status(400).json({
+          error: `Egress to ${host} must be acknowledged before the external face model can be used: face crops (biometric data) would be sent there.`,
+          needsAcknowledgment: host,
+        });
+        return;
+      }
+    }
+  }
+
   // ── F11-b: external assist model — locked check + SSRF + egress-acknowledgment enforcement ──
   // This is the only path that sends document content OFF the instance, so an endpoint that the pipeline
   // could actually reach must be (a) SSRF-safe and (b) acknowledged: `acknowledgedHost` must match the
@@ -268,12 +312,16 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const assistApiKeyChange = (assistPatch && 'apiKey' in assistPatch)
       ? assistPatch.apiKey ?? null
       : undefined;
+    // External face model's key → secrets.mediaEmbedding.faceApiKey.
+    const faceApiKeyChange = (facePatch && 'apiKey' in facePatch)
+      ? facePatch.apiKey ?? null
+      : undefined;
     // Text-embedding key → secrets.embedding.apiKey (top-level, matching getEmbeddingConfig()).
     const embApiKeyChange = (parsed.data.embedding && 'apiKey' in parsed.data.embedding)
       ? parsed.data.embedding.apiKey ?? null
       : undefined;
 
-    if (visionApiKeyChange !== undefined || sttApiKeyChange !== undefined || assistApiKeyChange !== undefined || embApiKeyChange !== undefined) {
+    if (visionApiKeyChange !== undefined || sttApiKeyChange !== undefined || assistApiKeyChange !== undefined || embApiKeyChange !== undefined || faceApiKeyChange !== undefined) {
       const secrets = getSecrets();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sAny = secrets as any;
@@ -289,6 +337,10 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
       if (assistApiKeyChange !== undefined) {
         if (assistApiKeyChange === null || assistApiKeyChange === '') delete sAny.mediaEmbedding.docAssistApiKey;
         else sAny.mediaEmbedding.docAssistApiKey = assistApiKeyChange;
+      }
+      if (faceApiKeyChange !== undefined) {
+        if (faceApiKeyChange === null || faceApiKeyChange === '') delete sAny.mediaEmbedding.faceApiKey;
+        else sAny.mediaEmbedding.faceApiKey = faceApiKeyChange;
       }
       if (embApiKeyChange !== undefined) {
         sAny.embedding = sAny.embedding ?? {};

@@ -612,6 +612,27 @@ export interface FaceRecognitionConfig {
    */
   minFaceSizeFraction?: number;
   /**
+   * OPTIONAL external face-recognition endpoint.
+   *
+   * Detection/embedding normally runs IN-PROCESS (BlazeFace + FaceRes from `modelPath`), which is why
+   * this is absent by default and why the pipeline never had an endpoint to configure. Setting one lets
+   * an operator point at a stronger model; in-process remains the FALLBACK, so an unreachable endpoint
+   * degrades rather than failing the pipeline.
+   *
+   * **This egresses biometric data.** Face crops leave the instance, which is more sensitive than the
+   * document text the assist model sends. `acknowledgedHost` records the operator's explicit consent for
+   * a specific host and is enforced exactly as `documentProcessing.assistModel` enforces it: the consent
+   * must match the host whenever the endpoint can actually be reached. `apiKey` is split into
+   * `secrets.json` like every other provider key and is never echoed back.
+   */
+  externalModel?: {
+    baseUrl?: string;
+    model?: string;
+    apiKey?: string;
+    /** Host the operator acknowledged for biometric egress. Must match `baseUrl`'s host to be usable. */
+    acknowledgedHost?: string;
+  };
+  /**
    * Directory (relative to DATA_ROOT) where the @vladmandic/human WASM model
    * files are stored. Defaults to "human-models".
    */

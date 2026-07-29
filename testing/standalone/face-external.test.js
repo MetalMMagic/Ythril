@@ -1,0 +1,102 @@
+/**
+ * External face model — consent gate and response hardening.
+ *
+ * This endpoint receives face crops, which are biometric data. Two properties carry that weight:
+ *
+ *  1. **It cannot be reached without consent.** `faceEndpointConsented()` requires `acknowledgedHost` to
+ *     match the host of `baseUrl`. The API enforces the same rule on write, but this is the check that
+ *     survives a config edited on disk — the write path is not the only way a value gets into config.
+ *  2. **A provider's answer is not trusted.** A descriptor of the wrong width would not fail loudly; it
+ *     would corrupt every similarity score in the gallery, so the wrong shape is dropped here.
+ *
+ * Run: node --test testing/standalone/face-external.test.js
+ * (requires a prior `npm run build` in server/)
+ */
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+let faceEndpointConsented;
+
+before(async () => {
+  ({ faceEndpointConsented } = await import('../../server/dist/files/media/face-external.js'));
+});
+
+/** The rule is a pure function of the endpoint block, so it needs no config plumbing to test. */
+const withFaceCfg = (externalModel, fn) => fn(externalModel);
+
+describe('faceEndpointConsented — the consent gate', () => {
+  it('is false when no endpoint is configured', () => {
+    assert.equal(withFaceCfg(undefined, (c) => faceEndpointConsented(c)), false);
+    assert.equal(withFaceCfg({}, (c) => faceEndpointConsented(c)), false);
+  });
+
+  it('is FALSE when an endpoint is set but no host was acknowledged', () => {
+    // The whole point: configuring an endpoint must not by itself start sending faces anywhere.
+    const ready = withFaceCfg({ baseUrl: 'https://faces.example.com/embed' }, (c) => faceEndpointConsented(c));
+    assert.equal(ready, false);
+  });
+
+  it('is FALSE when the acknowledgment names a DIFFERENT host', () => {
+    // Consent is per-host. Re-pointing the URL after acknowledging must revoke it, or the acknowledgment
+    // becomes a one-time click that authorises every future destination.
+    const ready = withFaceCfg(
+      { baseUrl: 'https://elsewhere.example.net/embed', acknowledgedHost: 'faces.example.com' },
+      (c) => faceEndpointConsented(c),
+    );
+    assert.equal(ready, false);
+  });
+
+  it('is true only when the acknowledged host matches', () => {
+    const ready = withFaceCfg(
+      { baseUrl: 'https://faces.example.com/embed', acknowledgedHost: 'faces.example.com' },
+      (c) => faceEndpointConsented(c),
+    );
+    assert.equal(ready, true);
+  });
+
+  it('is false for a malformed URL rather than throwing', () => {
+    const ready = withFaceCfg({ baseUrl: 'not a url', acknowledgedHost: 'x' }, (c) => faceEndpointConsented(c));
+    assert.equal(ready, false);
+  });
+});
+
+describe('the source enforces its own guarantees', () => {
+  const src = readFileSync(new URL('../../server/src/files/media/face-external.ts', import.meta.url), 'utf8');
+
+  it('uses ssrfSafeFetch, never a bare fetch', () => {
+    // The URL is admin-settable through the API; a plain fetch would follow a redirect into link-local
+    // metadata, and validating at write time cannot cover DNS changing before the call.
+    assert.ok(src.includes('ssrfSafeFetch('), 'must call ssrfSafeFetch');
+    assert.ok(!/[^f]\bfetch\(/.test(src.replace(/ssrfSafeFetch\(/g, '')), 'no bare fetch(');
+  });
+
+  it('rejects any descriptor that is not exactly 128 floats', () => {
+    assert.ok(src.includes('length !== 128'), 'width must be checked');
+    assert.ok(src.includes('Number.isFinite'), 'NaN/Infinity must be rejected');
+  });
+
+  it('caps how many faces a provider can return', () => {
+    assert.ok(src.includes('MAX_FACES'), 'an unbounded provider response must be capped');
+  });
+
+  it('returns null rather than throwing, so the caller can fall back', () => {
+    assert.ok(src.includes('return null'), 'failure must degrade to in-process recognition');
+  });
+});
+
+describe('the embedder falls back instead of dropping faces', () => {
+  const src = readFileSync(new URL('../../server/src/files/media/face-embedder.ts', import.meta.url), 'utf8');
+
+  it('only loads the local model when the external provider did not answer', () => {
+    // Initialising `human` regardless would pay the model-load cost on every image for nothing.
+    const idx = src.indexOf('detectFacesExternal(');
+    assert.ok(idx > 0, 'the external provider must be consulted');
+    assert.ok(src.indexOf('await getHuman()') > idx, 'the local model must load AFTER, inside the fallback');
+  });
+
+  it('feeds both paths into the same per-face loop', () => {
+    // Two copies of the gallery/threshold logic is how the paths would drift apart.
+    assert.equal((src.match(/Process each detected face/g) ?? []).length, 1);
+  });
+});

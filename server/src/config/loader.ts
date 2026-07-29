@@ -973,6 +973,8 @@ export function getDocAssistApiKey(): string | undefined {
 // ── Face Recognition Config ──────────────────────────────────────────────────
 
 const FACE_RECOGNITION_DEFAULTS: Required<FaceRecognitionConfig> = {
+  // Absent by default: face work runs in-process unless an operator points at an endpoint.
+  externalModel: {},
   // No longer a user-facing switch: the image ladder decides whether faces run (the `recognition` rung),
   // and images now default to `caption`, so this defaulting to true does NOT turn faces on anywhere. What
   // it stays is the INFRA pin — `FACE_RECOGNITION_ENABLED=false` hard-disables face recognition regardless
@@ -999,6 +1001,9 @@ const FACE_RECOGNITION_DEFAULTS: Required<FaceRecognitionConfig> = {
  * except whether faces are processed at all. That is the setting with the clearest privacy weight.
  */
 const FACE_RECOGNITION_ENV: Record<keyof Required<FaceRecognitionConfig>, string> = {
+  // Env-pinnable as a whole, so an infra-managed deployment can forbid biometric egress outright by
+  // pinning it empty — the same lever the other providers have.
+  externalModel: 'FACE_RECOGNITION_EXTERNAL_MODEL',
   enabled: 'FACE_RECOGNITION_ENABLED',
   confidenceThreshold: 'FACE_RECOGNITION_CONFIDENCE_THRESHOLD',
   minFaceSizeFraction: 'FACE_RECOGNITION_MIN_FACE_SIZE_FRACTION',
@@ -1045,6 +1050,8 @@ export function getFaceRecognitionConfig(): Required<FaceRecognitionConfig> {
   };
 
   return {
+    // Object-valued, so it is taken from config only — `pick`'s env path parses scalars.
+    externalModel: base.externalModel ?? FACE_RECOGNITION_DEFAULTS.externalModel,
     enabled: pick('enabled', v => v === 'true' || v === '1'),
     confidenceThreshold: pick('confidenceThreshold', v => Number(v)),
     minFaceSizeFraction: pick('minFaceSizeFraction', v => Number(v)),

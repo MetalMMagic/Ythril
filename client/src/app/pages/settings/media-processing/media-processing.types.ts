@@ -80,6 +80,17 @@ export interface FaceRecognitionCfg {
   confidenceThreshold?: number;
   minFaceSizeFraction?: number;
   personEntityTypes?: string[];
+  /** Optional external provider. Configuring one egresses BIOMETRIC data — see `acknowledgedHost`. */
+  externalModel?: FaceExternalCfg;
+}
+
+export interface FaceExternalCfg {
+  baseUrl?: string;
+  model?: string;
+  /** Masked by the server on read; only a newly typed key is ever sent back. */
+  apiKey?: string;
+  /** Host the operator consented to. Must match `baseUrl`'s host or the endpoint stays unused. */
+  acknowledgedHost?: string;
 }
 
 export interface MediaCfg {

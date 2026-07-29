@@ -18,7 +18,7 @@ import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 import { StatusVariant } from '../../../shared/status-pill.component';
 import {
   MediaCfg, MediaClass, DocProcCfg, DocAssistCfg, DocMode, EmbeddingCfg,
-  TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES,
+  TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES, FaceExternalCfg,
 } from './media-processing.types';
 
 /**
@@ -86,6 +86,26 @@ export class MediaProcessingStateService {
   private faceEnabledBaseline = false;
   /** True when this save turns face recognition OFF, which is the direction with consequences. */
   faceBeingDisabled(): boolean { return this.faceEnabledBaseline && this.face.enabled === false; }
+
+  // ── external face model (biometric egress) ──
+  /** Live handle to the editable endpoint block, lazily created so the template can bind its fields. */
+  get faceExternal(): FaceExternalCfg { return (this.face.externalModel ??= {}); }
+  faceExternalLocked(): boolean { return this.isLocked('faceRecognition.externalModel'); }
+  faceExternalHost(): string { try { return this.faceExternal.baseUrl ? new URL(this.faceExternal.baseUrl).host : ''; } catch { return ''; } }
+  /** Configured at all — a base URL is the only thing that makes the endpoint reachable. */
+  faceExternalConfigured(): boolean { return !!this.faceExternal.baseUrl?.trim(); }
+  /**
+   * Consent is due whenever a host is set and not yet acknowledged.
+   *
+   * Unlike the assist model — where the trigger is the extraction RUNG becoming reachable — a face
+   * endpoint is reachable the moment it is configured, so there is no second condition to wait for.
+   * Re-pointing the URL revokes consent by construction, since the acknowledgment is host-scoped.
+   */
+  faceExternalNeedsAck(): boolean {
+    const host = this.faceExternalHost();
+    return !!host && this.faceExternal.acknowledgedHost !== host;
+  }
+  faceApiKeyInput = '';
 
   // ── Text embedding ──
   get embedding(): EmbeddingCfg { return (this.form.embedding ??= {}); }
@@ -157,7 +177,14 @@ export class MediaProcessingStateService {
         this.form.vision = { ...cfg.vision, apiKey: undefined };
         this.form.stt = { ...cfg.stt, apiKey: undefined };
         this.form.embedding = { provider: 'local', ...cfg.embedding };
-        this.form.faceRecognition = { ...cfg.faceRecognition };
+        // Strip the masked key on the way in, like vision/stt: a mask sitting in `form` is one edit away
+        // from being echoed back and overwriting a real credential with asterisks.
+        this.form.faceRecognition = {
+          ...cfg.faceRecognition,
+          ...(cfg.faceRecognition?.externalModel
+            ? { externalModel: { ...cfg.faceRecognition.externalModel, apiKey: undefined } }
+            : {}),
+        };
         this.faceEnabledBaseline = cfg.faceRecognition?.enabled === true;
         this.embeddingReindexBaseline = this.reindexKey();
         this.assistApiKeyInput = '';
@@ -228,6 +255,7 @@ export class MediaProcessingStateService {
       : card === 'stt' ? this.sttApiKeyInput
       : card === 'assist' ? this.assistApiKeyInput
       : card === 'embedding' ? this.embeddingApiKeyInput
+      : card === 'face' ? this.faceApiKeyInput
       : '';
   }
 
@@ -258,7 +286,7 @@ export class MediaProcessingStateService {
    */
   isDirty(): boolean {
     if (this.managed || this.loading()) return false;
-    if (this.visionApiKeyInput || this.sttApiKeyInput || this.assistApiKeyInput || this.embeddingApiKeyInput) return true;
+    if (this.visionApiKeyInput || this.sttApiKeyInput || this.assistApiKeyInput || this.embeddingApiKeyInput || this.faceApiKeyInput) return true;
     if (!this.touched()) return false;
     // Derived from the sections rather than one whole-config snapshot, so that saving one card leaves the
     // guard still warning about the others. A single snapshot would have gone clean for all of them.
@@ -341,6 +369,13 @@ export class MediaProcessingStateService {
         confidenceThreshold: this.face.confidenceThreshold,
         minFaceSizeFraction: this.face.minFaceSizeFraction,
         personEntityTypes: this.face.personEntityTypes,
+        // Endpoint block, minus `apiKey` — `form` holds the server's MASK, and echoing it back would
+        // overwrite a real credential with asterisks. A typed key is grafted on at save.
+        ...(this.faceExternalLocked() ? {} : { externalModel: {
+          baseUrl: this.faceExternal.baseUrl || undefined,
+          model: this.faceExternal.model || undefined,
+          acknowledgedHost: this.faceExternal.acknowledgedHost,
+        } }),
       },
       fallbackToExternal: this.form.fallbackToExternal,
       maxFileSizeBytes: this.form.maxFileSizeBytes,
@@ -373,6 +408,18 @@ export class MediaProcessingStateService {
       });
       if (!ok) return;
       this.assist.acknowledgedHost = host;
+    }
+    if (card === 'face' && !this.faceExternalLocked() && this.faceExternalNeedsAck()) {
+      const host = this.faceExternalHost();
+      const ok = await this.confirmDialog.confirm({
+        title: this.transloco.translate('mediaProcessing.confirm.faceEgressTitle'),
+        message: this.transloco.translate('mediaProcessing.confirm.faceEgressMessage', { host }),
+        confirmLabel: this.transloco.translate('mediaProcessing.confirm.faceEgressConfirm'),
+        cancelLabel: this.transloco.translate('common.cancel'),
+        danger: true,
+      });
+      if (!ok) return;
+      this.faceExternal.acknowledgedHost = host;
     }
     if (card === 'face' && this.faceBeingDisabled()) {
       const ok = await this.confirmDialog.confirm({
@@ -410,6 +457,9 @@ export class MediaProcessingStateService {
       else if (card === 'assist') {
         block.documentProcessing = { assistModel: { ...block.documentProcessing?.assistModel, apiKey: key } };
       }
+      else if (card === 'face') {
+        block.faceRecognition = { ...block.faceRecognition, externalModel: { ...block.faceRecognition?.externalModel, apiKey: key } };
+      }
     }
 
     const body = JSON.parse(JSON.stringify(block)) as MediaCfg;
@@ -420,7 +470,7 @@ export class MediaProcessingStateService {
         else if (card === 'stt') this.sttApiKeyInput = '';
         else if (card === 'assist') this.assistApiKeyInput = '';
         else if (card === 'embedding') { this.embeddingApiKeyInput = ''; this.embeddingReindexBaseline = this.reindexKey(); }
-        if (card === 'face') this.faceEnabledBaseline = this.face.enabled === true;
+        if (card === 'face') { this.faceEnabledBaseline = this.face.enabled === true; this.faceApiKeyInput = ''; }
         this.rebaseline([card]);
         this.saving.set(false);
         setTimeout(() => this.saveOk.set(''), 3000);
@@ -453,6 +503,18 @@ export class MediaProcessingStateService {
     // vectors and person links already stored. An operator disabling this is usually acting on a
     // privacy decision, so letting them believe the existing data went away would be the worst kind
     // of quiet failure: they would have been told the opposite of what happened.
+    if (!this.faceExternalLocked() && this.faceExternalNeedsAck()) {
+      const fHost = this.faceExternalHost();
+      const ok = await this.confirmDialog.confirm({
+        title: this.transloco.translate('mediaProcessing.confirm.faceEgressTitle'),
+        message: this.transloco.translate('mediaProcessing.confirm.faceEgressMessage', { host: fHost }),
+        confirmLabel: this.transloco.translate('mediaProcessing.confirm.faceEgressConfirm'),
+        cancelLabel: this.transloco.translate('common.cancel'),
+        danger: true,
+      });
+      if (!ok) return;
+      this.faceExternal.acknowledgedHost = fHost;
+    }
     if (this.faceBeingDisabled()) {
       const ok = await this.confirmDialog.confirm({
         title: this.transloco.translate('mediaProcessing.confirm.faceOffTitle'),
@@ -504,6 +566,7 @@ export class MediaProcessingStateService {
         this.sttApiKeyInput = '';
         this.assistApiKeyInput = '';
         this.embeddingApiKeyInput = '';
+        this.faceApiKeyInput = '';
         this.embeddingReindexBaseline = this.reindexKey(); // re-baseline so a second save won't re-prompt
         this.rebaseline(ALL_SECTIONS);
         this.faceEnabledBaseline = this.face.enabled === true;

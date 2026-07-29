@@ -134,6 +134,57 @@ describe('BrainStore — buildPropertiesObject (schema-seeded defaults)', () => 
     const existing = { a: 1 };
     expect(c.buildPropertiesObject('entity', existing)).toBe(existing);
   });
+
+  // ── Ported from the retired `build-properties-schema` simulation test ──────────────────────────
+  //
+  // That file asserted against a hand-written COPY of this function, so it could only ever prove the
+  // copy self-consistent. The cases below were real gaps in this suite, so they moved here and run
+  // against the real thing; the rest of the file duplicated what is already above and went with it.
+
+  it('falls back to the FIRST type schema when no type name is given', () => {
+    // The form has no type selected yet, and the fallback is what pre-fills it. Object key order is the
+    // insertion order the schema was authored in, which is what "first" means here.
+    const c = create();
+    c.spaceMeta.set({ typeSchemas: { entity: {
+      Person: { propertySchemas: { age: { type: 'number' } } },
+      Service: { propertySchemas: { tier: { type: 'string' } } },
+    } } } as unknown as SpaceMetaResponse);
+    expect(c.buildPropertiesObject('entity', {})).toEqual({ age: 0 });
+    expect(c.buildPropertiesObject('entity', {}, '')).toEqual({ age: 0 });   // empty name is "no name"
+  });
+
+  it('an UNKNOWN type name seeds nothing rather than falling back to the first', () => {
+    // The difference matters: falling back here would silently pre-fill a form with another type's
+    // fields, which reads as "this type has these properties" and is simply untrue.
+    const c = create();
+    withEntitySchema(c, { age: { type: 'number' } });
+    const existing = { a: 1 };
+    expect(c.buildPropertiesObject('entity', existing, 'NoSuchType')).toBe(existing);
+  });
+
+  it('reads each knowledge type from its own map — an edge is keyed by LABEL', () => {
+    const c = create();
+    c.spaceMeta.set({ typeSchemas: {
+      entity: { Person: { propertySchemas: { age: { type: 'number' } } } },
+      edge: { depends_on: { propertySchemas: { critical: { type: 'boolean' } } } },
+      memory: { decision: { propertySchemas: { rationale: { type: 'string' } } } },
+    } } as unknown as SpaceMetaResponse);
+    expect(c.buildPropertiesObject('edge', {}, 'depends_on')).toEqual({ critical: false });
+    expect(c.buildPropertiesObject('memory', {}, 'decision')).toEqual({ rationale: '' });
+  });
+
+  it('a type whose schema declares no properties leaves the existing object alone', () => {
+    const c = create();
+    withEntitySchema(c, {});
+    const existing = { a: 1 };
+    expect(c.buildPropertiesObject('entity', existing, 'Person')).toBe(existing);
+  });
+
+  it('keeps properties that are not in the schema at all', () => {
+    const c = create();
+    withEntitySchema(c, { age: { type: 'number' } });
+    expect(c.buildPropertiesObject('entity', { custom: 'kept' }, 'Person')).toEqual({ custom: 'kept', age: 0 });
+  });
 });
 
 describe('BrainStore — chronoSchema', () => {
@@ -157,5 +208,28 @@ describe('BrainStore — stripEmptyOptionalProps', () => {
     const c = create();
     const props = { a: '' };
     expect(c.stripEmptyOptionalProps(props, undefined)).toBe(props);
+  });
+
+  // ── Ported from the retired `build-properties-schema` simulation test ──────────────────────────
+
+  it('keeps falsy values that are not the empty string — 0 and false are answers', () => {
+    // The check is `v !== ''`, not truthiness, and that distinction is the whole point: a number field
+    // left at 0 and a boolean left at false are values the user chose, not blanks to be dropped.
+    const c = create();
+    const schema = { count: {}, flag: {} } as unknown as Record<string, import('../../core/api.types').PropertySchema>;
+    expect(c.stripEmptyOptionalProps({ count: 0, flag: false }, schema)).toEqual({ count: 0, flag: false });
+  });
+
+  it('strips an empty property the schema has never heard of', () => {
+    // An unknown key has no `required` flag, so it is optional by default and an empty one is noise.
+    const c = create();
+    const schema = { known: {} } as unknown as Record<string, import('../../core/api.types').PropertySchema>;
+    expect(c.stripEmptyOptionalProps({ known: 'v', stray: '' }, schema)).toEqual({ known: 'v' });
+  });
+
+  it('an all-empty optional set strips to nothing', () => {
+    const c = create();
+    const schema = { a: {}, b: {} } as unknown as Record<string, import('../../core/api.types').PropertySchema>;
+    expect(c.stripEmptyOptionalProps({ a: '', b: '' }, schema)).toEqual({});
   });
 });

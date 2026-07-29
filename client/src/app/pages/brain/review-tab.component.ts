@@ -1,8 +1,11 @@
-import { Component, inject, signal, computed, OnInit, OnChanges, SimpleChanges, Input } from '@angular/core';
+import { Component, inject, signal, computed, OnInit, OnChanges, SimpleChanges, Input, Output, EventEmitter } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { DuplicateRecord, ContradictionRecord } from '../../core/api.types';
+import { DuplicateRecord, ContradictionRecord, CompletenessCheck } from '../../core/api.types';
 import { DuplicatesApi } from '../../core/duplicates-api.service';
 import { ContradictionsApi } from '../../core/contradictions-api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
+import { BrainApi } from '../../core/brain-api.service';
+import type { CollectionTab } from './brain-tabs';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
@@ -60,6 +63,27 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
        whole page and pushes the label onto its own line. */
     .type-filter select { font-size: 13px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); color: var(--text-primary); width: auto; min-width: 140px; flex: 0 0 auto; }
     .cap-note { font-size: 11px; color: var(--warning); }
+
+    /* Suggestions. Reuses .dup-card wholesale — a finding is a finding, and a second card language
+       would make the same queue look like two products. */
+    .sug-score { display: flex; align-items: baseline; gap: 10px; margin: 16px 0 4px; }
+    .sug-score-v { font-size: 26px; font-weight: 700; font-family: var(--font-mono, monospace);
+      font-variant-numeric: tabular-nums; line-height: 1; }
+    .sug-score-v.good { color: var(--success); } .sug-score-v.mid { color: var(--warning); } .sug-score-v.bad { color: var(--error); }
+    .sug-score-l { font-size: 12.5px; color: var(--text-secondary); }
+    .sug-body { display: flex; flex-direction: column; gap: 7px; }
+    .sug-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); }
+    .sug-why { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
+    .sug-samples { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px; }
+    .sug-samples li { font-family: var(--font-mono, monospace); font-size: 11px; padding: 2px 7px;
+      border-radius: 999px; background: var(--bg-elevated); border: 1px solid var(--border-muted);
+      color: var(--text-primary); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .sug-more { font-size: 11px; color: var(--text-muted); }
+    .sug-passing { margin-top: 18px; font-size: 12.5px; color: var(--text-secondary); }
+    .sug-passing summary { cursor: pointer; }
+    .sug-passing ul { list-style: none; margin: 9px 0 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+    .sug-passing li { display: flex; align-items: flex-start; gap: 7px; }
+    .sug-passing ph-icon { color: var(--success); flex: none; margin-top: 2px; }
   `],
   template: `
     <h2 class="page-title">{{ 'review.title' | transloco }}</h2>
@@ -100,7 +124,98 @@ import { ConfirmDialogService } from '../../core/confirm-dialog.service';
       </div>
     }
 
-    @if (sub() === 'contradictions') {
+    @if (sub() === 'suggestions') {
+      <section role="tabpanel" id="review-panel-suggestions" aria-labelledby="review-tab-suggestions">
+        <p class="intro">{{ 'review.suggestions.intro' | transloco }}</p>
+
+        @if (compLoading()) {
+          <div class="loading-overlay"><span class="spinner"></span></div>
+        } @else if (compError()) {
+          <!-- Never render a failed load as a clean space: "nothing to fix" and "we could not look" are
+               opposite answers and must not share a screen. -->
+          <div class="alert alert-warning" style="margin-top:16px;">{{ 'review.suggestions.loadError' | transloco }}</div>
+        } @else {
+          @if (compScore(); as score) {
+            <div class="sug-score">
+              <span class="sug-score-v" [class.good]="score >= 85" [class.mid]="score >= 60 && score < 85" [class.bad]="score < 60">{{ score }}%</span>
+              <span class="sug-score-l">{{ 'review.suggestions.scoreLabel' | transloco: { count: compChecks().length } }}</span>
+            </div>
+          }
+
+          @if (failingChecks().length) {
+            <div class="dup-grid">
+              @for (c of failingChecks(); track c.id + c.scope) {
+                <div class="dup-card">
+                  <div class="dup-card-h">
+                    <app-status-pill [variant]="c.severity === 'warn' ? 'warn' : 'off'">{{ 'review.suggestions.severity.' + c.severity | transloco }}</app-status-pill>
+                    <span class="dup-type">{{ 'brain.overview.comp.scope.' + c.scope | transloco }}</span>
+                    <span class="dup-when">{{ 'review.suggestions.pointsLost' | transloco: { lost: (c.weight - c.earned).toFixed(1), weight: c.weight } }}</span>
+                  </div>
+
+                  <div class="sug-body">
+                    <div class="sug-title">{{ 'brain.overview.comp.check.' + c.id | transloco: { affected: c.affected, total: c.total, scope: ('brain.overview.comp.scope.' + c.scope | transloco) } }}</div>
+                    <div class="sug-why">{{ 'review.suggestions.why.' + c.id | transloco }}</div>
+                    <div class="conf">
+                      <span class="conf-track"><span class="conf-fill" [class]="scoreVariant(c.earned / c.weight)" [style.width.%]="earnedPct(c)"></span></span>
+                      <span class="conf-pct">{{ earnedPct(c) }}%</span>
+                    </div>
+
+                    @if (c.sample.length) {
+                      <ul class="sug-samples">
+                        @for (s of c.sample; track s) {
+                          <li [title]="s">{{ sampleLabel(c, s) }}</li>
+                        }
+                      </ul>
+                      @if (c.affected > c.sample.length) {
+                        <!-- The sample is capped server-side. Say so rather than letting five entries
+                             read as the whole finding. -->
+                        <div class="sug-more">{{ 'review.suggestions.andMore' | transloco: { more: c.affected - c.sample.length } }}</div>
+                      }
+                    }
+                  </div>
+
+                  @if (c.targetTab; as tab) {
+                    <div class="dup-actions">
+                      <button class="btn btn-sm btn-secondary sug-go" type="button" (click)="openTab.emit(tab)">
+                        {{ 'review.suggestions.open' | transloco: { tab: ('brain.tab.' + tab | transloco) } }}
+                      </button>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          } @else if (compChecks().length) {
+            <div class="empty-state">
+              <div class="empty-state-icon"><ph-icon name="check-circle" [size]="48"/></div>
+              <h3>{{ 'review.suggestions.clean.title' | transloco }}</h3>
+              <p>{{ 'review.suggestions.clean.body' | transloco }}</p>
+            </div>
+          } @else {
+            <!-- No check applied at all. Not a perfect space — an unmeasurable one. -->
+            <div class="empty-state">
+              <div class="empty-state-icon"><ph-icon name="info" [size]="48"/></div>
+              <h3>{{ 'review.suggestions.none.title' | transloco }}</h3>
+              <p>{{ 'review.suggestions.none.body' | transloco }}</p>
+            </div>
+          }
+
+          @if (passingChecks().length) {
+            <details class="sug-passing">
+              <summary>{{ 'review.suggestions.passing' | transloco: { count: passingChecks().length } }}</summary>
+              <ul>
+                @for (c of passingChecks(); track c.id + c.scope) {
+                  <li><ph-icon name="check-circle" [size]="13"/>{{ 'brain.overview.comp.check.' + c.id | transloco: { affected: c.affected, total: c.total, scope: ('brain.overview.comp.scope.' + c.scope | transloco) } }}</li>
+                }
+              </ul>
+            </details>
+          }
+
+          @if (compTruncated()) {
+            <div class="cap-note" style="margin-top:12px;">{{ 'brain.overview.comp.truncated' | transloco }}</div>
+          }
+        }
+      </section>
+    } @else if (sub() === 'contradictions') {
       <section role="tabpanel" id="review-panel-contradictions" aria-labelledby="review-tab-contradictions">
         <p class="intro">{{ 'review.contradictions.intro' | transloco }}</p>
         @if (conLoading()) {
@@ -331,13 +446,18 @@ export class ReviewTabComponent implements OnInit, OnChanges {
   }
 
   /** Sub-views of the space's record-QA queue. Ordered as a reviewer meets them. */
-  readonly SUBTABS = ['duplicates', 'contradictions'] as const;
-  readonly sub = signal<'duplicates' | 'contradictions'>('duplicates');
+  readonly SUBTABS = ['duplicates', 'contradictions', 'suggestions'] as const;
+  readonly sub = signal<'duplicates' | 'contradictions' | 'suggestions'>('duplicates');
+
+  /** The space's completeness tab jumps back into the Brain's own tabs; the shell owns that switch. */
+  @Output() openTab = new EventEmitter<CollectionTab>();
 
   /** The space being reviewed. Required: this view is per-space now, never instance-wide. */
   @Input({ required: true }) spaceId = '';
 
   private duplicatesApi = inject(DuplicatesApi);
+  private spacesApi = inject(SpacesApi);
+  private brainApi = inject(BrainApi);
   private transloco = inject(TranslocoService);
   private toast = inject(ToastService);
   private confirmDialog = inject(ConfirmDialogService);
@@ -381,7 +501,78 @@ export class ReviewTabComponent implements OnInit, OnChanges {
    * Contradictions would otherwise hide the control while it was still constraining the list, leaving an
    * empty view and no way to clear it. Never hide a control that is currently narrowing what is on screen.
    */
-  showTypeFilter = computed(() => this.availableTypes().length > 1 || this.typeFilter() !== 'all');
+  showTypeFilter = computed(() =>
+    // Suggestions are not record findings — they are findings about the SCHEMA and the space, so a
+    // record-type filter has nothing to narrow there. Showing it would imply the list is filtered when
+    // it is not, which is the same lie as hiding an active filter.
+    this.sub() !== 'suggestions' && (this.availableTypes().length > 1 || this.typeFilter() !== 'all'));
+
+  // ── Suggestions (space completeness, part B) ─────────────────────────────────
+  //
+  // Overview shows the score and its three heaviest deductions; this is where the whole report lives,
+  // with the samples resolved into something a reviewer can recognise. A raw entity UUID is not a
+  // finding anyone can act on, so the entity-scoped samples are looked up by name.
+
+  readonly compLoading = signal(false);
+  readonly compError = signal(false);
+  readonly compScore = signal<number | null>(null);
+  readonly compTruncated = signal(false);
+  readonly compChecks = signal<CompletenessCheck[]>([]);
+  /** Entity id → name, for the samples that are record ids rather than schema keys. */
+  readonly entityNames = signal<Record<string, string>>({});
+
+  /** Costing points, heaviest loss first — what a reviewer came here to work through. */
+  readonly failingChecks = computed(() => this.compChecks()
+    .filter(c => c.earned < c.weight)
+    .sort((a, b) => (b.weight - b.earned) - (a.weight - a.earned)));
+
+  /** Everything already clean. Listed, not hidden: on a healthy space this is the whole answer, and an
+   *  empty page would read as "we checked nothing" rather than "nothing is wrong". */
+  readonly passingChecks = computed(() => this.compChecks().filter(c => c.earned >= c.weight));
+
+  /** A sample entry rendered for a human: an entity id becomes its name, everything else is already one. */
+  sampleLabel(check: CompletenessCheck, value: string): string {
+    if (check.scope !== 'entity' || check.id !== 'entity-without-edges') return value;
+    return this.entityNames()[value] ?? value;
+  }
+
+  /** How much of this check's weight the space kept, as a percentage — the card's bar. */
+  earnedPct(c: CompletenessCheck): number {
+    return c.weight > 0 ? Math.round((c.earned / c.weight) * 100) : 100;
+  }
+
+  loadCompleteness(): void {
+    if (!this.spaceId) return;
+    this.compLoading.set(true);
+    this.compError.set(false);
+    const forSpace = this.spaceId;
+    this.spacesApi.getCompleteness(forSpace).subscribe({
+      next: r => {
+        if (this.spaceId !== forSpace) return;      // space switched mid-flight
+        this.compScore.set(r.score);
+        this.compChecks.set(r.checks);
+        this.compTruncated.set(r.truncated);
+        this.compLoading.set(false);
+        this.resolveEntitySamples(forSpace, r.checks);
+      },
+      // A failed load must not render as a perfect space. Surface it and show nothing else.
+      error: () => { if (this.spaceId === forSpace) { this.compError.set(true); this.compLoading.set(false); } },
+    });
+  }
+
+  /** Turn the entity-id samples into names. Best-effort: a failure leaves the ids, which still identify
+   *  the records — degraded, not broken. */
+  private resolveEntitySamples(forSpace: string, checks: CompletenessCheck[]): void {
+    const ids = checks.filter(c => c.id === 'entity-without-edges').flatMap(c => c.sample);
+    if (!ids.length) { this.entityNames.set({}); return; }
+    this.brainApi.getEntitiesByIds(forSpace, ids).subscribe({
+      next: r => {
+        if (this.spaceId !== forSpace) return;
+        this.entityNames.set(Object.fromEntries(r.entities.map(e => [e._id, e.name])));
+      },
+      error: () => { if (this.spaceId === forSpace) this.entityNames.set({}); },
+    });
+  }
 
   /**
    * The options to render: the types present here, plus the active filter if this tab has none of them.
@@ -441,9 +632,11 @@ export class ReviewTabComponent implements OnInit, OnChanges {
   scorePct(s: number): number { return Math.round(Math.min(Math.max(s, 0), 1) * 100); }
   scoreVariant(s: number): 'high' | 'mid' | 'low' { return s >= 0.95 ? 'high' : s >= 0.85 ? 'mid' : 'low'; }
 
-  ngOnInit(): void { this.load(); this.loadContradictions(); }
+  ngOnInit(): void { this.load(); this.loadContradictions(); this.loadCompleteness(); }
   /** Switching space in the Brain re-points this tab rather than leaving another space's pairs on screen. */
-  ngOnChanges(ch: SimpleChanges): void { if (ch['spaceId'] && !ch['spaceId'].firstChange) { this.load(); this.loadContradictions(); } }
+  ngOnChanges(ch: SimpleChanges): void {
+    if (ch['spaceId'] && !ch['spaceId'].firstChange) { this.load(); this.loadContradictions(); this.loadCompleteness(); }
+  }
 
   load(): void {
     this.loading.set(true);

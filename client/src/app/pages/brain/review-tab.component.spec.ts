@@ -13,6 +13,8 @@ import { getTranslocoModule } from '../../testing/transloco-testing';
 import { ReviewTabComponent } from './review-tab.component';
 import { DuplicatesApi } from '../../core/duplicates-api.service';
 import { ContradictionsApi } from '../../core/contradictions-api.service';
+import { SpacesApi } from '../../core/spaces-api.service';
+import { BrainApi } from '../../core/brain-api.service';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import type { DuplicateRecord } from '../../core/api.types';
@@ -22,12 +24,22 @@ const rec = (over: Partial<DuplicateRecord> = {}): DuplicateRecord => ({
   score: 0.9, status: 'open', detectedAt: '2026-01-01', updatedAt: '2026-01-01', ...over,
 });
 
-function setup(api: Partial<Record<string, unknown>> = {}, confirmResult = true, conApi: Partial<Record<string, unknown>> = {}) {
+function setup(
+  api: Partial<Record<string, unknown>> = {},
+  confirmResult = true,
+  conApi: Partial<Record<string, unknown>> = {},
+  compApi: Partial<Record<string, unknown>> = {},
+) {
   const toastErrors: string[] = [];
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [ReviewTabComponent, getTranslocoModule()],
     providers: [
+      { provide: SpacesApi, useValue: {
+        getCompleteness: () => of({ spaceId: 'work', score: null, checks: [], truncated: false }),
+        ...compApi,
+      } },
+      { provide: BrainApi, useValue: { getEntitiesByIds: () => of({ entities: [] }), ...compApi } },
       { provide: DuplicatesApi, useValue: {
         listDuplicates: () => of({ duplicates: [] }),
         scanDuplicates: () => of({}),
@@ -298,12 +310,13 @@ describe('ReviewTabComponent', () => {
   });
 
   describe('sub-tabs', () => {
-    it('offers Duplicates and Contradictions as real tabs, Duplicates first', () => {
+    it('offers Duplicates, Contradictions and Suggestions as real tabs, Duplicates first', () => {
       const { f } = setup();
       const tabs = [...(f.nativeElement as HTMLElement).querySelectorAll('nav.tabs button[role="tab"]')];
-      expect(tabs.length).toBe(2);
+      expect(tabs.length).toBe(3);
       expect(tabs[0].getAttribute('aria-selected')).toBe('true');   // lands on Duplicates
       expect(tabs[1].getAttribute('aria-selected')).toBe('false');
+      expect(tabs[2].getAttribute('aria-selected')).toBe('false');
     });
 
     it('switches panels, and the duplicates list is not rendered while Contradictions is shown', () => {
@@ -327,6 +340,105 @@ describe('ReviewTabComponent', () => {
       const tabs = [...(f.nativeElement as HTMLElement).querySelectorAll('nav.tabs button[role="tab"]')];
       expect(tabs[0].getAttribute('aria-controls')).toBe('review-panel-duplicates');
       expect(tabs[1].getAttribute('aria-controls')).toBe('review-panel-contradictions');
+      expect(tabs[2].getAttribute('aria-controls')).toBe('review-panel-suggestions');
+    });
+  });
+
+  describe('suggestions (space completeness)', () => {
+    const check = (over: Record<string, unknown> = {}) => ({
+      id: 'entity-without-edges', severity: 'info', scope: 'entity',
+      affected: 6, total: 12, weight: 2, earned: 1, sample: ['e1'], targetTab: 'entities', ...over,
+    });
+    const report = (checks: unknown[], over: Record<string, unknown> = {}) =>
+      ({ spaceId: 'work', score: 62, checks, truncated: false, ...over });
+
+    function suggestions(checks: unknown[], over: Record<string, unknown> = {}, brain: Record<string, unknown> = {}) {
+      const s = setup({}, true, {}, { getCompleteness: () => of(report(checks, over)), getEntitiesByIds: () => of({ entities: [] }), ...brain });
+      s.c.sub.set('suggestions');
+      s.f.detectChanges();
+      return s;
+    }
+
+    it('lists failing checks heaviest-loss first, with the sample and a why', () => {
+      const { f } = suggestions([
+        check(),                                                                       // 1 point lost
+        check({ id: 'file-not-recallable', scope: 'file', severity: 'warn', affected: 3, total: 3, weight: 3, earned: 0, sample: ['a.pdf'], targetTab: 'files' }),
+      ]);
+      const cards = [...(f.nativeElement as HTMLElement).querySelectorAll('#review-panel-suggestions .dup-card')];
+      expect(cards.length).toBe(2);
+      // Ranked by points LOST, not by records affected: 3 unreachable files outrank 6 unlinked entities.
+      expect(cards[0].textContent).toContain('file-not-recallable');
+      expect(cards[1].textContent).toContain('entity-without-edges');
+      expect(cards[0].textContent).toContain('a.pdf');
+      expect(cards[0].textContent).toContain('review.suggestions.why.file-not-recallable');
+    });
+
+    it('a passing check is not a suggestion — it moves to the collapsed list', () => {
+      const { f } = suggestions([check({ affected: 0, earned: 2 })]);
+      const el = f.nativeElement as HTMLElement;
+      expect(el.querySelectorAll('#review-panel-suggestions .dup-card').length).toBe(0);
+      expect(el.querySelector('.sug-passing')).toBeTruthy();
+      // …and the empty state says "nothing to suggest", not "nothing was checked".
+      expect(el.textContent).toContain('review.suggestions.clean.title');
+    });
+
+    it('no applicable check at all reads as unmeasurable, not as a perfect space', () => {
+      const { f } = suggestions([], { score: null });
+      const el = f.nativeElement as HTMLElement;
+      expect(el.textContent).toContain('review.suggestions.none.title');
+      expect(el.textContent).not.toContain('review.suggestions.clean.title');
+    });
+
+    it('a failed load is not rendered as a clean space', () => {
+      const s = setup({}, true, {}, { getCompleteness: () => throwError(() => new Error('boom')) });
+      s.c.sub.set('suggestions');
+      s.f.detectChanges();
+      const el = s.f.nativeElement as HTMLElement;
+      expect(s.c.compError()).toBe(true);
+      expect(el.textContent).toContain('review.suggestions.loadError');
+      expect(el.textContent).not.toContain('review.suggestions.clean.title');
+    });
+
+    it('resolves entity-id samples to names, and falls back to the id when the lookup fails', () => {
+      const withNames = suggestions([check({ sample: ['e1'] })], {}, {
+        getEntitiesByIds: () => of({ entities: [{ _id: 'e1', name: 'Vault Service' }] }),
+      });
+      expect((withNames.f.nativeElement as HTMLElement).querySelector('.sug-samples')?.textContent).toContain('Vault Service');
+
+      // A raw UUID is still an identifier — degraded, not broken.
+      const noNames = suggestions([check({ sample: ['e1'] })], {}, { getEntitiesByIds: () => throwError(() => new Error('nope')) });
+      expect((noNames.f.nativeElement as HTMLElement).querySelector('.sug-samples')?.textContent).toContain('e1');
+    });
+
+    it('says the sample left some out rather than letting five entries read as the whole finding', () => {
+      // (The test transloco emits raw keys, so the presence of the note is what is assertable here —
+      // the count itself is an interpolation param.)
+      const capped = suggestions([check({ affected: 40, total: 60, sample: ['a', 'b', 'c', 'd', 'e'] })]);
+      expect((capped.f.nativeElement as HTMLElement).querySelector('.sug-more')).toBeTruthy();
+
+      // A sample that IS the whole finding must not claim there is more.
+      const complete = suggestions([check({ affected: 2, total: 60, sample: ['a', 'b'] })]);
+      expect((complete.f.nativeElement as HTMLElement).querySelector('.sug-more')).toBeNull();
+    });
+
+    it('a check pointing at a collection offers the jump; a space-scoped one has nowhere to go', () => {
+      const withTab = suggestions([check()]);
+      const spy = vi.fn(); withTab.c.openTab.subscribe(spy);
+      (withTab.f.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.sug-go')!.click();
+      expect(spy).toHaveBeenCalledWith('entities');
+
+      const spaceScoped = suggestions([check({ id: 'meta-purpose-missing', scope: 'space', affected: 1, total: 1, weight: 1, earned: 0, sample: [], targetTab: null })]);
+      expect((spaceScoped.f.nativeElement as HTMLElement).querySelector('.sug-go')).toBeNull();
+    });
+
+    it('hides the record-type filter: suggestions are findings about the schema, not about records', () => {
+      const { f, c } = setup({ listDuplicates: () => of({ duplicates: [rec(), rec({ id: 'd2', type: 'memory' })] }) });
+      f.detectChanges();
+      expect(c.showTypeFilter()).toBe(true);       // two types on the duplicates side
+      c.sub.set('suggestions');
+      f.detectChanges();
+      expect(c.showTypeFilter()).toBe(false);
+      expect((f.nativeElement as HTMLElement).querySelector('.type-filter')).toBeNull();
     });
   });
 

@@ -32,7 +32,7 @@ For setting up a workstation quickly see [workstation-mode-guide.md](workstation
 14. [Settings — Storage](#settings--storage)
 15. [Settings — Data](#settings--data)
 16. [Settings — Audit Log](#settings--audit-log)
-17. [Brain — Review tab (duplicates)](#brain--review-tab-duplicates)
+17. [Brain — Review tab](#brain--review-tab)
 18. [Settings — Webhooks](#settings--webhooks)
 19. [Settings — About](#settings--about)
 20. [Connecting an AI assistant (MCP)](#connecting-an-ai-assistant-mcp)
@@ -864,11 +864,33 @@ field, from, to. Two things are worth reading carefully:
 
 ---
 
-## Brain — Review tab (duplicates)
+## Brain — Review tab
 
 The **Review** tab inside a space's Brain is that space's record-QA queue, split into sub-tabs:
-**Duplicates** and **Contradictions**. (Contradictions needs an NLI model configured under
-**Settings → Media Processing**; until the scanner has run, the tab explains what it needs.)
+**Duplicates**, **Contradictions** and **Suggestions**. (Contradictions needs an NLI model configured
+under **Settings → Media Processing**; until the scanner has run, the tab explains what it needs.)
+
+**Suggestions** is the space's completeness report, worked as a queue. A space is "set up" long before
+it is *usable* — schemas declare types nothing instantiates and properties nothing fills, entities pile
+up with no edges between them, files land that recall cannot see. None of that produces an error, so
+none of it was visible anywhere. Overview shows the score and its three heaviest deductions; this is
+where you fix them.
+
+Each failing check is a card: what it found ("6 of 12 entities have no edges"), **why it costs points**,
+a sample of the offenders, how much of that check's weight the space kept, and a button that jumps
+straight to the tab holding those records. Entity samples are shown by **name**, not by id. The sample
+is capped at five, and a card whose finding is bigger than its sample says so rather than letting five
+entries read as the whole story.
+
+Checks that already pass are listed too, collapsed under a count — on a healthy space they are the whole
+answer, and a blank page would read as *we checked nothing* rather than *nothing is wrong*. Three states
+are kept firmly apart: **nothing to suggest** (every applicable check passes), **nothing to measure**
+(the space declares no schemas and holds no records, so there is nothing to check it against), and a
+**report that failed to load** — which never renders as a clean space.
+
+A check that cannot be asked is simply absent. A space that declares no schemas has opted out of schema
+governance on purpose; it is not scored down for that. The record-type dropdown does not apply here
+either — suggestions are findings about the schema and the space, not about individual records.
 
 **Contradictions** lists records in this space that *disagree*. Each card says **why**: a **Field conflict**
 names the property and shows both values (deterministic — the two records simply set the same single-valued

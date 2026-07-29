@@ -9,7 +9,7 @@
  * image" — not the implementation. Proven green against the original `qrcode` impl before the swap.
  */
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { of } from 'rxjs';
 import { AuthApi } from '../../core/auth-api.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
@@ -48,5 +48,47 @@ describe('MfaComponent — enrolment QR (characterization)', () => {
     const url = cmp.qrUrl();
     expect(url.startsWith('data:image/')).toBe(true);
     expect(url.length).toBeGreaterThan(100);
+  });
+});
+
+/**
+ * The success note retires itself.
+ *
+ * It used to persist until the next action, so "MFA enabled" was still on screen the next time the page
+ * was opened — reading as a live status rather than the receipt for something done a while ago. A timer
+ * that silently stops working leaves exactly the old behaviour and no error, so it is worth pinning.
+ */
+describe('MfaComponent — the success note auto-dismisses', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      imports: [MfaComponent, getTranslocoModule()],
+      providers: [{ provide: AuthApi, useValue: {
+        getMfaStatus: () => of({ enabled: true }),
+        setupMfa: () => of({ secret: 's', otpauth: 'otpauth://totp/x' }),
+        disableMfa: () => of({ ok: true }),
+      } as never }],
+    });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('shows the note, then clears it on its own', () => {
+    const cmp = TestBed.createComponent(MfaComponent).componentInstance;
+    cmp.confirmDisable();
+    expect(cmp.successMsg()).not.toBe('');
+    vi.advanceTimersByTime(5_000);
+    expect(cmp.successMsg()).not.toBe('');   // still readable a few seconds in
+    vi.advanceTimersByTime(2_000);
+    expect(cmp.successMsg()).toBe('');
+  });
+
+  it('a pending dismissal cannot fire into a destroyed component', () => {
+    const fixture = TestBed.createComponent(MfaComponent);
+    fixture.componentInstance.confirmDisable();
+    fixture.destroy();
+    // The assertion is that advancing past the deadline throws nothing — a timer left armed against a
+    // torn-down component is the classic version of this bug.
+    expect(() => vi.advanceTimersByTime(10_000)).not.toThrow();
   });
 });

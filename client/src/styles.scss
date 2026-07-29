@@ -677,6 +677,12 @@ hr, .divider {
   align-items: center;
 }
 .icon-btn:hover { color: var(--text-primary); background: var(--bg-elevated); }
+/* A destructive action reads as destructive AT REST, not on hover.
+   This used to colour only on `:hover`, so delete and revoke sat in a row looking exactly like the
+   non-destructive icon beside them and you learned which was which by pointing at it — backwards for
+   the one action you cannot undo, and invisible on touch, where there is no hover at all. Muted rather
+   than full `--error` so a row of them is not alarming; hover still escalates. */
+.icon-btn.danger { color: color-mix(in srgb, var(--error) 78%, var(--text-secondary)); }
 .icon-btn.danger:hover { color: var(--error); background: var(--error-dim); }
 
 /* ── Reduced motion ──────────────────────────────────────────────────────────

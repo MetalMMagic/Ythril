@@ -151,6 +151,16 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
     .main {
       flex: 1;
+      /* THE line that makes every inner overflow-x scroller actually work.
+         A flex item defaults to min-width:auto, so this column refused to shrink below its content's
+         intrinsic width. A wide table or a long tab strip therefore overflowed it — and because the
+         .layout above has overflow:hidden, that overflow was CLIPPED rather than scrolled. No
+         scrollbar, no hint: the right-hand columns and the last tabs were simply not there. Meanwhile
+         the overflow-x:auto on .table-wrapper inside never engaged, because nothing above it ever
+         imposed a width for it to overflow.
+         Measured before/after at 900px and 600px: /settings/audit-log and /brain both went from
+         "content overflows .main, nothing scrollable" to "contained, scrolls in place". */
+      min-width: 0;
       overflow-y: auto;
       padding: 28px 32px;
     }

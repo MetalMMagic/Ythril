@@ -52,7 +52,12 @@ export const SPACE_DIALOG_STYLES = `
 .sp-backdrop { position:fixed; inset:0; background:var(--bg-scrim); z-index:200; display:flex; align-items:center; justify-content:center; }
 .sp-panel { width:92vw; height:92vh; max-width:1200px; background:var(--bg-primary); border:1px solid var(--border); border-radius:var(--radius-lg); display:flex; flex-direction:column; overflow:hidden; }
 .sp-header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--border); flex-shrink:0; }
-.sp-tabs { display:flex; border-bottom:1px solid var(--border); flex-shrink:0; background:var(--bg-surface); }
+/* Wraps rather than clips: Danger Zone is the last tab and was the first to vanish in a narrow dialog,
+   which is a poor thing to make unreachable. Wrapping over a scroller for the same reason as the global
+   .tabs — a scrolled strip looks exactly like a clipped one, so nothing signals the missing tabs. */
+.sp-tabs { display:flex; flex-wrap:wrap; border-bottom:1px solid var(--border); flex-shrink:0;
+  background:var(--bg-surface); }
+.sp-tabs > .sp-tab { flex:none; white-space:nowrap; }
 .sp-tab { background:none; border:none; border-bottom:2px solid transparent; padding:10px 20px; cursor:pointer; font-size:13px; font-family:var(--font); color:var(--text-muted); transition:color .15s; }
 .sp-tab:hover { color:var(--text-primary); }
 .sp-tab.active { color:var(--text-primary); border-bottom-color:var(--accent); font-weight:500; }

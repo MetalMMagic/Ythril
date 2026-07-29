@@ -87,6 +87,7 @@ interface BackupConfig {
         } @else if (!backups().length) {
           <p class="muted">{{ 'data.backup.empty' | transloco }}</p>
         } @else {
+          <div class="table-wrapper">
           <table class="table" style="font-size:13px;">
             <thead><tr>
               <th>{{ 'data.backup.colDate' | transloco }}</th>
@@ -110,6 +111,7 @@ interface BackupConfig {
               }
             </tbody>
           </table>
+          </div>
         }
       </app-settings-card>
 

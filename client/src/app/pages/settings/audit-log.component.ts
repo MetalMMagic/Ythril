@@ -291,6 +291,7 @@ import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-st
     } @else if (entries().length === 0) {
       <div class="empty">{{ 'auditLog.empty' | transloco }}</div>
     } @else {
+      <div class="table-wrapper">
       <table class="audit-table">
         <thead>
           <tr>
@@ -319,6 +320,7 @@ import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-st
           }
         </tbody>
       </table>
+      </div>
 
       <div class="pagination">
         <span>{{ 'auditLog.pagination.total' | transloco: { count: total() } }}</span>

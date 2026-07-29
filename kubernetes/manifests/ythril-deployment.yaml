@@ -38,9 +38,9 @@ spec:
           # Pin by immutable digest in production — a mutable tag (`:latest` or a
           # version tag) lets a compromised registry silently swap the image on the
           # next pull. Resolve the digest with:
-          #   docker buildx imagetools inspect ghcr.io/ythril-network/ythril:1.4.4
+          #   docker buildx imagetools inspect ghcr.io/ythril-network/ythril:2.0.0
           # then replace the tag below with @sha256:<digest>.
-          image: ghcr.io/ythril-network/ythril:1.4.4
+          image: ghcr.io/ythril-network/ythril:2.0.0
           # The image already sets `USER node`; these settings *enforce* non-root at
           # the cluster level and lock the container down further. readOnlyRootFilesystem
           # is safe here because every path the server writes is backed by a volume:

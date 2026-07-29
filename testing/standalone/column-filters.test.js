@@ -130,3 +130,41 @@ describe('propertiesValueContains — filters on VALUE, not key', () => {
     }
   });
 });
+
+describe('entity-NAME column filters (From / To / Entities)', () => {
+  it('an unmatched name filters to NOTHING, never to everything', () => {
+    // The dangerous shape: resolve a name to zero ids, then skip the filter because the list is empty.
+    // The column would show every row while claiming to be filtered. All three sites must apply the
+    // `$in` unconditionally once a name was given.
+    const edges = readFileSync(new URL('../../server/src/brain/edges.ts', import.meta.url), 'utf8');
+    assert.match(edges, /if \(filter\.fromIds\) q\['from'\] = \{ \$in: filter\.fromIds \}/);
+    assert.match(edges, /if \(filter\.toIds\) q\['to'\] = \{ \$in: filter\.toIds \}/);
+
+    for (const f of ['memories.ts', 'chrono.ts']) {
+      const src = readFileSync(new URL(`../../server/src/api/brain/${f}`, import.meta.url), 'utf8');
+      assert.match(src, /entityIds'\] = \{ \$in: await resolveEntityIdsByName/,
+        `${f} must apply the resolved ids even when empty`);
+    }
+  });
+
+  it('resolves per MEMBER, not once for the whole proxy space', () => {
+    // Ids belong to the member that owns them; resolving against another member's entities would match
+    // nothing while looking like it worked.
+    for (const f of ['edges.ts', 'memories.ts', 'chrono.ts']) {
+      const src = readFileSync(new URL(`../../server/src/api/brain/${f}`, import.meta.url), 'utf8');
+      assert.match(src, /collectAcrossMembers\(spaceId, async mid =>/, `${f} must resolve inside the member loop`);
+      assert.match(src, /resolveEntityIdsByName\(mid,/, `${f} must resolve against the MEMBER id`);
+    }
+  });
+
+  it('caps how many ids one name can expand to', () => {
+    const src = readFileSync(new URL('../../server/src/brain/entities.ts', import.meta.url), 'utf8');
+    assert.ok(src.includes('NAME_FILTER_ID_CAP'), 'an unbounded $in is a denial-of-service shape');
+    assert.match(src, /\.limit\(NAME_FILTER_ID_CAP\)/, 'the cap must be applied to the query');
+  });
+
+  it('matches names by escaped substring, like every other text filter', () => {
+    const src = readFileSync(new URL('../../server/src/brain/entities.ts', import.meta.url), 'utf8');
+    assert.match(src, /name: textContains\(trimmed\)/);
+  });
+});

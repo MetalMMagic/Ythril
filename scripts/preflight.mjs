@@ -105,8 +105,41 @@ try { run('npm run test:client'); } catch {
 // which the unit-test run does. It caught a `[...NodeList]` spread that every test passed straight over,
 // and it is where an unknown element, a bad binding or a broken inline template surfaces. ~7 seconds.
 console.log('\n── client production build (AOT template type-check) ──');
-try { run('npm run build:prod --workspace=client'); } catch {
+let buildOut = '';
+try {
+  // Captured, not inherited, so the chunk table below can be read — then printed, because a build whose
+  // output vanishes is a build nobody can debug.
+  buildOut = execSync('npm run build:prod --workspace=client', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  process.stdout.write(buildOut);
+} catch (e) {
+  buildOut = `${e.stdout ?? ''}${e.stderr ?? ''}`;
+  process.stdout.write(buildOut);
   failures.push({ name: 'build:prod', why: 'AOT template errors and tsconfig differences the unit tests never see' });
+}
+
+// A `bundle`-type budget names a chunk. Angular does NOT complain when that name matches nothing — the
+// budget is simply never evaluated, the build stays green, and the chunk it was meant to guard grows
+// without limit. That is the same silent no-op the budgets exist to prevent, one level up, and the only
+// place it can be checked is against the real chunk table the build just printed.
+console.log('\n── bundle budgets bind to real chunks ──');
+try {
+  const cfg = JSON.parse(readFileSync('client/angular.json', 'utf8'));
+  const project = cfg.projects[Object.keys(cfg.projects)[0]];
+  const named = (project.architect.build.configurations.production.budgets ?? [])
+    .filter(b => b.type === 'bundle').map(b => b.name);
+  const plain = buildOut.replace(/\x1b\[[0-9;]*m/g, '');
+  const unmatched = named.filter(n => !new RegExp(`\\|\\s*${n}\\s*\\|`).test(plain));
+  if (unmatched.length) {
+    console.log(`  budgets naming no emitted chunk: ${unmatched.join(', ')}`);
+    failures.push({
+      name: 'bundle-budgets',
+      why: `${unmatched.join(', ')} — Angular evaluates these against nothing, so the build stays green while the chunk grows`,
+    });
+  } else {
+    console.log(`  ${named.length} bundle budget(s) matched an emitted chunk.`);
+  }
+} catch (e) {
+  failures.push({ name: 'bundle-budgets', why: `could not verify budget names: ${e}` });
 }
 
 console.log('\n' + '='.repeat(76));

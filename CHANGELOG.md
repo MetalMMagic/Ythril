@@ -190,6 +190,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Lazy chunks had no size ceiling, so one could grow past the initial bundle unnoticed** — which is how
+  the Brain chunk once reached twice the initial bundle with no CI signal at all. `client/angular.json`
+  budgeted `initial`, `anyComponentStyle` and `all`, and nothing per chunk.
+  - An **`any`** budget (1 MB warn / 1.5 MB error) now bounds every chunk including the unnamed
+    third-party ones, and four **named** budgets cover the app pages that have actually grown: Brain,
+    Spaces, Files and Media Processing. Thresholds were set from the current measured sizes with
+    headroom, not from taste.
+  - **A budget naming a chunk that does not exist is silently never evaluated** — the build stays green
+    while the thing it was meant to guard grows. The first draft of this set named `graph-component`,
+    which is not a chunk at all. Preflight now re-checks every `bundle` budget name against the real
+    chunk table the build just printed, and a standalone gate checks the config shape.
+
 - **Schema changes were invisible in the audit log; they are now summarised.** `space.schema.update` and
   `schema_library.update` change nested objects, and the audit layer records allowlisted scalars and
   drops objects outright — so replacing a space's entire schema recorded **nothing**. The entry said an

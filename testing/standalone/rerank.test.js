@@ -1,0 +1,180 @@
+/**
+ * Reranker — dialect resolution, response parsing, bounds, and the degrade-never-fail contract.
+ *
+ * The reranker sits on the READ path of every semantic search. Two properties carry the weight:
+ *
+ *  1. **It can only make search worse, never broken.** Every failure returns `null`, which the caller
+ *     reads as "keep the vector order". A reranker that threw would turn a sidecar restart into failed
+ *     searches; one that returned zeros would silently reorder every result set by nothing.
+ *  2. **A provider's answer is not trusted.** A non-finite score or an out-of-range index would move the
+ *     WRONG passage, which is a wrong answer rather than a missing one — so both are dropped.
+ *
+ * Run: node --test testing/standalone/rerank.test.js
+ * (requires a prior `npm run build` in server/)
+ */
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+let resolveEndpoint, buildBody, parseScores, MAX_CANDIDATES,
+    MIN_CANDIDATE_MULTIPLIER, MAX_CANDIDATE_MULTIPLIER, DEFAULT_CANDIDATE_MULTIPLIER;
+
+before(async () => {
+  ({
+    resolveEndpoint, buildBody, parseScores, MAX_CANDIDATES,
+    MIN_CANDIDATE_MULTIPLIER, MAX_CANDIDATE_MULTIPLIER, DEFAULT_CANDIDATE_MULTIPLIER,
+  } = await import('../../server/dist/brain/rerank-client.js'));
+});
+
+describe('resolveEndpoint — the operator URL declares the dialect', () => {
+  it('appends /v1/rerank to a bare host and reads it as Cohere', () => {
+    assert.deepEqual(resolveEndpoint('http://reranker:8080'),
+      { url: 'http://reranker:8080/v1/rerank', dialect: 'cohere' });
+  });
+
+  it('leaves an explicit /v1/rerank alone', () => {
+    assert.deepEqual(resolveEndpoint('https://api.example.com/v1/rerank'),
+      { url: 'https://api.example.com/v1/rerank', dialect: 'cohere' });
+  });
+
+  it('reads a bare /rerank as the TEI shape', () => {
+    // text-embeddings-inference is the usual way bge-reranker-v2-m3 gets self-hosted, and its request
+    // body is NOT the Cohere one. Sending the wrong shape produces a 422 that reads as "reranker broken".
+    assert.deepEqual(resolveEndpoint('http://tei:80/rerank'),
+      { url: 'http://tei:80/rerank', dialect: 'tei' });
+  });
+
+  it('strips trailing slashes rather than producing a double slash', () => {
+    assert.equal(resolveEndpoint('http://reranker:8080/').url, 'http://reranker:8080/v1/rerank');
+    assert.equal(resolveEndpoint('http://tei:80/rerank//').dialect, 'tei');
+  });
+});
+
+describe('buildBody — one shape per dialect, never a union', () => {
+  it('Cohere: model + documents + top_n', () => {
+    const b = buildBody('cohere', 'bge-reranker-v2-m3', 'q', ['a', 'b']);
+    assert.equal(b.model, 'bge-reranker-v2-m3');
+    assert.equal(b.query, 'q');
+    assert.deepEqual(b.documents, ['a', 'b']);
+    assert.equal(b.top_n, 2);
+    assert.equal(b.texts, undefined, 'must not smuggle the TEI field in as well');
+  });
+
+  it('TEI: texts, and no model field', () => {
+    const b = buildBody('tei', 'bge-reranker-v2-m3', 'q', ['a', 'b']);
+    assert.deepEqual(b.texts, ['a', 'b']);
+    assert.equal(b.documents, undefined);
+    assert.equal(b.model, undefined, 'TEI serves one model; sending another server\'s field risks a 422');
+  });
+});
+
+describe('parseScores — a provider answer is not trusted', () => {
+  it('reads the Cohere shape ({results:[{index, relevance_score}]})', () => {
+    const out = parseScores({ results: [{ index: 1, relevance_score: 0.9 }, { index: 0, relevance_score: 0.1 }] }, 2);
+    assert.deepEqual(out, [{ index: 1, score: 0.9 }, { index: 0, score: 0.1 }]);
+  });
+
+  it('reads the TEI shape (a bare array of {index, score})', () => {
+    assert.deepEqual(parseScores([{ index: 0, score: 2.5 }], 1), [{ index: 0, score: 2.5 }]);
+  });
+
+  it('returns null for a body that is neither', () => {
+    // null means "no opinion" and the vector order stands. An empty array would mean "every passage
+    // scored nothing", which is a different and much worse claim.
+    assert.equal(parseScores({ nope: true }, 3), null);
+    assert.equal(parseScores('a string', 3), null);
+    assert.equal(parseScores(null, 3), null);
+  });
+
+  it('DROPS an out-of-range index instead of clamping it', () => {
+    // Clamping would apply one passage's score to a different passage — a wrong answer, silently.
+    assert.deepEqual(parseScores({ results: [{ index: 7, relevance_score: 0.9 }] }, 3), []);
+    assert.deepEqual(parseScores({ results: [{ index: -1, relevance_score: 0.9 }] }, 3), []);
+  });
+
+  it('DROPS a non-finite or missing score instead of defaulting it to 0', () => {
+    // A defaulted 0 sorts the passage to the bottom, which looks like a confident judgement.
+    assert.deepEqual(parseScores({ results: [{ index: 0 }] }, 1), []);
+    assert.deepEqual(parseScores({ results: [{ index: 0, score: 'high' }] }, 1), []);
+    assert.deepEqual(parseScores([{ index: 0, score: Number.NaN }], 1), []);
+  });
+
+  it('keeps the good rows when only some are unusable', () => {
+    const out = parseScores({ results: [{ index: 0, score: 0.5 }, { index: 9, score: 0.9 }] }, 2);
+    assert.deepEqual(out, [{ index: 0, score: 0.5 }]);
+  });
+});
+
+describe('bounds', () => {
+  it('the multiplier floor is above 1', () => {
+    // At 1 the reranker reorders exactly the results that would have been returned anyway — the whole
+    // mechanism is the over-fetch, so a multiplier of 1 is a setting that silently does nothing.
+    assert.ok(MIN_CANDIDATE_MULTIPLIER >= 2);
+    assert.ok(DEFAULT_CANDIDATE_MULTIPLIER >= MIN_CANDIDATE_MULTIPLIER);
+    assert.ok(DEFAULT_CANDIDATE_MULTIPLIER <= MAX_CANDIDATE_MULTIPLIER);
+  });
+
+  it('there is an absolute candidate cap, independent of topK', () => {
+    // Cross-encoder cost is linear in the candidate count. Without this, a large topK turns one search
+    // into a several-hundred-passage batch on the request path.
+    assert.ok(Number.isInteger(MAX_CANDIDATES) && MAX_CANDIDATES > 0 && MAX_CANDIDATES <= 500);
+  });
+});
+
+describe('the source keeps its contracts', () => {
+  const src = readFileSync(new URL('../../server/src/brain/rerank-client.ts', import.meta.url), 'utf8');
+
+  it('guards a non-local endpoint with ssrfSafeFetch', () => {
+    // The URL is admin-settable; a plain fetch would follow a redirect into link-local metadata.
+    assert.ok(src.includes('ssrfSafeFetch('), 'must call ssrfSafeFetch');
+    assert.ok(src.includes('allowPrivate: allowPrivateModelEndpoints()'),
+      'the operator private-endpoint policy must reach the fetch, or a self-hosted reranker on a cluster address silently never works');
+    assert.ok(src.includes('isLocalModelEndpoint('), 'the local/remote split must use the shared predicate');
+  });
+
+  it('never throws out of rerank() — every path returns null', () => {
+    const body = src.slice(src.indexOf('export async function rerank('));
+    assert.ok(body.includes('catch'), 'the network call must be caught');
+    assert.ok(!/\bthrow\b/.test(body), 'a reranker outage must degrade search, not break it');
+  });
+
+  it('logs neither the query nor the passages', () => {
+    // Both are user content and this goes to the log. Same rule the NLI client follows.
+    const body = src.slice(src.indexOf('export async function rerank('));
+    assert.ok(!/log\.[a-z]+\([^)]*\bquery\b/.test(body), 'the query must never be logged');
+    assert.ok(!/log\.[a-z]+\([^)]*\bpassages\b/.test(body), 'the passages must never be logged');
+  });
+});
+
+describe('recall wiring', () => {
+  const src = readFileSync(new URL('../../server/src/brain/recall.ts', import.meta.url), 'utf8');
+
+  it('over-fetches when a reranker is configured', () => {
+    // Reranking exactly topK candidates returns the same set in a different order and buys nothing.
+    assert.ok(src.includes('reranking ? candidateMultiplier() : 1.5'),
+      'the candidate pool must widen only when reranking is on');
+  });
+
+  it('orders by rerankScore when present, and NEVER filters minScore on it', () => {
+    // The two are different scales. Reinterpreting a caller's vector-similarity threshold against a
+    // cross-encoder logit would change what a fixed threshold returns without anyone touching it.
+    assert.ok(src.includes('r.rerankScore ?? r.score'), 'ordering must prefer the cross-encoder score');
+    assert.ok(src.includes('final.filter(r => (r.score ?? 0) >= minScore)'),
+      'minScore must keep filtering on the VECTOR score');
+  });
+
+  it('reranks the passage text, not the truncated summary', () => {
+    // summariseRecall cuts a memory to 120 chars for a log line. Scoring a stub of the passage would
+    // judge a different text from the one that gets returned — worse than not reranking, and invisible.
+    assert.ok(src.includes('rerankTextOf('), 'a dedicated passage builder must exist');
+    const start = src.indexOf('export function rerankTextOf(');
+    const fn = src.slice(start, src.indexOf('\n}', start));
+    assert.ok(!fn.includes('summariseRecall'), 'must not reuse the truncating summary');
+    assert.ok(fn.includes('RERANK_TEXT_MAX_CHARS'), 'the passage must still be capped to the model window');
+  });
+
+  it('a null from the reranker leaves every result untouched', () => {
+    const fn = src.slice(src.indexOf('async function applyRerank('));
+    assert.ok(/if \(!scores\) return;/.test(fn), 'no opinion must mean the vector order stands');
+  });
+});

@@ -13,6 +13,7 @@ import { needsReindex } from '../spaces/_shared.js';
 import { vectorFilterFieldsFor } from '../spaces/vector-index.js';
 import { FilterExpression, buildMongoFilter, toNativeVectorFilter } from './filter.js';
 import { deriveChronoStatus } from './chrono-status.js';
+import { rerank, rerankConfigured, candidateMultiplier, MAX_CANDIDATES } from './rerank-client.js';
 import type { ChronoStatus } from '../config/types.js';
 
 export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
@@ -21,7 +22,16 @@ export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'fil
 interface RecallBase {
   _id: string;
   spaceId: string;
+  /** Vector similarity, on the configured `similarity` scale. `minScore` always filters on THIS. */
   score: number;
+  /**
+   * Cross-encoder relevance, present only when a reranker is configured and answered.
+   *
+   * Kept separate from `score` rather than overwriting it, because the two are different scales and
+   * `minScore` is documented against the vector one. Folding them together would silently redefine
+   * what a caller's threshold means. Ordering prefers this when present; filtering never uses it.
+   */
+  rerankScore?: number;
   createdAt?: string;
   updatedAt?: string;
   seq?: number;
@@ -143,11 +153,20 @@ export async function recall(
     }
   }
 
-  // Phase 2: run the global unrestricted search for all active types
-  const perTypeK = Math.ceil(topK * 1.5);
+  // Phase 2: run the global unrestricted search for all active types.
+  //
+  // With a reranker configured, cast a WIDER net first. A cross-encoder can only re-order what the
+  // vector search already found, so reranking exactly the results you would have returned anyway buys
+  // nothing — the over-fetch is the whole mechanism.
+  const reranking = rerankConfigured();
+  const perTypeK = Math.ceil(topK * (reranking ? candidateMultiplier() : 1.5));
   const searches = activeTypes.map(t => recallByType(spaceId, t, embResult.vector, perTypeK, tags, filter));
   const allResults = (await Promise.all(searches)).flat();
   allResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+
+  // Phase 3: rerank the candidate pool, if a cross-encoder is configured. Best-effort by construction —
+  // `applyRerank` leaves the vector order untouched when the reranker has no opinion.
+  if (reranking) await applyRerank(query, guaranteed, allResults);
 
   const final = mergeRecallResults(guaranteed, allResults, topK, minScore);
 
@@ -191,10 +210,85 @@ export function mergeRecallResults(
   }
 
   const final = [...guaranteed, ...fill];
-  final.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+  // Order by the cross-encoder when it answered, otherwise by vector similarity. `??` rather than a
+  // separate branch so a partial rerank — a provider that scored some passages and not others — still
+  // orders sensibly instead of collapsing the unscored ones to the bottom.
+  final.sort((a, b) => rankOf(b) - rankOf(a));
+  // minScore filters on `score`, never on `rerankScore`. The two are different scales, and a caller's
+  // threshold was written against vector similarity; silently reinterpreting it against a cross-encoder's
+  // logit would change which results a fixed threshold returns without anyone touching the threshold.
   return (minScore != null && minScore > 0)
     ? final.filter(r => (r.score ?? 0) >= minScore)
     : final;
+}
+
+/** Sort key: cross-encoder relevance when present, vector similarity otherwise. */
+function rankOf(r: RecallResult): number {
+  return r.rerankScore ?? r.score ?? 0;
+}
+
+/**
+ * The text a cross-encoder is asked to judge against the query.
+ *
+ * Deliberately NOT `summariseRecall`, which truncates a memory to 120 characters for a one-line log or
+ * tool response. A reranker scoring a 117-character stub of the passage would be judging a different
+ * text from the one that gets returned — worse than not reranking, because the error is invisible.
+ * Capped anyway: cross-encoders have a token window, and a runaway document would be silently truncated
+ * by the provider at a point we do not control.
+ */
+export function rerankTextOf(r: RecallResult): string {
+  const raw = (() => {
+    switch (r.type) {
+      case 'memory': return r.fact;
+      case 'entity': return [r.name, r.entityType, r.description].filter(Boolean).join(' — ');
+      case 'edge':   return [`${r.from} → ${r.label} → ${r.to}`, r.description].filter(Boolean).join(' — ');
+      case 'chrono': return [r.title, r.description].filter(Boolean).join(' — ');
+      case 'file':   return [r.path, r.description].filter(Boolean).join(' — ');
+    }
+  })();
+  return raw.length > RERANK_TEXT_MAX_CHARS ? raw.slice(0, RERANK_TEXT_MAX_CHARS) : raw;
+}
+
+/** Roughly a 2k-token window at ~4 chars/token, which every current reranker comfortably accepts. */
+export const RERANK_TEXT_MAX_CHARS = 8_000;
+
+/**
+ * Score the candidate pool with the cross-encoder and stamp `rerankScore` on each result, in place.
+ *
+ * Both lists are passed because a floor-guaranteed result competes for order with the global ones — a
+ * reranker that saw only half the pool would produce two incomparable orderings in one response.
+ * Deduped by `_id` so a record appearing in both lists is scored once and both references updated.
+ *
+ * Best-effort throughout: a `null` from the reranker leaves every result untouched, and the caller falls
+ * back to vector order. It never throws, because a reranker outage must not turn into a failed search.
+ */
+async function applyRerank(
+  query: string,
+  guaranteed: RecallResult[],
+  allResults: RecallResult[],
+): Promise<void> {
+  // One entry per distinct record, holding every reference to it so a single score updates all of them.
+  const byId = new Map<string, RecallResult[]>();
+  for (const r of [...guaranteed, ...allResults]) {
+    const refs = byId.get(r._id);
+    if (refs) refs.push(r); else byId.set(r._id, [r]);
+  }
+  // Highest vector score first, so the absolute cap drops the least plausible candidates rather than an
+  // arbitrary slice — the cap is a cost ceiling, not a sampling strategy.
+  const ids = [...byId.keys()]
+    .sort((a, b) => (byId.get(b)![0].score ?? 0) - (byId.get(a)![0].score ?? 0))
+    .slice(0, MAX_CANDIDATES);
+  if (ids.length === 0) return;
+
+  const passages = ids.map(id => rerankTextOf(byId.get(id)![0]));
+  const scores = await rerank(query, passages);
+  if (!scores) return; // no opinion — vector order stands
+
+  for (const { index, score } of scores) {
+    const id = ids[index];
+    if (id === undefined) continue; // parseScores bounds this, but the pairing is worth not assuming
+    for (const ref of byId.get(id)!) ref.rerankScore = score;
+  }
 }
 
 // ── Insert-time duplicate detection ──────────────────────────────────────────
@@ -460,7 +554,10 @@ export async function recallGlobal(
   // Sort by score descending, deduplicate by _id
   const seen = new Set<string>();
   const deduped: RecallResult[] = [];
-  for (const r of flat.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))) {
+  // Same key as the per-space merge. Rerank scores from separate `recall` calls ARE comparable — same
+  // model, same query — so ordering across spaces by them is sound; ordering by vector score while the
+  // per-space lists were ordered by the cross-encoder would undo the reranking at the last step.
+  for (const r of flat.sort((a, b) => rankOf(b) - rankOf(a))) {
     if (!seen.has(r._id)) {
       seen.add(r._id);
       deduped.push(r);

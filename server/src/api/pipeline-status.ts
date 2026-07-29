@@ -25,11 +25,11 @@
  */
 
 import { Router } from 'express';
-import { getConfig, getMediaEmbeddingConfig, getEmbeddingConfig, getEmbeddingApiKey, getDocumentProcessingConfig, getDocAssistApiKey, getFaceRecognitionConfig } from '../config/loader.js';
+import { getConfig, getMediaEmbeddingConfig, getEmbeddingConfig, getEmbeddingApiKey, getDocumentProcessingConfig, getDocAssistApiKey, getFaceRecognitionConfig, getRerankApiKey } from '../config/loader.js';
 import { requireAdmin } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl } from '../util/ssrf.js';
-import { allowPrivateModelEndpoints } from '../config/model-egress-policy.js';
+import { allowPrivateModelEndpoints, isLocalModelEndpoint } from '../config/model-egress-policy.js';
 import { probeModelEndpoint } from './media-config.js';
 import { getDb } from '../db/mongo.js';
 import { faceRecognitionAllowed } from '../files/converters/media-level.js';
@@ -163,6 +163,10 @@ function modelStages(): StageSpec[] {
     { key: 'doc-verify', label: 'Document verify', model: doc.verifyModel, baseUrl: doc.verifyBaseUrl || doc.vlmBaseUrl || media.vision?.baseUrl, apiKey: media.vision?.apiKey, external: false },
     // The assist model is external by definition — it is the one path that sends content off-instance.
     { key: 'assist', label: 'Assist model', model: doc.assistModel?.model, baseUrl: doc.assistModel?.baseUrl, apiKey: getDocAssistApiKey(), external: true },
+    // The reranker is a RETRIEVAL stage, not an ingestion one, but it belongs on the same board: it is
+    // model-backed, optional, and when it is unreachable searches quietly get worse rather than fail —
+    // which is precisely the condition this endpoint exists to make visible.
+    { key: 'rerank', label: 'Reranker', model: media.rerank?.model, baseUrl: media.rerank?.baseUrl, apiKey: getRerankApiKey(), external: !!media.rerank?.baseUrl && !isLocalModelEndpoint(media.rerank.baseUrl) },
   ];
 }
 

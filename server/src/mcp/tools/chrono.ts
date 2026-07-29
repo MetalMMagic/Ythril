@@ -66,11 +66,8 @@ export const create_chronoTool: ToolHandler = {
     if (!wt.ok) throw new Error(wt.error);
 
     // Schema validation (single pass)
-    const chronoMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
-    const chronoMeta = chronoMetaRaw ? resolveMetaRefs(chronoMetaRaw) : undefined;
-
-    // Validate type against space-specific allowlist (custom or default built-ins)
-    const allowedChronoTypes = getAllowedChronoTypes(chronoMeta);
+    // Validate type against the space-specific allowlist (custom or default built-ins).
+    const { meta: chronoMeta, allowed: allowedChronoTypes } = chronoTypeGate(wt.target);
     if (!allowedChronoTypes.has(chronoType)) {
       throw new Error(`type must be one of: ${[...allowedChronoTypes].join(', ')}`);
     }
@@ -137,6 +134,20 @@ export const create_chronoTool: ToolHandler = {
   },
 };
 
+/**
+ * The space's resolved meta, and the chrono types it allows.
+ *
+ * Extracted because create and update MUST agree: `update_chrono` shipped without the allowlist check
+ * `create_chrono` has, so a record could be moved to a disallowed type through the door that did not
+ * check. One helper, called by both, is what stops that recurring — two copies of a validation rule is
+ * how they diverged in the first place.
+ */
+function chronoTypeGate(spaceId: string): { meta: ReturnType<typeof resolveMetaRefs> | undefined; allowed: Set<string> } {
+  const raw = getConfig().spaces.find(s => s.id === spaceId)?.meta;
+  const meta = raw ? resolveMetaRefs(raw) : undefined;
+  return { meta, allowed: getAllowedChronoTypes(meta) };
+}
+
 export const update_chronoTool: ToolHandler = {
   name: 'update_chrono',
   description: 'Update an existing chronological entry.',
@@ -188,7 +199,17 @@ export const update_chronoTool: ToolHandler = {
 
     const updates: Record<string, unknown> = {};
     if (typeof a['title'] === 'string') updates['title'] = a['title'];
-    if (typeof a['type'] === 'string') updates['type'] = a['type'];
+    if (typeof a['type'] === 'string') {
+      // Same allowlist check `create_chrono` runs, and the same one the REST PATCH already runs.
+      // Without it this was the ONE surface of four that let a record be moved to a type the space
+      // does not allow — and an asymmetry between two write paths is worse than either rule alone,
+      // because the constraint looks enforced right up until someone uses the other door.
+      const { allowed } = chronoTypeGate(wt.target);
+      if (!allowed.has(a['type'] as string)) {
+        throw new Error(`type must be one of: ${[...allowed].join(', ')}`);
+      }
+      updates['type'] = a['type'];
+    }
     if (typeof a['startsAt'] === 'string') updates['startsAt'] = a['startsAt'];
     if (typeof a['endsAt'] === 'string') updates['endsAt'] = a['endsAt'];
     if (typeof a['status'] === 'string') updates['status'] = a['status'];

@@ -91,6 +91,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`update_chrono` (MCP) let a record be moved to a chrono type the space does not allow.**
+  `create_chrono` checked the type against the space's allowlist and both REST handlers checked it too —
+  MCP update was the one write surface of four that did not, so the constraint held right up until
+  someone used the other door, and nothing reported the bypass. The check now runs on update as well,
+  with the same message, and both MCP handlers resolve the allowlist through one shared helper: two
+  copies of a validation rule is how these diverged in the first place.
+
 - **`GET /api/admin/media-config` returned the NLI provider's API key in plaintext.** Every other
   provider was masked; `nli` was added later and the mask was never extended to it, so the resolved
   block — which carries the key from `secrets.json` — was serialised as-is to any admin. Masked now,

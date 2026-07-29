@@ -128,6 +128,17 @@ import { TestTarget } from './media-processing.types';
           </div>
         </div>
         <div class="field">
+          <label for="emb-prefix">{{ 'mediaProcessing.embedding.prefixSchemeLabel' | transloco }}</label>
+          <select id="emb-prefix" [(ngModel)]="s.embedding.prefixScheme" [disabled]="s.embeddingLocked('prefixScheme')">
+            <option value="auto">{{ 'mediaProcessing.embedding.prefixAuto' | transloco }}</option>
+            <option value="none">{{ 'mediaProcessing.embedding.prefixNone' | transloco }}</option>
+            <option value="nomic">{{ 'mediaProcessing.embedding.prefixNomic' | transloco }}</option>
+            <option value="qwen">{{ 'mediaProcessing.embedding.prefixQwen' | transloco }}</option>
+          </select>
+          <div class="hint">{{ 'mediaProcessing.embedding.prefixSchemeHint' | transloco }}</div>
+        </div>
+        @if (s.embeddingLocked('prefixScheme')) { <app-status-pill pill variant="env">{{ 'mediaProcessing.pill.env' | transloco }}</app-status-pill> }
+        <div class="field">
           <label for="emb-key">{{ 'mediaProcessing.field.apiKeyExternal' | transloco }}</label>
           <input id="emb-key" type="password" [(ngModel)]="s.embeddingApiKeyInput" [disabled]="s.embeddingLocked('apiKey')"
             [placeholder]="(s.embedding.apiKey ? 'mediaProcessing.field.apiKeyKeep' : 'mediaProcessing.field.apiKeyOptional') | transloco" />

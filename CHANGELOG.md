@@ -6,7 +6,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **The embedding task prefix was dropped whenever an HTTP endpoint was configured, quietly degrading
+  every search.** `embed()` applied the `search_document:` / `search_query:` prefixes *inside* the local
+  branch, so `if (cfg.baseUrl) return embedViaHttp(text, cfg)` sent the raw text and the `task` argument
+  was discarded. Move the same `nomic-embed-text-v1.5` behind Ollama or any OpenAI-compatible endpoint —
+  a first-class option — and asymmetric retrieval silently stopped working. Nothing errored, nothing
+  warned; results were just worse, which is why it survived a release. The prefix is now applied **once,
+  before the branch**, so both paths embed the same string and the two cannot diverge again.
+
+### Added
+
+- **`embedding.prefixScheme` (`EMBEDDING_PREFIX_SCHEME`) — the task-prefix convention, made explicit.**
+  The right prefix depends on the model family, not on how it is reached, so it cannot be inferred:
+  `nomic` uses `search_document:` / `search_query:`; `qwen` instructs the **query only** and embeds
+  passages bare; `none` is correct for symmetric models (OpenAI `text-embedding-3-*`, bge-m3) where a
+  prefix is just noise in the vector. The default `auto` reproduces exactly what the instance did before
+  this field existed — `nomic` for the bundled model, `none` over HTTP — so **upgrading changes no
+  vector**. It is a compatibility default, not a good one: if you run nomic or Qwen behind an endpoint,
+  set the scheme explicitly and reindex. Settable per-instance on Settings → Models, pinnable by env
+  (reported in `lockedByInfra` like every other embedding field), and it counts as a reindex-triggering
+  change alongside model / dimensions / similarity, with the same save confirmation — the prefix is part
+  of the embedded string, so changing it invalidates the corpus exactly as a model change does.
 
 ---
 

@@ -87,6 +87,9 @@ const EmbeddingPatchSchema = z.object({
   model: z.string().min(1).max(256).optional(),
   dimensions: z.number().int().min(1).max(16_384).optional(),
   similarity: z.enum(['cosine', 'dotProduct', 'euclidean']).optional(),
+  // Also re-indexes every vector: the prefix is part of the embedded string, so changing the scheme
+  // changes the vector for identical text. Gated by the same client confirmation as model/dimensions.
+  prefixScheme: z.enum(['auto', 'none', 'nomic', 'qwen']).optional(),
   apiKey: z.string().max(512).optional().nullable(),
 }).strict();
 

@@ -17,11 +17,15 @@ export interface TestResult {
 export type TestTarget = 'vision' | 'stt' | 'assist' | 'embedding';
 
 /** Text-embedding config (top-level `config.embedding`, surfaced on this page). Changing
- *  model/dimensions/similarity re-indexes every vector — the save gates those behind a confirmation. */
+ *  model/dimensions/similarity/prefixScheme re-indexes every vector — the save gates those behind a
+ *  confirmation. */
 export interface EmbeddingCfg {
   provider?: 'local' | 'external';
   baseUrl?: string | null; model?: string; dimensions?: number;
   similarity?: 'cosine' | 'dotProduct' | 'euclidean';
+  /** Task-prefix convention the model expects. `auto` = what the instance did before the setting
+   *  existed (nomic prefixes locally, none over HTTP) — a compatibility default, not a good one. */
+  prefixScheme?: 'auto' | 'none' | 'nomic' | 'qwen';
   apiKey?: string;
 }
 

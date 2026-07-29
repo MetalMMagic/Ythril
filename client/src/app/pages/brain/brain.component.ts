@@ -298,7 +298,7 @@ interface SpaceView {
 
         <!-- Review (F-REVIEW): duplicate pairs for THIS space. Was a global Settings page; a duplicate
              pair only ever means something inside one space, so it belongs beside the space's data. -->
-        @if (activeTab() === 'review') { <app-review-tab [spaceId]="activeSpaceId()" /> }
+        @if (activeTab() === 'review') { <app-review-tab [spaceId]="activeSpaceId()" (openTab)="setTab($event)" /> }
       </div>
 
       <!-- Detail Drawer -->

@@ -29,6 +29,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `find_similar`'s source descriptor field `matchedText` is renamed `summary`, since `matchedText` no
     longer means anything in an MCP response.
 
+- **Brain → Review gains a Suggestions sub-tab: the whole completeness report, worked as a queue.**
+  Overview shows the score and its three heaviest deductions; this is where a reviewer actually fixes
+  them. Each failing check becomes a card with what it found, *why it costs points*, the sample, how
+  much of the check's weight the space kept, and a jump to the tab holding the affected records.
+  - **Samples are resolved into something recognisable.** A bare entity UUID is not a finding anyone can
+    act on, so `entity-without-edges` samples are looked up by name; if that lookup fails the ids stay,
+    which is degraded rather than broken.
+  - **Passing checks are listed, not hidden** — collapsed under a count. On a healthy space they are the
+    whole answer, and an empty page would read as "we checked nothing" rather than "nothing is wrong".
+  - Three states that must never be confused, and are not: *nothing to suggest* (every applicable check
+    passes), *nothing to measure* (no check applied at all), and *the report failed to load*. A failed
+    load never renders as a clean space.
+  - The sample is capped at 5 server-side, so a card whose finding is larger than its sample says so.
+  - The record-type filter is hidden here — suggestions are findings about the schema and the space, not
+    about records, so a record filter would imply a narrowing that is not happening.
+
 - **Space completeness — a score in Brain → Overview, and every point it deducts names what is missing.**
   A space is "set up" long before it is *usable*: schemas declare types nothing instantiates and
   properties nothing fills, entities pile up with no edges between them, files land that recall cannot

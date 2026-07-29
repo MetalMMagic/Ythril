@@ -601,7 +601,19 @@ hr, .divider {
   gap: 4px;
   border-bottom: 1px solid var(--border);
   margin-bottom: 24px;
+  /* WRAP, don't scroll. A tab strip running off the edge does not merely look wrong — the tabs past
+     the edge are unreachable, so part of the app silently disappears at narrow widths.
+     Scrolling was the first attempt and it is worse than it sounds: the strip looks identical to the
+     clipped version, so nothing tells you there is more to reach. A screenshot at 600px showed five of
+     the Brain's ten tabs and no hint of the other five. Wrapping shows all of them, and the container's
+     single bottom rule still sits under the whole block. */
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
+
+/* Labels stay whole. Without this the flex children shrink to fit and you get a strip reading
+   "Mem…", "Ent…", "Edg…" instead of a second row. */
+.tabs > * { flex: none; white-space: nowrap; }
 
 .tab {
   padding: 8px 16px;

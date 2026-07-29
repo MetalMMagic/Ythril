@@ -188,6 +188,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction, and two tests walk that list through the real handler — a shared type alone would not
   prove the tab is actually reachable.
 
+- **Tables and tab strips were cut off at narrow window sizes.** Reported by the owner. One root cause
+  for both: `.main` is a flex child and a flex item defaults to `min-width: auto`, so it refused to
+  shrink below its content. Wide content overflowed it and `.layout`'s `overflow: hidden` **clipped**
+  that overflow — no scrollbar, no hint, the right-hand columns and the last tabs simply were not there.
+  The `overflow-x: auto` already sitting on `.table-wrapper` never engaged, because nothing above it
+  imposed a width to overflow.
+  - `min-width: 0` on `.main` is the fix, and it activates every scroller that was already in place.
+  - **Tab strips now wrap rather than scroll.** Scrolling was the first attempt and it is worse than it
+    sounds: a scrolled strip looks *identical* to a clipped one, so nothing tells you there is more to
+    reach. Measured at 600 px, the Brain showed five of its ten tabs either way; wrapping shows all ten
+    over three rows. Applies to the global strip, the space-settings dialog tabs and Media Processing.
+  - The two page tables that had no scroll container at all — Audit Log and Data — are now wrapped in
+    the same `.table-wrapper` the other twelve use.
+  - Verified in a booted instance at 900 px and 600 px, before and after: `/settings/audit-log` and
+    `/brain` went from "content overflows `.main`, nothing scrollable" to contained, with the page itself
+    never scrolling sideways.
+
 - **A destructive icon button now looks destructive at rest, not on hover.** `.icon-btn.danger` coloured
   only on `:hover`, so delete and revoke sat in a row looking exactly like the harmless icon beside them
   — you learned which was which by pointing at it, which is backwards for the one action you cannot undo

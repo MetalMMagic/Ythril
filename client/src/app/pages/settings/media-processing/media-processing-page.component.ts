@@ -49,7 +49,9 @@ type Tab = 'models' | 'pipelines' | 'tools';
        nav and tab strip already say where you are, and the old title/subtitle were redundant. */
 
     /* Tabs sized to content, at the top of the panel — not a full-width strip. */
-    .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+    .tabs { display: flex; flex-wrap: wrap; row-gap: 2px; gap: 2px;
+      border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+    .tabs > * { flex: none; white-space: nowrap; }
     .tab { background: none; border: none; border-bottom: 2px solid transparent; padding: 9px 16px;
       cursor: pointer; font-size: 13px; font-family: var(--font); color: var(--text-muted);
       display: flex; align-items: center; gap: 7px; }

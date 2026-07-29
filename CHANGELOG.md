@@ -112,6 +112,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`npm run preflight` could report PASSED against a build from a different branch.** It compiled the
+  server only when `server/dist` was *missing*, so every gate that imports from `dist` was free to
+  validate whatever was compiled last. It now builds unconditionally. A stale pass is worse than no
+  check at all, because it is indistinguishable from a real one; `tsc` is cheap, being told the wrong
+  answer is not.
+- **Preflight now runs every standalone test that needs no running instance** (98 of 131), not the
+  curated handful of structural gates. The rest drive a live server on :3200 and stay in CI. The count
+  and the split are printed, so what was skipped is visible rather than assumed. Together these two are
+  why the MCP response-shape change above first reached CI with a test still asserting the old shape.
+
 - **Hybrid ranking and reranking were undone at the last step on almost every recall.** `recall()` orders
   each space's results by the best signal it has — cross-encoder, then RRF fusion, then vector similarity
   — but both aggregation sites (the REST recall route and the MCP `recall` tool) then re-sorted the merged

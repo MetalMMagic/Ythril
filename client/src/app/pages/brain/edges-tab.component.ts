@@ -132,7 +132,10 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
                   <th app-sort-th label="brain.edges.table.description">
                     <input class="col-filter-input" type="text" [ngModel]="recordFilter().description" (ngModelChange)="setDescriptionFilter($event)"
                       [placeholder]="'brain.filter.descriptionPlaceholder' | transloco" [attr.aria-label]="'brain.filter.descriptionPlaceholder' | transloco" />
-                  </th><th>{{ 'brain.edges.table.properties' | transloco }}</th><th app-sort-th field="createdAt" label="brain.edges.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
+                  </th><th app-sort-th label="brain.edges.table.properties">
+                    <input class="col-filter-input" type="text" [ngModel]="recordFilter().properties" (ngModelChange)="setPropertiesFilter($event)"
+                      [placeholder]="'brain.filter.propertiesPlaceholder' | transloco" [attr.aria-label]="'brain.filter.propertiesPlaceholder' | transloco" />
+                  </th><th app-sort-th field="createdAt" label="brain.edges.table.created" [activeField]="sortField()" [dir]="sortDir()" (sort)="setSort($event)"></th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -263,7 +266,7 @@ export class EdgesTabComponent extends RecordTabBase {
   private _edgeSemTimer: ReturnType<typeof setTimeout> | null = null;
 
   protected override resetOnSpaceChange(): void {
-    this.recordFilter.set({ type: '', tag: '', description: '' });
+    this.recordFilter.set({ type: '', tag: '', description: '', properties: '' });
   }
 
   protected override load(): void {
@@ -271,10 +274,11 @@ export class EdgesTabComponent extends RecordTabBase {
     if (!spaceId) return;
     this.recordList.loading.set(true);
     this.recordList.loadError.set(null);
-    const gf: { type?: string; tag?: string; description?: string } = {};
+    const gf: { type?: string; tag?: string; description?: string; properties?: string } = {};
     if (this.recordFilter().type) gf.type = this.recordFilter().type;
     if (this.recordFilter().tag) gf.tag = this.recordFilter().tag;
     if (this.recordFilter().description) gf.description = this.recordFilter().description;
+    if (this.recordFilter().properties) gf.properties = this.recordFilter().properties;
     this.brainApi.listEdges(spaceId, this.pageSize, this.skip(), gf, this.sortParam(), this.searchParam()).subscribe({
       next: ({ edges }) => { this.store.edges.set(edges); this.recordList.loading.set(false); },
       error: (e) => { this.recordList.loadError.set(httpErrorReason(e)); this.recordList.loading.set(false); },

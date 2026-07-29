@@ -82,12 +82,13 @@ export class BrainApi {
 
   // ── Brain — memories ──────────────────────────────────────────────────────
 
-  listMemories(spaceId: string, limit = 20, skip = 0, filters?: { tag?: string; entity?: string; type?: string; description?: string }, sort?: ListSort, search?: string): Observable<{ memories: Memory[]; limit: number; skip: number }> {
+  listMemories(spaceId: string, limit = 20, skip = 0, filters?: { tag?: string; entity?: string; type?: string; description?: string; properties?: string }, sort?: ListSort, search?: string): Observable<{ memories: Memory[]; limit: number; skip: number }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.tag) params = params.set('tag', filters.tag);
     if (filters?.entity) params = params.set('entity', filters.entity);
     if (filters?.type) params = params.set('type', filters.type);
     if (filters?.description) params = params.set('description', filters.description);
+    if (filters?.properties) params = params.set('properties', filters.properties);
     if (search) params = params.set('search', search);
     params = this.withSort(params, sort);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/memories`, { params });
@@ -113,7 +114,7 @@ export class BrainApi {
 
   // ── Brain — entities ──────────────────────────────────────────────────────
 
-  listEntities(spaceId: string, limit = 50, skip = 0, filters?: { search?: string; type?: string; tag?: string; description?: string }, sort?: ListSort, search?: string): Observable<{ entities: Entity[] }> {
+  listEntities(spaceId: string, limit = 50, skip = 0, filters?: { search?: string; type?: string; tag?: string; description?: string; properties?: string }, sort?: ListSort, search?: string): Observable<{ entities: Entity[] }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     // `filters.search` is the entity-search bar's exact `name` lookup; `search` is the docked column
     // freetext filter → the server's substring `?search=` (2b-iii). They are distinct params.
@@ -121,6 +122,7 @@ export class BrainApi {
     if (filters?.type) params = params.set('type', filters.type);
     if (filters?.tag) params = params.set('tag', filters.tag);
     if (filters?.description) params = params.set('description', filters.description);
+    if (filters?.properties) params = params.set('properties', filters.properties);
     if (search) params = params.set('search', search);
     params = this.withSort(params, sort);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/entities`, { params });
@@ -140,11 +142,12 @@ export class BrainApi {
 
   // ── Brain — edges ─────────────────────────────────────────────────────────
 
-  listEdges(spaceId: string, limit = 50, skip = 0, filters?: { type?: string; tag?: string; description?: string }, sort?: ListSort, search?: string): Observable<{ edges: Edge[] }> {
+  listEdges(spaceId: string, limit = 50, skip = 0, filters?: { type?: string; tag?: string; description?: string; properties?: string }, sort?: ListSort, search?: string): Observable<{ edges: Edge[] }> {
     let params = new HttpParams().set('limit', limit).set('skip', skip);
     if (filters?.type) params = params.set('type', filters.type);
     if (filters?.tag) params = params.set('tag', filters.tag);
     if (filters?.description) params = params.set('description', filters.description);
+    if (filters?.properties) params = params.set('properties', filters.properties);
     if (search) params = params.set('search', search);
     params = this.withSort(params, sort);
     return this.http.get<any>(`/api/brain/spaces/${spaceId}/edges`, { params });

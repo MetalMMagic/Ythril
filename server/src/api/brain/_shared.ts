@@ -5,7 +5,7 @@
  * pieces every sub-router needs: webhook token attribution, space-meta lookup, the schema
  * validation gate, the memory list filter, and the UUID matcher.
  */
-import { tagContains, textContains } from '../../brain/tag-filter.js';
+import { tagContains, textContains, propertiesValueContains } from '../../brain/tag-filter.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import type express from 'express';
 import { getConfig } from '../../config/loader.js';
@@ -98,6 +98,9 @@ export function buildMemoryFilter(query: Record<string, unknown>): Record<string
   // filter has to narrow its own column, or the header control lies about what it does.
   const description = typeof query['description'] === 'string' ? query['description'] : undefined;
   if (description) filter['description'] = textContains(description);
+  // Properties column filters on VALUE (owner's call). Scans — see `propertiesValueContains`.
+  const props = typeof query['properties'] === 'string' ? query['properties'] : undefined;
+  if (props) Object.assign(filter, propertiesValueContains(props));
   // Freetext substring over fact + description (2b-iii-a).
   const search = typeof query['search'] === 'string' ? query['search'] : undefined;
   const or = textSearchOr(search, SEARCHABLE_FIELDS.memories);

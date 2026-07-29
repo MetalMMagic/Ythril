@@ -14,6 +14,7 @@ import { checkDuplicates, type SimilarMatch, type DupeCheckOpts } from './recall
 import { emitWebhookEvent, type WebhookActor } from '../webhooks/dispatcher.js';
 import { log } from '../util/log.js';
 import type { EntityDoc, EdgeDoc, MemoryDoc, ChronoEntry, TombstoneDoc, FileMetaDoc } from '../config/types.js';
+import { PROPERTIES_SCAN_MAX_MS } from './tag-filter.js';
 
 /** A backlink entry describing an item that references a given entity. */
 export interface BacklinkEntry {
@@ -324,6 +325,9 @@ export async function listEntities(
 ): Promise<EntityDoc[]> {
   const cursor = col<EntityDoc>(`${spaceId}_entities`)
     .find(asFilter<EntityDoc>({ ...filter, spaceId }));
+  // A properties-value filter is a collection scan by nature ($expr cannot use an index), so it
+  // carries its own deadline instead of running unbounded on a large space.
+  cursor.maxTimeMS(filter['$expr'] ? PROPERTIES_SCAN_MAX_MS : 60_000);
   // Default is natural (insertion) order — unchanged for every existing caller. A sort is only
   // applied when one is explicitly requested.
   if (sort) cursor.sort(toMongoSort(sort));

@@ -3184,6 +3184,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Properties columns filter by property VALUE.** Typing `engineer` finds records whose property
+  bag holds that value anywhere; property *names* are not matched. Values are stringified first, so `12`
+  finds a numeric `12` rather than nothing. Because property names are yours to choose, this query
+  cannot use an index — it is a scan, so it carries its own time limit instead of running unbounded on a
+  large space.
+
 - **Every text column in the Brain record tables can now be filtered from its own header.** The
   Description columns had no control at all — while the box in the first column was quietly filtering
   description too, since the server's freetext search spans both fields. So a column looked unfiltered

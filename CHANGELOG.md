@@ -29,6 +29,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `find_similar`'s source descriptor field `matchedText` is renamed `summary`, since `matchedText` no
     longer means anything in an MCP response.
 
+- **Space completeness — a score in Brain → Overview, and every point it deducts names what is missing.**
+  A space is "set up" long before it is *usable*: schemas declare types nothing instantiates and
+  properties nothing fills, entities pile up with no edges between them, files land that recall cannot
+  see. None of that errors, and none of it was visible anywhere. New `GET /api/spaces/:id/completeness`
+  and an Overview panel that shows the score beside its deductions.
+  - **The checks are the primitive; the score is their roll-up.** A percentage nobody can decompose is a
+    number nobody can act on, so the panel never renders a score alone — each deduction is one line
+    naming the finding, a sample of what it found, and a link to the tab holding those records.
+  - **A check that does not apply is absent, not failed.** A space declaring no schemas has opted out of
+    schema governance deliberately; scoring it 0 % for that would make the number a scold. Only checks
+    with a real denominator enter the roll-up, and partial credit is proportional — 1 unlinked entity in
+    40 does not read like 40 in 40.
+  - Findings are per knowledge kind: an unused entity type and an unused edge label are separate rows
+    with separate samples and separate destinations.
+  - Seven checks ship: declared type never used · records using an undeclared type (what `strict`
+    validation would now reject) · declared property never filled · entity with no edges · file neither
+    embedded nor chunked · no space `purpose` · schemas declared while validation is off.
+  - Bounded to a fixed number of aggregations regardless of how much the schema declares, and two
+    indexes it needs — `edges.to` and `files.parentFileId` — are created alongside the existing ones.
+    `edges.to` was unindexed before this: the compound `{from, to, label}` covers `from` through its
+    prefix and left every "what points *at* this entity" question scanning the collection.
+
 - **Hybrid retrieval: a lexical channel beside the vector one, fused by Reciprocal Rank Fusion.**
   Vector search compares *meaning*, which is exactly the wrong tool for the tokens a corpus is most
   precise about — article numbers, form ids, part codes, clause names, proper nouns. An opaque identifier

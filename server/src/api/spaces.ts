@@ -9,6 +9,7 @@ import { createSpace, removeSpace } from '../spaces/lifecycle.js';
 import { renameSpace } from '../spaces/rename.js';
 import { updateSpace, reorderSpaces } from '../spaces/spaces.js';
 import { checkMetaPrecondition, preconditionErrorBody } from '../spaces/meta-precondition.js';
+import { gatherCompletenessFacts, scoreCompleteness } from '../spaces/completeness.js';
 import { ensureTtlIndex } from '../brain/ttl.js';
 import { measureUsage, dirSizeBytes } from '../quota/quota.js';
 import { col } from '../db/mongo.js';
@@ -723,6 +724,22 @@ spacesRouter.get('/:id/meta', globalRateLimit, requireAuth, async (req, res) => 
     ...metaPublic,
     stats,
   });
+});
+
+// GET /api/spaces/:id/completeness — how much of what this space declared it would hold, it holds.
+//
+// Separate from `/meta` rather than folded into its `stats`: `/meta` is read on every schema edit and
+// must stay cheap, while this walks the collections. Read-only, so no audit entry — the
+// audit-route-coverage gate is about mutating verbs.
+spacesRouter.get('/:id/completeness', globalRateLimit, requireAuth, async (req, res) => {
+  const id = req.params['id'] as string;
+  const space = getConfig().spaces.find(s => s.id === id);
+  if (!space) {
+    res.status(404).json({ error: `Space '${id}' not found` });
+    return;
+  }
+  const facts = await gatherCompletenessFacts(resolveMemberSpaces(id));
+  res.json(scoreCompleteness(id, space.meta ?? {}, facts));
 });
 
 // ── Granular type schema CRUD ─────────────────────────────────────────────────

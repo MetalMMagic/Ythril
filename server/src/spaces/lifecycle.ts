@@ -76,6 +76,10 @@ export async function initSpace(
   // Unique within the (already per-space) collection: (from, to, label) — the leading constant
   // `spaceId` distinguished no documents, so dropping it preserves the identical guarantee.
   await edgesColl.createIndex({ from: 1, to: 1, label: 1 }, { unique: true });
+  // The compound index above serves `from` through its prefix but leaves `to` unindexed, so any
+  // "which entities does the graph touch" question scanned the whole collection on the inbound half.
+  // Completeness' unlinked-entity join asks it per entity; traversal asks it per hop.
+  await edgesColl.createIndex({ to: 1 });
   await edgesColl.createIndex({ seq: 1 });
   await chronoColl.createIndex({ startsAt: 1 });
   await chronoColl.createIndex({ status: 1 });
@@ -93,6 +97,9 @@ export async function initSpace(
   await contraColl.createIndex({ type: 1 });
   await filesColl.createIndex({ tags: 1 });
   await filesColl.createIndex({ updatedAt: -1 });
+  // Chunk records point at their file through `parentFileId`. Both the chunk-grouping reads and
+  // completeness' "was this file ever chunked" join go through it.
+  await filesColl.createIndex({ parentFileId: 1 });
 
   // Lexical retrieval index — the BM25-family half of hybrid search (`brain/lexical-search.ts`).
   //

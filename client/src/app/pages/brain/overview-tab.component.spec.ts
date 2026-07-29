@@ -233,6 +233,67 @@ describe('OverviewTabComponent', () => {
     expect(emptyEl.textContent).toContain('brain.overview.tok.none'); // test transloco emits the raw key
   });
 
+  it('Completeness panel is hidden without a report, and never shows a score without its deductions', () => {
+    // No report (still loading, or the endpoint failed) → no panel. A governance number that failed to
+    // load must not render as a zero.
+    const hidden = setup();
+    hidden.fixture.detectChanges();
+    expect((hidden.fixture.nativeElement as HTMLElement).querySelector('.comp-score')).toBeNull();
+
+    const shown = setup();
+    shown.fixture.componentRef.setInput('completeness', {
+      spaceId: 'general', score: 62, truncated: false,
+      checks: [
+        // Passing — must NOT appear in the list; a check that costs nothing is not a deduction.
+        { id: 'meta-purpose-missing', severity: 'info', scope: 'space', affected: 0, total: 1, weight: 1, earned: 1, sample: [], targetTab: null },
+        // 1 point lost of 2.
+        { id: 'entity-without-edges', severity: 'info', scope: 'entity', affected: 6, total: 12, weight: 2, earned: 1, sample: ['e1'], targetTab: 'entities' },
+        // 3 points lost — the heaviest, so it must sort first even though it affects fewer records.
+        { id: 'file-not-recallable', severity: 'warn', scope: 'file', affected: 3, total: 3, weight: 3, earned: 0, sample: ['a.pdf'], targetTab: 'files' },
+      ],
+    });
+    shown.fixture.detectChanges();
+    const el = shown.fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.comp-score')?.textContent).toContain('62');
+    const rows = [...el.querySelectorAll('.comp-list li')];
+    expect(rows.length).toBe(2);   // the passing check is not listed
+    // Ranked by points LOST, not by how many records are affected.
+    expect(rows[0].textContent).toContain('file-not-recallable');
+    expect(rows[1].textContent).toContain('entity-without-edges');
+    expect(rows[0].querySelector('.cs')?.textContent).toContain('a.pdf');
+  });
+
+  it('a completeness deduction jumps to the tab holding the affected records', () => {
+    const { fixture, c } = setup();
+    const spy = vi.fn(); c.openTab.subscribe(spy);
+    fixture.componentRef.setInput('completeness', {
+      spaceId: 'general', score: 40, truncated: false,
+      checks: [{ id: 'file-not-recallable', severity: 'warn', scope: 'file', affected: 3, total: 3, weight: 3, earned: 0, sample: [], targetTab: 'files' }],
+    });
+    fixture.detectChanges();
+    (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('.comp-go')!.click();
+    expect(spy).toHaveBeenCalledWith('files');
+  });
+
+  it('a space-scoped finding has no tab to jump to, so it renders without a link', () => {
+    const { fixture } = setup();
+    fixture.componentRef.setInput('completeness', {
+      spaceId: 'general', score: 0, truncated: false,
+      checks: [{ id: 'meta-purpose-missing', severity: 'info', scope: 'space', affected: 1, total: 1, weight: 1, earned: 0, sample: [], targetTab: null }],
+    });
+    fixture.detectChanges();
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelectorAll('.comp-list li').length).toBe(1);
+    expect(el.querySelector('.comp-go')).toBeNull();
+  });
+
+  it('a null score keeps the panel hidden — a space nothing could be asked about is not 0 % complete', () => {
+    const { fixture } = setup();
+    fixture.componentRef.setInput('completeness', { spaceId: 'general', score: null, checks: [], truncated: false });
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).querySelector('.comp-score')).toBeNull();
+  });
+
   it('renders the counts and a Reindex button; shows the reindex note when stale', () => {
     const { fixture } = setup({ stats: STATS, needsReindex: true });
     fixture.detectChanges();

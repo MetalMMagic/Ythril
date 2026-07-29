@@ -188,6 +188,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction, and two tests walk that list through the real handler — a shared type alone would not
   prove the tab is actually reachable.
 
+- **Schema tab: the add control stops moving, and four near-identical hints become one.** Owner,
+  2026-07-21: *"Schema menu still is a bit messy with guidance text and different fontstyles."*
+  - The per-collection guidance was four strings that differed only in the field they named
+    (`entity.type`, `edge.label`, …). Because they were different lengths they wrapped differently, the
+    header row changed height between collections, and **everything below it — including the add
+    control — moved when you switched category.** One parameterised string fixes the wording and the
+    movement at the same time.
+  - The four copies had drifted, which is what "different fontstyles" was pointing at: the German set
+    used an en dash in two of them and an em dash in the others, and quoted the field name in two of
+    four. The Polish set had *translated the field names* (`obiektu.type`, `Edge.label`) — a field name
+    is an identifier and must never be localised.
+  - The add control and the detail pane's header now share one height (`--sch-head-h`) and one bottom
+    margin, so the two column rules line up instead of sitting a few pixels apart.
+
 ### Testing
 
 - **The last simulation test is retired.** `testing/standalone/build-properties-schema.test.js`

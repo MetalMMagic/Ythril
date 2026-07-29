@@ -1,5 +1,6 @@
 import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { getConfig, getSecrets } from '../../config/loader.js';
+import { allowPrivateModelEndpoints } from '../../config/model-egress-policy.js';
 import { log } from '../../util/log.js';
 
 /** One detected face, in exactly the shape the in-process recogniser produces. */
@@ -71,6 +72,12 @@ export async function detectFacesExternal(imageBytes: Buffer): Promise<ExternalF
         image: imageBytes.toString('base64'),
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
+    }, {
+      // Matches the assist model: a self-hosted recogniser may live on a private cluster address. The
+      // guard stays on — DNS-resolve, IP-pin and redirect re-validation all still apply; only the
+      // private-address rejection lifts. Without this the WRITE check accepts such an endpoint and every
+      // call then fails, which is a configurable feature that silently does not work.
+      allowPrivate: allowPrivateModelEndpoints(),
     });
     if (!res.ok) {
       log.warn(`External face model: HTTP ${res.status} — falling back to in-process recognition`);

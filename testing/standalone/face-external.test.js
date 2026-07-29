@@ -100,3 +100,22 @@ describe('the embedder falls back instead of dropping faces', () => {
     assert.equal((src.match(/Process each detected face/g) ?? []).length, 1);
   });
 });
+
+describe('the external face endpoint honours the egress policy', () => {
+  const src = readFileSync(new URL('../../server/src/files/media/face-external.ts', import.meta.url), 'utf8');
+
+  it('passes allowPrivateModelEndpoints to the guard', () => {
+    // Without it the guard rejects a self-hosted recogniser on a cluster address at RUNTIME, even though
+    // the write path accepted it — a configurable feature that silently does not work. That was the one
+    // real finding of the 2026-07-29 audit, and it was in this file.
+    assert.ok(src.includes('allowPrivate: allowPrivateModelEndpoints()'),
+      'the operator private-endpoint policy must reach the fetch');
+  });
+
+  it('is an EXTERNAL provider, so it is guarded rather than plain-fetched', () => {
+    // Unlike the bundled Ollama/Whisper (local, private addresses, deliberately plain `fetch`), there is
+    // no bundled face sidecar — this endpoint is operator-supplied by definition.
+    assert.ok(src.includes('ssrfSafeFetch('));
+    assert.ok(!/await fetch\(/.test(src));
+  });
+});

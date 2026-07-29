@@ -83,7 +83,6 @@
   "help.doc.sync-protocol": "Sync protocol",
   "help.doc.dependencies": "Dependencies & licences",
   "help.doc.contribution-guide": "Contributing",
-  "help.doc.docker-build-protocol": "Docker build protocol",
   "about.card.help": "Documentation",
   "about.card.helpDesc": "The full guides, bundled with this instance and readable without leaving it.",
   "about.openHelp": "Open Help",

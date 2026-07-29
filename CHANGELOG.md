@@ -44,7 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A new preflight gate keeps the list honest in both directions: a guide that ships but is not offered
     (unreachable from the product) and a guide that is offered but does not ship (404 for whoever clicks
     it) both fail the build, as does a missing title in any of the three locales, a dropped asset glob,
-    or a dropped Dockerfile `COPY`.
+    or a dropped Dockerfile `COPY`. "Ships" means *tracked by git*, not *present in the working tree* —
+    a gitignored local-only doc is invisible to the build, so it must be invisible to the gate too.
   - The markdown pipeline — marked + mermaid + DOMPurify — moved out of the Files preview into a shared
     `MarkdownRenderService` that both now use. The sanitization rules are a security boundary; a second
     copy is a second place for them to drift.

@@ -18,7 +18,8 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
 const HELP_COMPONENT = 'client/src/app/pages/settings/help.component.ts';
 const src = readFileSync(HELP_COMPONENT, 'utf8');
@@ -28,10 +29,22 @@ const listed = [...src.matchAll(/file:\s*'([^']+)'/g)].map(m => m[1]);
 /** The `id:` values, needed for the i18n check. */
 const ids = [...src.matchAll(/id:\s*'([^']+)',\s*file:/g)].map(m => m[1]);
 
-const shipped = readdirSync('docs').filter(f => f.endsWith('.md'));
+/**
+ * What SHIPS is what git tracks — not what happens to be in the working tree.
+ *
+ * `readdirSync` was wrong here and cost a red CI run: `docs/docker-build-protocol.md` is gitignored, so
+ * it exists on a maintainer's disk and in no clone, no image and no build. The filesystem view made this
+ * gate demand a Help entry for it, and that entry would have 404'd for every user. A local-only file is
+ * invisible to the build, so it must be invisible to the check that guards the build.
+ */
+const shipped = execFileSync('git', ['ls-files', 'docs/*.md'], { encoding: 'utf8' })
+  .split('\n').filter(Boolean).map(p => p.replace(/^docs\//, ''));
 
 describe('Help page — the offered guides and the shipped ones are the same set', () => {
-  it('offers every markdown file in docs/', () => {
+  it('offers every tracked markdown file in docs/', () => {
+    // A `git ls-files` that returned nothing would make this assertion vacuous. (The next test would
+    // fail loudly in that case, but a check that can quietly check nothing is worth ruling out here.)
+    assert.ok(shipped.length > 0, 'no tracked docs found — the check would be measuring nothing');
     const missing = shipped.filter(f => !listed.includes(f));
     assert.deepEqual(missing, [],
       `these guides ship but the Help page does not offer them — add them to HELP_DOCS in ${HELP_COMPONENT}`);

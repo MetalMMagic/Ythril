@@ -38,7 +38,6 @@ export const HELP_DOCS = [
   { id: 'sync-protocol', file: 'sync-protocol.md' },
   { id: 'dependencies', file: 'dependencies.md' },
   { id: 'contribution-guide', file: 'contribution-guide.md' },
-  { id: 'docker-build-protocol', file: 'docker-build-protocol.md' },
 ] as const;
 
 export type HelpDocId = typeof HELP_DOCS[number]['id'];

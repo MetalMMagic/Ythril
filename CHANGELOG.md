@@ -190,6 +190,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Schema changes were invisible in the audit log; they are now summarised.** `space.schema.update` and
+  `schema_library.update` change nested objects, and the audit layer records allowlisted scalars and
+  drops objects outright — so replacing a space's entire schema recorded **nothing**. The entry said an
+  admin hit the route and could not say whether they added a type or deleted eleven, for the one setting
+  that decides what the space will accept from then on.
+  - Recorded as name-set deltas — `typeSchemas.entity` added/removed, and per-type
+    `propertySchemas` key changes — reusing the existing `added`/`removed` shape, so no reader, retention
+    sweep or API contract needs a new case.
+  - **Names only, never values.** A property's `default`, `enum` or `namingPattern` can be example data
+    lifted from real records; its key is the declared vocabulary an admin chose. `scalarOrDrop` was not
+    relaxed to achieve this. A test feeds a schema full of recognisable secrets and scans the serialised
+    output for every one of them, so a future field that starts leaking is caught even though the test
+    has never heard of it.
+  - A type added or removed outright is not *also* itemised property-by-property, and the key list is
+    capped at 25 per field so one enormous paste cannot flood a retained store.
+  - The three routes involved now capture before/after snapshots at all — including the granular
+    single-type `PUT`/`DELETE` that the Schema tab actually uses, which was the silent half of an
+    already-silent pair. Deleting a type is the change most worth having: it silently widens what the
+    space accepts, and the definition it removed is not recoverable from the entry.
+
 - **Preflight now runs the production build**, which type-checks Angular *templates* (AOT) and compiles
   under the app's own tsconfig — neither of which the unit-test run does. It immediately caught a
   `[...NodeList]` spread that all 785 tests passed straight over. ~7 seconds, and it is where an unknown

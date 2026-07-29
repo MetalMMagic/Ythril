@@ -26,6 +26,8 @@
  * through nesting.
  */
 
+import { AUDIT_SCHEMA_SUMMARY } from './audit-schema-summary.js';
+
 /**
  * A single recorded field change.
  *
@@ -92,6 +94,10 @@ export const AUDIT_CHANGE_FIELDS: Readonly<Record<string, readonly string[]>> = 
   // becomes UNRECOVERABLE is the absorbed entity's name — an id alone means nothing once the record it
   // pointed at is gone. Recorded as name → null, which reads as "this entity no longer exists".
   'entity.merge': ['absorbedName'],
+  // A library entry is `$ref`-ed by any number of spaces, so what it declares is what all of them
+  // validate against. Scalars only here — the `schema` object itself is summarised as property-key
+  // NAMES by `audit-schema-summary.ts`, because a property's schema can carry example values.
+  'schema_library.update': ['knowledgeType', 'typeName', 'published', 'schemaGroup'],
   // Maintenance mode blocks writes instance-wide. One boolean, and the direction is the whole story:
   // an entry saying only "an admin hit the maintenance route" cannot distinguish starting an outage
   // from ending one.
@@ -166,10 +172,18 @@ function at(obj: unknown, path: string): unknown {
  * accident even if it sits alongside one that is listed. Returns [] for an unknown operation.
  */
 export function auditChanges(operation: string, before: unknown, after: unknown): AuditChange[] {
-  const fields = AUDIT_CHANGE_FIELDS[operation];
-  if (!fields || before == null || after == null) return [];
+  if (before == null || after == null) return [];
 
-  const out: AuditChange[] = [];
+  // Nested-object changes — a space's typeSchemas, a library entry's schema — that the scalars-only rule
+  // above drops entirely, and that no amount of adding names to the allowlist could ever record. They
+  // are summarised as NAME sets (which types, which property keys) and never values. See
+  // `audit-schema-summary.ts` for why names are the line and values are not.
+  const summary = AUDIT_SCHEMA_SUMMARY[operation]?.(before, after) ?? [];
+
+  const fields = AUDIT_CHANGE_FIELDS[operation];
+  if (!fields) return summary;
+
+  const out: AuditChange[] = [...summary];
   for (const field of fields) {
     // List fields first: they would otherwise be dropped by scalarOrDrop and record nothing at all.
     if (LIST_FIELDS.has(field.split('.').pop() ?? field)) {

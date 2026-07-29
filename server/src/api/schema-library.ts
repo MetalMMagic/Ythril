@@ -498,6 +498,10 @@ schemaLibraryRouter.put('/:name', globalRateLimit, requireAdminMfa, (req, res) =
     const updatedLibrary = [...library];
     updatedLibrary[existingIdx] = updatedEntry;
     saveSchemaLibrary(updatedLibrary);
+    // A library entry is referenced by `$ref` from any number of spaces, so editing one changes what all
+    // of them validate against. The audit layer records the scalar metadata plus the property-key names
+    // that changed — never the property schemas, which can carry example values.
+    req.auditSnapshots = { before: existing, after: updatedEntry };
     res.json({ entry: updatedEntry });
   }
 });

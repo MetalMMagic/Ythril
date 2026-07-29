@@ -13,7 +13,7 @@ import { ChronoTabComponent } from './chrono-tab.component';
 import { OverviewTabComponent } from './overview-tab.component';
 import { ReviewTabComponent } from './review-tab.component';
 import { FormsModule } from '@angular/forms';
-import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport } from '../../core/api.types';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { BrainApi } from '../../core/brain-api.service';
 import { AdminApi } from '../../core/admin-api.service';
@@ -289,7 +289,8 @@ interface SpaceView {
           @if (activeSpace(); as sp) {
             <app-overview-tab [space]="sp" [stats]="activeStats()" [needsReindex]="needsReindex()"
               [reindexing]="reindexing()" [about]="aboutInfo()" [embeddingQueue]="embeddingQueue()"
-              [openVotes]="overviewVotes()" [tokenAccess]="tokenAccess()" (reindex)="runReindex()" (retryFailed)="runRetryFailedEmbeddings()"
+              [openVotes]="overviewVotes()" [tokenAccess]="tokenAccess()" [completeness]="completeness()"
+              (reindex)="runReindex()" (retryFailed)="runRetryFailedEmbeddings()"
               (openTab)="setTab($event)" />
           }
         }
@@ -339,6 +340,9 @@ export class BrainComponent implements OnInit, OnDestroy {
   /** Tokens that can reach the ACTIVE space (Overview token-access matrix). Null unless the caller is
    *  admin — the endpoint 403s otherwise, so a null keeps the panel hidden for non-admins. */
   tokenAccess = signal<TokenAccessEntry[] | null>(null);
+  /** Completeness report for the ACTIVE space (Overview panel). Null until it lands or on failure —
+   *  a governance panel that cannot load is hidden, not rendered as a zero. */
+  completeness = signal<CompletenessReport | null>(null);
 
   // Reindex
   needsReindex = signal(false);
@@ -481,11 +485,22 @@ export class BrainComponent implements OnInit, OnDestroy {
     this.embeddingQueue.set(null);
     this.overviewVotes.set([]);
     this.tokenAccess.set(null);
+    this.completeness.set(null);
     this.loadStats(id);
     this.loadSpaceMeta(id);
     this.loadEmbeddingQueue(id);
     this.loadOverviewVotes(id);
     this.loadTokenAccess(id);
+    this.loadCompleteness(id);
+  }
+
+  /** Fetch the completeness report for a space (Overview panel). Only stores it while that space is
+   *  still active; a failure leaves the signal null and the panel simply does not render. */
+  private loadCompleteness(spaceId: string): void {
+    this.spacesApi.getCompleteness(spaceId).subscribe({
+      next: r => { if (this.activeSpaceId() === spaceId) this.completeness.set(r); },
+      error: () => { if (this.activeSpaceId() === spaceId) this.completeness.set(null); },
+    });
   }
 
   /** Fetch the embedding-job backlog for a space; only stores it while that space is still active. */

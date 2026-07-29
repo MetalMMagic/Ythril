@@ -3,7 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
   Space, SpaceMeta, SpacesResponse, SpaceMetaResponse, KnowledgeType, TypeSchema,
-  DupeActionRule, SpaceStats, WipeCollectionType, WipeResult,
+  DupeActionRule, SpaceStats, WipeCollectionType, WipeResult, CompletenessReport,
 } from './api.types';
 
 /** Spaces, their per-type schemas, stats, reindex, and destructive wipe. */
@@ -31,6 +31,12 @@ export class SpacesApi {
     // `resolve=1`: expand library `$ref` types so the brain entry forms can pre-fill a selected type's
     // properties (a bare `{ $ref }` carries no propertySchemas). Edit/round-trip views use the raw meta.
     return this.http.get<SpaceMetaResponse>(`/api/spaces/${id}/meta?resolve=1`);
+  }
+
+  /** Completeness checks + their roll-up (Brain → Overview panel). Separate from `/meta` on purpose:
+   *  that endpoint is read on every schema edit and must stay cheap; this one walks the collections. */
+  getCompleteness(id: string): Observable<CompletenessReport> {
+    return this.http.get<CompletenessReport>(`/api/spaces/${id}/completeness`);
   }
 
   /** GET a single type definition from the space's typeSchemas. */

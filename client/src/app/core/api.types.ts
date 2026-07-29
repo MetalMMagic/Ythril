@@ -251,6 +251,34 @@ export interface SpaceStats {
   needsReindex?: boolean;
 }
 
+/**
+ * One completeness finding. The score is the weighted roll-up of these — the checks are the primitive,
+ * because a percentage nobody can decompose is a number nobody can act on.
+ */
+export interface CompletenessCheck {
+  id: string;
+  severity: 'info' | 'warn';
+  scope: string;
+  /** How many checked things are missing or wrong. */
+  affected: number;
+  /** How many things were checked. Always `> 0` — a check that did not apply is simply absent. */
+  total: number;
+  weight: number;
+  earned: number;
+  sample: string[];
+  /** Where the affected records are, or `null` for a finding about the space itself. */
+  targetTab: 'memories' | 'entities' | 'edges' | 'chrono' | 'files' | null;
+}
+
+export interface CompletenessReport {
+  spaceId: string;
+  /** `null` when no check applied — a brand-new space is not "0 % complete". */
+  score: number | null;
+  /** Only checks that applied. A question this space cannot be asked is not one it failed. */
+  checks: CompletenessCheck[];
+  truncated: boolean;
+}
+
 export type QueryCollection = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
 
 export interface QueryResult {

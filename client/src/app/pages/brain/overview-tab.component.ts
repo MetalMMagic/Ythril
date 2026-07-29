@@ -18,7 +18,7 @@ import { StatusPillComponent, StatusVariant } from '../../shared/status-pill.com
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry } from '../../core/api.types';
+import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry, CompletenessReport, CompletenessCheck } from '../../core/api.types';
 
 import { CollectionTab } from './brain-tabs';
 
@@ -138,6 +138,27 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
     .net-list, .vote-list, .tok-list, .fail-list { max-height: 216px; overflow-y: auto; }
     .lvl.full { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
     .lvl.readOnly { background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-secondary); }
+
+    /* Completeness. The score sits beside its deductions, never alone: a number on its own is the one
+       thing this panel must not be. Same bar primitive as storage — no new visual language. */
+    .comp-top { display: flex; align-items: baseline; gap: 10px; }
+    .comp-score { font-size: 30px; font-weight: 700; font-family: var(--font-mono, monospace);
+      font-variant-numeric: tabular-nums; line-height: 1; }
+    .comp-score.good { color: var(--success); } .comp-score.mid { color: var(--warning); } .comp-score.bad { color: var(--error); }
+    .comp-of { font-size: 12.5px; color: var(--text-secondary); }
+    .comp-list { list-style: none; margin: 13px 0 0; padding: 0; display: flex; flex-direction: column; gap: 7px; max-height: 216px; overflow-y: auto; }
+    .comp-list li { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px;
+      border-top: 1px solid var(--border-muted); padding-top: 7px; }
+    .comp-list ph-icon { flex: none; margin-top: 2px; }
+    .comp-list .warn-ic { color: var(--warning); } .comp-list .info-ic { color: var(--text-muted); }
+    .comp-txt { flex: 1; min-width: 0; }
+    .comp-txt .ct { color: var(--text-primary); }
+    .comp-txt .cs { display: block; color: var(--text-muted); font-size: 11px; font-family: var(--font-mono, monospace);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .comp-go { font: inherit; font-size: 11.5px; background: none; border: 0; color: var(--accent); cursor: pointer;
+      padding: 0; flex: none; text-decoration: underline; }
+    .comp-go:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .comp-clear { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--success); margin-top: 13px; }
   `],
   template: `
     <div class="grid">
@@ -182,6 +203,52 @@ interface StatCard { key: CollectionTab; icon: string; label: string; value: num
           }
         </div>
       </section>
+
+      <!-- ── Completeness ───────────────────────────────────────────── -->
+      @if (completeness(); as comp) {
+        @if (comp.score !== null) {
+          <section class="panel">
+            <header class="panel-h">
+              <span class="ic"><ph-icon name="check-circle" [size]="16"/></span>
+              <div><h3>{{ 'brain.overview.compTitle' | transloco }}</h3>
+                <p>{{ 'brain.overview.compHint' | transloco }}</p></div>
+            </header>
+            <div class="panel-b">
+              <div class="comp-top">
+                <span class="comp-score" [class.good]="comp.score >= 85" [class.mid]="comp.score >= 60 && comp.score < 85" [class.bad]="comp.score < 60">{{ comp.score }}%</span>
+                <span class="comp-of">{{ 'brain.overview.comp.of' | transloco: { count: comp.checks.length } }}</span>
+              </div>
+              <div class="bar"><span [class.warn]="comp.score < 85" [class.err]="comp.score < 60" [style.width.%]="comp.score"></span></div>
+
+              <!-- The deductions, heaviest first. The score never appears without them: a percentage
+                   nobody can decompose is a number nobody can act on. -->
+              @if (deductions().length) {
+                <ul class="comp-list">
+                  @for (c of deductions(); track c.id + c.scope) {
+                    <li>
+                      <ph-icon [name]="c.severity === 'warn' ? 'warning' : 'info'" [size]="14"
+                               [class.warn-ic]="c.severity === 'warn'" [class.info-ic]="c.severity !== 'warn'"/>
+                      <span class="comp-txt">
+                        <span class="ct">{{ 'brain.overview.comp.check.' + c.id | transloco: { affected: c.affected, total: c.total, scope: ('brain.overview.comp.scope.' + c.scope | transloco) } }}</span>
+                        @if (c.sample.length) { <span class="cs" [title]="c.sample.join(', ')">{{ c.sample.join(', ') }}</span> }
+                      </span>
+                      @if (c.targetTab; as tab) {
+                        <button type="button" class="comp-go" (click)="openTab.emit(tab)">{{ 'brain.overview.comp.go' | transloco }}</button>
+                      }
+                    </li>
+                  }
+                </ul>
+              } @else {
+                <div class="comp-clear"><ph-icon name="check-circle" [size]="15"/>{{ 'brain.overview.comp.clear' | transloco }}</div>
+              }
+
+              @if (comp.truncated) {
+                <div class="muted" style="margin-top:10px;">{{ 'brain.overview.comp.truncated' | transloco }}</div>
+              }
+            </div>
+          </section>
+        }
+      }
 
       <!-- ── Indexing ───────────────────────────────────────────────── -->
       <section class="panel">
@@ -359,6 +426,8 @@ export class OverviewTabComponent {
   openVotes = input<VoteRound[]>([]);
   /** Tokens that can reach this space (from the shell). Null for non-admins → the panel stays hidden. */
   tokenAccess = input<TokenAccessEntry[] | null>(null);
+  /** Completeness checks + roll-up (from the shell) — null until it lands, and the panel stays hidden. */
+  completeness = input<CompletenessReport | null>(null);
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
   /** A collection tile was clicked — the shell switches to that tab. */
   openTab = output<CollectionTab>();
@@ -385,6 +454,18 @@ export class OverviewTabComponent {
       { key: 'chrono', icon: 'timer', label: 'brain.overview.rec.chrono', value: s.chrono },
       { key: 'files', icon: 'folder', label: 'brain.overview.rec.files', value: s.files },
     ];
+  });
+
+  /**
+   * The checks that actually cost points, heaviest loss first — a passing check is not a deduction and
+   * listing it would bury the three lines that matter. Ranked by points LOST (`weight - earned`), not by
+   * `affected`: 3 unreachable files outrank 300 unlinked entities, because that is what the weights say.
+   */
+  deductions = computed<CompletenessCheck[]>(() => {
+    const cs = this.completeness()?.checks ?? [];
+    return cs.filter(c => c.earned < c.weight)
+      .sort((a, b) => (b.weight - b.earned) - (a.weight - a.earned))
+      .slice(0, 6);
   });
 
   /** Two decimals of GiB, without trailing noise. */

@@ -3109,6 +3109,86 @@ Returns the full schema definition for a space along with derived stats.
 
 ---
 
+### Get Space Completeness
+
+```http
+GET /api/spaces/:id/completeness
+Authorization: Bearer <token>
+```
+
+How much of what the space *declared* it would hold, it actually holds. A space is "set up" long before
+it is usable: schemas declare types nothing instantiates and properties nothing fills, entities pile up
+with no edges between them, files land that recall cannot see. None of that errors.
+
+Separate from `/meta` on purpose — that endpoint is read on every schema edit and stays cheap, while this
+one walks the collections. Read-only; the Brain's Overview panel is its main consumer.
+
+**Response** `200`:
+
+```json
+{
+  "spaceId": "eng-kb",
+  "score": 74,
+  "truncated": false,
+  "checks": [
+    {
+      "id": "file-not-recallable",
+      "severity": "warn",
+      "scope": "file",
+      "affected": 3,
+      "total": 31,
+      "weight": 3,
+      "earned": 2.7096774193548385,
+      "sample": ["contracts/2024-addendum.pdf", "scans/plan-b.tiff"],
+      "targetTab": "files"
+    },
+    {
+      "id": "declared-type-unused",
+      "severity": "info",
+      "scope": "edge",
+      "affected": 1,
+      "total": 2,
+      "weight": 1,
+      "earned": 0.5,
+      "sample": ["owns"],
+      "targetTab": "edges"
+    }
+  ]
+}
+```
+
+**The checks are the primitive; `score` is their weighted roll-up.** A percentage nobody can decompose is
+a number nobody can act on, so every point lost belongs to a named check with a sample and a destination.
+
+| Field | Meaning |
+|---|---|
+| `score` | `0`–`100`, the weighted roll-up of `earned / weight` across `checks`. `null` only when no check applied at all. |
+| `checks` | **Only checks that applied.** A check with no denominator is absent, not present with `total: 0` — a question this space cannot be asked is not one it failed. |
+| `id` | Which check. A check id appears **once per knowledge kind** — an unused entity type and an unused edge label are different findings. |
+| `severity` | `warn` = records are already wrong or invisible. `info` = the space is thinner than it declared. |
+| `scope` | `entity` / `memory` / `edge` / `chrono` / `file`, or `space` for a finding about the space itself. |
+| `affected` / `total` | How many of the checked things are wrong, out of how many were checked. |
+| `weight` / `earned` | The check's contribution to the score, and how much of it this space kept. Credit is proportional: 1 unlinked entity in 40 does not score like 40 in 40. |
+| `sample` | At most 5 identifiers — type names, `type.property` keys, or record ids/paths. |
+| `targetTab` | The Brain tab holding the affected records, or `null` for a `space`-scoped finding. |
+| `truncated` | `true` when a type declared more than 50 properties and the tail was not examined. Surfaced rather than silently dropped. |
+
+**The checks:**
+
+| `id` | What it finds |
+|---|---|
+| `declared-type-unused` | A key in `typeSchemas.<kind>` with no matching records — the schema describes an intention, not the contents. |
+| `undeclared-type-in-use` | Records whose `type` (or edge `label`) is absent from a **non-empty** allowlist — exactly what `validationMode: "strict"` would now reject. An empty allowlist accepts everything, so it is not checked at all. Untyped records are out of scope: validation only fires on a value that is present and unknown. |
+| `declared-property-never-filled` | A `propertySchemas` key no record of that type carries. Presence on *any* record clears it — this is not a fill-rate measure. |
+| `entity-without-edges` | Entities with no inbound or outbound edge. An entity graph with no edges is a list. |
+| `file-not-recallable` | File records that are neither embedded themselves nor chunked by the conversion pipeline — recall cannot reach them in any form. |
+| `meta-purpose-missing` | `meta.purpose` is unset, so MCP clients get no directive at handshake. |
+| `schemas-declared-but-unenforced` | `typeSchemas` is non-empty while `validationMode` is `off`. |
+
+For a proxy space, the checks aggregate across every member space, the same as `/meta`'s counts.
+
+---
+
 ### Get Single Type Definition
 
 ```http

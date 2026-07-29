@@ -41,6 +41,7 @@ function makeApi() {
     getAbout: () => of(null), // Overview Instance panel — null keeps it hidden in tests
     getEmbeddingQueue: () => of(null), // Overview embedding-queue panel — null keeps it hidden in tests
     getTokenAccess: () => of({ tokens: [] }), // Overview token-access matrix (admin-only)
+    getCompleteness: () => of(null), // Overview completeness panel — null keeps it hidden in tests
     listVotes: () => of({ rounds: [] }), // Overview Governance panel — no open votes in tests
   } as any;
 }

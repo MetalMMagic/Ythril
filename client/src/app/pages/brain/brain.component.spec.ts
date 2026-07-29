@@ -25,6 +25,7 @@ import { NetworksApi } from '../../core/networks-api.service';
 import { AuthService } from '../../core/auth.service';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { BrainComponent } from './brain.component';
+import { COLLECTION_TABS } from './brain-tabs';
 
 
 /** Read-only stub: brain's init cascade is listSpaces → getSpaceStats/getReindexStatus/getSpaceMeta. */
@@ -88,6 +89,19 @@ describe('BrainComponent (OnPush)', () => {
     c.setTab('edges');
     c.selectSpace('other');
     expect(c.activeTab()).toBe('edges');
+  });
+
+  it('every Overview stat tile opens a tab that actually exists', () => {
+    // The tiles and the tabs used to be two hand-written unions (`StatKey` in overview-tab,
+    // `BrainTab` here) that agreed only by convention. The drift was one-directional and SILENT:
+    // adding a tab here and a tile there against a stale copy would compile and the tile simply
+    // would not open anything. Both now derive from COLLECTION_TABS, and this walks the same list
+    // through the real handler — a type alias alone would not prove the tab is reachable.
+    const c = create().componentInstance;
+    for (const tab of COLLECTION_TABS) {
+      c.setTab(tab);
+      expect(c.activeTab()).toBe(tab);
+    }
   });
 
   it('File Meta is merged into one Files tab — no separate File Meta collection tab', () => {

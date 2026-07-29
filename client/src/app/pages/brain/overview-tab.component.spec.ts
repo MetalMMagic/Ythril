@@ -10,6 +10,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { provideRouter } from '@angular/router';
 import { getTranslocoModule } from '../../testing/transloco-testing';
 import { OverviewTabComponent } from './overview-tab.component';
+import { COLLECTION_TABS } from './brain-tabs';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
 import type { Space, SpaceStats } from '../../core/api.types';
 
@@ -41,6 +42,17 @@ describe('OverviewTabComponent', () => {
     expect(c.statCards().map(s => [s.key, s.value])).toEqual([
       ['memories', 5], ['entities', 12], ['edges', 30], ['chrono', 3], ['files', 7],
     ]);
+  });
+
+  it('every stat tile targets a real collection tab', () => {
+    // The tile's `key` IS the tab it opens. Typed from COLLECTION_TABS now rather than a second
+    // hand-written union, and checked at runtime too: the type stops a mismatch reaching the build,
+    // this stops a tile being added from data the type never sees.
+    const { c } = setup({ stats: STATS });
+    expect(c.statCards().length).toBe(COLLECTION_TABS.length);
+    for (const card of c.statCards()) {
+      expect(COLLECTION_TABS).toContain(card.key);
+    }
   });
 
   it('total is 0 and statCards empty while stats are still loading', () => {

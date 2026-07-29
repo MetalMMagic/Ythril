@@ -51,6 +51,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   change alongside model / dimensions / similarity, with the same save confirmation — the prefix is part
   of the embedded string, so changing it invalidates the corpus exactly as a model change does.
 
+### Changed
+
+- **The Brain's tab identifiers are one union instead of two hand-synced ones.** `BrainTab` lived in
+  `brain.component.ts` and a subset of it was re-declared as `StatKey` in `overview-tab.component.ts` for
+  the Overview's clickable stat tiles. They agreed by convention, and the drift that convention allowed
+  was one-directional and silent: adding a key the parent lacked failed the build, but adding a *tab* and
+  a matching tile still typed against the stale copy did not — the tile just could not open its tab, and
+  nothing said so. Both now derive from `COLLECTION_TABS` in `brain-tabs.ts`, so the subset relation holds
+  by construction, and two tests walk that list through the real handler — a shared type alone would not
+  prove the tab is actually reachable.
+
 ### Fixed
 
 - **`GET /api/admin/media-config` returned the NLI provider's API key in plaintext.** Every other

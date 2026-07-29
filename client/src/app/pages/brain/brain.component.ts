@@ -25,7 +25,7 @@ import { FileManagerComponent } from '../files/file-manager.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
-type BrainTab = 'overview' | 'query' | 'graph' | 'files' | 'entities' | 'edges' | 'memories' | 'chrono' | 'review';
+import { BrainTab, CollectionTab } from './brain-tabs';
 
 interface SpaceView {
   space: Space;
@@ -397,7 +397,7 @@ export class BrainComponent implements OnInit, OnDestroy {
   private liveRefreshTimer?: ReturnType<typeof setTimeout>;
   private liveReconnectTimer?: ReturnType<typeof setTimeout>;
   private static readonly LIVE_RECONNECT_MS = 3000;
-  private static readonly TAB_FOR_COLLECTION: Record<string, BrainTab> = {
+  private static readonly TAB_FOR_COLLECTION: Record<string, CollectionTab> = {
     memory: 'memories', entity: 'entities', edge: 'edges', chrono: 'chrono', file: 'files',
   };
 

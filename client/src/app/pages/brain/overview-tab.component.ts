@@ -20,9 +20,11 @@ import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { Space, SpaceStats, AboutInfo, EmbeddingQueue, VoteRound, TokenAccessEntry } from '../../core/api.types';
 
-/** `key` doubles as the Brain tab this tile jumps to — the five collection tabs. */
-type StatKey = 'memories' | 'entities' | 'edges' | 'chrono' | 'files';
-interface StatCard { key: StatKey; icon: string; label: string; value: number }
+import { CollectionTab } from './brain-tabs';
+
+/** `key` doubles as the Brain tab this tile jumps to. Typed from the shared union rather than re-declared,
+ *  so a tab added to the Brain and a tile added here can no longer disagree in silence. */
+interface StatCard { key: CollectionTab; icon: string; label: string; value: number }
 
 @Component({
   selector: 'app-overview-tab',
@@ -359,7 +361,7 @@ export class OverviewTabComponent {
   tokenAccess = input<TokenAccessEntry[] | null>(null);
   /** Emitted (after a confirm) so the shell's existing reindex flow runs — no duplicate API path. */
   /** A collection tile was clicked — the shell switches to that tab. */
-  openTab = output<StatKey>();
+  openTab = output<CollectionTab>();
 
   reindex = output<void>();
   /** Emitted so the shell re-queues every failed embedding job and reloads the queue (fetch-free tab). */

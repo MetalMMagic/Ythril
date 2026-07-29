@@ -11,7 +11,7 @@
  * The markdown goes through `MarkdownRenderService` — the same sanitizing pipeline as the Files preview,
  * because the sanitization rules are a security boundary and a second copy is a second place to drift.
  */
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -103,7 +103,10 @@ export type HelpDocId = typeof HELP_DOCS[number]['id'];
           <!-- A guide that failed to load is not a guide with no content. Say which, and offer a retry. -->
           <app-error-state [message]="'help.loadError' | transloco" [reason]="e" (retry)="reload()" />
         } @else {
-          <article [innerHTML]="html()"></article>
+          <!-- Links inside a rendered guide are handled in onDocClick rather than by the browser: a
+               bare hash link would otherwise navigate the router, and a cross-doc link like
+               integration-guide.md would leave the app for a URL that does not exist. -->
+          <article #doc [innerHTML]="html()" (click)="onDocClick($event)"></article>
           <p class="loading" style="margin-top:22px;">
             <ph-icon name="info" [size]="14"/>{{ 'help.shippedNote' | transloco }}
           </p>
@@ -115,7 +118,11 @@ export type HelpDocId = typeof HELP_DOCS[number]['id'];
 export class HelpComponent implements OnInit {
   readonly docs = HELP_DOCS;
 
+  /** The rendered article, for resolving a fragment to its heading element. */
+  private readonly docRef = viewChild<ElementRef<HTMLElement>>('doc');
+
   private http = inject(HttpClient);
+  private cdr = inject(ChangeDetectorRef);
   private sanitizer = inject(DomSanitizer);
   private markdown = inject(MarkdownRenderService);
   private route = inject(ActivatedRoute);
@@ -131,22 +138,83 @@ export class HelpComponent implements OnInit {
   ngOnInit(): void {
     // `?doc=` makes a guide linkable, which is what lets a settings screen point at the paragraph that
     // explains it. An unknown id falls back to the first guide rather than erroring: a stale bookmark
-    // should land somewhere useful, not on a failure.
+    // should land somewhere useful, not on a failure. The fragment addresses a heading within it, so a
+    // help control can open the *section* that explains its screen rather than the top of a long guide.
     const requested = this.route.snapshot.queryParamMap.get('doc');
     const known = HELP_DOCS.find(d => d.id === requested);
-    this.load(known?.id ?? HELP_DOCS[0].id);
+    this.load(known?.id ?? HELP_DOCS[0].id, this.route.snapshot.fragment ?? undefined);
   }
 
-  open(id: HelpDocId): void {
-    if (id === this.active() && !this.error()) return;
+  open(id: HelpDocId, fragment?: string): void {
+    if (id === this.active() && !this.error()) {
+      if (fragment) this.scrollTo(fragment);
+      return;
+    }
     // Reflected in the URL so the guide can be linked to and survives a reload.
-    void this.router.navigate([], { relativeTo: this.route, queryParams: { doc: id }, replaceUrl: true });
-    this.load(id);
+    void this.router.navigate([], {
+      relativeTo: this.route, queryParams: { doc: id }, fragment: fragment || undefined, replaceUrl: true,
+    });
+    this.load(id, fragment);
+  }
+
+  /**
+   * Links inside a rendered guide, which the browser would get wrong in two different ways.
+   *
+   * A bare `#anchor` — and `userguide.md` alone has 31 of them, its whole table of contents — resolves
+   * against the current route, so the browser hands it to the router and nothing happens. A cross-doc
+   * link like `integration-guide.md` resolves to `/settings/integration-guide.md`, which leaves the app
+   * for a URL that does not exist. Both were dead when the Help page first shipped.
+   *
+   * External links are left entirely alone: the point is to keep in-product navigation working, not to
+   * capture every anchor on the page.
+   */
+  onDocClick(ev: MouseEvent): void {
+    // Never swallow a modified click — ctrl/cmd/middle-click means "open in a new tab", and that is
+    // still a reasonable thing to want from a documentation link.
+    if (ev.defaultPrevented || ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    const anchor = (ev.target as HTMLElement | null)?.closest('a');
+    const href = anchor?.getAttribute('href');
+    if (!href) return;
+
+    if (href.startsWith('#')) {
+      ev.preventDefault();
+      const fragment = decodeURIComponent(href.slice(1));
+      this.scrollTo(fragment);
+      void this.router.navigate([], {
+        relativeTo: this.route, queryParams: { doc: this.active() }, fragment, replaceUrl: true,
+      });
+      return;
+    }
+
+    // A relative `<file>.md` (optionally with its own #anchor) — only if that guide is actually offered.
+    const crossDoc = /^(?:\.\/)?([a-z0-9-]+)\.md(?:#(.*))?$/i.exec(href);
+    if (crossDoc) {
+      const target = HELP_DOCS.find(d => d.file === `${crossDoc[1]}.md`);
+      // An unoffered target keeps its default behaviour rather than being silently swallowed: a dead
+      // link that visibly does nothing is easier to report than one that is quietly ignored.
+      if (!target) return;
+      ev.preventDefault();
+      this.open(target.id, crossDoc[2]);
+    }
+  }
+
+  /** Bring a heading into view by its slug id. Missing ids are a no-op — a stale anchor in a document
+   *  should leave the reader at the top of the guide, not throw. */
+  private scrollTo(fragment: string): void {
+    if (!fragment) return;
+    // Compared rather than selected: a slug from a document heading is arbitrary text, and building a
+    // `#...` selector out of it needs escaping that is easy to get wrong (and `CSS.escape` is not
+    // universally present). Matching the property sidesteps the question entirely.
+    const root = this.docRef()?.nativeElement;
+    const el = root && Array.from(root.querySelectorAll<HTMLElement>('[id]')).find(n => n.id === fragment);
+    // Scrolling is a nicety layered on top of rendering the guide; it must never be able to break it.
+    // This runs inside the async render handler, where a throw would leave the page mid-update.
+    if (typeof el?.scrollIntoView === 'function') el.scrollIntoView({ block: 'start' });
   }
 
   reload(): void { this.load(this.active()); }
 
-  private load(id: HelpDocId): void {
+  private load(id: HelpDocId, fragment?: string): void {
     this.active.set(id);
     this.loading.set(true);
     this.error.set('');
@@ -158,6 +226,11 @@ export class HelpComponent implements OnInit {
         if (this.active() !== id) return;
         this.rendered.set(this.sanitizer.bypassSecurityTrustHtml(html));
         this.loading.set(false);
+        // The heading only exists once the view has rendered the new HTML, so the scroll waits a turn.
+        if (fragment) {
+          this.cdr.detectChanges();
+          this.scrollTo(fragment);
+        }
       },
       // Bundled assets do not normally 404 — if one does, the build dropped it, and saying so beats
       // rendering an empty page that looks like a guide with nothing in it.

@@ -29,6 +29,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `find_similar`'s source descriptor field `matchedText` is renamed `summary`, since `matchedText` no
     longer means anything in an MCP response.
 
+- **A help control on every documented page, landing on the section that explains it.** The pages
+  themselves now carry a small **Help** link that opens the guide at the right *heading* — not the top of
+  a 900-line document, which moves the search rather than answering it. Spaces, Tokens, Networks, Media
+  Processing, Storage, Data, Audit Log, Webhooks, MFA, Schema Library, Brain, Graph and Files are mapped.
+  - **One control, resolved from the route**, rather than a "?" hand-added to a dozen page headers that
+    would drift in position on each and go missing on the next page anyone adds. A page absent from the
+    map renders **no** control: "we have no section for this yet" has to look different from "here it is".
+  - A `help-anchor-coverage` preflight gate resolves every anchor against the real headings in `docs/`,
+    because an anchor that does not match opens the guide, scrolls nowhere, and reports nothing.
+
+- **The links inside a rendered guide now work.** They did not when Help first shipped: `marked` stopped
+  emitting heading ids in v10, so all 31 table-of-contents links in the user guide pointed at nothing,
+  and a cross-document link like `integration-guide.md` resolved to a URL outside the app.
+  - Headings get GitHub-compatible slug ids — the dialect the documents' own contents pages are already
+    written in, double hyphens from em-dashes included.
+  - In-document anchors scroll; cross-document links open that guide (and keep their default behaviour
+    when it is not one the page offers, so a dead link visibly does nothing rather than being silently
+    swallowed); external links and modified clicks are left alone.
+
 - **In-product Help: the full guides, readable inside the instance.** Answering "what does this setting
   do?" meant leaving the product. **Settings → Help** now renders the shipped guides — user guide,
   integration guide, use-case examples, workstation mode, network types, sync protocol, dependencies,
@@ -171,6 +190,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Preflight now runs the production build**, which type-checks Angular *templates* (AOT) and compiles
+  under the app's own tsconfig — neither of which the unit-test run does. It immediately caught a
+  `[...NodeList]` spread that all 785 tests passed straight over. ~7 seconds, and it is where an unknown
+  element, a bad binding or a broken inline template surfaces before CI sees it.
 - **`npm run preflight` could report PASSED against a build from a different branch.** It compiled the
   server only when `server/dist` was *missing*, so every gate that imports from `dist` was free to
   validate whatever was compiled last. It now builds unconditionally. A stale pass is worse than no

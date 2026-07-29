@@ -8,12 +8,14 @@ import { FilesApi } from '../../core/files-api.service';
 import { EmbedService } from '../../core/embed.service';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { BrandLogoComponent } from '../../shared/brand-logo.component';
+import { HelpLinkComponent } from '../../shared/help-link.component';
+import { helpTargetFor } from '../../shared/help-anchors';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
 @Component({
   selector: 'app-shell',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, PhIconComponent, TranslocoPipe, A11yModule, BrandLogoComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, PhIconComponent, TranslocoPipe, A11yModule, BrandLogoComponent, HelpLinkComponent],
   styles: [`
     :host { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
@@ -153,6 +155,13 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
       padding: 28px 32px;
     }
 
+    /* The help control sits above the page, right-aligned, in normal flow.
+       It was briefly height:0 so pages would not shift down — but a zero-height element floating over
+       the first row can land on top of a page's own top-right controls (the Brain's space chips, the
+       Files toolbar), and a control that sometimes overlaps another control is worse than every page
+       starting 22px lower. Uniform and predictable beats compact and occasionally broken. */
+    .page-help { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+
     /* Backdrop behind the mobile drawer. Only rendered below the breakpoint. */
     .drawer-backdrop {
       position: fixed;
@@ -281,6 +290,14 @@ import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 
       <!-- Page content -->
       <main class="main">
+        <!-- One help control, placed once, resolved from the route.
+             The alternative was a "?" hand-added to eight heterogeneous page headers, which would have
+             drifted in position on every one of them and quietly gone missing on the ninth page anyone
+             added. Here a page becomes documented by adding a row to HELP_ANCHORS, and a page with no
+             row renders nothing at all rather than a link to the top of a 900-line guide. -->
+        @if (helpTarget(); as h) {
+          <div class="page-help"><app-help-link [doc]="h.doc" [anchor]="h.anchor" /></div>
+        }
         <router-outlet />
       </main>
     </div>
@@ -295,6 +312,10 @@ export class ShellComponent implements OnInit, OnDestroy {
   protected embed = inject(EmbedService);
 
   conflictCount = signal(0);
+
+  /** Help target for the page currently routed, or null when there is no section for it. Kept in a
+   *  signal rather than read from `router.url` in the template so it re-evaluates on navigation. */
+  helpTarget = signal(helpTargetFor(this.router.url));
 
   /** Mobile nav drawer open state. Always closed on desktop (the hamburger that
    *  toggles it is hidden ≥ 769px). */
@@ -323,7 +344,10 @@ export class ShellComponent implements OnInit, OnDestroy {
     // mobile takes the user to the page and dismisses the overlay.
     this._navSub = this.router.events
       .pipe(filter(e => e instanceof NavigationEnd))
-      .subscribe(() => this.closeDrawer());
+      .subscribe(e => {
+        this.closeDrawer();
+        this.helpTarget.set(helpTargetFor((e as NavigationEnd).urlAfterRedirects));
+      });
   }
 
   ngOnDestroy(): void {

@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [2.0.0] — 2026-07-29
+
+**Major release.** Three breaking changes are marked inline below (the media-embedding master switch,
+UUID-only record references, and MCP tool-argument validation). Everything else is additive.
+
+The instance version now reads 2.0.0 across the API, the About page and the published container image.
+
 ### Security
 
 - **The conflicts and link-violation lists no longer truncate silently.** `GET /api/conflicts` and

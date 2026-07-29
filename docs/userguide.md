@@ -68,6 +68,10 @@ The left sidebar is the main navigation. It is divided into two sections:
 - **Settings** → Tokens, Spaces, Storage, Networks, Preferences, Audit Log, Data, Models, Duplicates,
   Help, About
 
+Most pages carry a small **Help** link in their top-right corner. It opens the guide at the *section*
+that documents that page — not the top of it. Pages with no section yet show no link, so an empty-handed
+control never pretends to be an answer.
+
 **Settings → Help** is this documentation, readable *inside* the instance. Every guide that ships with
 Ythril — this user guide, the integration guide, the use-case examples, workstation mode, network types,
 the sync protocol, dependencies and licences, contributing — is bundled with the application and rendered

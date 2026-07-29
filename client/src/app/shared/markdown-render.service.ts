@@ -19,6 +19,34 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+/**
+ * GitHub's heading-anchor slug, because that is the dialect the documents are already written in.
+ *
+ * `docs/userguide.md` alone carries 31 `](#anchor)` links in its own table of contents, and every one
+ * of them was authored against GitHub's rules: lowercase, strip anything that is not a word character,
+ * space or hyphen, spaces to hyphens. That is why this is not "some slug function" — an implementation
+ * that merely produced *stable* ids would still leave every one of those links pointing at nothing.
+ *
+ * Note em-dashes: `## Brain — Review tab` drops the dash and keeps both spaces, giving the double hyphen
+ * in `#brain--review-tab`. Matching that oddity is the point.
+ */
+export function headingSlug(text: string): string {
+  return text.trim().toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s/g, '-');
+}
+
+/** Adds `-1`, `-2`, … to repeated slugs, as GitHub does, so duplicate headings stay addressable. */
+function makeSlugger(): (text: string) => string {
+  const seen = new Map<string, number>();
+  return (text: string) => {
+    const base = headingSlug(text);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return n === 0 ? base : `${base}-${n}`;
+  };
+}
+
 @Injectable({ providedIn: 'root' })
 export class MarkdownRenderService {
   /**
@@ -30,6 +58,7 @@ export class MarkdownRenderService {
    */
   async render(text: string): Promise<string> {
     const mermaidSources: string[] = [];
+    const slug = makeSlugger();
     const md = new Marked({
       renderer: {
         code({ text: code, lang }) {
@@ -39,6 +68,13 @@ export class MarkdownRenderService {
             return `<div class="mermaid-slot" data-idx="${i}"></div>`;
           }
           return false; // fall through to marked's default code renderer
+        },
+        // marked stopped emitting heading ids in v10. Without them every `](#anchor)` in a document —
+        // including its own table of contents — points at nothing, and a deep link into a specific
+        // section is impossible. `this.parser.parseInline` keeps inline markup inside the heading.
+        heading({ tokens, depth }) {
+          const inner = this.parser.parseInline(tokens);
+          return `<h${depth} id="${escapeHtml(slug(inner.replace(/<[^>]*>/g, '')))}">${inner}</h${depth}>\n`;
         },
       },
     });

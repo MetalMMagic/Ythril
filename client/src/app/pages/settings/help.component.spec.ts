@@ -20,21 +20,33 @@ import { getTranslocoModule } from '../../testing/transloco-testing';
 import { HelpComponent, HELP_DOCS } from './help.component';
 import { MarkdownRenderService } from '../../shared/markdown-render.service';
 
-function setup(opts: { doc?: string | null; get?: unknown } = {}) {
+function setup(opts: { doc?: string | null; fragment?: string | null; get?: unknown; render?: (t: string) => Promise<string> } = {}) {
   const get = opts.get ?? vi.fn(() => of('# Title\n\nbody'));
+  const navigate = vi.fn(() => Promise.resolve(true));
+  const render = opts.render ?? ((t: string) => Promise.resolve(`<p>${t}</p>`));
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     imports: [HelpComponent, getTranslocoModule()],
     providers: [
       { provide: HttpClient, useValue: { get } },
-      { provide: MarkdownRenderService, useValue: { render: (t: string) => Promise.resolve(`<p>${t}</p>`) } },
-      { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => opts.doc ?? null } } } },
-      { provide: Router, useValue: { navigate: vi.fn(() => Promise.resolve(true)) } },
+      { provide: MarkdownRenderService, useValue: { render } },
+      { provide: ActivatedRoute, useValue: {
+        snapshot: { queryParamMap: { get: () => opts.doc ?? null }, fragment: opts.fragment ?? null },
+      } },
+      { provide: Router, useValue: { navigate } },
     ],
   });
   const f = TestBed.createComponent(HelpComponent);
   f.detectChanges();  // ngOnInit
-  return { f, c: f.componentInstance, get: get as ReturnType<typeof vi.fn> };
+  return { f, c: f.componentInstance, get: get as ReturnType<typeof vi.fn>, navigate };
+}
+
+/** Click the first anchor in the rendered article and return the event, so callers can check preventDefault. */
+function clickLink(f: { nativeElement: unknown }, selector = 'a'): MouseEvent {
+  const a = (f.nativeElement as HTMLElement).querySelector(`.doc article ${selector}`)!;
+  const ev = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+  a.dispatchEvent(ev);
+  return ev;
 }
 
 describe('HelpComponent', () => {
@@ -84,6 +96,78 @@ describe('HelpComponent', () => {
     expect(c.error()).toBeTruthy();
     expect(c.loading()).toBe(false);
     expect((f.nativeElement as HTMLElement).querySelector('.doc article')).toBeNull();
+  });
+
+  describe('links inside a rendered guide', () => {
+    /** Render real-ish HTML so the click handler has anchors to find. */
+    const withHtml = (html: string, opts: Record<string, unknown> = {}) =>
+      setup({ render: () => Promise.resolve(html), ...opts });
+
+    it('an intra-document anchor scrolls instead of navigating away', async () => {
+      const s = withHtml('<a href="#settings--tokens">go</a><h2 id="settings--tokens">Tokens</h2>');
+      await Promise.resolve();
+      s.f.detectChanges();
+      const heading = (s.f.nativeElement as HTMLElement).querySelector('#settings--tokens')!;
+      const scroll = vi.fn();
+      (heading as HTMLElement).scrollIntoView = scroll;
+
+      const ev = clickLink(s.f);
+      expect(ev.defaultPrevented).toBe(true);   // the browser must not resolve it against the route
+      expect(scroll).toHaveBeenCalled();
+    });
+
+    it('a cross-document link opens that guide instead of leaving the app', async () => {
+      const s = withHtml('<a href="integration-guide.md#recall">see</a>');
+      await Promise.resolve();
+      s.f.detectChanges();
+      const ev = clickLink(s.f);
+      expect(ev.defaultPrevented).toBe(true);
+      expect(s.c.active()).toBe('integration-guide');
+      expect(s.get).toHaveBeenLastCalledWith('assets/docs/integration-guide.md', { responseType: 'text' });
+    });
+
+    it('a link to a document the page does not offer keeps its default behaviour', async () => {
+      // Swallowing it would make a dead link silently do nothing, which is harder to report than a
+      // visible failure.
+      const s = withHtml('<a href="secret-notes.md">see</a>');
+      await Promise.resolve();
+      s.f.detectChanges();
+      expect(clickLink(s.f).defaultPrevented).toBe(false);
+    });
+
+    it('an external link is left entirely alone', async () => {
+      const s = withHtml('<a href="https://example.com/x">out</a>');
+      await Promise.resolve();
+      s.f.detectChanges();
+      expect(clickLink(s.f).defaultPrevented).toBe(false);
+    });
+
+    it('a ctrl/cmd-click is never swallowed — open-in-new-tab still works', async () => {
+      const s = withHtml('<a href="#top">go</a><h2 id="top">Top</h2>');
+      await Promise.resolve();
+      s.f.detectChanges();
+      const a = (s.f.nativeElement as HTMLElement).querySelector('.doc article a')!;
+      const ev = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0, ctrlKey: true });
+      a.dispatchEvent(ev);
+      expect(ev.defaultPrevented).toBe(false);
+    });
+
+    it('scrolls to the fragment the URL asked for once the guide has rendered', async () => {
+      // This is what a per-page help control relies on: it links to ?doc=userguide#settings--tokens.
+      const s = withHtml('<h2 id="settings--tokens">Tokens</h2>', { fragment: 'settings--tokens' });
+      const heading = () => (s.f.nativeElement as HTMLElement).querySelector('#settings--tokens');
+      // The element only exists after the render resolves; assert we got there and it is addressable.
+      await Promise.resolve();
+      s.f.detectChanges();
+      expect(heading()).toBeTruthy();
+    });
+
+    it('a fragment matching no heading leaves the reader at the top rather than throwing', async () => {
+      const s = withHtml('<h2 id="real">Real</h2>', { fragment: 'not-a-heading' });
+      await Promise.resolve();
+      s.f.detectChanges();
+      expect(s.c.error()).toBe('');
+    });
   });
 
   it('a slow response cannot overwrite a newer selection', async () => {

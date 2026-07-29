@@ -36,6 +36,7 @@ const SOURCE_GATES = [
   ['mcp-tool-docs-coverage', 'a tool documented as blocked for read-only tokens that is not actually blocked'],
   ['doc-cited-constants', 'a number the docs quote that no longer matches the constant it quotes'],
   ['help-docs-coverage', 'a guide that ships but the in-product Help page never offers, or offers and cannot load'],
+  ['help-anchor-coverage', 'a help link whose anchor matches no heading — it opens the guide and scrolls nowhere'],
 ];
 
 /** Gates that import from server/dist and therefore need a build. */
@@ -98,6 +99,14 @@ try { run('npm run lint:docs'); } catch { failures.push({ name: 'lint:docs', why
 console.log('\n── client unit tests (includes i18n key coverage) ──');
 try { run('npm run test:client'); } catch {
   failures.push({ name: 'test:client', why: 'component behaviour, and translation keys missing from de/pl' });
+}
+
+// The production build type-checks TEMPLATES (AOT) and compiles under the app's own tsconfig, neither of
+// which the unit-test run does. It caught a `[...NodeList]` spread that every test passed straight over,
+// and it is where an unknown element, a bad binding or a broken inline template surfaces. ~7 seconds.
+console.log('\n── client production build (AOT template type-check) ──');
+try { run('npm run build:prod --workspace=client'); } catch {
+  failures.push({ name: 'build:prod', why: 'AOT template errors and tsconfig differences the unit tests never see' });
 }
 
 console.log('\n' + '='.repeat(76));

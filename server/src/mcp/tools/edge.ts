@@ -60,7 +60,7 @@ export const upsert_edgeTool: ToolHandler = {
     const edgeMeta = edgeMetaRaw ? resolveMetaRefs(edgeMetaRaw) : undefined;
     const edgeSchemaViolations = edgeMeta ? validateEdge(edgeMeta, { label: label.trim(), properties: edgeProps }) : [];
     if (edgeSchemaViolations.length > 0 && edgeMeta?.validationMode === 'strict') {
-      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(edgeSchemaViolations, null, 2)}` }], isError: true };
+      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(edgeSchemaViolations)}` }], isError: true };
     }
 
     const edgeTtlDays = ttlDaysFromArgs(a);
@@ -177,7 +177,7 @@ export const traverseTool: ToolHandler = {
     return {
       content: [{
         type: 'text' as const,
-        text: JSON.stringify(result, null, 2),
+        text: JSON.stringify(result),
       }],
     };
   },

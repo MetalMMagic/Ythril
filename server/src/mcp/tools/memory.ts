@@ -78,7 +78,7 @@ export const rememberTool: ToolHandler = {
     const remMeta = remMetaRaw ? resolveMetaRefs(remMetaRaw) : undefined;
     const remSchemaViolations = remMeta ? validateMemory(remMeta, { type: memType, properties: props }) : [];
     if (remSchemaViolations.length > 0 && remMeta?.validationMode === 'strict') {
-      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(remSchemaViolations, null, 2)}` }], isError: true };
+      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(remSchemaViolations)}` }], isError: true };
     }
 
     // Quota check — throws QuotaError (caught below) on hard limit

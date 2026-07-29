@@ -128,7 +128,7 @@ export const bulk_writeTool: ToolHandler = {
     }
     const summary = `bulk_write complete — inserted: ${JSON.stringify(result.inserted)}, updated: ${JSON.stringify(result.updated)}, errors: ${result.errors.length}`;
     return {
-      content: [{ type: 'text' as const, text: summary + (result.errors.length > 0 ? '\n' + JSON.stringify(result.errors, null, 2) : '') }],
+      content: [{ type: 'text' as const, text: summary + (result.errors.length > 0 ? '\n' + JSON.stringify(result.errors) : '') }],
       isError: false,
     };
   },

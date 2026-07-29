@@ -42,7 +42,7 @@ export const list_spacesTool: ToolHandler = {
       counts: countsBySpaceId[s.id] ?? { memories: 0, entities: 0, edges: 0, chrono: 0 },
     }));
     return {
-      content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      content: [{ type: 'text' as const, text: JSON.stringify(result) }],
     };
   },
 };
@@ -77,7 +77,7 @@ export const get_statsTool: ToolHandler = {
     return {
       content: [{
         type: 'text' as const,
-        text: JSON.stringify({ spaceId: callSpace, memories, entities, edges, chrono, files }, null, 2),
+        text: JSON.stringify({ spaceId: callSpace, memories, entities, edges, chrono, files }),
       }],
     };
   },
@@ -132,7 +132,7 @@ export const get_space_metaTool: ToolHandler = {
     return {
       content: [{
         type: 'text' as const,
-        text: JSON.stringify(metaResult, null, 2),
+        text: JSON.stringify(metaResult),
       }],
     };
   },

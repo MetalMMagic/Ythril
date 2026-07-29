@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **MCP recall responses are about half the size, and `includeContent: false` makes them a fifth.**
+  Every field an MCP tool returns is multiplied by `topK` and billed as tokens to whoever called it — the
+  REST caller is a program and can afford detail, the MCP caller is a model's context window and cannot.
+  Measured on a realistic 10-result file-chunk recall: **~6 200 → ~3 150 tokens by default (−49%)**, with
+  no information removed at all, and **~900 tokens (−85%)** with `includeContent: false`.
+  - **The passage was being returned twice.** `matchedText` — the concatenated string fed to the embedder
+    — is `headingText + ' ' + content` for a file chunk and byte-identical to `content` for a media chunk.
+    It is gone from MCP responses; `content` stays, because it is a named field with a defined meaning
+    rather than a blob. (REST still returns `matchedText`.)
+  - `seq` is gone: it is the per-space counter sync orders replication by, is not an input to any tool,
+    and is read by nothing outside `sync/*`. `embeddingModel` is gone: identical for every record in a
+    space, so it was instance configuration repeated on every row. `createdAt`/`updatedAt` stay — they
+    cost the same and answer a question a caller actually asks.
+  - **No MCP tool pretty-prints its response any more** (14 sites). Indentation was billed to the caller
+    and read by nothing.
+  - **`includeContent`** (default `true`) on `recall` and `find_similar` drops the passage body, leaving
+    path, heading, chunk index, tags and properties — the right shape for a two-phase agent: recall to
+    find *where*, then read only the chunk it decided it needs.
+  - `find_similar`'s source descriptor field `matchedText` is renamed `summary`, since `matchedText` no
+    longer means anything in an MCP response.
+
 - **Hybrid retrieval: a lexical channel beside the vector one, fused by Reciprocal Rank Fusion.**
   Vector search compares *meaning*, which is exactly the wrong tool for the tokens a corpus is most
   precise about — article numbers, form ids, part codes, clause names, proper nouns. An opaque identifier

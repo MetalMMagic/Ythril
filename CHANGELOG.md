@@ -188,6 +188,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction, and two tests walk that list through the real handler — a shared type alone would not
   prove the tab is actually reachable.
 
+- **CI's failure-log dump skipped the one container that mattered.** `docker compose ps --services`
+  lists only *running* containers, so a container that exited during startup was precisely the service
+  the dump loop passed over. A `ythril-b exited (1)` failure printed healthy logs for a, c and d and
+  nothing at all for b — twice — and was written off as environmental both times because there was
+  nothing to read. Now `--services --all`, plus a `ps --all` table so the exit code is visible too.
+
 - **Recall could finish after the caller had given up.** Every hop runs in series — embed the query, the
   per-type vector searches, the lexical channel, the cross-encoder — and each carried its own timeout
   with nothing watching the total. Worst case is 30 s of embedding plus Mongo plus 20 s of reranking,

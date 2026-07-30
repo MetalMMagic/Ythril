@@ -20,21 +20,32 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 
-const ROOTS = ['server/src', 'client/src', 'testing', 'scripts', 'docs'];
 const EXTS = ['.ts', '.js', '.mjs', '.json', '.scss', '.html', '.md'];
 
-function sources(dir, out = []) {
-  for (const name of readdirSync(dir)) {
-    if (name === 'node_modules' || name === 'dist' || name === '.angular') continue;
-    const p = `${dir}/${name}`;
-    if (statSync(p).isDirectory()) { sources(p, out); continue; }
+/**
+ * Ask **git** what files this repo has. Never walk the filesystem for this question.
+ *
+ * The first version of this gate did walk it, and CI caught it within the hour: `testing/sync/` holds
+ * per-instance state the Docker test stack writes at 0600 as the container's UID, so the runner hit
+ * `EACCES` on `testing/sync/configs/a/config.json` — a generated runtime artifact, not source, and not
+ * tracked. The gate crashed on a file it had no business opening.
+ *
+ * The tracked set is the right one on both counts: it excludes generated state by construction, and it
+ * is exactly the set that "no source file silently opts out of code review" is a claim about. A file
+ * git does not track cannot have a diff to lose.
+ */
+function trackedSources() {
+  // -z: NUL-separated, so a path containing a newline cannot split one entry into two. (Also the reason
+  // this cannot use the default output: git quotes such paths instead, and the quoting would need undoing.)
+  return execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+    .split('\u0000')
+    .filter(Boolean)
     // No self-exclusion: this file talks about NUL and 0x08 without containing either, which is the
     // whole point it is making. A gate exempt from itself is the first one to rot.
-    if (EXTS.some(e => p.endsWith(e))) out.push(p);
-  }
-  return out;
+    .filter(p => EXTS.some(e => p.endsWith(e)));
 }
 
 /** Control bytes that have no business in source text. */
@@ -48,20 +59,16 @@ function controlBytes(buf) {
   return found;
 }
 
-/** Repo-root prose (CHANGELOG.md, README.md). Not recursive — the roots above cover the subtrees. */
-function rootDocs() {
-  return readdirSync('.')
-    .filter(n => n.endsWith('.md'))
-    .filter(n => statSync(n).isFile());
-}
-
 describe('source text carries no raw control bytes', () => {
-  // The CHANGELOG is in scope on purpose: the entry describing this very fix was written with a raw NUL
-  // in it. Prose that quotes a control character is exactly where one gets pasted by accident.
-  const files = [...ROOTS.flatMap(r => sources(r)), ...rootDocs()];
+  // Everything tracked, source and prose alike. The CHANGELOG is in scope on purpose: the entry
+  // describing this very fix was written with a raw NUL in it. Prose that quotes a control character is
+  // exactly where one gets pasted by accident.
+  const files = trackedSources();
 
-  it('finds the tree', () => {
-    assert.ok(files.length > 100, `expected a populated tree, got ${files.length} files`);
+  it('finds the tracked tree', () => {
+    // Guards the enumeration itself. If `git ls-files` fails or returns nothing — a detached checkout, a
+    // missing git binary — every other assertion here would pass over an empty list and report green.
+    assert.ok(files.length > 100, `expected a populated tracked tree, got ${files.length} files`);
   });
 
   it('no tracked source file contains one', () => {

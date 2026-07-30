@@ -482,6 +482,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   NUL is a correct hash field separator (so `a`+`bc` cannot collide with `ab`+`c`); it was simply written
   as a raw byte instead of `\u0000`, which produces the identical string. Fixed here and in one test file,
   with a `source-text-hygiene` gate so no source file silently opts out of code review again.
+  - The gate enumerates via **`git ls-files`**, not a directory walk. Its first version walked the tree
+    and CI killed it inside the hour: `testing/sync/` holds per-instance state the Docker stack writes at
+    0600 as the container's UID, so the runner hit `EACCES` on a generated artifact that is not tracked
+    and was never source. The tracked set is also the *correct* set on the merits — a file git does not
+    track has no diff to lose, which is the whole thing this gate protects.
 
 - **Lazy chunks had no size ceiling, so one could grow past the initial bundle unnoticed** — which is how
   the Brain chunk once reached twice the initial bundle with no CI signal at all. `client/angular.json`

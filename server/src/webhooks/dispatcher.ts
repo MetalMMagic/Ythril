@@ -18,6 +18,7 @@ import { ssrfSafeFetch } from '../util/ssrf.js';
 import { log } from '../util/log.js';
 import { publishBrainChange } from '../brain/brain-events.js';
 import type { WebhookEventType, WebhookEventPayload, WebhookDelivery, WebhookSubscription } from './types.js';
+import { withJitter } from '../util/backoff.js';
 
 /** Retry schedule in milliseconds: 10s, 30s, 1m, 5m, 30m, 1h */
 const RETRY_DELAYS_MS = [10_000, 30_000, 60_000, 300_000, 1_800_000, 3_600_000];
@@ -102,7 +103,10 @@ async function enqueueRetry(
   deliveryId: string,
   attempt: number,
 ): Promise<void> {
-  const delayMs = RETRY_DELAYS_MS[attempt - 2] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1]!;
+  // Jittered: one webhook target going down fails every event queued against it at once, and without
+  // jitter they would all come back at the same instant — a burst aimed at an endpoint that is, by
+  // definition, already having a bad time. See `util/backoff.ts`.
+  const delayMs = withJitter(RETRY_DELAYS_MS[attempt - 2] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1]!);
   const job: RetryJob = {
     _id: uuidv4(),
     webhookId,

@@ -188,6 +188,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction, and two tests walk that list through the real handler — a shared type alone would not
   prove the tab is actually reachable.
 
+- **Retries had backoff but no jitter, so simultaneous failures retried in lockstep.** Both retry queues
+  — media jobs and webhook delivery — already backed off exponentially, which is the half everyone
+  remembers. But the delay was *identical* for every job, so failures that happen together retry
+  together. Upload twenty files while the document sidecar is restarting: all twenty fail within a
+  second, all wait exactly 30 000 ms, and all hit the sidecar again on the same tick — a synchronised
+  burst aimed at something that has just come back and is at its most fragile. If that knocks it over,
+  they fail together again and re-synchronise on the next step.
+  - Backoff spaces retries out over *time*; jitter spaces them across *clients*. Neither substitutes for
+    the other, and the second was missing.
+  - **Equal jitter**, not full: the delay lands in `[delay/2, delay]`, so half the nominal wait is still
+    guaranteed. Full jitter (`0..delay`) spreads better but lets a job retry almost immediately, which
+    throws away the reason 30 s was chosen.
+  - The exponential schedules are unchanged, and a test pins that they stay exponential — jitter on a
+    flat schedule would spread the herd while still hammering a dependency that needs time.
+
 - **A draining instance kept advertising itself as ready, so new work kept arriving.** The other half of
   the shutdown fix below. `server.close()` refuses new *connections*, but a load balancer holding an
   established keep-alive connection keeps using it — and kept getting `200` from `/ready`, because the

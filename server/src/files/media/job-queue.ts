@@ -11,6 +11,7 @@ import { escapeRegex } from '../../util/redos.js';
 import type { StepProgress } from '../converters/types.js';
 import type { MediaJobDoc, FileMetaDoc } from '../../config/types.js';
 import { log } from '../../util/log.js';
+import { withJitter } from '../../util/backoff.js';
 
 const MAX_ATTEMPTS = 3;
 
@@ -26,7 +27,9 @@ const RETRY_BACKOFF_MS: Record<number, number> = {
 
 function nextClaimableAfter(nextAttempt: number): string {
   const delay = RETRY_BACKOFF_MS[nextAttempt] ?? 300_000;
-  return new Date(Date.now() + delay).toISOString();
+  // Jittered: twenty files failing together while a sidecar restarts would otherwise all become
+  // claimable on the same tick and hit it again in one burst, at the moment it is least able to cope.
+  return new Date(Date.now() + withJitter(delay)).toISOString();
 }
 
 

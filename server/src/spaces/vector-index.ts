@@ -271,16 +271,48 @@ export async function pollVectorIndexReady(
 ): Promise<boolean> {
   const coll = getDb().collection(`${spaceId}_${collectionSuffix}`);
   const attempts = Math.max(1, Math.round((opts.timeoutMs ?? 60_000) / 1000));
+  let lastSeen = 'nothing yet';
+
   for (let attempt = 0; attempt < attempts; attempt++) {
     await new Promise(r => setTimeout(r, 1000));
     try {
-      const current = await coll.listSearchIndexes(indexName).toArray() as Array<{ status?: string }>;
-      if (current[0]?.status === 'READY') {
-        log.debug(`Vector search index ${indexName} is READY`);
-        return true;
+      // List ALL indexes and match by name, rather than `listSearchIndexes(indexName)`.
+      //
+      // This is the fix for a poll that never succeeded. A deployment reported ~67 SECONDS PER INDEX
+      // on an instance with almost no data — the same cost as one with thirteen full spaces. A build
+      // that is genuinely instant cannot take a fixed 67s; that is the timeout expiring every single
+      // time, which means the poll was never observing READY at all.
+      //
+      // The name-filtered overload is the difference. `ensureVectorIndex` above lists WITHOUT a filter
+      // and finds by name, and that call demonstrably works — it is how an existing index is detected
+      // for the update path. Only the two callers that used the filtered form misbehaved. Listing all
+      // and matching here is a strict superset of the filtered behaviour, so it cannot be worse.
+      const all = await coll.listSearchIndexes().toArray() as Array<{ name?: string; status?: string; queryable?: boolean }>;
+      const current = all.find(i => i.name === indexName);
+
+      if (!current) {
+        lastSeen = `index not present (saw: ${all.map(i => i.name).join(', ') || 'none'})`;
+      } else {
+        lastSeen = `status=${current.status ?? 'undefined'} queryable=${current.queryable ?? 'undefined'}`;
+        // `queryable` counts as ready too: it is the property recall actually depends on, and a
+        // deployment whose mongot reports it without a READY status would otherwise poll forever.
+        if (current.status === 'READY' || current.queryable === true) {
+          log.debug(`Vector search index ${indexName} is READY (${lastSeen})`);
+          return true;
+        }
       }
-    } catch { /* ignore intermittent errors during polling */ }
+    } catch (err) {
+      lastSeen = `listSearchIndexes threw: ${err instanceof Error ? err.message : String(err)}`;
+    }
+
+    // Say what is actually being observed, periodically. The previous version swallowed everything and
+    // reported only "did not reach READY within 60s", which is why two rounds of this bug produced no
+    // evidence about WHY — the operator could see the cost and never the cause.
+    if (attempt === 4 || attempt % 30 === 29) {
+      log.warn(`Vector search index ${indexName}: still waiting after ${attempt + 1}s — ${lastSeen}`);
+    }
   }
+  log.warn(`Vector search index ${indexName}: gave up after ${attempts}s — last seen: ${lastSeen}`);
   return false;
 }
 

@@ -539,6 +539,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The index-readiness poll never observed READY, so every wait ran to its full timeout.** A deployment
+  measured **~67 seconds per index on an instance with almost no data** — identical to one with thirteen
+  full spaces. A build that is genuinely instant cannot take a fixed 67s; that is the 60s ceiling
+  expiring every single time, on indexes that were fine. Small deployments were hit exactly as hard as
+  large ones, because the cost was per-index and fixed, never per-byte.
+  - **One overload.** `ensureVectorIndex` lists search indexes *without* a name filter and matches by
+    name, and that call works — it is how an existing index is found for the update path. The only two
+    callers using `listSearchIndexes(indexName)` were the only two that misbehaved. Both now list
+    unfiltered and match by name, which is a strict superset of the filtered behaviour.
+  - **`pipeline-status` had the same bug with a different symptom:** `found[0]?.status` was always null,
+    and a null status becomes `missing`, so the Indexing panel declared **every index absent** on a
+    healthy instance. It also listed the `files` collection twice, once per expected index; it now lists
+    each collection once.
+  - `queryable: true` now counts as ready alongside `status: 'READY'` — it is the property recall
+    actually depends on.
+  - **The poll says what it saw.** It previously swallowed every observation and logged only "did not
+    reach READY within 60s", which is why two rounds of investigation produced the cost and never the
+    cause. It now reports the observed status periodically, and distinguishes *index not present* from
+    *index not ready* — different failures that used to read identically.
+
 - **Upgrading from 2.0.0 could look like a crash loop: boot blocked for over an hour waiting on vector
   index builds.** 2.0.0 added filter fields to the `$vectorSearch` indexes, so every upgrade reshapes the
   existing ones — and `initAllSpaces` awaited READY while doing it. That wait is **serial per index, per

@@ -354,3 +354,41 @@ export const mediaJobsFailed = new Gauge({
     } catch { /* ignore */ }
   },
 });
+
+// ── Silent degradation ───────────────────────────────────────────────────────
+/**
+ * Recall answered, but with a weaker pipeline than the instance is configured for.
+ *
+ * Every other counter here measures work done or work failed. This one measures the gap between them:
+ * the paths where nothing errors, the caller gets a 200, and the answer is quietly worse than it should
+ * be. A reranker that has been unreachable for a week produces no failed requests, no error rate, no
+ * change in latency worth noticing — every recall simply comes back in vector order and nobody is told.
+ * The same is true of a space whose lexical index is missing, and of a rerank skipped because the
+ * end-to-end budget had already been spent upstream.
+ *
+ * These already log a warning each. A log line is the right place to explain ONE occurrence and the
+ * wrong place to notice a pattern — nobody greps a week of logs to discover that recall quality has been
+ * degraded the whole time. A counter turns "is my reranker actually being used?" into a question the
+ * operator can answer, and alert on.
+ *
+ * `reason` is a closed set, deliberately: an unbounded label is a cardinality bomb.
+ *  - `rerank_unavailable`    — configured, but it did not answer (unreachable, non-2xx, unreadable body)
+ *  - `rerank_skipped_budget` — not attempted; the end-to-end budget was already spent (see RECALL_BUDGET_MS)
+ *
+ * **A missing lexical channel is deliberately NOT counted here.** `applyLexicalFusion` cannot currently
+ * tell "this space has no text index" from "the query matched nothing lexically" — both surface as an
+ * empty result. Counting that would fire on ordinary queries and report degradation where there is none,
+ * which is worse than not measuring it: a metric an operator learns to ignore is a metric that will not
+ * be read on the day it matters. Wire it only once `lexicalSearch` distinguishes the two.
+ */
+export const recallDegradedTotal = new Counter({
+  name: 'ythril_recall_degraded_total',
+  help: 'Recalls answered with a weaker pipeline than configured, by reason',
+  labelNames: ['reason'] as const,
+  registers: [register],
+});
+// Pre-declare every series so a scrape before the first degradation reports 0 rather than nothing at
+// all — "absent" and "zero" look identical in a graph and mean opposite things.
+for (const reason of ['rerank_unavailable', 'rerank_skipped_budget']) {
+  recallDegradedTotal.labels({ reason }).inc(0);
+}

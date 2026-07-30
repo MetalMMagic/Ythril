@@ -185,7 +185,16 @@ describe('recall wiring', () => {
   });
 
   it('a null from the reranker leaves every result untouched', () => {
+    // Asserted as a PROPERTY, not as literal source. This used to match `if (!scores) return;`
+    // character-for-character and broke when a metrics counter was added inside the same branch —
+    // the behaviour was identical and the test failed anyway. What must hold is that a falsy `scores`
+    // returns before anything is assigned to `rerankScore`.
     const fn = src.slice(src.indexOf('async function applyRerank('));
-    assert.ok(/if \(!scores\) return;/.test(fn), 'no opinion must mean the vector order stands');
+    const guard = fn.indexOf('if (!scores)');
+    const assigns = fn.indexOf('rerankScore =');
+    assert.ok(guard > 0, 'a falsy rerank result must be guarded');
+    assert.ok(assigns > guard, 'the guard must come before any score is applied');
+    const branch = fn.slice(guard, assigns);
+    assert.ok(/\breturn\b/.test(branch), 'no opinion must mean the vector order stands — return early');
   });
 });

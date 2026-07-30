@@ -17,6 +17,7 @@ import { rerank, rerankConfigured, candidateMultiplier, MAX_CANDIDATES } from '.
 import { lexicalSearch, rrfFuse, hybridSearchEnabled, LEXICAL_LIMIT_MULTIPLIER } from './lexical-search.js';
 import type { ChronoStatus } from '../config/types.js';
 import { log } from '../util/log.js';
+import { recallDegradedTotal } from '../metrics/registry.js';
 
 /**
  * End-to-end budget for one recall call.
@@ -222,6 +223,7 @@ export async function recall(
   // order — slightly worse ranking, delivered. Degrading beats being right too late.
   const remaining = RECALL_BUDGET_MS - (Date.now() - startedAt);
   if (reranking && remaining < RERANK_MIN_BUDGET_MS) {
+    recallDegradedTotal.labels({ reason: 'rerank_skipped_budget' }).inc();
     log.warn(`Recall: ${remaining}ms of the ${RECALL_BUDGET_MS}ms budget left — skipping the reranker and returning the fused order`);
   } else if (reranking) {
     await applyRerank(query, guaranteed, allResults, remaining);
@@ -408,7 +410,12 @@ async function applyRerank(
 
   const passages = ids.map(id => rerankTextOf(byId.get(id)![0]));
   const scores = await rerank(query, passages, budgetMs);
-  if (!scores) return; // no opinion — vector order stands
+  if (!scores) {
+    // Configured but it did not answer. `rerank()` already logged why; this is what makes a reranker
+    // that has been down for a week visible without anyone reading a week of logs.
+    recallDegradedTotal.labels({ reason: 'rerank_unavailable' }).inc();
+    return; // no opinion — vector order stands
+  }
 
   for (const { index, score } of scores) {
     const id = ids[index];

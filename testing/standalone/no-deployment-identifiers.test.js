@@ -89,12 +89,25 @@ function trackedTextFiles() {
     .filter(f => f !== SELF);
 }
 
+/**
+ * Undo regex escaping before matching.
+ *
+ * `/blocked address 10\.43\.12\.7/` is the address, written for a regex literal. A scanner looking for
+ * `10.43.12.7` does not see it, because the source says `10\.43`. This is not hypothetical: the scrub
+ * that introduced this gate replaced every plain occurrence and left the escaped one in an assertion,
+ * which passed preflight and failed CI.
+ *
+ * Only `\.` is unescaped — enough for dotted addresses and hostnames, and narrow enough that it cannot
+ * corrupt unrelated source into a false match.
+ */
+const unescapeDots = (s) => s.replace(/\\\./g, '.');
+
 function scan(regex, allowed) {
   const offenders = [];
   for (const file of trackedTextFiles()) {
     let src;
     try { src = readFileSync(file, 'utf8'); } catch { continue; }
-    const lines = src.split('\n');
+    const lines = unescapeDots(src).split('\n');
     for (let i = 0; i < lines.length; i++) {
       for (const m of lines[i].matchAll(regex)) {
         const value = m[0];
@@ -142,11 +155,24 @@ describe('no real deployment identifiers reach the public repository', () => {
     assert.ok(files.some(f => f.startsWith('docs/')), 'docs must be in scope');
   });
 
-  it('and would actually catch a real identifier', () => {
+  it('and would actually catch an identifier it has never seen', () => {
     // Mutation-proofing inline: the regexes must match the shapes this exists to find.
-    assert.match('http://llm-inference-service.llm.svc.cluster.local:8080', CLUSTER_DNS_RE);
-    assert.match('resolves to 10.43.90.115', PRIVATE_IP_RE);
-    assert.equal(ALLOWED_CLUSTER_DNS.has('llm-inference-service.llm.svc.cluster.local'), false);
-    assert.equal(ALLOWED_PRIVATE_IPS.has('10.43.90.115'), false);
+    //
+    // The examples are invented, not the real values this gate was written to remove. Using the real
+    // ones here would have re-published them in the very file that exists to keep them out — the same
+    // denylist trap the allowlist design avoids, walked into from the other direction. (It happened:
+    // the first version of this test quoted them, and the file's SELF exclusion meant nothing failed.)
+    assert.match('http://some-service.some-namespace.svc.cluster.local:8080', CLUSTER_DNS_RE);
+    assert.match('resolves to 10.77.88.99', PRIVATE_IP_RE);
+    assert.equal(ALLOWED_CLUSTER_DNS.has('some-service.some-namespace.svc.cluster.local'), false);
+    assert.equal(ALLOWED_PRIVATE_IPS.has('10.77.88.99'), false);
+  });
+
+  it('sees an address written for a regex literal', () => {
+    // The form that slipped through the scrub: escaped dots, in an assertion. Matching the raw source
+    // misses it entirely, and the scan then reports the file as clean.
+    const escaped = String.raw`assert.match(msg, /blocked address 10\.77\.88\.99/)`;
+    assert.doesNotMatch(escaped, PRIVATE_IP_RE, 'the raw form must NOT match — that is the whole problem');
+    assert.match(unescapeDots(escaped), PRIVATE_IP_RE);
   });
 });

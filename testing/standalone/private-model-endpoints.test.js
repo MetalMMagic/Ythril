@@ -126,7 +126,7 @@ describe('private model endpoints — operator opt-in', () => {
     it('blocks the cluster hostname by default, once resolved', async () => {
       await assert.rejects(
         () => assertUrlSafeResolved(CLUSTER_URL, { lookup: resolvesTo('10.1.2.3') }),
-        /blocked address 10\.43\.12\.7/,
+        /blocked address 10\.1\.2\.3/,
         'this is the failure the reporter actually hit',
       );
     });

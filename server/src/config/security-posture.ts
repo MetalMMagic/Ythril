@@ -12,6 +12,7 @@ import { requireEncryptedTransport, allowInsecurePeersRaw } from './transport-se
 import { allowPrivateModelEndpoints } from './model-egress-policy.js';
 import { allowPrivateOidcIssuer } from './oidc-egress-policy.js';
 import { modelEndpointExposure, formatExposure, classifyEndpoint } from './model-egress-exposure.js';
+import { publicBaseUrlIsFallback } from './public-url.js';
 
 export type PostureLevel = 'pass' | 'warn' | 'fail';
 
@@ -49,6 +50,31 @@ function mongoAuthenticated(): boolean {
     // Match a userinfo component: scheme://user[:pass]@host
     return /^[a-z]+(?:\+[a-z]+)?:\/\/[^/@]+@/i.test(getMongoUri());
   } catch { return false; }
+}
+
+/**
+ * Describe the exposure tally WITHOUT claiming a resolution that never happened.
+ *
+ * The line used to read `N of M external endpoint(s) resolve to private addresses`. On a cluster where
+ * every endpoint is a DNS name, `classifyEndpoint` returns `hostname` for all of them and N is 0 — so a
+ * deployment with two private ClusterIP endpoints was told "0 of 2 resolve to private addresses".
+ *
+ * That is not merely imprecise, it inverts the meaning, and it does so in a place where the *same*
+ * phrasing is load-bearing: two branches up, "nothing is using the permission" genuinely means "unset
+ * this flag". An operator who has learned to trust that reading will apply it here and turn off the
+ * setting their endpoints depend on. A check that cannot resolve DNS must say it did not resolve DNS.
+ *
+ * Exported for unit testing — the inversion is the reason this function exists.
+ */
+export function exposureCount(privateCount: number, unresolvedCount: number, total: number): string {
+  if (unresolvedCount === 0) {
+    return `${privateCount} of ${total} are private addresses.`;
+  }
+  const known = unresolvedCount === total
+    ? `None of the ${total} are IP literals`
+    : `${privateCount} of ${total} are private IP literals; the other ${unresolvedCount}`;
+  return `${known} — a hostname is resolved at call time, so this check has not established where ` +
+    `${unresolvedCount === total ? 'any of them point' : 'they point'}. "Not resolved here" is not "not private".`;
 }
 
 const RANK: Record<PostureLevel, number> = { pass: 0, warn: 1, fail: 2 };
@@ -89,6 +115,7 @@ export function computeSecurityPosture(): SecurityPosture {
   if (allowPrivateModelEndpoints()) {
     const exposure = modelEndpointExposure();
     const privateOnes = exposure.filter(e => e.klass === 'private');
+    const unresolved = exposure.filter(e => e.klass === 'hostname');
     checks.push(exposure.length === 0
       ? {
           id: 'egress.privateModelEndpoints',
@@ -98,7 +125,7 @@ export function computeSecurityPosture(): SecurityPosture {
       : {
           id: 'egress.privateModelEndpoints',
           level: 'warn',
-          message: `allowPrivateModelEndpoints is on — ${privateOnes.length} of ${exposure.length} external endpoint(s) resolve to private addresses. ${formatExposure(exposure)}. SSRF guarding, IP-pinning and redirect re-validation still apply; loopback, link-local/IMDS and cloud-metadata addresses stay blocked.`,
+          message: `allowPrivateModelEndpoints is on. ${formatExposure(exposure)}. ${exposureCount(privateOnes.length, unresolved.length, exposure.length)} SSRF guarding, IP-pinning and redirect re-validation still apply; loopback, link-local/IMDS and cloud-metadata addresses stay blocked.`,
         });
   } else {
     // Flag off, but an endpoint may still be pointed at a private literal — that config cannot work, and
@@ -129,10 +156,34 @@ export function computeSecurityPosture(): SecurityPosture {
     } else if (allowPrivate) {
       // Report the exposure, not the flag — same rule as the model endpoints above. A hostname is
       // named as a hostname: only the resolution-time guard knows where it points.
+      // Three-way, not two-way. `hostname` is not "not private" — it is "not resolved", and collapsing
+      // the two produced advice that would break the deployment it was aimed at: an internal IdP at
+      // keycloak.identity.svc.cluster.local classifies as `hostname`, and the old else-branch told the
+      // operator that nothing was using the permission and to unset it. Following that advice makes
+      // discovery refuse the issuer and NOBODY CAN SIGN IN — the exact outcome the fail branch above
+      // exists to prevent, arrived at by obeying the posture block.
       checks.push(klass === 'private'
         ? { id: 'oidc.issuer', level: 'warn', message: `oidc.allowPrivateIssuer is on — issuer ${host} is a private address. SSRF guarding, IP-pinning and redirect re-validation still apply; loopback, link-local/IMDS and cloud-metadata addresses stay blocked, and a public issuer could not name a private jwks_uri.` }
-        : { id: 'oidc.issuer', level: 'warn', message: `oidc.allowPrivateIssuer is on but issuer ${host} is not a private address (${klass}) — nothing is using the permission; unset it.` });
+        : klass === 'hostname'
+          ? { id: 'oidc.issuer', level: 'warn', message: `oidc.allowPrivateIssuer is on and issuer ${host} is a hostname — this check does not resolve DNS, so whether the permission is in use cannot be determined here. Keep it set if the IdP is internal; unsetting it would refuse discovery and stop all sign-in.` }
+          : { id: 'oidc.issuer', level: 'warn', message: `oidc.allowPrivateIssuer is on but issuer ${host} is a public address — nothing is using the permission; unset it.` });
     }
+  }
+
+  // ── Public base URL (MCP OAuth) ──────────────────────────────────────────────
+  // MCP OAuth needs an externally-reachable issuer, and with nothing configured it falls back to
+  // loopback: the endpoint answers, the metadata is well-formed, and every URL inside it points at a
+  // host no browser connector can reach. Nothing fails, so nothing is reported — the operator finds out
+  // from a connector that will not authorize, with no server-side symptom to search for.
+  //
+  // A `warn`, not a `fail`: an instance with no MCP connectors is a legitimate configuration, and
+  // static bearer-token MCP access works regardless of this setting.
+  if (publicBaseUrlIsFallback()) {
+    checks.push({
+      id: 'mcp.publicUrl',
+      level: 'warn',
+      message: 'publicUrl is not set, so the instance falls back to a loopback base URL. MCP OAuth advertises that URL as its issuer and resource identifier, so browser-based connectors cannot complete authorization. Set config.publicUrl (or PUBLIC_BASE_URL) to the external https:// URL. Static bearer-token MCP access is unaffected.',
+    });
   }
 
   // ── At rest ──────────────────────────────────────────────────────────────────

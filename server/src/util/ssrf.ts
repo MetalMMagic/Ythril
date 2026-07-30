@@ -32,6 +32,7 @@
 import net from 'node:net';
 import dns from 'node:dns/promises';
 import { fetch as undiciFetch, Agent } from 'undici';
+import { log, redactSecrets } from './log.js';
 
 /** Thrown by the async SSRF guards when a target resolves to a blocked address. */
 export class SsrfBlockedError extends Error {
@@ -39,6 +40,38 @@ export class SsrfBlockedError extends Error {
     super(message);
     this.name = 'SsrfBlockedError';
   }
+}
+
+/**
+ * What an operator should change if this refusal was not the intended outcome.
+ *
+ * Named flags, not "adjust your configuration": the whole failure mode this guard produces is an
+ * endpoint that looks correct and is refused anyway, and the one fact the operator is missing at that
+ * moment is *which setting governs it*.
+ */
+const PRIVATE_ADDRESS_REMEDY =
+  'if this address is meant to be reachable, set allowPrivateModelEndpoints ' +
+  '(YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true) for a self-hosted model endpoint, or allowPrivatePeers ' +
+  'for a sync peer';
+
+const CROWN_JEWEL_REMEDY =
+  'this address stays blocked even with the private-address opt-in on (loopback, link-local / cloud ' +
+  'metadata, or unspecified) — point the endpoint at a routable service address instead';
+
+/**
+ * Refuse a target, and leave a trace.
+ *
+ * The guard used to throw and nothing else. The rejection travelled to the browser as an API payload
+ * while the server side stayed completely silent, so an operator debugging a blocked endpoint was left
+ * with the least correlatable evidence there is: a string in a dialog, with no timestamp, no host, and
+ * no record of which rule fired or what would relax it. Nothing reached the container log at all.
+ *
+ * Every refusal now emits one `warn` naming the target, what it resolved to, and the remedy. Redacted,
+ * because the unsafe-URL branch quotes the raw URL and a model endpoint's query string can carry a key.
+ */
+function refuse(message: string, remedy: string): SsrfBlockedError {
+  log.warn(redactSecrets(`${message} — ${remedy}`));
+  return new SsrfBlockedError(message);
 }
 
 // ── IPv4 helpers ─────────────────────────────────────────────────────────────
@@ -345,7 +378,10 @@ export async function assertUrlSafeResolved(
 ): Promise<{ url: URL; addresses: string[] }> {
   const allowPrivate = opts.allowPrivate ?? false;
   if (!isPeerUrlSafe(raw, allowPrivate)) {
-    throw new SsrfBlockedError(`Blocked SSRF target (unsafe URL): ${raw}`);
+    // Rejected on the literal URL, before any DNS. With the opt-in already on, the only things left that
+    // can fail here are a bad scheme, embedded credentials, or a crown-jewel address written literally.
+    throw refuse(`Blocked SSRF target (unsafe URL): ${raw}`,
+      allowPrivate ? CROWN_JEWEL_REMEDY : PRIVATE_ADDRESS_REMEDY);
   }
   const url = new URL(raw);
   const host = normaliseHost(url.hostname);
@@ -356,11 +392,13 @@ export async function assertUrlSafeResolved(
   const lookup = opts.lookup ?? defaultLookup;
   const results = await lookup(host);
   if (!results || results.length === 0) {
-    throw new SsrfBlockedError(`Blocked SSRF target (DNS returned no records): ${host}`);
+    throw refuse(`Blocked SSRF target (DNS returned no records): ${host}`,
+      'the hostname did not resolve — this is a DNS failure, not a policy decision');
   }
   for (const a of results) {
     if (isPeerBlockedIp(a.address, allowPrivate)) {
-      throw new SsrfBlockedError(`Blocked SSRF target (${host} resolves to blocked address ${a.address})`);
+      throw refuse(`Blocked SSRF target (${host} resolves to blocked address ${a.address})`,
+        allowPrivate ? CROWN_JEWEL_REMEDY : PRIVATE_ADDRESS_REMEDY);
     }
   }
   return { url, addresses: results.map(a => a.address) };
@@ -445,7 +483,8 @@ export async function ssrfSafeFetch(
     }
     current = new URL(location, current).toString();
   }
-  throw new SsrfBlockedError(`Blocked SSRF target (too many redirects, > ${maxRedirects})`);
+  throw refuse(`Blocked SSRF target (too many redirects, > ${maxRedirects})`,
+    'every hop is re-validated, so a redirect chain this long is refused on principle');
 }
 
 // ── MongoDB URI variant ──────────────────────────────────────────────────────

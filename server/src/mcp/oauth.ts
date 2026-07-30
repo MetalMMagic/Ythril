@@ -38,28 +38,17 @@ import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/serv
 import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { getConfig, saveConfig } from '../config/loader.js';
+import { getPublicBaseUrl } from '../config/public-url.js';
 import { createOAuthToken, findMatchingToken } from '../auth/tokens.js';
 import { authRateLimit } from '../rate-limit/middleware.js';
 import { log } from '../util/log.js';
 
 // ── Public base URL / resource identifiers ──────────────────────────────────
 
-/** Canonical externally-reachable base URL of this Ythril instance, without a
- *  trailing slash. Used as the OAuth issuer and to build absolute metadata URLs.
- *  Order of precedence: PUBLIC_BASE_URL env → config.publicUrl → localhost. */
-export function getPublicBaseUrl(): string {
-  const env = process.env['PUBLIC_BASE_URL'];
-  // getConfig() throws before first-run setup completes; tolerate that so the
-  // app can still boot (OAuth simply stays unconfigured until config exists).
-  let cfg: string | undefined;
-  try {
-    cfg = getConfig().publicUrl;
-  } catch {
-    cfg = undefined;
-  }
-  const raw = (env && env.trim()) || (cfg && cfg.trim()) || `http://localhost:${process.env['PORT'] ?? 3200}`;
-  return raw.replace(/\/+$/, '');
-}
+// Moved to config/public-url.ts — the security posture reports on this and must read the same
+// precedence rule, not a copy of it. Imported (not bare re-exported: the functions below call it in
+// module scope) and re-exported, so existing call sites are unchanged.
+export { getPublicBaseUrl };
 
 /** RFC 8707 resource identifier for the MCP endpoint. */
 export function mcpResourceUrl(): string {

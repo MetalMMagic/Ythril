@@ -431,6 +431,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **"Test connection" refused every self-hosted model endpoint on a private address, even with
+  `allowPrivateModelEndpoints` on.** `probeModelEndpoint` called `ssrfSafeFetch(url, init)` without the
+  third argument, and that argument defaults to *refuse private addresses* — so the probe silently
+  reimposed the exact rejection the operator had turned off. `probeModelStages` gate-checks the URL with
+  `allowPrivateModelEndpoints()` one line before calling it: the flag was passed correctly at the door and
+  dropped just inside.
+  - Reported from a Kubernetes deployment where every provider endpoint failed with `Blocked SSRF target
+    (… resolves to blocked address 10.43.x.x)` while the conversion sidecar on an equally private
+    ClusterIP was green — the sidecar is probed with a plain `fetch`, so only the model path refused.
+  - **Inference itself was never broken.** Every real provider client — vision, STT, embedding, rerank,
+    NLI, the document assist model, face recognition — did pass the flag. The bug lived entirely in the
+    surface built to tell an operator whether their configuration worked, which is the worst place for it:
+    it reported a working deployment as broken.
+  - A gate (`ssrf-allow-private-coverage`) now fails the build if any `ssrfSafeFetch` call omits
+    `allowPrivate` without writing down why. Webhook delivery and the schema-library catalog fetch keep it
+    off deliberately and now say so — and the gate separately asserts that webhook delivery never consults
+    the *model* opt-in, because "make it green" must not turn an inference preference into an SSRF
+    primitive.
+
+- **An SSRF refusal produced no server-side log line at all.** The guard threw, the rejection travelled to
+  the browser as an API payload, and the container log stayed silent — leaving the least correlatable
+  evidence there is: a string in a dialog, with no timestamp, no host, and no record of which rule fired.
+  Every refusal now emits one `warn` naming the target, what it resolved to, and the setting that would
+  permit it. Redacted, because the unsafe-URL branch quotes the raw URL and a model endpoint's query
+  string can carry a key.
+
+- **The posture block claimed a DNS resolution it never performed.** `egress.privateModelEndpoints` read
+  `N of M external endpoint(s) resolve to private addresses`, but `classifyEndpoint` deliberately does not
+  resolve DNS. On a cluster where every endpoint is a `*.svc.cluster.local` name, N is 0 — so a deployment
+  with two private ClusterIP endpoints was told "0 of 2 resolve to private addresses".
+  - That inverts the meaning in a place where the same phrasing is load-bearing: a neighbouring branch's
+    "nothing is using the permission" genuinely means "unset this flag". The line now reports what was
+    classified and states plainly that a hostname was **not** resolved; endpoints render as
+    `(hostname, not resolved here)` rather than a bare `(hostname)` that reads like a verdict.
+  - **The same defect in `oidc.issuer` was worse and unreported.** An internal IdP at
+    `keycloak.identity.svc.cluster.local` classifies as `hostname`, and the old two-way branch told the
+    operator that `oidc.allowPrivateIssuer` was unused and to unset it. Following that advice makes
+    discovery refuse the issuer and **nobody can sign in** — the exact outcome the neighbouring `fail`
+    check exists to prevent, reached by obeying the posture block. Now three-way.
+
+- **MCP OAuth was silent about the one setting it requires.** With no `publicUrl` configured the instance
+  falls back to a loopback base URL; the OAuth endpoint answers, the metadata is well-formed, and every
+  URL in it points at a host no browser connector can reach. Nothing fails, so nothing was reported. A new
+  `mcp.publicUrl` posture check warns when the fallback is in play. `getPublicBaseUrl` moved to
+  `config/public-url.ts` so the posture reads the same precedence rule rather than a copy of it.
+
+- **A raw NUL byte in `dupe-scanner.ts` made git treat a security-relevant module as binary** — no diff,
+  no blame, no line-level review, and `grep` answering `Binary file … matches` instead of the line. The
+  NUL is a correct hash field separator (so `a`+`bc` cannot collide with `ab`+`c`); it was simply written
+  as a raw byte instead of `\u0000`, which produces the identical string. Fixed here and in one test file,
+  with a `source-text-hygiene` gate so no source file silently opts out of code review again.
+  - The gate enumerates via **`git ls-files`**, not a directory walk. Its first version walked the tree
+    and CI killed it inside the hour: `testing/sync/` holds per-instance state the Docker stack writes at
+    0600 as the container's UID, so the runner hit `EACCES` on a generated artifact that is not tracked
+    and was never source. The tracked set is also the *correct* set on the merits — a file git does not
+    track has no diff to lose, which is the whole thing this gate protects.
+
 - **Lazy chunks had no size ceiling, so one could grow past the initial bundle unnoticed** — which is how
   the Brain chunk once reached twice the initial bundle with no CI signal at all. `client/angular.json`
   budgeted `initial`, `anyComponentStyle` and `all`, and nothing per chunk.

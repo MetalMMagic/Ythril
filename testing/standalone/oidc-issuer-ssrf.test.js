@@ -323,12 +323,30 @@ describe('OIDC issuer + discovery SSRF guard', () => {
       assert.equal(oidcCheck(), undefined);
     });
 
-    it('flags an opt-in that nothing is using', () => {
+    it('does NOT tell an operator to unset the opt-in when the issuer is a hostname', () => {
+      // This case previously asserted "nothing is using the permission; unset it" — and the fixture is a
+      // HOSTNAME, which is the shape an internal IdP actually has (keycloak.identity.svc.cluster.local).
+      // The posture check does not resolve DNS, so it cannot know where that name points; calling it
+      // "not private" and advising removal is advice that BREAKS SIGN-IN, arrived at by trusting the
+      // security block. The test encoded the bug, so fixing the bug had to change the test.
       process.env[ENV_KEY] = 'true';
       seedConfig({ ...BASE, issuerUrl: PUBLIC_ISSUER });
       const check = oidcCheck();
       assert.equal(check.level, 'warn');
+      assert.doesNotMatch(check.message, /unset it/, 'must not advise removing a flag it cannot evaluate');
+      assert.match(check.message, /does not resolve DNS/);
+      assert.match(check.message, /stop all sign-in/, 'name the consequence of following the old advice');
+    });
+
+    it('DOES flag an opt-in that provably nothing is using — a public IP literal', () => {
+      // The only case where "unset it" is safe to say: an address classifiable from configuration alone,
+      // with no resolution step that could turn it into something private.
+      process.env[ENV_KEY] = 'true';
+      seedConfig({ ...BASE, issuerUrl: 'https://93.184.216.34/realms/main' });
+      const check = oidcCheck();
+      assert.equal(check.level, 'warn');
       assert.match(check.message, /nothing is using the permission/);
+      assert.match(check.message, /unset it/);
     });
 
     it('says nothing when OIDC is disabled, whatever the issuer looks like', () => {

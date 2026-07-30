@@ -17,7 +17,7 @@ import {
   Gauge,
 } from 'prom-client';
 import { col } from '../db/mongo.js';
-import { getConfig } from '../config/loader.js';
+import { getConfig, getStorageConfig } from '../config/loader.js';
 import { measureUsage } from '../quota/quota.js';
 
 export const register = new Registry();
@@ -182,9 +182,8 @@ export const storageLimitBytes = new Gauge({
   registers: [register],
   collect() {
     try {
-      const cfg = getConfig();
       const GiB = 1024 ** 3;
-      const storage = cfg.storage;
+      const storage = getStorageConfig();
       if (!storage) return;
       if (storage.total?.softLimitGiB != null) this.set({ area: 'total', tier: 'soft' }, storage.total.softLimitGiB * GiB);
       if (storage.total?.hardLimitGiB != null) this.set({ area: 'total', tier: 'hard' }, storage.total.hardLimitGiB * GiB);

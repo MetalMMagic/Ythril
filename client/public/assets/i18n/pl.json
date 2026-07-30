@@ -946,6 +946,7 @@
   "metrics.empty": "Brak danych o użyciu pamięci.",
   "metrics.stat.totalUsed": "Łącznie wykorzystano",
   "metrics.stat.brain": "Mózg (MongoDB)",
+  "metrics.stat.total": "Łącznie",
   "metrics.stat.files": "Akta",
   "metrics.stat.limit": "Limit",
   "metrics.stat.unit": "GiB",

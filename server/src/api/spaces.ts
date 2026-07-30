@@ -2,7 +2,7 @@ import { Router } from 'express';
 import path from 'path';
 import { requireAuth, requireAdmin, requireAdminMfa, requireAdminMfaScoped } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
-import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig, getMediaEmbeddingConfig } from '../config/loader.js';
+import { getConfig, saveConfig, getSecrets, getDataRoot, getSchemaLibrary, getDocumentProcessingConfig, getMediaEmbeddingConfig, getStorageConfig } from '../config/loader.js';
 import { capDocExtractionMode } from '../files/converters/extraction-level.js';
 import { slugify } from '../spaces/_shared.js';
 import { createSpace, removeSpace } from '../spaces/lifecycle.js';
@@ -364,11 +364,17 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     ...(includeCounts && countsBySpaceId[id] ? { counts: countsBySpaceId[id] } : {}),
   }));
   // Include storage usage summary when quota is configured
-  let storage: { usageGiB?: { files: number; brain: number; total: number }; limits?: typeof cfg.storage } | undefined;
-  if (cfg.storage) {
+  // Resolved, not raw: `getStorageConfig()` applies the env pins, and `lockedByInfra` is what lets the
+  // Settings page render a host-imposed limit read-only instead of as something the tenant may edit.
+  const resolvedStorage = getStorageConfig();
+  let storage: {
+    usageGiB?: { files: number; brain: number; total: number };
+    limits?: ReturnType<typeof getStorageConfig>;
+  } | undefined;
+  if (resolvedStorage) {
     try {
       const usage = await measureUsage();
-      storage = { usageGiB: usage, limits: cfg.storage };
+      storage = { usageGiB: usage, limits: resolvedStorage };
     } catch {
       // Non-fatal: storage summary omitted on measurement error
     }

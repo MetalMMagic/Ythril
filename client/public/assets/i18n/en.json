@@ -946,6 +946,7 @@
   "metrics.empty": "No storage usage to report yet.",
   "metrics.stat.totalUsed": "Total used",
   "metrics.stat.brain": "Brain (MongoDB)",
+  "metrics.stat.total": "Total",
   "metrics.stat.files": "Files",
   "metrics.stat.limit": "Limit",
   "metrics.stat.unit": "GiB",

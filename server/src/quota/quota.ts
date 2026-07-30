@@ -17,7 +17,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { getConfig, getDataRoot } from '../config/loader.js';
+import { getDataRoot, getStorageConfig } from '../config/loader.js';
 import { getDb } from '../db/mongo.js';
 
 const GiB = 1024 ** 3;
@@ -171,8 +171,8 @@ export async function checkQuota(
   incomingBytes = 0,
   opts: { maxAgeMs?: number } = {},
 ): Promise<QuotaCheckResult> {
-  const cfg = getConfig();
-  const storage = cfg.storage;
+  // getStorageConfig(), not cfg.storage: an env pin must actually bind here or it is decoration.
+  const storage = getStorageConfig();
 
   // No storage config → quota disabled, always allow.
   if (!storage) {

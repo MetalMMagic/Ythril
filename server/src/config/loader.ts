@@ -641,6 +641,76 @@ export function saveSchemaCatalogs(catalogs: SchemaCatalog[]): void {
 
 // ── Defaults ───────────────────────────────────────────────────────────────
 
+/**
+ * Storage quotas, resolved env → config.json → unset, with the env-pinned fields reported.
+ *
+ * ## Why these needed an env layer
+ *
+ * Every other infra-shaped field — `allowPrivateModelEndpoints`, `modelPath`, the model endpoints —
+ * is env-pinnable and lands in `lockedByInfra` precisely so the instance's own admin cannot widen it.
+ * Storage limits were the exception: config.json only. On a host running several brains, the disk
+ * ceiling is the host operator's call, not the tenant's, and it was the one setting the operator had no
+ * way to bound from the Deployment.
+ *
+ * (The tenant could not raise it from Settings — no route writes `cfg.storage`, and none is added here.
+ * But they own their config volume, so config-only meant unpinnable, which is the same gap by a
+ * slightly longer path.)
+ *
+ * All six are separately pinnable. Six env vars is more surface than one, and the alternative — pinning
+ * `total` alone — leaves the per-area limits widenable, which is the same hole in a smaller room.
+ */
+export interface ResolvedStorageConfig {
+  total?: { softLimitGiB?: number; hardLimitGiB?: number };
+  files?: { softLimitGiB?: number; hardLimitGiB?: number };
+  brain?: { softLimitGiB?: number; hardLimitGiB?: number };
+  /** Dotted paths pinned by an env var, e.g. `total.hardLimitGiB`. Rendered read-only by the UI. */
+  lockedByInfra: string[];
+}
+
+const STORAGE_AREAS = ['total', 'files', 'brain'] as const;
+const STORAGE_TIERS = [['soft', 'softLimitGiB'], ['hard', 'hardLimitGiB']] as const;
+
+/** `STORAGE_TOTAL_HARD_GIB` etc. Spelled out rather than derived, so the names are greppable. */
+function storageEnvName(area: string, tier: string): string {
+  return `STORAGE_${area.toUpperCase()}_${tier.toUpperCase()}_GIB`;
+}
+
+export function getStorageConfig(): ResolvedStorageConfig | undefined {
+  let base: Record<string, { softLimitGiB?: number; hardLimitGiB?: number } | undefined> = {};
+  try { base = (getConfig().storage ?? {}) as typeof base; } catch { /* pre-setup */ }
+
+  const out: ResolvedStorageConfig = { lockedByInfra: [] };
+  let any = false;
+
+  for (const area of STORAGE_AREAS) {
+    const resolved: { softLimitGiB?: number; hardLimitGiB?: number } = {};
+    for (const [tier, field] of STORAGE_TIERS) {
+      const raw = process.env[storageEnvName(area, tier)];
+      if (raw !== undefined && raw.trim() !== '') {
+        const n = Number(raw);
+        // A malformed pin is IGNORED, loudly, rather than silently becoming NaN — a NaN limit compares
+        // false against every usage figure, so the quota would read as configured and enforce nothing.
+        if (Number.isFinite(n) && n >= 0) {
+          resolved[field] = n;
+          out.lockedByInfra.push(`${area}.${field}`);
+          continue;
+        }
+        log.warn(`${storageEnvName(area, tier)}="${raw}" is not a non-negative number — ignoring it and falling back to config.json.`);
+      }
+      const fromConfig = base[area]?.[field];
+      if (fromConfig !== undefined) resolved[field] = fromConfig;
+    }
+    if (resolved.softLimitGiB !== undefined || resolved.hardLimitGiB !== undefined) {
+      out[area] = resolved;
+      any = true;
+    }
+  }
+
+  // Undefined, not an empty object: every caller treats "no storage config" as "quota disabled", and an
+  // object with only `lockedByInfra` in it is truthy.
+  return any ? out : undefined;
+}
+
 export function getEmbeddingConfig() {
   const cfg = getConfig();
   // No baseUrl in the default = use the bundled local ONNX model.

@@ -273,6 +273,11 @@ async function attemptDelivery(
     // validated IP, and re-validates every redirect hop, so a webhook target
     // validated at creation time cannot rebind or 3xx-redirect to an internal
     // address (cloud IMDS, RFC-1918, loopback).
+    //
+    // allowPrivate stays false, and does not follow allowPrivateModelEndpoints even when that is on.
+    // The model opt-in exists because an operator chose a self-hosted inference server; it says nothing
+    // about where a webhook may point, and a webhook is the more dangerous of the two — it is the
+    // classic SSRF primitive, an attacker-influenceable URL this server will POST to on an event.
     const resp = await ssrfSafeFetch(sub.url, {
       method: 'POST',
       headers: {

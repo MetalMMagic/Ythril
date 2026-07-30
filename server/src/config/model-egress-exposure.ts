@@ -79,7 +79,23 @@ export function modelEndpointExposure(): EndpointExposure[] {
   return out;
 }
 
+/**
+ * How each class reads in a posture line.
+ *
+ * `hostname` is spelled out rather than left as a bare word. On its own it looks like a fourth peer of
+ * public/private/invalid — a verdict — when it is the opposite of a verdict: the check did not resolve
+ * the name, so it does not know. An operator whose cluster endpoints are all DNS names would otherwise
+ * read a list of `(hostname)` tags as "none of these are private", which is exactly backwards from the
+ * caution the line is trying to convey.
+ */
+const KLASS_LABEL: Record<EndpointClass, string> = {
+  public: 'public',
+  private: 'private',
+  hostname: 'hostname, not resolved here',
+  invalid: 'invalid',
+};
+
 /** One-line summary for the posture check: `vision → 10.43.12.7 (private); stt → api.x.com (public)`. */
 export function formatExposure(exposure: EndpointExposure[]): string {
-  return exposure.map(e => `${e.provider} → ${e.host} (${e.klass})`).join('; ');
+  return exposure.map(e => `${e.provider} → ${e.host} (${KLASS_LABEL[e.klass]})`).join('; ');
 }

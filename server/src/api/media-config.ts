@@ -608,8 +608,16 @@ export async function probeModelEndpoint(
   const started = Date.now();
   const base = opts.baseUrl.replace(/\/$/, '');
   const headers: Record<string, string> = opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : {};
+  // The opt-in must be passed HERE, not merely checked by the caller. `ssrfSafeFetch` defaults
+  // `allowPrivate` to false, so omitting the third argument silently reimposes the exact rejection the
+  // operator turned off. `probeModelStages` already gate-checks the URL with `allowPrivateModelEndpoints()`
+  // one line before calling this — the guard was passed correctly at the door and dropped just inside it.
+  //
+  // This is also the worst place to drop it: the probe is the surface an operator uses to find out whether
+  // their endpoint works, so the bug reported the configuration as broken while inference would have run.
   const doFetch = opts.external
-    ? (url: string, init: RequestInit) => ssrfSafeFetch(url, init)
+    ? (url: string, init: RequestInit) =>
+        ssrfSafeFetch(url, init, { allowPrivate: allowPrivateModelEndpoints() })
     : (url: string, init: RequestInit) => fetch(url, init);
 
   const attempts: Array<{ url: string; parse: (j: unknown) => string[] }> = [

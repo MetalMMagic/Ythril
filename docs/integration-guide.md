@@ -2524,6 +2524,18 @@ point a **bigger, external model** at specific tasks under `documentProcessing.a
 >
 > The instance reports this in its startup security posture and at `GET /api/about/security`
 > (`egress.privateModelEndpoints`).
+>
+> **Reading that posture line when your endpoints are DNS names.** The check is synchronous and does
+> **not** resolve DNS — resolving at boot would make the posture block hang on a slow resolver. An
+> endpoint written as a hostname is therefore reported as `(hostname, not resolved here)`, which means
+> *unknown*, not *public*. On a cluster where every endpoint is a `*.svc.cluster.local` name, none of
+> them will be counted as private, and that is not evidence that the permission is unused. Only
+> endpoints written as IP literals can be classified from configuration alone.
+>
+> **When a call is refused, the server says so.** Every SSRF refusal writes one `warn` line naming the
+> target, the address it resolved to, and the setting that would permit it — so a blocked endpoint is
+> diagnosable from the container log, not only from whatever a dialog happened to show. The line is
+> redacted like any other, so a key in a query string is not echoed into the log.
 
 | `model` | Model tag to request. Env: `DOC_ASSIST_MODEL`. |
 | `apiKey` | Optional bearer token. Stored in `secrets.json` (never `config.json`), masked in the admin API. Env: `DOC_ASSIST_API_KEY`. |

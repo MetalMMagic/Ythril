@@ -30,6 +30,7 @@
  */
 
 import net from 'node:net';
+import { randomUUID } from 'node:crypto';
 import dns from 'node:dns/promises';
 import { fetch as undiciFetch, Agent } from 'undici';
 import { log, redactSecrets } from './log.js';
@@ -429,6 +430,86 @@ export function pinnedAgent(ip: string): Agent {
 }
 
 /**
+ * Serialise a `FormData` body ourselves, because undici will not recognise this one.
+ *
+ * ## The bug
+ *
+ * External speech-to-text had never worked. The provider builds `new FormData()` — the **global**, which
+ * in Node is the built-in undici — and hands it to this module, which imports `fetch` from the **undici
+ * npm package**. Two different undici realms, so undici's internal `instanceof FormData` check fails, the
+ * body falls through to the generic branch, and `String(body)` puts the literal text
+ *
+ *     [object FormData]
+ *
+ * on the wire under `Content-Type: text/plain;charset=UTF-8`. Reproduced directly against a local
+ * listener. The receiving adapter saw `req.file` undefined WITHOUT `LIMIT_UNEXPECTED_FILE` — the
+ * signature of a request that was not multipart at all rather than multipart under another field name.
+ * Two copies of undici are installed (7.22.0 hoisted, 7.29.0 nested), so the realms were never going to
+ * line up.
+ *
+ * ## Why the fix lives here and not in the provider
+ *
+ * Importing undici's own `FormData` in the provider would fix today's caller and leave the landmine for
+ * the next one, in a file that has no reason to know which fetch implementation its transport uses. This
+ * is the choke point every guarded egress passes through, so normalising here means no caller can step on
+ * it — and a `Buffer` body is understood by every implementation, in any realm.
+ *
+ * Detection uses `Object.prototype.toString` rather than `instanceof`. Being precise about why, because
+ * mutation testing showed the two are currently **equivalent**: the `FormData` binding visible here is
+ * the global one, which is also what the providers construct, so `instanceof` would match today. It is
+ * kept as the defensive form for the case this module already proves is possible — a body built in
+ * another realm, e.g. by a caller importing `FormData` from the undici package directly, or by a nested
+ * copy of a dependency. No test distinguishes them, and inventing one that appeared to would be worse
+ * than saying so here.
+ */
+function isFormDataLike(v: unknown): boolean {
+  return Object.prototype.toString.call(v) === '[object FormData]';
+}
+
+function isBlobLike(v: unknown): v is Blob {
+  const tag = Object.prototype.toString.call(v);
+  return tag === '[object Blob]' || tag === '[object File]';
+}
+
+async function serialiseMultipart(form: FormData): Promise<{ body: Buffer; contentType: string }> {
+  const boundary = `----ythril${randomUUID().replace(/-/g, '')}`;
+  const parts: Buffer[] = [];
+  for (const [name, value] of form.entries() as Iterable<[string, unknown]>) {
+    parts.push(Buffer.from(`--${boundary}\r\n`, 'utf8'));
+    if (isBlobLike(value)) {
+      // `File` carries a name; a bare `Blob` does not, and the field name is the best available label.
+      const filename = (value as File).name ?? name;
+      const type = value.type || 'application/octet-stream';
+      parts.push(Buffer.from(
+        `Content-Disposition: form-data; name="${name}"; filename="${filename}"\r\n`
+        + `Content-Type: ${type}\r\n\r\n`, 'utf8'));
+      parts.push(Buffer.from(await value.arrayBuffer()));
+    } else {
+      parts.push(Buffer.from(`Content-Disposition: form-data; name="${name}"\r\n\r\n`, 'utf8'));
+      parts.push(Buffer.from(String(value), 'utf8'));
+    }
+    parts.push(Buffer.from('\r\n', 'utf8'));
+  }
+  parts.push(Buffer.from(`--${boundary}--\r\n`, 'utf8'));
+  return { body: Buffer.concat(parts), contentType: `multipart/form-data; boundary=${boundary}` };
+}
+
+/** Replace a cross-realm FormData body with bytes plus an explicit Content-Type. Other bodies pass through. */
+async function normaliseBody(init: RequestInit): Promise<RequestInit> {
+  if (!isFormDataLike(init.body)) return init;
+  const { body, contentType } = await serialiseMultipart(init.body as FormData);
+  const headers = new Headers((init.headers ?? {}) as HeadersInit);
+  // Set, not append: a stale Content-Type without our boundary is unparseable.
+  headers.set('Content-Type', contentType);
+  // Bytes, deliberately — NOT a Blob. A Blob would be branded by whichever realm constructed it and we
+  // would be back where we started. A plain typed array has no realm identity, so every implementation
+  // accepts it. The cast is only because this project's `BodyInit` predates ArrayBufferView bodies;
+  // undici and the platform both take one at runtime.
+  const bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+  return { ...init, body: bytes as unknown as BodyInit, headers };
+}
+
+/**
  * SSRF-safe replacement for `fetch`. Before each request it resolves and
  * validates the target (via `assertUrlSafeResolved`), then **pins the connection
  * to the validated IP** so a DNS rebind cannot redirect the socket to an internal
@@ -448,6 +529,8 @@ export async function ssrfSafeFetch(
   const maxRedirects = opts.maxRedirects ?? 3;
   const injected = opts.fetchImpl;
   let current = rawUrl;
+  // Once, before the redirect loop: a body may only be read a single time, and every hop resends it.
+  const safeInit = await normaliseBody(init);
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
     const { addresses } = await assertUrlSafeResolved(current, { lookup: opts.lookup, allowPrivate: opts.allowPrivate });
@@ -455,11 +538,11 @@ export async function ssrfSafeFetch(
     let resp: Response;
     let agent: Agent | undefined;
     if (injected) {
-      resp = await injected(current, { ...init, redirect: 'manual' });
+      resp = await injected(current, { ...safeInit, redirect: 'manual' });
     } else {
       agent = pinnedAgent(addresses[0]!);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      resp = await (undiciFetch as any)(current, { ...init, redirect: 'manual', dispatcher: agent }) as Response;
+      resp = await (undiciFetch as any)(current, { ...safeInit, redirect: 'manual', dispatcher: agent }) as Response;
     }
 
     const location = resp.status >= 300 && resp.status < 400 ? resp.headers.get('location') : null;

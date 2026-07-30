@@ -118,7 +118,7 @@ export async function embedVideo(
   doKeyframes = true,
   overlapMs = 5000,
   keyframeIntervalS = DEFAULT_KEYFRAME_INTERVAL_S,
-): Promise<void> {
+): Promise<{ audioFailed: number; audioTotal: number }> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ythril-video-'));
   const videoExt = mimeTypeToVideoExt(mimeType);
   const videoPath = path.join(tmpDir, `input.${videoExt}`);
@@ -130,14 +130,15 @@ export async function embedVideo(
     // Step 1: Extract audio + embed audio chunks
     await extractAudioTrack(videoPath, audioPath);
     const audioBytes = await fs.readFile(audioPath);
-    const audioChunks: AudioChunkRecord[] = await embedAudio(
-      spaceId,
-      fileId,
-      audioBytes,
-      'audio/wav',
-      stt,
-      overlapMs,
-    );
+    const audioResult = await embedAudio(spaceId, fileId, audioBytes, 'audio/wav', stt, overlapMs);
+    const audioChunks: AudioChunkRecord[] = audioResult.records;
+    // Carried up so the worker can mark the job `partial`. A video whose audio partly failed to
+    // transcribe is not a complete video: its keyframes may be fine while the spoken content is missing,
+    // and recording that as `complete` is the same silent loss the audio path had.
+    const audioOutcome = { audioFailed: audioResult.failed, audioTotal: audioResult.total };
+    if (audioResult.failed > 0) {
+      log.warn(`Video embedder: ${audioResult.failed}/${audioResult.total} audio chunks failed for ${fileId}`);
+    }
 
     if (audioChunks.length === 0) {
       log.warn(`Video embedder: no audio chunks produced for ${fileId}`);
@@ -146,7 +147,7 @@ export async function embedVideo(
     // `audio` video level: stop after the audio pipeline — no keyframes, the vision model is not called.
     if (!doKeyframes) {
       log.debug(`Video embedder: audio-only level for ${fileId} — skipping keyframe captioning`);
-      return;
+      return audioOutcome;
     }
 
     // Step 2: Extract keyframes
@@ -156,7 +157,7 @@ export async function embedVideo(
 
     if (keyframes.length === 0) {
       log.debug(`Video embedder: no keyframes extracted for ${fileId}`);
-      return; // audio-only chunks are sufficient
+      return audioOutcome; // audio-only chunks are sufficient
     }
 
     // Step 3: Caption keyframes
@@ -172,7 +173,7 @@ export async function embedVideo(
       }
     }
 
-    if (captionedFrames.length === 0) return;
+    if (captionedFrames.length === 0) return audioOutcome;
 
     // Step 4: For each audio chunk, collect overlapping frame captions and re-embed
     const now = new Date().toISOString();
@@ -209,6 +210,7 @@ export async function embedVideo(
         log.warn(`Video embedder: re-embed failed for chunk ${chunk.chunkId}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    return audioOutcome;
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }

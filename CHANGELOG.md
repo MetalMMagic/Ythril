@@ -34,6 +34,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The fallback log now **names the evidence**: which setting is empty and which env var sets it, rather
     than only "needs vlm". A reporter spent a hunt through nine configured endpoints discovering a tenth
     they had never set, because the message stated a verdict and withheld what it looked at.
+- **External speech-to-text had never worked: the request was not multipart at all.** Reported against
+  2.1.1. An `.ogg` upload produced `Whisper HTTP 400`, and the receiving OpenAI-conformant adapter saw
+  multer's `req.file` undefined **without** `LIMIT_UNEXPECTED_FILE` — the signature of a request that was
+  not multipart, rather than multipart under a different field name.
+  - `WhisperProvider` builds `new FormData()` — the **global**, which in Node is the built-in undici —
+    and hands it to `ssrfSafeFetch`, which imports `fetch` from the **undici npm package**. Two realms,
+    so undici's internal `instanceof FormData` fails, the body falls through to the generic branch, and
+    `String(body)` puts the literal text `[object FormData]` on the wire under `Content-Type:
+    text/plain;charset=UTF-8`. Reproduced directly against a local listener before any code changed.
+  - Two copies of undici are installed (7.22.0 hoisted, 7.29.0 nested), so the realms were never going to
+    line up. Only the **external** STT path was affected; local Whisper uses a plain global `fetch`.
+  - Fixed in `ssrfSafeFetch` itself rather than in the provider: importing undici's own `FormData` there
+    would fix one caller and leave the landmine for the next, in a file with no reason to know which
+    fetch implementation its transport uses. The body is serialised to bytes — deliberately not a `Blob`,
+    which would be branded by whichever realm made it — with an explicit boundary.
+  - Same class as the vision data-URI bug in 2.1.1: endpoint and model fine, transport encoding wrong.
+
+- **A failed audio chunk still reported the job complete.** The logs read
+  `chunk 0 … failed: Whisper HTTP 400` immediately followed by `completed audio job … (complete)`.
+  `embedAudio` caught per-chunk failures, logged, continued, and returned only the successes **with no
+  count**; the worker discarded the value and hardcoded `complete`. An operator saw success over audio
+  that was never transcribed, which is worse than the error that caused it.
+  - `partial` was not a new concept — the **document** path has recorded it correctly all along, with a
+    comment explaining why. Audio simply never carried the number.
+  - Now: any failed chunk marks the file `partial`; **every** chunk failing throws, so the job returns to
+    the queue's retry/backoff path instead of reporting success over an empty transcript. Video
+    propagates its audio outcome for the same reason — good keyframes do not make a video complete when
+    its speech is missing.
 
 ### Changed
 

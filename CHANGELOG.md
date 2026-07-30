@@ -458,6 +458,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Dependency updates: both criticals cleared, server production advisories 17 → 8.** `tar` (PAX size
+  override) and `protobufjs` (arbitrary code execution) were the two criticals; `undici` (WebSocket
+  64-bit length parser overflow — the transport `ssrfSafeFetch` runs on), `multer` (upload DoS),
+  `js-yaml`, `path-to-regexp`, `fast-uri` and `hono` were the highs.
+  - **Surgical, not `npm audit fix`.** The blanket fix also pulled Angular from 21.2.4 to 21.2.19, which
+    npm then split across the workspace — `platform-browser` hoisted to the root, `animations` nested in
+    `client/` — and the root copy cannot resolve into a workspace, so the production build failed on
+    `Could not resolve "@angular/animations/browser"`. Shipping a broken build to fix a moderate is not a
+    trade worth making the day of a release.
+  - **Deferred, with reasons rather than silence:**
+    - **Angular 21.2.19** — two *moderate* XSS advisories (template/attribute namespace sanitization
+      bypass) apply. The only **high** in that set, `GHSA-rgjc-h3x7-9mwg` (Client Hydration DOM
+      Clobbering), **does not**: this app has no SSR, no `provideClientHydration` and no server entry.
+      The upgrade also trips Angular's new refusal to take assets from outside the workspace root, which
+      the in-app help relies on (`../docs`), so it needs a docs-staging step — a build-pipeline change
+      that belongs in its own PR.
+    - **`exceljs`** — npm's "fix" is `3.4.0`, a *downgrade* from the installed 4.4.0. That is not a fix.
+    - **`sharp`, `@huggingface/transformers`** — no fix available upstream.
+
 - **Crash handlers wrote the raw error to the console, bypassing redaction entirely.** `log.*` redacts;
   `console.*` does not. Three sites — `unhandledRejection`, `uncaughtException` and the fatal-startup
   catch — logged a redacted line to the ring buffer and then printed the **unredacted** error object to

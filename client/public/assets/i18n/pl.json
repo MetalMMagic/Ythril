@@ -1434,7 +1434,7 @@
   "mediaProcessing.test.unreachable": "Nieosiągalny",
   "mediaProcessing.test.reachable": "Osiągalny",
   "mediaProcessing.test.modelFound": "Osiągalny · model znaleziony",
-  "mediaProcessing.test.modelMissing": "Osiągalny · nie znaleziono modelu",
+  "mediaProcessing.test.modelNotEnumerated": "Osiągalny · model niewymieniony (normalne dla routerów)",
   "mediaProcessing.health.ok": "działa",
   "mediaProcessing.health.degraded": "osiągalny, ale nie znaleziono modelu",
   "mediaProcessing.health.down": "nie odpowiada",

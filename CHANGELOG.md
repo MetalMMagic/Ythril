@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The connection probe disagreed with the pipeline it was probing.** Reported against 2.1.1, same pod,
+  minutes apart: `POST /v1/chat/completions → 200` (captions working) beside `GET /v1/v1/models → 404`
+  and `GET /v1/api/tags → 404` (the probe). The Models page showed vision **red over a working
+  pipeline**.
+  - The probe tried `${base}/v1/models` then `${base}/api/tags` **blindly, for every target and every
+    provider** — `external` was computed per target but only ever selected the fetch implementation,
+    never the endpoint. Vision-external is the one target whose base is expected to already contain
+    `/v1`, so it got `/v1/v1/models`; the Ollama fallback then fired against an OpenAI provider, which
+    is where the reporter's `/v1/api/tags` came from.
+  - Removing the `/v1` to satisfy the probe made it **green while inference 404'd** — a green dot over a
+    broken pipeline, and the worse of the two directions.
+  - The list URL now comes from `listUrlFor`, the same helper the inference path derives its chat URL
+    from, so the probe cannot disagree with the thing it probes. `…:8080` and `…:8080/v1` both work.
+  - If the endpoint answers on the *other* protocol, that is now reported as a **provider-type
+    mismatch** rather than a bare success — reachable, but inference will use the other wire and fail.
+  - Failures name the URL that was tried. A bare "unreachable" cannot distinguish a wrong base path from
+    a dead endpoint, and the two need opposite fixes.
+
 - **The document VLM could not work against any OpenAI-compatible server, and its egress was unguarded.**
   Reported against 2.1.1 from a self-hosted Kubernetes deployment: with `visionProvider: external` and
   `DOC_VLM_MODEL` set, one PDF produced `POST /render → 200`, `POST /v1/api/chat → 404`, and a fallback to
@@ -64,6 +82,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     its speech is missing.
 
 ### Changed
+
+- **"Model not listed" is no longer reported as degraded.** `modelPresent` is renamed
+  `modelEnumerated` — named for what it measured rather than what it was read as. Aliasing routers
+  (llama-swap roles), gateways and Azure deployments deliberately serve names they keep out of
+  enumerations, so absence from a model list is **no information at all**, and turning it into a yellow
+  dot manufactured a warning from an absence of evidence. A reporter's vision endpoint was fully working
+  and permanently yellow for exactly this reason.
+  - This is the honesty rule `health-summary.ts` already applied one file over, where a component nobody
+    configured is explicitly not a fault.
+  - The status pill drops the `warn` variant for this case in all three locales, and the label now reads
+    "model not listed (normal for routers)" rather than "model not found".
 
 - **Inverted the egress audit.** PR #546 audited `ssrfSafeFetch` *call sites* and found all 13 correct — a
   set that cannot, by construction, contain an egress that should have been guarded and is not, which is

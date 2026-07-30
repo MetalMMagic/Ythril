@@ -195,11 +195,19 @@ export class MediaProcessingStateService {
       } } })),
     });
   }
-  testPillVariant(r: TestResult): StatusVariant { return !r.reachable ? 'error' : (r.modelPresent === false ? 'warn' : 'ok'); }
+  /**
+   * Not enumerating a model is NOT a warning.
+   *
+   * This returned `warn` for `modelEnumerated === false`, which made a working endpoint permanently
+   * yellow: aliasing routers (llama-swap roles), gateways and Azure deployments deliberately do not list
+   * the names they serve, so absence from the list carries no information at all. Only unreachable is a
+   * fault; everything else is informational, and Verify is what actually answers "does the model work".
+   */
+  testPillVariant(r: TestResult): StatusVariant { return !r.reachable ? 'error' : 'ok'; }
   testPillLabelKey(r: TestResult): string {
     if (!r.reachable) return 'mediaProcessing.test.unreachable';
-    if (r.modelPresent === false) return 'mediaProcessing.test.modelMissing';
-    if (r.modelPresent === true) return 'mediaProcessing.test.modelFound';
+    if (r.modelEnumerated === false) return 'mediaProcessing.test.modelNotEnumerated';
+    if (r.modelEnumerated === true) return 'mediaProcessing.test.modelFound';
     return 'mediaProcessing.test.reachable';
   }
 

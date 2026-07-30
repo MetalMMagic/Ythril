@@ -2543,7 +2543,20 @@ Switching tabs with unsaved changes prompts rather than discarding them.
 
 **Infra-managed lock (F11).** On managed infrastructure you can set every media/model value in `config.json` (or the environment) and forbid changes through the admin UI/API — the same posture as `YTHRIL_MONGO_INFRA_MANAGED` for the database. Set `mediaEmbedding.infraManaged: true` in `config.json`, **or** `YTHRIL_MEDIA_INFRA_MANAGED=true` in the environment. When active, `PATCH /api/admin/media-config` returns **409** with `code: "INFRA_MANAGED"` and **Settings → Media Processing** renders read-only (a "managed by infrastructure" banner is shown; *Test connection* still works). Individual fields can instead be pinned one at a time by setting their env var (e.g. `VISION_MODEL`, `DOC_ASSIST_URL`) — those appear in `lockedByInfra` and are locked individually. Use `infraManaged` when the whole block is owned by infrastructure.
 
-**Test connection (F11).** `POST /api/admin/media-config/test-connection` (admin + MFA) probes a configured endpoint — `{ "target": "vision" | "stt" | "assist" | "embedding" | "nli" }` — by listing its models (OpenAI-compatible `/v1/models`, falling back to Ollama `/api/tags`). It performs **no inference and sends no document content**, so it is safe to run before acknowledging egress. External endpoints go through the SSRF-guarded fetch; local (trusted) endpoints use a direct fetch. The response reports `{ reachable, modelPresent?, models, latencyMs, detail? }`. Settings → Media Processing exposes a **Test connection** button per provider card.
+**Test connection (F11).** `POST /api/admin/media-config/test-connection` (admin + MFA) probes a configured endpoint — `{ "target": "vision" | "stt" | "assist" | "embedding" | "nli" }` — by listing its models. It performs **no inference and sends no document content**, so it is safe to run before acknowledging egress. External endpoints go through the SSRF-guarded fetch; local (trusted) endpoints use a direct fetch. The response reports `{ reachable, modelEnumerated?, models, latencyMs, detail? }`. Settings → Media Processing exposes a **Test connection** button per provider card.
+
+The list URL is derived from the **same rule the inference call uses** — `/models` for an OpenAI-compatible
+base (which already carries `/v1`; `…:8080` and `…:8080/v1` both work), `/api/tags` for a local Ollama. A
+probe that normalised differently from the thing it probes would report a red dot over a working pipeline,
+or worse, a green one over a broken pipeline. If the endpoint answers on the *other* protocol, the probe
+says so explicitly rather than simply failing — that means the provider type is set wrong and inference
+will fail even though the endpoint is up.
+
+> **`modelEnumerated: false` is not a fault.** It means the endpoint did not *list* the configured name,
+> which is normal and deliberate for aliasing routers (llama-swap roles), gateways and Azure deployments —
+> they serve names they keep out of user-facing pickers. Absence from a list is not evidence a model is
+> unavailable, so it is reported as informational and never as degraded. To find out whether a model
+> actually answers, make a real request.
 
 **Pipeline status.** `GET /api/admin/pipeline-status` (admin) returns the health of the whole pipeline in one read-only payload — it mutates nothing and sends no document content. It reports three things:
 

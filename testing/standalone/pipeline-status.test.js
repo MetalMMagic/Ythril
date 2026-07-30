@@ -34,13 +34,21 @@ describe('classifyStage — the three failures that all look like "nothing was e
     assert.equal(r.latencyMs, 12);
   });
 
-  it('reachable but NOT serving the model is degraded, not ok and not down', () => {
-    // The operator typed a model name the endpoint has never heard of. The endpoint is fine; the
-    // extraction will still produce nothing. Reporting this as `down` would send them to check the
-    // wrong thing entirely.
+  it('reachable but NOT LISTING the model is informational — not degraded', () => {
+    // This asserted `degraded`, on the reading that a name the endpoint has never heard of means the
+    // extraction will produce nothing. That reading does not hold: aliasing routers (llama-swap roles),
+    // gateways and Azure deployments deliberately serve names they keep OUT of their enumerations,
+    // precisely so internal role names stay out of user-facing pickers. A reporter's vision endpoint was
+    // captioning successfully and permanently yellow because of this rule.
+    //
+    // Absence from a list is not evidence of absence. Three outcomes exist here and only one is a fault:
+    // unreachable (down), listed (good evidence), not listed (NO information). The third now stays `ok`
+    // and says what it saw. Whether the model actually answers is a question only a real request can
+    // settle — which is what Verify is for.
     const r = classifyStage(stage(), up(['llava:7b', 'qwen2.5:3b']));
-    assert.equal(r.state, 'degraded');
-    assert.match(r.detail, /does not list "moondream"/);
+    assert.equal(r.state, 'ok');
+    assert.match(r.detail, /not enumerated/);
+    assert.match(r.detail, /aliasing routers/);
   });
 
   it('configured but unreachable is down, and carries the reason', () => {
@@ -77,8 +85,11 @@ describe('classifyStage — the three failures that all look like "nothing was e
   it('matches an Ollama `:tag` suffix as well as an exact name', () => {
     assert.equal(classifyStage(stage({ model: 'moondream' }), up(['moondream:v2'])).state, 'ok');
     assert.equal(classifyStage(stage({ model: 'moondream' }), up(['moondream'])).state, 'ok');
-    // ...but not a different model that merely starts with the same letters.
-    assert.equal(classifyStage(stage({ model: 'llama' }), up(['llama-guard'])).state, 'degraded');
+    // ...but not a different model that merely starts with the same letters. Still `ok` now — the point
+    // is that it is NOT counted as enumerated, which the detail line reports.
+    const near = classifyStage(stage({ model: 'llama' }), up(['llama-guard']));
+    assert.equal(near.state, 'ok');
+    assert.match(near.detail, /not enumerated/);
   });
 });
 

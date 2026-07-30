@@ -11,7 +11,8 @@ export interface ProviderCfg { label?: string; baseUrl?: string; model?: string;
 /** Result of probing a model endpoint (reachability + whether the model is present). F11-PR5b. */
 export interface TestResult {
   ok: boolean; reachable: boolean; status?: number; models?: string[];
-  modelPresent?: boolean; detail?: string; latencyMs: number;
+  /** Whether the endpoint LISTED the model — not whether it serves it. See `classifyStage` on the server. */
+  modelEnumerated?: boolean; detail?: string; latencyMs: number;
 }
 
 export type TestTarget = 'vision' | 'stt' | 'assist' | 'embedding' | 'rerank' | 'nli';

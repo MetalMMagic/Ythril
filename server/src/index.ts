@@ -1,5 +1,6 @@
 ﻿import { createServer } from 'http';
 import { configExists, loadConfig, loadSecrets, loadSchemaLibrary, getMongoUri, flushConfig, migrateStateFilesAtRest, requireEncryptedAtRest, atRestEncryptionActive } from './config/loader.js';
+import { beginShutdown } from './lifecycle.js';
 import { connectMongo, closeMongo, checkVectorSearchAvailability } from './db/mongo.js';
 import { createApp } from './app.js';
 import { startConfiguredInstanceServices } from './bootstrap.js';
@@ -147,6 +148,18 @@ async function main(): Promise<void> {
    */
   const DRAIN_MS = Number(process.env['SHUTDOWN_DRAIN_MS'] ?? 8_000);
 
+  /**
+   * How long to keep serving after readiness starts reporting false, before the drain begins.
+   *
+   * Long enough for an orchestrator's readiness probe to fire and take this instance out of rotation.
+   * Kubernetes' default `periodSeconds` is 10, so a value below that means some probes never see the
+   * change; 2 s is a compromise that helps a typical setup without stalling every restart. Set it to 0
+   * on a single-instance deployment — there is no load balancer to inform, so the wait is pure delay.
+   *
+   * Comes out of the same budget as DRAIN_MS: both must fit inside the orchestrator's stop grace.
+   */
+  const READY_GRACE_MS = Number(process.env['SHUTDOWN_READY_GRACE_MS'] ?? 2_000);
+
   let shuttingDown = false;
 
   /**
@@ -166,6 +179,15 @@ async function main(): Promise<void> {
     if (shuttingDown) return;      // a second SIGTERM must not race the first through this
     shuttingDown = true;
     log.debug(`${signal} received — shutting down`);
+
+    // Step one, before anything is torn down: stop advertising readiness, then give the orchestrator a
+    // moment to notice and route elsewhere. Without this the drain below is only half the job — it
+    // finishes the requests already running while new ones keep arriving over established keep-alive
+    // connections, and those die at exit. Zero on a single-instance deployment, where there is no load
+    // balancer to inform and the wait is pure delay.
+    beginShutdown();
+    if (READY_GRACE_MS > 0) await new Promise(r => setTimeout(r, READY_GRACE_MS));
+
     stopSyncScheduler();
     stopBackupScheduler();
     stopDupeScanner();

@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { createHash } from 'crypto';
 import { resolveSafePathChecked, spaceRoot } from './sandbox.js';
-import { getConfig, getDataRoot } from '../config/loader.js';
+import { getConfig, getDataRoot, getStorageConfig } from '../config/loader.js';
 
 export interface FileEntry {
   name: string;
@@ -196,8 +196,7 @@ export interface QuotaCheckResult {
  * @param incomingBytes estimated size of the incoming write (0 for a safe check with no addend)
  */
 export async function checkFilesQuota(incomingBytes: number): Promise<QuotaCheckResult> {
-  const cfg = getConfig();
-  const fileLimits = cfg.storage?.files;
+  const fileLimits = getStorageConfig()?.files;
   if (!fileLimits) return { allowed: true, softWarning: false };
 
   const filesRoot = path.join(getDataRoot(), 'files');

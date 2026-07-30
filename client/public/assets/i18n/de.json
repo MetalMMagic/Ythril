@@ -946,6 +946,7 @@
   "metrics.empty": "Noch keine Speichernutzung vorhanden.",
   "metrics.stat.totalUsed": "Insgesamt verwendet",
   "metrics.stat.brain": "Gehirn (MongoDB)",
+  "metrics.stat.total": "Gesamt",
   "metrics.stat.files": "Dateien",
   "metrics.stat.limit": "Limit",
   "metrics.stat.unit": "GiB",

@@ -7249,6 +7249,33 @@ Configured in `config.json` under `storage`:
 | Above soft limit | Write succeeds, response includes `storageWarning: true` |
 | Above hard limit | Write rejected with `507` and `storageExceeded: true` |
 
+### Pinning the limits from the environment
+
+*New in 2.1.*
+
+Every limit can also be set by an environment variable, on the same **env → `config.json` → unset**
+precedence as the model settings:
+
+| Field | Env var |
+|---|---|
+| `storage.total.softLimitGiB` | `STORAGE_TOTAL_SOFT_GIB` |
+| `storage.total.hardLimitGiB` | `STORAGE_TOTAL_HARD_GIB` |
+| `storage.files.softLimitGiB` | `STORAGE_FILES_SOFT_GIB` |
+| `storage.files.hardLimitGiB` | `STORAGE_FILES_HARD_GIB` |
+| `storage.brain.softLimitGiB` | `STORAGE_BRAIN_SOFT_GIB` |
+| `storage.brain.hardLimitGiB` | `STORAGE_BRAIN_HARD_GIB` |
+
+**This is for multi-tenant hosting.** On a host running several brains, the disk ceiling is the host
+operator's call, and it was the only infra-shaped setting with no way to bind it from the Deployment —
+`allowPrivateModelEndpoints`, `modelPath` and the model endpoints have all been env-pinnable for exactly
+this reason. A pinned field is reported in `lockedByInfra` on `GET /api/spaces` and rendered read-only
+with an **env** badge on **Settings → Storage**.
+
+Each of the six is independent, so `total` can be pinned while the per-area limits stay editable, or the
+reverse. A value of `0` is a real limit (refuse everything), not an absent one. A malformed value is
+ignored with a warning and the `config.json` value is used — a limit that parsed to `NaN` would compare
+false against every usage figure and enforce nothing while looking configured.
+
 ---
 
 ## Pagination

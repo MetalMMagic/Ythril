@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Storage quotas are env-pinnable** — `STORAGE_{TOTAL,FILES,BRAIN}_{SOFT,HARD}_GIB`, on the same
+  env → `config.json` → unset precedence as the model settings, with pinned fields reported in
+  `lockedByInfra` and rendered read-only in Settings.
+  - For multi-tenant hosting. On a host running several brains the disk ceiling is the host operator's
+    call, and this was the only infra-shaped setting with no way to bind it from the Deployment;
+    `allowPrivateModelEndpoints`, `modelPath` and the model endpoints have been pinnable for exactly this
+    reason. *(The reporter believed a tenant could raise it from Settings — they could not, since no route
+    writes `cfg.storage` and none is added here. But they own their config volume, so config-only still
+    meant unpinnable: the same gap by a longer path.)*
+  - All six are independent, so `total` can be pinned while per-area limits stay editable. `0` is a real
+    limit, not an absent one. A malformed value is **refused with a warning** rather than coerced — `NaN`
+    compares false against every usage figure, so it would look configured and enforce nothing.
+  - The resolver is wired into all four consumers (quota check, file-upload check, metrics, the spaces
+    API) and a test asserts none of them reads `cfg.storage` directly, because a pin that resolves in the
+    loader and binds nowhere is exactly the class of bug this release keeps finding.
+
 - **The Models screen now lists every model the pipeline actually calls.** Two were missing, both
   configurable since the day they shipped and neither reachable from the admin surface — so the one page
   that claims to enumerate the pipeline's models was quietly incomplete.
@@ -558,6 +574,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reach READY within 60s", which is why two rounds of investigation produced the cost and never the
     cause. It now reports the observed status periodically, and distinguishes *index not present* from
     *index not ready* — different failures that used to read identically.
+
+- **Settings → Storage showed no quota at all on an instance that had one configured.** The client's
+  `StorageLimits` type was `{ totalLimitGiB, warnAtPercent }` — a shape the server has **never** sent. The
+  real payload is `{ total: { softLimitGiB, hardLimitGiB }, files: {…}, brain: {…} }`, so
+  `limits.totalLimitGiB` was permanently `undefined`, every `@if` guarding the quota UI was permanently
+  false, and the page rendered no limit, no usage bar and no health pill. It read exactly like "no quota
+  set". Nothing ever failed, because reading a missing field is not an error.
+  - Found while adding the env pins above, and worse than the thing that was reported.
+  - The page now shows **every configured area** with its soft and hard limit, not a single total that
+    was never displayed. The warn threshold is **derived from the soft limit** as a share of the hard one
+    rather than read from `warnAtPercent`, another field the server does not send — that one silently fell
+    through to a hard-coded 80% unrelated to the operator's actual soft limit.
+  - The usage bar is drawn against the **hard** total (falling back to soft), because hard is what
+    actually refuses a write.
 
 - **Upgrading from 2.0.0 could look like a crash loop: boot blocked for over an hour waiting on vector
   index builds.** 2.0.0 added filter fields to the `$vectorSearch` indexes, so every upgrade reshapes the

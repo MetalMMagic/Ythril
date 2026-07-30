@@ -140,9 +140,26 @@ export interface SpacesResponse {
   };
 }
 
+/**
+ * Instance storage quotas, as the server actually sends them.
+ *
+ * The previous shape — `{ totalLimitGiB, warnAtPercent }` — was **fiction**. The server has always sent
+ * `{ total: { softLimitGiB, hardLimitGiB }, files: {...}, brain: {...} }`, so `limits.totalLimitGiB` was
+ * permanently `undefined`, every `@if` guarding the quota UI was permanently false, and Settings →
+ * Storage showed *no limit, no usage bar and no health pill* on an instance that had quotas configured.
+ * It read exactly like "no quota set". Nothing failed, because reading a missing field is not an error.
+ */
+export interface StorageAreaLimit {
+  softLimitGiB?: number;
+  hardLimitGiB?: number;
+}
+
 export interface StorageLimits {
-  totalLimitGiB?: number;
-  warnAtPercent?: number;
+  total?: StorageAreaLimit;
+  files?: StorageAreaLimit;
+  brain?: StorageAreaLimit;
+  /** Dotted paths pinned by an env var (`total.hardLimitGiB`), rendered read-only. */
+  lockedByInfra?: string[];
 }
 
 export interface TokenRecord {

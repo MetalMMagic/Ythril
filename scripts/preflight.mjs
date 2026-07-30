@@ -37,6 +37,7 @@ const SOURCE_GATES = [
   ['doc-cited-constants', 'a number the docs quote that no longer matches the constant it quotes'],
   ['help-docs-coverage', 'a guide that ships but the in-product Help page never offers, or offers and cannot load'],
   ['help-anchor-coverage', 'a help link whose anchor matches no heading — it opens the guide and scrolls nowhere'],
+  ['console-redaction-coverage', 'an error written straight to the console, bypassing the redaction log.* applies'],
 ];
 
 /** Gates that import from server/dist and therefore need a build. */

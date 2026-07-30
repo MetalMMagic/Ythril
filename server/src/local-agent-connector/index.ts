@@ -3,6 +3,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+// This process writes only to the console. `redactSecrets` is the same rule `log.*` applies on the
+// server side; `util/log.ts` has no imports of its own, so borrowing it costs nothing.
+import { redactSecrets } from '../util/log.js';
 import { spawn } from 'node:child_process';
 import { z } from 'zod';
 
@@ -31,7 +34,7 @@ function loadOrCreateToken(): string {
       if (fileToken) return fileToken;
     }
   } catch (err) {
-    console.error(`FATAL: unable to read connector token file '${TOKEN_FILE}': ${err}`);
+    console.error(redactSecrets(`FATAL: unable to read connector token file '${TOKEN_FILE}': ${err}`));
     process.exit(1);
   }
 
@@ -42,7 +45,7 @@ function loadOrCreateToken(): string {
     fs.writeFileSync(TOKEN_FILE, generated + '\n', { encoding: 'utf8', mode: 0o600 });
     return generated;
   } catch (err) {
-    console.error(`FATAL: unable to create connector token file '${TOKEN_FILE}': ${err}`);
+    console.error(redactSecrets(`FATAL: unable to create connector token file '${TOKEN_FILE}': ${err}`));
     process.exit(1);
   }
 }
@@ -420,7 +423,7 @@ app.listen(PORT, HOST, () => {
           return ensureUserModeTunnelRunning(DEFAULT_TUNNEL_NAME);
         })
         .then(msg => { if (msg) console.log(`[ythril-local-connector] auto-resume: ${msg}`); })
-        .catch(err => { console.error(`[ythril-local-connector] auto-resume error: ${err}`); });
+        .catch(err => { console.error(redactSecrets(`[ythril-local-connector] auto-resume error: ${err}`)); });
     }
   }
 });

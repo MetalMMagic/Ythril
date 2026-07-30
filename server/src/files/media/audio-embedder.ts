@@ -22,6 +22,7 @@ import { embed } from '../../brain/embedding.js';
 import { getConfig } from '../../config/loader.js';
 import type { FileMetaDoc, AuthorRef } from '../../config/types.js';
 import type { SttProvider, SttSegment } from './providers.js';
+import { extForMimeType } from '../mime.js';
 import { log } from '../../util/log.js';
 
 
@@ -299,22 +300,11 @@ function buildTranscript(segments: SttSegment[], fallbackText: string): string {
   return segments.map(s => s.text.trim()).filter(Boolean).join(' ');
 }
 
+/**
+ * Name the temp file ffmpeg reads. ffmpeg does probe content, so a wrong name is usually survivable —
+ * but it picks the demuxer from the extension first, and `input.bin` (what an untyped job used to
+ * produce) gives it nothing to go on.
+ */
 function mimeTypeToExt(mimeType: string): string {
-  const map: Record<string, string> = {
-    'audio/mpeg': 'mp3',
-    'audio/mp3': 'mp3',
-    'audio/wav': 'wav',
-    'audio/wave': 'wav',
-    'audio/x-wav': 'wav',
-    'audio/ogg': 'ogg',
-    'audio/mp4': 'm4a',
-    'audio/m4a': 'm4a',
-    'audio/aac': 'aac',
-    'audio/flac': 'flac',
-    'video/mp4': 'mp4',
-    'video/webm': 'webm',
-    'video/x-matroska': 'mkv',
-    'video/quicktime': 'mov',
-  };
-  return map[mimeType.split(';')[0]?.trim() ?? ''] ?? 'bin';
+  return extForMimeType(mimeType, 'bin');
 }

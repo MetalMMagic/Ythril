@@ -6,6 +6,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **External vision failed on every image** (`visionProvider: external`). A strict OpenAI-compatible
+  server rejected the request outright:
+  `500 {"error":{"message":"Invalid uri format: data:application/octet-stream;base64", …}}` — three
+  retries, then the media job exhausted. Reported against 2.0.0.
+  - The vision request was **not** the bug. It interpolates the MIME type it is given; the wrong type
+    arrived from three entry points at once. The web UI sent `Content-Type: application/octet-stream`
+    for *every* upload whatever the file, MCP `write_file` sends no `Content-Type` at all, and the
+    dispatcher defaulted both to a byte blob **without consulting the file extension** — on the line
+    directly after `resolveInputFormat` had classified the same file as an image *by that extension*.
+    The pipeline knew it was a PNG and simultaneously told every provider it was bytes.
+  - Fixed at the boundary all three entry points share: the type is now derived from the name when the
+    caller does not state a usable one. A specific `Content-Type` still wins; `application/octet-stream`
+    and friends count as "not stated"; the blob type survives only when the extension is unknown too.
+  - **Four more consumers were wrong for the same reason, none of them reported.** Speech-to-text sent
+    its audio as `audio.octet-stream`, which OpenAI rejects — its endpoint validates the extension
+    against a whitelist; ffmpeg was handed `input.bin` for audio and `input.mp4` for *every* video
+    regardless of container; and the face-recognition re-enqueue paths (file metadata and sync) each
+    carried their own partial table that defaulted to `image/jpeg`, so an unlisted image was actively
+    **mislabelled** rather than left unknown.
+  - Whisper's filename derivation was a second bug of the same class: `mimeType.split('/')[1]` is not an
+    extension, and produced `x-wav` for the `audio/x-wav` several recorders emit — also off the whitelist.
+  - **Existing queues heal themselves.** A job row stores its MIME, so an instance upgrading with a
+    backlog would otherwise reproduce the original failure on every retry forever. The worker re-derives
+    on read, and external vision additionally sniffs the image signature from the bytes — the one source
+    that cannot be wrong. No migration, nothing for an operator to run.
+  - Five partial MIME tables that disagreed with each other are now one, and a test fails the build if a
+    sixth appears.
+
+### Changed
+
+- **The page renderer and document converter cards now say how they differ.** "Page renderer" reads like
+  a synonym for "document renderer" until you know that one produces images of pages and the other
+  extracts text, and that they are separate sidecars. Each card's purpose line now names what it does
+  *not* do and which card owns that instead.
+- The Files API reference no longer describes `Content-Type` as informational, documents the
+  header → extension → fallback precedence, and warns that `application/json` selects the JSON body form.
+- `testing/responsive-sweep.mjs` **drives tab strips** — it previously visited `/brain` and never clicked
+  a tab, so every `@if`-gated tab body was absent from the DOM it measured. It also now asserts a scroll
+  affordance is *visible*, not merely present: this platform's overlay scrollbars paint nothing and take
+  no layout space, so a scroller can measure correct and show the user nothing at all.
+
 ## [2.1.0] — 2026-07-30
 
 ### Added

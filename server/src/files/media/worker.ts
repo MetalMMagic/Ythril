@@ -44,6 +44,7 @@ import { embedVideo } from './video-embedder.js';
 import { col, asFilter } from '../../db/mongo.js';
 import type { FileMetaDoc } from '../../config/types.js';
 import { updateFileMeta, markFileMetaDeleted } from '../file-meta.js';
+import { mimeTypeForPath } from '../mime.js';
 import {
   runConversionPipeline,
   storeConversionResults,
@@ -273,7 +274,13 @@ async function processJob(
   job: MediaJobDoc,
   providers: { vision: import('./providers.js').VisionProvider; stt: import('./providers.js').SttProvider },
 ): Promise<void> {
-  const { spaceId, filePath, mediaType, mimeType, _id: fileId, attempts, maxAttempts } = job;
+  const { spaceId, filePath, mediaType, _id: fileId, attempts, maxAttempts } = job;
+  // Re-derive rather than trusting the stored value. Jobs queued before the enqueue path learned to
+  // read the extension carry `application/octet-stream`, and those rows outlive the upgrade that
+  // fixes the enqueue — an instance upgrading with a backlog would otherwise keep reproducing the
+  // original failure (external vision 500s, Whisper filename rejects) on every retry, forever.
+  // Self-healing on read, per the migration rule for state that replicates: no boot migration needed.
+  const mimeType = mimeTypeForPath(filePath, job.mimeType);
   const endTimer = mediaJobDurationSeconds.startTimer({ media_type: mediaType });
 
   try {

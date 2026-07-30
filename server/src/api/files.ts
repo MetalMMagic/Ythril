@@ -55,6 +55,7 @@ import { deleteConversionArtifacts, deleteConversionArtifactsByPrefix, isMediaFo
 import type { InputFormat } from '../files/converters/pipeline.js';
 import { cancelMediaJobsByPrefix } from '../files/media/job-queue.js';
 import { dispatchFileProcessing } from '../files/dispatch.js';
+import { contentTypeForDownload } from '../files/mime.js';
 
 export const fileStoreRouter = Router();
 
@@ -355,7 +356,7 @@ fileStoreRouter.get('/:spaceId', globalRateLimit, requireSpaceAuth, async (req, 
   try {
     const bytes = await readFileBytes(foundMid, normalised);
     const ext = path.extname(normalised).toLowerCase();
-    const contentType = MIME_MAP[ext] ?? 'application/octet-stream';
+    const contentType = contentTypeForDownload(normalised);
     // Stored XSS guard: user-uploaded HTML/SVG/XML rendered inline would run
     // script in this origin (token theft from the web UI). Active-content
     // types are forced to download and get a sandbox CSP so nothing executes
@@ -868,27 +869,7 @@ fileStoreRouter.patch('/:spaceId', globalRateLimit, requireSpaceAuth, denyReadOn
 // browser — always served as attachments (stored-XSS guard).
 const ACTIVE_CONTENT_EXTS = new Set(['.html', '.htm', '.svg', '.xml', '.xhtml']);
 
-// ── MIME type lookup (basic set) ─────────────────────────────────────────────
-const MIME_MAP: Record<string, string> = {
-  '.txt': 'text/plain; charset=utf-8',
-  '.md': 'text/markdown; charset=utf-8',
-  '.html': 'text/html; charset=utf-8',
-  '.htm': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.ts': 'text/typescript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.yaml': 'text/yaml; charset=utf-8',
-  '.yml': 'text/yaml; charset=utf-8',
-  '.xml': 'application/xml; charset=utf-8',
-  '.csv': 'text/csv; charset=utf-8',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
-  '.pdf': 'application/pdf',
-  '.zip': 'application/zip',
-  '.gz': 'application/gzip',
-};
+// MIME lookup for downloads now comes from the shared table in `files/mime.ts` — see
+// `contentTypeForDownload`. The local copy that used to live here listed a different set of
+// extensions than the processing path did, which is the drift that let a `.png` be served correctly
+// while being *processed* as `application/octet-stream`.

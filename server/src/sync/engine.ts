@@ -27,6 +27,7 @@ import { peerSafeFetch, isPeerUrlAllowed, PEER_TRANSFER_TIMEOUT_MS } from './pee
 import { concludeRoundIfReady, sendMemberRemovedNotify } from './governance.js';
 import { enqueueMediaJob } from '../files/media/job-queue.js';
 import { resolveInputFormat } from '../files/converters/pipeline.js';
+import { mimeTypeForPath } from '../files/mime.js';
 import { schedule as cronSchedule, type ScheduledTask } from 'node-cron';
 import { resolveSyncCron } from './schedule.js';
 import { createCoalescingRunner } from './coalescing-runner.js';
@@ -523,14 +524,9 @@ async function runSyncForMember(
         if (faceCfg.enabled && faceCfg.reprocessSyncedImages) {
           for (const p of fc.pulledPaths) {
             if (resolveInputFormat(p) === 'image') {
-              const ext = path.extname(p).toLowerCase();
-              const mimeType = (({
-                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-                '.png': 'image/png', '.webp': 'image/webp',
-                '.gif': 'image/gif', '.bmp': 'image/bmp',
-                '.tiff': 'image/tiff', '.tif': 'image/tiff',
-              }) as Record<string, string>)[ext] ?? 'image/jpeg';
-              enqueueMediaJob(spaceId, p, mimeType, 'image').catch(err =>
+              // Shared table. The inline copy here defaulted to `image/jpeg`, so a synced image whose
+              // extension it did not list was mislabelled rather than left unknown.
+              enqueueMediaJob(spaceId, p, mimeTypeForPath(p), 'image').catch(err =>
                 log.warn(`Face reprocess enqueue for ${spaceId}/${p}: ${err}`),
               );
             }

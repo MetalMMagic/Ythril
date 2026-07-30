@@ -23,6 +23,7 @@ import { resolveInputFormat, deleteConversionArtifacts, isMediaFormat, type Reso
 import { enqueueMediaJob, enqueueTextJob } from './media/job-queue.js';
 import { documentsAreOff } from './converters/extraction-level.js';
 import { mediaIsOff } from './converters/media-level.js';
+import { mimeTypeForPath } from './mime.js';
 import { toDocId } from '../util/paths.js';
 import { log } from '../util/log.js';
 
@@ -32,7 +33,11 @@ export type FileEmbeddingStatus = 'disabled' | 'skipped' | 'pending';
 export interface DispatchInput {
   /** File size in bytes (used for the media size cap). */
   bytes: number;
-  /** Raw `Content-Type` header, if any — used to resolve the format and as the enqueue MIME type. */
+  /**
+   * Raw `Content-Type` header, if any — used to resolve the format and as the enqueue MIME type.
+   * Generic values (`application/octet-stream` and friends) are treated as "not stated" and the
+   * file extension decides instead; see {@link mimeTypeForPath}.
+   */
   contentType?: string;
   /** Caller-declared `inputFormat` hint (`auto` when omitted). */
   inputFormat?: string;
@@ -57,7 +62,13 @@ export async function dispatchFileProcessing(
 ): Promise<DispatchResult> {
   const resolvedFormat = resolveInputFormat(filePath, input.contentType, input.inputFormat ?? 'auto');
   const normId = toDocId(filePath);
-  const mimeType = (input.contentType ?? 'application/octet-stream').split(';')[0]!.trim();
+  // Derive from the name when the caller gave nothing usable. The previous `?? 'application/octet-stream'`
+  // never consulted the extension — on the line directly above, `resolveInputFormat` classifies the same
+  // file BY that extension, so the pipeline knew it was a PNG while telling every provider it was a byte
+  // blob. That is what made external vision fail 100% of the time (`Invalid uri format:
+  // data:application/octet-stream;base64`). Not a vision bug: the web UI sent octet-stream for every
+  // upload and MCP `write_file` sends no Content-Type at all, so this line was the whole answer.
+  const mimeType = mimeTypeForPath(filePath, input.contentType);
 
   if (isMediaFormat(resolvedFormat)) {
     // Media (image/audio/video): enqueue an async embedding job, or record why we didn't.

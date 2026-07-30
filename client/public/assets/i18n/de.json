@@ -1598,6 +1598,7 @@
   "mediaProcessing.class.text": "Text",
   "mediaProcessing.pipelines.ceilingHint": "Jede Pipeline unten hat eine Instanz-Obergrenze — das Maximum, das ein Space mit dieser Klasse tun darf. Ein Space kann weniger wählen, nie mehr: Wird eine Obergrenze gesenkt, werden alle bereits höher eingestellten Spaces begrenzt; ihre eigene Wahl bleibt erhalten, wenn du sie wieder anhebst.",
   "mediaProcessing.pipelines.ceilingOffWarning": "Aus gilt überall — kein Bereich kann diese Klasse verarbeiten.",
+  "mediaProcessing.pipelines.firstStepDown": "Der erste Schritt dieser Pipeline ist nicht verfügbar, daher sind nur „Aus\" und „Auto\" wählbar. Konfiguriere ihn im Tab „Modelle\".",
   "files.progress.working": "Läuft",
   "files.progress.stalled": "Kein Fortschritt gemeldet — dieser Auftrag hängt möglicherweise",
   "mediaProcessing.face.confidence": "Schwelle für automatische Zuordnung",

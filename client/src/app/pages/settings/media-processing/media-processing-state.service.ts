@@ -30,9 +30,30 @@ import {
 export type ModelCardId = 'embedding' | 'rerank' | 'nli' | 'vision' | 'stt' | 'assist' | 'face';
 export const MODEL_CARDS: readonly ModelCardId[] = ['embedding', 'rerank', 'nli', 'vision', 'stt', 'assist', 'face'];
 
-/** A card, or everything the cards do not own (the Pipelines knobs, ceilings and limits). */
-export type CfgSection = ModelCardId | 'rest';
-export const ALL_SECTIONS: readonly CfgSection[] = [...MODEL_CARDS, 'rest'];
+/**
+ * One pipeline on the Pipelines tab.
+ *
+ * These used to be pooled into a single `rest` section saved by one bar at the bottom of the page —
+ * the same shape the Models tab had before per-card saves, and wrong for the same reason: a Save whose
+ * scope is "everything on this tab" makes an operator who changed one ceiling wonder what else is going
+ * out with it. Owner, 2026-07-30: "save button per pipe like on models, not one at the bottom."
+ *
+ * Splitting is safe because the server merges both of these PER KEY: `levels` through
+ * `mergeLevelCeilings` (which exists precisely so one class can be patched alone) and
+ * `documentProcessing` through the one-level deep merge the assist card already relies on.
+ */
+export type PipeId = 'pipe-text' | 'pipe-images' | 'pipe-audio' | 'pipe-video' | 'pipe-documents';
+export const PIPE_SECTIONS: readonly PipeId[] =
+  ['pipe-text', 'pipe-images', 'pipe-audio', 'pipe-video', 'pipe-documents'];
+
+/** The media class each pipeline owns. `pipe-documents` owns `documentProcessing` instead. */
+export const PIPE_CLASS: Record<Exclude<PipeId, 'pipe-documents'>, MediaClass> = {
+  'pipe-text': 'text', 'pipe-images': 'images', 'pipe-audio': 'audio', 'pipe-video': 'video',
+};
+
+/** A card, a pipeline, or the leftovers neither owns. */
+export type CfgSection = ModelCardId | PipeId | 'rest';
+export const ALL_SECTIONS: readonly CfgSection[] = [...MODEL_CARDS, ...PIPE_SECTIONS, 'rest'];
 
 @Injectable()
 export class MediaProcessingStateService {
@@ -295,8 +316,58 @@ export class MediaProcessingStateService {
       maxFileSizeBytes: b.maxFileSizeBytes, workerConcurrency: b.workerConcurrency };
   }
 
+  /**
+   * The PATCH block one pipeline owns.
+   *
+   * A media pipeline sends ONLY its own class inside `levels`. The server merges class by class, so a
+   * patch naming `images` cannot disturb `audio` — which is the property that makes a per-pipeline
+   * Save honest rather than a relabelled Save-everything.
+   */
+  private pipeBlock(id: PipeId): Record<string, unknown> {
+    if (id === 'pipe-documents') {
+      const dp = { ...this.payload().documentProcessing };
+      // The assist model belongs to its own card on the Models tab; sending it from here would let the
+      // Documents pipeline's Save quietly rewrite a credentialled endpoint it does not own.
+      delete (dp as Record<string, unknown>)['assistModel'];
+      return { documentProcessing: dp };
+    }
+    const cls = PIPE_CLASS[id];
+    return { levels: { [cls]: (this.form.levels ?? {})[cls] ?? 'auto' } };
+  }
+
   private sectionSnapshot(section: CfgSection): string {
-    return JSON.stringify(section === 'rest' ? this.restBlock() : this.cardBlock(section));
+    if (section === 'rest') return JSON.stringify(this.restBlock());
+    if ((PIPE_SECTIONS as readonly string[]).includes(section)) {
+      return JSON.stringify(this.pipeBlock(section as PipeId));
+    }
+    return JSON.stringify(this.cardBlock(section as ModelCardId));
+  }
+
+  /** Whether this pipeline alone has an unsaved change — what its own Save button keys off. */
+  pipeDirty(id: PipeId): boolean {
+    if (this.loading() || this.managed) return false;
+    return this.touched() && this.sectionSnapshot(id) !== (this.savedSnapshots[id] ?? '');
+  }
+
+  /** Save one pipeline's block, leaving every other pipeline and card untouched. */
+  savePipe(id: PipeId): void {
+    if (this.managed || this.saving()) return;
+    this.saving.set(true);
+    this.saveOk.set('');
+    this.saveError.set('');
+    const body = JSON.parse(JSON.stringify(this.pipeBlock(id)));
+    this.http.patch<{ ok: boolean; config: MediaCfg }>('/api/admin/media-config', body).subscribe({
+      next: () => {
+        this.saveOk.set(this.transloco.translate('mediaProcessing.saved'));
+        this.rebaseline([id]);
+        this.saving.set(false);
+        setTimeout(() => this.saveOk.set(''), 3000);
+      },
+      error: err => {
+        this.saveError.set(err?.error?.error ?? err?.message ?? 'Save failed');
+        this.saving.set(false);
+      },
+    });
   }
 
   private rebaseline(sections: readonly CfgSection[]): void {

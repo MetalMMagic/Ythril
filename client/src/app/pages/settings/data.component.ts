@@ -11,6 +11,7 @@ import { StatusPillComponent, type StatusVariant } from '../../shared/status-pil
 import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
 import { PhIconComponent } from '../../shared/ph-icon.component';
+import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
 type UriSource = 'env' | 'config' | 'default';
 type Frequency = 'never' | 'hourly' | 'daily' | 'weekly' | 'monthly';
@@ -29,8 +30,7 @@ interface BackupConfig {
   standalone: true,
   imports: [
     CommonModule, FormsModule, TranslocoPipe,
-    SettingsCardComponent, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, PhIconComponent,
-  ],
+    SettingsCardComponent, StatusPillComponent, SummaryStripComponent, RelativeTimeComponent, PhIconComponent, HscrollTopDirective],
   styles: [`
     .data-page { display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
     .freq-opt, .day-opt { display: flex; align-items: center; gap: 6px; cursor: pointer; border-radius: var(--radius-sm);
@@ -87,7 +87,7 @@ interface BackupConfig {
         } @else if (!backups().length) {
           <p class="muted">{{ 'data.backup.empty' | transloco }}</p>
         } @else {
-          <div class="table-wrapper">
+          <div class="table-wrapper" hscrollTop>
           <table class="table" style="font-size:13px;">
             <thead><tr>
               <th>{{ 'data.backup.colDate' | transloco }}</th>

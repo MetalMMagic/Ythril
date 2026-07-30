@@ -231,7 +231,7 @@ interface SpaceView {
         <span class="tab-spacer"></span>
         @for (tab of collectionTabs; track tab.key) {
           <button class="tab" [class.active]="activeTab() === tab.key" (click)="setTab(tab.key)">
-            {{ tab.label }}
+            <ph-icon [name]="tab.icon" [size]="15" style="display:inline-flex;vertical-align:middle;margin-right:4px;"/> {{ tab.label | transloco }}
             @if (activeStats(); as s) {
               @if (tab.statsKey) {
                 <span class="tab-count">{{ s[tab.statsKey] }}</span>
@@ -330,11 +330,24 @@ export class BrainComponent implements OnInit, OnDestroy {
   private transloco = inject(TranslocoService);
 
   // File Meta merged into the Files tab (rendered separately, after these, in the same group).
-  collectionTabs: { key: BrainTab; label: string; statsKey?: keyof SpaceStats }[] = [
-    { key: 'entities', label: 'Entities', statsKey: 'entities' },
-    { key: 'edges', label: 'Edges', statsKey: 'edges' },
-    { key: 'memories', label: 'Memories', statsKey: 'memories' },
-    { key: 'chrono', label: 'Chrono', statsKey: 'chrono' },
+  /**
+   * The record-collection tabs.
+   *
+   * `label` is an i18n KEY now, not a literal. These four were the only tabs in the strip rendering a
+   * hard-coded English string — the translations existed the whole time and were simply never used, so
+   * the strip read half-German in a German UI and nothing flagged it.
+   *
+   * `icon` likewise: Overview, Query, Graph, Review and Files each carried one and these four did not,
+   * leaving a strip where some tabs have an icon and some do not. The icons match the Overview tiles
+   * that link here, because the tiles and the tabs are the same five things.
+   */
+  collectionTabs: { key: BrainTab; label: string; icon: string; statsKey?: keyof SpaceStats }[] = [
+    { key: 'entities', label: 'brain.tab.entities', icon: 'stack', statsKey: 'entities' },
+    // `link` and not `graph`: the Graph tab already owns that glyph, and two different tabs wearing the
+    // same icon in one strip is worse than a slightly less literal one.
+    { key: 'edges', label: 'brain.tab.edges', icon: 'link', statsKey: 'edges' },
+    { key: 'memories', label: 'brain.tab.memories', icon: 'brain', statsKey: 'memories' },
+    { key: 'chrono', label: 'brain.tab.chrono', icon: 'timer', statsKey: 'chrono' },
   ];
 
   readonly pageSize = 20;

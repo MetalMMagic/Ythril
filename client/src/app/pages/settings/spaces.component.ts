@@ -26,13 +26,14 @@ import { SpaceDangerTabComponent } from './space-danger-tab.component';
 import { SpaceSchemaTabComponent } from './space-schema-tab.component';
 import { ModalDirective } from '../../shared/modal.directive';
 import { SpaceCreateDialogComponent } from './space-create-dialog.component';
+import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
 @Component({
   selector: 'app-spaces',
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, DragDropModule, PhIconComponent, SummaryStripComponent,
     SpaceSettingsTabComponent, SpaceDuplicatesTabComponent, SpaceDangerTabComponent, SpaceSchemaTabComponent,
-    SpaceCreateDialogComponent, ModalDirective],
+    SpaceCreateDialogComponent, ModalDirective, HscrollTopDirective],
   // Provided here (not root) so each mount gets its own settings state, with a lifetime tied to
   // this component rather than the app.
   providers: [SpacesStore, SpaceSettingsState],
@@ -133,7 +134,7 @@ import { SpaceCreateDialogComponent } from './space-create-dialog.component';
           <button class="btn btn-secondary btn-sm" (click)="store.load()">{{ 'spaces.table.refreshButton' | transloco }}</button>
         </div>
       } @else {
-        <div class="table-wrapper">
+        <div class="table-wrapper" hscrollTop>
           <table>
             <thead>
               <tr><th style="width:32px;"></th><th>{{ 'spaces.table.column.label' | transloco }}</th><th>{{ 'spaces.table.column.id' | transloco }}</th><th>{{ 'spaces.table.column.storage' | transloco }}</th><th>{{ 'spaces.table.column.networks' | transloco }}</th><th>{{ 'spaces.table.column.proxy' | transloco }}</th><th></th></tr>

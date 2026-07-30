@@ -12,6 +12,7 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
 import { SummaryStripComponent, SummaryItem } from '../../shared/summary-strip.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
+import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 import {
   Space, WebhookSubscription, WebhookDelivery, WebhookEventType, WEBHOOK_EVENT_GROUPS,
 } from '../../core/api.types';
@@ -32,7 +33,7 @@ interface WebhookForm {
   selector: 'app-webhooks',
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, ErrorStateComponent,
-            SummaryStripComponent, StatusPillComponent, RelativeTimeComponent],
+            SummaryStripComponent, StatusPillComponent, RelativeTimeComponent, HscrollTopDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .dialog-backdrop { position:fixed; inset:0; background:var(--bg-scrim); display:flex; align-items:center; justify-content:center; z-index:100; }
@@ -138,7 +139,7 @@ interface WebhookForm {
           } @else if (deliveries().length === 0) {
             <p class="muted" style="font-size:13px;">{{ 'webhooks.deliveries.empty' | transloco }}</p>
           } @else {
-            <div class="table-wrapper">
+            <div class="table-wrapper" hscrollTop>
               <table>
                 <thead><tr>
                   <th>{{ 'webhooks.deliveries.event' | transloco }}</th>
@@ -184,7 +185,7 @@ interface WebhookForm {
         <div class="empty-state" style="padding:32px;"><h3>{{ 'webhooks.empty.title' | transloco }}</h3><p>{{ 'webhooks.empty.body' | transloco }}</p></div>
       } @else {
         <app-summary-strip [heading]="'webhooks.title' | transloco" [items]="summary()" style="display:block;margin:0 0 16px;"/>
-        <div class="table-wrapper">
+        <div class="table-wrapper" hscrollTop>
           <table>
             <thead><tr>
               <th>{{ 'webhooks.col.url' | transloco }}</th>

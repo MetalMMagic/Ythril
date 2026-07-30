@@ -9,13 +9,14 @@ import { PhIconComponent } from '../../shared/ph-icon.component';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { ToastService } from '../../core/toast.service';
 import { ConfirmDialogService } from '../../core/confirm-dialog.service';
+import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
 type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-space';
 
 @Component({
   selector: 'app-conflicts',
   standalone: true,
-  imports: [DatePipe, SlicePipe, RouterLink, FormsModule, PhIconComponent, TranslocoPipe],
+  imports: [DatePipe, SlicePipe, RouterLink, FormsModule, PhIconComponent, TranslocoPipe, HscrollTopDirective],
   template: `
     <div style="display:flex; justify-content:flex-end; margin-bottom:12px;">
       <a routerLink="/files" class="btn-secondary btn btn-sm"><ph-icon name="arrow-left" [size]="14"/> {{ 'conflicts.backToFiles' | transloco }}</a>
@@ -61,7 +62,7 @@ type ResolveAction = 'keep-local' | 'keep-incoming' | 'keep-both' | 'save-to-spa
         </div>
       }
 
-      <div class="table-wrapper">
+      <div class="table-wrapper" hscrollTop>
         <table>
           <thead>
             <tr>

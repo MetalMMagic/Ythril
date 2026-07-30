@@ -1598,6 +1598,7 @@
   "mediaProcessing.class.text": "Text",
   "mediaProcessing.pipelines.ceilingHint": "Each pipeline below carries an instance ceiling — the most any space may do with that class. A space can choose less, never more: lowering a ceiling caps every space already above it, and those spaces keep their own choice if you raise it again.",
   "mediaProcessing.pipelines.ceilingOffWarning": "Off applies everywhere — no space can process this class.",
+  "mediaProcessing.pipelines.firstStepDown": "The first step of this pipeline is unavailable, so only Off and Auto can be selected. Configure it on the Models tab.",
   "files.progress.working": "Working",
   "files.progress.stalled": "No progress reported — this job may be stuck",
   "mediaProcessing.face.confidence": "Auto-label threshold",

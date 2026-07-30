@@ -39,8 +39,11 @@ describe('OverviewTabComponent', () => {
   it('total sums every collection; statCards carries the five counts', () => {
     const { c } = setup({ stats: STATS });
     expect(c.total()).toBe(5 + 12 + 30 + 3 + 7);
+    // Order matters and is asserted deliberately: these tiles are shortcuts INTO the tab strip, so they
+    // follow it exactly (Entities · Edges · Memories · Chrono · Files). They used to lead with Memories,
+    // which meant the two disagreed about what comes next and every click became a small search.
     expect(c.statCards().map(s => [s.key, s.value])).toEqual([
-      ['memories', 5], ['entities', 12], ['edges', 30], ['chrono', 3], ['files', 7],
+      ['entities', 12], ['edges', 30], ['memories', 5], ['chrono', 3], ['files', 7],
     ]);
   });
 

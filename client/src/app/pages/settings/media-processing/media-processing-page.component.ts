@@ -127,8 +127,16 @@ export class MediaProcessingPageComponent implements OnInit {
   private readonly confirmDialog = inject(ConfirmDialogService);
   private readonly transloco = inject(TranslocoService);
 
-  readonly TABS: Tab[] = ['models', 'pipelines', 'tools'];
-  readonly tab = signal<Tab>('models');
+  /**
+   * Pipelines first, and the landing tab.
+   *
+   * Owner, 2026-07-30. It is the right default because it answers the question an operator actually
+   * arrives with — *what happens to a file I upload* — whereas Models answers *what is configured*, which
+   * is the follow-up. Clicking a step in a pipeline already jumps to the model that implements it, so
+   * the natural direction is pipeline → model, and the tab order now matches it.
+   */
+  readonly TABS: Tab[] = ['pipelines', 'models', 'tools'];
+  readonly tab = signal<Tab>('pipelines');
 
   /**
    * Tools is read-only, so it never needs the save bar — and Models no longer does either: each of its
@@ -139,7 +147,17 @@ export class MediaProcessingPageComponent implements OnInit {
    * Pipelines keeps the bar. Its knobs are not grouped into per-provider boxes, so there is no "the box
    * that changed" to put a button in.
    */
-  readonly showsSave = computed(() => this.tab() === 'pipelines');
+  /**
+   * No page-level Save anywhere any more.
+   *
+   * Models lost it first (owner, 2026-07-28) and Pipelines keeps it no longer: every pipeline card now
+   * carries its own Save, shown only when that pipeline changed. The comment above used to justify the
+   * bar by saying pipeline knobs "are not grouped into per-provider boxes, so there is no box that
+   * changed to put a button in" — that was true of the layout, not of the data. Each pipeline owns
+   * exactly one class ceiling (or, for Documents, the extraction block), and the server merges both
+   * per key, so the boxes were always there.
+   */
+  readonly showsSave = computed(() => false);
 
   /**
    * A pipeline step actor was clicked (see `focusCard`): jump to the Models tab and reveal the card

@@ -19,6 +19,7 @@ import { RecordSearchBarComponent } from './record-search-bar.component';
 import { fmtApiError, toLocalDatetime } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
+import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
 /**
  * The Chrono record tab, extracted from BrainComponent (A17.9b-6g) following the memories/edges pattern.
@@ -35,7 +36,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-chrono-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, PropertiesEditorComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, EntityRefFieldComponent, MemoryRefFieldComponent, PropertiesEditorComponent, PhIconComponent, ErrorStateComponent, RecordSearchBarComponent, SortableHeaderComponent, HscrollTopDirective],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -122,7 +123,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <div class="alert alert-error" style="margin-bottom:12px;">{{ createChronoError() }}</div>
           }
 
-          <div class="table-wrapper">
+          <div class="table-wrapper" hscrollTop>
             <table>
               <thead>
                 <tr>

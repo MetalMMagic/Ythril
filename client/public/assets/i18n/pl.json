@@ -1598,6 +1598,7 @@
   "mediaProcessing.class.text": "Tekst",
   "mediaProcessing.pipelines.ceilingHint": "Każdy potok poniżej ma limit instancji — maksimum, jakie przestrzeń może zrobić z daną klasą. Przestrzeń może wybrać mniej, nigdy więcej: obniżenie limitu ogranicza każdą przestrzeń już powyżej niego, a te przestrzenie zachowują swój wybór, gdy limit zostanie ponownie podniesiony.",
   "mediaProcessing.pipelines.ceilingOffWarning": "Wyłączenie obowiązuje wszędzie — żadna przestrzeń nie przetworzy tej klasy.",
+  "mediaProcessing.pipelines.firstStepDown": "Pierwszy krok tego potoku jest niedostępny, więc można wybrać tylko „Wył.\" i „Auto\". Skonfiguruj go w zakładce „Modele\".",
   "files.progress.working": "W toku",
   "files.progress.stalled": "Brak zgłoszonego postępu — to zadanie mogło się zaciąć",
   "mediaProcessing.face.confidence": "Próg automatycznego oznaczania",

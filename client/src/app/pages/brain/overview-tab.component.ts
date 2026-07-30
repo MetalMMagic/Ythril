@@ -448,9 +448,12 @@ export class OverviewTabComponent {
     const s = this.stats();
     if (!s) return [];
     return [
-      { key: 'memories', icon: 'brain', label: 'brain.overview.rec.memories', value: s.memories },
+      // Same order as the tab strip above: Entities · Edges · Memories · Chrono · Files. These tiles are
+      // clickable shortcuts INTO those tabs, so a different order made the two disagree about what comes
+      // next and turned every click into a small search.
       { key: 'entities', icon: 'stack', label: 'brain.overview.rec.entities', value: s.entities },
-      { key: 'edges', icon: 'graph', label: 'brain.overview.rec.edges', value: s.edges },
+      { key: 'edges', icon: 'link', label: 'brain.overview.rec.edges', value: s.edges },
+      { key: 'memories', icon: 'brain', label: 'brain.overview.rec.memories', value: s.memories },
       { key: 'chrono', icon: 'timer', label: 'brain.overview.rec.chrono', value: s.chrono },
       { key: 'files', icon: 'folder', label: 'brain.overview.rec.files', value: s.files },
     ];

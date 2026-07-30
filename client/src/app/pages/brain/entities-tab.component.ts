@@ -17,6 +17,7 @@ import { RecordTabBase } from './record-tab-base';
 import { fmtApiError } from './brain-format';
 import { BRAIN_CHIP_STYLES } from './brain-form.styles';
 import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
+import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
 /**
  * The Entities record tab, extracted from BrainComponent (A17.9b-6e) following the memories pattern.
@@ -34,7 +35,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
   selector: 'app-entities-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, SortableHeaderComponent],
+  imports: [CommonModule, FormsModule, TranslocoPipe, TagInputComponent, PropertiesViewComponent, PropertiesEditorComponent, EntitySearchComponent, PhIconComponent, ErrorStateComponent, SortableHeaderComponent, HscrollTopDirective],
   styles: [BRAIN_CHIP_STYLES, BRAIN_RECORD_TABLE_STYLES],
   template: `
 
@@ -105,7 +106,7 @@ import { BRAIN_RECORD_TABLE_STYLES } from './brain-table.styles';
             <div class="alert alert-error" style="margin-bottom:12px;">{{ createEntityError() }}</div>
           }
 
-          <div class="table-wrapper">
+          <div class="table-wrapper" hscrollTop>
             <table>
               <thead>
                 <tr>

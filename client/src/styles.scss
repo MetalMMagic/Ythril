@@ -321,17 +321,58 @@ button:disabled, .btn:disabled {
  * scrollbar is on screen instead of a page-length away. The header sticks, because a horizontally
  * scrolled table with the column names gone is its own small usability problem.
  */
+/*
+ * A wide table needs its horizontal scrollbar where the eye already is.
+ *
+ * #548 bounded the wrapper so the bar was not 2800px down the page. That helped and was still wrong: a
+ * scroll container's horizontal bar sits at the BOTTOM of its box, the box moves with the page, and on a
+ * real window you were still scrolling to find it. Bounding the height cannot fix a position problem.
+ *
+ * A bounded wrapper with its own vertical scroll was the second attempt, and the owner rejected it on
+ * sight: two nested vertical scrollbars on one page, and it STILL did not put the horizontal bar where
+ * you were looking.
+ *
+ * So the page keeps exactly one vertical scrollbar, and the horizontal bar is mirrored ABOVE the table
+ * (`hscrollTop`), where it is visible the moment the table's top edge is.
+ */
 .table-wrapper {
-  overflow: auto;
-  /* Tall tables scroll inside the box; short ones are unaffected, since max-height only ever clamps.
-     60vh rather than a larger share on purpose: the box has to END above the fold, or its horizontal
-     scrollbar is off screen again and we are back to the reported bug in a milder form. Measured on
-     Brain → Entities at 900x900, where the wrapper starts at y=354 — 70vh put its bottom edge at 984,
-     60vh puts it at 894. */
-  max-height: min(60vh, 720px);
+  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
+
+/*
+ * The drawn scroll control, not a native scrollbar.
+ *
+ * A mirrored native scroller was tried here first and was invisible: this platform uses OVERLAY
+ * scrollbars, which paint only while scrolling and take no layout space (measured
+ * `offsetHeight - clientHeight === 0`, and a screenshot showed nothing). Styling `::-webkit-scrollbar`
+ * did not bring it back. So the track and thumb are ordinary elements the directive positions — always
+ * visible while the table overflows, and themable like everything else.
+ */
+.hscroll-top {
+  position: relative;
+  height: 10px;
+  margin-bottom: 4px;
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-muted);
+  cursor: pointer;
+}
+
+.hscroll-top-thumb {
+  position: absolute;
+  top: 1px;
+  left: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--text-muted);
+  /* No transition on transform: it lags a drag and makes the thumb feel detached from the pointer. */
+  transition: background var(--transition);
+}
+
+.hscroll-top:hover .hscroll-top-thumb,
+.hscroll-top-thumb.is-dragging { background: var(--accent); }
 
 table {
   width: 100%;

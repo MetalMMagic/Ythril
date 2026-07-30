@@ -188,6 +188,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction, and two tests walk that list through the real handler — a shared type alone would not
   prove the tab is actually reachable.
 
+- **Shutdown did not actually drain: `server.close()` was never awaited.** It is asynchronous — it stops
+  accepting new connections and calls back once the running ones finish — so everything after it ran
+  immediately: MongoDB was closed and `process.exit(0)` fired while requests were still in flight. A
+  container restart during a file upload or a brain write pulled the database connection out from under
+  it mid-write, and the process exited **0**, reporting success.
+  - The close is now awaited, bounded by `SHUTDOWN_DRAIN_MS` (default 8 s, sized to fit inside Docker's
+    10 s stop grace period alongside the config flush and Mongo close).
+  - An idle keep-alive socket cannot hold the shutdown open — after the drain window the remaining
+    connections are forced shut. Without that, a graceful stop just waits for the orchestrator's SIGKILL,
+    which is the thing it exists to avoid.
+  - The handler is re-entrant-safe: a second SIGTERM no longer races the first.
+  - Tested against a real server with a slow handler — the property is a race, and a source grep cannot
+    see a race. Both directions are covered: in-flight work completes before the close resolves, and an
+    idle socket triggers the forced phase on schedule.
+
 - **Large files could never sync: a whole-file transfer was running on a control-plane timeout.**
   Pulling a file from a peer inherited the **10-second** budget meant for members/votes/manifest calls,
   and pushing one the 60-second batch budget. `AbortSignal.timeout` covers the entire operation

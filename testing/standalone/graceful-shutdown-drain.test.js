@@ -1,0 +1,97 @@
+/**
+ * Shutdown waits for in-flight requests, and cannot be held open by an idle connection.
+ *
+ * ## The bug
+ *
+ * `server.close()` is asynchronous: it stops accepting new connections and calls back once the existing
+ * ones have finished. It was called without being awaited, so everything after it ran immediately —
+ * `closeMongo()` and then `process.exit(0)`, while requests were still running. A container restart
+ * during a file upload or a brain write would pull the database connection out from under it mid-write,
+ * and the process would exit 0 as if nothing had happened.
+ *
+ * ## Why this test drives a real server
+ *
+ * The property is a race, and a source grep cannot see a race. These tests stand up an actual HTTP
+ * server with a deliberately slow handler, signal shutdown while that request is in flight, and check
+ * whether the response completed before the close resolved. That is the behaviour, not a proxy for it.
+ *
+ * The counterpart matters just as much: a keep-alive socket sitting idle must NOT be able to hold the
+ * shutdown open, or a graceful stop degrades into waiting for the orchestrator's SIGKILL. So the second
+ * test opens exactly that and asserts the drain gives up on schedule.
+ *
+ * Run: node --test testing/standalone/graceful-shutdown-drain.test.js
+ */
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
+import net from 'node:net';
+
+/** The drain used by `index.ts`, reproduced here so the test exercises the shape, not the file. */
+function drain(server, drainMs) {
+  return new Promise(resolve => {
+    const forced = setTimeout(() => { server.closeAllConnections(); resolve('forced'); }, drainMs);
+    forced.unref();
+    server.close(() => { clearTimeout(forced); resolve('drained'); });
+  });
+}
+
+const listen = server => new Promise(res => server.listen(0, '127.0.0.1', () => res(server.address().port)));
+
+describe('shutdown drains in-flight work', () => {
+  it('waits for a slow request to finish before the close resolves', async () => {
+    let finished = false;
+    const server = createServer((_req, res) => {
+      setTimeout(() => { finished = true; res.end('done'); }, 300);
+    });
+    const port = await listen(server);
+
+    const inFlight = fetch(`http://127.0.0.1:${port}/`).then(r => r.text());
+    await new Promise(r => setTimeout(r, 50));      // ensure the request is actually in flight
+
+    const how = await drain(server, 5_000);
+    assert.equal(how, 'drained', 'the drain should complete normally, not be forced');
+    assert.equal(finished, true, 'the in-flight request must have completed BEFORE the close resolved');
+    assert.equal(await inFlight, 'done');
+  });
+
+  it('an idle keep-alive connection cannot hold the shutdown open', async () => {
+    // Without the forced phase this hangs until the orchestrator SIGKILLs the process — a graceful
+    // stop that is graceful in name only.
+    const server = createServer((_req, res) => res.end('ok'));
+    const port = await listen(server);
+
+    const sock = net.connect(port, '127.0.0.1');
+    await new Promise(r => sock.once('connect', r));
+
+    const started = Date.now();
+    const how = await drain(server, 300);
+    const took = Date.now() - started;
+
+    assert.equal(how, 'forced', 'an idle socket must trigger the forced phase');
+    assert.ok(took < 2_000, `the drain must give up on schedule, took ${took}ms`);
+    sock.destroy();
+  });
+});
+
+describe('the shutdown handler in index.ts', () => {
+  const src = readFileSync('server/src/index.ts', 'utf8');
+
+  it('awaits the close before closing Mongo', () => {
+    const body = src.slice(src.indexOf('const shutdown ='), src.indexOf('process.on(\'SIGTERM\''));
+    const closeAt = body.indexOf('server.close(');
+    const mongoAt = body.indexOf('closeMongo(');
+    assert.ok(closeAt > 0 && mongoAt > 0);
+    assert.ok(closeAt < mongoAt, 'the server must be closed before the database connection is dropped');
+    assert.match(body, /await new Promise/,
+      'the close must be awaited — an unawaited server.close() lets exit race the requests');
+  });
+
+  it('is re-entrant-safe, so a second signal cannot race the first', () => {
+    assert.match(src, /if \(shuttingDown\) return;/);
+  });
+
+  it('bounds the drain rather than waiting forever', () => {
+    assert.match(src, /closeAllConnections\(\)/);
+  });
+});

@@ -14,7 +14,7 @@ export interface TestResult {
   modelPresent?: boolean; detail?: string; latencyMs: number;
 }
 
-export type TestTarget = 'vision' | 'stt' | 'assist' | 'embedding' | 'rerank';
+export type TestTarget = 'vision' | 'stt' | 'assist' | 'embedding' | 'rerank' | 'nli';
 
 /** Text-embedding config (top-level `config.embedding`, surfaced on this page). Changing
  *  model/dimensions/similarity/prefixScheme re-indexes every vector — the save gates those behind a
@@ -35,6 +35,12 @@ export interface RerankCfg {
   baseUrl?: string | null; model?: string | null; apiKey?: string;
   /** Candidates fetched per requested result before reranking, as a multiple of topK. 2..10. */
   candidateMultiplier?: number;
+}
+
+/** NLI — the contradiction judge. Same shape and same "configured = on" rule as the reranker: there is
+ *  no master toggle, so clearing the endpoint is how it is switched off. */
+export interface NliCfg {
+  baseUrl?: string | null; model?: string | null; apiKey?: string;
 }
 
 export type DocMode = 'off' | 'ocr' | 'vlm' | 'repair' | 'auto';
@@ -115,6 +121,7 @@ export interface MediaCfg {
   stt?: ProviderCfg;
   embedding?: EmbeddingCfg;
   rerank?: RerankCfg;
+  nli?: NliCfg;
   documentProcessing?: DocProcCfg;
   workerConcurrency?: number;
   fallbackToExternal?: boolean;

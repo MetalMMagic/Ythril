@@ -1466,6 +1466,13 @@
   "mediaProcessing.rerank.multiplierLabel": "Candidates per result",
   "mediaProcessing.rerank.multiplierHint": "How many candidates the vector search fetches per requested result. A reranker can only re-order what was already found, so this over-fetch is what gives it something to rescue. 2–10, default 4.",
   "mediaProcessing.rerank.egressWarning": "This endpoint is <b>not local</b>. A reranker receives the search query <b>and</b> the passages your own data returned for it — the most revealing pairing in the system. Self-host it (for example <b>bge-reranker-v2-m3</b>) to keep both on this instance.",
+  "mediaProcessing.nli.title": "Contradiction judge",
+  "mediaProcessing.nli.purpose": "Decides whether two similar records agree or contradict. Similarity alone cannot tell them apart — two opposite claims about the same subject are usually MORE alike, not less.",
+  "mediaProcessing.nli.pillOn": "Active",
+  "mediaProcessing.nli.pillOff": "Not configured",
+  "mediaProcessing.nli.endpointPlaceholder": "https://nli.internal/v1",
+  "mediaProcessing.nli.endpointHint": "Blank leaves contradiction detection without a judge, so the Contradictions view stays empty. No sidecar ships with one — this is an encoder classifier of the roberta/deberta-MNLI family.",
+  "mediaProcessing.nli.egressWarning": "This endpoint is <b>external</b>: pairs of record texts leave this instance to be judged. Review your data-residency policy first.",
   "mediaProcessing.vision.title": "Vision",
   "mediaProcessing.vision.purpose": "Describes uploaded images and indexes faces for search.",
   "mediaProcessing.vision.pillLocal": "Local · Ollama",
@@ -1485,6 +1492,8 @@
   "mediaProcessing.assist.egressPending": "You will confirm egress to {{host}} when you save.",
   "mediaProcessing.render.title": "Page renderer",
   "mediaProcessing.render.purpose": "Renders document pages to images for the vision model to read.",
+  "mediaProcessing.office.title": "Office renderer",
+  "mediaProcessing.office.purpose": "Renders Word, Excel and PowerPoint pages to images. Separate from the page renderer because office formats need a different engine.",
   "mediaProcessing.converter.title": "Document converter",
   "mediaProcessing.converter.purpose": "Extracts text and tables from PDFs, Word documents and EPUBs.",
   "mediaProcessing.face.title": "Face recognition",
@@ -1656,5 +1665,6 @@
   "review.typeFilter.all": "All types",
   "review.typeFilter.capped": "Showing the first 500 findings — filters apply to those only.",
   "review.typeFilter.noneOfType": "No findings of this type",
-  "review.typeFilter.noneOfTypeBody": "There are findings in this queue, but none of the selected record type. Choose All types to see them."
+  "review.typeFilter.noneOfTypeBody": "There are findings in this queue, but none of the selected record type. Choose All types to see them.",
+  "about.components.pending": "Checking components…"
 }

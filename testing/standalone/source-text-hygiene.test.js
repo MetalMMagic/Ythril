@@ -88,6 +88,28 @@ describe('source text carries no raw control bytes', () => {
       'escape sequence instead (\\u0000, \\b): identical value, reviewable file.\n' + offenders.join('\n'));
   });
 
+  it('no tracked file carries an unresolved conflict marker', () => {
+    // Committed in this very PR, and nothing caught it. A rebase left markers in CHANGELOG.md; the
+    // script meant to strip them searched for "<<<<<<< HEAD\n" against a CRLF file, matched nothing,
+    // and printed success anyway. `git rebase --continue` does not re-check, no linter reads the
+    // CHANGELOG, and the markers went in.
+    //
+    // Cheap to check and impossible to argue with: these three tokens at the start of a line are never
+    // legitimate content in this repo. Anchored to line start so prose about them (like this comment)
+    // does not trip it.
+    const MARKERS = [/^<{7} /, /^={7}$/, /^>{7} /];
+    const offenders = [];
+    for (const f of files) {
+      const lines = readFileSync(f, 'utf8').split('\n');
+      lines.forEach((line, i) => {
+        const t = line.replace(/\r$/, '');
+        if (MARKERS.some(m => m.test(t))) offenders.push(`${f}:${i + 1}  ${t.slice(0, 60)}`);
+      });
+    }
+    assert.deepEqual(offenders, [],
+      'unresolved merge/rebase conflict markers are committed here:\n' + offenders.join('\n'));
+  });
+
   it('the hash separator that started this is still a real NUL at runtime', () => {
     // The point was never to remove the separator — only to stop writing it as a raw byte. If a future
     // cleanup "fixes" the escape away, distinct entity pairs start colliding in the dupe scanner's

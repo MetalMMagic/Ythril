@@ -113,10 +113,33 @@ describe('AboutComponent', () => {
 
   it('renders the grouped cards + shared usage bar', () => {
     const f = make(() => of({ ...INFO }));
-    // Instance, System, and the Documentation card that points at the bundled guides.
-    expect(el(f).querySelectorAll('app-settings-card').length).toBe(3);
+    // Instance, System, the Documentation card that points at the bundled guides — and Components,
+    // which is present from the first paint in a pending state (see the test below).
+    expect(el(f).querySelectorAll('app-settings-card').length).toBe(4);
     expect(el(f).querySelector('app-usage-bar')).toBeTruthy();
-    expect(el(f).querySelectorAll('app-status-pill').length).toBe(2);
+    expect(el(f).querySelectorAll('app-status-pill').length).toBe(3);
+  });
+
+  it('the Components card is present while its probe is still running, not conjured afterwards', () => {
+    // The card used to render only once the probe answered. The stated reason was half right — an empty
+    // card reads as "nothing configured", a different claim — but the remedy was wrong: rendering
+    // nothing makes a whole card materialise on a page the reader has already finished scanning, which
+    // is what the owner reported. A pending state claims neither.
+    const f = make(() => of({ ...INFO }));   // default stub: the health probe never resolves successfully
+    const text = el(f).textContent ?? '';
+    expect(text).toContain('about.card.components');
+    expect(text).toContain('about.components.pending');
+  });
+
+  it('once the probe answers, the pending card is replaced rather than duplicated', () => {
+    const f = make(
+      () => of({ ...INFO }),
+      () => of({ level: 'ok', down: [], components: [{ id: 'doc-render', label: 'Page renderer', configured: true, reachable: true, impact: '' }] }),
+    );
+    const text = el(f).textContent ?? '';
+    expect(text).not.toContain('about.components.pending');
+    // Still four cards: the resolved Components card takes the pending one's place.
+    expect(el(f).querySelectorAll('app-settings-card').length).toBe(4);
   });
 
   it('a load failure renders the shared error-state (with the reason), and Retry re-loads', () => {

@@ -25,7 +25,7 @@
  */
 
 import { Router } from 'express';
-import { getConfig, getMediaEmbeddingConfig, getEmbeddingConfig, getEmbeddingApiKey, getDocumentProcessingConfig, getDocAssistApiKey, getFaceRecognitionConfig, getRerankApiKey } from '../config/loader.js';
+import { getConfig, getMediaEmbeddingConfig, getEmbeddingConfig, getEmbeddingApiKey, getDocumentProcessingConfig, getDocAssistApiKey, getFaceRecognitionConfig, getRerankApiKey, getNliApiKey } from '../config/loader.js';
 import { requireAdmin } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl } from '../util/ssrf.js';
@@ -167,6 +167,12 @@ function modelStages(): StageSpec[] {
     // model-backed, optional, and when it is unreachable searches quietly get worse rather than fail —
     // which is precisely the condition this endpoint exists to make visible.
     { key: 'rerank', label: 'Reranker', model: media.rerank?.model, baseUrl: media.rerank?.baseUrl, apiKey: getRerankApiKey(), external: !!media.rerank?.baseUrl && !isLocalModelEndpoint(media.rerank.baseUrl) },
+    // The contradiction judge, on the board for exactly the reranker's reason and one more: it is the
+    // only model here whose absence produces a view that looks FINISHED. An unreachable reranker gives
+    // worse ordering; an unreachable judge gives an empty Contradictions list, which is indistinguishable
+    // from "nothing contradicts". It was configurable from the first release and never probed, so there
+    // was no way to tell those two apart from inside the app.
+    { key: 'nli', label: 'Contradiction judge', model: media.nli?.model, baseUrl: media.nli?.baseUrl, apiKey: getNliApiKey(), external: !!media.nli?.baseUrl && !isLocalModelEndpoint(media.nli.baseUrl) },
   ];
 }
 

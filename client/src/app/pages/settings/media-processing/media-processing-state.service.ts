@@ -18,7 +18,7 @@ import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 import { StatusVariant } from '../../../shared/status-pill.component';
 import {
   MediaCfg, MediaClass, DocProcCfg, DocAssistCfg, DocMode, EmbeddingCfg,
-  TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES, FaceExternalCfg, RerankCfg,
+  TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES, FaceExternalCfg, RerankCfg, NliCfg,
 } from './media-processing.types';
 
 /**
@@ -27,8 +27,8 @@ import {
  * `doc-render` and `unstructured` are deliberately absent: neither has a single `ngModel` — they report
  * env-only infrastructure, so a Save button on them would be a control that cannot do anything.
  */
-export type ModelCardId = 'embedding' | 'rerank' | 'vision' | 'stt' | 'assist' | 'face';
-export const MODEL_CARDS: readonly ModelCardId[] = ['embedding', 'rerank', 'vision', 'stt', 'assist', 'face'];
+export type ModelCardId = 'embedding' | 'rerank' | 'nli' | 'vision' | 'stt' | 'assist' | 'face';
+export const MODEL_CARDS: readonly ModelCardId[] = ['embedding', 'rerank', 'nli', 'vision', 'stt', 'assist', 'face'];
 
 /** A card, or everything the cards do not own (the Pipelines knobs, ceilings and limits). */
 export type CfgSection = ModelCardId | 'rest';
@@ -132,6 +132,25 @@ export class MediaProcessingStateService {
    * the warning is the point, so an approximation that is wrong in the safe direction is not acceptable
    * — a hostname with a dot is treated as remote.
    */
+  /** Live handle to the editable NLI block, lazily created so the template can bind its fields. */
+  get nli(): NliCfg { return (this.form.nli ??= {}); }
+  nliLocked(field: string): boolean { return this.isLocked(`nli.${field}`); }
+  nliApiKeyInput = '';
+  /** Configured = on, exactly as for the reranker: no master toggle, so clearing the endpoint is off. */
+  nliConfigured(): boolean { return !!this.nli.baseUrl?.trim() && !!this.nli.model?.trim(); }
+  /** Same loopback test as the reranker, and it matters more here: the judge is sent PAIRS OF RECORD
+   *  TEXTS, not a query. Wrong in the safe direction — a hostname with a dot counts as remote. */
+  nliIsExternal(): boolean {
+    const raw = this.nli.baseUrl?.trim();
+    if (!raw) return false;
+    try {
+      const h = new URL(raw).hostname;
+      return !(h === 'localhost' || h === '127.0.0.1' || h === '::1' || !h.includes('.'));
+    } catch {
+      return false;
+    }
+  }
+
   rerankIsExternal(): boolean {
     const raw = this.rerank.baseUrl?.trim();
     if (!raw) return false;
@@ -207,6 +226,7 @@ export class MediaProcessingStateService {
         this.form.stt = { ...cfg.stt, apiKey: undefined };
         this.form.embedding = { provider: 'local', ...cfg.embedding };
         this.form.rerank = { ...cfg.rerank, apiKey: undefined };
+        this.form.nli = { ...cfg.nli, apiKey: undefined };
         // Strip the masked key on the way in, like vision/stt: a mask sitting in `form` is one edit away
         // from being echoed back and overwriting a real credential with asterisks.
         this.form.faceRecognition = {
@@ -220,6 +240,7 @@ export class MediaProcessingStateService {
         this.assistApiKeyInput = '';
         this.embeddingApiKeyInput = '';
         this.rerankApiKeyInput = '';
+        this.nliApiKeyInput = '';
         this.docCfgSig.set(dp);
         this.docMode.set(dp.mode ?? 'ocr');
         this.loading.set(false);   // before rebaseline: sectionSnapshot is inert while loading
@@ -253,6 +274,7 @@ export class MediaProcessingStateService {
     switch (card) {
       case 'embedding': return { embedding: base.embedding };
       case 'rerank': return { rerank: base.rerank };
+      case 'nli': return { nli: base.nli };
       case 'vision': return { visionProvider: this.form.visionProvider, vision: base.vision };
       case 'stt': return { sttProvider: this.form.sttProvider, stt: base.stt };
       case 'face': return { faceRecognition: base.faceRecognition };
@@ -289,6 +311,7 @@ export class MediaProcessingStateService {
       : card === 'embedding' ? this.embeddingApiKeyInput
       : card === 'face' ? this.faceApiKeyInput
       : card === 'rerank' ? this.rerankApiKeyInput
+      : card === 'nli' ? this.nliApiKeyInput
       : '';
   }
 
@@ -400,6 +423,12 @@ export class MediaProcessingStateService {
         model: this.rerank.model || null,
         candidateMultiplier: this.rerank.candidateMultiplier,
       },
+      // NLI, same rule: `|| null` so CLEARING reaches the server as an explicit delete rather than a
+      // configured-but-blank endpoint, which is how the judge gets switched back off.
+      nli: {
+        baseUrl: this.nli.baseUrl || null,
+        model: this.nli.model || null,
+      },
       // Only the PATCH-writable doc fields (vlmModel/repairModel/URLs are env-only, never sent).
       documentProcessing: {
         mode: dp.mode, renderDpi: dp.renderDpi, maxPages: dp.maxPages, pageTimeoutMs: dp.pageTimeoutMs,
@@ -497,6 +526,7 @@ export class MediaProcessingStateService {
       else if (card === 'stt') block.stt = { ...block.stt, apiKey: key };
       else if (card === 'embedding') block.embedding = { ...block.embedding, apiKey: key };
       else if (card === 'rerank') block.rerank = { ...block.rerank, apiKey: key };
+      else if (card === 'nli') block.nli = { ...block.nli, apiKey: key };
       else if (card === 'assist') {
         block.documentProcessing = { assistModel: { ...block.documentProcessing?.assistModel, apiKey: key } };
       }
@@ -514,6 +544,7 @@ export class MediaProcessingStateService {
         else if (card === 'assist') this.assistApiKeyInput = '';
         else if (card === 'embedding') { this.embeddingApiKeyInput = ''; this.embeddingReindexBaseline = this.reindexKey(); }
         else if (card === 'rerank') { this.rerankApiKeyInput = ''; }
+        else if (card === 'nli') { this.nliApiKeyInput = ''; }
         if (card === 'face') { this.faceEnabledBaseline = this.face.enabled === true; this.faceApiKeyInput = ''; }
         this.rebaseline([card]);
         this.saving.set(false);
@@ -601,6 +632,7 @@ export class MediaProcessingStateService {
       stt: { ...base.stt, ...(this.sttApiKeyInput ? { apiKey: this.sttApiKeyInput } : {}) },
       embedding: { ...base.embedding, ...(this.embeddingApiKeyInput ? { apiKey: this.embeddingApiKeyInput } : {}) },
       rerank: { ...base.rerank, ...(this.rerankApiKeyInput ? { apiKey: this.rerankApiKeyInput } : {}) },
+      nli: { ...base.nli, ...(this.nliApiKeyInput ? { apiKey: this.nliApiKeyInput } : {}) },
       documentProcessing: { ...base.documentProcessing, ...(assistPayload ? { assistModel: assistPayload } : {}) },
     };
     const body = JSON.parse(JSON.stringify(payload)) as MediaCfg;

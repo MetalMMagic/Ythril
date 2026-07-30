@@ -225,6 +225,60 @@ import { TestTarget } from './media-processing.types';
         </div>
       </app-model-provider-card>
 
+      <!-- ── Contradiction judge (NLI) ──────────────────────────────────── -->
+      <!-- Configurable by env and config.json since F-REVIEW shipped, and never reachable from the admin
+           API or this screen — so the one page that claims to list what the pipeline calls was missing
+           it, and an operator had no way to discover why the Contradictions view stayed empty. -->
+      <app-model-provider-card id="nli" icon="check-circle"
+        [heading]="'mediaProcessing.nli.title' | transloco"
+        [purpose]="'mediaProcessing.nli.purpose' | transloco"
+        [health]="pipeline.modelState('nli')">
+        <app-status-pill pill [variant]="s.nliConfigured() ? 'active' : 'off'">
+          {{ (s.nliConfigured() ? 'mediaProcessing.nli.pillOn' : 'mediaProcessing.nli.pillOff') | transloco }}
+        </app-status-pill>
+        @if (s.nliLocked('baseUrl')) { <app-status-pill pill variant="env">{{ 'mediaProcessing.pill.env' | transloco }}</app-status-pill> }
+
+        <div class="field">
+          <label for="nli-endpoint">{{ 'mediaProcessing.field.endpoint' | transloco }}</label>
+          <input id="nli-endpoint" data-mono type="url" [(ngModel)]="s.nli.baseUrl"
+            [disabled]="s.nliLocked('baseUrl')" [placeholder]="'mediaProcessing.nli.endpointPlaceholder' | transloco" />
+          <div class="hint">{{ 'mediaProcessing.nli.endpointHint' | transloco }}</div>
+        </div>
+        <div class="field">
+          <label for="nli-model">{{ 'mediaProcessing.field.model' | transloco }}</label>
+          <input id="nli-model" data-mono [(ngModel)]="s.nli.model" [disabled]="s.nliLocked('model')"
+            placeholder="MoritzLaurer/deberta-v3-base-zeroshot-v2.0" />
+        </div>
+        <div class="field">
+          <label for="nli-key">{{ 'mediaProcessing.field.apiKeyExternal' | transloco }}</label>
+          <input id="nli-key" type="password" [(ngModel)]="s.nliApiKeyInput" [disabled]="s.nliLocked('apiKey')"
+            [placeholder]="(s.nli.apiKey ? 'mediaProcessing.field.apiKeyKeep' : 'mediaProcessing.field.apiKeyOptional') | transloco" />
+        </div>
+        @if (s.nliIsExternal()) {
+          <div class="warnline">
+            <ph-icon name="warning" [size]="15"/>
+            <span [innerHTML]="'mediaProcessing.nli.egressWarning' | transloco"></span>
+          </div>
+        }
+
+        <div footer class="testrow">
+          <button class="btn btn-sm btn-secondary" type="button" (click)="s.testConnection('nli')"
+            [disabled]="s.testOf('nli')?.loading || !s.nli.baseUrl">
+            {{ (s.testOf('nli')?.loading ? 'mediaProcessing.action.testing' : 'mediaProcessing.action.test') | transloco }}
+          </button>
+          @if (s.testOf('nli')?.res; as r) {
+            <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
+            <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
+          }
+          @if (s.cardDirty('nli')) {
+            <button class="btn btn-sm btn-primary card-save" type="button"
+              [disabled]="s.saving()" (click)="s.saveCard('nli')">
+              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
+            </button>
+          }
+        </div>
+      </app-model-provider-card>
+
       <!-- ── Vision ─────────────────────────────────────────────────────── -->
       <app-model-provider-card id="vision" icon="image"
         [heading]="'mediaProcessing.vision.title' | transloco"
@@ -389,6 +443,26 @@ import { TestTarget } from './media-processing.types';
           <div class="ro">{{ sidecarUrl('doc-render') }}</div>
         </div>
         @if (sidecarDetail('doc-render'); as d) {
+          <div class="field"><label>{{ 'mediaProcessing.field.lastProbe' | transloco }}</label><div class="ro">{{ d }}</div></div>
+        }
+      </app-model-provider-card>
+
+      <!-- ── Office renderer (infra) ────────────────────────────────────── -->
+      <!-- Probed by the server and reported on the About page, but absent from this tab, so the one
+           screen that claims to list the pipeline's models was quietly missing one of them. -->
+      <!-- "stack" and not a Word/Office glyph: the registry has none, and an unregistered ph-icon name
+           renders as nothing at all, with no error. A layered stack reads well enough for multi-sheet
+           and multi-slide formats. -->
+      <app-model-provider-card id="doc-office" icon="stack"
+        [heading]="'mediaProcessing.office.title' | transloco"
+        [purpose]="'mediaProcessing.office.purpose' | transloco"
+        [health]="pipeline.sidecarState('doc-office')"
+        [infra]="true" envVar="RENDER_OFFICE_SIDECAR_URL">
+        <div class="field">
+          <label>{{ 'mediaProcessing.field.endpoint' | transloco }}</label>
+          <div class="ro">{{ sidecarUrl('doc-office') }}</div>
+        </div>
+        @if (sidecarDetail('doc-office'); as d) {
           <div class="field"><label>{{ 'mediaProcessing.field.lastProbe' | transloco }}</label><div class="ro">{{ d }}</div></div>
         }
       </app-model-provider-card>

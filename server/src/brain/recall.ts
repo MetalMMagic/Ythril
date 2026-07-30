@@ -16,6 +16,31 @@ import { deriveChronoStatus } from './chrono-status.js';
 import { rerank, rerankConfigured, candidateMultiplier, MAX_CANDIDATES } from './rerank-client.js';
 import { lexicalSearch, rrfFuse, hybridSearchEnabled, LEXICAL_LIMIT_MULTIPLIER } from './lexical-search.js';
 import type { ChronoStatus } from '../config/types.js';
+import { log } from '../util/log.js';
+
+/**
+ * End-to-end budget for one recall call.
+ *
+ * Every hop runs in series — embed the query, the per-type vector searches, the lexical channel, then
+ * the cross-encoder — and each carried its own timeout with nothing watching the total. Worst case that
+ * is 30 s of embedding plus Mongo plus 20 s of reranking: comfortably past the point where an MCP client
+ * or a browser has given up, so the work completes into a caller that is no longer listening.
+ *
+ * 25 s sits under the ~30 s a typical MCP client waits. It is a **budget, not a hard abort** — the only
+ * hop it can cancel is the reranker, because that is the only optional one. Raise it if your clients are
+ * patient and your corpus is slow; lower it if you would rather degrade sooner.
+ */
+export const RECALL_BUDGET_MS = Number(process.env['RECALL_BUDGET_MS'] ?? 25_000);
+
+/**
+ * Below this much remaining budget the reranker is skipped entirely rather than started.
+ *
+ * Starting a cross-encoder pass with two seconds left is the worst of both worlds: it will not finish,
+ * and the time it burns comes out of what was left for returning the answer. Skipping returns the fused
+ * order — a slightly worse ranking, delivered — which is the trade the whole pipeline already makes when
+ * a reranker is unreachable.
+ */
+export const RERANK_MIN_BUDGET_MS = Number(process.env['RERANK_MIN_BUDGET_MS'] ?? 3_000);
 
 export type RecallKnowledgeType = 'memory' | 'entity' | 'edge' | 'chrono' | 'file';
 
@@ -138,6 +163,11 @@ export async function recall(
       `Semantic recall is disabled until re-indexed. Call POST /api/brain/spaces/${spaceId}/reindex.`,
     );
   }
+  // The clock for the whole call. Every hop below runs in series — embed, the vector searches, the
+  // lexical channel, then the reranker — and each one had its own timeout with nothing watching the
+  // total. Worst case that is 30 s of embedding plus Mongo plus 20 s of reranking, well past the point
+  // where the MCP client or the browser has given up and thrown the answer away. See RECALL_BUDGET_MS.
+  const startedAt = Date.now();
   const embResult = await embed(query, 'query');
 
   const activeTypes: RecallKnowledgeType[] = (types && types.length > 0)
@@ -185,7 +215,17 @@ export async function recall(
 
   // Phase 3: rerank the candidate pool, if a cross-encoder is configured. Best-effort by construction —
   // `applyRerank` leaves the vector order untouched when the reranker has no opinion.
-  if (reranking) await applyRerank(query, guaranteed, allResults);
+  //
+  // Skipped outright when the budget is nearly gone. The reranker is the last hop and the only optional
+  // one, so it is where a deadline should bite: starting a 20-second cross-encoder pass with three
+  // seconds left guarantees the caller times out and gets NOTHING, where skipping it returns the fused
+  // order — slightly worse ranking, delivered. Degrading beats being right too late.
+  const remaining = RECALL_BUDGET_MS - (Date.now() - startedAt);
+  if (reranking && remaining < RERANK_MIN_BUDGET_MS) {
+    log.warn(`Recall: ${remaining}ms of the ${RECALL_BUDGET_MS}ms budget left — skipping the reranker and returning the fused order`);
+  } else if (reranking) {
+    await applyRerank(query, guaranteed, allResults, remaining);
+  }
 
   const final = mergeRecallResults(guaranteed, allResults, topK, minScore);
 
@@ -350,6 +390,8 @@ async function applyRerank(
   query: string,
   guaranteed: RecallResult[],
   allResults: RecallResult[],
+  /** What is left of the call's budget. The reranker's own timeout is capped to it. */
+  budgetMs: number,
 ): Promise<void> {
   // One entry per distinct record, holding every reference to it so a single score updates all of them.
   const byId = new Map<string, RecallResult[]>();
@@ -365,7 +407,7 @@ async function applyRerank(
   if (ids.length === 0) return;
 
   const passages = ids.map(id => rerankTextOf(byId.get(id)![0]));
-  const scores = await rerank(query, passages);
+  const scores = await rerank(query, passages, budgetMs);
   if (!scores) return; // no opinion — vector order stands
 
   for (const { index, score } of scores) {

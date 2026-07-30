@@ -188,6 +188,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction, and two tests walk that list through the real handler — a shared type alone would not
   prove the tab is actually reachable.
 
+- **Recall could finish after the caller had given up.** Every hop runs in series — embed the query, the
+  per-type vector searches, the lexical channel, the cross-encoder — and each carried its own timeout
+  with nothing watching the total. Worst case is 30 s of embedding plus Mongo plus 20 s of reranking,
+  comfortably past the ~30 s an MCP client waits, so the server completed the work and handed it to
+  someone who had stopped listening.
+  - `RECALL_BUDGET_MS` (25 s) is an end-to-end budget, deliberately under a typical client's patience.
+  - It is a **budget, not a hard abort**: the only hop it can cancel is the **reranker**, because that is
+    the only optional one. Below `RERANK_MIN_BUDGET_MS` (3 s) remaining, reranking is **skipped** — not
+    merely given a shorter timeout, since starting a pass that cannot finish still burns the time needed
+    to return the answer. The skip is logged.
+  - The vector and lexical hops are deliberately never cancelled: they *produce* the results, and
+    cutting them returns nothing, which is strictly worse than an imperfectly ordered something. This is
+    the same trade the pipeline already makes when a reranker is unreachable.
+
 - **Retries had backoff but no jitter, so simultaneous failures retried in lockstep.** Both retry queues
   — media jobs and webhook delivery — already backed off exponentially, which is the half everyone
   remembers. But the delay was *identical* for every job, so failures that happen together retry

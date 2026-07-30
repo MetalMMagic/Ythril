@@ -128,7 +128,16 @@ export function parseScores(body: unknown, count: number): RerankScore[] | null 
  * not as "these passages are irrelevant". Silently zeroing an unreachable reranker would reorder every
  * result set by nothing at all and look exactly like a working search.
  */
-export async function rerank(query: string, passages: string[]): Promise<RerankScore[] | null> {
+export async function rerank(
+  query: string,
+  passages: string[],
+  /**
+   * What is left of the caller's end-to-end budget. The reranker's own timeout is capped to it, so a
+   * pass that could not finish in time is abandoned early instead of running on past the point where
+   * anyone is still listening. Omitted (or non-finite) means the full TIMEOUT_MS.
+   */
+  budgetMs?: number,
+): Promise<RerankScore[] | null> {
   const cfg = getMediaEmbeddingConfig().rerank;
   if (!rerankConfigured() || !cfg?.baseUrl || !cfg.model) return null;
   if (passages.length === 0) return null;
@@ -141,7 +150,9 @@ export async function rerank(query: string, passages: string[]): Promise<RerankS
       ...(cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {}),
     },
     body: JSON.stringify(buildBody(dialect, cfg.model, query, passages)),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(
+      Number.isFinite(budgetMs) && budgetMs! > 0 ? Math.min(TIMEOUT_MS, budgetMs!) : TIMEOUT_MS,
+    ),
   };
 
   try {

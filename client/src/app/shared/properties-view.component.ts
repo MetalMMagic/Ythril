@@ -47,12 +47,28 @@ import { TranslocoPipe } from '@jsverse/transloco';
       padding-right: 10px;
       vertical-align: top;
       font-size: 11px;
+      /* The key is nowrap, so in a squeezed column it claims its full width and leaves the value with
+         whatever is left — which was ~10px, enough for one character. Cap it so the two share. */
+      max-width: 45%;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .props-val {
       color: var(--text-primary);
-      word-break: break-all;
+      /* overflow-wrap:anywhere, NOT word-break:break-all.
+         Both break long unbroken tokens (a URL, a hash, an id), which is why the rule exists. The
+         difference is what they do to the element's MIN-CONTENT width: break-all makes it one character
+         wide, so a table column containing this cell can be squeezed to nothing — and it was. In a
+         narrow window the Entities table collapsed every column to ~118px and rendered the property
+         value "Germany" one letter per line, at which point each row was 274px tall, the table was
+         3388px tall, and the horizontal scrollbar it needed sat 2800px below the fold.
+         anywhere breaks only when a word genuinely does not fit, so min-content stays the width of the
+         longest word and the column keeps a sane floor. */
+      overflow-wrap: anywhere;
       font-size: 11px;
       vertical-align: top;
+      /* A floor, so the value column cannot be reduced to a single character of vertical text. */
+      min-width: 5em;
     }
     .props-pre {
       font-family: var(--font-mono, 'Consolas', 'Monaco', monospace);

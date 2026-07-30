@@ -70,7 +70,18 @@ interface SpaceView {
       align-items: center;
       gap: 2px;
       min-width: 110px;
+      /* A long space name used to render at its full intrinsic width and paint straight over the
+         neighbouring chip — measured at 284px of label inside a 144px chip. The strip is a horizontal
+         scroller, so the chip must not be allowed to grow without bound, and the label must be told what
+         to do when it does not fit. Truncation is the right answer here: the id line underneath and the
+         title tooltip both carry the full name. */
+      max-width: 200px;
+      flex: 0 0 auto;
     }
+
+    /* min-width:0 is load-bearing. A flex item defaults to min-width:auto and refuses to shrink below
+       its content, so text-overflow would never engage and the label would overflow exactly as before. */
+    .space-chip > * { max-width: 100%; min-width: 0; }
 
     .space-chip:hover { border-color: var(--accent); color: var(--text-primary); }
 
@@ -80,8 +91,8 @@ interface SpaceView {
       color: var(--accent);
     }
 
-    .space-chip-label { font-size: 13px; font-weight: 500; }
-    .space-chip-id { font-size: 10px; color: var(--text-muted); }
+    .space-chip-label { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .space-chip-id { font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .space-chip-count {
       font-size: 10px;
       color: var(--text-muted);
@@ -170,6 +181,7 @@ interface SpaceView {
           <button
             class="space-chip"
             [class.active]="activeSpaceId() === sv.space.id"
+            [title]="sv.space.label + ' (' + sv.space.id + ')'"
             (click)="selectSpace(sv.space.id)"
           >
             <span class="space-chip-label">{{ sv.space.label }}</span>

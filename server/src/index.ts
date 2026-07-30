@@ -137,16 +137,53 @@ async function main(): Promise<void> {
     }
   });
 
-  // Graceful shutdown
+  /**
+   * How long in-flight requests get to finish before they are cut off.
+   *
+   * Under Docker's default `stop` grace period the process is SIGKILLed 10 s after SIGTERM, so the
+   * whole drain has to finish inside that or it accomplishes nothing. Eight seconds leaves room for the
+   * config flush and the Mongo close that follow. Kubernetes' default is 30 s, so this is the tighter
+   * of the two constraints; raise `SHUTDOWN_DRAIN_MS` if your orchestrator gives you longer.
+   */
+  const DRAIN_MS = Number(process.env['SHUTDOWN_DRAIN_MS'] ?? 8_000);
+
+  let shuttingDown = false;
+
+  /**
+   * Graceful shutdown that actually drains.
+   *
+   * `server.close()` is asynchronous — it stops accepting new connections and calls back once the
+   * existing ones have finished. It used to be called without being awaited, so the lines after it ran
+   * immediately: Mongo was closed and `process.exit(0)` fired while requests were still running. A
+   * container restart during a file upload or a brain write would tear the database connection out from
+   * under it mid-write, and the process would report success on the way out.
+   *
+   * Now the close is awaited, bounded by DRAIN_MS. A connection that has not finished by then is forced
+   * shut rather than allowed to hold the shutdown open — an idle keep-alive socket would otherwise keep
+   * the process alive until the orchestrator SIGKILLs it, turning a graceful stop into a hard one.
+   */
   const shutdown = async (signal: string) => {
+    if (shuttingDown) return;      // a second SIGTERM must not race the first through this
+    shuttingDown = true;
     log.debug(`${signal} received — shutting down`);
     stopSyncScheduler();
     stopBackupScheduler();
     stopDupeScanner();
     const { stopRetryWorker } = await import('./webhooks/dispatcher.js');
     stopRetryWorker();
-    server.close(() => log.debug('HTTP server closed'));
-    // Persist any coalesced config writes (sync watermarks) before exit.
+
+    await new Promise<void>(resolve => {
+      const forced = setTimeout(() => {
+        log.warn(`Shutdown: connections still open after ${DRAIN_MS}ms — closing them`);
+        server.closeAllConnections();
+        resolve();
+      }, DRAIN_MS);
+      forced.unref();
+      server.close(() => { clearTimeout(forced); log.debug('HTTP server closed'); resolve(); });
+    });
+
+    // Only now is nothing mid-request. Persist coalesced config writes (sync watermarks), then drop
+    // the database connection.
     await flushConfig();
     await closeMongo();
     process.exit(0);

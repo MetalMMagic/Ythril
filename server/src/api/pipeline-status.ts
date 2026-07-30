@@ -307,14 +307,30 @@ async function indexStatus(): Promise<{ spaces: SpaceIndexStatus[]; unavailable?
 
       const collections: CollectionIndexStatus[] = [];
       let listingFailed = false;
-      await Promise.all(expected.map(async e => {
+      // List each collection ONCE, unfiltered, and match by name — the same correction made in
+      // `pollVectorIndexReady`. The name-filtered overload returned nothing on the reporting
+      // deployment, so `found[0]?.status` was always null, and `deriveLiveIndexState` turns a null
+      // status into **missing** — meaning this panel declared every index absent on an instance whose
+      // indexes were fine. Unfiltered listing is what `ensureVectorIndex` uses and it works.
+      //
+      // Once per collection rather than once per expected index: `files` carries two (embedding and
+      // faceEmbedding), and listing it twice doubled the mongot round-trips for no benefit.
+      const byCollection = new Map<string, typeof expected>();
+      for (const e of expected) {
+        const list = byCollection.get(e.collection) ?? [];
+        list.push(e);
+        byCollection.set(e.collection, list);
+      }
+      await Promise.all([...byCollection.entries()].map(async ([collection, entries]) => {
         try {
-          const found = await db.collection(`${space.id}_${e.collection}`).listSearchIndexes(e.indexName).toArray() as Array<{ status?: string }>;
-          collections.push({ ...e, status: found[0]?.status ?? null });
+          const all = await db.collection(`${space.id}_${collection}`).listSearchIndexes().toArray() as Array<{ name?: string; status?: string }>;
+          for (const e of entries) {
+            collections.push({ ...e, status: all.find(i => i.name === e.indexName)?.status ?? null });
+          }
         } catch (err) {
           listingFailed = true;
-          log.debug(`pipeline-status: could not list search indexes for ${space.id}_${e.collection}: ${err instanceof Error ? err.message : String(err)}`);
-          collections.push({ ...e, status: null });
+          log.debug(`pipeline-status: could not list search indexes for ${space.id}_${collection}: ${err instanceof Error ? err.message : String(err)}`);
+          for (const e of entries) collections.push({ ...e, status: null });
         }
       }));
 

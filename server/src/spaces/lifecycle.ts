@@ -147,29 +147,101 @@ export async function initSpace(
   }
 }
 
-/** Initialise all spaces defined in config */
+/**
+ * How long the background pass waits for one space's indexes, in ms.
+ *
+ * Ten minutes, not the 60 seconds the boot path used. The old ceiling existed because boot was blocked
+ * on it, so it had to be short — and being short is exactly why it always expired on a real migration
+ * and reported `failed` for indexes that were building perfectly well. Off the boot path nothing is
+ * waiting on this but a status label, so it can afford to be long enough to be TRUE.
+ */
+const STARTUP_INDEX_READY_TIMEOUT_MS = Number(process.env['INDEX_READY_TIMEOUT_MS'] ?? 10 * 60_000);
+
+/** How many spaces confirm their index builds at once, once boot has already finished. */
+const FINALIZE_CONCURRENCY = 3;
+
+/**
+ * Initialise all spaces defined in config.
+ *
+ * ## Boot does not wait for index builds any more
+ *
+ * It used to. `initSpace` defaulted to `waitForVectorReady: true`, which polls each index for READY with
+ * a 60-second ceiling — **serially, per index, per space**. An upgrade that reshapes existing indexes
+ * (2.0.0 added filter fields to them) therefore paid that ceiling on every index it touched:
+ *
+ *     13 spaces x ~5 indexes x 60s  ≈  65 minutes of blocking startup
+ *
+ * Reported from a real deployment, where it exceeded a 60-minute Kubernetes `startupProbe` budget. The
+ * container was killed mid-migration and a completely healthy upgrade presented as a crash loop.
+ *
+ * The wait was also buying nothing. Every poll in that report timed out — logged a warning and continued
+ * regardless — so the cost was certain and the guarantee was not. A wait whose failure path is "carry on
+ * anyway" is not a guarantee, it is a delay.
+ *
+ * ## What replaces it
+ *
+ * Exactly the path `createSpace` has used since B1: create or update the indexes, mark the space
+ * `building`, return, and let a background task flip it to `ready`/`failed` when the builds actually
+ * finish. Nothing here is new machinery — the previous code even said so, in the comment explaining that
+ * `initAllSpaces` is what recovers a space left `building` by a crash. It now recovers it the same way
+ * it was created.
+ *
+ * Recall on a still-building index returns empty rather than failing, which is the pre-existing
+ * behaviour and is why deferring is safe: the ceiling was never protecting correctness, only tidiness.
+ */
 export async function initAllSpaces(): Promise<void> {
-  // Collect ids, not space objects: `initSpace` waits for index readiness, so this loop holds its
-  // references across many seconds of awaits. A config reload in that window replaces cfg.spaces and
-  // every held object becomes an orphan — the status flips below would then be written to detached
-  // records and lost, leaving spaces stuck reporting 'building' forever with nothing to explain it.
-  const readyAgain: string[] = [];
-  for (const spaceId of getConfig().spaces.map(s => s.id)) {
+  // Collect ids, not space objects: a config reload during these awaits replaces cfg.spaces and every
+  // held object becomes an orphan — status flips would then be written to detached records and lost,
+  // leaving spaces stuck reporting 'building' forever with nothing to explain it.
+  const spaceIds = getConfig().spaces.map(s => s.id);
+
+  for (const spaceId of spaceIds) {
     log.debug(`Initialising space: ${spaceId}`);
-    await initSpace(spaceId);
-    // initSpace waited for READY here, so a space left mid-build by a crash during
-    // createSpace's async finalize (B1) is now ready — clear the stale marker.
-    const current = getConfig().spaces.find(s => s.id === spaceId);
-    if (current?.indexStatus === 'building' || current?.indexStatus === 'failed') readyAgain.push(spaceId);
+    // Collections, regular indexes and the vector-index create/update all still happen here and are
+    // still awaited. Only the READY *poll* is deferred — the schema work must be done before the
+    // instance serves traffic, and it is fast.
+    await initSpace(spaceId, { waitForVectorReady: false });
   }
-  if (readyAgain.length > 0) {
-    mutateConfig(fresh => {
-      for (const spaceId of readyAgain) {
-        const live = fresh.spaces.find(s => s.id === spaceId);
-        if (live) live.indexStatus = 'ready';
+
+  // Every space is now either genuinely ready or building; say so, and let the background pass settle it.
+  mutateConfig(fresh => {
+    for (const spaceId of spaceIds) {
+      const live = fresh.spaces.find(s => s.id === spaceId);
+      if (live) live.indexStatus = 'building';
+    }
+  });
+
+  log.info(`Initialised ${spaceIds.length} space(s); confirming vector index readiness in the background.`);
+  void confirmSpaceIndexesInBackground(spaceIds);
+}
+
+/**
+ * Confirm index readiness after boot, a few spaces at a time.
+ *
+ * Bounded because the alternative is unbounded: one `finalizeSpaceIndexReady` per space, each polling
+ * every collection's index once a second. Thirteen spaces would be ~65 pollers hitting
+ * `listSearchIndexes` every second for as long as the builds take — replacing a startup stall with a
+ * self-inflicted load spike on the database that is doing the building.
+ *
+ * Deliberately not awaited by the caller, and deliberately never throwing: nothing downstream of boot
+ * depends on the outcome, and an unhandled rejection here would take down a process whose only pending
+ * work is a status label.
+ */
+async function confirmSpaceIndexesInBackground(spaceIds: readonly string[]): Promise<void> {
+  const queue = [...spaceIds];
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const spaceId = queue.shift();
+      if (!spaceId) return;
+      try {
+        await finalizeSpaceIndexReady(spaceId, { timeoutMs: STARTUP_INDEX_READY_TIMEOUT_MS });
+      } catch (err) {
+        log.warn(`Space '${spaceId}': index readiness check failed: ${err instanceof Error ? err.message : String(err)}`);
       }
-    });
-  }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FINALIZE_CONCURRENCY, queue.length) }, worker));
+  log.info('Vector index readiness confirmed for all spaces.');
 }
 
 /** Ensure the built-in 'general' space exists in config and MongoDB */

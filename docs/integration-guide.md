@@ -405,6 +405,20 @@ Size `startupProbe.failureThreshold × periodSeconds` to cover that, and let `li
 after the startup probe succeeds. A startup budget tuned to the warm-boot time turns a normal first boot
 into a crashloop, which then looks like a failure to start rather than a probe that was too impatient.
 
+> **Upgrading to 2.1 from 2.0.x fixes a much worse version of this.** 2.0.0 reshaped existing vector
+> indexes on startup and *waited* for each one to report READY — serially, with a 60-second ceiling per
+> index. On an instance with a dozen spaces that was **over an hour of blocking startup**, enough to blow
+> a 60-minute `startupProbe` budget and have a perfectly healthy upgrade killed mid-migration.
+>
+> From 2.1, index builds are confirmed **in the background**: boot completes in seconds, affected spaces
+> report `indexStatus: "building"`, and each flips to `ready` when its build finishes. Semantic recall on
+> a space that is still building returns no results until it completes — the same behaviour a
+> newly-created space has always had. `INDEX_READY_TIMEOUT_MS` (default 10 minutes) bounds how long the
+> background check waits before marking a space `failed`; raise it for very large collections.
+>
+> **If you are upgrading a 2.0.x instance with many spaces, upgrade straight to 2.1** rather than
+> restarting 2.0.x, and there is no need to raise the startup budget for it.
+
 Note also that a newly created space returns immediately with `indexStatus: "building"` — it is writable
 at once, but semantic recall stays empty until the index finishes. That is expected, not a fault.
 

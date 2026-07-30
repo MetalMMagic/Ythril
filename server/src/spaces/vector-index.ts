@@ -267,9 +267,11 @@ export async function pollVectorIndexReady(
   spaceId: string,
   collectionSuffix: VectorIndexedCollection,
   indexName: string,
+  opts: { timeoutMs?: number } = {},
 ): Promise<boolean> {
   const coll = getDb().collection(`${spaceId}_${collectionSuffix}`);
-  for (let attempt = 0; attempt < 60; attempt++) {
+  const attempts = Math.max(1, Math.round((opts.timeoutMs ?? 60_000) / 1000));
+  for (let attempt = 0; attempt < attempts; attempt++) {
     await new Promise(r => setTimeout(r, 1000));
     try {
       const current = await coll.listSearchIndexes(indexName).toArray() as Array<{ status?: string }>;
@@ -308,16 +310,19 @@ export async function buildSpaceVectorIndexes(
 
 /** Poll all of a space's vector-search indexes until READY. Returns true only if every
  *  expected index reached READY within the window. */
-export async function waitForSpaceIndexesReady(spaceId: string): Promise<boolean> {
+export async function waitForSpaceIndexesReady(
+  spaceId: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<boolean> {
   // Poll CONCURRENTLY. These builds run independently inside the database, so waiting on them one after
   // another only adds up their timeouts: five collections at a 60s ceiling each meant a space could sit
   // at indexStatus='building' for five minutes when every index was in fact ready in seconds. That was
   // masked for as long as only `memories` was ever indexed — fixing that made the serial wait visible.
   const polls = VECTOR_INDEXED_COLLECTIONS.map(suffix =>
-    pollVectorIndexReady(spaceId, suffix, `${spaceId}_${suffix}_embedding`),
+    pollVectorIndexReady(spaceId, suffix, `${spaceId}_${suffix}_embedding`, opts),
   );
   if (getFaceRecognitionConfig().enabled) {
-    polls.push(pollVectorIndexReady(spaceId, 'files', `${spaceId}_files_faceEmbedding`));
+    polls.push(pollVectorIndexReady(spaceId, 'files', `${spaceId}_files_faceEmbedding`, opts));
   }
   const results = await Promise.all(polls);
   return results.every(Boolean);
@@ -326,10 +331,13 @@ export async function waitForSpaceIndexesReady(spaceId: string): Promise<boolean
 /** Background step kicked off by createSpace: wait for the deferred vector-index
  *  builds to reach READY, then flip the space's indexStatus to 'ready' (or 'failed').
  *  A crash before this completes is recovered on the next boot by initAllSpaces. */
-export async function finalizeSpaceIndexReady(spaceId: string): Promise<void> {
+export async function finalizeSpaceIndexReady(
+  spaceId: string,
+  opts: { timeoutMs?: number } = {},
+): Promise<void> {
   let ok = false;
   try {
-    ok = await waitForSpaceIndexesReady(spaceId);
+    ok = await waitForSpaceIndexesReady(spaceId, opts);
   } catch (err) {
     log.warn(`Space '${spaceId}': error awaiting vector index readiness: ${err instanceof Error ? err.message : String(err)}`);
   }

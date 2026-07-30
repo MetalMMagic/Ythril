@@ -493,6 +493,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Upgrading from 2.0.0 could look like a crash loop: boot blocked for over an hour waiting on vector
+  index builds.** 2.0.0 added filter fields to the `$vectorSearch` indexes, so every upgrade reshapes the
+  existing ones — and `initAllSpaces` awaited READY while doing it. That wait is **serial per index, per
+  space**, with a 60-second ceiling each:
+
+  ```text
+  13 spaces × ~5 indexes × 60s  ≈  65 minutes of blocking startup
+  ```
+
+  Reported from a Kubernetes deployment where it exceeded a 60-minute `startupProbe` budget. The
+  container was killed mid-migration and a completely healthy upgrade presented as a failure to start.
+  - **The wait was buying nothing.** Every poll in that report timed out, logged a warning, and continued
+    regardless — so the delay was certain and the guarantee was absent. A wait whose failure path is
+    "carry on anyway" is not a guarantee.
+  - Boot now uses the path `createSpace` has used since B1: create or update the indexes (still awaited —
+    that part is fast and must precede traffic), mark the space `building`, and let a background pass
+    flip it to `ready`/`failed`. **No new machinery** — the old code already relied on `initAllSpaces` to
+    recover spaces left `building` by a crash; it now recovers them the same way they were created.
+  - **The background ceiling is 10 minutes, not 60 seconds** (`INDEX_READY_TIMEOUT_MS`). The old ceiling
+    was short *because* boot was blocked on it, and being short is precisely why it expired on a real
+    migration and reported `failed` for indexes that were building perfectly well. Off the boot path
+    nothing waits on it but a status label, so it can afford to be long enough to be true.
+  - Confirmation runs **three spaces at a time**. One task per space, each polling every collection once
+    a second, would be ~65 pollers hammering `listSearchIndexes` — swapping a startup stall for a load
+    spike on the database doing the building.
+  - Recall against a still-building index returns empty rather than failing, which is pre-existing
+    behaviour and is why deferring is safe: the ceiling never protected correctness.
+
 - **A wide table's horizontal scrollbar was ~2800px below the fold, so "scrollable" and "reachable" were
   not the same thing.** #534 gave `.table-wrapper` `overflow-x: auto`, and it worked: measured on Brain →
   Entities at a 900px viewport, the wrapper had 614px of width and 822px of content — real, scrollable

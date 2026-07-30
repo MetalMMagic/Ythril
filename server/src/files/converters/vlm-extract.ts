@@ -20,6 +20,24 @@ import { renderDocumentPages, isRenderAvailableFor } from './renderer.js';
 import { transcribePageImage, repairMarkdown, repairMarkdownExternal, reconcileConsensus } from './vlm-client.js';
 import type { StepProgress } from './types.js';
 import { decideRoute, validateExtraction, bestByEvidence } from './extraction-policy.js';
+import { resolveVlmEndpoint, vlmSlotUsable, type VlmEndpoint } from './vlm-endpoint.js';
+
+/**
+ * Say WHICH gate closed, and what was found there.
+ *
+ * `decideRoute`'s reason names the missing capability ("needs vlm"); it cannot name the setting, because
+ * it never saw one. A reporter spent a hunt through nine configured model endpoints discovering a tenth
+ * they had never set, because the log stated a verdict and withheld its evidence. Everything here is
+ * config-shape, never a URL or a key.
+ */
+function explainMissing(vlm: VlmEndpoint, verify: VlmEndpoint, render: boolean): string {
+  const missing: string[] = [];
+  if (!vlm.model) missing.push('documentProcessing.vlmModel is empty (set DOC_VLM_MODEL)');
+  else if (!vlm.baseUrl) missing.push('no VLM endpoint resolved — set DOC_VLM_URL, or configure the vision provider it falls back to');
+  if (!render) missing.push('the page renderer is unavailable (RENDER_SIDECAR_URL)');
+  if (verify.model && !verify.baseUrl) missing.push('documentProcessing.verifyModel is set but no endpoint resolved');
+  return missing.length > 0 ? ` — ${missing.join('; ')}` : '';
+}
 
 /**
  * Pages read from one document across all render windows, when unconfigured.
@@ -54,7 +72,15 @@ export async function vlmExtractDocument(
   const render = await isRenderAvailableFor(fileName);
   // `repair` reuses the VLM (or a wired-in repairModel), so it's available whenever the VLM is; decideRoute
   // only actually schedules the repair stage for `max` mode.
-  const route = decideRoute(mode, { ocr: true, render, vlm: !!cfg.vlmModel, repair: !!cfg.vlmModel, verify: !!cfg.verifyModel });
+  // Resolved once, here: every downstream call uses THESE endpoints, so the route decision and the calls
+  // it authorises can never be about different servers.
+  const vlmEp = resolveVlmEndpoint('vlm');
+  const repairEp = resolveVlmEndpoint('repair');
+  const verifyEp = resolveVlmEndpoint('verify');
+  const route = decideRoute(mode, {
+    ocr: true, render,
+    vlm: vlmSlotUsable(vlmEp), repair: vlmSlotUsable(repairEp), verify: vlmSlotUsable(verifyEp),
+  });
   // The sections of the bar: this document's actual route, so nothing is drawn that will not run.
   const steps = route.stages as string[];
 
@@ -68,12 +94,15 @@ export async function vlmExtractDocument(
   }
 
   if (route.ocrOnly) {
-    if (route.fallbackReason) log.info(`VLM extract: ${route.fallbackReason}`);
+    // Name the evidence, not just the verdict. "mode 'vlm' needs vlm; fell back to OCR" cost a reporter a
+    // hunt through nine configured endpoints to discover a tenth they had never set — the message knew
+    // which gate closed and did not say. Now it names the setting and what was found there.
+    if (route.fallbackReason) log.info(`VLM extract: ${route.fallbackReason}${explainMissing(vlmEp, verifyEp, render)}`);
     return { ...(ocr as UnstructuredResult), extractionPath: 'ocr' };
   }
 
   // ── VLM path ────────────────────────────────────────────────────────────────
-  const baseUrl = cfg.vlmBaseUrl || getMediaEmbeddingConfig().vision?.baseUrl || 'http://ollama:11434';
+  const baseUrl = vlmEp.baseUrl;
   try {
     // ── Segmented render + transcribe ─────────────────────────────────────────────────────────────
     //
@@ -121,7 +150,7 @@ export async function vlmExtractDocument(
 
       const windowParts = await mapLimit(window.pages, cfg.concurrency, async (img) => {
         const t = await transcribePageImage(img, {
-          baseUrl, model: cfg.vlmModel, prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
+          ...vlmEp, prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
         });
         // A finished page is the smallest honest unit of progress on this path — it is what makes a
         // long document slow rather than wedged. Counting completions rather than using the map index
@@ -167,7 +196,7 @@ export async function vlmExtractDocument(
         log.info(`VLM extract: '${fileName}' was read in segments — skipping the consensus pass (it would re-transcribe all ${pagesRead} pages).`);
       }
       if (!segmented && route.stages.includes('verify') && cfg.verifyModel && evidence.trim()) {
-        const consensus = await runConsensus(firstWindowPages, markdown, evidence, cfg, baseUrl).catch(err => {
+        const consensus = await runConsensus(firstWindowPages, markdown, evidence, cfg, verifyEp, repairEp).catch(err => {
           log.warn(`VLM extract: consensus pass errored (${err instanceof Error ? err.message : err}) — keeping primary`);
           return null;
         });
@@ -206,7 +235,7 @@ export async function vlmExtractDocument(
               draft: markdown, evidence, issues: v.issues, timeoutMs: cfg.pageTimeoutMs,
             })
           : await repairMarkdown({
-              baseUrl: cfg.repairBaseUrl || baseUrl, model: repairModel, draft: markdown, evidence, issues: v.issues,
+              ...repairEp, model: repairModel, draft: markdown, evidence, issues: v.issues,
               timeoutMs: cfg.pageTimeoutMs,
             });
         const repaired = r.text.trim();
@@ -246,12 +275,14 @@ async function runConsensus(
   primary: string,
   evidence: string,
   cfg: ReturnType<typeof getDocumentProcessingConfig>,
-  baseUrl: string,
+  // Resolved by the caller so every stage of one extraction talks to the endpoints the route was decided
+  // against. Re-deriving them here is how the two halves came to disagree in the first place.
+  verifyEp: VlmEndpoint,
+  repairEp: VlmEndpoint,
 ): Promise<{ text: string; coverage: number }> {
-  const verifyBase = cfg.verifyBaseUrl || baseUrl;
   const parts = await mapLimit(pages, cfg.concurrency, async (img) => {
     const t = await transcribePageImage(img, {
-      baseUrl: verifyBase, model: cfg.verifyModel, prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
+      ...verifyEp, prompt: TRANSCRIBE_PROMPT, timeoutMs: cfg.pageTimeoutMs,
     });
     return t.text.trim();
   });
@@ -264,7 +295,7 @@ async function runConsensus(
   if (second) {
     try {
       const r = await reconcileConsensus({
-        baseUrl: cfg.repairBaseUrl || baseUrl, model: cfg.repairModel || cfg.vlmModel,
+        ...repairEp,
         draftA: primary, draftB: second, evidence, timeoutMs: cfg.pageTimeoutMs,
       });
       const reconciled = r.text.trim();

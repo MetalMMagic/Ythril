@@ -1,0 +1,227 @@
+/**
+ * The document VLM speaks the right wire, and never egresses unguarded.
+ *
+ * ## The two bugs
+ *
+ * A reporter running self-hosted Kubernetes found both in one PDF upload:
+ *
+ *     POST /render              -> 200   (rasterisation fine)
+ *     POST /v1/api/chat         -> 404   (VLM, user-agent "node")
+ *     POST /v1/chat/completions -> 200   (captions, user-agent "undici")
+ *
+ * **1. `vlmModel` could not work against any OpenAI-compatible server.** `postChat` hardcoded Ollama's
+ * `/api/chat`; llama.cpp, llama-swap, vLLM and LocalAI do not serve it, and no `baseUrl` fixes that —
+ * dropping `/v1` merely yields `/api/chat` again. doc-render rasterised pages that were then discarded.
+ *
+ * **2. Two unguarded egress paths**, from one stale assumption ("the document stages are local", true
+ * only while the VLM was the bundled Ollama):
+ *   - `vlm-client.postChat` used a bare `fetch` — that is the `"node"` user-agent, sending page images;
+ *   - `pipeline-status.modelStages()` hardcoded `external: false` on `doc-vlm`/`doc-repair`/`doc-verify`,
+ *     whose `baseUrl` falls back to the **vision** endpoint that the line above classifies with
+ *     `visionProvider === 'external'`. Same URL, opposite verdicts — so discovery went out unguarded too.
+ *
+ * Neither carried the SSRF guard nor the egress acknowledgement the assist model demands for the same
+ * class of destination. It failed safe only against OpenAI-compatible targets, which 404 `/api/chat`; a
+ * **remote Ollama** answers 200, so those deployments were egressing page images silently while the
+ * pipeline reported success.
+ *
+ * The integration guide already promised otherwise — its list of SSRF-guarded model endpoints omits the
+ * document VLM, and it states no document content leaves by default. The code was wrong, not the doc.
+ *
+ * Run: node --test testing/standalone/vlm-endpoint-egress.test.js
+ */
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+
+const ENDPOINT_SRC = 'server/src/files/converters/vlm-endpoint.ts';
+const CLIENT_SRC = 'server/src/files/converters/vlm-client.ts';
+const STATUS_SRC = 'server/src/api/pipeline-status.ts';
+
+const ep = await (async () => {
+  const ts = await import('typescript');
+  const js = ts.default.transpileModule(readFileSync(ENDPOINT_SRC, 'utf8'), {
+    compilerOptions: { module: ts.default.ModuleKind.ESNext, target: ts.default.ScriptTarget.ES2022 },
+  }).outputText
+    // The resolver itself needs config; only the pure URL helpers are exercised here.
+    .replace(/^import .*$/m, '');
+  return import(`data:text/javascript;base64,${Buffer.from(js, 'utf8').toString('base64')}`);
+})();
+
+const { normalizeOpenAiBase, chatUrlFor, listUrlFor } = ep;
+
+describe('one base URL works for every OpenAI-compatible caller', () => {
+  it('adds /v1 when absent', () => {
+    assert.equal(normalizeOpenAiBase('http://host:8080'), 'http://host:8080/v1');
+  });
+
+  it('does not double it when present', () => {
+    // The reported failure was `/v1/v1/models`. Both spellings must land on the same place.
+    assert.equal(normalizeOpenAiBase('http://host:8080/v1'), 'http://host:8080/v1');
+  });
+
+  it('tolerates a trailing slash either way', () => {
+    assert.equal(normalizeOpenAiBase('http://host:8080/'), 'http://host:8080/v1');
+    assert.equal(normalizeOpenAiBase('http://host:8080/v1/'), 'http://host:8080/v1');
+  });
+
+  it('THE case that was broken: one identical URL serves both conventions', () => {
+    // The reporter had to configure two DIFFERENT base URLs for the same server, because vision appended
+    // `/chat/completions` (base with /v1) and assist appended `/v1/chat/completions` (base without). That
+    // workaround is what hid the bug. Both spellings must now resolve identically.
+    const withV1 = chatUrlFor('openai', 'http://host:8080/v1');
+    const without = chatUrlFor('openai', 'http://host:8080');
+    assert.equal(withV1, without);
+    assert.equal(withV1, 'http://host:8080/v1/chat/completions');
+  });
+});
+
+describe('each wire gets its own routes', () => {
+  it('ollama chat', () => assert.equal(chatUrlFor('ollama', 'http://o:11434'), 'http://o:11434/api/chat'));
+  it('openai chat', () => assert.equal(chatUrlFor('openai', 'http://h:8080'), 'http://h:8080/v1/chat/completions'));
+  it('ollama list', () => assert.equal(listUrlFor('ollama', 'http://o:11434'), 'http://o:11434/api/tags'));
+  it('openai list', () => assert.equal(listUrlFor('openai', 'http://h:8080'), 'http://h:8080/v1/models'));
+
+  it('never produces the reported 404 shapes', () => {
+    for (const base of ['http://h:8080', 'http://h:8080/v1']) {
+      assert.doesNotMatch(chatUrlFor('openai', base), /\/v1\/v1\//);
+      assert.doesNotMatch(listUrlFor('openai', base), /\/v1\/v1\//);
+      assert.doesNotMatch(chatUrlFor('openai', base), /\/api\/chat/);
+      assert.doesNotMatch(listUrlFor('openai', base), /\/api\/tags/);
+    }
+  });
+
+  it('the probe and the inference call derive from the SAME base', () => {
+    // A probe that normalises differently from the thing it probes is the original defect in miniature:
+    // `/v1/models` against a base already carrying `/v1` is how the Models page went red over a working
+    // pipeline. Both URLs must hang off one resolved base — not merely share a parent directory.
+    for (const base of ['http://h:8080', 'http://h:8080/v1', 'http://h:8080/']) {
+      const oa = `${normalizeOpenAiBase(base)}/`;
+      assert.ok(chatUrlFor('openai', base).startsWith(oa), `openai chat ${base}`);
+      assert.ok(listUrlFor('openai', base).startsWith(oa), `openai list ${base}`);
+
+      const ol = `${base.replace(/\/+$/, '')}/`;
+      assert.ok(chatUrlFor('ollama', base).startsWith(ol), `ollama chat ${base}`);
+      assert.ok(listUrlFor('ollama', base).startsWith(ol), `ollama list ${base}`);
+    }
+  });
+});
+
+// ── The wiring, so neither unguarded path can come back ──────────────────────
+
+const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+describe('egress is guarded whenever the endpoint is not the bundled model', () => {
+  const client = strip(readFileSync(CLIENT_SRC, 'utf8'));
+
+  it('postChat routes external through ssrfSafeFetch', () => {
+    assert.match(client, /endpoint\.external[\s\S]{0,200}ssrfSafeFetch\(url, init/);
+  });
+
+  it('and passes the private-address opt-in, so a self-hosted model still works', () => {
+    assert.match(client, /allowPrivate: allowPrivateModelEndpoints\(\)/);
+  });
+
+  it('the bundled local path keeps its plain fetch', () => {
+    // Guarding it unconditionally would refuse the DEFAULT deployment, whose Ollama is on a private
+    // cluster address with `allowPrivateModelEndpoints` off.
+    assert.match(client, /: await fetch\(url, init\)/);
+  });
+
+  it('no call site hardcodes a wire path any more', () => {
+    assert.doesNotMatch(client, /\$\{baseUrl[^}]*\}\/api\/chat/);
+    assert.match(client, /chatUrlFor\(endpoint\.wire, endpoint\.baseUrl\)/);
+  });
+});
+
+describe('the status board and the extractor cannot disagree', () => {
+  const status = strip(readFileSync(STATUS_SRC, 'utf8'));
+
+  it('document stages no longer hardcode external: false', () => {
+    // The exact defect: three stages asserting `false` on a URL the line above them classifies.
+    assert.doesNotMatch(status, /key: 'doc-(vlm|repair|verify)'[\s\S]{0,200}external: false/);
+  });
+
+  it('they read the shared resolver instead', () => {
+    assert.match(status, /resolveVlmEndpoint\(slot\)/);
+    assert.match(status, /external: e\.external/);
+  });
+});
+
+describe('no operator-configurable URL is fetched without the guard', () => {
+  /**
+   * The inverted audit.
+   *
+   * #546 audited `ssrfSafeFetch` CALL SITES and pronounced all 13 correct. That set cannot, by
+   * construction, contain an egress that should have been guarded and is not — which is exactly how both
+   * VLM paths survived it. This asks the opposite question: which files reach the network at all, and is
+   * each one either guarded or a declared piece of infrastructure?
+   */
+  const NUL = String.fromCharCode(0);
+  const files = execFileSync('git', ['ls-files', '-z', 'server/src'], { encoding: 'utf8' })
+    .split(NUL).filter(f => f.endsWith('.ts'));
+
+  /**
+   * Files whose URLs are NOT operator-configurable model endpoints, and may fetch freely.
+   *
+   * Sidecars are declared infrastructure: their URLs come from env the deployment sets for itself, they
+   * are expected to be private, and the integration guide documents them as outside the egress guard.
+   * The local agent is loopback-only unless `YTHRIL_LOCAL_AGENT_ALLOW_REMOTE` is set, and demands HTTPS
+   * in remote mode — its own gate, deliberately separate from the model-egress one.
+   *
+   * The document VLM was never in this category: its endpoint follows an admin-settable model provider.
+   */
+  const NOT_A_MODEL_ENDPOINT = new Map([
+    ['server/src/files/converters/renderer.ts', 'render sidecars (RENDER_SIDECAR_URL) — declared infrastructure'],
+    ['server/src/files/converters/unstructured.ts', 'conversion sidecar (CONVERSION_SIDECAR_URL) — declared infrastructure'],
+    ['server/src/api/pipeline-status.ts', 'sidecar /health probes; model endpoints go through probeModelEndpoint'],
+    ['server/src/api/local-agent.ts', 'loopback-only by default; its own remote opt-in + HTTPS requirement'],
+    ['server/src/util/ssrf.ts', 'the guard itself'],
+    // KNOWN GAP, deliberately listed rather than hidden. `OllamaVisionProvider` (and `WhisperProvider`
+    // via `egressFetch(this.external)`) select the guard from the PROVIDER TYPE, and the integration
+    // guide itself notes that `local`/`external` is a wire protocol, not a trust level — so
+    // `visionProvider: local` aimed at a REMOTE Ollama egresses unguarded, exactly as the document VLM
+    // did. Closing it refuses configurations that work today, so the rule is an owner decision:
+    // `_PARKED-DECISIONS.md` D3. Removing this entry is the fix.
+    ['server/src/files/media/providers.ts', 'PARKED D3 — guard chosen by provider type, not by where the URL points'],
+  ]);
+
+  /** A bare `fetch` is fine when the line choosing it tested where the endpoint lives. */
+  const GUARD_PREDICATES = /isLocalEndpoint\(|isLocalModelEndpoint\(|\.external\b|external\s*\?|egressFetch\(/;
+
+  it('every bare fetch of a model endpoint is chosen by a locality test', () => {
+    // The inverted audit. #546 audited ssrfSafeFetch CALL SITES and pronounced all 13 correct — a set
+    // that cannot, by construction, contain an egress that should have been guarded and is not. That is
+    // exactly how the VLM's bare fetch survived it. This asks the opposite question.
+    const offenders = [];
+    for (const f of files) {
+      if (NOT_A_MODEL_ENDPOINT.has(f)) continue;
+      const src = strip(readFileSync(f, 'utf8'));
+      // `fetch(` but not `ssrfSafeFetch(` / `peerSafeFetch(` / `egressFetch(` / `.fetch(`.
+      for (const m of src.matchAll(/(?<![A-Za-z.])fetch\(/g)) {
+        const window = src.slice(Math.max(0, m.index - 220), m.index);
+        if (!GUARD_PREDICATES.test(window)) {
+          offenders.push(`${f} (line ${src.slice(0, m.index).split('\n').length})`);
+        }
+      }
+    }
+    assert.deepEqual(
+      offenders, [],
+      'An unconditional bare fetch on what may be an operator-configurable model endpoint. Choose the\n'
+      + 'client from where the endpoint lives — plain fetch for the bundled local model, ssrfSafeFetch\n'
+      + 'otherwise — or add the file to NOT_A_MODEL_ENDPOINT with the reason:\n  '
+      + offenders.join('\n  '),
+    );
+  });
+
+  it('the exemption list is not stale', () => {
+    // A file that stops fetching should leave the list, or the list stops meaning anything.
+    const dead = [...NOT_A_MODEL_ENDPOINT.keys()].filter(f => !files.includes(f));
+    assert.deepEqual(dead, [], `listed but no longer tracked: ${dead.join(', ')}`);
+  });
+
+  it('the scan actually reads the tree', () => {
+    assert.ok(files.length > 100, `expected the server sources, got ${files.length}`);
+  });
+});

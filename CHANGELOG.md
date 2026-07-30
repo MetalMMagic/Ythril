@@ -6,7 +6,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The document VLM could not work against any OpenAI-compatible server, and its egress was unguarded.**
+  Reported against 2.1.1 from a self-hosted Kubernetes deployment: with `visionProvider: external` and
+  `DOC_VLM_MODEL` set, one PDF produced `POST /render → 200`, `POST /v1/api/chat → 404`, and a fallback to
+  OCR — doc-render rasterising pages that were then discarded.
+  - `/api/chat` is **Ollama's** route. `vlm-client.postChat()` hardcoded it, so llama.cpp, llama-swap,
+    vLLM and LocalAI all 404'd, and **no `baseUrl` could fix it** — dropping `/v1` merely yields
+    `/api/chat` again. The client now speaks either wire, selected from the resolved endpoint.
+  - **Two unguarded egress paths**, from one assumption that stopped being true: *the document stages are
+    local*. That held while the VLM was the bundled Ollama; `visionProvider: external` falsified it,
+    because an empty `vlmBaseUrl` means "reuse the vision endpoint".
+    - `postChat` used a bare `fetch` — no SSRF guard, no egress acknowledgement — while sending **page
+      images**.
+    - `pipeline-status.modelStages()` hardcoded `external: false` on `doc-vlm`, `doc-repair` and
+      `doc-verify`, whose `baseUrl` falls back to the same vision endpoint the line above classifies with
+      `visionProvider === 'external'`. Same URL, opposite verdicts — so discovery went out unguarded too.
+  - **This was live, not latent.** Failing safe was a property of the target, not of the code: an
+    OpenAI-compatible server 404s `/api/chat`, but a **remote Ollama** answers 200. Those deployments were
+    egressing page images silently while the pipeline reported success.
+  - Both call sites now read **one resolver** (`files/converters/vlm-endpoint.ts`), so the route decision
+    and the calls it authorises can no longer be about different servers.
+  - `normalizeOpenAiBase` lands with it: `…:8080` and `…:8080/v1` now resolve identically, so one URL
+    serves every OpenAI-compatible caller. The reporter had been running two different base URLs for the
+    same server to satisfy two conventions, and that workaround is what hid the bug.
+  - The fallback log now **names the evidence**: which setting is empty and which env var sets it, rather
+    than only "needs vlm". A reporter spent a hunt through nine configured endpoints discovering a tenth
+    they had never set, because the message stated a verdict and withheld what it looked at.
+
 ### Changed
+
+- **Inverted the egress audit.** PR #546 audited `ssrfSafeFetch` *call sites* and found all 13 correct — a
+  set that cannot, by construction, contain an egress that should have been guarded and is not, which is
+  exactly how both VLM paths survived it. The new gate asks the opposite question: every bare `fetch` of a
+  possible model endpoint must be chosen by a locality test, or be a declared piece of infrastructure with
+  a stated reason. It found one further gap on its first run, recorded as a parked decision (the vision
+  and STT providers select their guard from the *provider type*, and the guide itself notes that
+  `local`/`external` is a wire protocol, not a trust level).
+- The integration guide gains an **egress table** — every model slot, what it sends, what guards it, and
+  whether an acknowledgement is required. Its list of SSRF-guarded endpoints had omitted the document VLM,
+  and its claim that no document content leaves by default was true only while the VLM was the bundled
+  model. The doc described the intended behaviour correctly; the code has been moved to match it.
 
 - **Hybrid search can now surface a record the vector channel missed entirely.** The lexical (BM25)
   channel previously *reordered* the vector candidate pool but could never add to it, and that bound had

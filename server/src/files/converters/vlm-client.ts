@@ -13,6 +13,7 @@
  */
 import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { allowPrivateModelEndpoints } from '../../config/model-egress-policy.js';
+import { chatUrlFor, type VlmWire } from './vlm-endpoint.js';
 
 export interface VlmTranscription {
   text: string;
@@ -22,48 +23,132 @@ export interface VlmTranscription {
 
 const MAX_OUTPUT_TOKENS = 4096; // bound per-page output so a hostile page can't drive unbounded generation
 
-/** POST one non-streamed chat turn to Ollama `/api/chat` (temperature 0, bounded output). Throws on
- *  unreachable / HTTP error / model error so the caller can fall back. Shared by transcription + repair. */
+/** One chat turn, before it is serialised for a particular wire. `images` are base64, image-only turns. */
+interface ChatTurn { role: 'user'; content: string; images?: string[] }
+
+/**
+ * POST one non-streamed chat turn, on whichever wire the endpoint speaks.
+ *
+ * ## Why this branches
+ *
+ * It used to hardcode Ollama's `/api/chat`, which meant `vlmModel` could not work against **any**
+ * OpenAI-compatible server — llama.cpp, llama-swap, vLLM, LocalAI all 404 that route, and no `baseUrl`
+ * fixes it because dropping `/v1` merely yields `/api/chat` again. doc-render rasterised pages that were
+ * then thrown away.
+ *
+ * ## Why every non-bundled call is guarded
+ *
+ * It also used a bare `fetch`. That was written when the VLM was the bundled local Ollama and the file
+ * said so — *"repairMarkdown uses the bundled local Ollama (no egress)"*. `visionProvider: external`
+ * falsified it, because an empty `vlmBaseUrl` means "reuse the vision endpoint": page images then went to
+ * an off-instance host with no SSRF guard and no egress acknowledgement. It failed safe only against
+ * OpenAI-compatible targets; a **remote Ollama** answers `/api/chat` with 200, so those deployments were
+ * egressing silently while the pipeline reported success.
+ *
+ * So the guard follows the ENDPOINT, not the wire: an Ollama that is not ours gets the same treatment as
+ * an OpenAI one. The bundled local path keeps its plain `fetch` — guarding it would refuse the default
+ * deployment, whose model sits on a private cluster address.
+ */
 async function postChat(
-  baseUrl: string,
-  model: string,
-  messages: Array<Record<string, unknown>>,
+  endpoint: { baseUrl: string; model: string; wire: VlmWire; external: boolean; apiKey?: string },
+  turns: ChatTurn[],
   timeoutMs: number,
 ): Promise<VlmTranscription> {
-  const url = `${baseUrl.replace(/\/$/, '')}/api/chat`;
+  const url = chatUrlFor(endpoint.wire, endpoint.baseUrl);
+  const body = endpoint.wire === 'ollama'
+    ? {
+      model: endpoint.model,
+      stream: false,
+      options: { temperature: 0, num_predict: MAX_OUTPUT_TOKENS },
+      messages: turns.map(t => (t.images ? { role: t.role, content: t.content, images: t.images } : { role: t.role, content: t.content })),
+    }
+    : {
+      model: endpoint.model,
+      temperature: 0,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      // OpenAI carries images as data URIs in a content array. `image/png` because the render sidecar
+      // emits PNG; a wrong type here is what broke external vision in 2.0.0 (see files/mime.ts).
+      messages: turns.map(t => (t.images
+        ? {
+          role: t.role,
+          content: [
+            { type: 'text', text: t.content },
+            ...t.images.map(b64 => ({ type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } })),
+          ],
+        }
+        : { role: t.role, content: t.content })),
+    };
+
+  const init: RequestInit = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(endpoint.apiKey ? { Authorization: `Bearer ${endpoint.apiKey}` } : {}),
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  };
+
   let res: Response;
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        options: { temperature: 0, num_predict: MAX_OUTPUT_TOKENS },
-        messages,
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    res = endpoint.external
+      // Guard on: DNS-resolve, IP-pin, redirect re-validation, crown-jewel ranges blocked. `allowPrivate`
+      // only lifts the private-address rejection, so a self-hosted model on a cluster address still works.
+      ? await ssrfSafeFetch(url, init, { allowPrivate: allowPrivateModelEndpoints() })
+      : await fetch(url, init);
   } catch (err) {
     throw new Error(`VLM unreachable (${url}): ${err instanceof Error ? err.message : String(err)}`);
   }
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`VLM HTTP ${res.status}: ${body.slice(0, 200)}`);
+    const body2 = await res.text().catch(() => '');
+    throw new Error(`VLM HTTP ${res.status}: ${body2.slice(0, 200)}`);
   }
-  const json = await res.json() as { message?: { content?: string }; done_reason?: string; error?: string };
-  if (json.error) throw new Error(`VLM error: ${json.error}`);
-  return { text: json.message?.content ?? '', truncated: json.done_reason === 'length' };
+
+  if (endpoint.wire === 'ollama') {
+    const json = await res.json() as { message?: { content?: string }; done_reason?: string; error?: string };
+    if (json.error) throw new Error(`VLM error: ${json.error}`);
+    return { text: json.message?.content ?? '', truncated: json.done_reason === 'length' };
+  }
+  const json = await res.json() as {
+    choices?: Array<{ message?: { content?: string }; finish_reason?: string }>; error?: unknown;
+  };
+  if (json.error) throw new Error(`VLM error: ${typeof json.error === 'string' ? json.error : JSON.stringify(json.error).slice(0, 200)}`);
+  const choice = json.choices?.[0];
+  return { text: choice?.message?.content ?? '', truncated: choice?.finish_reason === 'length' };
 }
 
-/** Transcribe one page image to Markdown via a local Ollama VLM. Throws on unreachable/HTTP error. */
+/**
+ * How an endpoint is described to this module.
+ *
+ * `wire` and `external` default to the bundled-Ollama shape, so a caller that passes only
+ * `baseUrl`/`model` gets byte-for-byte the pre-unification behaviour. That is deliberate: it keeps the
+ * local path's existing tests meaningful as a regression net rather than something rewritten to fit.
+ */
+export interface VlmTarget {
+  baseUrl: string;
+  model: string;
+  wire?: VlmWire;
+  external?: boolean;
+  apiKey?: string;
+  timeoutMs?: number;
+}
+
+const asEndpoint = (t: VlmTarget) => ({
+  baseUrl: t.baseUrl,
+  model: t.model,
+  wire: t.wire ?? 'ollama' as VlmWire,
+  external: t.external ?? false,
+  apiKey: t.apiKey,
+});
+
+/** Transcribe one page image to Markdown. Throws on unreachable/HTTP error so the caller falls back. */
 export async function transcribePageImage(
   imageBytes: Buffer,
-  opts: { baseUrl: string; model: string; prompt: string; timeoutMs?: number },
+  opts: VlmTarget & { prompt: string },
 ): Promise<VlmTranscription> {
   const b64 = imageBytes.toString('base64');
   return postChat(
-    opts.baseUrl, opts.model,
+    asEndpoint(opts),
     [{ role: 'user', content: opts.prompt, images: [b64] }],
     opts.timeoutMs ?? 60_000,
   );
@@ -79,10 +164,10 @@ const REPAIR_PROMPT =
 /** Reconcile a draft VLM transcription against the OCR evidence in one text-only pass (max-mode repair).
  *  Throws on unreachable/HTTP error so the caller can fall back to OCR. */
 export async function repairMarkdown(
-  opts: { baseUrl: string; model: string; draft: string; evidence: string; issues?: string[]; timeoutMs?: number },
+  opts: VlmTarget & { draft: string; evidence: string; issues?: string[] },
 ): Promise<VlmTranscription> {
   return postChat(
-    opts.baseUrl, opts.model,
+    asEndpoint(opts),
     [{ role: 'user', content: repairContent(opts.draft, opts.evidence, opts.issues) }], // text-only — no page image
     opts.timeoutMs ?? 60_000,
   );
@@ -99,12 +184,12 @@ const CONSENSUS_PROMPT =
  *  Text-only, temperature 0, via the local model. Throws on unreachable/HTTP error so the caller can keep the
  *  primary draft. */
 export async function reconcileConsensus(
-  opts: { baseUrl: string; model: string; draftA: string; draftB: string; evidence: string; timeoutMs?: number },
+  opts: VlmTarget & { draftA: string; draftB: string; evidence: string },
 ): Promise<VlmTranscription> {
   const content =
     `${CONSENSUS_PROMPT}\n\n--- DRAFT A ---\n${opts.draftA}\n\n--- DRAFT B ---\n${opts.draftB}\n\n--- OCR TEXT ---\n${opts.evidence}`;
   return postChat(
-    opts.baseUrl, opts.model,
+    asEndpoint(opts),
     [{ role: 'user', content }], // text-only — no page image
     opts.timeoutMs ?? 60_000,
   );

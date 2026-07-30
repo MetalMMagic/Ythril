@@ -6,6 +6,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Hybrid search can now surface a record the vector channel missed entirely.** The lexical (BM25)
+  channel previously *reordered* the vector candidate pool but could never add to it, and that bound had
+  a sharp edge: the channel exists for opaque identifiers — part codes, clause names, `event-qps` —
+  whose embeddings are nearly arbitrary, which makes those records the **most** likely to fall outside
+  the vector over-fetch. It was weakest exactly where it was needed, and the only lever was widening
+  `candidateMultiplier`, which taxes every query to rescue a rare one.
+  - Introducing was originally rejected for a good reason: a lexically-found record has no measured
+    vector similarity, so admitting it needed either a fabricated score or a guessed reproduction of the
+    search engine's score normalisation — and `minScore` acts on that number, so a wrong one silently
+    changes which results a fixed threshold returns.
+  - Neither is required. The record's embedding is one fetch away and the query vector is in hand, so
+    the similarity is **computed exactly**; the normalisation is **verified rather than assumed**.
+  - The verification is free and runs on every query: any record appearing in *both* channels already
+    carries an engine-reported score, so its locally recomputed score is a live sample. They agree ⇒ the
+    mapping is right and lexical-only scores sit on the same scale as everything else. They disagree, or
+    there is no overlap to check ⇒ **nothing is introduced** and hybrid degrades to the previous
+    reorder-only behaviour, with a warning naming the collection and the two scores.
+  - Bounded throughout: capped at the existing per-type over-fetch, the caller's tags/filter are applied
+    by the fetch, records whose vectors cannot be compared (dimension mismatch mid-migration) are
+    skipped, embeddings never reach a result, and the whole path stays behind `YTHRIL_HYBRID_SEARCH`.
+
 ## [2.1.1] — 2026-07-30
 
 ### Fixed

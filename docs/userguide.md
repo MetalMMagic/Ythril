@@ -615,6 +615,26 @@ By default, Ythril ships with a bundled vision service (Ollama running `moondrea
 
 Fields shown with an **env** badge cannot be changed from the UI — they are pinned by an environment variable set by your infrastructure administrator. This is normal in managed deployments where credentials are injected by Kubernetes secrets or similar.
 
+### When a provider won't connect
+
+*New in 2.1.*
+
+**Test connection** reports what the server actually gets back, and the failure text names the reason
+rather than just saying it failed. Two cases account for almost all of them:
+
+- **"Blocked SSRF target … resolves to blocked address 10.x / 192.168.x / 172.16-31.x"** — the endpoint
+  is on a private network address. Ythril refuses those by default, because an admin-settable URL that
+  the server will call is the classic way to make a server fetch things it should not. If the endpoint is
+  a model server you run yourself, that refusal is wrong for your case and an administrator can permit it
+  with `allowPrivateModelEndpoints` — see
+  [Diagnosing a Misconfiguration](integration-guide.md#diagnosing-a-misconfiguration). It cannot be
+  enabled from this page, on purpose.
+- **"Blocked SSRF target … 169.254.x" or a loopback address** — these stay blocked whatever the setting.
+  Point the endpoint at a real service address.
+
+Every refusal is also written to the server log with the same detail, so an administrator can find it
+without you having to reproduce the click.
+
 ### Privacy note
 
 When both providers are set to *Local*, no file content ever leaves your instance. Switching to *External* sends image frames or audio segments to the configured endpoint — review your data residency policy before doing so.

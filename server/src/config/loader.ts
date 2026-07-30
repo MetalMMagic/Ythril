@@ -754,6 +754,59 @@ function normalizeVisionModel(model: string): string {
   return model === 'moondream2' ? 'moondream' : model;
 }
 
+/**
+ * Env vars renamed because their names described the implementation that happened to be first, not the
+ * field they configure.
+ *
+ * `OLLAMA_URL` is the clearest case: it sets `vision.baseUrl`, which is used **even when
+ * `visionProvider` is `external`**. An operator running vLLM or llama.cpp either sets a variable named
+ * after a product they are not using, or never finds it at all. Same mistake in `WHISPER_URL` /
+ * `WHISPER_MODEL`, which configure STT regardless of backend — reported by a deployment running
+ * Qwen3-ASR.
+ *
+ * This is the same distinction the `local` / `external` provider switch already gets right, and says so
+ * in its own documentation: **the setting names a wire protocol, not a product.**
+ */
+const RENAMED_ENV_VARS: ReadonlyArray<{ current: string; legacy: string; configures: string }> = [
+  { current: 'VISION_BASE_URL', legacy: 'OLLAMA_URL', configures: 'vision.baseUrl' },
+  { current: 'STT_BASE_URL', legacy: 'WHISPER_URL', configures: 'stt.baseUrl' },
+  { current: 'STT_MODEL', legacy: 'WHISPER_MODEL', configures: 'stt.model' },
+];
+
+/** One warning per legacy name per process — this resolver runs on every config read. */
+const legacyEnvWarned = new Set<string>();
+
+/** Test seam: the warning is once-per-process by design, which would make the second test vacuous. */
+export function resetLegacyEnvWarningsForTests(): void {
+  legacyEnvWarned.clear();
+}
+
+/**
+ * Read a renamed env var, preferring the current name.
+ *
+ * The legacy name keeps working indefinitely — breaking a documented env var to improve its spelling is
+ * not a trade worth making, and an operator upgrading for a security fix should not also be handed an
+ * outage. But it is deliberately **not silent**: an alias nobody is told about is one nobody migrates
+ * off, and the deprecation never ends.
+ */
+function envRenamed(current: string): string | undefined {
+  const entry = RENAMED_ENV_VARS.find(e => e.current === current);
+  if (!entry) return process.env[current];
+  const currentVal = process.env[current];
+  const legacyVal = process.env[entry.legacy];
+
+  if (legacyVal !== undefined && !legacyEnvWarned.has(entry.legacy)) {
+    legacyEnvWarned.add(entry.legacy);
+    log.warn(currentVal !== undefined
+      // Both set: say which one won. Silently preferring one of two conflicting values is how an
+      // operator ends up debugging a value they can see in their own manifest and cannot find in effect.
+      ? `${entry.legacy} is deprecated and ${entry.current} is also set — using ${entry.current}. Remove ${entry.legacy}.`
+      : `${entry.legacy} is deprecated: rename it to ${entry.current}. It configures ${entry.configures} `
+        + 'for every backend, not just the product it is named after, and it still works unchanged.');
+  }
+  return currentVal ?? legacyVal;
+}
+
 export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const cfg = getConfig();
   const base = cfg.mediaEmbedding ?? {};
@@ -779,7 +832,10 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
   const sttProvider = pick('STT_PROVIDER', 'sttProvider', base.sttProvider, MEDIA_EMBEDDING_DEFAULTS.sttProvider) as 'local' | 'external';
 
   // Vision provider block — each sub-field has its own env var
-  const visionBaseUrlEnv = process.env['OLLAMA_URL'];
+  // `lockedByInfra` keys off the RESOLVED value below, so it stays correct whichever spelling was used.
+  // Keying it off the current name alone would leave the UI field editable while the legacy env var
+  // silently won — the same "looks configured, isn't" class of bug as the probe fix in #546.
+  const visionBaseUrlEnv = envRenamed('VISION_BASE_URL');
   const visionModelEnv = process.env['VISION_MODEL'];
   const visionApiKeyEnv = process.env['VISION_API_KEY'];
   // API keys: env var > secrets.json > legacy config.json (deprecated)
@@ -801,15 +857,19 @@ export function getMediaEmbeddingConfig(): MediaEmbeddingConfig {
       visionModelEnv ?? base.vision?.model ?? base.visionModel ?? 'moondream',
     ),
     apiKey: visionApiKeyEnv ?? mediaSecrets.visionApiKey ?? base.vision?.apiKey,
-    label: base.vision?.label ?? 'Vision provider (Ollama-compatible)',
+    // The default label follows the resolved provider. A fixed "(Ollama-compatible)" was wrong exactly
+    // when it mattered — an operator on vLLM saw their OpenAI-compatible endpoint labelled with a
+    // protocol it does not speak, which is the same misdirection as the `OLLAMA_URL` name itself.
+    label: base.vision?.label
+      ?? `Vision provider (${visionProvider === 'external' ? 'OpenAI' : 'Ollama'}-compatible)`,
   };
   if (visionBaseUrlEnv) locked.push('vision.baseUrl');
   if (visionModelEnv) locked.push('vision.model');
   if (visionApiKeyEnv) locked.push('vision.apiKey');
 
   // STT provider block
-  const sttBaseUrlEnv = process.env['WHISPER_URL'];
-  const sttModelEnv = process.env['WHISPER_MODEL'];
+  const sttBaseUrlEnv = envRenamed('STT_BASE_URL');
+  const sttModelEnv = envRenamed('STT_MODEL');
   const sttApiKeyEnv = process.env['STT_API_KEY'];
   const stt: MediaProviderConfig = {
     baseUrl: sttBaseUrlEnv

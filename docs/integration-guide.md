@@ -6,6 +6,27 @@ Audience: integrators building clients, automation, or multi-instance deployment
 
 If you are here for web UI usage, read [User Guide](userguide.md). If you are contributing to source code, read [Contribution Guide](contribution-guide.md).
 
+## Which version does this describe?
+
+This guide tracks the **latest release**, so a section may document something your instance does not have
+yet. Anything added after 2.0.0 is marked `*New in <version>.*` directly under its heading — an unmarked
+section has been there since 2.0.0 or earlier. `GET /api/about` reports the version you are running.
+
+**New in 2.1**, in rough order of how likely you are to notice it:
+
+| Area | What changed |
+|---|---|
+| Retrieval | Hybrid search — a lexical channel fused into `recall` by RRF; optional cross-encoder reranking |
+| Diagnosis | [Diagnosing a Misconfiguration](#diagnosing-a-misconfiguration); every egress refusal is now logged with the setting that would permit it |
+| Config | `OLLAMA_URL` → `VISION_BASE_URL`, `WHISPER_URL` → `STT_BASE_URL`, `WHISPER_MODEL` → `STT_MODEL` (old names still work, and warn) |
+| Lifecycle | Graceful shutdown actually drains; `/ready` fails first (`SHUTDOWN_DRAIN_MS`, `SHUTDOWN_READY_GRACE_MS`) |
+| Recall | An end-to-end budget (`RECALL_BUDGET_MS`, `RERANK_MIN_BUDGET_MS`) and a `ythril_recall_degraded_total` metric |
+| Brain | Space completeness scoring; Review → Suggestions |
+| MCP | Roughly half-size recall responses; `includeContent: false` for a fifth |
+| Posture | `mcp.publicUrl`; endpoint classes no longer imply a DNS resolution that did not happen |
+
+Full detail in [CHANGELOG.md](https://github.com/ythril-network/Ythril/blob/main/CHANGELOG.md).
+
 ---
 
 ## Table of Contents
@@ -294,6 +315,98 @@ Levels are `pass` / `warn` / `fail` (`fail` = actively broken, e.g. `requireEncr
 `trustProxy`, so requests would 403). Set **`security.strict`** (config) or **`YTHRIL_SECURITY_STRICT=true`**
 to make any `fail` finding abort boot — the aggregate "don't start if misconfigured" switch, on top of the
 individual `require*` flags.
+
+### Diagnosing a Misconfiguration
+
+*New in 2.1.*
+
+Most deployment problems here are **configuration that looks correct and is refused**, not crashes. The
+instance is designed so you never have to guess which: three endpoints answer three different questions,
+and every refusal names the setting that would permit it.
+
+#### Start here, in this order
+
+| Ask | Endpoint | Answers | Does **not** answer |
+|---|---|---|---|
+| 1. Is my config coherent? | `GET /api/about/security` | Which settings conflict, which are unused, which would break something | Whether anything is reachable |
+| 2. Are my components reachable? | `GET /api/about/health` | Per-component `configured` / `reachable` / `impact` | Whether the instance should serve traffic |
+| 3. Should this pod take traffic? | `GET /ready` | MongoDB + vector search only | Anything about sidecars or models — **by design** |
+
+`/ready` deliberately ignores optional components. Folding a dead render sidecar into it would let a
+degraded feature pull a healthy instance out of the load balancer.
+
+#### The single most useful habit: read the posture block
+
+It prints at boot and is live at `GET /api/about/security`. Every line is written to be actionable — a
+`warn` or `fail` names the setting, the observed value, and what changes if you act. Two conventions
+worth knowing, because they are easy to misread:
+
+- **"nothing is using the permission; unset it"** means exactly that: the flag is on and provably
+  unnecessary. Acting on it is safe.
+- **"not resolved here"** means the opposite of a verdict. The posture check is synchronous and does
+  **not** resolve DNS — resolving at boot would hang the block on a slow resolver. An endpoint written as
+  a hostname is reported as `(hostname, not resolved here)`, and on a cluster where everything is a
+  `*.svc.cluster.local` name, *none* of them will be counted as private. **That is not evidence the
+  permission is unused.** Only endpoints written as IP literals can be classified from config alone.
+
+#### Symptom → where to look
+
+| Symptom | First check | Usual cause |
+|---|---|---|
+| A model endpoint is refused with `Blocked SSRF target` | the `warn` line the guard logged | private address without `allowPrivateModelEndpoints` |
+| Endpoint refused, and the address it names is `169.254.*` / loopback | same | a crown-jewel address — **no** flag permits these |
+| Endpoint refused with `DNS returned no records` | cluster DNS | not a policy decision at all; the name did not resolve |
+| Nobody can sign in after enabling OIDC | `oidc.issuer` in the posture block | private issuer without `oidc.allowPrivateIssuer` |
+| MCP works with a bearer token, browser connectors will not authorize | `mcp.publicUrl` in the posture block | `publicUrl` unset → loopback issuer |
+| A setting in the UI is read-only | `lockedByInfra` in `GET /api/admin/media-config` | an env var is pinning it |
+| A value in your manifest has no effect | startup log | you set a legacy env var alias *and* its replacement |
+| Every API call 403s behind a proxy | `transport.trustProxy` in the posture block | `requireEncryptedTransport` on without `trustProxy` |
+
+#### Every egress refusal is logged
+
+An SSRF refusal writes one `warn` line naming the target, the address it resolved to, and the setting
+that would permit it — so a blocked endpoint is diagnosable from `kubectl logs`, not only from whatever
+a dialog happened to show:
+
+```text
+WARN  Blocked SSRF target (llm.llm.svc.cluster.local resolves to blocked address 10.43.90.115)
+      — if this address is meant to be reachable, set allowPrivateModelEndpoints
+      (YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true) for a self-hosted model endpoint, or
+      allowPrivatePeers for a sync peer
+```
+
+The line is redacted like any other, so a key in a query string is not echoed into your log collector.
+
+Grep for `Blocked SSRF target` to see every refusal at once. If your endpoint fails and **nothing** is
+logged, the failure is not the egress guard — look at `GET /api/about/health` instead.
+
+#### Why one endpoint works and another on the same subnet does not
+
+Two private addresses in the same cluster can behave differently, and that is not a bug in your network:
+
+- **Render/conversion sidecars** (`CONVERSION_SIDECAR_URL`, doc-render) are reached with a plain `fetch`.
+  They are declared infrastructure, expected to be private, and are not subject to the egress guard.
+- **Model provider endpoints** (vision, STT, embedding, rerank, NLI, document assist) go through the
+  SSRF-guarded fetch, because those URLs are admin-settable and become egress targets.
+
+So a green sidecar next to a refused model endpoint tells you cluster DNS and reachability are fine, and
+the difference is policy. That is the point at which `allowPrivateModelEndpoints` is the answer.
+
+#### First boot takes longer than you expect
+
+A cold start does work that no later start repeats: creating vector and lexical search indexes for each
+space, and — on the bundled configuration — loading the in-process embedding model.
+
+- **Subsequent boots:** a few seconds to ready.
+- **First boot:** commonly **30–90 s**, and legitimately several minutes on a slow disk, a cold image
+  pull, or a MongoDB that is itself still starting.
+
+Size `startupProbe.failureThreshold × periodSeconds` to cover that, and let `livenessProbe` start only
+after the startup probe succeeds. A startup budget tuned to the warm-boot time turns a normal first boot
+into a crashloop, which then looks like a failure to start rather than a probe that was too impatient.
+
+Note also that a newly created space returns immediately with `indexStatus: "building"` — it is writable
+at once, but semantic recall stays empty until the index finishes. That is expected, not a fault.
 
 ### Running Multiple Brains on One Host
 
@@ -2689,12 +2802,29 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 | `levels.{images,audio,video,text}` | — | `auto` | Per-class instance ceiling; set a class to `off` to take it offline. **This is the media on/off control** (the `enabled` / `MEDIA_EMBEDDING_ENABLED` master switch was removed). |
 | `visionProvider` | `VISION_PROVIDER` | `local` | Wire protocol, not trust level: `local` (Ollama `/api/chat`) or `external` (OpenAI `/chat/completions`). A self-hosted OpenAI-compatible server needs `external` — see `allowPrivateModelEndpoints` for one on a private address. |
 | `sttProvider` | `STT_PROVIDER` | `local` | Wire protocol, not trust level: `local` (bundled Whisper) or `external` (OpenAI-compatible). Both speak `/v1/audio/transcriptions`. |
-| `vision.baseUrl` | `OLLAMA_URL` | `http://ollama:11434` | Vision service endpoint (short name resolves in both Docker Compose and the K8s `ythril` namespace) |
+| `vision.baseUrl` | `VISION_BASE_URL` | `http://ollama:11434` | Vision service endpoint, **whatever the provider** (short name resolves in both Docker Compose and the K8s `ythril` namespace). Legacy alias: `OLLAMA_URL`. |
 | `vision.model` | `VISION_MODEL` | `moondream` | Vision model name |
 | `vision.apiKey` | `VISION_API_KEY` | — | API key for external vision provider (stored in `secrets.json`, never in `config.json`) |
-| `stt.baseUrl` | `WHISPER_URL` | `http://whisper:8000` | STT service endpoint |
-| `stt.model` | `WHISPER_MODEL` | `base` | Whisper model size/name |
+| `stt.baseUrl` | `STT_BASE_URL` | `http://whisper:8000` | STT service endpoint, **whatever the backend**. Legacy alias: `WHISPER_URL`. |
+| `stt.model` | `STT_MODEL` | `base` | STT model name — passed through to the backend, so it is not restricted to Whisper size names. Legacy alias: `WHISPER_MODEL`. |
 | `stt.apiKey` | `STT_API_KEY` | — | API key for external STT provider (stored in `secrets.json`) |
+
+> **Renamed in 2.1: `OLLAMA_URL` → `VISION_BASE_URL`, `WHISPER_URL` → `STT_BASE_URL`, `WHISPER_MODEL` → `STT_MODEL`.**
+>
+> The old names described the implementation that happened to be first, not the field they configure.
+> `OLLAMA_URL` is the sharpest case: it sets `vision.baseUrl`, which is used **even when
+> `visionProvider` is `external`** — so an operator running vLLM or llama.cpp had to set a variable named
+> after a product they were not running, assuming they found it at all. This is the same distinction the
+> provider switch already gets right: **the setting names a wire protocol, not a product.**
+>
+> **The old names keep working.** They are not deprecated-then-removed on a timer — breaking a documented
+> env var to improve its spelling is not a worthwhile trade, and an upgrade should never become an outage.
+> Each one logs a single `warn` at startup naming its replacement. If both spellings are set, the new one
+> wins **and the log says so** — a silently-ignored value that is visibly present in your own manifest is
+> among the most expensive things to debug.
+>
+> `lockedByInfra` tracks whichever spelling you used, so the Settings UI renders the field read-only
+> either way.
 | `embedding.provider` | `EMBEDDING_PROVIDER` | `local` | Text-embedding endpoint trust: `local` (bundled ONNX or an internal HTTP endpoint, plain fetch) or `external` (public endpoint, reached through the SSRF-guarded fetch). Config lives at top-level `config.embedding` but is edited on **Settings → Media Processing**. |
 | `embedding.baseUrl` | `EMBEDDING_URL` | — | Embedding HTTP endpoint (OpenAI-compatible `/v1/embeddings`). Blank = the bundled in-process ONNX model. |
 | `embedding.model` | `EMBEDDING_MODEL` | `nomic-ai/nomic-embed-text-v1.5` | Embedding model. **Changing the model / `dimensions` / `similarity` / `prefixScheme` re-indexes every vector** (the UI requires an explicit confirmation; `POST /api/brain/spaces/:id/reindex` runs it). |
@@ -3126,6 +3256,8 @@ Returns the full schema definition for a space along with derived stats.
 ---
 
 ### Get Space Completeness
+
+*New in 2.1.*
 
 ```http
 GET /api/spaces/:id/completeness

@@ -331,8 +331,11 @@ export interface MediaProviderConfig {
  *
  * ── Resolution order (high → low precedence) ────────────────────────────────
  * `getMediaEmbeddingConfig()` in the loader applies:
- *   1. Env vars (`VISION_PROVIDER`, `OLLAMA_URL`, `VISION_MODEL`, `VISION_API_KEY`,
- *      `STT_PROVIDER`, `WHISPER_URL`, `WHISPER_MODEL`, `STT_API_KEY`, …)
+ *   1. Env vars (`VISION_PROVIDER`, `VISION_BASE_URL`, `VISION_MODEL`, `VISION_API_KEY`,
+ *      `STT_PROVIDER`, `STT_BASE_URL`, `STT_MODEL`, `STT_API_KEY`, …)
+ *      Legacy aliases `OLLAMA_URL`, `WHISPER_URL` and `WHISPER_MODEL` still work and warn once at
+ *      startup — they named the product that happened to be first, not the field they configure, and
+ *      `OLLAMA_URL` applies even when the provider is `external`.
  *   2. `config.json` `mediaEmbedding.*` (writable from the UI)
  *   3. Built-in defaults
  *

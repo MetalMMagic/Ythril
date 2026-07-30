@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-07-30
+
 ### Added
 
 - **Storage quotas are env-pinnable** — `STORAGE_{TOTAL,FILES,BRAIN}_{SOFT,HARD}_GIB`, on the same

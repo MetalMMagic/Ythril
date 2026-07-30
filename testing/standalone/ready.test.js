@@ -14,6 +14,8 @@
  *
  * Note: The test accepts both 200 (all checks pass) and 503 (some check fails)
  * because MongoDB / mongot availability is environment-dependent.
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it } from 'node:test';

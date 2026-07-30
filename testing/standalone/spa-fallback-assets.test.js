@@ -15,6 +15,8 @@
  *
  * Run: node --test testing/standalone/spa-fallback-assets.test.js
  * Pre-requisite: the test stack (`npm run test:up`) — these assert against a running instance.
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it, before } from 'node:test';

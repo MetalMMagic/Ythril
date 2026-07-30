@@ -82,14 +82,32 @@ for (const [file, why] of BUILT_GATES) gate(file, why, file);
 // wait for CI, and waiting for CI is exactly how a PR that changed `toRecallRecord`'s output shipped
 // with the test contradicting it still asserting the old shape.
 //
-// The split is by grep for an instance marker, and the skipped count is PRINTED. A file that reaches
-// the network without one of these markers fails here with ECONNREFUSED rather than being skipped
-// silently — loud and wrong beats quiet and wrong, and the fix is to add the marker.
-const NEEDS_INSTANCE = /fetch\(|127\.0\.0\.1|localhost:|INSTANCES|BASE_URL/;
+// The split is DECLARED, not inferred. A test that drives a live server says `@needs-instance` in its
+// header; everything else runs here.
+//
+// It used to be inferred, by content match on `fetch(|127.0.0.1|localhost:|INSTANCES|BASE_URL`. That
+// guarded the loud direction — a test that really hits the network without a marker fails here with
+// ECONNREFUSED — and completely missed the quiet one: a PURE test that merely MENTIONS one of those
+// strings was silently excluded and never ran locally at all.
+//
+// Measured before replacing it, by running every standalone file alone with nothing listening:
+// **22 of 158 were pure and being skipped**, among them `ssrf-hardening`, `ssrf-ip-pinning`,
+// `peer-ssrf-policy`, `oidc-issuer-ssrf`, `log-redaction`, `secrets-permissions` and
+// `config-permissions`. "Preflight PASSED" was not running the SSRF suites. It cost two red CI runs
+// (#559 and #562), each on an assertion inside a file the heuristic had excluded for containing the
+// word `fetch(` in its own failure messages.
+//
+// Zero files were wrong in the other direction, which is why a declared marker is safe: the failure
+// mode it introduces (a new server-driving test that forgets the marker) is the loud one that was
+// already handled.
+// Anchored to a header line (` * @needs-instance …`), not a bare substring. A bare match self-excluded
+// the very gate that polices this split, because that file necessarily mentions the marker in its
+// assertions — the same "matched test data, not behaviour" mistake the heuristic made, one level up.
+const NEEDS_INSTANCE = /^\s*\*\s*@needs-instance/m;
 const allStandalone = readdirSync('testing/standalone').filter(f => f.endsWith('.test.js')).sort();
 const pure = allStandalone.filter(f => !NEEDS_INSTANCE.test(readFileSync(`testing/standalone/${f}`, 'utf8')));
 console.log(`\n── standalone tests that need no running instance (${pure.length} of ${allStandalone.length}; ` +
-  `${allStandalone.length - pure.length} drive a live server and run in CI) ──`);
+  `${allStandalone.length - pure.length} declare @needs-instance and run in CI) ──`);
 try { run(`node --test --test-concurrency=1 ${pure.map(f => `testing/standalone/${f}`).join(' ')}`); } catch {
   failures.push({ name: 'test:standalone (offline subset)', why: 'server contracts and pure logic — no Docker needed, so no reason to learn this from CI' });
 }

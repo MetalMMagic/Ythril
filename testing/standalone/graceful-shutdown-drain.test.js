@@ -69,7 +69,11 @@ describe('shutdown drains in-flight work', () => {
     const took = Date.now() - started;
 
     assert.equal(how, 'forced', 'an idle socket must trigger the forced phase');
-    assert.ok(took < 2_000, `the drain must give up on schedule, took ${took}ms`);
+    // The invariant is BOUNDEDNESS, not latency: without the forced phase this hangs until the
+    // orchestrator SIGKILLs the process. A tight ceiling measures the scheduler instead — at 2s it
+    // flaked once inside a 140-file sequential batch and passed on the retry, which is the worst kind of
+    // gate. 10s still fails an unbounded wait instantly and cannot be tripped by load.
+    assert.ok(took < 10_000, `the drain must be bounded, took ${took}ms`);
     sock.destroy();
   });
 });

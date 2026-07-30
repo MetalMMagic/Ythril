@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Preflight was silently skipping 22 test files, including every SSRF suite.** It decided which
+  standalone tests needed a live server by matching file *contents* against
+  `fetch(|127.0.0.1|localhost:|INSTANCES|BASE_URL`. That guarded one direction — a test that really hits
+  the network without a marker fails loudly with `ECONNREFUSED` — and missed the other entirely: a
+  **pure** test that merely *mentions* one of those strings was excluded and never ran locally.
+  - Measured, not estimated: running every standalone file alone with nothing listening showed **22 of
+    158 were pure and being skipped**, among them `ssrf-hardening`, `ssrf-ip-pinning`,
+    `peer-ssrf-policy`, `oidc-issuer-ssrf`, `log-redaction`, `secrets-permissions` and
+    `config-permissions`. "Preflight PASSED" was not running the SSRF suites.
+  - It cost two red CI runs. #559 failed on an assertion in `private-model-endpoints.test.js`, excluded
+    for containing `127.0.0.1` as test *data* — a blocked address. #562 failed on one in
+    `vlm-endpoint-egress.test.js`, excluded for containing `fetch(` inside its own failure messages.
+  - The split is now **declared**: a test that drives a live server says `@needs-instance` in its
+    header. Preflight went from 120 files to **142 of 158**. Zero files were wrong in the other
+    direction when measured, so the only failure mode a marker introduces is the loud one that was
+    already handled.
+  - A new gate asserts preflight selects on the marker and not on content, that every marked file shows
+    some sign of actually using a server, and that the marked set stays a small minority — a marker used
+    to silence a failure shows up there first.
+
 - **The connection probe disagreed with the pipeline it was probing.** Reported against 2.1.1, same pod,
   minutes apart: `POST /v1/chat/completions → 200` (captions working) beside `GET /v1/v1/models → 404`
   and `GET /v1/api/tags → 404` (the probe). The Models page showed vision **red over a working

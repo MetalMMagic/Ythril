@@ -12,6 +12,8 @@
  * under concurrent reservation, which is exactly when a naive read-then-write would collide.
  *
  * Run: node --test testing/standalone/seq-block-reservation.test.js
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it, before, after } from 'node:test';

@@ -13,6 +13,8 @@
  *    REMEMBERS the last one and reports it
  *
  * Run: node --test testing/standalone/waitfor-diagnostics.test.js
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it } from 'node:test';

@@ -13,6 +13,8 @@
  * then verify the server didn't crash and responds normally.
  *
  * Run: node --test testing/standalone/config-loader.test.js
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it, before, after } from 'node:test';

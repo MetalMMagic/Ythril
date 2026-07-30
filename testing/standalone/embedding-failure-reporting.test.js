@@ -16,6 +16,8 @@
  * the original embedding config no matter what.
  *
  * Run: node --test testing/standalone/embedding-failure-reporting.test.js
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it, before, after } from 'node:test';

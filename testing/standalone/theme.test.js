@@ -9,6 +9,8 @@
  *  - Security headers are present on theme responses
  *
  * Run: node --test testing/standalone/theme.test.js
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it, before, after } from 'node:test';

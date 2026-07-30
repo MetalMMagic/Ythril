@@ -177,7 +177,10 @@ export function entriesFromTypeSchemas(
     /* entry list */
     .header-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
     .header-row h2 { margin:0; font-size:20px; font-weight:700; }
-    .header-actions { display:flex; gap:8px; }
+    /* Wraps. A non-wrapping button row is the same narrow-window bug as the tab strips (#534): with
+       five buttons it ran 84px past the pane at 600px and 264px at 420px, sliding the whole page
+       sideways. Found by testing/responsive-sweep.mjs, which #534 did not cover this route with. */
+    .header-actions { display:flex; flex-wrap:wrap; gap:8px; }
     .search-row { margin-bottom:12px; }
     .search-row input { width:100%; max-width:400px; }
     .type-filters { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:16px; }

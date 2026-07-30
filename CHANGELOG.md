@@ -188,6 +188,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction, and two tests walk that list through the real handler — a shared type alone would not
   prove the tab is actually reachable.
 
+- **Schema Library's header buttons ran off the page at narrow widths**, sliding the whole pane sideways
+  — 84 px past a 600 px pane, 264 px past a 420 px one. Same class as the tab strips in #534, on a route
+  that fix did not cover. The button row wraps now. Found by the new sweep below, not by a person.
+
 - **Tables and tab strips were cut off at narrow window sizes.** Reported by the owner. One root cause
   for both: `.main` is a flex child and a flex item defaults to `min-width: auto`, so it refused to
   shrink below its content. Wide content overflowed it and `.layout`'s `overflow: hidden` **clipped**
@@ -232,6 +236,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     margin, so the two column rules line up instead of sitting a few pixels apart.
 
 ### Testing
+
+- **`testing/responsive-sweep.mjs` — a narrow-window check for a bug class nothing else can see.** The
+  cut-off tables and tabs existed in no stylesheet (the offending property was a CSS *default*), threw
+  nothing, and were invisible to the unit tests, which render in jsdom and compute no layout at all. The
+  sweep drives a real browser over every route at 600 px and 420 px.
+  - **Its first invariant was wrong, and mutation-testing is the only reason that was caught.** It looked
+    for *unreachable* content and reported **zero findings on the known-broken build** — the worst
+    result a check can give. `.main` carries `overflow-y: auto`, so CSS computes `overflow-x: auto` too
+    and nothing inside it is ever strictly unreachable; you can scroll to the missing columns. What
+    actually happens is the whole page pane slides sideways, which is what "cut off" looks like.
+  - The invariant is now **the routed page pane must never scroll horizontally**, plus a second rule for
+    genuinely clipped content. Verified in both directions against the pre-#534 code: 4 findings and
+    exit 1 on the broken build, 0 and exit 0 on the fixed one.
+  - It needs a running instance, so it is deliberately not a preflight gate — preflight is the offline
+    half. Run it when touching layout or the shell.
 
 - **The last simulation test is retired.** `testing/standalone/build-properties-schema.test.js`
   asserted against a hand-written *copy* of `buildPropertiesObject` / `stripEmptyOptionalProps`, so it

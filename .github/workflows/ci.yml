@@ -104,10 +104,15 @@ jobs:
       # bare 404 and the reason lives in the container log — which teardown then throws
       # away. Dumping the logs on failure is the difference between diagnosing a red
       # build and guessing at it across 15-minute round trips.
+      # `--all` is load-bearing. `ps --services` lists only RUNNING containers, so a container that
+      # exited during startup — the one whose logs you actually need — was the single service this loop
+      # skipped. A `ythril-b exited (1)` failure dumped healthy logs for a, c and d and nothing at all
+      # for b, twice, and was written off as environmental both times because nobody could see why.
       - name: Dump container logs on failure
         if: failure()
         run: |
-          for svc in $(docker compose -p ythril-test -f testing/docker-compose.test.yml ps --services); do
+          docker compose -p ythril-test -f testing/docker-compose.test.yml ps --all
+          for svc in $(docker compose -p ythril-test -f testing/docker-compose.test.yml ps --services --all); do
             echo "::group::$svc"
             docker compose -p ythril-test -f testing/docker-compose.test.yml logs --tail 500 "$svc" || true
             echo "::endgroup::"

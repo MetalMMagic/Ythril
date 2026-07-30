@@ -8,7 +8,7 @@ import { stopSyncScheduler } from './sync/engine.js';
 import { stopBackupScheduler } from './db/backup-scheduler.js';
 import { stopDupeScanner } from './brain/dupe-scanner.js';
 import { cleanupStaleChunks } from './files/chunks.js';
-import { log } from './util/log.js';
+import { log, redactSecrets } from './util/log.js';
 
 // Enable debug logging when --debug flag is passed or DEBUG env is already set.
 if (process.argv.includes('--debug')) {
@@ -216,18 +216,21 @@ async function main(): Promise<void> {
 
   // Crash handlers — catch unhandled rejections/exceptions so they are logged
   // instead of silently killing the process.
+  // Both write to the console as well as the ring buffer on purpose: a dying process may never have
+  // its buffer read. Both go through redactSecrets first — an unhandled fetch rejection quotes the
+  // endpoint it failed on, and that endpoint may carry a credential in its userinfo or query string.
   process.on('unhandledRejection', (reason, promise) => {
     log.error(`Unhandled rejection at: ${promise}, reason: ${reason}`);
-    console.error('UNHANDLED REJECTION:', reason);
+    console.error(redactSecrets(`UNHANDLED REJECTION: ${String(reason)}`));
   });
   process.on('uncaughtException', (err) => {
     log.error(`Uncaught exception: ${err.stack ?? err}`);
-    console.error('UNCAUGHT EXCEPTION:', err);
+    console.error(redactSecrets(`UNCAUGHT EXCEPTION: ${err.stack ?? String(err)}`));
     process.exit(1);
   });
 }
 
 main().catch(err => {
-  console.error('Fatal startup error:', err);
+  console.error(redactSecrets(`Fatal startup error: ${err?.stack ?? String(err)}`));
   process.exit(1);
 });

@@ -36,6 +36,16 @@ const SECRET_QUERY_PARAMS = /([?&](?:token|api[-_]?key|access[-_]?token|auth|sec
  */
 const URL_USERINFO = /([a-z][a-z0-9+.\-]*:\/\/)[^\s/@]+@/gi;
 
+/**
+ * Exported so the few places that legitimately write straight to the console — the crash handlers,
+ * which must still say something when the process is dying and the ring buffer may never be read — can
+ * apply the same rules. A `console.error(err)` beside a redacted `log.error` is not belt and braces; it
+ * is the braces quietly undoing the belt, because stdout is what a container log collector captures.
+ */
+export function redactSecrets(msg: string): string {
+  return redact(msg);
+}
+
 function redact(msg: string): string {
   return msg
     .replace(/Bearer\s+[A-Za-z0-9_.\-]+/gi, REDACTED)

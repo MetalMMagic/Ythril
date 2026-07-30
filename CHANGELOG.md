@@ -332,6 +332,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Crash handlers wrote the raw error to the console, bypassing redaction entirely.** `log.*` redacts;
+  `console.*` does not. Three sites — `unhandledRejection`, `uncaughtException` and the fatal-startup
+  catch — logged a redacted line to the ring buffer and then printed the **unredacted** error object to
+  stdout, immediately below it. **Stdout is what a container log collector captures**, so the copy that
+  travelled was the unsafe one.
+  - It is the highest-risk path there is for this: an unhandled `fetch` rejection quotes the endpoint it
+    failed on, and that endpoint may carry a credential in its userinfo or query string.
+  - `redactSecrets` is now exported and applied at all three, plus three more in the local-agent
+    connector — a separate process that never had a logger of its own.
+  - **A new `console-redaction-coverage` preflight gate** fails the build if any `console.*` in
+    `server/src` passes a raw error value. Static console output — the startup banner, a listening
+    address — is unaffected and stays. Mutation-checked: reinstating the old crash-handler line fails it.
+
 - **The logger now redacts credentials carried inside a URL.** `audit-changes.ts` keeps webhook routes
   out of the audit log **entirely**, and says why: *"a webhook URL can embed [a credential] in userinfo
   or a query string"*. That reasoning had been applied to the audit store and not to the application

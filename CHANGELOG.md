@@ -188,6 +188,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction, and two tests walk that list through the real handler — a shared type alone would not
   prove the tab is actually reachable.
 
+- **A draining instance kept advertising itself as ready, so new work kept arriving.** The other half of
+  the shutdown fix below. `server.close()` refuses new *connections*, but a load balancer holding an
+  established keep-alive connection keeps using it — and kept getting `200` from `/ready`, because the
+  probe only knew about MongoDB. The instance drained the requests it had while accepting more it would
+  abandon at exit.
+  - `/ready` now returns **503** the instant a shutdown signal lands, before anything is torn down, and
+    the check runs *ahead* of the dependency probes: a draining instance is not ready even when MongoDB
+    is perfectly healthy.
+  - Shutdown then waits `SHUTDOWN_READY_GRACE_MS` (default 2 s) for an orchestrator to notice before
+    starting the drain. **Set it to `0` on a single-instance deployment** — no load balancer to inform.
+  - **`/health` deliberately keeps returning 200.** Liveness answers "is this process wedged, kill it?"
+    and during a graceful stop the answer is no. A liveness probe that fails on SIGTERM invites the
+    orchestrator to SIGKILL the process mid-drain, which is exactly what the drain exists to avoid.
+
 - **Shutdown did not actually drain: `server.close()` was never awaited.** It is asynchronous — it stops
   accepting new connections and calls back once the running ones finish — so everything after it ran
   immediately: MongoDB was closed and `process.exit(0)` fired while requests were still in flight. A

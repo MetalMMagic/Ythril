@@ -42,6 +42,7 @@ import { initSpace, ensureGeneralSpace, wipeSpace, reconcilePendingSpaceOp, WIPE
 import { col, asFilter, asDoc } from './db/mongo.js';
 import { log } from './util/log.js';
 import { getReadiness } from './ready.js';
+import { isShuttingDown } from './lifecycle.js';
 import {
   httpRequestsTotal,
   httpRequestDurationSeconds,
@@ -138,6 +139,14 @@ export function createApp() {
 
   // ── Readiness ────────────────────────────────────────────────────────────
   app.get('/ready', async (_req, res) => {
+    // Not-ready the instant a shutdown signal lands, before anything is torn down — so the orchestrator
+    // takes this instance out of rotation while it can still serve what it already has. Checked ahead
+    // of the dependency probes because it is decisive and free: a draining instance is not ready even
+    // if MongoDB is perfectly healthy. See `lifecycle.ts` for why liveness deliberately stays 200.
+    if (isShuttingDown()) {
+      res.status(503).json({ ready: false, shuttingDown: true, checks: {} });
+      return;
+    }
     try {
       const result = await getReadiness();
       res.status(result.ready ? 200 : 503).json(result);

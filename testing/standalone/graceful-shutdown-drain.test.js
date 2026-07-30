@@ -95,3 +95,60 @@ describe('the shutdown handler in index.ts', () => {
     assert.match(src, /closeAllConnections\(\)/);
   });
 });
+
+/**
+ * Readiness fails FIRST, before the drain — the step that stops new work arriving.
+ *
+ * #537 made shutdown wait for in-flight requests. That finishes what is already running; it does not
+ * stop more from arriving. `server.close()` refuses new *connections*, but a load balancer holding an
+ * established keep-alive connection keeps using it — and kept getting `200` from `/ready`, because the
+ * probe only knew about MongoDB. So a draining instance advertised itself as healthy and accepted work
+ * it was about to abandon at exit.
+ *
+ * Liveness deliberately stays 200 throughout: a `/health` that fails on SIGTERM invites the
+ * orchestrator to SIGKILL the process mid-drain, which is the opposite of the intent.
+ */
+describe('readiness reports not-ready as soon as shutdown begins', () => {
+  it('flips on beginShutdown, and liveness is unaffected', async () => {
+    const { isShuttingDown, beginShutdown, resetLifecycleForTests } =
+      await import('../../server/dist/lifecycle.js');
+
+    resetLifecycleForTests();
+    assert.equal(isShuttingDown(), false, 'a running instance is not shutting down');
+
+    beginShutdown();
+    assert.equal(isShuttingDown(), true);
+    beginShutdown();
+    assert.equal(isShuttingDown(), true, 'idempotent — the signal handler may be re-entered');
+
+    resetLifecycleForTests();
+  });
+
+  it('the /ready handler checks it BEFORE the dependency probes', () => {
+    // Order matters: a draining instance is not ready even when MongoDB is perfectly healthy, and the
+    // check must not be able to be skipped by a slow or throwing probe.
+    const app = readFileSync('server/src/app.ts', 'utf8');
+    const handler = app.slice(app.indexOf("app.get('/ready'"), app.indexOf("app.use('/metrics'"));
+    const shutAt = handler.indexOf('isShuttingDown()');
+    const probeAt = handler.indexOf('getReadiness()');
+    assert.ok(shutAt > 0, '/ready must consult the shutdown flag');
+    assert.ok(shutAt < probeAt, 'the shutdown check must come before the dependency probes');
+  });
+
+  it('liveness has no shutdown check at all', () => {
+    const app = readFileSync('server/src/app.ts', 'utf8');
+    const health = app.slice(app.indexOf("app.get('/health'"), app.indexOf("app.get('/ready'"));
+    assert.ok(!health.includes('isShuttingDown'),
+      '/health must keep returning 200 — failing liveness on SIGTERM invites a SIGKILL mid-drain');
+  });
+
+  it('shutdown marks not-ready before it closes the server', () => {
+    const src = readFileSync('server/src/index.ts', 'utf8');
+    const body = src.slice(src.indexOf('const shutdown ='), src.indexOf("process.on('SIGTERM'"));
+    const markAt = body.indexOf('beginShutdown()');
+    const closeAt = body.indexOf('server.close(');
+    assert.ok(markAt > 0 && closeAt > 0);
+    assert.ok(markAt < closeAt,
+      'readiness must go false before the drain starts, or the drain races new arrivals');
+  });
+});

@@ -303,8 +303,32 @@ button:disabled, .btn:disabled {
 }
 
 /* ── Tables ──────────────────────────────────────────────────────────────── */
+/*
+ * A data table that does not fit needs TWO things, and #534 only delivered one.
+ *
+ * `overflow-x: auto` made the table scrollable, and it genuinely was — measured on Brain → Entities at
+ * a 900px viewport: wrapper client 614px, scroll 822px, so 208px of real, scrollable overflow. And the
+ * owner still reported "no way to scroll right", correctly. The horizontal scrollbar sits at the BOTTOM
+ * of the scroll container, the container was 3388px tall, and the viewport was 900px — so the only
+ * affordance for the overflow was roughly 2800px below the fold.
+ *
+ * Worse, the height was itself a symptom. With seven columns squeezed into 614px every cell collapsed to
+ * its min-content width (~118px) and wrapped brutally: a property value of "Germany" rendered one letter
+ * per line, and each row grew to 274px. The table's own min-content width is 822px, so no amount of
+ * shrinking was ever going to make it fit — squeezing only made it unreadable AND unscrollable.
+ *
+ * So: give the table a floor so columns stop collapsing into vertical text, and bound the wrapper so its
+ * scrollbar is on screen instead of a page-length away. The header sticks, because a horizontally
+ * scrolled table with the column names gone is its own small usability problem.
+ */
 .table-wrapper {
-  overflow-x: auto;
+  overflow: auto;
+  /* Tall tables scroll inside the box; short ones are unaffected, since max-height only ever clamps.
+     60vh rather than a larger share on purpose: the box has to END above the fold, or its horizontal
+     scrollbar is off screen again and we are back to the reported bug in a milder form. Measured on
+     Brain → Entities at 900x900, where the wrapper starts at y=354 — 70vh put its bottom edge at 984,
+     60vh puts it at 894. */
+  max-height: min(60vh, 720px);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
@@ -313,10 +337,19 @@ table {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  /* Deliberately NO blanket min-width. An earlier attempt at this bug set `min-width: 820px` here, which
+     did stop the column collapse — and forced a horizontal scrollbar onto every narrow three-column
+     settings table that previously fit perfectly well. The collapse had a specific cause
+     (`word-break: break-all` in properties-view, whose min-content width is one character) and it is
+     fixed there, at the source, instead of being papered over for every table in the app. */
 }
 
 thead {
   background: var(--bg-elevated);
+  /* The wrapper is the scroll container, so `top: 0` is its top edge, not the page's. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 th {

@@ -477,6 +477,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A wide table's horizontal scrollbar was ~2800px below the fold, so "scrollable" and "reachable" were
+  not the same thing.** #534 gave `.table-wrapper` `overflow-x: auto`, and it worked: measured on Brain →
+  Entities at a 900px viewport, the wrapper had 614px of width and 822px of content — real, scrollable
+  overflow. The owner still reported the table cut off at Tags with no way to scroll right, and was
+  right. A scroll container's horizontal scrollbar sits at its **bottom**, the container was **3388px
+  tall**, and the viewport was 900px.
+  - The height was itself a symptom. Seven columns in 614px collapsed every cell to its min-content
+    width, and inside the Properties cell the nested key/value table gave its `white-space: nowrap` key
+    column full width, leaving the **value ~10px** — enough for one character. "Germany" rendered
+    vertically, one letter per line, and each row grew to 274px.
+  - Capping the key column at 45% and giving the value a `5em` floor takes rows from **274px to 150px**
+    for 17px of extra table width. `word-break: break-all` on the value became `overflow-wrap: anywhere`,
+    which still breaks a long hash or URL but no longer makes an ordinary word's min-content one
+    character wide.
+  - `.table-wrapper` is now bounded (`max-height: min(60vh, 720px)`) with a **sticky header**, so the
+    scrollbar is at the bottom of a screen-sized box rather than a page-length away, and the column names
+    survive scrolling. 60vh and not more because the box has to *end* above the fold — at 70vh its bottom
+    edge measured 984px against a 900px viewport, which is the same bug in a milder form.
+  - **No blanket `min-width` on `table`.** An earlier attempt used one; it fixed Entities and forced a
+    horizontal scrollbar onto every narrow three-column settings table that previously fit. The collapse
+    had a specific cause and is fixed at that cause.
+
+- **A long space name painted straight over the next chip.** `.space-chip` had a `min-width` and no
+  maximum, and the label had no truncation, so a 284px label rendered inside a 144px chip and overlapped
+  its neighbour. Chips now cap at 200px and ellipsise, with the full name and id in the tooltip. The
+  `min-width: 0` on the chip's children is load-bearing: a flex item defaults to `min-width: auto` and
+  refuses to shrink below its content, so `text-overflow` would never have engaged.
+
 - **"Test connection" refused every self-hosted model endpoint on a private address, even with
   `allowPrivateModelEndpoints` on.** `probeModelEndpoint` called `ssrfSafeFetch(url, init)` without the
   third argument, and that argument defaults to *refuse private addresses* — so the probe silently

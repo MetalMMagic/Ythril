@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **"Diagnosing a Misconfiguration" — the deployment guide now answers the question operators were
+  answering by trial and error.** Prompted by a 2.0.0 Kubernetes report in which a correct configuration
+  was refused and the only evidence was a string in a dialog. Most problems here are *config that looks
+  right and is declined*, not crashes, and nothing told an operator which of the three status endpoints
+  answered which question.
+  - **Which endpoint answers what**, in order: `/api/about/security` (is the config coherent?),
+    `/api/about/health` (are components reachable?), `/ready` (should this pod take traffic?) — with what
+    each one deliberately does *not* answer, so `/ready` ignoring optional sidecars reads as design rather
+    than an omission.
+  - **A symptom → cause table** covering the refusals that produce identical-looking failures for very
+    different reasons: private address vs crown-jewel address vs DNS returning nothing.
+  - **How to read the posture block**, including the one phrase that inverts if misread: *"not resolved
+    here"* is the absence of a verdict, while *"nothing is using the permission; unset it"* is a verdict.
+  - **Why one private endpoint works and another does not** — render sidecars use a plain fetch, model
+    endpoints go through the egress guard. A green sidecar beside a refused model endpoint proves DNS and
+    reachability are fine and the difference is policy. That is precisely the observation that located
+    the probe bug above, so it is now written down instead of rediscovered.
+  - **First-boot duration** — an expected 30–90 s range, what drives it, and the warning that sizing
+    `startupProbe` to the warm-boot time turns a normal first boot into a crashloop.
+
+- **Version annotations, so a reader can tell what applies to their instance.** The guide tracks the
+  latest release; anything added after 2.0.0 now carries `*New in <version>.*` under its heading, with a
+  "Which version does this describe?" summary of the 2.1 changes at the top. Requested by a reader working
+  from current docs against a 2.0.0 deployment with no way to tell the two apart.
+
 - **`ythril_recall_degraded_total` — a counter for the answers that are quietly worse.** Every other
   metric measures work done or work failed. This one measures the gap: recall answered, HTTP 200, and a
   weaker pipeline than the instance is configured for. A reranker unreachable for a week produces no
@@ -193,6 +218,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of the embedded string, so changing it invalidates the corpus exactly as a model change does.
 
 ### Changed
+
+- **The media env vars are named after what they configure, not after what once implemented them.**
+  `OLLAMA_URL` → **`VISION_BASE_URL`**, `WHISPER_URL` → **`STT_BASE_URL`**, `WHISPER_MODEL` →
+  **`STT_MODEL`**.
+  - `OLLAMA_URL` is the sharpest case: it sets `vision.baseUrl`, which is used **even when
+    `visionProvider` is `external`**. An operator running vLLM or llama.cpp had to set a variable named
+    after a product they were not running — assuming they found it at all. `WHISPER_URL` / `WHISPER_MODEL`
+    did the same to anyone whose STT backend is not Whisper; reported by a deployment running Qwen3-ASR.
+  - This is the distinction the provider switch already gets right and states in its own documentation:
+    **the setting names a wire protocol, not a product.** These three names contradicted it.
+  - **The old names keep working, indefinitely.** Breaking a documented env var to improve its spelling is
+    not a worthwhile trade, and an operator upgrading for a security fix should not also be handed an
+    outage. Each legacy name logs one `warn` at startup naming its replacement — a silent alias is one
+    nobody migrates off, and the deprecation never ends.
+  - **If both spellings are set, the new one wins and the log says so.** A value that is visibly present
+    in your own manifest and silently absent in effect is among the most expensive things to debug.
+  - `lockedByInfra` tracks whichever spelling was used, so the Settings UI renders the field read-only
+    either way. Keying it off the new name alone would have left the control editable while the legacy
+    env var overrode every save — the same "looks configured, isn't" shape as the probe bug above.
+  - The default vision **label** now follows the resolved provider too: an `external` provider is no
+    longer labelled `(Ollama-compatible)`, a protocol it does not speak.
 
 - **The Brain's tab identifiers are one union instead of two hand-synced ones.** `BrainTab` lived in
   `brain.component.ts` and a subset of it was re-declared as `StatKey` in `overview-tab.component.ts` for

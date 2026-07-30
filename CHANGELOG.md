@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`ythril_recall_degraded_total` — a counter for the answers that are quietly worse.** Every other
+  metric measures work done or work failed. This one measures the gap: recall answered, HTTP 200, and a
+  weaker pipeline than the instance is configured for. A reranker unreachable for a week produces no
+  failed requests, no error rate and no latency change worth noticing — every recall simply comes back in
+  vector order and nobody is told.
+  - Two reasons: `rerank_unavailable` (configured but it did not answer) and `rerank_skipped_budget`
+    (not attempted; `RECALL_BUDGET_MS` was already spent upstream). Both already logged a warning — a log
+    line explains one occurrence and is the wrong place to notice a *pattern*.
+  - Both series report `0` from process start: absent and zero render identically on a graph and mean
+    opposite things.
+  - **A missing lexical channel is deliberately not counted.** `applyLexicalFusion` cannot yet tell "this
+    space has no text index" from "the query matched nothing", so a counter there would fire on ordinary
+    queries and report degradation where there is none. A metric an operator learns to ignore will not be
+    read on the day it matters. The omission is recorded in code and pinned by a test.
+
 - **MCP recall responses are about half the size, and `includeContent: false` makes them a fifth.**
   Every field an MCP tool returns is multiplied by `topK` and billed as tokens to whoever called it — the
   REST caller is a program and can afford detail, the MCP caller is a model's context window and cannot.

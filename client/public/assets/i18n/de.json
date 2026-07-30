@@ -1434,7 +1434,7 @@
   "mediaProcessing.test.unreachable": "Nicht erreichbar",
   "mediaProcessing.test.reachable": "Erreichbar",
   "mediaProcessing.test.modelFound": "Erreichbar · Modell gefunden",
-  "mediaProcessing.test.modelMissing": "Erreichbar · Modell nicht gefunden",
+  "mediaProcessing.test.modelNotEnumerated": "Erreichbar · Modell nicht aufgelistet (bei Routern normal)",
   "mediaProcessing.health.ok": "funktioniert",
   "mediaProcessing.health.degraded": "erreichbar, aber das Modell wurde nicht gefunden",
   "mediaProcessing.health.down": "antwortet nicht",

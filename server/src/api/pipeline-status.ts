@@ -31,7 +31,7 @@ import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl } from '../util/ssrf.js';
 import { allowPrivateModelEndpoints, isLocalModelEndpoint } from '../config/model-egress-policy.js';
 import { probeModelEndpoint } from './media-config.js';
-import { resolveVlmEndpoint } from '../files/converters/vlm-endpoint.js';
+import { resolveVlmEndpoint, type VlmWire } from '../files/converters/vlm-endpoint.js';
 import { getDb } from '../db/mongo.js';
 import { faceRecognitionAllowed } from '../files/converters/media-level.js';
 import { VECTOR_INDEXED_COLLECTIONS } from '../spaces/vector-index.js';
@@ -135,6 +135,13 @@ async function probeSidecar(s: (typeof SIDECARS)[number]): Promise<SidecarStatus
 export interface StageSpec {
   key: string;
   label: string;
+  /**
+   * Which protocol this endpoint speaks, so the probe derives the same URL inference will.
+   *
+   * Only a *local* vision provider speaks Ollama's; everything else is OpenAI-compatible. Absent means
+   * `openai`, which is the safe default — it is what self-hosted inference servers overwhelmingly serve.
+   */
+  wire?: VlmWire;
   model?: string;
   baseUrl?: string;
   /** Never appears in the response — it exists only to authenticate the probe. */
@@ -155,7 +162,13 @@ function modelStages(): StageSpec[] {
   return [
     // A blank embedding baseUrl means the bundled in-process ONNX model — no endpoint to reach.
     { key: 'embedding', label: 'Text embedding', model: emb.model, baseUrl: emb.baseUrl ?? undefined, apiKey: getEmbeddingApiKey(), external: emb.provider === 'external' },
-    { key: 'vision', label: 'Vision', model: media.vision?.model, baseUrl: media.vision?.baseUrl, apiKey: media.vision?.apiKey, external: media.visionProvider === 'external' },
+    // The only Ollama-protocol target: a LOCAL vision provider. Its base is a bare host and its routes
+    // live under `/api/`; every other target here is OpenAI-compatible.
+    //
+    // (Written without a star after that slash on purpose: several checks strip block comments with a
+    // non-greedy `/*…*/` match, and a `/*` inside a line comment swallows everything to the next `*/`.
+    // That is not hypothetical — it is what turned this file's own egress test red.)
+    { key: 'vision', label: 'Vision', model: media.vision?.model, baseUrl: media.vision?.baseUrl, apiKey: media.vision?.apiKey, external: media.visionProvider === 'external', wire: media.visionProvider === 'external' ? 'openai' : 'ollama' },
     { key: 'stt', label: 'Speech-to-text', model: media.stt?.model, baseUrl: media.stt?.baseUrl, apiKey: media.stt?.apiKey, external: media.sttProvider === 'external' },
     // The document stages fall back to the vision endpoint exactly as the pipeline itself does, so the
     // dot reports the endpoint that would really be called rather than the one nominally configured.
@@ -174,6 +187,7 @@ function modelStages(): StageSpec[] {
         baseUrl: e.baseUrl || undefined,
         apiKey: e.apiKey,
         external: e.external,
+        wire: e.wire,
       };
     }),
     // The assist model is external by definition — it is the one path that sends content off-instance.
@@ -245,8 +259,35 @@ export function classifyStage(s: StageSpec, res: ProbeOutcome | undefined): Mode
   // suffix, so an exact match or a `<model>:` prefix both count. An endpoint that lists nothing is not
   // evidence either way, so it stays `ok` rather than being accused of a missing model.
   const models = res.models ?? [];
-  const present = models.length === 0 ? undefined : models.some(m => m === s.model || m.startsWith(`${s.model}:`));
-  if (present === false) return { ...base, state: 'degraded', latencyMs: res.latencyMs, detail: `endpoint is up but does not list "${s.model}"` };
+  const enumerated = models.length === 0 ? undefined : models.some(m => m === s.model || m.startsWith(`${s.model}:`));
+
+  /**
+   * Absence from a model list is NOT evidence of a missing model.
+   *
+   * This used to return `degraded`, and the field it read was called `modelPresent` — a name asserting
+   * something the check never established. Aliasing routers (llama-swap roles), gateways, LiteLLM,
+   * Azure deployment names: all routinely serve names they deliberately do not enumerate, precisely so
+   * that internal role names stay out of user-facing pickers. A reporter's vision endpoint was fully
+   * working and permanently yellow for exactly that reason, and their assist model still is.
+   *
+   * Three outcomes are distinguishable here and only one of them is a fault:
+   *   - unreachable            → genuinely down (handled above)
+   *   - reachable, listed      → good evidence, though still not proof it will load
+   *   - reachable, NOT listed  → *no information at all*
+   *
+   * Reporting the third as degraded manufactures a warning out of an absence of evidence — the same
+   * dishonesty `health-summary.ts` already refuses one file over, where a component nobody configured
+   * is explicitly not a problem. So it stays `ok`, and says what it saw.
+   *
+   * The honest way to answer "does my configured model actually work" is one real request against it,
+   * which is what the Verify action is for.
+   */
+  if (enumerated === false) {
+    return {
+      ...base, state: 'ok', latencyMs: res.latencyMs,
+      detail: `endpoint reachable; "${s.model}" is not enumerated by this endpoint (normal for aliasing routers and gateways) — use Verify to check it actually answers`,
+    };
+  }
   return { ...base, state: 'ok', latencyMs: res.latencyMs };
 }
 
@@ -263,7 +304,11 @@ async function probeModelStages(): Promise<ModelStageStatus[]> {
     }
     // No `model` is passed: one probe serves several stages, so the per-stage match happens in
     // classifyStage against the returned list.
-    const res = await probeModelEndpoint({ baseUrl: baseUrl!, apiKey, external })
+    //
+    // `wire` is what makes the probe agree with inference. Without it every endpoint was tried as
+    // `/v1/models` first, which is right for four targets and wrong for the one whose base already
+    // carries `/v1` — producing `/v1/v1/models` and a red dot over a working vision pipeline.
+    const res = await probeModelEndpoint({ baseUrl: baseUrl!, apiKey, external, wire: group[0].wire })
       .catch(err => ({ reachable: false, detail: err instanceof Error ? err.message : String(err), latencyMs: 0 }));
     results.set(id, res);
   }));

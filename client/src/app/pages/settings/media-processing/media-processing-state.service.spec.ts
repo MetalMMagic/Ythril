@@ -65,7 +65,7 @@ function make(cfg: Record<string, unknown> = cfgFixture(), confirmResult = true)
   TestBed.resetTestingModule();
   const confirm = vi.fn().mockResolvedValue(confirmResult);
   const patch = vi.fn().mockReturnValue(of({ ok: true, config: cfg }));
-  const post = vi.fn().mockReturnValue(of({ reachable: true, modelPresent: true }));
+  const post = vi.fn().mockReturnValue(of({ reachable: true, modelEnumerated: true }));
   const http = { get: vi.fn().mockReturnValue(of(cfg)), patch, post } as unknown as HttpClient;
   TestBed.configureTestingModule({
     imports: [getTranslocoModule()],
@@ -442,8 +442,11 @@ describe('MediaProcessingStateService — test connection', () => {
   it('distinguishes unreachable from reachable-but-missing-model', () => {
     const { c } = make();
     expect(c.testPillVariant({ reachable: false } as never)).toBe('error');
-    expect(c.testPillVariant({ reachable: true, modelPresent: false } as never)).toBe('warn');
-    expect(c.testPillVariant({ reachable: true, modelPresent: true } as never)).toBe('ok');
+    // Not enumerating a model is informational, never a warning: aliasing routers and gateways serve
+    // names they deliberately do not list, so absence carries no information. This asserted 'warn',
+    // which is what kept a working vision endpoint permanently yellow.
+    expect(c.testPillVariant({ reachable: true, modelEnumerated: false } as never)).toBe('ok');
+    expect(c.testPillVariant({ reachable: true, modelEnumerated: true } as never)).toBe('ok');
   });
 
   it('records the result against the target that was tested', () => {

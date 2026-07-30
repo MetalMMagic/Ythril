@@ -17,6 +17,7 @@ import { requireAdmin, requireAdminMfa } from '../auth/middleware.js';
 import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl, ssrfSafeFetch } from '../util/ssrf.js';
 import { allowPrivateModelEndpoints, isLocalModelEndpoint } from '../config/model-egress-policy.js';
+import { listUrlFor, type VlmWire } from '../files/converters/vlm-endpoint.js';
 import { log } from '../util/log.js';
 import { providerSignature, getActiveProviderSignature } from '../files/media/worker.js';
 import { MIN_CANDIDATE_MULTIPLIER, MAX_CANDIDATE_MULTIPLIER } from '../brain/rerank-client.js';
@@ -638,17 +639,47 @@ interface ProbeResult {
   status?: number;
   endpoint?: string;
   models?: string[];
-  /** Whether the configured model appears in the endpoint's model list (undefined when no model/list). */
-  modelPresent?: boolean;
+  /**
+   * Whether the configured model appears in the endpoint's model list (undefined when no model/list).
+   *
+   * Named for what it measured, not for what it was read as. As `modelPresent` it asserted the model
+   * exists; the check can only see an enumeration, and aliasing routers, gateways and Azure deployments
+   * routinely serve names they do not list. `false` here is *no information* and must never be reported
+   * as degraded — see `classifyStage`.
+   */
+  modelEnumerated?: boolean;
   detail?: string;
   latencyMs: number;
 }
 
-/** Probe a model endpoint by LISTING its models — OpenAI-compatible `/v1/models` first, then Ollama
- *  `/api/tags`. Bounded 5s. No inference call, so it's cheap and sends no document content.
- *  Exported for unit testing. */
+/**
+ * Probe a model endpoint by LISTING its models. Bounded 5s, no inference call, no document content.
+ *
+ * ## Why the URL is derived rather than guessed
+ *
+ * This used to try `${base}/v1/models` and then `${base}/api/tags`, **blindly, for every target and
+ * every provider** — `external` was computed per target but only ever chose the fetch implementation,
+ * never the endpoint. That is wrong in both directions:
+ *
+ *   - Vision-external is the one target whose base is expected to already contain `/v1` (the OpenAI
+ *     convention, and what `ExternalVisionProvider` assumes). Hardcoding `/v1/models` produced
+ *     `/v1/v1/models` → 404, then fell through to Ollama's `/api/tags` → 404. A reporter's Models page
+ *     showed vision red while captions were being generated successfully.
+ *   - Removing the `/v1` to satisfy the probe made the probe **green and inference 404** — a green dot
+ *     over a broken pipeline, which is the worse direction and the reason this is not merely cosmetic.
+ *
+ * The URL now comes from `listUrlFor`, the same helper the inference path derives its chat URL from, so
+ * a probe cannot disagree with the thing it is probing. `normalizeOpenAiBase` means `…:8080` and
+ * `…:8080/v1` both work.
+ *
+ * On failure it makes ONE diagnostic attempt on the other wire — not to succeed, but so that a
+ * mis-selected provider type reports *"this endpoint answers Ollama's API; set the provider to local"*
+ * instead of an unexplained red dot.
+ *
+ * Exported for unit testing.
+ */
 export async function probeModelEndpoint(
-  opts: { baseUrl: string; model?: string; apiKey?: string; external: boolean },
+  opts: { baseUrl: string; model?: string; apiKey?: string; external: boolean; wire?: VlmWire },
 ): Promise<ProbeResult> {
   const started = Date.now();
   const base = opts.baseUrl.replace(/\/$/, '');
@@ -665,10 +696,19 @@ export async function probeModelEndpoint(
         ssrfSafeFetch(url, init, { allowPrivate: allowPrivateModelEndpoints() })
     : (url: string, init: RequestInit) => fetch(url, init);
 
-  const attempts: Array<{ url: string; parse: (j: unknown) => string[] }> = [
-    { url: `${base}/v1/models`, parse: (j) => ((j as { data?: Array<{ id?: string }> })?.data ?? []).map(m => m?.id).filter((x): x is string => !!x) },
-    { url: `${base}/api/tags`, parse: (j) => ((j as { models?: Array<{ name?: string }> })?.models ?? []).map(m => m?.name).filter((x): x is string => !!x) },
+  const parseOpenAi = (j: unknown): string[] =>
+    ((j as { data?: Array<{ id?: string }> })?.data ?? []).map(m => m?.id).filter((x): x is string => !!x);
+  const parseOllama = (j: unknown): string[] =>
+    ((j as { models?: Array<{ name?: string }> })?.models ?? []).map(m => m?.name).filter((x): x is string => !!x);
+
+  // The wire this endpoint is configured to speak comes first; the other is tried only so a failure can
+  // explain itself. `wire` defaults to `openai` — every target except a local Ollama speaks it.
+  const wire: VlmWire = opts.wire ?? 'openai';
+  const attempts: Array<{ url: string; wire: VlmWire; parse: (j: unknown) => string[] }> = [
+    { url: listUrlFor(wire, base), wire, parse: wire === 'ollama' ? parseOllama : parseOpenAi },
   ];
+  const otherWire: VlmWire = wire === 'ollama' ? 'openai' : 'ollama';
+  attempts.push({ url: listUrlFor(otherWire, base), wire: otherWire, parse: otherWire === 'ollama' ? parseOllama : parseOpenAi });
 
   let lastErr = '';
   for (const a of attempts) {
@@ -678,17 +718,31 @@ export async function probeModelEndpoint(
         const json = await res.json().catch(() => ({}));
         const models = a.parse(json);
         // Ollama tags carry a `:tag` suffix (e.g. `moondream:latest`); match exact or `<model>:*`.
-        const modelPresent = opts.model
+        const modelEnumerated = opts.model
           ? models.some(m => m === opts.model || m.startsWith(`${opts.model}:`))
           : undefined;
-        return { ok: true, reachable: true, status: res.status, endpoint: a.url, models: models.slice(0, 50), modelPresent, latencyMs: Date.now() - started };
+        // Answered on the OTHER wire: reachable, but the provider type is set wrong, and inference will
+        // fail even though this probe just succeeded. Say which, rather than reporting a bare success
+        // that the pipeline will then contradict.
+        const mismatch = a.wire !== wire
+          ? `endpoint answers ${a.wire === 'ollama' ? "Ollama's API" : "the OpenAI-compatible API"} at ${a.url}, `
+            + `but this target is configured as ${wire === 'ollama' ? 'local (Ollama)' : 'external (OpenAI-compatible)'} — `
+            + 'inference will use the other protocol and fail. Switch the provider type.'
+          : undefined;
+        return {
+          ok: !mismatch, reachable: true, status: res.status, endpoint: a.url,
+          models: models.slice(0, 50), modelEnumerated, detail: mismatch,
+          latencyMs: Date.now() - started,
+        };
       }
       lastErr = `HTTP ${res.status} at ${a.url}`;
     } catch (err) {
-      lastErr = err instanceof Error ? err.message : String(err);
+      lastErr = `${err instanceof Error ? err.message : String(err)} (at ${a.url})`;
     }
   }
-  return { ok: false, reachable: false, detail: lastErr || 'no compatible model-list endpoint responded', latencyMs: Date.now() - started };
+  // Name the URL that was tried. A bare "unreachable" leaves an operator unable to tell a wrong base
+  // path from a genuinely dead endpoint — the two look identical from the dot and need opposite fixes.
+  return { ok: false, reachable: false, detail: lastErr || `no model list at ${listUrlFor(wire, base)}`, latencyMs: Date.now() - started };
 }
 
 function maskSecrets(cfg: ReturnType<typeof getMediaEmbeddingConfig>): unknown {

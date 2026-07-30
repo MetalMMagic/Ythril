@@ -184,6 +184,21 @@ export interface AudioChunkRecord {
  * @param overlapMs  Overlap window in milliseconds (default 5000)
  * @returns array of produced chunk records (for logging / video pipeline reuse)
  */
+/**
+ * What an audio job actually achieved.
+ *
+ * `failed` exists because it did not before: chunk failures were logged and swallowed, only the
+ * successes were returned, and the worker — having no way to tell the difference — recorded the job
+ * `complete`. An operator saw success over audio that was never transcribed. The document path already
+ * models this correctly with a `partial` status; audio simply never carried the number.
+ */
+export interface AudioEmbedResult {
+  records: AudioChunkRecord[];
+  /** Chunks whose transcription failed. Any non-zero value makes the job `partial`, never `complete`. */
+  failed: number;
+  total: number;
+}
+
 export async function embedAudio(
   spaceId: string,
   fileId: string,
@@ -191,7 +206,7 @@ export async function embedAudio(
   mimeType: string,
   stt: SttProvider,
   overlapMs = 5000,
-): Promise<AudioChunkRecord[]> {
+): Promise<AudioEmbedResult> {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ythril-audio-'));
   const inputPath = path.join(tmpDir, `input.${mimeTypeToExt(mimeType)}`);
 
@@ -217,6 +232,8 @@ export async function embedAudio(
 
     // Step 3: for each chunk, extract audio → transcribe → embed → store
     const results: AudioChunkRecord[] = [];
+    let failed = 0;
+    let lastError = '';
     const now = new Date().toISOString();
 
     for (let i = 0; i < chunks.length; i++) {
@@ -272,14 +289,26 @@ export async function embedAudio(
 
         results.push({ chunkId, startMs, endMs, transcript });
       } catch (err) {
-        log.warn(`Audio embedder: chunk ${i} of ${fileId} failed: ${err instanceof Error ? err.message : String(err)}`);
-        // Continue processing remaining chunks
+        failed++;
+        lastError = err instanceof Error ? err.message : String(err);
+        log.warn(`Audio embedder: chunk ${i} of ${fileId} failed: ${lastError}`);
+        // Continue processing remaining chunks — a partial transcript beats none. The COUNT is what the
+        // caller needs, though: without it the worker marked the job `complete` over audio that was
+        // never transcribed, which is a silent loss and worse than the error that caused it.
       } finally {
         await fs.unlink(segPath).catch(() => {});
       }
     }
 
-    return results;
+    // Every chunk failed. That is not a partial result, it is a failed job, and reporting success over an
+    // empty transcript hides it forever. Throwing puts it back on the queue's retry/backoff path — which
+    // matters most when the cause is systemic (an unreachable provider, a rejected request shape) and
+    // will clear once the operator fixes it.
+    if (chunks.length > 0 && failed === chunks.length) {
+      throw new Error(`every audio chunk failed to transcribe (${chunks.length}/${chunks.length}); last error: ${lastError}`);
+    }
+
+    return { records: results, failed, total: chunks.length };
   } finally {
     // Cleanup temp files
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});

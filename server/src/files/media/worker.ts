@@ -319,14 +319,28 @@ async function processJob(
       case 'image':
         derivedDescription = await embedImage(spaceId, fileId, fileBytes, mimeType, providers.vision);
         break;
-      case 'audio':
-        await embedAudio(spaceId, fileId, fileBytes, mimeType, providers.stt);
+      case 'audio': {
+        // A chunk that failed to transcribe makes this PARTIAL, never complete. The count used to be
+        // discarded here, so an operator saw success over audio that was never transcribed — the
+        // document path has modelled this correctly all along and audio simply never carried the number.
+        const a = await embedAudio(spaceId, fileId, fileBytes, mimeType, providers.stt);
+        if (a.failed > 0) {
+          fileEmbeddingStatus = 'partial';
+          log.warn(`Media worker: ${a.failed}/${a.total} audio chunks failed for ${spaceId}/${fileId} — recording partial`);
+        }
         break;
+      }
       case 'video': {
         // Honour the video level: `audio` takes the audio pipeline only (no vision model); `full`/`auto`
         // add keyframe captioning. Previously keyframes always ran, so the `audio` level did nothing.
         const doKeyframes = videoDoesKeyframes(effectiveVideoLevel(spaceId));
-        await embedVideo(spaceId, fileId, fileBytes, mimeType, providers.vision, providers.stt, doKeyframes);
+        // Same rule as audio: a video whose spoken content partly failed to transcribe is not complete,
+        // however good its keyframe captions are.
+        const v = await embedVideo(spaceId, fileId, fileBytes, mimeType, providers.vision, providers.stt, doKeyframes);
+        if (v.audioFailed > 0) {
+          fileEmbeddingStatus = 'partial';
+          log.warn(`Media worker: ${v.audioFailed}/${v.audioTotal} audio chunks failed for ${spaceId}/${fileId} — recording partial`);
+        }
         break;
       }
       case 'text': {

@@ -330,6 +330,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The add control and the detail pane's header now share one height (`--sch-head-h`) and one bottom
     margin, so the two column rules line up instead of sitting a few pixels apart.
 
+### Security
+
+- **The logger now redacts credentials carried inside a URL.** `audit-changes.ts` keeps webhook routes
+  out of the audit log **entirely**, and says why: *"a webhook URL can embed [a credential] in userinfo
+  or a query string"*. That reasoning had been applied to the audit store and not to the application
+  log — and `webhooks/store.ts` logged the target URL verbatim on creation. Same secret, a different
+  retained store, and application logs usually have *broader* access than the admin-only audit API,
+  because they get shipped to an aggregator.
+  - **URL userinfo** (`https://user:password@host`) is now redacted, host and path preserved.
+  - **Credential-bearing query parameters** beyond the existing `?token=`: `api_key`, `apikey`,
+    `api-key`, `access_token`, `auth`, `secret`, `password`, `passwd`, `pwd`, `sig`, `signature`, `key`.
+    Each is anchored to `?` or `&`, so `sort_key=` and `monkey=` are untouched.
+  - Fixed **centrally in `redact()`**, not at the call site: a URL reaches a log line most often inside
+    an error message nobody wrote by hand, so fixing the sites you can find leaves the ones you cannot.
+  - Both failure modes are tested — a missed credential, and over-matching until the logs are useless
+    and people stop reading them. Mutation-checked: the pre-fix redactor fails 11 of the 18.
+
 ### Testing
 
 - **`api/brain/_shared.ts` — the helpers every brain write route runs through — is covered.** Three

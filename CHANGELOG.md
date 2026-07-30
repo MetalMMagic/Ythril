@@ -317,6 +317,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
+- **Two guards that had no test now have one: the filter-key allowlist and the seq ingest ceiling.**
+  Both stand between untrusted input and something expensive to get wrong, and a guard with no test is
+  indistinguishable from a guard that has quietly stopped guarding.
+  - `brain/filter.ts` decides which record fields a caller may filter on — the allowlist between a
+    user-supplied filter expression and a MongoDB query document. Covered: every allowed key, top-level
+    operator injection (`$where`, `$or`, `$expr`, …), prototype-pollution shapes, and the near-misses
+    (`typeface`, `namely`, `tagsSecret`) that a `startsWith` without the segment boundary would admit.
+  - `buildMongoFilter`'s falsy handling: `exists: false`, `eq: 0`, `eq: false`, `eq: ''` all survive. A
+    truthiness check there would silently turn "this field must be absent" into no constraint at all —
+    widening results rather than narrowing them.
+  - `util/seq.ts`'s `isSeqImplausible` — the guard that stops one peer document near the protocol ceiling
+    from dragging a space's counter up so far that every subsequent *local* write is rejected by every
+    peer. Silent, unrecoverable write loss.
+  - **Mutation-checked, three mutants, one test killed by each:** widening the allowlist to a bare
+    `startsWith`, swapping `!== undefined` for truthiness, and making the seq guard relative instead of
+    absolute.
+
 - **`testing/responsive-sweep.mjs` — a narrow-window check for a bug class nothing else can see.** The
   cut-off tables and tabs existed in no stylesheet (the offending property was a CSS *default*), threw
   nothing, and were invisible to the unit tests, which render in jsdom and compute no layout at all. The

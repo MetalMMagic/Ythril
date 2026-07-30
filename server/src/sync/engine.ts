@@ -23,7 +23,7 @@ import { recordSyncResult, type SyncCounts } from './history.js';
 import { buildFileManifest } from '../files/manifest.js';
 import { log } from '../util/log.js';
 import { bumpSeq, isSeqImplausible } from '../util/seq.js';
-import { peerSafeFetch, isPeerUrlAllowed } from './peer-fetch.js';
+import { peerSafeFetch, isPeerUrlAllowed, PEER_TRANSFER_TIMEOUT_MS } from './peer-fetch.js';
 import { concludeRoundIfReady, sendMemberRemovedNotify } from './governance.js';
 import { enqueueMediaJob } from '../files/media/job-queue.js';
 import { resolveInputFormat } from '../files/converters/pipeline.js';
@@ -1168,9 +1168,12 @@ async function syncFiles(
       if (action === 'skip') continue;
 
       try {
+        // Whole-file body: the control-plane budget would abort any file that takes over 30 s to
+        // transfer, so this one gets the transfer budget. See PEER_TRANSFER_TIMEOUT_MS.
         const dl = await peerSafeFetch(
           `${member.url}/api/files/${encodeURIComponent(remoteSpaceId)}?path=${encodeURIComponent(remote.path)}`,
           opts(),
+          { timeoutMs: PEER_TRANSFER_TIMEOUT_MS },
         );
         if (!dl.ok) { log.warn(`DL file ${remote.path} from ${member.label}: ${dl.status}`); continue; }
         const buf = Buffer.from(await dl.arrayBuffer());
@@ -1243,7 +1246,10 @@ async function syncFiles(
               'Content-Length': String(bytes.length),
             },
             body: bytes,
-            signal: AbortSignal.timeout(BATCH_FETCH_TIMEOUT_MS),
+            // Whole-file body: BATCH_FETCH_TIMEOUT_MS is a control-plane budget and would abort any
+            // upload slower than a minute. Same reasoning as the download below-- see
+            // PEER_TRANSFER_TIMEOUT_MS.
+            signal: AbortSignal.timeout(PEER_TRANSFER_TIMEOUT_MS),
           },
         );
         if (!pushResp.ok) {

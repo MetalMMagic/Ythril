@@ -458,6 +458,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The first MongoDB connection is retried, so a database that is up-but-not-ready no longer kills the
+  process at boot.** `ythril-* exited (1)` had failed CI three times across this release and was carried
+  as "still undiagnosed" — twice because the log dump skipped the dead container. With that fixed, its
+  own log said it in one line: `Fatal startup error: MongoNetworkError: read ECONNRESET`.
+  - Compose waits on the Mongo container's healthcheck, and that healthcheck passes while mongod/mongot
+    is still finishing startup — so the first driver connection has its socket reset mid-handshake. One
+    attempt, one rejection, `main().catch` exits 1, and a completely healthy stack fails to come up.
+    Whichever instance lost the race died, which is why it moved between containers and read as a flake.
+  - `serverSelectionTimeoutMS` never covered this: it governs *selecting* a server, while an ECONNRESET
+    during the handshake rejects immediately.
+  - **Not only a CI concern.** The same shape is a Mongo restart or failover under a running deployment —
+    the pod died on a blip that would have cleared in under a second.
+  - Retried on an **allowlist** (`MongoNetworkError`, `MongoNetworkTimeoutError`,
+    `MongoServerSelectionError`, `MongoTopologyClosedError`), bounded by a 30 s budget
+    (`MONGO_CONNECT_RETRY_MS`), with jittered backoff so four instances starting together do not retry in
+    lockstep. Bad credentials and a malformed URI are **not** retried — waiting cannot help, and thirty
+    seconds of quiet retries would turn an immediate clear error into a boot that appears to hang.
+  - Mutation testing earned its keep here: an explicit "never retry auth errors" guard turned out to be
+    dead code, because the allowlist already excluded them. Removed rather than left to be trusted.
+
 - **Dependency updates: both criticals cleared, server production advisories 17 → 8.** `tar` (PAX size
   override) and `protobufjs` (arbitrary code execution) were the two criticals; `undici` (WebSocket
   64-bit length parser overflow — the transport `ssrfSafeFetch` runs on), `multer` (upload DoS),

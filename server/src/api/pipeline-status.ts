@@ -163,7 +163,11 @@ function modelStages(): StageSpec[] {
     // A blank embedding baseUrl means the bundled in-process ONNX model — no endpoint to reach.
     { key: 'embedding', label: 'Text embedding', model: emb.model, baseUrl: emb.baseUrl ?? undefined, apiKey: getEmbeddingApiKey(), external: emb.provider === 'external' },
     // The only Ollama-protocol target: a LOCAL vision provider. Its base is a bare host and its routes
-    // are `/api/*`; every other target here is OpenAI-compatible.
+    // live under `/api/`; every other target here is OpenAI-compatible.
+    //
+    // (Written without a star after that slash on purpose: several checks strip block comments with a
+    // non-greedy `/*…*/` match, and a `/*` inside a line comment swallows everything to the next `*/`.
+    // That is not hypothetical — it is what turned this file's own egress test red.)
     { key: 'vision', label: 'Vision', model: media.vision?.model, baseUrl: media.vision?.baseUrl, apiKey: media.vision?.apiKey, external: media.visionProvider === 'external', wire: media.visionProvider === 'external' ? 'openai' : 'ollama' },
     { key: 'stt', label: 'Speech-to-text', model: media.stt?.model, baseUrl: media.stt?.baseUrl, apiKey: media.stt?.apiKey, external: media.sttProvider === 'external' },
     // The document stages fall back to the vision endpoint exactly as the pipeline itself does, so the

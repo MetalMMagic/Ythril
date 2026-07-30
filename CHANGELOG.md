@@ -317,6 +317,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Testing
 
+- **`api/brain/_shared.ts` — the helpers every brain write route runs through — is covered.** Three
+  things in there decide something consequential and none was tested.
+  - **TTL parsing decides when records get deleted.** `ttlDaysFromBody` and `ttlDaysError` are a
+    parse/validate pair, and the test that matters asserts they can never *disagree*: anything the
+    validator rejects must not survive parsing (or an invalid TTL reaches a record), and anything it
+    accepts must not be dropped (or a valid TTL is silently ignored). `0` — "no expiry" — is a real
+    value, not a missing one, and `null` — "clear" — is distinct from absent.
+  - **`applyValidation` is where `validationMode: 'strict'` actually blocks.** The whole off / warn /
+    strict matrix is pinned; if strict stops blocking, every schema in every space quietly becomes
+    advisory.
+  - **`buildMemoryFilter` only lets strings into the filter document.** `?tag[]=a&tag[]=b` parses to an
+    array and an object-valued param is trivially forgeable; either reaching a query unchecked is how a
+    caller-supplied operator gets in.
+  - Mutation-checked: widening the TTL bound, making strict non-blocking, and dropping one `typeof`
+    guard each kill exactly one test.
+  - This closes the "production modules with no importing test" item. Two are deliberately left without
+    a standalone test, with reasons recorded: `db/mongo.ts` (the `$vectorSearch` probe needs a live
+    Mongo — it belongs in the integration suite, which already exercises it) and `util/errors.ts` (two
+    five-line `Error` subclasses with no logic; a test there is ceremony).
+
 - **Two guards that had no test now have one: the filter-key allowlist and the seq ingest ceiling.**
   Both stand between untrusted input and something expensive to get wrong, and a guard with no test is
   indistinguishable from a guard that has quietly stopped guarding.

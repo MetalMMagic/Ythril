@@ -14,12 +14,13 @@ import { ModalDirective } from '../../shared/modal.directive';
 import { SummaryStripComponent, SummaryItem } from '../../shared/summary-strip.component';
 import { StatusPillComponent } from '../../shared/status-pill.component';
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
+import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
 @Component({
   selector: 'app-tokens',
   standalone: true,
   imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective,
-            SummaryStripComponent, StatusPillComponent, RelativeTimeComponent],
+            SummaryStripComponent, StatusPillComponent, RelativeTimeComponent, HscrollTopDirective],
   styles: [`
     .new-token-banner {
       background: var(--success-dim);
@@ -285,7 +286,7 @@ import { RelativeTimeComponent } from '../../shared/relative-time.component';
               } @else if (availableSpaces().length === 0) {
                 <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">{{ 'tokens.create.loadingSpaces' | transloco }}</div>
               } @else {
-                <div class="table-wrapper" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
+                <div class="table-wrapper" hscrollTop style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
                   <table style="margin:0;">
                     <thead>
                       <tr>
@@ -367,7 +368,7 @@ import { RelativeTimeComponent } from '../../shared/relative-time.component';
       @if (loading()) {
         <div class="loading-overlay"><span class="spinner"></span></div>
       } @else {
-        <div class="table-wrapper">
+        <div class="table-wrapper" hscrollTop>
           <table>
             <thead>
               <tr>

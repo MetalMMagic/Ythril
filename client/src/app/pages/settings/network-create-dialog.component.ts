@@ -6,6 +6,7 @@ import { NetworksApi } from '../../core/networks-api.service';
 import { TranslocoPipe, TranslocoService } from '@jsverse/transloco';
 import { PhIconComponent } from '../../shared/ph-icon.component';
 import { ModalDirective } from '../../shared/modal.directive';
+import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
 /**
  * Create-network dialog, extracted from the (large) NetworksComponent as the first slice of taming that
@@ -21,7 +22,7 @@ import { ModalDirective } from '../../shared/modal.directive';
 @Component({
   selector: 'app-network-create-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, HscrollTopDirective],
   styles: [`
     .dialog-backdrop {
       position: fixed;
@@ -82,7 +83,7 @@ import { ModalDirective } from '../../shared/modal.directive';
             } @else if (availableSpaces().length === 0) {
               <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">{{ 'networks.dialog.create.loadingSpaces' | transloco }}</div>
             } @else {
-              <div class="table-wrapper" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
+              <div class="table-wrapper" hscrollTop style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:var(--radius-sm);">
                 <table style="margin:0;">
                   <thead>
                     <tr>

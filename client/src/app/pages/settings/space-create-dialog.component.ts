@@ -16,11 +16,12 @@ import { SPACE_DIALOG_STYLES } from './space-dialog.styles';
 import { SpacesStore } from './spaces-store.service';
 import { SpacesApi } from '../../core/spaces-api.service';
 import { SpaceMeta, ValidationMode } from '../../core/api.types';
+import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
 @Component({
   selector: 'app-space-create-dialog',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, HscrollTopDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [SPACE_DIALOG_STYLES],
   template: `
@@ -52,7 +53,7 @@ import { SpaceMeta, ValidationMode } from '../../core/api.types';
         <div class="field" style="flex:1;margin-bottom:0;display:flex;flex-direction:column;">
           <label>{{ 'spaces.create.proxyFor' | transloco }}</label>
           @if (store.spaces().length > 0) {
-            <div class="table-wrapper" style="flex:1;min-height:160px;max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">
+            <div class="table-wrapper" hscrollTop style="flex:1;min-height:160px;max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius-sm);">
               <table style="margin:0;">
                 <thead><tr><th style="width:40px;"></th><th>{{ 'spaces.table.column.label' | transloco }}</th><th>{{ 'spaces.table.column.id' | transloco }}</th></tr></thead>
                 <tbody>

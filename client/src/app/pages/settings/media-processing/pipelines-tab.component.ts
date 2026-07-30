@@ -18,12 +18,13 @@
  *     takes the class offline everywhere — so both facts are stated at the control, not in a doc.
  */
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TranslocoPipe } from '@jsverse/transloco';
 import { PhIconComponent } from '../../../shared/ph-icon.component';
 import { StatusPillComponent } from '../../../shared/status-pill.component';
 import { HealthDotComponent } from './health-dot.component';
-import { MediaProcessingStateService } from './media-processing-state.service';
+import { MediaProcessingStateService, PipeId } from './media-processing-state.service';
 import { PipelineStatusService } from './pipeline-status.service';
 import { HealthState, MODE_STAGES, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, MediaClass } from './media-processing.types';
 
@@ -44,7 +45,7 @@ interface Step {
   selector: 'app-pipelines-tab',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, HealthDotComponent],
+  imports: [NgTemplateOutlet, FormsModule, TranslocoPipe, PhIconComponent, StatusPillComponent, HealthDotComponent],
   styles: [`
     :host { display: block; }
     .pipe-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px;
@@ -112,6 +113,9 @@ interface Step {
       width: auto; min-width: 190px; max-width: 260px; }
     .ceiling select:disabled { opacity: .6; cursor: not-allowed; }
     .ceiling-hint { font-size: 12px; color: var(--text-muted); margin: 0 0 11px; max-width: 70ch; }
+    /* Each pipeline's own Save, appearing only when that pipeline changed — same contract as the
+       Models cards. Right-aligned inside the knobs block so it reads as belonging to it. */
+    .pipe-save { display: flex; justify-content: flex-end; margin-top: 12px; }
     /* Hoisted to the top of the tab: needs the breathing room a knobs block used to give it. */
     .tab-hint { margin: 0 0 16px; }
     /* Not a warning box: choosing "off" is legitimate. It states the blast radius, which is easy to
@@ -143,6 +147,11 @@ interface Step {
          under every pipeline's ceiling control — five copies of the same paragraph is noise a reader
          learns to skip, which defeats the point of explaining it at all. -->
     <p class="ceiling-hint tab-hint">{{ 'mediaProcessing.pipelines.ceilingHint' | transloco }}</p>
+
+    <!-- ── Text (first: the poorest medium) ───────────────────────────── -->
+    @for (p of textPipeline(); track p.id) {
+      <ng-container [ngTemplateOutlet]="pipeCard" [ngTemplateOutletContext]="{ $implicit: p }"/>
+    }
 
     <!-- ── Documents ──────────────────────────────────────────────────── -->
     <section class="pipe-card">
@@ -210,11 +219,22 @@ interface Step {
             <input id="dp-ocrtimeout" type="number" min="10000" max="1800000" [(ngModel)]="s.form.documentProcessing!.ocrTimeoutMs" [disabled]="s.managed" />
           </div>
         </div>
+        @if (s.pipeDirty('pipe-documents')) {
+          <div class="pipe-save">
+            <button class="btn btn-sm btn-primary" type="button"
+              [disabled]="s.saving()" (click)="s.savePipe('pipe-documents')">
+              {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
+            </button>
+          </div>
+        }
       </div>
     </section>
 
     <!-- ── Images / Audio / Video / Text ──────────────────────────────── -->
-    @for (p of mediaPipelines(); track p.id) {
+    <!-- One card definition, instantiated twice: Text renders ABOVE the document pipeline and the rest
+         below it, so the page reads poor → rich media. Documents cannot join the list because its
+         control is an extraction mode rather than a class ceiling. -->
+    <ng-template #pipeCard let-p>
       <section class="pipe-card">
         <header class="pipe-h">
           <span class="ic"><ph-icon [name]="p.icon" [size]="17"/></span>
@@ -226,7 +246,11 @@ interface Step {
 
         <div class="chain">
           @for (st of p.steps; track st.key) {
-            <div class="step" [class.cond]="st.conditional">
+            <!-- dim/active, same as the document pipeline. Without these the four media pipelines showed
+                 availability only: green dots everywhere and no indication of which steps the chosen
+                 rung actually executes. -->
+            <div class="step" [class.cond]="st.conditional"
+                 [class.dim]="mediaStepDim(p.id, st.key)" [class.active]="mediaStepActive(p.id, st.key)">
               <div class="box">
                 <div class="nm">{{ st.name | transloco }}<app-health-dot [state]="st.health" [subject]="st.name | transloco"/></div>
                 <div class="actor">
@@ -252,12 +276,17 @@ interface Step {
               <div class="modeseg" role="group" [attr.aria-label]="'mediaProcessing.class.' + c.cls | transloco">
                 @for (rung of c.ladder; track rung) {
                   <button type="button" [class.on]="ceilingOf(c.cls) === rung" (click)="setCeiling(c.cls, rung)"
-                    [disabled]="s.isLocked('levels.' + c.cls) || s.managed">
+                    [disabled]="rungDisabled(c.cls, rung, p.steps)">
                     {{ 'mediaProcessing.level.' + rung | transloco }}
                   </button>
                 }
               </div>
               @if (s.isLocked('levels.' + c.cls)) { <app-status-pill variant="env">{{ 'mediaProcessing.pill.env' | transloco }}</app-status-pill> }
+              @if (firstStepUnavailable(p.steps)) {
+                <!-- Say WHY the rungs are greyed out. A disabled control with no explanation is read as
+                     a bug, and the operator's next move is on the Models tab, not here. -->
+                <span class="ceiling-warn">{{ 'mediaProcessing.pipelines.firstStepDown' | transloco }}</span>
+              }
               @if (ceilingOf(c.cls) === 'off') {
                 <!-- "off" is a floor as well as a ceiling: it takes the class offline for every space,
                      whatever that space asked for. Worth saying where it is chosen, not in a doc. -->
@@ -265,8 +294,22 @@ interface Step {
               }
             </div>
           }
+          <!-- This pipeline's own Save, shown only when this pipeline changed. -->
+          @if (s.pipeDirty(pipeIdOf(p.id))) {
+            <div class="pipe-save">
+              <button class="btn btn-sm btn-primary" type="button"
+                [disabled]="s.saving()" (click)="s.savePipe(pipeIdOf(p.id))">
+                {{ (s.saving() ? 'common.saving' : 'common.save') | transloco }}
+              </button>
+            </div>
+          }
         </div>
       </section>
+    </ng-template>
+
+    <!-- The rest of the media pipelines, after Documents. -->
+    @for (p of otherPipelines(); track p.id) {
+      <ng-container [ngTemplateOutlet]="pipeCard" [ngTemplateOutletContext]="{ $implicit: p }"/>
     }
   `,
 })
@@ -300,12 +343,104 @@ export class PipelinesTabComponent {
     return this.s.docMode() !== 'off' && !this.stepDim(key);
   }
 
+  // ── What the MEDIA pipelines actually run ───────────────────────────────────
+  //
+  // The document pipeline has had dim/active markings since it shipped. The other four never did: their
+  // steps rendered with `cond` alone, so nothing was ever highlighted and the traffic lights reported
+  // only what was *available*, never what the configured level would actually execute. Owner, 2026-07-30:
+  // "i can see with the traffic light what is available but not what is actually used in the pipeline."
+  //
+  // The rung governs it, and the mapping is per class rather than generic because the ladders mean
+  // genuinely different things — `audio` on the video ladder is "run the audio pipeline and skip the
+  // vision model", which no shared rule would guess.
+
+  /** Steps a class runs at a given rung. `auto` resolves to the class's fullest rung. */
+  private static readonly RUNS: Record<string, Record<string, readonly string[]>> = {
+    images: {
+      off: [],
+      caption: ['caption', 'img-embed'],
+      recognition: ['caption', 'img-embed', 'faces'],
+    },
+    audio: {
+      off: [],
+      on: ['transcribe', 'aud-embed'],
+    },
+    video: {
+      off: [],
+      // "audio" means take the audio track only — ffmpeg splits, STT transcribes, and the vision model
+      // is not called at all.
+      audio: ['vid-split', 'vid-transcribe', 'vid-embed'],
+      full: ['vid-split', 'vid-transcribe', 'vid-keyframe', 'vid-embed'],
+    },
+    text: {
+      off: [],
+      // `embed` produces one vector for the whole document; only `chunk` splits it first.
+      embed: ['txt-embed'],
+      chunk: ['chunk', 'txt-embed'],
+    },
+  };
+
+  /** The rung `auto` resolves to — the fullest one, since auto means "no ceiling of my own". */
+  private static readonly AUTO_RUNG: Record<string, string> = {
+    images: 'recognition', audio: 'on', video: 'full', text: 'chunk',
+  };
+
+  private runsAt(cls: string): readonly string[] {
+    const rung = this.ceilingOf(cls as MediaClass);
+    const resolved = rung === 'auto' ? PipelinesTabComponent.AUTO_RUNG[cls] ?? 'off' : rung;
+    return PipelinesTabComponent.RUNS[cls]?.[resolved] ?? [];
+  }
+
+  /** True when this class runs nothing at all — the whole card reads as inert. */
+  mediaOff(cls: string): boolean { return this.runsAt(cls).length === 0; }
+
+  /** Drawn as not-running: the class is off, or this rung skips the step. */
+  mediaStepDim(cls: string, key: string): boolean { return !this.runsAt(cls).includes(key); }
+
+  /** On the path the current rung executes — mirrors `stepActive` on the document pipeline. */
+  mediaStepActive(cls: string, key: string): boolean { return this.runsAt(cls).includes(key); }
+
+  // ── Gating a pipeline whose first step cannot run ───────────────────────────
+
+  /** Health states that mean the step cannot do its job right now. */
+  private static readonly UNAVAILABLE = new Set(['down', 'blocked', 'unconfigured']);
+
+  /**
+   * Whether a pipeline's FIRST step is unavailable.
+   *
+   * Everything downstream consumes its output, so if step one cannot run the rest cannot either, and
+   * offering rungs that promise captioning or transcription is a promise the instance cannot keep.
+   * Owner, 2026-07-30: "if step one of a pipeline is not available only allow state off and auto (=off)
+   * on toggles."
+   */
+  firstStepUnavailable(steps: readonly Step[]): boolean {
+    const first = steps[0];
+    if (!first || first.health == null) return false;   // no endpoint to be down (in-process step)
+    return PipelinesTabComponent.UNAVAILABLE.has(first.health);
+  }
+
+  /**
+   * Which rungs stay selectable when step one is down: only `off` and `auto`.
+   *
+   * `auto` is kept because it is not a promise — it means "no ceiling of my own", and with the first
+   * step unavailable it resolves to nothing running, exactly like `off`. Removing it too would strand an
+   * operator whose stored value IS `auto` on a control with no valid option.
+   */
+  rungDisabled(cls: MediaClass, rung: string, steps: readonly Step[]): boolean {
+    if (this.s.isLocked('levels.' + cls) || this.s.managed) return true;
+    if (!this.firstStepUnavailable(steps)) return false;
+    return rung !== 'off' && rung !== 'auto';
+  }
+
   private notSet = '—';
 
   /** Cards rendered as infra (env-owned, read-only) on the Models tab — their actor links get the
    *  dotted underline that marks "you can see it here but change it in the environment". */
   private readonly infraCards = new Set(['doc-render', 'unstructured']);
   isInfra(cardId: string): boolean { return this.infraCards.has(cardId); }
+
+  /** Map a pipeline card's id to its config section, so each card can own its own Save. */
+  pipeIdOf(id: string): PipeId { return `pipe-${id}` as PipeId; }
 
   /** The stored ceiling for a class, defaulting to `auto` (no policy limit of its own). */
   ceilingOf(cls: MediaClass): string { return (this.s.form.levels ?? {})[cls] ?? 'auto'; }
@@ -335,6 +470,20 @@ export class PipelinesTabComponent {
       { key: 'embed', name: 'mediaProcessing.step.embed', actor: this.s.embedding.model || this.notSet, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
     ];
   });
+
+  /**
+   * Ordered poor → rich media, from the reader's point of view: Text, Documents, Images, Audio, Video.
+   *
+   * Owner, 2026-07-30. Documents sits second even though it is by far the most complicated pipeline —
+   * the ordering principle is how rich the *medium* is, not how hard it is to process, and a document is
+   * text with structure. Sorting by implementation difficulty would put Documents last and make the list
+   * incoherent to anyone who has not read the code.
+   *
+   * Documents renders between `textPipeline` and `otherPipelines` in the template because its control is
+   * an extraction MODE rather than a class ceiling, so it does not fit this list's shape.
+   */
+  textPipeline = computed(() => this.mediaPipelines().filter(p => p.id === 'text'));
+  otherPipelines = computed(() => this.mediaPipelines().filter(p => p.id !== 'text'));
 
   mediaPipelines = computed(() => {
     const ps = this.pipeline;

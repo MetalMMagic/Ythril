@@ -9,6 +9,7 @@ import { StatusPillComponent, type StatusVariant } from '../../shared/status-pil
 import { RelativeTimeComponent } from '../../shared/relative-time.component';
 import { ModalDirective } from '../../shared/modal.directive';
 import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-strip.component';
+import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
 @Component({
   selector: 'app-audit-log',
@@ -19,7 +20,7 @@ import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-st
   // when state changes and skips the whole-tree sweep otherwise — this page renders up to a
   // 100-row table plus a live-streaming server log, both in the CD hot path.
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, TranslocoPipe, StatusPillComponent, RelativeTimeComponent, SummaryStripComponent, ModalDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, StatusPillComponent, RelativeTimeComponent, SummaryStripComponent, ModalDirective, HscrollTopDirective],
   styles: [`
     .audit-toolbar {
       display: flex;
@@ -291,7 +292,7 @@ import { SummaryStripComponent, type SummaryItem } from '../../shared/summary-st
     } @else if (entries().length === 0) {
       <div class="empty">{{ 'auditLog.empty' | transloco }}</div>
     } @else {
-      <div class="table-wrapper">
+      <div class="table-wrapper" hscrollTop>
       <table class="audit-table">
         <thead>
           <tr>

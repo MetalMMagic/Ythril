@@ -235,6 +235,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Wide tables carry a visible scroll control above them, not an invisible one below.** #548 bounded the
+  wrapper so its scrollbar was not a page-length away; that added a second nested vertical scrollbar and
+  still did not put the control where the eye is, because a scroll container's bar is at the bottom of
+  its box and the box moves with the page. Height was never the problem — position was.
+  - The control is now **drawn** (a track and a proportional thumb, dragged or clicked), sitting
+    immediately above the table. A mirrored *native* scroller was tried first and was invisible: this
+    platform uses overlay scrollbars that paint only while scrolling and occupy no layout space
+    (`offsetHeight - clientHeight === 0`, confirmed by screenshot). Styling `::-webkit-scrollbar` did not
+    bring it back.
+  - The table keeps its own `overflow-x: auto`, so wheel, trackpad, touch and keyboard scrolling are
+    untouched — this adds a handle for them rather than replacing the mechanism. The nested vertical
+    scrollbar is gone; the page has one again.
+  - `ResizeObserver` is feature-detected. Constructing it unguarded threw in jsdom and took down twelve
+    unrelated component specs — a decorative scrollbar breaking the test suite for tables it merely
+    happened to be attached to.
+
+- **Media Processing opens on Pipelines, and each pipeline saves itself.**
+  - **Pipelines is first and the landing tab.** It answers the question an operator arrives with — what
+    happens to a file I upload — where Models answers the follow-up. Clicking a step already jumps to the
+    model that implements it, so the tab order now matches the direction people already move in.
+  - **Text first, then Documents, then Images, Audio, Video** — poor to rich *medium*. Documents sits
+    second despite being much the hardest pipeline to implement, because sorting by implementation
+    difficulty produces an order that is incoherent to anyone who has not read the code.
+  - **All four media pipelines now show what they actually run**, not merely what is available. Only the
+    document pipeline ever dimmed its unused steps; the others rendered green dots and no indication of
+    which steps the configured rung executes — so "the traffic light says the model is up" and "this step
+    runs" looked like the same statement.
+  - **A pipeline whose first step is unavailable offers only `off` and `auto`.** Everything downstream
+    consumes step one's output, so a rung promising captioning or transcription is a promise the instance
+    cannot keep. `auto` stays because it is not a promise — with step one down it resolves to nothing
+    running — and removing it would strand an operator whose stored value *is* `auto` with no valid
+    option. The greyed-out rungs say why, since a disabled control with no explanation reads as a bug.
+  - **A Save per pipeline**, replacing the one bar at the bottom. Safe because the server already merges
+    both affected blocks per key: `levels` through `mergeLevelCeilings`, `documentProcessing` through the
+    one-level deep merge the assist card relies on. The old code justified the bar by saying pipeline
+    knobs "are not grouped into per-provider boxes" — true of the layout, not of the data.
+
+- **Brain's Overview tiles follow the tab strip: Entities · Edges · Memories · Chrono · Files.** The tiles
+  are shortcuts into those tabs and used to lead with Memories, so the two disagreed about what comes next
+  and every click became a small search.
+
+- **The four record tabs finally show icons — and finally translate.** Overview, Query, Graph, Review and
+  Files each carried an icon; Entities, Edges, Memories and Chrono did not, leaving a strip where some
+  tabs have one and some do not. Their labels were also hard-coded English literals while the
+  translations existed unused, so the strip read half-German in a German UI and nothing flagged it.
+
 - **The media env vars are named after what they configure, not after what once implemented them.**
   `OLLAMA_URL` → **`VISION_BASE_URL`**, `WHISPER_URL` → **`STT_BASE_URL`**, `WHISPER_MODEL` →
   **`STT_MODEL`**.

@@ -25,6 +25,7 @@ import { SpaceSettingsState, type TypeSchemaState } from './space-settings-state
 import { SchemaApi } from '../../core/schema-api.service';
 import { ToastService } from '../../core/toast.service';
 import { KnowledgeType, PropertySchema, SchemaLibraryEntry, TypeSchema } from '../../core/api.types';
+import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
 
 const SCHEMA_MD_STYLES = `
 /* A floor, so this row cannot collapse and drag the master/detail grid up with it. The row's height is
@@ -108,7 +109,7 @@ const SCHEMA_MD_STYLES = `
 @Component({
   selector: 'app-space-schema-tab',
   standalone: true,
-  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective],
+  imports: [CommonModule, FormsModule, TranslocoPipe, PhIconComponent, ModalDirective, HscrollTopDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [SPACE_DIALOG_STYLES, SCHEMA_MD_STYLES],
   template: `
@@ -321,7 +322,7 @@ const SCHEMA_MD_STYLES = `
                which is a whole panel away at the top of the tab. -->
           <div class="sch-section-label">{{ 'spaces.schema.propertySchemas' | transloco }}
             <span class="sch-hint">{{ 'spaces.schema.propertySchemasHint' | transloco }}</span></div>
-          <div class="table-wrapper" style="margin-bottom:0;">
+          <div class="table-wrapper" hscrollTop style="margin-bottom:0;">
             <table class="prop-table" style="margin-bottom:0;">
               <thead>
                 <tr>

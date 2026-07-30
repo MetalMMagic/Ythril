@@ -61,6 +61,22 @@ export class FilesApi {
    * teardown). That is exactly how the UI cancels an upload mid-flight.
    */
   uploadFileChunked(spaceId: string, dirPath: string, file: File): Observable<UploadProgress> {
+    // The browser already knows the type; sending `application/octet-stream` for every upload threw
+    // that away and told the server "bytes". Media processing then had nothing to go on: external
+    // vision built `data:application/octet-stream;base64,…` and strict model servers rejected it
+    // outright. The server derives from the extension too, so this is belt-and-braces — but the
+    // browser's sniffed type is the better evidence when it has one.
+    //
+    // `application/json` is the one type that must NOT be forwarded. The global `express.json` body
+    // parser is mounted ahead of the file router, so a .json upload sent with its true type would be
+    // parsed into an object and then taken by the route's JSON `{content, encoding}` branch instead
+    // of the raw-bytes path — a corrupted upload, and a 413 above the parser's 10 MB cap. Nothing is
+    // lost by withholding it: the server resolves `.json` from the extension, and no media provider
+    // is involved.
+    const browserType = file.type ?? '';
+    const uploadType = browserType.length > 0 && !/^application\/json\s*(;|$)/i.test(browserType)
+      ? browserType
+      : 'application/octet-stream';
     const CHUNK_THRESHOLD = 10 * 1024 * 1024; // 10 MB
     const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB
     const MAX_RETRIES = 3;
@@ -78,7 +94,7 @@ export class FilesApi {
         subscriber.next({ percent: 0, done: false });
         file.arrayBuffer().then(ab => {
           if (cancelled) return;
-          const headers = new HttpHeaders({ 'Content-Type': 'application/octet-stream' });
+          const headers = new HttpHeaders({ 'Content-Type': uploadType });
           const params = new HttpParams().set('path', filePath);
           httpSub = this.http.post<void>(`/api/files/${spaceId}`, ab, { headers, params }).subscribe({
             next: () => {
@@ -105,7 +121,7 @@ export class FilesApi {
             const sendChunk = (retriesLeft: number): void => {
               if (cancelled) return;
               const headers = new HttpHeaders({
-                'Content-Type': 'application/octet-stream',
+                'Content-Type': uploadType,
                 'Content-Range': `bytes ${start}-${byteEnd}/${total}`,
               });
               const params = new HttpParams().set('path', filePath);

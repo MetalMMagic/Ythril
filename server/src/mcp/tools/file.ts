@@ -92,8 +92,9 @@ export const write_fileTool: ToolHandler = {
     // Resolve format, record media state, and enqueue the async embedding job — one shared policy
     // with the REST upload path. Documents are converted by the background worker (not inline), so
     // the tool returns immediately with `embeddingStatus: 'pending'`; the worker produces chunks and
-    // sets `chunkCount`/`convertedFileId` shortly after. MCP has no Content-Type, so media falls
-    // back to `application/octet-stream`.
+    // sets `chunkCount`/`convertedFileId` shortly after. MCP has no Content-Type; the dispatcher
+    // derives the type from the file extension, so an image written here reaches the vision provider
+    // as `image/png` rather than the byte-blob type this comment used to describe as intended.
     const ifFmt = typeof a['inputFormat'] === 'string' ? a['inputFormat'] as InputFormat : 'auto';
     await dispatchFileProcessing(wt.target, filePath, { bytes: sizeBytes, inputFormat: ifFmt });
     emitWebhookEvent({ event: 'file.created', spaceId: wt.target, entry: { path: filePath, sha256 }, ...(ctx.actor ?? {}) });

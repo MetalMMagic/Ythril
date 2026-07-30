@@ -16,6 +16,7 @@ import type { MediaProviderConfig } from '../../config/types.js';
 import { log } from '../../util/log.js';
 import { ssrfSafeFetch } from '../../util/ssrf.js';
 import { allowPrivateModelEndpoints } from '../../config/model-egress-policy.js';
+import { extForMimeType, isInformativeMimeType, sniffImageMimeType } from '../mime.js';
 
 /**
  * Runtime egress guard. **External** (operator-supplied, public) provider endpoints go through
@@ -168,7 +169,17 @@ export class ExternalVisionProvider implements VisionProvider {
     const model = this.cfg.model ?? 'gpt-4o-mini';
     const url = `${base}/chat/completions`;
     const b64 = imageBytes.toString('base64');
-    const dataUrl = `data:${mimeType};base64,${b64}`;
+    // A data URI must carry a real media type. `data:application/octet-stream;base64,…` is what a
+    // strict OpenAI-compatible server (llama.cpp's llama-server among them) rejects outright:
+    //
+    //     500 {"error":{"message":"Invalid uri format: data:application/octet-stream;base64", …}}
+    //
+    // The type is now correct upstream, but this path takes no chances: a job row queued by an older
+    // build still carries the old value, and the bytes settle it either way.
+    const resolved = isInformativeMimeType(mimeType)
+      ? mimeType
+      : sniffImageMimeType(imageBytes) ?? 'image/jpeg';
+    const dataUrl = `data:${resolved};base64,${b64}`;
 
     let res: Response;
     try {
@@ -228,8 +239,14 @@ export class WhisperProvider implements SttProvider {
     const model = this.cfg.model ?? 'base';
     const url = `${base}/v1/audio/transcriptions`;
 
-    // Build multipart/form-data using FormData
-    const ext = mimeType.split('/')[1]?.split(';')[0]?.trim() ?? 'wav';
+    // Build multipart/form-data using FormData.
+    //
+    // The filename matters: OpenAI's transcription endpoint validates the extension against a
+    // whitelist (flac/m4a/mp3/mp4/mpeg/mpga/oga/ogg/wav/webm) and rejects anything else. The old
+    // `mimeType.split('/')[1]` was not an extension derivation — it produced `x-wav` for the
+    // `audio/x-wav` several recorders emit, and `octet-stream` for anything that reached here
+    // untyped. Both are rejected. The shared table folds aliases onto the canonical extension.
+    const ext = extForMimeType(mimeType, 'wav');
     // Slice to a standalone ArrayBuffer so Blob ctor receives ArrayBuffer (not SharedArrayBuffer)
     const cleanBuffer = audioBytes.buffer.slice(
       audioBytes.byteOffset,

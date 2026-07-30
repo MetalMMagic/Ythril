@@ -18,6 +18,7 @@ import { embed } from '../../brain/embedding.js';
 import type { FileMetaDoc } from '../../config/types.js';
 import type { VisionProvider, SttProvider } from './providers.js';
 import { embedAudio, type AudioChunkRecord } from './audio-embedder.js';
+import { extForMimeType } from '../mime.js';
 import { log } from '../../util/log.js';
 
 const DEFAULT_KEYFRAME_INTERVAL_S = 30;
@@ -215,14 +216,11 @@ export async function embedVideo(
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
+/**
+ * Name the temp file ffmpeg reads. The `mp4` fallback stays — it is the best guess for an unknown
+ * video — but it is now only reached for genuinely unrecognised types, not for every job whose MIME
+ * arrived as a byte blob.
+ */
 function mimeTypeToVideoExt(mimeType: string): string {
-  const map: Record<string, string> = {
-    'video/mp4': 'mp4',
-    'video/webm': 'webm',
-    'video/x-matroska': 'mkv',
-    'video/quicktime': 'mov',
-    'video/x-msvideo': 'avi',
-    'video/ogg': 'ogv',
-  };
-  return map[mimeType.split(';')[0]?.trim() ?? ''] ?? 'mp4';
+  return extForMimeType(mimeType, 'mp4');
 }

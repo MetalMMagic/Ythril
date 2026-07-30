@@ -2152,7 +2152,23 @@ Content-Type: application/octet-stream
 <raw bytes>
 ```
 
-Any file type is supported — documents, images, binaries, archives, etc. The `Content-Type` header is informational; Ythril stores the raw bytes as-is.
+Any file type is supported — documents, images, binaries, archives, etc. Ythril stores the raw bytes as-is.
+
+**The `Content-Type` header is not purely informational.** Together with the `?path=` extension it decides
+which processing pipeline the file enters, and it is the type handed to the media providers — the vision
+model receives it inside a data URI, and the speech-to-text provider uses it to name the uploaded audio.
+
+Precedence is: a **specific** `Content-Type` wins; otherwise the **file extension** decides; only when both
+are unusable does the file fall back to `application/octet-stream`. Generic values
+(`application/octet-stream`, `binary/octet-stream`, `*/*`, …) count as "not stated", so
+`POST …?path=photo.png` with `Content-Type: application/octet-stream` is correctly processed as
+`image/png`. Sending the true type is still preferred, and it is the only signal available for a path
+with no extension.
+
+> One exception: do **not** send `Content-Type: application/json` for a raw-bytes upload. That content
+> type selects the JSON body form documented below, and the request will be parsed as JSON rather than
+> stored as bytes. Upload `.json` files with `application/octet-stream` (the extension is enough) or use
+> the JSON/base64 form.
 
 **Response** `201` for opaque/non-document files (`{ path, sha256 }`). For a **document or media** format that triggers async conversion/embedding (PDF, DOCX, images, audio, …) the response is **`202 Accepted`** with an `embeddingStatus: "pending"` — the file is stored immediately and its searchable content is produced in the background (poll File Meta or retry-embedding for status):
 

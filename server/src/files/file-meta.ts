@@ -196,11 +196,10 @@ export async function updateFileMeta(
           const { resolveInputFormat } = await import('../files/converters/pipeline.js');
           if (resolveInputFormat(normalised) === 'image') {
             const { enqueueMediaJob } = await import('./media/job-queue.js');
-            const ext = path.extname(normalised).toLowerCase();
-            const mimeType = (({ '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
-              '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp',
-              '.tiff': 'image/tiff', '.tif': 'image/tiff' }) as Record<string, string>)[ext] ?? 'image/jpeg';
-            await enqueueMediaJob(spaceId, normalised, mimeType, 'image');
+            // Shared table. The inline map this replaced defaulted to `image/jpeg`, so any image whose
+            // extension it did not list was actively mislabelled rather than merely unknown.
+            const { mimeTypeForPath } = await import('./mime.js');
+            await enqueueMediaJob(spaceId, normalised, mimeTypeForPath(normalised), 'image');
           }
         } else if (faceChunkCount === 1) {
           // Case B: face chunks exist — propagate label if exactly 1 person entity.

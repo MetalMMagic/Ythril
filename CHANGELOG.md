@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Models screen now lists every model the pipeline actually calls.** Two were missing, both
+  configurable since the day they shipped and neither reachable from the admin surface — so the one page
+  that claims to enumerate the pipeline's models was quietly incomplete.
+  - **Contradiction judge (NLI).** Settable by `NLI_URL` / `NLI_MODEL` / `NLI_API_KEY` and `config.json`
+    from the first release, absent from `PATCH /api/admin/media-config`, from the pipeline probe, and
+    from the UI. It is the one model whose absence produces a view that looks *finished*: an unreachable
+    reranker gives worse ordering, an unreachable judge gives an **empty Contradictions list**, which is
+    indistinguishable from "nothing contradicts". It is now patchable, probed, and shown with a health
+    dot — and the guard rails came in the same commit, because wiring it up creates a real egress path:
+    the judge is sent **pairs of record texts**, which is heavier than a search query. SSRF-checked with
+    the flag named in the rejection, key routed to `secrets.json` and masked on read, `403` when pinned
+    by env, and `baseUrl`/`model` nullable so clearing them is how the judge is turned back off — a
+    field that could only ever be *set* would be a one-way door.
+  - **Office renderer** (`RENDER_OFFICE_SIDECAR_URL`) — probed by the server and reported on About, but
+    absent from this tab, so its status was visible everywhere except the screen about models.
+
 - **"Diagnosing a Misconfiguration" — the deployment guide now answers the question operators were
   answering by trial and error.** Prompted by a 2.0.0 Kubernetes report in which a correct configuration
   was refused and the only evidence was a string in a dialog. Most problems here are *config that looks
@@ -504,6 +520,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its neighbour. Chips now cap at 200px and ellipsise, with the full name and id in the tooltip. The
   `min-width: 0` on the chip's children is load-bearing: a flex item defaults to `min-width: auto` and
   refuses to shrink below its content, so `text-overflow` would never have engaged.
+
+- **About → Components appeared out of nowhere seconds after the page settled.** The card rendered only
+  once its probe answered, for a stated reason that was half right: an empty card filling in a moment
+  later reads as "nothing configured", which is a genuinely different claim. True — but the remedy was
+  wrong, because rendering *nothing* still makes a whole card materialise on a page the reader has
+  already finished scanning. It now renders immediately in a **pending** state, which claims neither.
 
 - **"Test connection" refused every self-hosted model endpoint on a private address, even with
   `allowPrivateModelEndpoints` on.** `probeModelEndpoint` called `ssrfSafeFetch(url, init)` without the

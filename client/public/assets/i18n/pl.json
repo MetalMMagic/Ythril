@@ -1466,6 +1466,13 @@
   "mediaProcessing.rerank.multiplierLabel": "Kandydaci na wynik",
   "mediaProcessing.rerank.multiplierHint": "Ilu kandydatów wyszukiwanie wektorowe pobiera na każdy żądany wynik. Reranker może jedynie przestawić to, co już znaleziono — ten zapas daje mu z czego wybierać. 2–10, domyślnie 4.",
   "mediaProcessing.rerank.egressWarning": "Ten punkt końcowy <b>nie jest lokalny</b>. Reranker otrzymuje zapytanie <b>oraz</b> fragmenty, które zwróciły na nie Twoje dane — najbardziej ujawniające połączenie w systemie. Uruchom go u siebie (np. <b>bge-reranker-v2-m3</b>), aby oba zostały na tej instancji.",
+  "mediaProcessing.nli.title": "Sędzia sprzeczności",
+  "mediaProcessing.nli.purpose": "Ocenia, czy dwa podobne wpisy są zgodne, czy sprzeczne. Samo podobieństwo nie wystarczy — dwa przeciwstawne twierdzenia na ten sam temat są zwykle BARDZIEJ podobne, nie mniej.",
+  "mediaProcessing.nli.pillOn": "Aktywny",
+  "mediaProcessing.nli.pillOff": "Nieskonfigurowany",
+  "mediaProcessing.nli.endpointPlaceholder": "https://nli.internal/v1",
+  "mediaProcessing.nli.endpointHint": "Puste pole zostawia wykrywanie sprzeczności bez sędziego, więc widok „Sprzeczności” pozostaje pusty. Żaden sidecar go nie dostarcza — chodzi o klasyfikator enkoderowy z rodziny roberta/deberta-MNLI.",
+  "mediaProcessing.nli.egressWarning": "Ten punkt końcowy jest <b>zewnętrzny</b>: pary tekstów wpisów opuszczają tę instancję w celu oceny. Najpierw sprawdź zasady przechowywania danych.",
   "mediaProcessing.vision.title": "Rozpoznawanie obrazu",
   "mediaProcessing.vision.purpose": "Opisuje przesłane obrazy i indeksuje twarze na potrzeby wyszukiwania.",
   "mediaProcessing.vision.pillLocal": "Lokalny · Ollama",
@@ -1485,6 +1492,8 @@
   "mediaProcessing.assist.egressPending": "Potwierdzisz wysyłkę do {{host}} przy zapisie.",
   "mediaProcessing.render.title": "Renderer stron",
   "mediaProcessing.render.purpose": "Renderuje strony dokumentów do obrazów, aby model wizyjny mógł je odczytać.",
+  "mediaProcessing.office.title": "Renderer Office",
+  "mediaProcessing.office.purpose": "Renderuje strony Worda, Excela i PowerPointa do obrazów. Oddzielny od renderera stron, ponieważ formaty Office wymagają innego silnika.",
   "mediaProcessing.converter.title": "Konwerter dokumentów",
   "mediaProcessing.converter.purpose": "Wydobywa tekst i tabele z plików PDF, dokumentów Word i EPUB.",
   "mediaProcessing.face.title": "Rozpoznawanie twarzy",
@@ -1656,5 +1665,6 @@
   "review.typeFilter.all": "Wszystkie typy",
   "review.typeFilter.capped": "Pokazano pierwsze 500 wyników — filtry dotyczą tylko ich.",
   "review.typeFilter.noneOfType": "Brak wyników tego typu",
-  "review.typeFilter.noneOfTypeBody": "W tej kolejce są wyniki, ale żaden nie jest wybranego typu rekordu. Wybierz „Wszystkie typy”, aby je zobaczyć."
+  "review.typeFilter.noneOfTypeBody": "W tej kolejce są wyniki, ale żaden nie jest wybranego typu rekordu. Wybierz „Wszystkie typy”, aby je zobaczyć.",
+  "about.components.pending": "Sprawdzanie komponentów…"
 }

@@ -106,6 +106,20 @@ const RerankPatchSchema = z.object({
 }).strict();
 
 /**
+ * NLI — the contradiction judge (F-REVIEW). Same shape and the same nullable-to-clear rule as the
+ * reranker, and for the same reason: there is no master toggle, so clearing the URL is how it is turned
+ * off, and a field that can only ever be SET would be a one-way door.
+ *
+ * It was configurable by env and `config.json` from the start but never reachable from the admin API, so
+ * the Models screen — the one page that claims to list what the pipeline calls — was silently missing it.
+ */
+const NliPatchSchema = z.object({
+  baseUrl: z.string().url().optional().nullable(),
+  model: z.string().max(128).optional().nullable(),
+  apiKey: z.string().max(512).optional().nullable(),
+}).strict();
+
+/**
  * Instance CEILINGS per media class — the most any space is allowed to do, not a default it inherits.
  *
  * Built from the same `*_LEVELS` constants the lattice in `files/converters/media-level.ts` uses, so
@@ -160,6 +174,7 @@ const MediaConfigPatchSchema = z.object({
   stt: ProviderPatchSchema.optional(),
   embedding: EmbeddingPatchSchema.optional(),
   rerank: RerankPatchSchema.optional(),
+  nli: NliPatchSchema.optional(),
   documentProcessing: DocumentProcessingPatchSchema.optional(),
   workerConcurrency: z.number().int().min(1).max(16).optional(),
   workerPollIntervalMs: z.number().int().min(100).max(60_000).optional(),
@@ -251,6 +266,19 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
   if (rerankPatch?.baseUrl && !isLocalModelEndpoint(rerankPatch.baseUrl)
       && !isSsrfSafeUrl(rerankPatch.baseUrl, allowPrivate)) {
     res.status(400).json({ error: 'rerank.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
+    return;
+  }
+
+  // NLI (contradiction judge) — identical enforcement to the reranker. It sees PAIRS OF RECORD TEXTS,
+  // so it is an egress path of the same weight as vision or STT, not an infrastructure detail.
+  const nliPatch = parsed.data.nli;
+  if (nliPatch !== undefined && (locked.has('nli.baseUrl') || locked.has('nli.model') || locked.has('nli.apiKey'))) {
+    res.status(403).json({ error: 'The contradiction judge is locked by infrastructure env vars and cannot be changed via the UI' });
+    return;
+  }
+  if (nliPatch?.baseUrl && !isLocalModelEndpoint(nliPatch.baseUrl)
+      && !isSsrfSafeUrl(nliPatch.baseUrl, allowPrivate)) {
+    res.status(400).json({ error: 'nli.baseUrl rejected: must be a public http(s) URL (no private/loopback/metadata addresses)' + (allowPrivate ? '' : ' (set allowPrivateModelEndpoints / YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true to permit a self-hosted endpoint on a private address)') });
     return;
   }
 
@@ -356,8 +384,12 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
     const rerankApiKeyChange = (rerankPatch && 'apiKey' in rerankPatch)
       ? rerankPatch.apiKey ?? null
       : undefined;
+    // NLI key → secrets.mediaEmbedding.nliApiKey (the loader already reads it from there).
+    const nliApiKeyChange = (nliPatch && 'apiKey' in nliPatch)
+      ? nliPatch.apiKey ?? null
+      : undefined;
 
-    if (visionApiKeyChange !== undefined || sttApiKeyChange !== undefined || assistApiKeyChange !== undefined || embApiKeyChange !== undefined || faceApiKeyChange !== undefined || rerankApiKeyChange !== undefined) {
+    if (visionApiKeyChange !== undefined || sttApiKeyChange !== undefined || assistApiKeyChange !== undefined || embApiKeyChange !== undefined || faceApiKeyChange !== undefined || rerankApiKeyChange !== undefined || nliApiKeyChange !== undefined) {
       const secrets = getSecrets();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sAny = secrets as any;
@@ -377,6 +409,10 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
       if (faceApiKeyChange !== undefined) {
         if (faceApiKeyChange === null || faceApiKeyChange === '') delete sAny.mediaEmbedding.faceApiKey;
         else sAny.mediaEmbedding.faceApiKey = faceApiKeyChange;
+      }
+      if (nliApiKeyChange !== undefined) {
+        if (nliApiKeyChange === null || nliApiKeyChange === '') delete sAny.mediaEmbedding.nliApiKey;
+        else sAny.mediaEmbedding.nliApiKey = nliApiKeyChange;
       }
       if (rerankApiKeyChange !== undefined) {
         if (rerankApiKeyChange === null || rerankApiKeyChange === '') delete sAny.mediaEmbedding.rerankApiKey;
@@ -419,6 +455,15 @@ mediaConfigRouter.patch('/', requireAdminMfa, (req, res) => {
         if (rerankPatch[k] === null || rerankPatch[k] === '') delete r[k];
       }
       merged['rerank'] = r;
+    }
+    // NLI: same per-field merge and same null-deletes-the-field rule as the reranker above.
+    if (nliPatch) {
+      const n: Record<string, unknown> = { ...(existing.nli as Record<string, unknown> ?? {}), ...nliPatch };
+      delete n['apiKey']; // never in config.json
+      for (const k of ['baseUrl', 'model'] as const) {
+        if (nliPatch[k] === null || nliPatch[k] === '') delete n[k];
+      }
+      merged['nli'] = n;
     }
     if (parsed.data.levels) merged['levels'] = mergeLevelCeilings(existing.levels, parsed.data.levels);
     // Face recognition: merge per field for the same reason as the ceilings, and additionally because

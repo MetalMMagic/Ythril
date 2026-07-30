@@ -99,8 +99,19 @@ import { ErrorStateComponent } from '../../shared/error-state.component';
           </div>
         </app-settings-card>
 
-        <!-- Optional components. Rendered only once the probe has answered: an empty card that fills in
-             a moment later reads as "nothing configured", which is a different claim entirely. -->
+        <!-- Optional components.
+             This used to render nothing at all until the probe answered, for a stated reason that was
+             half right: an empty card filling in a moment later reads as "nothing configured", which is
+             a different claim entirely. True — but the remedy was wrong. Rendering NOTHING makes the
+             card appear out of nowhere seconds after the page settles, and the owner reported exactly
+             that. A pending state claims neither: the card is there, and it says it is still looking. -->
+        @if (!health()) {
+          <app-settings-card icon="broadcast"
+                             [heading]="'about.card.components' | transloco"
+                             [purpose]="'about.card.componentsDesc' | transloco">
+            <app-status-pill pill variant="warn" [dot]="true">{{ 'about.components.pending' | transloco }}</app-status-pill>
+          </app-settings-card>
+        }
         @if (health(); as h) {
           <app-settings-card icon="broadcast"
                              [heading]="'about.card.components' | transloco"

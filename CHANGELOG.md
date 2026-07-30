@@ -188,6 +188,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   by construction, and two tests walk that list through the real handler — a shared type alone would not
   prove the tab is actually reachable.
 
+- **Large files could never sync: a whole-file transfer was running on a control-plane timeout.**
+  Pulling a file from a peer inherited the **10-second** budget meant for members/votes/manifest calls,
+  and pushing one the 60-second batch budget. `AbortSignal.timeout` covers the entire operation
+  including reading the body, so any file slower than that — a video, a scanned PDF, anything at all
+  over a modest link — was aborted, logged as a warning, and skipped, while the sync cycle reported
+  success.
+  - A missing timeout hangs, which is visible. A timeout too short for the work **silently drops data
+    and calls it done**, which is not.
+  - The asymmetry made it stranger still: 10 s to pull, 60 s to push, so a file could reach a peer and
+    never come back — indistinguishable from the peer having lost it.
+  - Both now use `PEER_TRANSFER_TIMEOUT_MS` (10 min). The control-plane budgets are unchanged, and a
+    test pins that they stay short — the opposite mistake would hold a whole cycle behind one stuck
+    members call.
+  - `peerSafeFetch` also applies a default timeout when a caller supplies no signal. Every one of the 21
+    call sites does today, but `fetch` has none of its own and the next caller should not need to know.
+
 - **Schema Library's header buttons ran off the page at narrow widths**, sliding the whole pane sideways
   — 84 px past a 600 px pane, 264 px past a 420 px one. Same class as the tab strips in #534, on a route
   that fix did not cover. The button row wraps now. Found by the new sweep below, not by a person.

@@ -79,8 +79,8 @@ describe('renamed media env vars', () => {
 
   describe('resolution', () => {
     it('the current name is used', () => {
-      process.env.VISION_BASE_URL = 'http://vllm.llm.svc.cluster.local:8000';
-      assert.equal(getMediaEmbeddingConfig().vision.baseUrl, 'http://vllm.llm.svc.cluster.local:8000');
+      process.env.VISION_BASE_URL = 'http://vllm.models.svc.cluster.local:8000';
+      assert.equal(getMediaEmbeddingConfig().vision.baseUrl, 'http://vllm.models.svc.cluster.local:8000');
     });
 
     it('the legacy name still works — an upgrade must not become an outage', () => {

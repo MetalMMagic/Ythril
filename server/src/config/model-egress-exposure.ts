@@ -5,7 +5,7 @@
  * *using* that permission, or which endpoint went where. Since the whole reason the flag is surfaced is
  * that it widens egress, the check has to name the exposure or it is decorative:
  *
- *     egress.privateModelEndpoints  vision → 10.43.12.7 (private); documentAssist → api.example.com (public)
+ *     egress.privateModelEndpoints  vision → 10.1.2.3 (private); documentAssist → api.example.com (public)
  *
  * Classification is deliberately synchronous — the posture check is pure, and resolving DNS at boot would
  * make it fail on a slow resolver. An IP literal is classified exactly; a hostname is reported as such,
@@ -95,7 +95,7 @@ const KLASS_LABEL: Record<EndpointClass, string> = {
   invalid: 'invalid',
 };
 
-/** One-line summary for the posture check: `vision → 10.43.12.7 (private); stt → api.x.com (public)`. */
+/** One-line summary for the posture check: `vision → 10.1.2.3 (private); stt → api.x.com (public)`. */
 export function formatExposure(exposure: EndpointExposure[]): string {
   return exposure.map(e => `${e.provider} → ${e.host} (${KLASS_LABEL[e.klass]})`).join('; ');
 }

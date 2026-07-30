@@ -325,7 +325,7 @@ describe('OIDC issuer + discovery SSRF guard', () => {
 
     it('does NOT tell an operator to unset the opt-in when the issuer is a hostname', () => {
       // This case previously asserted "nothing is using the permission; unset it" — and the fixture is a
-      // HOSTNAME, which is the shape an internal IdP actually has (keycloak.identity.svc.cluster.local).
+      // HOSTNAME, which is the shape an internal IdP actually has (sso.auth.svc.cluster.local).
       // The posture check does not resolve DNS, so it cannot know where that name points; calling it
       // "not private" and advising removal is advice that BREAKS SIGN-IN, arrived at by trusting the
       // security block. The test encoded the bug, so fixing the bug had to change the test.

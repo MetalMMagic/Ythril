@@ -1186,7 +1186,7 @@ export interface Config {
   /**
    * Allow the **external** model/media provider endpoints (vision, STT, embedding, document assist) to
    * live on private/reserved addresses — a self-hosted OpenAI-compatible inference service behind a
-   * cluster address, e.g. `http://llm-inference.llm.svc.cluster.local:8080`.
+   * cluster address, e.g. `http://vllm.models.svc.cluster.local:8080`.
    *
    * Why this exists: `external` selects the OpenAI wire protocol and `local` selects Ollama's, so an
    * operator running llama.cpp/vLLM/LocalAI on a private address had NO usable shape — `local` speaks a

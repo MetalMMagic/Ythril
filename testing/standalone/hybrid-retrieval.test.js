@@ -159,12 +159,25 @@ describe('the source keeps its contracts', () => {
     assert.ok(fuse < rerank, 'fusion must widen/reorder the pool before the cross-encoder reads it');
   });
 
-  it('fusion reorders the pool and does not introduce records', () => {
-    // Introducing lexically-found records would need a fabricated vector `score` — which `minScore`
-    // would then act on. A stated bound beats a fabricated number.
+  it('fusion may introduce records, but only on a MEASURED score', () => {
+    // This assertion used to read "does not introduce records", on the reasoning that a lexically-found
+    // record would need a fabricated vector `score` — which `minScore` would then act on. The reasoning
+    // was right; the conclusion was avoidable. The embedding is one fetch away and the query vector is
+    // in hand, so the similarity is computed rather than invented, and the engine's normalisation is
+    // verified against its own output for records present in both channels (see `vector-score.ts`).
+    //
+    // The bound mattered: the lexical channel exists for opaque identifiers, whose embeddings are
+    // nearly arbitrary — so the records it exists to rescue are the ones most likely to sit outside the
+    // vector pool, where the old rule could not reach them.
     const fn = rec.slice(rec.indexOf('async function applyLexicalFusion('), rec.indexOf('async function applyRerank('));
-    assert.ok(fn.includes('inPool.get(hit._id)'), 'only records already in the pool are touched');
-    assert.ok(!/push\(/.test(fn), 'nothing may be added to the pool here');
+    assert.ok(fn.includes('inPool.get(hit._id)'), 'pooled records are still scored in place');
+    assert.ok(fn.includes('introduceLexicalOnly('), 'introduction runs from the fusion stage');
+    // The guarantee that replaces "never introduces": never introduce a score we cannot prove.
+    const intro = rec.slice(rec.indexOf('async function introduceLexicalOnly('));
+    assert.ok(intro.includes('if (overlapIds.length === 0) return [];'),
+      'with no overlap there is no sample proving the score mapping, so nothing may be introduced');
+    assert.ok(intro.includes('scoresAgree(local, known)'),
+      'the local reproduction must be checked against the engine on every query');
   });
 
   it('the text index is on matchedText — the same text the vector channel embedded', () => {

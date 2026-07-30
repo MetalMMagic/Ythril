@@ -1070,8 +1070,20 @@ unavailable, and **none of them can fail a search** — a stage that cannot answ
    record ranked well by *both* channels outranks one that wins a single channel — agreement between an
    exact-token match and a semantic match is the strongest signal either gives.
 
-   It **reorders** the candidate set; it does not introduce records the vector search did not return.
-   Set `YTHRIL_HYBRID_SEARCH=off` to disable it.
+   The channel both **reorders** the candidate set and can **introduce** a record the vector search did
+   not return at all — which matters most for exactly the queries it exists for, since an opaque
+   identifier's embedding is nearly arbitrary and its record is therefore the most likely to sit outside
+   the vector candidate pool.
+
+   An introduced record is not given an invented score. Its embedding is read and compared against the
+   query vector directly, so its `score` is measured on the same scale as every other result and
+   `minScore` filters it exactly as it filters the rest. The mapping from raw similarity to the reported
+   `score` is *verified on every query* rather than assumed: any record that appears in both channels
+   already carries an engine-reported score, and its locally recomputed value must match. If they
+   disagree — or if no record overlaps, leaving nothing to check against — **no record is introduced**
+   and the channel falls back to reordering alone.
+
+   Set `YTHRIL_HYBRID_SEARCH=off` to disable the whole channel.
 
 3. **Cross-encoder reranking** (only when configured). If `mediaEmbedding.rerank` names an endpoint and a
    model, a cross-encoder reads the query and each candidate passage *together* and scores the actual

@@ -14,7 +14,8 @@ import { vectorFilterFieldsFor } from '../spaces/vector-index.js';
 import { FilterExpression, buildMongoFilter, toNativeVectorFilter } from './filter.js';
 import { deriveChronoStatus } from './chrono-status.js';
 import { rerank, rerankConfigured, candidateMultiplier, MAX_CANDIDATES } from './rerank-client.js';
-import { lexicalSearch, rrfFuse, hybridSearchEnabled, LEXICAL_LIMIT_MULTIPLIER } from './lexical-search.js';
+import { lexicalSearch, rrfFuse, hybridSearchEnabled, LEXICAL_LIMIT_MULTIPLIER, type LexicalHit } from './lexical-search.js';
+import { atlasVectorScore, scoresAgree } from './vector-score.js';
 import type { ChronoStatus } from '../config/types.js';
 import { log } from '../util/log.js';
 import { recallDegradedTotal } from '../metrics/registry.js';
@@ -211,7 +212,7 @@ export async function recall(
   // queries a channel that can actually see them. Best-effort throughout: a space with no text index
   // contributes an empty channel and the vector order stands unchanged.
   if (hybridSearchEnabled()) {
-    await applyLexicalFusion(spaceId, query, activeTypes, perTypeK, allResults, tags, filter);
+    await applyLexicalFusion(spaceId, query, embResult.vector, activeTypes, perTypeK, allResults, tags, filter);
   }
 
   // Phase 3: rerank the candidate pool, if a cross-encoder is configured. Best-effort by construction —
@@ -315,6 +316,7 @@ export function rankOf(r: RecallResult): number {
 async function applyLexicalFusion(
   spaceId: string,
   query: string,
+  queryVector: number[],
   activeTypes: RecallKnowledgeType[],
   perTypeK: number,
   pool: RecallResult[],
@@ -342,6 +344,21 @@ async function applyLexicalFusion(
     if (rec) rec.lexicalScore = hit.lexicalScore;
   }
 
+  // Admit lexical hits the vector search never returned, each with a MEASURED similarity. Done before
+  // the ranking below so an introduced record participates in fusion like any other.
+  for (let i = 0; i < activeTypes.length; i++) {
+    const type = activeTypes[i]!;
+    const hits = perType[i] ?? [];
+    if (hits.length === 0) continue;
+    const introduced = await introduceLexicalOnly(
+      spaceId, type, hits, queryVector, inPool, match, perTypeK,
+    );
+    for (const rec of introduced) {
+      pool.push(rec);
+      inPool.set(rec._id, rec);
+    }
+  }
+
   const vectorRanked = [...pool].sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).map(r => r._id);
   // Ranks are the LEXICAL ranks, not re-numbered after dropping out-of-pool ids: a document that placed
   // 5th lexically genuinely placed 5th, and compressing the ranks would overstate it.
@@ -350,6 +367,106 @@ async function applyLexicalFusion(
   for (const rec of pool) {
     const f = fused.get(rec._id);
     if (f !== undefined) rec.fusedScore = f;
+  }
+}
+
+/**
+ * Bring lexical-only records into the pool, with a similarity that is measured rather than invented.
+ *
+ * ## What this unblocks
+ *
+ * The lexical channel exists for tokens whose embeddings are nearly arbitrary — part codes, clause
+ * names, `event-qps`. Those are exactly the records most likely to fall *outside* the vector over-fetch,
+ * so a channel that could only reorder the pool was weakest precisely where it was needed. Widening
+ * `candidateMultiplier` was the only lever, and it taxes every query to rescue a rare one.
+ *
+ * ## Why the original objection no longer holds
+ *
+ * Introducing was rejected because a lexically-found record has no measured vector similarity, leaving
+ * only a fabricated score or a guessed reproduction of Atlas's normalisation. Neither is needed: the
+ * embedding is one `$in` away and the query vector is in hand, so the similarity is computed exactly.
+ *
+ * The normalisation is then **verified, not assumed**. Records appearing in both channels already carry
+ * an Atlas-reported score, so every query supplies its own free sample: recompute those locally and
+ * compare. Agreement means the mapping is right and lexical-only scores sit on the same scale as the
+ * rest. Disagreement means something changed, and this returns nothing — hybrid falls back to
+ * reorder-only rather than putting an unverified number where `minScore` will act on it.
+ *
+ * With no overlap to check against there is no evidence, so nothing is introduced. Silent on the happy
+ * path, and self-disabling on the unhappy one.
+ */
+async function introduceLexicalOnly(
+  spaceId: string,
+  knowledgeType: RecallKnowledgeType,
+  hits: LexicalHit[],
+  queryVector: number[],
+  inPool: Map<string, RecallResult>,
+  eligibility: Record<string, unknown>,
+  cap: number,
+): Promise<RecallResult[]> {
+  if (queryVector.length === 0) return [];
+
+  const overlapIds: string[] = [];
+  const newIds: string[] = [];
+  for (const h of hits) {
+    if (inPool.has(h._id)) {
+      if (overlapIds.length < 3) overlapIds.push(h._id);   // verification sample only
+    } else if (newIds.length < cap) {
+      newIds.push(h._id);
+    }
+  }
+  if (newIds.length === 0) return [];
+  // No overlap means no way to check the mapping against Atlas on this query. Decline rather than
+  // introduce on an unverified formula.
+  if (overlapIds.length === 0) return [];
+
+  const similarity = getEmbeddingConfig().similarity;
+  const { commonProject, typeProject } = recallProjection(knowledgeType);
+  const collName = `${spaceId}_${KNOWLEDGE_COLLECTION[knowledgeType]}`;
+
+  try {
+    const docs = await col(collName).aggregate<Record<string, unknown>>([
+      { $match: { ...eligibility, _id: { $in: [...overlapIds, ...newIds] } } },
+      { $project: { ...commonProject, ...typeProject, embedding: 1 } },
+    ]).toArray();
+
+    const byId = new Map(docs.map(d => [d['_id'] as string, d]));
+
+    // The self-check. Every overlap record must reproduce.
+    for (const id of overlapIds) {
+      const doc = byId.get(id);
+      const known = inPool.get(id)?.score;
+      const vec = doc?.['embedding'];
+      if (!doc || typeof known !== 'number' || !Array.isArray(vec)) continue;
+      const local = atlasVectorScore(vec as number[], queryVector, similarity);
+      if (local === null || !scoresAgree(local, known)) {
+        log.warn(
+          `Hybrid recall: local score reproduction disagrees with the search engine for ${collName} ` +
+          `(local ${local === null ? 'n/a' : local.toFixed(6)} vs reported ${known.toFixed(6)}, ` +
+          `similarity '${similarity}'). Not introducing lexical-only records.`,
+        );
+        return [];
+      }
+    }
+
+    const out: RecallResult[] = [];
+    for (const id of newIds) {
+      const doc = byId.get(id);
+      const vec = doc?.['embedding'];
+      if (!doc || !Array.isArray(vec)) continue;      // filtered out by eligibility, or never embedded
+      const score = atlasVectorScore(vec as number[], queryVector, similarity);
+      if (score === null) continue;                    // dimension mismatch mid-migration
+      delete doc['embedding'];                         // never leaves this function
+      doc['score'] = score;
+      const rec = mapToRecallResult(doc, knowledgeType);
+      rec.lexicalScore = hits.find(h => h._id === id)?.lexicalScore;
+      out.push(rec);
+    }
+    return out;
+  } catch (err) {
+    // Best-effort like the rest of this path: a failure here leaves the vector order untouched.
+    log.debug(`Lexical introduction skipped for ${collName}: ${err instanceof Error ? err.message : String(err)}`);
+    return [];
   }
 }
 
@@ -504,6 +621,33 @@ const KNOWLEDGE_COLLECTION: Record<RecallKnowledgeType, string> = {
   file: 'files',
 };
 
+/**
+ * The fields a recall result is built from, per knowledge type.
+ *
+ * Shared by the vector path and the lexical-introduction path so the two cannot drift into returning
+ * differently-shaped records for the same type — a record's contents must not depend on which channel
+ * happened to find it.
+ */
+function recallProjection(knowledgeType: RecallKnowledgeType): {
+  commonProject: Record<string, number>;
+  typeProject: Record<string, number>;
+} {
+  const commonProject = { _id: 1, spaceId: 1, _knowledgeType: 1, score: 1, createdAt: 1, updatedAt: 1, seq: 1, embeddingModel: 1, matchedText: 1 };
+  let typeProject: Record<string, number> = {};
+  if (knowledgeType === 'memory') {
+    typeProject = { fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1 };
+  } else if (knowledgeType === 'entity') {
+    typeProject = { name: 1, type: 1, tags: 1, description: 1, properties: 1 };
+  } else if (knowledgeType === 'edge') {
+    typeProject = { from: 1, to: 1, label: 1, weight: 1, type: 1, tags: 1, description: 1, properties: 1 };
+  } else if (knowledgeType === 'chrono') {
+    typeProject = { title: 1, description: 1, type: 1, status: 1, startsAt: 1, endsAt: 1, tags: 1, entityIds: 1, properties: 1 };
+  } else if (knowledgeType === 'file') {
+    typeProject = { path: 1, description: 1, tags: 1, sizeBytes: 1, properties: 1, headingText: 1, content: 1, parentFileId: 1, chunkIndex: 1, mediaType: 1, embeddingStatus: 1, chunkOffsetMs: 1, chunkDurationMs: 1 };
+  }
+  return { commonProject, typeProject };
+}
+
 /** Run $vectorSearch against a single collection and map results to RecallResult. */
 async function recallByType(
   spaceId: string,
@@ -521,19 +665,7 @@ async function recallByType(
   const hasTags = tags != null && tags.length > 0;
 
   // Shared tail: attach score/type, then project type-specific fields (always dropping the vector).
-  const commonProject = { _id: 1, spaceId: 1, _knowledgeType: 1, score: 1, createdAt: 1, updatedAt: 1, seq: 1, embeddingModel: 1, matchedText: 1 };
-  let typeProject: Record<string, number> = {};
-  if (knowledgeType === 'memory') {
-    typeProject = { fact: 1, tags: 1, entityIds: 1, description: 1, properties: 1 };
-  } else if (knowledgeType === 'entity') {
-    typeProject = { name: 1, type: 1, tags: 1, description: 1, properties: 1 };
-  } else if (knowledgeType === 'edge') {
-    typeProject = { from: 1, to: 1, label: 1, weight: 1, type: 1, tags: 1, description: 1, properties: 1 };
-  } else if (knowledgeType === 'chrono') {
-    typeProject = { title: 1, description: 1, type: 1, status: 1, startsAt: 1, endsAt: 1, tags: 1, entityIds: 1, properties: 1 };
-  } else if (knowledgeType === 'file') {
-    typeProject = { path: 1, description: 1, tags: 1, sizeBytes: 1, properties: 1, headingText: 1, content: 1, parentFileId: 1, chunkIndex: 1, mediaType: 1, embeddingStatus: 1, chunkOffsetMs: 1, chunkDurationMs: 1 };
-  }
+  const { commonProject, typeProject } = recallProjection(knowledgeType);
   const tail: object[] = [
     { $addFields: { _knowledgeType: knowledgeType, score: { $meta: 'vectorSearchScore' } } },
     { $project: { ...commonProject, ...typeProject } },

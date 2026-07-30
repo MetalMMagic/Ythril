@@ -2,6 +2,7 @@
 import { getMongoUri } from '../config/loader.js';
 import { log } from '../util/log.js';
 import { dbNameFromUri } from './db-name.js';
+import { withJitter } from '../util/backoff.js';
 
 let _client: MongoClient | null = null;
 let _dbName = 'ythril';
@@ -10,16 +11,81 @@ let _dbName = 'ythril';
 let _vectorSearchAvailable: boolean | null = null;
 let _vectorSearchDetails = '';
 
+/** Total time the first connection may spend retrying before boot gives up. */
+const CONNECT_RETRY_BUDGET_MS = Number(process.env['MONGO_CONNECT_RETRY_MS'] ?? 30_000);
+
+/**
+ * Errors worth retrying: the database is there but not yet able to hold a connection.
+ *
+ * An **allowlist**, so anything unrecognised is thrown immediately rather than retried. That is the
+ * safer default here: an authentication failure or a malformed URI will never succeed however long we
+ * wait, and quietly retrying one for thirty seconds turns a clear immediate error into a boot that
+ * appears to hang. `MongoServerError` (bad credentials) and `MongoParseError` (bad URI) are excluded by
+ * simply not being on the list.
+ *
+ * An earlier version also carried an explicit `if (MongoServerError || MongoParseError) return false`
+ * line. Mutation testing showed deleting it changed nothing — the allowlist already excluded them — so
+ * it was a line that read like a safeguard and did no work. Removed rather than left to be trusted.
+ */
+const TRANSIENT_CONNECT_ERRORS = new Set([
+  'MongoNetworkError',          // ECONNRESET / ECONNREFUSED — the observed CI failure
+  'MongoNetworkTimeoutError',
+  'MongoServerSelectionError',  // nothing answering yet
+  'MongoTopologyClosedError',
+]);
+
+function isTransientConnectError(err: unknown): boolean {
+  const name = (err as { name?: string } | null)?.name ?? '';
+  return TRANSIENT_CONNECT_ERRORS.has(name);
+}
+
+/**
+ * Connect, retrying while the failure looks like "not up yet".
+ *
+ * ## Why this is not over-engineering
+ *
+ * `ythril-d exited (1)` had failed CI three times across this release and was carried as "still
+ * undiagnosed" — the container's own log finally showed it:
+ *
+ *     Fatal startup error: MongoNetworkError: read ECONNRESET
+ *
+ * Compose waits for the Mongo container's healthcheck, and the healthcheck passes while mongod/mongot is
+ * still finishing startup — so the very first driver connection gets its socket reset. One attempt, one
+ * rejection, `main().catch` exits 1, and a perfectly healthy stack fails to come up. Whichever instance
+ * loses the race dies; that is why it moved between `ythril-b` and `ythril-d` and read as a flake.
+ *
+ * It is not only a CI concern. The same shape is a Mongo restart or failover underneath a running
+ * deployment: the pod dies on a blip that would have cleared in under a second.
+ *
+ * `serverSelectionTimeoutMS` does not cover it — that governs *selecting* a server, while this is the
+ * socket being reset mid-handshake, which rejects immediately.
+ */
 export async function connectMongo(): Promise<MongoClient> {
   const uri = getMongoUri();
   _dbName = dbNameFromUri(uri);
-  log.debug(`Connecting to MongoDB at ${uri.replace(/\/\/[^@]*@/, '//[credentials]@')} (database: ${_dbName})`);
-  _client = new MongoClient(uri, {
-    serverSelectionTimeoutMS: 10_000,
-  });
-  await _client.connect();
-  log.debug('MongoDB connected');
-  return _client;
+  const safeUri = uri.replace(/\/\/[^@]*@/, '//[credentials]@');
+  log.debug(`Connecting to MongoDB at ${safeUri} (database: ${_dbName})`);
+
+  const deadline = Date.now() + CONNECT_RETRY_BUDGET_MS;
+  let delay = 250;
+  for (let attempt = 1; ; attempt++) {
+    _client = new MongoClient(uri, { serverSelectionTimeoutMS: 10_000 });
+    try {
+      await _client.connect();
+      if (attempt > 1) log.info(`MongoDB connected after ${attempt} attempts.`);
+      else log.debug('MongoDB connected');
+      return _client;
+    } catch (err) {
+      // Close the failed client before making another, or each retry leaks its topology and its timers.
+      await _client.close().catch(() => { /* it never opened */ });
+      const name = (err as { name?: string } | null)?.name ?? 'Error';
+      if (!isTransientConnectError(err) || Date.now() >= deadline) throw err;
+      const wait = withJitter(delay);
+      log.warn(`MongoDB not ready yet (${name}, attempt ${attempt}); retrying in ${wait}ms.`);
+      await new Promise(r => setTimeout(r, wait));
+      delay = Math.min(delay * 2, 4_000);
+    }
+  }
 }
 
 /**

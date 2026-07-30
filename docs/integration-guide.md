@@ -387,8 +387,28 @@ Two private addresses in the same cluster can behave differently, and that is no
 
 - **Render/conversion sidecars** (`CONVERSION_SIDECAR_URL`, doc-render) are reached with a plain `fetch`.
   They are declared infrastructure, expected to be private, and are not subject to the egress guard.
-- **Model provider endpoints** (vision, STT, embedding, rerank, NLI, document assist) go through the
-  SSRF-guarded fetch, because those URLs are admin-settable and become egress targets.
+- **Model provider endpoints** (vision, STT, embedding, rerank, NLI, document VLM, document assist) go
+  through the SSRF-guarded fetch, because those URLs are admin-settable and become egress targets.
+
+#### Which model endpoints send content, and what guards them
+
+An endpoint is only as private as the host it points at. This table is what actually happens, per slot —
+`Guard` is the SSRF-guarded fetch (DNS resolution, IP pinning, redirect re-validation, crown-jewel ranges
+blocked; `allowPrivateModelEndpoints` lifts only the private-address refusal).
+
+| Slot | Env | Sends | Guard | Acknowledgement |
+|---|---|---|---|---|
+| Embedding | `EMBEDDING_BASE_URL` | record + query text | yes, when external | — |
+| Vision (captions) | `OLLAMA_URL` | uploaded images | yes, when the provider is `external` | — |
+| Speech-to-text | `STT_BASE_URL` | uploaded audio | yes, when the provider is `external` | — |
+| Reranker | `RERANK_BASE_URL` | the query **and** the passages it matched | yes, unless the URL is local | — |
+| Contradiction judge | `NLI_BASE_URL` | pairs of stored records | yes, unless the URL is local | — |
+| **Document VLM** | `DOC_VLM_URL`, `DOC_VLM_MODEL` | **rendered page images** | yes, unless it is the bundled model | — |
+| Assist model | `DOC_ASSIST_URL` | draft transcription + OCR text | yes, always | **required** |
+
+Two things worth reading twice. The **document VLM inherits the vision endpoint** when `DOC_VLM_URL` is
+unset — so pointing vision at an external provider also points the VLM there, and page images follow.
+And the assist model is the only slot that demands an explicit egress acknowledgement before it will run.
 
 So a green sidecar next to a refused model endpoint tells you cluster DNS and reachability are fine, and
 the difference is policy. That is the point at which `allowPrivateModelEndpoints` is the answer.
@@ -2652,9 +2672,12 @@ Three properties worth knowing before enabling it:
   discarded (a wrong width would corrupt gallery similarity rather than fail loudly), and the number of
   faces accepted from one response is capped.
 
-**External assist model (F11-b) — hosted egress, opt-in and acknowledged.** By default every extraction path
-is local (the bundled Ollama VLM / OCR sidecar): no document content leaves your instance. You can optionally
-point a **bigger, external model** at specific tasks under `documentProcessing.assistModel`:
+**External assist model (F11-b) — hosted egress, opt-in and acknowledged.** With the bundled models, every
+extraction path is local (the bundled Ollama VLM / OCR sidecar) and no document content leaves your
+instance. Note the precondition: the document VLM falls back to the **vision** endpoint when `DOC_VLM_URL`
+is unset, so an external vision provider makes the VLM external too and rendered page images go with it —
+see the egress table above. You can optionally point a **bigger, external model** at specific tasks under
+`documentProcessing.assistModel`:
 
 | Field | Description |
 |---|---|

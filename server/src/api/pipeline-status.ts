@@ -31,6 +31,7 @@ import { globalRateLimit } from '../rate-limit/middleware.js';
 import { isSsrfSafeUrl } from '../util/ssrf.js';
 import { allowPrivateModelEndpoints, isLocalModelEndpoint } from '../config/model-egress-policy.js';
 import { probeModelEndpoint } from './media-config.js';
+import { resolveVlmEndpoint } from '../files/converters/vlm-endpoint.js';
 import { getDb } from '../db/mongo.js';
 import { faceRecognitionAllowed } from '../files/converters/media-level.js';
 import { VECTOR_INDEXED_COLLECTIONS } from '../spaces/vector-index.js';
@@ -158,9 +159,23 @@ function modelStages(): StageSpec[] {
     { key: 'stt', label: 'Speech-to-text', model: media.stt?.model, baseUrl: media.stt?.baseUrl, apiKey: media.stt?.apiKey, external: media.sttProvider === 'external' },
     // The document stages fall back to the vision endpoint exactly as the pipeline itself does, so the
     // dot reports the endpoint that would really be called rather than the one nominally configured.
-    { key: 'doc-vlm', label: 'Document VLM', model: doc.vlmModel, baseUrl: doc.vlmBaseUrl || media.vision?.baseUrl, apiKey: media.vision?.apiKey, external: false },
-    { key: 'doc-repair', label: 'Document repair', model: doc.repairModel || doc.vlmModel, baseUrl: doc.repairBaseUrl || doc.vlmBaseUrl || media.vision?.baseUrl, apiKey: media.vision?.apiKey, external: false },
-    { key: 'doc-verify', label: 'Document verify', model: doc.verifyModel, baseUrl: doc.verifyBaseUrl || doc.vlmBaseUrl || media.vision?.baseUrl, apiKey: media.vision?.apiKey, external: false },
+    //
+    // `external` comes from the SAME resolver the extractor uses. It used to be hardcoded `false` on all
+    // three — on a `baseUrl` that falls back to the vision endpoint, which the line above classifies with
+    // `visionProvider === 'external'`. Same URL, opposite verdicts, and since `probeModelEndpoint`
+    // branches `external ? ssrfSafeFetch : fetch`, three stages probed an off-instance host over an
+    // unguarded fetch (and skipped the route's `isSsrfSafeUrl` pre-check with it).
+    ...(['vlm', 'repair', 'verify'] as const).map(slot => {
+      const e = resolveVlmEndpoint(slot);
+      return {
+        key: `doc-${slot}` as const,
+        label: slot === 'vlm' ? 'Document VLM' : slot === 'repair' ? 'Document repair' : 'Document verify',
+        model: e.model || undefined,
+        baseUrl: e.baseUrl || undefined,
+        apiKey: e.apiKey,
+        external: e.external,
+      };
+    }),
     // The assist model is external by definition — it is the one path that sends content off-instance.
     { key: 'assist', label: 'Assist model', model: doc.assistModel?.model, baseUrl: doc.assistModel?.baseUrl, apiKey: getDocAssistApiKey(), external: true },
     // The reranker is a RETRIEVAL stage, not an ingestion one, but it belongs on the same board: it is

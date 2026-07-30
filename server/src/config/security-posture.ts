@@ -109,7 +109,7 @@ export function computeSecurityPosture(): SecurityPosture {
   // re-validation, crown-jewel ranges still blocked), only private addresses become reachable.
   //
   // Report the EXPOSURE, not the flag. "allowPrivateModelEndpoints is on" tells an operator what they
-  // set; "vision → 10.43.12.7 (private)" tells them what it actually reaches, which is the thing that
+  // set; "vision → 10.1.2.3 (private)" tells them what it actually reaches, which is the thing that
   // makes this check load-bearing. A hostname is named as a hostname — only the resolution-time guard
   // knows where it points, and claiming otherwise here would be a guess.
   if (allowPrivateModelEndpoints()) {
@@ -158,7 +158,7 @@ export function computeSecurityPosture(): SecurityPosture {
       // named as a hostname: only the resolution-time guard knows where it points.
       // Three-way, not two-way. `hostname` is not "not private" — it is "not resolved", and collapsing
       // the two produced advice that would break the deployment it was aimed at: an internal IdP at
-      // keycloak.identity.svc.cluster.local classifies as `hostname`, and the old else-branch told the
+      // sso.auth.svc.cluster.local classifies as `hostname`, and the old else-branch told the
       // operator that nothing was using the permission and to unset it. Following that advice makes
       // discovery refuse the issuer and NOBODY CAN SIGN IN — the exact outcome the fail branch above
       // exists to prevent, arrived at by obeying the posture block.

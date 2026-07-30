@@ -74,3 +74,10 @@ server/dist
 preview.sh
 preview.ps1
 config/_preview_mint.mjs
+
+# Ground-truth / bench data drawn from real deployment records. NEVER committed - this repo is public.
+# Preferred location is OUTSIDE the worktree entirely (see YTHRIL_BENCH_DATA); these patterns are a
+# second line of defence for anyone who puts a copy here anyway.
+bench-data/
+*.private.md
+*.production.json

@@ -3,7 +3,7 @@
  *
  * The reported gap (customer, 2026-07-21): provider config offered two shapes, and neither fit a
  * self-hosted OpenAI-compatible server on a cluster address
- * (`http://llm-inference-service.llm.svc.cluster.local:8080`):
+ * (`http://vllm.models.svc.cluster.local:8080`):
  *
  *   local    → Ollama wire protocol (`/api/chat`) — llama.cpp's llama-server does not speak it
  *   external → OpenAI wire protocol (`/chat/completions`) — right protocol, address rejected
@@ -55,7 +55,7 @@ const CROWN_JEWELS = [
 ];
 
 /** The reporter's endpoint: a cluster DNS name that resolves to a private address. */
-const CLUSTER_URL = 'http://llm-inference-service.llm.svc.cluster.local:8080';
+const CLUSTER_URL = 'http://vllm.models.svc.cluster.local:8080';
 const resolvesTo = (address, family = 4) => async () => [{ address, family }];
 
 describe('private model endpoints — operator opt-in', () => {
@@ -125,7 +125,7 @@ describe('private model endpoints — operator opt-in', () => {
   describe('resolution time — what actually blocked the cluster endpoint', () => {
     it('blocks the cluster hostname by default, once resolved', async () => {
       await assert.rejects(
-        () => assertUrlSafeResolved(CLUSTER_URL, { lookup: resolvesTo('10.43.12.7') }),
+        () => assertUrlSafeResolved(CLUSTER_URL, { lookup: resolvesTo('10.1.2.3') }),
         /blocked address 10\.43\.12\.7/,
         'this is the failure the reporter actually hit',
       );
@@ -133,10 +133,10 @@ describe('private model endpoints — operator opt-in', () => {
 
     it('permits it with the opt-in', async () => {
       const { addresses } = await assertUrlSafeResolved(CLUSTER_URL, {
-        lookup: resolvesTo('10.43.12.7'),
+        lookup: resolvesTo('10.1.2.3'),
         allowPrivate: true,
       });
-      assert.deepEqual(addresses, ['10.43.12.7']);
+      assert.deepEqual(addresses, ['10.1.2.3']);
     });
 
     it('STILL blocks a hostname that resolves to loopback or IMDS, opt-in or not', async () => {
@@ -151,7 +151,7 @@ describe('private model endpoints — operator opt-in', () => {
 
     it('keeps checking EVERY resolved address, not just the first', async () => {
       const multi = async () => [
-        { address: '10.43.12.7', family: 4 },
+        { address: '10.1.2.3', family: 4 },
         { address: '169.254.169.254', family: 4 }, // smuggled alongside a legitimate one
       ];
       await assert.rejects(
@@ -204,10 +204,10 @@ describe('private model endpoints — operator opt-in', () => {
   });
 
   describe('posture reports effective exposure, not intent', () => {
-    // "allowPrivate is on" states the flag; "vision → 10.43.12.7 (private)" states the exposure. The
+    // "allowPrivate is on" states the flag; "vision → 10.1.2.3 (private)" states the exposure. The
     // second is what makes the check load-bearing, since widening egress is the whole reason it exists.
     it('classifies a private literal, a public one, and a hostname distinctly', () => {
-      assert.deepEqual(classifyEndpoint('http://10.43.12.7:8080'), { host: '10.43.12.7', klass: 'private' });
+      assert.deepEqual(classifyEndpoint('http://10.1.2.3:8080'), { host: '10.1.2.3', klass: 'private' });
       assert.deepEqual(classifyEndpoint('https://140.82.121.4/v1'), { host: '140.82.121.4', klass: 'public' });
       // Honest about what a static check cannot know: a hostname is a hostname until it resolves.
       assert.deepEqual(classifyEndpoint('https://api.example.com/v1'), { host: 'api.example.com', klass: 'hostname' });

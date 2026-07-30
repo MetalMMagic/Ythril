@@ -795,7 +795,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     classified and states plainly that a hostname was **not** resolved; endpoints render as
     `(hostname, not resolved here)` rather than a bare `(hostname)` that reads like a verdict.
   - **The same defect in `oidc.issuer` was worse and unreported.** An internal IdP at
-    `keycloak.identity.svc.cluster.local` classifies as `hostname`, and the old two-way branch told the
+    `sso.auth.svc.cluster.local` classifies as `hostname`, and the old two-way branch told the
     operator that `oidc.allowPrivateIssuer` was unused and to unset it. Following that advice makes
     discovery refuse the issuer and **nobody can sign in** — the exact outcome the neighbouring `fail`
     check exists to prevent, reached by obeying the posture block. Now three-way.
@@ -1010,7 +1010,7 @@ The instance version now reads 2.0.0 across the API, the About page and the publ
   `external` speaks OpenAI's `/chat/completions`. An operator running llama.cpp `llama-server`, vLLM or
   LocalAI behind a cluster service therefore had **no usable shape at all** — `local` speaks a protocol
   their server does not implement, and `external` refused the private address. Reported by an operator
-  running `http://llm-inference-service.llm.svc.cluster.local:8080`.
+  running `http://vllm.models.svc.cluster.local:8080`.
   Setting `allowPrivateModelEndpoints: true` in config.json (or `YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true`)
   permits it for vision, speech-to-text, embedding and the document assist model. **It does not turn the
   egress guard off:** those calls still go through `ssrfSafeFetch`, which resolves DNS, pins the resolved
@@ -1031,7 +1031,7 @@ The instance version now reads 2.0.0 across the API, the About page and the publ
   `allowPrivatePeers` path, which shares the same range logic and had the same gap.
   The posture check reports **effective exposure rather than intent**: instead of "the flag is on" it
   names each configured external endpoint and how it classifies —
-  `vision → 10.43.12.7 (private); documentAssist → api.example.com (hostname)` — since widening egress is
+  `vision → 10.1.2.3 (private); documentAssist → api.example.com (hostname)` — since widening egress is
   the entire reason it is surfaced. A hostname is reported as a hostname, because only the
   resolution-time guard can know where it points. With the flag OFF, an endpoint pointed at a private
   address is now called out too, instead of failing silently at inference.

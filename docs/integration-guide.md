@@ -370,7 +370,7 @@ that would permit it — so a blocked endpoint is diagnosable from `kubectl logs
 a dialog happened to show:
 
 ```text
-WARN  Blocked SSRF target (llm.llm.svc.cluster.local resolves to blocked address 10.43.90.115)
+WARN  Blocked SSRF target (vllm.models.svc.cluster.local resolves to blocked address 10.1.2.4)
       — if this address is meant to be reachable, set allowPrivateModelEndpoints
       (YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true) for a self-hosted model endpoint, or
       allowPrivatePeers for a sync peer
@@ -2664,7 +2664,7 @@ point a **bigger, external model** at specific tasks under `documentProcessing.a
 > protocol**, not a trust level: `local` speaks Ollama's (`/api/chat`), `external` speaks OpenAI's
 > (`/chat/completions`, `/v1/embeddings`, `/v1/audio/transcriptions`). A self-hosted OpenAI-compatible
 > server — llama.cpp `llama-server`, vLLM, LocalAI — therefore needs `external`, even when it lives on a
-> cluster address like `http://llm-inference.llm.svc.cluster.local:8080`.
+> cluster address like `http://vllm.models.svc.cluster.local:8080`.
 >
 > Set **`allowPrivateModelEndpoints: true`** in `config.json`, or `YTHRIL_ALLOW_PRIVATE_MODEL_ENDPOINTS=true`,
 > to permit that. It is config/env only and deliberately **not** settable through

@@ -10,11 +10,37 @@ const _ring: string[] = [];
 type LogSubscriber = (line: string) => void;
 const _subscribers = new Set<LogSubscriber>();
 
+/**
+ * Credential-bearing query parameters.
+ *
+ * `token` was here for SSE/MCP EventSource auth. The rest are the names a provider endpoint, a webhook
+ * target or a signed URL actually uses — any of which can reach a log line by way of an error message
+ * that quotes the URL it failed on.
+ *
+ * Each alternative is anchored to `?` or `&`, so `sort_key=` and `monkey=` are untouched while `?key=`
+ * is not. Over-redacting a log line costs a debugging session; under-redacting one puts a live
+ * credential in a store that is shipped to an aggregator and retained.
+ */
+const SECRET_QUERY_PARAMS = /([?&](?:token|api[-_]?key|access[-_]?token|auth|secret|password|passwd|pwd|sig|signature|key)=)[^&\s"']+/gi;
+
+/**
+ * URL userinfo — `scheme://user:password@host`.
+ *
+ * The gap this closes, and it was already documented elsewhere in this repo: `audit-changes.ts` keeps
+ * webhook routes out of the audit log entirely because "a webhook URL can embed a credential in
+ * userinfo or a query string". That reasoning was applied to the audit store and not to this one, while
+ * `webhooks/store.ts` logged the target URL verbatim on creation. Same secret, different retained
+ * store, and application logs usually have *broader* access than the admin-only audit API.
+ *
+ * Matches only between the scheme and the first `/`, so a path or query containing `@` is left alone.
+ */
+const URL_USERINFO = /([a-z][a-z0-9+.\-]*:\/\/)[^\s/@]+@/gi;
+
 function redact(msg: string): string {
   return msg
     .replace(/Bearer\s+[A-Za-z0-9_.\-]+/gi, REDACTED)
-    // Redact ?token= / &token= query params used for SSE and MCP EventSource auth.
-    .replace(/([?&]token=)[A-Za-z0-9_.\-]+/gi, `$1${REDACTED_TOKEN}`);
+    .replace(URL_USERINFO, `$1${REDACTED_TOKEN}@`)
+    .replace(SECRET_QUERY_PARAMS, `$1${REDACTED_TOKEN}`);
 }
 
 function fmt(level: string, msg: string, meta?: unknown): string {

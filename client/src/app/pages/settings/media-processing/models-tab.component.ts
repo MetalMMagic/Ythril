@@ -432,6 +432,62 @@ import { TestTarget } from './media-processing.types';
         </div>
       </app-model-provider-card>
 
+      <!-- ── Document VLM / repair / verify (env-only) ──────────────────── -->
+      <!-- These had NO cards. A customer's ticket enumerated nine model endpoints from this screen and
+           missed vlmModel, which is the tenth — and the Pipelines tab pointed its step at the VISION
+           card, showing a different value, so the tenth was displayed as if it were one of the nine.
+           They are env-only (no PATCH schema accepts them), so they render read-only with the env badge,
+           the way the storage pins do: visible even when unsettable. -->
+      <!-- Written out rather than looped: the completeness gate greps for a literal card element with a
+           literal id attribute, and a card that only exists behind a binding is a card the gate cannot
+           see. Three repetitions is a fair price for a check that cannot be fooled.
+           (No backticks anywhere in this comment - one would terminate the inline template literal, and
+           the resulting error points at the decorator rather than at the comment.) -->
+      <app-model-provider-card id="doc-vlm" icon="file-image"
+        [heading]="'mediaProcessing.docVlm.title' | transloco"
+        [purpose]="'mediaProcessing.docVlm.purpose' | transloco"
+        [health]="pipeline.modelState('doc-vlm')"
+        [infra]="true" envVar="DOC_VLM_MODEL">
+        <div class="field">
+          <label>{{ 'mediaProcessing.field.model' | transloco }}</label>
+          <div class="ro">{{ s.docCfg().vlmModel || ('mediaProcessing.docSlot.notSet' | transloco) }}</div>
+        </div>
+        <div class="field">
+          <label>{{ 'mediaProcessing.field.endpoint' | transloco }}</label>
+          <div class="ro">{{ s.docCfg().vlmBaseUrl || ('mediaProcessing.docSlot.inheritsVision' | transloco) }}</div>
+        </div>
+      </app-model-provider-card>
+
+      <app-model-provider-card id="doc-repair" icon="file-image"
+        [heading]="'mediaProcessing.docRepair.title' | transloco"
+        [purpose]="'mediaProcessing.docRepair.purpose' | transloco"
+        [health]="pipeline.modelState('doc-repair')"
+        [infra]="true" envVar="DOC_REPAIR_MODEL">
+        <div class="field">
+          <label>{{ 'mediaProcessing.field.model' | transloco }}</label>
+          <div class="ro">{{ s.docCfg().repairModel || s.docCfg().vlmModel || ('mediaProcessing.docSlot.notSet' | transloco) }}</div>
+        </div>
+        <div class="field">
+          <label>{{ 'mediaProcessing.field.endpoint' | transloco }}</label>
+          <div class="ro">{{ s.docCfg().repairBaseUrl || s.docCfg().vlmBaseUrl || ('mediaProcessing.docSlot.inheritsVision' | transloco) }}</div>
+        </div>
+      </app-model-provider-card>
+
+      <app-model-provider-card id="doc-verify" icon="file-image"
+        [heading]="'mediaProcessing.docVerify.title' | transloco"
+        [purpose]="'mediaProcessing.docVerify.purpose' | transloco"
+        [health]="pipeline.modelState('doc-verify')"
+        [infra]="true" envVar="DOC_VERIFY_MODEL">
+        <div class="field">
+          <label>{{ 'mediaProcessing.field.model' | transloco }}</label>
+          <div class="ro">{{ s.docCfg().verifyModel || ('mediaProcessing.docSlot.notSet' | transloco) }}</div>
+        </div>
+        <div class="field">
+          <label>{{ 'mediaProcessing.field.endpoint' | transloco }}</label>
+          <div class="ro">{{ s.docCfg().verifyBaseUrl || s.docCfg().vlmBaseUrl || ('mediaProcessing.docSlot.inheritsVision' | transloco) }}</div>
+        </div>
+      </app-model-provider-card>
+
       <!-- ── Page renderer (infra) ──────────────────────────────────────── -->
       <app-model-provider-card id="doc-render" icon="file-image"
         [heading]="'mediaProcessing.render.title' | transloco"

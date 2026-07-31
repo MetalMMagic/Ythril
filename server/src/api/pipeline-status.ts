@@ -154,6 +154,27 @@ export type ProbeOutcome =
   | { blocked: true }
   | { reachable: boolean; models?: string[]; detail?: string; latencyMs: number };
 
+/**
+ * Every model-backed stage there is. The canonical enumeration.
+ *
+ * Declared rather than inferred because the Models screen has now under-reported the pipeline three
+ * times: #549 added the office renderer and the contradiction judge after a customer noticed, and a
+ * later report enumerated **nine** endpoints from that screen and missed `vlmModel` — which has no card,
+ * while the Pipelines tab deep-links its step to the *vision* card showing a different value. Each time
+ * the fix was another card; nothing ever proved the list complete.
+ *
+ * A grep cannot do it either: the document stages build their keys as `doc-${slot}`, so the literals do
+ * not exist in the source. So the set is written down here, `modelStages()` is checked against it, and a
+ * test asserts every entry has somewhere to appear in the UI. Adding a stage without a card now fails.
+ */
+export const MODEL_STAGE_KEYS = [
+  'embedding', 'vision', 'stt',
+  'doc-vlm', 'doc-repair', 'doc-verify',
+  'assist', 'rerank', 'nli',
+] as const;
+
+export type ModelStageKey = (typeof MODEL_STAGE_KEYS)[number];
+
 /** Every model-backed stage, resolved from config. Stages sharing an endpoint are probed once. */
 function modelStages(): StageSpec[] {
   const media = getMediaEmbeddingConfig();

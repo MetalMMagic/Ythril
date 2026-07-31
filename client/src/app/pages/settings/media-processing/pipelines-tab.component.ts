@@ -461,12 +461,12 @@ export class PipelinesTabComponent {
     return [
       { key: 'ocr', name: 'mediaProcessing.step.ocr', actor: 'Tesseract', health: ps.sidecarState('unstructured'), conditional: false, cardId: 'unstructured' },
       { key: 'render', name: 'mediaProcessing.step.render', actor: 'doc-render', health: ps.sidecarState('doc-render'), conditional: true, cardId: 'doc-render' },
-      { key: 'vlm', name: 'mediaProcessing.step.vlm', actor: doc.vlmModel || this.notSet, health: ps.modelState('doc-vlm'), conditional: true, cardId: 'vision' },
+      { key: 'vlm', name: 'mediaProcessing.step.vlm', actor: doc.vlmModel || this.notSet, health: ps.modelState('doc-vlm'), conditional: true, cardId: 'doc-vlm' },
       // Validate is pure in-process arithmetic (does the VLM output cover the OCR text?), so it has no
       // endpoint and therefore no dot to report — undefined health, not a green one it has not earned.
       { key: 'validate', name: 'mediaProcessing.step.validate', actor: 'in-process', health: null, conditional: true },
-      { key: 'repair', name: 'mediaProcessing.step.repair', actor: doc.repairModel || doc.vlmModel || this.notSet, health: ps.modelState('doc-repair'), conditional: true, cardId: 'assist' },
-      { key: 'verify', name: 'mediaProcessing.step.verify', actor: doc.verifyModel || this.notSet, health: ps.modelState('doc-verify'), conditional: true, cardId: 'vision' },
+      { key: 'repair', name: 'mediaProcessing.step.repair', actor: doc.repairModel || doc.vlmModel || this.notSet, health: ps.modelState('doc-repair'), conditional: true, cardId: 'doc-repair' },
+      { key: 'verify', name: 'mediaProcessing.step.verify', actor: doc.verifyModel || this.notSet, health: ps.modelState('doc-verify'), conditional: true, cardId: 'doc-verify' },
       { key: 'embed', name: 'mediaProcessing.step.embed', actor: this.s.embedding.model || this.notSet, health: ps.modelState('embedding'), conditional: false, cardId: 'embedding' },
     ];
   });

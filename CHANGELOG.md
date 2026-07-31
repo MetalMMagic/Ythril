@@ -76,6 +76,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A theme could restyle the whole product and the logo stayed green.** The brand mark hard-coded
+  `#9eec55` in five places, so the theme mechanism — which already lets an operator inject CSS tokens —
+  could not touch it. It now follows `--brand-mark`, falling back to `--accent`, so a theme that only
+  sets an accent gets a matching mark for free.
+  - A CSS variable rather than one SVG file per colour: any hex works, not a fixed palette somebody has
+    to keep extending. The colours moved from SVG attributes into CSS properties because
+    `fill="var(--x)"` in an attribute does not resolve.
+
+- **A backtick in an inline template or styles block ends the string early**, and the compiler reports
+  it at `@Component` or at some line in the middle of the CSS — never at the backtick. It is always in a
+  comment, quoting an identifier the way every other comment in this codebase does. Six debugging
+  detours in one day, so `inline-template-backticks.test.js` now names the real cause. Its first version
+  reported a false positive on the ordinary `` ` `` -on-its-own-line closing shape; a gate about a
+  confusing error is worse than no gate if its own findings need triage.
+
 - **A link in a guide could dump you on the Brain page.** Reported by the owner. Any link the Help
   page did not recognise "kept its default behaviour" — which sounds harmless and is not: the browser
   resolves the relative href against `/settings/help`, the router matches nothing, and the wildcard

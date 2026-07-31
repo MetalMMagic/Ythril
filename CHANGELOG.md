@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Turning off two-factor authentication left no trace in the audit log.** `POST /api/mfa/setup`
+  (which writes the new secret immediately — it is the enable, and the rotation) and `DELETE /api/mfa`
+  were both unaudited.
+  - They were exempted by an entry in `audit-route-coverage` reading *"MFA enrolment/verification —
+    covered by its own auth events"*. The audit map holds **one** auth event, `auth.failed`, so nothing
+    was covering them. Disabling the second factor for every admin mutation is arguably the most
+    audit-worthy action in the product, and it was silent.
+  - Now `mfa.enable` and `mfa.disable`, named so a rotation and a removal are distinguishable. The
+    exemption narrows to `/api/mfa/verify`, which checks a code and mutates nothing — and is what a
+    health check calls repeatedly.
+  - Found by the Testing & Quality audit lens, asking of each gate not what it asserts but **what it
+    excludes**. An exemption reason is a factual claim; this one was false.
+
 - **A security setting that was read by nothing, and a posture line that described a guard which
   never existed.** `allowInsecurePlaintext` appeared in `config.json`, in the type, and in the startup
   security posture — where it reported *"the plaintext-exposure guard is disabled"*. No such guard

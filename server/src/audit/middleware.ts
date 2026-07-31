@@ -106,6 +106,18 @@ const ROUTE_RULES: RouteRule[] = [
 
   { method: 'POST',   pattern: /^\/api\/tokens\/([^/]+)\/regenerate$/,             operation: 'token.regenerate' },
 
+  // ── MFA ──────────────────────────────────────────────────────────────────
+  // Both of these were unaudited, exempted by an entry in `audit-route-coverage` reading "covered by its
+  // own auth events". There is exactly one auth event in the whole map — `auth.failed` — so nothing was
+  // covering them, and turning off the second factor for every admin mutation left no trace at all.
+  //
+  // `setup` writes the new secret immediately (the confirm-with-a-code step is client-side), so it IS the
+  // enable, and it is also the ROTATE when MFA is already on. One operation name for both: the audit entry
+  // records that the secret changed, which is what a reader needs — and distinguishing them would require
+  // reading state the middleware does not have.
+  { method: 'POST',   pattern: /^\/api\/mfa\/setup$/,                              operation: 'mfa.enable' },
+  { method: 'DELETE', pattern: /^\/api\/mfa$/,                                     operation: 'mfa.disable' },
+
   // ── Webhook operations ───────────────────────────────────────────────────
   // These rules used to point at `/api/notify/webhooks`, but the router is mounted at
   // `/api/admin/webhooks` — so webhook CRUD was entirely unaudited. A webhook exfiltrates

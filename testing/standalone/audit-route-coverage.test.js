@@ -50,7 +50,10 @@ const EXEMPT = new Map([
   // First-run setup happens before any token exists, so there is nobody to attribute it to.
   ['/api/setup', 'first-run setup — runs before any identity exists'],
   // Auth/session endpoints have their own dedicated audit events (auth.failed, token.*).
-  ['/api/mfa', 'MFA enrolment/verification — covered by its own auth events'],
+  // Narrowed from `/api/mfa`, which read "covered by its own auth events" and was not true: the map holds
+  // exactly one auth event (`auth.failed`), so enabling and disabling the second factor were both silent.
+  // They are audited now (`mfa.enable` / `mfa.disable`); only the read-only code check stays exempt.
+  ['/api/mfa/verify', 'checks a TOTP code and returns valid/invalid — mutates nothing'],
   ['/api/oidc', 'OIDC login callbacks — covered by auth events'],
   ['/api/invite', 'network invite handshake — peer-facing'],
   ['/api/local-agent', 'workstation connector handshake — not a brain mutation'],
@@ -176,11 +179,23 @@ describe('Audit coverage — every mutating route must resolve to an operation',
       ['PUT', '/api/spaces/sample/schema', 'space schema write'],
       ['POST', '/api/spaces/reorder', 'space reorder'],
       ['DELETE', '/api/brain/spaces/sample/files', 'file metadata delete'],
+      ['POST', '/api/mfa/setup', 'MFA enable / secret rotation'],
+      ['DELETE', '/api/mfa', 'MFA disable'],
     ];
     for (const [method, p, what] of mustAudit) {
       const hit = resolveOperation(method, p);
       assert.ok(hit && !hit.read, `${what} (${method} ${p}) must produce an audit entry`);
     }
+  });
+
+  it('turning the second factor off is distinguishable in the log', () => {
+    // Not just "audited" — named. An operator scanning for how MFA came to be off needs the entry to say
+    // so, and `mfa.disable` beside `mfa.enable` is what makes a rotation and a removal tell apart.
+    assert.equal(resolveOperation('DELETE', '/api/mfa')?.operation, 'mfa.disable');
+    assert.equal(resolveOperation('POST', '/api/mfa/setup')?.operation, 'mfa.enable');
+    // The read-only code check stays out of the log — it is the one MFA route that changes nothing, and
+    // it is also the one a health-check hits repeatedly.
+    assert.equal(resolveOperation('POST', '/api/mfa/verify'), null);
   });
 
   it('a space rename is recorded as space.rename, not swallowed by space.update', () => {

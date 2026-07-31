@@ -1107,6 +1107,20 @@ export interface Config {
    *  (pdf/docx/epub/html/md/txt → markdown chunks). Default 100 MiB; HTML is
    *  additionally capped at 25 MiB because jsdom parses it in-process. */
   maxDocumentConversionBytes?: number;
+  /**
+   * **RETIRED — read by no code path.** Kept so a config that sets it still loads, and so the security
+   * posture can tell the operator it does nothing rather than leaving them to assume it does.
+   *
+   * In the first prototype this opted the instance IN to a boot warning when `allowInsecurePlaintext` was
+   * true and the host had a non-loopback interface — "all traffic including tokens is unencrypted". That
+   * warning was superseded by the posture block (#276), and the flag was left behind with no reader. The
+   * posture line written for it then inverted its meaning, reporting that "the plaintext-exposure guard
+   * is disabled" — a guard that has never existed under that name.
+   *
+   * **The control that actually rejects plaintext requests is {@link requireEncryptedTransport}.** Not
+   * deleted outright, on the same reasoning as `SpaceMeta.tagSuggestions`: silently dropping a key an
+   * operator has in their config is a worse trade than leaving a documented retirement behind.
+   */
   allowInsecurePlaintext?: boolean;
   /**
    * Require the on-disk state files (config/secrets/schema-library/schema-catalogs) to be encrypted

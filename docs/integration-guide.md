@@ -683,6 +683,17 @@ loopback is still untrusted. (Address reachability is governed separately by `al
 > proxy hop count. Enable `requireEncryptedTransport` together with a correct `trustProxy`, or every
 > proxied request will look plaintext and be rejected.
 
+⚠️ **`allowInsecurePlaintext` is retired and does nothing.** If you have it in `config.json`, remove it.
+
+In early versions it opted the instance *in* to a boot warning when the host had a non-loopback interface.
+That warning was replaced by the startup security posture, and the key was left behind with no reader —
+while the posture line written for it claimed it "disabled the plaintext-exposure guard", describing a
+guard that never existed under that name. Setting it or clearing it changes nothing either way;
+**`requireEncryptedTransport` above is the control that rejects plaintext requests.**
+
+The key is still accepted so an existing config keeps loading, and the posture now reports it as retired
+rather than as a disabled guard.
+
 **Multi-tenant on shared hardware.** Run each tenant as its own Ythril instance with its **own MongoDB on
 its own encrypted volume/key** — do not share one `mongod` across tenants. That keeps cross-tenant data
 cryptographically isolated (different key + process) while leaving semantic search fully intact, and it

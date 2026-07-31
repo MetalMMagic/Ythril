@@ -26,6 +26,22 @@
  * declare fields on one line. A line-anchored pattern reported both as undeclared when both are used
  * throughout `files.ts`.
  *
+ * ── The direction this was missing ──────────────────────────────────────────────────────────────
+ *
+ * Everything above checks **doc → code**: a documented key must be real. It said nothing about
+ * **code → doc**, so a config field could be added and never documented, and nothing reported it. That
+ * is the asymmetry `env-var-docs-coverage` grew a second check to close, and the same shape as four
+ * scope-too-narrow defects found in one week.
+ *
+ * Adding it found `allowInsecurePlaintext` — undocumented, and on inspection **read by no code path at
+ * all** while the security posture told the operator it disabled a guard. The gate's value is not the
+ * doc entry; it is that "nothing documents this" and "nothing uses this" turn out to be the same
+ * question asked from two sides.
+ *
+ * Scoped to TOP-LEVEL `Config` fields deliberately. Nested fields are documented in prose and tables
+ * rather than by name, so demanding every one of them would report noise; the top level is the surface
+ * an operator edits and the one where a field with no mention is genuinely lost.
+ *
  * Run: node --test testing/standalone/config-key-docs-coverage.test.js
  */
 import { describe, it } from 'node:test';
@@ -36,6 +52,18 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
 const TYPES = join(ROOT, 'server', 'src', 'config', 'types.ts');
+
+/**
+ * Top-level fields the docs are not expected to name, each with why.
+ *
+ * Only machine-managed state qualifies: written by the app, never hand-edited, and meaningless to an
+ * operator reading a guide. A setting does not belong here — the test below asserts each entry's own type
+ * declaration says it is not hand-edited, so the list cannot quietly absorb one.
+ */
+const MACHINE_MANAGED = new Map([
+  ['oauthClients', 'RFC 7591 dynamic client registrations, written by the MCP OAuth flow'],
+  ['pendingSpaceOp', 'write-ahead marker for a multi-step space operation, cleared on commit'],
+]);
 
 /** Maps whose keys the USER chooses — not config fields. */
 const FREE_FORM = new Set([
@@ -115,5 +143,48 @@ describe('config.json examples in the docs name real fields', () => {
       'types. Unknown keys are IGNORED, so a reader would set them and see no effect:\n' +
       `${[...new Set(bad)].join('\n')}\n` +
       'Fix the doc, or add the field if it was meant to exist.');
+  });
+});
+
+describe('every top-level config field is documented', () => {
+  const docsText = readdirSync(join(ROOT, 'docs'))
+    .filter(n => n.endsWith('.md'))
+    .map(n => readFileSync(join(ROOT, 'docs', n), 'utf8'))
+    .join('\n');
+
+  it('finds the Config interface (the check itself works)', () => {
+    // Same guard the sibling check carries: a parse that silently yields nothing would make the
+    // assertion below pass by examining nothing, which is the failure mode of every coverage gate.
+    assert.ok(topLevelConfigFields().size >= 20,
+      `expected to parse the Config interface, found ${topLevelConfigFields().size} fields`);
+  });
+
+  it('names every one of them somewhere in docs/', () => {
+    // Deliberately generous — a bare mention anywhere counts. Anything this reports is definitively
+    // undocumented rather than merely documented somewhere surprising, so a finding is never a
+    // judgement call about where a setting *should* be written up.
+    const missing = [...topLevelConfigFields()]
+      .filter(k => !MACHINE_MANAGED.has(k))
+      .filter(k => !new RegExp(`\\b${k}\\b`).test(docsText));
+
+    assert.deepEqual(missing, [],
+      'These config fields exist but no doc mentions them, so an operator cannot find them:\n' +
+      missing.map(k => `  ${k}`).join('\n') +
+      '\nDocument them, or — if one turns out to be read by nothing — retire it explicitly.');
+  });
+
+  it('the machine-managed exemptions really are machine-managed', () => {
+    // The failure this forecloses: exempting a genuine setting to make the check pass. Each entry has to
+    // say so in its own doc comment, which is a claim a reviewer can check against the code.
+    const src = readFileSync(TYPES, 'utf8');
+    for (const [field, why] of MACHINE_MANAGED) {
+      const at = src.search(new RegExp(`^\\s{2}${field}\\??\\s*:`, 'm'));
+      assert.ok(at > 0, `${field} should be a top-level Config field (${why})`);
+      // Normalised first: a JSDoc comment wraps, so the phrase routinely reads `not\n   * meant to be
+      // hand-edited` and a `\s+` between the words does not match the leading asterisk.
+      const comment = src.slice(Math.max(0, at - 700), at).replace(/^\s*\*/gm, ' ').replace(/\s+/g, ' ');
+      assert.match(comment, /not\s+(meant to be\s+)?hand-edited/i,
+        `${field} is exempted as machine-managed, so its declaration must say it is not hand-edited`);
+    }
   });
 });

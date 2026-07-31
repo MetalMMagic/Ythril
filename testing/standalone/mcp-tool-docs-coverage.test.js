@@ -24,6 +24,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readGuide } from './_docs.mjs';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,7 +49,7 @@ function fromCode() {
 }
 
 function fromDocs() {
-  const guide = readFileSync(join(ROOT, 'docs', 'integration-guide.md'), 'utf8');
+  const guide = readGuide();
   const line = guide.split(/\r?\n/).find(l => l.includes('mutating tools (') && l.includes('readOnly'));
   assert.ok(line, 'expected the integration guide to describe what a readOnly token loses');
 

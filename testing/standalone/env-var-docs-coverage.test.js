@@ -171,7 +171,16 @@ function collectUsage() {
  */
 function collectDocumented(used) {
   const docs = new Map();
-  for (const f of readdirSync(join(ROOT, 'docs')).filter(n => n.endsWith('.md'))) {
+  // Recursive. The integration guide is 17 files in a subdirectory now, and it documents most of the
+  // env vars — a one-level listing would report almost all of them as undocumented.
+  const mdUnder = (dir, prefix = '', out = []) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) mdUnder(join(dir, e.name), `${prefix}${e.name}/`, out);
+      else if (e.name.endsWith('.md')) out.push(`${prefix}${e.name}`);
+    }
+    return out;
+  };
+  for (const f of mdUnder(join(ROOT, 'docs'))) {
     const src = readFileSync(join(ROOT, 'docs', f), 'utf8');
     for (const m of src.matchAll(/\b([A-Z][A-Z0-9_]{2,})\b/g)) {
       if (!OURS(m[1])) continue;

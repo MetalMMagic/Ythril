@@ -18,6 +18,7 @@
  */
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
+import { readGuide } from './_docs.mjs';
 import { readFileSync } from 'node:fs';
 
 let rrfFuse, RRF_K, hybridSearchEnabled, mergeRecallResults;
@@ -192,7 +193,7 @@ describe('the behaviour change is documented where callers actually look', () =>
   // Shipping a ranking change without updating the docs that describe ranking leaves a guide that is
   // confidently wrong — worse than one that is silent. `minScore` is the sharpest case: it now means
   // something narrower than "the score", and a caller who does not know that will misread their results.
-  const guide = readFileSync(new URL('../../docs/integration-guide.md', import.meta.url), 'utf8');
+  const guide = readGuide();
   const userguide = readFileSync(new URL('../../docs/userguide.md', import.meta.url), 'utf8');
   const help = readFileSync(new URL('../../server/src/mcp/tools/help.ts', import.meta.url), 'utf8');
   const search = readFileSync(new URL('../../server/src/mcp/tools/search.ts', import.meta.url), 'utf8');

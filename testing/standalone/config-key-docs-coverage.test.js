@@ -65,6 +65,22 @@ const MACHINE_MANAGED = new Map([
   ['pendingSpaceOp', 'write-ahead marker for a multi-step space operation, cleared on commit'],
 ]);
 
+/**
+ * Every markdown file under `docs/`, at any depth, relative to `docs/`.
+ *
+ * A one-level listing found **zero** config examples the moment the integration guide became 17 files in
+ * a subdirectory — and the guide is where almost every example lives. The check would have gone on
+ * passing while examining nothing, which is why it carries its own "found some" assertion; that is what
+ * caught this.
+ */
+function docFiles(dir = join(ROOT, 'docs'), prefix = '', out = []) {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) docFiles(join(dir, e.name), `${prefix}${e.name}/`, out);
+    else if (e.name.endsWith('.md')) out.push(`${prefix}${e.name}`);
+  }
+  return out;
+}
+
 /** Maps whose keys the USER chooses — not config fields. */
 const FREE_FORM = new Set([
   'typeSchemas', 'properties', 'propertySchemas', 'spaceMap', 'headers', 'meta',
@@ -106,7 +122,7 @@ function collectKeys(value, out, skipping = false) {
 function configExamples() {
   const topLevel = topLevelConfigFields();
   const found = [];
-  for (const f of readdirSync(join(ROOT, 'docs')).filter(n => n.endsWith('.md'))) {
+  for (const f of docFiles()) {
     const src = readFileSync(join(ROOT, 'docs', f), 'utf8');
     for (const m of src.matchAll(/```json\s*\n([\s\S]*?)```/g)) {
       let parsed;
@@ -147,8 +163,7 @@ describe('config.json examples in the docs name real fields', () => {
 });
 
 describe('every top-level config field is documented', () => {
-  const docsText = readdirSync(join(ROOT, 'docs'))
-    .filter(n => n.endsWith('.md'))
+  const docsText = docFiles()
     .map(n => readFileSync(join(ROOT, 'docs', n), 'utf8'))
     .join('\n');
 

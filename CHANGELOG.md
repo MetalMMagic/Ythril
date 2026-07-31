@@ -7,29 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **The shipped guides have never been styled.** Not badly styled — **unstyled**. The Help page and the
-  Markdown file preview both render through `[innerHTML]`, and Angular's emulated encapsulation stamps
-  `_ngcontent-*` only on elements the TEMPLATE creates. So `.doc p` compiled to `.doc p[_ngcontent-xyz]`
-  and matched nothing. No error, no warning: the styles sat in the file looking applied.
-  - 19 dead rules in `help.component.ts`, 13 in `file-manager.component.ts` — every guide and every
-    Markdown preview has rendered at browser defaults since each shipped.
-  - Measured on a booted instance, before → after: `pre` background `transparent` → `rgb(28,33,40)`,
-    `pre` radius `0px` → `8px`, `blockquote` border-left `0px` → `3px`, paragraph `max-width` `none`
-    → `689px`.
-  - New gate `innerhtml-css-reach.test.js`. The first version guessed — it flagged `.xlsx-grid th` and
-    `.detail-desc h4`, both template-built and fine — so it was replaced with a **declared map** of
-    every `[innerHTML]` surface. A component missing from it fails the build, which is the opposite of
-    how this survived: there, having no declaration was the default.
-
-- **And now that rules can land, the guides read like documentation.** A **78ch measure on prose only**
-  (tables and code keep the full width, so nothing scrolls that need not); table headers get a
-  background and 600 weight with tinted even rows — the guides have 25 table cells over 320 characters,
-  so row tracking is not cosmetic; body text 14px/1.65. Screenshot-verified at 1680px, the width the
-  problem only appears at.
-
 ### Documentation
+
+- **The integration guide is split by topic.** 7,830 lines in one file — the largest single obstacle to
+  reading it. Now 17 parts under `docs/integration-guide/`, numbered because the order is pedagogical
+  (Getting Ythril → Hosting → Authentication → the APIs) and a folder listing sorts alphabetically.
+  - **A pure move.** No sentence is reworded; the diff reviews as one operation.
+  - **`docs/integration-guide.md` is now only an index** — a title, two orienting lines, and the link
+    list. No summary, no abridged contents: prose there would be a second place to remember to edit,
+    which is how two of this guide's claims went stale in the first place.
+  - **Every anchor still resolves.** The Help page fetches the parts and renders them as ONE document,
+    so the guide's own cross-references, the user guide's deep links and the README's all keep working
+    — and the Help nav stays at nine entries instead of becoming twenty-five. Links on disk carry the
+    `NN-part.md#anchor` form that GitHub needs; the concatenation strips the prefix.
+  - 12 links repointed across the guide, the user guide and `dependencies.md`. Verified on a booted
+    instance: 30 sections rendered, 0 leaked part headers, 0 unstripped prefixes, and the three anchors
+    other documents deep-link into all present.
+  - Two gates. `integration-guide-index.test.js` asserts the index links exactly the parts on disk, in
+    order, with no table, code block, endpoint or extra section — mutation-checked by adding a table and
+    by removing a link. And `help-docs-coverage` now looks at `docs/*/*.md` as well: `git ls-files
+    'docs/*.md'` does not descend, so all seventeen parts were invisible to both sides of that
+    comparison and it would have kept passing while shipping nothing.
+  - `angular.json` copies `docs/**/*.md` rather than `docs/*.md`, or the parts would never reach the
+    browser bundle at all.
+  - **The split broke six gates at once**, every one of them because it opened
+    `docs/integration-guide.md` or listed `docs/` one level deep. Two would have gone on *passing*
+    while examining nothing. Six copies of the same two lines is what made it a six-file fix, so
+    there is one copy now: `testing/standalone/_docs.mjs` (`readGuide`, `docFiles`, `allDocsText`).
+    How the guide is stored is not something a check about its content should have to know.
 
 - **The changelog is split by major.** 7,234 lines and 620 KB across 34 releases going back to
   2025-06 — past the point where one file is navigable, and past where GitHub renders it whole.
@@ -68,6 +73,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The doc-coverage gates check env vars, config keys, routes, MCP tools and shipped guides. **None of
     them can see that a user-facing UI feature never got written up** — the same blind spot in a
     different dimension.
+
+### Fixed
+
+- **The shipped guides have never been styled.** Not badly styled — **unstyled**. The Help page and the
+  Markdown file preview both render through `[innerHTML]`, and Angular's emulated encapsulation stamps
+  `_ngcontent-*` only on elements the TEMPLATE creates. So `.doc p` compiled to `.doc p[_ngcontent-xyz]`
+  and matched nothing. No error, no warning: the styles sat in the file looking applied.
+  - 19 dead rules in `help.component.ts`, 13 in `file-manager.component.ts` — every guide and every
+    Markdown preview has rendered at browser defaults since each shipped.
+  - Measured on a booted instance, before → after: `pre` background `transparent` → `rgb(28,33,40)`,
+    `pre` radius `0px` → `8px`, `blockquote` border-left `0px` → `3px`, paragraph `max-width` `none`
+    → `689px`.
+  - New gate `innerhtml-css-reach.test.js`. The first version guessed — it flagged `.xlsx-grid th` and
+    `.detail-desc h4`, both template-built and fine — so it was replaced with a **declared map** of
+    every `[innerHTML]` surface. A component missing from it fails the build, which is the opposite of
+    how this survived: there, having no declaration was the default.
+
+- **And now that rules can land, the guides read like documentation.** A **78ch measure on prose only**
+  (tables and code keep the full width, so nothing scrolls that need not); table headers get a
+  background and 600 weight with tinted even rows — the guides have 25 table cells over 320 characters,
+  so row tracking is not cosmetic; body text 14px/1.65. Screenshot-verified at 1680px, the width the
+  problem only appears at.
 
 ## [2.2.1] — 2026-07-31
 

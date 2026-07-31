@@ -644,7 +644,7 @@ rather than just saying it failed. Two cases account for almost all of them:
   the server will call is the classic way to make a server fetch things it should not. If the endpoint is
   a model server you run yourself, that refusal is wrong for your case and an administrator can permit it
   — for that one endpoint alone, or instance-wide — see
-  [Diagnosing a Misconfiguration](integration-guide.md#diagnosing-a-misconfiguration). The message names
+  [Diagnosing a Misconfiguration](integration-guide/02-hosting.md#diagnosing-a-misconfiguration). The message names
   the exact setting for the endpoint you were testing. It cannot be enabled from this page, on purpose.
 - **"Blocked SSRF target … 169.254.x" or a loopback address** — these stay blocked whatever the setting.
   Point the endpoint at a real service address.

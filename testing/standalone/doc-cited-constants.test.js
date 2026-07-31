@@ -25,12 +25,27 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..');
-const read = (rel) => readFileSync(join(ROOT, rel), 'utf8');
+/**
+ * Read a doc — and treat `docs/integration-guide.md` as **the whole guide**, not its index.
+ *
+ * The guide is 17 files under `docs/integration-guide/` now. Naming a part here would tie every row to a
+ * numeric prefix, so renumbering on insert would break checks that have nothing to do with the change.
+ * The rows say "this number is documented in the integration guide", which stays true wherever inside it
+ * the statement lives.
+ */
+const read = (rel) => {
+  if (rel === 'docs/integration-guide.md') {
+    const dir = join(ROOT, 'docs', 'integration-guide');
+    return readdirSync(dir).filter(f => f.endsWith('.md')).sort()
+      .map(f => readFileSync(join(dir, f), 'utf8')).join('\n');
+  }
+  return readFileSync(join(ROOT, rel), 'utf8');
+};
 
 /**
  * Each row: a constant in the source, and the doc sentence that quotes its value.

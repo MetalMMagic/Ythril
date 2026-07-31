@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Verify — one real request against a configured model.** `POST /api/admin/media-config/verify`, plus a
+  button on the vision, speech-to-text, embedding and assist cards.
+  - Listing models answers "is something there". It cannot answer *does my model work*, and two field
+    reports showed the gap: a vision endpoint that was listed, reachable, and failing on **every image**
+    because the request carried `data:application/octet-stream;base64,…`; and endpoints that serve
+    **aliases** (llama-swap roles, gateways, Azure deployments) which do not enumerate the names they
+    answer to, so "not listed" says nothing at all.
+  - The payload is always **generated, never the operator's**: a 1×1 transparent PNG, a few milliseconds
+    of synthesised silence, or the word `ping`. For several targets the real path is an egress path, and
+    a diagnostic must not become one. It goes through the same client the worker uses — same wire format,
+    same guard, same model name — so a transport bug surfaces here instead of on a user's first upload.
+  - **A cold start is its own outcome, not a failure.** A reporter's successful vision call took 34.7 s
+    because their backend was swapping the model in on a GPU shared by five roles. The budget is 180 s
+    (`MODEL_VERIFY_TIMEOUT_MS`) and exceeding it reports `still-loading` — "try again", not "broken".
+    A short timeout here would have reintroduced exactly the false negative this removes.
+  - Silence transcribing to no text is a **pass**: the payload is silent, so reaching a structured
+    response is the result. Asserting on transcript text would fail a working endpoint.
+  - **Audited** (`config.media.verify`) rather than exempted like the `test-connection` probe beside it,
+    whose exemption reads "mutates nothing" — true there, false here. Verify leaves the instance and, on
+    a metered endpoint, costs money.
+
 - **A duplicate-detection bench harness, and a model-licence registry that gates it.** Groundwork for
   making recall and duplicate scores interpretable; no runtime behaviour changes.
   - `testing/bench/parse-bench-pairs.mjs` reads a labelled pair set and **refuses to read it from inside

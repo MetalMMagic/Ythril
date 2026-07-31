@@ -31,6 +31,7 @@ import { schemaLibraryRouter } from './api/schema-library.js';
 import { localAgentRouter } from './api/local-agent.js';
 import { dataRouter } from './api/data.js';
 import { mediaConfigRouter } from './api/media-config.js';
+import { modelVerifyRouter } from './api/model-verify.js';
 import { pipelineStatusRouter } from './api/pipeline-status.js';
 import { maintenanceMiddleware } from './maintenance.js';
 import { globalRateLimit, ipFloodBackstop } from './rate-limit/middleware.js';
@@ -273,6 +274,9 @@ export function createApp() {
   app.use('/api/admin/local-agent', localAgentRouter);
   app.use('/api/admin/data', dataRouter);
   app.use('/api/admin/media-config', mediaConfigRouter);
+  // Mounted on the same path: Verify is the counterpart to test-connection, and an operator looking for
+  // one should not have to know they live in different files.
+  app.use('/api/admin/media-config', modelVerifyRouter);
   app.use('/api/admin/pipeline-status', pipelineStatusRouter);
   app.use('/api/schema-library', schemaLibraryRouter);
 

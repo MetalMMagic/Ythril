@@ -2556,7 +2556,33 @@ will fail even though the endpoint is up.
 > which is normal and deliberate for aliasing routers (llama-swap roles), gateways and Azure deployments —
 > they serve names they keep out of user-facing pickers. Absence from a list is not evidence a model is
 > unavailable, so it is reported as informational and never as degraded. To find out whether a model
-> actually answers, make a real request.
+> actually answers, make a real request — which is what Verify does.
+
+**Verify.** `POST /api/admin/media-config/verify` (admin + MFA) — `{ "target": "vision" | "stt" |
+"embedding" | "assist" }` — sends **one real request** to the configured model and reports what came back.
+It is the counterpart to Test connection, and it answers the question listing models cannot: *does this
+model actually work?*
+
+The payload is always **generated, never yours**: a 1×1 transparent PNG for vision, a few milliseconds of
+synthesised silence for speech-to-text, the word `ping` for text models. That matters because for several
+targets the real path is an egress path, and a diagnostic must not become one. It exercises the same
+client the worker uses — same wire format, same SSRF guard, same model name — so a transport bug shows up
+here rather than on a user's first upload.
+
+| `outcome` | meaning |
+|---|---|
+| `ok` | the model answered; `sample` carries a truncated excerpt as evidence |
+| `failed` | it was reached and did not produce a usable answer; `detail` says why |
+| `still-loading` | no answer within the budget — **not a failure** |
+| `unconfigured` | nothing is set for that target |
+
+> **`still-loading` exists because a cold start is not a fault.** On a backend that swaps models in and
+> out of one GPU, a first call has been measured at ~35 seconds. The budget is 180 s
+> (`MODEL_VERIFY_TIMEOUT_MS`), and exceeding it means "try again", not "your endpoint is broken".
+
+Unlike Test connection, Verify **is audited** (`config.media.verify`): it leaves the instance and, on a
+metered endpoint, costs money. Silence transcribing to no text counts as a pass — the payload is silent,
+so reaching a structured response is the result.
 
 **Pipeline status.** `GET /api/admin/pipeline-status` (admin) returns the health of the whole pipeline in one read-only payload — it mutates nothing and sends no document content. It reports three things:
 

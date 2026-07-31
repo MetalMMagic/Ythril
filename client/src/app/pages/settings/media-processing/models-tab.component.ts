@@ -159,6 +159,16 @@ import { TestTarget } from './media-processing.types';
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
             <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
           }
+          @if (s.verifyOf('embedding')?.res; as v) {
+            <app-status-pill [variant]="s.verifyPillVariant(v)" [dot]="true">{{ s.verifyPillLabelKey(v) | transloco }}</app-status-pill>
+            <span class="hint" [attr.title]="v.detail || v.sample || null">{{ v.sample || v.detail || (v.latencyMs + ' ms') }}</span>
+          }
+          <button class="btn btn-sm btn-secondary" type="button"
+            [attr.title]="'mediaProcessing.verify.hint' | transloco"
+            [disabled]="s.verifyOf('embedding')?.loading"
+            (click)="s.verifyModel('embedding')">
+            {{ (s.verifyOf('embedding')?.loading ? 'mediaProcessing.verify.running' : 'mediaProcessing.verify.action') | transloco }}
+          </button>
           @if (s.cardDirty('embedding')) {
             <button class="btn btn-sm btn-primary card-save" type="button"
               [disabled]="s.saving()" (click)="s.saveCard('embedding')">
@@ -318,6 +328,16 @@ import { TestTarget } from './media-processing.types';
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
             <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
           }
+          @if (s.verifyOf('vision')?.res; as v) {
+            <app-status-pill [variant]="s.verifyPillVariant(v)" [dot]="true">{{ s.verifyPillLabelKey(v) | transloco }}</app-status-pill>
+            <span class="hint" [attr.title]="v.detail || v.sample || null">{{ v.sample || v.detail || (v.latencyMs + ' ms') }}</span>
+          }
+          <button class="btn btn-sm btn-secondary" type="button"
+            [attr.title]="'mediaProcessing.verify.hint' | transloco"
+            [disabled]="s.verifyOf('vision')?.loading"
+            (click)="s.verifyModel('vision')">
+            {{ (s.verifyOf('vision')?.loading ? 'mediaProcessing.verify.running' : 'mediaProcessing.verify.action') | transloco }}
+          </button>
           @if (s.cardDirty('vision')) {
             <button class="btn btn-sm btn-primary card-save" type="button"
               [disabled]="s.saving()" (click)="s.saveCard('vision')">
@@ -366,6 +386,16 @@ import { TestTarget } from './media-processing.types';
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
             <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
           }
+          @if (s.verifyOf('stt')?.res; as v) {
+            <app-status-pill [variant]="s.verifyPillVariant(v)" [dot]="true">{{ s.verifyPillLabelKey(v) | transloco }}</app-status-pill>
+            <span class="hint" [attr.title]="v.detail || v.sample || null">{{ v.sample || v.detail || (v.latencyMs + ' ms') }}</span>
+          }
+          <button class="btn btn-sm btn-secondary" type="button"
+            [attr.title]="'mediaProcessing.verify.hint' | transloco"
+            [disabled]="s.verifyOf('stt')?.loading"
+            (click)="s.verifyModel('stt')">
+            {{ (s.verifyOf('stt')?.loading ? 'mediaProcessing.verify.running' : 'mediaProcessing.verify.action') | transloco }}
+          </button>
           @if (s.cardDirty('stt')) {
             <button class="btn btn-sm btn-primary card-save" type="button"
               [disabled]="s.saving()" (click)="s.saveCard('stt')">
@@ -423,6 +453,16 @@ import { TestTarget } from './media-processing.types';
             <app-status-pill [variant]="s.testPillVariant(r)" [dot]="true">{{ s.testPillLabelKey(r) | transloco }}</app-status-pill>
             <span class="hint" [attr.title]="r.reachable ? null : (r.detail || null)">{{ r.reachable ? (r.latencyMs + ' ms') : (r.detail || '') }}</span>
           }
+          @if (s.verifyOf('assist')?.res; as v) {
+            <app-status-pill [variant]="s.verifyPillVariant(v)" [dot]="true">{{ s.verifyPillLabelKey(v) | transloco }}</app-status-pill>
+            <span class="hint" [attr.title]="v.detail || v.sample || null">{{ v.sample || v.detail || (v.latencyMs + ' ms') }}</span>
+          }
+          <button class="btn btn-sm btn-secondary" type="button"
+            [attr.title]="'mediaProcessing.verify.hint' | transloco"
+            [disabled]="s.verifyOf('assist')?.loading"
+            (click)="s.verifyModel('assist')">
+            {{ (s.verifyOf('assist')?.loading ? 'mediaProcessing.verify.running' : 'mediaProcessing.verify.action') | transloco }}
+          </button>
           @if (s.cardDirty('assist')) {
             <button class="btn btn-sm btn-primary card-save" type="button"
               [disabled]="s.saving()" (click)="s.saveCard('assist')">

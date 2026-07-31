@@ -169,6 +169,12 @@ const ROUTE_RULES: RouteRule[] = [
   // ── Config / admin ───────────────────────────────────────────────────────
   { method: 'POST',   pattern: /^\/api\/admin\/reload-config$/,                    operation: 'config.reload' },
   { method: 'PATCH',  pattern: /^\/api\/admin\/media-config$/,                     operation: 'config.media.update' },
+  // Verify makes a REAL request to a configured model. Audited rather than exempted like the
+  // `test-connection` probe beside it, whose exemption reads "mutates nothing" — true there, and not
+  // true here. This one leaves the instance, costs money on a metered endpoint, and for the assist
+  // target it exercises the acknowledged-egress path. Which admin triggered that, and when, is worth
+  // having.
+  { method: 'POST',   pattern: /^\/api\/admin\/media-config\/verify$/,              operation: 'config.media.verify' },
   { method: 'POST',   pattern: /^\/api\/admin\/local-agent\/bootstrap$/,           operation: 'local_agent.bootstrap' },
   { method: 'POST',   pattern: /^\/api\/admin\/local-agent\/enable-networks\/execute$/, operation: 'local_agent.enable_networks' },
 

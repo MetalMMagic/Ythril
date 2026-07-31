@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-07-31
+
 ### Added
 
 - **The egress matrix is complete, and a test keeps it that way.** The guide's table of which model

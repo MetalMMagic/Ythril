@@ -2799,7 +2799,7 @@ When `strategy: "hi_res"` and `extractImages: true`, Ythril creates one extra st
 
 - **`_extracted/{originalId}/image-{N}.{ext}`** — decoded image bytes written to the space file store. `N` is a 0-based index within the document. The extension (`png`, `jpg`, etc.) is derived from the MIME type reported by the sidecar.
   - `parentFileId` is set to the original document's filemeta `_id`.
-  - The record is hidden from the file manager UI and listing endpoints by default (same as chunks and `_converted/` files).
+  - The record is hidden from the file manager UI and listing endpoints by default (same as chunks and `_converted/` files). Two independent filters implement this, and both have an opt-out: derived *records* are excluded from the file-meta listing unless `?includeChunks=true`, and the `_converted/` and `_extracted/` *directories* are excluded from the file-store listing unless `?includeDerived=true`. Only at the space root, where the pipeline writes them — a directory of your own with the same name deeper in the tree is left alone.
   - Immediately enqueued for the media embedding pipeline — the image will be captioned and face-searched automatically.
 
 This means a PDF containing five embedded photographs will produce:

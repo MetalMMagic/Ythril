@@ -14,6 +14,8 @@
  *   - instance C (no kill-switch) must still enforce the real 429
  *
  * Run: node --test testing/standalone/notify-rate-limit.test.js
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it } from 'node:test';

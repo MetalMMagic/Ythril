@@ -19,6 +19,8 @@
  * Note: Rate-limit windows are per-minute. Tests use instance C (port 3202)
  * so they don't affect tests on A and B — and any test hitting instance C
  * within a minute of this file must expect residual 429s.
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it, before } from 'node:test';

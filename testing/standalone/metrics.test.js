@@ -11,6 +11,8 @@
  *  - Active tokens gauge is non-negative
  *
  * Run: node --test testing/standalone/metrics.test.js
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it, before } from 'node:test';

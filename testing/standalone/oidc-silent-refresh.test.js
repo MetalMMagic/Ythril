@@ -11,6 +11,8 @@
  *  - The SPA's CSP allows same-origin iframing (frame-ancestors 'self')
  *
  * Run: node --test testing/standalone/oidc-silent-refresh.test.js
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it } from 'node:test';

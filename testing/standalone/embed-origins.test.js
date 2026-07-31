@@ -13,6 +13,8 @@
  *  - the running server's CSP advertises frame-ancestors 'self' by default
  *
  * Run: node --test testing/standalone/embed-origins.test.js
+ *
+ * @needs-instance — drives a live server on :3200; runs in CI, skipped by preflight.
  */
 
 import { describe, it, before } from 'node:test';

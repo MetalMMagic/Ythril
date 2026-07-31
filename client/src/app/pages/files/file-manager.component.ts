@@ -1055,22 +1055,50 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     this.dragOver.set(false);
     const files = event.dataTransfer?.files;
     if (!files || files.length === 0) return;
-    this.enqueueUploads(files);
+    void this.enqueueUploads(files);
   }
 
   onFileInput(event: Event): void {
     const input = event.target as HTMLInputElement;
     const files = input.files;
     if (!files || files.length === 0) return;
-    this.enqueueUploads(files);
+    void this.enqueueUploads(files);
     input.value = '';
   }
 
   // ── Upload queue (U12) ──────────────────────────────────────────────────────
 
-  /** Add the picked/dropped files as queued rows and kick the processor. */
-  private enqueueUploads(files: FileList): void {
-    const items: UploadItem[] = Array.from(files).map(file => ({
+  /**
+   * Add the picked/dropped files as queued rows and kick the processor.
+   *
+   * Uploading over an existing path is a REPLACE, and it takes the derived records with it: the
+   * conversion chunks, the converted Markdown, the extracted images, and any description generated from
+   * them are all dropped and rebuilt. That is the correct behaviour — stale chunks for a document that
+   * no longer exists would be worse — but it happened silently, and a drag-and-drop onto the wrong
+   * folder is an easy accident with no undo. Reported against 2.1.1.
+   *
+   * Asked once for the whole batch rather than once per file: a drop of twenty files where three
+   * collide should be one question, not three.
+   */
+  private async enqueueUploads(files: FileList): Promise<void> {
+    const picked = Array.from(files);
+    const existing = new Set(this.entries().filter(e => e.isFile).map(e => e.name));
+    const clashes = picked.filter(f => existing.has(f.name)).map(f => f.name);
+
+    if (clashes.length > 0) {
+      const ok = await this.confirmDialog.confirm({
+        title: this.transloco.translate('files.confirm.overwriteTitle'),
+        message: this.transloco.translate(
+          clashes.length === 1 ? 'files.confirm.overwriteOne' : 'files.confirm.overwriteMany',
+          { name: clashes[0], count: clashes.length, names: clashes.slice(0, 5).join(', ') },
+        ),
+        confirmLabel: this.transloco.translate('files.confirm.overwriteConfirm'),
+        danger: true,
+      });
+      if (!ok) return;
+    }
+
+    const items: UploadItem[] = picked.map(file => ({
       id: ++this.uploadSeq,
       file,
       name: file.name,

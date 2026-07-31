@@ -18,6 +18,7 @@ import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage,
 import { validateMemory } from '../../spaces/schema-validation.js';
 import type { MemoryDoc } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, buildMemoryFilter, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { classifyUpdateViolations } from './update-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 
 export const memoriesRouter = Router();
@@ -208,32 +209,47 @@ memoriesRouter.patch('/spaces/:spaceId/memories/:id', globalRateLimit, requireSp
   if (Object.keys(updates).length === 0 && !dfPaths && !ttlDaysProvided) { res.status(400).json({ error: 'At least one field must be provided' }); return; }
   const memberIds = resolveMemberSpaces(wt.target);
   for (const mid of memberIds) {
-    // Schema validation after deleteFields + merge for memories
-    if (dfPaths) {
-      const existing = await listMemories(mid, { _id: id }, 1, 0);
-      if (existing.length === 0) continue;
+    // Validate the record AS IT WILL BE, on every patch — not only when `deleteFields` is present.
+    //
+    // That branch used to be the whole of update validation, so any other patch wrote values the same
+    // space rejects at create time. Merging first is what makes the check meaningful: a required property
+    // the patch does not mention is present in the record and absent from the patch, so validating the
+    // fragment answers a question nobody asked.
+    //
+    // The read this needs is the same one the audit snapshot below needed, so it is done once and shared
+    // rather than issued twice per patch.
+    const existing = await listMemories(mid, { _id: id }, 1, 0);
+    if (existing.length === 0) continue;
+    {
       const mem = existing[0]!;
-      const resultProps = updates.properties ?? (mem.properties != null ? { ...mem.properties } : {});
+      const priorProps = mem.properties != null ? { ...mem.properties } : {};
+      const resultProps = updates.properties ?? { ...priorProps };
       const sim: Record<string, unknown> = { properties: resultProps };
-      applyDeleteFieldsPaths(sim, dfPaths);
+      if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
       const simProps = (sim['properties'] ?? {}) as Record<string, unknown>;
       const meta = getSpaceMeta(mid);
-      const violations = validateMemory(meta ?? {}, { properties: simProps });
-      const validation = applyValidation(meta, violations);
-      if (validation.blocked) {
-        res.status(422).json({ error: 'schema_violation', message: 'deleteFields + merge result violates required properties', violations: validation.warnings });
+      const check = classifyUpdateViolations(
+        meta,
+        validateMemory(meta ?? {}, { type: mem.type, properties: priorProps }),
+        validateMemory(meta ?? {}, { type: mem.type, properties: simProps }),
+      );
+      if (check.blocked) {
+        res.status(422).json({
+          error: 'schema_violation',
+          message: check.message,
+          violations: check.all,
+          introduced: check.introduced,
+          preExisting: check.preExisting,
+        });
         return;
       }
     }
-    // Snapshot for the audit change list. One extra read, on the interactive single-record path only —
-    // bulk writes go through `bulk.write`, which has no allowlist, and peer sync never reaches this
-    // route at all. `audit-changes.ts` reads only the allowlisted fields, so handing the whole record
-    // over cannot publish `properties` (deliberately unlisted: its keys are user-chosen and could hold
-    // a pasted credential).
-    const prior = await listMemories(mid, { _id: id }, 1, 0);
+    // Snapshot for the audit change list, taken from the read above. `audit-changes.ts` reads only the
+    // allowlisted fields, so handing the whole record over cannot publish `properties` (deliberately
+    // unlisted: its keys are user-chosen and could hold a pasted credential).
     const updated = await updateMemory(mid, id, updates, dfPaths, webhookToken(req), ttlDaysFromBody(req.body));
     if (updated) {
-      req.auditSnapshots = { before: prior[0] ?? {}, after: updated };
+      req.auditSnapshots = { before: existing[0] ?? {}, after: updated };
       res.json(updated);
       return;
     }

@@ -9,7 +9,11 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { validateDeleteFields } from '../../brain/delete-fields.js';
 import { findEntitiesByIds } from '../../brain/entities.js';
 import { assertRefsResolve, UUID_V4_PATTERN } from '../../brain/entity-refs.js';
-import { deleteMemory, remember, updateMemory } from '../../brain/memory.js';
+import { deleteMemory, listMemories, remember, updateMemory } from '../../brain/memory.js';
+import { applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
+// The API layer's write gate, imported rather than reimplemented: `update_chrono` once shipped without
+// the allowlist `create_chrono` enforced, and two copies of a validation rule is how that happens.
+import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../api/brain/update-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { resolveWriteTarget, findFirstAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';
@@ -189,6 +193,21 @@ export const update_memoryTool: ToolHandler = {
 
     const ttlDays = ttlDaysFromArgs(a);
     if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of fact, tags, entityIds, description, properties, deleteFields, or ttlDays must be provided');
+
+    // Validate the memory AS IT WILL BE, against the meta of the member space it actually lives in.
+    // This path had no schema validation at all, so an agent could write through MCP a value the same
+    // space refuses at `remember` time — and, since #571, one the REST route refuses too.
+    const found = await locateForUpdate(wt.target, async mid => (await listMemories(mid, { _id: id }, 1, 0))[0]);
+    if (found) {
+      const priorProps = (found.record.properties ?? {}) as Record<string, unknown>;
+      const sim: Record<string, unknown> = { properties: updates.properties ?? { ...priorProps } };
+      if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
+      assertUpdateAllowed(classifyUpdateViolations(
+        found.meta,
+        validateMemory(found.meta ?? {}, { type: found.record.type, properties: priorProps }),
+        validateMemory(found.meta ?? {}, { type: found.record.type, properties: (sim['properties'] ?? {}) as Record<string, unknown> }),
+      ));
+    }
 
     // Search member spaces sequentially — consistent with REST endpoint behaviour.
     const updated = await findFirstAcrossMembers(wt.target, mid => updateMemory(mid, id, updates, dfPaths, ctx.actor, ttlDays));

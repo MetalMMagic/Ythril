@@ -14,6 +14,7 @@ import { resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembe
 import { validateChrono, getAllowedChronoTypes } from '../../spaces/schema-validation.js';
 import type { ChronoStatus } from '../../config/types.js';
 import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { classifyUpdateViolations } from './update-validation.js';
 import { resolveEntityIdsByName } from '../../brain/entities.js';
 
 export const chronoRouter = Router();
@@ -226,6 +227,31 @@ chronoRouter.patch('/spaces/:spaceId/chrono/:id', globalRateLimit, requireSpaceA
   // Snapshot for the audit change list — see the note in memories.ts. Read before the write, since
   // `updateChrono` returns only the new document.
   const prior = await findFirstAcrossMembers(wt.target, mid => getChronoById(mid, id));
+
+  // Validate the entry AS IT WILL BE. This path had NO property validation at all — the `type` allowlist
+  // above was the whole of it — so a patch could write a property the same space rejects at create time.
+  // Merging first is what makes the check meaningful: a required property the patch does not mention is
+  // present in the record and absent from the patch.
+  if (prior) {
+    const meta = getSpaceMeta(wt.target);
+    const priorProps = (prior.properties ?? {}) as Record<string, unknown>;
+    const check = classifyUpdateViolations(
+      meta,
+      validateChrono(meta ?? {}, { type: prior.type, properties: priorProps }),
+      validateChrono(meta ?? {}, { type: type ?? prior.type, properties: safeProps ?? priorProps }),
+    );
+    if (check.blocked) {
+      res.status(422).json({
+        error: 'schema_violation',
+        message: check.message,
+        violations: check.all,
+        introduced: check.introduced,
+        preExisting: check.preExisting,
+      });
+      return;
+    }
+  }
+
   const updated = await findFirstAcrossMembers(wt.target, mid => updateChrono(mid, id, {
     title, type, startsAt, endsAt, status, confidence,
     tags, entityIds, memoryIds, description, properties: safeProps, recurrence: safeRecurrence,

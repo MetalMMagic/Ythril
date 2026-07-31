@@ -1,7 +1,9 @@
 import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.js';
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs, uuidSchema, unitScoreSchema } from './shared.js';
-import { validateDeleteFields } from '../../brain/delete-fields.js';
-import { findEntitiesByName, updateEntityById, upsertEntity } from '../../brain/entities.js';
+import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
+import { findEntitiesByName, getEntityById, updateEntityById, upsertEntity } from '../../brain/entities.js';
+// The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
+import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../api/brain/update-validation.js';
 import { type PropertyResolution, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
 import { getConfig } from '../../config/loader.js';
 import { isProxySpace, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
@@ -133,6 +135,35 @@ export const update_entityTool: ToolHandler = {
     }
     const ttlDays = ttlDaysFromArgs(a);
     if (Object.keys(updates).length === 0 && !dfPaths && ttlDays === undefined) throw new Error('At least one of name, type, description, tags, properties, deleteFields, or ttlDays must be provided');
+
+    // Validate the entity AS IT WILL BE, against the meta of the member space it actually lives in. This
+    // path had no schema validation at all, so `type` could be moved outside the allowlist that
+    // `upsert_entity` enforces on the very same record.
+    const found = await locateForUpdate(wt.target, mid => getEntityById(mid, id));
+    if (found) {
+      const prior = found.record;
+      const resultTags = updates.tags !== undefined
+        ? Array.from(new Set([...(prior.tags ?? []), ...updates.tags]))
+        : prior.tags ?? [];
+      const sim: Record<string, unknown> = {
+        properties: updates.properties !== undefined
+          ? { ...(prior.properties ?? {}), ...updates.properties }
+          : { ...(prior.properties ?? {}) },
+        tags: resultTags,
+      };
+      if (dfPaths) applyDeleteFieldsPaths(sim, dfPaths);
+      assertUpdateAllowed(classifyUpdateViolations(
+        found.meta,
+        validateEntity(found.meta ?? {}, { name: prior.name, type: prior.type, properties: prior.properties ?? {}, tags: prior.tags ?? [] }),
+        validateEntity(found.meta ?? {}, {
+          name: updates.name ?? prior.name,
+          type: updates.type ?? prior.type,
+          properties: (sim['properties'] ?? {}) as Record<string, unknown>,
+          tags: sim['tags'] as string[],
+        }),
+      ));
+    }
+
     const updatedEnt = await findFirstAcrossMembers(wt.target, mid => updateEntityById(mid, id, updates, dfPaths, ctx.actor, ttlDays));
     if (!updatedEnt) throw new Error(`Entity '${id}' not found`);
     return {

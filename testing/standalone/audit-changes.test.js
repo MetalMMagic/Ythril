@@ -303,6 +303,17 @@ describe('audit changes — file meta and entity merge (the two held back from s
       [{ field: 'absorbedName', from: 'Acme Corp', to: null }]);
   });
 
+  /**
+   * A real before-snapshot: `before` reads a variable holding the pre-write record, not `{}`.
+   *
+   * The identifier is not pinned. It used to be spelled `prior` everywhere, and #571 folded that read
+   * into the one update validation already needed — renaming it to `existing` and breaking four
+   * assertions that were checking a variable NAME while claiming to check that the snapshot exists. The
+   * property worth holding is "before comes from a read", so that is what this matches; `before: {}`
+   * still fails, which is the mutation that matters.
+   */
+  const SNAPSHOT = /req\.auditSnapshots = \{ before: [A-Za-z_$][\w$]*(?:\[0\])? \?\? \{\}, after: updated \}/;
+
   it('both routes actually supply snapshots — checked per SITE, not per file', () => {
     // The #471 rule: an allowlist with no route behind it records nothing while claiming coverage.
     //
@@ -310,25 +321,22 @@ describe('audit changes — file meta and entity merge (the two held back from s
     // file-level "does it mention auditSnapshots" check passes when either one is deleted — mutation
     // proved it, by removing the PATCH snapshot while every test stayed green.
     const entities = read('server/src/api/brain/entities.ts');
-    assert.match(entities, /req\.auditSnapshots = \{ before: prior \?\? \{\}, after: updated \}/,
-      'entity.update must snapshot around its PATCH');
+    assert.match(entities, SNAPSHOT, 'entity.update must snapshot around its PATCH');
     assert.match(entities, /before: \{ absorbedName: absorbed\.name \}/,
       'entity.merge must snapshot the absorbed name');
 
-    assert.match(read('server/src/api/brain/file-meta.ts'),
-      /req\.auditSnapshots = \{ before: prior \?\? \{\}, after: updated \}/);
+    assert.match(read('server/src/api/brain/file-meta.ts'), SNAPSHOT);
   });
 
   it('every record route that was wired still has its snapshot', () => {
     // Derived rather than enumerated, same lesson as the If-Match coverage fix: a per-file check rots
     // the moment a file gains a second site.
-    const WIRED = {
-      'server/src/api/brain/memories.ts': /req\.auditSnapshots = \{ before: prior\[0\] \?\? \{\}, after: updated \}/,
-      'server/src/api/brain/edges.ts': /req\.auditSnapshots = \{ before: prior \?\? \{\}, after: updated \}/,
-      'server/src/api/brain/chrono.ts': /req\.auditSnapshots = \{ before: prior \?\? \{\}, after: updated \}/,
-    };
-    for (const [file, pattern] of Object.entries(WIRED)) {
-      assert.match(read(file), pattern, `${file} lost its audit snapshot`);
+    for (const file of [
+      'server/src/api/brain/memories.ts',
+      'server/src/api/brain/edges.ts',
+      'server/src/api/brain/chrono.ts',
+    ]) {
+      assert.match(read(file), SNAPSHOT, `${file} lost its audit snapshot`);
     }
   });
 

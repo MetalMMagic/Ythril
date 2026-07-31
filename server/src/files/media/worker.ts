@@ -45,7 +45,7 @@ import { col, asFilter } from '../../db/mongo.js';
 import type { FileMetaDoc } from '../../config/types.js';
 import { updateFileMeta, markFileMetaDeleted } from '../file-meta.js';
 import { mimeTypeForPath } from '../mime.js';
-import { summariseMarkdown } from '../converters/summarise.js';
+import { describeDocument } from '../converters/describe.js';
 import {
   runConversionPipeline,
   storeConversionResults,
@@ -312,6 +312,11 @@ async function processJob(
 
     // Run the appropriate embedder
     let derivedDescription: string | undefined;
+    // What produced `derivedDescription`, and the document's own opening prose when there is one. Both are
+    // written to the parent record: "generated" is a claim about provenance, and the extractive text is
+    // what keeps a phrase remembered FROM the document able to find the parent.
+    let derivedSource: 'generated' | 'extracted' | undefined;
+    let derivedExcerpt: string | undefined;
     // Final file embeddingStatus for a job that completes without retrying. Text
     // conversion may embed some chunks and fail others; a partial result is recorded
     // as 'partial' (not 'complete') so it stays visible and retry-eligible (B3).
@@ -319,6 +324,10 @@ async function processJob(
     switch (mediaType) {
       case 'image':
         derivedDescription = await embedImage(spaceId, fileId, fileBytes, mimeType, providers.vision);
+        // A caption IS model output, so the record says so. It was the reference point for the whole
+        // complaint — the images carried generated captions while the parent carried a truncation — and it
+        // had no provenance of its own either.
+        if (derivedDescription) derivedSource = 'generated';
         break;
       case 'audio': {
         // A chunk that failed to transcribe makes this PARTIAL, never complete. The count used to be
@@ -384,7 +393,15 @@ async function processJob(
           // when the operator has not written one, and re-embedded so it is searchable. Images set it;
           // documents never did. This is the same "the rule exists one branch over" shape as the audio
           // `partial` status.
-          derivedDescription = summariseMarkdown(convertedMarkdown, chunks);
+          //
+          // It was EXTRACTIVE — the head of the converted text — while the release note called it
+          // generated, and on an invoice the head of the text is a payment reference cut mid-identifier.
+          // `describeDocument` asks the model that already reads these files what the file IS, keeps the
+          // document's own opening prose as the excerpt either way, and reports which one it produced.
+          const described = await describeDocument(convertedMarkdown, chunks);
+          derivedDescription = described.text;
+          derivedSource = described.source;
+          derivedExcerpt = described.excerpt;
           await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
             asFilter<FileMetaDoc>({ _id: fileId }),
             { $set: metaUpdate },
@@ -408,16 +425,24 @@ async function processJob(
         throw new Error(`Unknown mediaType: ${String(mediaType)}`);
     }
 
-    // Write AI-generated caption to parent file meta description if not already set by user.
-    // This also re-embeds the parent file meta so the caption is searchable on the file itself.
-    if (derivedDescription) {
+    // Write the derived description to the parent file meta if the user has not set one.
+    // This also re-embeds the parent file meta so the description is searchable on the file itself.
+    if (derivedDescription || derivedExcerpt) {
       const parentMeta = await col<FileMetaDoc>(`${spaceId}_files`).findOne(
         asFilter<FileMetaDoc>({ _id: fileId }),
         { projection: { description: 1 } },
       );
-      if (!parentMeta?.description?.trim()) {
-        await updateFileMeta(spaceId, filePath, { description: derivedDescription }).catch(err =>
-          log.warn(`Media worker: failed to write caption to file meta ${spaceId}/${fileId}: ${err instanceof Error ? err.message : String(err)}`),
+      const operatorWrote = !!parentMeta?.description?.trim();
+      // The excerpt goes in even when a person has written their own description: it is the document's own
+      // text, not a competing summary, and it is what makes a remembered phrase find this record. Only the
+      // description itself is theirs to keep.
+      const update = {
+        ...(operatorWrote || !derivedDescription ? {} : { description: derivedDescription, descriptionSource: derivedSource }),
+        ...(derivedExcerpt ? { excerpt: derivedExcerpt } : {}),
+      };
+      if (Object.keys(update).length > 0) {
+        await updateFileMeta(spaceId, filePath, update).catch(err =>
+          log.warn(`Media worker: failed to write description to file meta ${spaceId}/${fileId}: ${err instanceof Error ? err.message : String(err)}`),
         );
       }
     }

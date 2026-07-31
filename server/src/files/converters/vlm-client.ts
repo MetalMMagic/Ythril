@@ -199,6 +199,33 @@ export async function reconcileConsensus(
   );
 }
 
+const DESCRIBE_PROMPT =
+  'You are writing a one-paragraph description of a document, for a file listing. Say what KIND of ' +
+  'document it is, who it is between or from, its date if one is stated, and what it concerns. Two ' +
+  'sentences at most, plain prose, no Markdown, no heading, no preamble, no bullet points. Use ONLY facts ' +
+  'stated in the text below: if something is not there, leave it out — do not guess and do not describe ' +
+  'what the document might be. Answer with the description only.';
+
+/**
+ * Describe a document in one short paragraph — text-only, and the same call for either target.
+ *
+ * The slot is the caller's to choose because that is what decides the egress policy: the local document
+ * model (`docRepair`, the text-only document slot) or the operator's acknowledged assist model (`assist`).
+ * Both already receive document text on the repair path, so this adds no new egress surface — which is the
+ * reason it is one function taking a target rather than a local/external pair like `repairMarkdown*`.
+ *
+ * Throws on unreachable/HTTP error, like every other call here, so the caller falls back.
+ */
+export async function describeDocumentText(
+  opts: VlmTarget & { text: string; slot?: EgressSlot },
+): Promise<VlmTranscription> {
+  return postChat(
+    asEndpoint(opts, opts.slot ?? 'docRepair'),
+    [{ role: 'user', content: `${DESCRIBE_PROMPT}\n\n--- DOCUMENT ---\n${opts.text}` }],
+    opts.timeoutMs ?? 60_000,
+  );
+}
+
 /** Build the shared repair user-message content (draft + OCR evidence + flagged issues). */
 function repairContent(draft: string, evidence: string, issues?: string[]): string {
   const flagged = issues?.length ? `\n\nValidation flagged: ${issues.join('; ')}.` : '';

@@ -587,6 +587,14 @@
   "files.detail.previewTab": "Preview & description",
   "files.detail.metaTab": "File meta",
   "files.detail.description": "Description",
+
+  "files.detail.descriptionSource.generated": "generated",
+
+  "files.detail.descriptionSource.generatedHint": "Written by the model configured for documents, from the file's own text. It has not been checked by a person.",
+
+  "files.detail.descriptionSource.extracted": "from the document",
+
+  "files.detail.descriptionSource.extractedHint": "The opening of the document's own text, taken verbatim — no model was configured to write a description.",
   "files.detail.metaSaved": "Metadata saved.",
   "files.detail.retryQueued": "Re-embedding queued.",
   "files.detail.retryFailed": "Retry failed:",

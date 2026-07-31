@@ -1457,6 +1457,25 @@ export interface FileMetaDoc {
   spaceId: string;
   path: string;         // same as _id — carried as a queryable field
   description?: string; // human-readable summary (optional)
+  /**
+   * Where `description` came from, when the instance wrote it rather than a person.
+   *
+   * `generated` = a model answered "what is this file?"; `extracted` = the document's own opening prose,
+   * taken verbatim, which is what an instance with no model configured produces. Absent for a description
+   * a human wrote, and for records written before the field existed.
+   *
+   * It exists because "generated" is a claim about provenance: the release note said generated while the
+   * value was a truncation of the first paragraph, and nothing in the record could tell the two apart.
+   */
+  descriptionSource?: 'generated' | 'extracted';
+  /**
+   * The document's own opening prose — never invented, and an embedding input in its own right.
+   *
+   * Kept alongside a generated `description` because the two are wanted for different things: the
+   * description answers what the file IS, the excerpt is what makes a remembered phrase from the document
+   * find the parent record. Only present on converted documents.
+   */
+  excerpt?: string;
   tags: string[];       // tags for filtering and recall scoping
   entityIds?: string[];  // linked entity IDs
   chronoIds?: string[];  // linked chrono entry IDs

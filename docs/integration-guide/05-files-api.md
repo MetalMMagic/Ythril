@@ -241,6 +241,28 @@ retries are exhausted). Once complete, the record carries `chunkCount` and (for 
 `convertedFileId`, and the chunk records are recall-searchable. To see the chunks themselves, pass
 `?includeChunks=true` — they are hidden by default (see below).
 
+**The parent record also gains a description**, so the file a person actually opens is findable by more
+than its name:
+
+| field | what it is |
+|---|---|
+| `description` | one short paragraph answering *what is this file?* — kind of document, parties, date, subject |
+| `descriptionSource` | `generated` when a model wrote it, `extracted` when it is the opening of the document's own text. **Absent** when a person wrote the description themselves |
+| `excerpt` | the document's own opening prose, verbatim. Present whatever `descriptionSource` says, and an embedding input in its own right |
+
+> **Why both.** The description answers what the file *is*; the excerpt is what makes a phrase a reader
+> remembers *from the document* find the parent record. The description used to be the excerpt — the head
+> of the converted text — which on an invoice is a payment reference cut mid-identifier.
+>
+> **`generated` is a claim, so it is recorded rather than assumed.** An instance with no document model
+> configured produces the extractive text and says `extracted`; it is better than nothing, and it is not
+> generated. A `PATCH` that sets `description` without declaring a source clears the field, because the
+> words are then the caller's own.
+>
+> The text is sent to the local document model, or to the assist model **only when its egress host is
+> acknowledged** — the same gate the repair pass applies, re-checked at call time. Neither slot receives
+> anything it would not already receive on the repair path.
+
 **While a file is in flight the record also carries step progress**, so a caller can report *which
 stage* is running rather than just that something is:
 

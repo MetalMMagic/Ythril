@@ -336,6 +336,10 @@ function xlsxCellText(v: unknown): string {
     .detail-desc { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
     .detail-desc h4 { margin: 0 0 6px; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
     .detail-desc p { margin: 0; white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+    /* Provenance sits inside the heading, quieter than it: it qualifies the description rather than
+       announcing itself. Lower-case against the upper-case heading so it reads as an aside. */
+    .detail-desc .desc-src { margin-left: 8px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 10px;
+      font-size: 0.92em; text-transform: none; letter-spacing: 0; color: var(--text-muted); cursor: help; }
     .detail-meta-form .field { margin-bottom: 12px; }
     .detail-meta-form label { display: block; margin-bottom: 4px; font-size: 0.8em; color: var(--text-muted); }
     .detail-meta-form textarea { width: 100%; resize: vertical; }
@@ -697,7 +701,15 @@ function xlsxCellText(v: unknown): string {
                   </div>
                   @if (selectedMeta()?.description) {
                     <div class="detail-desc">
-                      <h4>{{ 'files.detail.description' | transloco }}</h4>
+                      <h4>
+                        {{ 'files.detail.description' | transloco }}
+                        <!-- Whose words these are. The release note said "generated" while the value was
+                             the head of the document's own text, and nothing on screen could tell them
+                             apart; a description a person typed carries no badge at all. -->
+                        @if (selectedMeta()!.descriptionSource; as src) {
+                          <span class="desc-src" [attr.title]="'files.detail.descriptionSource.' + src + 'Hint' | transloco">{{ 'files.detail.descriptionSource.' + src | transloco }}</span>
+                        }
+                      </h4>
                       <p>{{ selectedMeta()!.description }}</p>
                     </div>
                   }

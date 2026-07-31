@@ -134,6 +134,10 @@ export async function updateFileMeta(
     chronoIds?: string[];
     memoryIds?: string[];
     properties?: Record<string, string | number | boolean>;
+    /** Provenance of an instance-written description. Omit when a human wrote it — see `FileMetaDoc`. */
+    descriptionSource?: 'generated' | 'extracted';
+    /** A converted document's own opening prose. Kept whatever the description says, and embedded. */
+    excerpt?: string;
   },
 ): Promise<FileMetaDoc | null> {
   const normalised = toDocId(filePath);
@@ -144,27 +148,40 @@ export async function updateFileMeta(
   const descForEmbed = opts.description !== undefined ? opts.description : existing.description;
   const tagsForEmbed = opts.tags !== undefined ? opts.tags : existing.tags;
   const propsForEmbed = opts.properties !== undefined ? opts.properties : existing.properties;
+  // Falls back to the stored value like every other embedding input: an unrelated edit — a tag, a link —
+  // re-embeds the record, and reading the excerpt only from `opts` would silently drop the document's own
+  // text out of the embedding on the first tag change after conversion.
+  const excerptForEmbed = opts.excerpt !== undefined ? opts.excerpt : existing.excerpt;
   // Use the incoming entityIds if being updated, otherwise fall back to existing
   const entityIdsForEmbed: string[] = opts.entityIds !== undefined ? opts.entityIds : (existing.entityIds ?? []);
   const entityNames = await resolveEntityNames(spaceId, entityIdsForEmbed);
   let embeddingFields: { embedding?: number[]; embeddingModel?: string; matchedText?: string } = {};
   try {
-    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed, propsForEmbed, entityNames);
+    const embedText = fileEmbedText(normalised, tagsForEmbed, descForEmbed, propsForEmbed, entityNames, excerptForEmbed);
     const embResult = await embed(embedText);
     embeddingFields = { embedding: embResult.vector, embeddingModel: embResult.model, matchedText: embedText };
   } catch { /* best-effort */ }
 
   const $set: Record<string, unknown> = { updatedAt: now, ...embeddingFields };
   if (opts.description !== undefined) $set['description'] = opts.description;
+  if (opts.descriptionSource !== undefined) $set['descriptionSource'] = opts.descriptionSource;
+  if (opts.excerpt !== undefined) $set['excerpt'] = opts.excerpt;
   if (opts.tags !== undefined) $set['tags'] = opts.tags;
   if (opts.entityIds !== undefined) $set['entityIds'] = opts.entityIds;
   if (opts.chronoIds !== undefined) $set['chronoIds'] = opts.chronoIds;
   if (opts.memoryIds !== undefined) $set['memoryIds'] = opts.memoryIds;
   if (opts.properties !== undefined) $set['properties'] = opts.properties;
 
+  // A description written WITHOUT declaring a source is a person's own words — the API and the UI edit
+  // it that way — so the old provenance has to go with it. Leaving a stale `generated` behind would have
+  // the record claim a model wrote what an operator just typed, which is the one thing this field exists
+  // to stop being ambiguous.
+  const $unset: Record<string, ''> = {};
+  if (opts.description !== undefined && opts.descriptionSource === undefined) $unset['descriptionSource'] = '';
+
   await col<FileMetaDoc>(`${spaceId}_files`).updateOne(
     asFilter<FileMetaDoc>({ _id: normalised }),
-    asUpdate<FileMetaDoc>({ $set }),
+    asUpdate<FileMetaDoc>(Object.keys($unset).length > 0 ? { $set, $unset } : { $set }),
   );
 
   // Face recognition side-effects when entity links change.

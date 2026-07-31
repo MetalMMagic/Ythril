@@ -127,6 +127,54 @@ describe('probeModelEndpoint', () => {
     assert.equal(r.ok, true, 'not listing a name is not a failure — routers do it deliberately');
   });
 
+  // ── What a non-200 is allowed to mean (B.2) ────────────────────────────────
+  //
+  // Every status that was not `ok` became `reachable: false`, so a 404 on the list path read exactly like
+  // a refused connection. The reporting deployment's speech-to-text endpoint serves exactly one route,
+  // `POST /v1/audio/transcriptions`: the probe asked for an enumeration surface, got a 404, and the card
+  // went red over a pipeline whose Verify was green. A 404 on a path the slot never calls is not
+  // information about the slot.
+
+  it('THE REPORTED BUG: an endpoint with no model-list route is reachable, not down', async () => {
+    state.v1 = 404; state.tags = 404;
+    const r = await probeModelEndpoint({ baseUrl: base, model: 'Systran/faster-whisper-large-v3', external: false });
+    assert.equal(r.verdict, 'not-enumerable');
+    assert.equal(r.reachable, true, 'the endpoint ANSWERED — twice');
+    assert.equal(r.ok, true, 'having no listing surface is not a fault');
+    assert.equal(r.status, 404);
+    assert.match(r.detail, /no model list/i, 'and it has to say why, or the operator sees a bare green dot');
+    state.v1 = 200; state.tags = 200;
+  });
+
+  it('a rejected credential stays a fault, and says so', async () => {
+    // Inference presents the same key, so this one really is broken — but "unreachable" would send the
+    // operator to the network when the fix is the API key field two rows above.
+    state.v1 = 401; state.tags = 401;
+    const r = await probeModelEndpoint({ baseUrl: base, model: 'gpt-4o', apiKey: 'wrong', external: false });
+    assert.equal(r.verdict, 'auth-rejected');
+    assert.equal(r.ok, false);
+    assert.match(r.detail, /credential/i);
+    state.v1 = 200; state.tags = 200;
+  });
+
+  it('a 5xx stays a fault — that is about the endpoint, not about the path', async () => {
+    state.v1 = 503; state.tags = 503;
+    const r = await probeModelEndpoint({ baseUrl: base, model: 'gpt-4o', external: false });
+    assert.equal(r.verdict, 'erroring');
+    assert.equal(r.reachable, false, 'answering with 503 is not being usable');
+    assert.equal(r.ok, false);
+    state.v1 = 200; state.tags = 200;
+  });
+
+  it('a 404 on one wire does not mask a real fault on the other', async () => {
+    // The ladder is ordered by what each status proves, and a rejected credential outranks a missing
+    // route: one of them will break inference and the other will not.
+    state.v1 = 404; state.tags = 403;
+    const r = await probeModelEndpoint({ baseUrl: base, model: 'x', external: false });
+    assert.equal(r.verdict, 'auth-rejected');
+    state.v1 = 200; state.tags = 200;
+  });
+
   it('reports unreachable when nothing responds, and names the URL it tried', async () => {
     const r = await probeModelEndpoint({ baseUrl: 'http://127.0.0.1:1', model: 'x', external: false });
     assert.equal(r.ok, false);

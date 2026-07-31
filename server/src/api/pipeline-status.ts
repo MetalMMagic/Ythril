@@ -32,7 +32,7 @@ import { isSsrfSafeUrl } from '../util/ssrf.js';
 import {
   allowPrivateForSlot, EGRESS_SLOTS, isLocalModelEndpoint, type EgressSlot,
 } from '../config/model-egress-policy.js';
-import { probeModelEndpoint } from './media-config.js';
+import { probeModelEndpoint, type ProbeVerdict } from './media-config.js';
 import { resolveVlmEndpoint, type VlmWire } from '../files/converters/vlm-endpoint.js';
 import { getDb } from '../db/mongo.js';
 import { faceRecognitionAllowed } from '../files/converters/media-level.js';
@@ -50,9 +50,12 @@ const SIDECAR_TIMEOUT_MS = 3_000;
 
 /** Why a thing is not green. Not a boolean, because "never configured" is not a fault. */
 export type HealthState =
-  | 'ok'            // reachable, and the configured model was listed
-  | 'degraded'      // reachable, but the configured model was NOT listed
-  | 'down'          // configured, and did not respond
+  | 'ok'            // the endpoint answered, and nothing establishes that inference will fail
+  // Reachable, and something the probe SAW says the configured call will fail anyway — today, an endpoint
+  // answering on the other wire. (It used to mean "the model was not listed", which is not a finding at
+  // all: routers and gateways deliberately do not enumerate the names they serve.)
+  | 'degraded'
+  | 'down'          // configured, and either nothing answered or what answered was a real fault
   | 'blocked'       // an external endpoint that fails the SSRF policy — never probed
   | 'off'           // deliberately disabled
   | 'unconfigured'; // nothing set, so nothing to be wrong
@@ -151,10 +154,15 @@ export interface StageSpec {
   external: boolean;
 }
 
-/** What a probe of one endpoint concluded. `blocked` is a refusal to probe, not a failed probe. */
+/**
+ * What a probe of one endpoint concluded. `blocked` is a refusal to probe, not a failed probe.
+ *
+ * `verdict` is the field to branch on — see `ProbeVerdict`. `reachable` cannot express the distinction
+ * that matters here, because "answered with a 404 on the list path" and "did not answer" were both false.
+ */
 export type ProbeOutcome =
   | { blocked: true }
-  | { reachable: boolean; models?: string[]; detail?: string; latencyMs: number };
+  | { reachable: boolean; verdict: ProbeVerdict; status?: number; models?: string[]; detail?: string; latencyMs: number };
 
 /**
  * Every model-backed stage there is. The canonical enumeration.
@@ -295,7 +303,33 @@ export function classifyStage(s: StageSpec, res: ProbeOutcome | undefined): Mode
   if (!s.baseUrl) return { ...base, state: 'ok', detail: 'in-process' };
   if (!res) return { ...base, state: 'unconfigured' };
   if ('blocked' in res) return { ...base, state: 'blocked', detail: 'endpoint is not a public http(s) URL (SSRF-blocked)' };
+
+  // Nothing usable answered — down, whatever else the outcome carries. (`erroring`, a 5xx, sets this: the
+  // server is present and broken, which is about the endpoint rather than about the path.)
   if (!res.reachable) return { ...base, state: 'down', latencyMs: res.latencyMs, detail: res.detail };
+
+  // It answered. From here the dot depends on WHAT it answered — the probe ranks that (see `ProbeVerdict`)
+  // and this reads the ranking rather than re-deriving it from a boolean.
+
+  // A rejected credential is red even though the endpoint answered: inference presents the same one.
+  if (res.verdict === 'auth-rejected') {
+    return { ...base, state: 'down', latencyMs: res.latencyMs, detail: res.detail };
+  }
+
+  // No model-list route. This used to be `down` and should never have been: a 404 on the enumeration path
+  // says nothing about the route this stage actually calls, and it pinned a red dot on a transcription
+  // service that was working — a slot whose endpoint serves exactly one path can never satisfy a list probe.
+  if (res.verdict === 'not-enumerable') {
+    return { ...base, state: 'ok', latencyMs: res.latencyMs, detail: res.detail };
+  }
+
+  // Answered on the OTHER wire. The probe knows inference will use the protocol this one did NOT answer,
+  // and it said so — but that verdict was dropped here, so a stage whose provider type is set wrong showed
+  // a plain green dot with the explanation discarded. It is the one case where the endpoint answered and a
+  // failure is nonetheless established, which is what `degraded` is for.
+  if (res.verdict === 'listed' && res.detail) {
+    return { ...base, state: 'degraded', latencyMs: res.latencyMs, detail: res.detail };
+  }
 
   // The endpoint answered — but does it serve the model this stage names? Ollama tags carry a `:tag`
   // suffix, so an exact match or a `<model>:` prefix both count. An endpoint that lists nothing is not
@@ -353,7 +387,7 @@ async function probeModelStages(): Promise<ModelStageStatus[]> {
     // `/v1/models` first, which is right for four targets and wrong for the one whose base already
     // carries `/v1` — producing `/v1/v1/models` and a red dot over a working vision pipeline.
     const res = await probeModelEndpoint({ baseUrl: baseUrl!, apiKey, external, wire: group[0].wire, slot })
-      .catch(err => ({ reachable: false, detail: err instanceof Error ? err.message : String(err), latencyMs: 0 }));
+      .catch(err => ({ reachable: false, verdict: 'unreachable' as const, detail: err instanceof Error ? err.message : String(err), latencyMs: 0 }));
     results.set(id, res);
   }));
 

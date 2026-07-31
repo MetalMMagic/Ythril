@@ -25,7 +25,9 @@ const {
 } = await import('../../server/dist/api/pipeline-status.js');
 
 const stage = (over = {}) => ({ key: 'vision', label: 'Vision', model: 'moondream', baseUrl: 'http://ollama:11434', external: false, ...over });
-const up = (models, over = {}) => ({ reachable: true, models, latencyMs: 12, ...over });
+// Mirrors what `probeModelEndpoint` really returns, `verdict` included — a helper that omits it would
+// exercise a shape production never produces.
+const up = (models, over = {}) => ({ reachable: true, verdict: 'listed', models, latencyMs: 12, ...over });
 
 describe('classifyStage — the three failures that all look like "nothing was extracted"', () => {
   it('reachable and serving the model is the only ok', () => {
@@ -52,9 +54,53 @@ describe('classifyStage — the three failures that all look like "nothing was e
   });
 
   it('configured but unreachable is down, and carries the reason', () => {
-    const r = classifyStage(stage(), { reachable: false, detail: 'connect ECONNREFUSED', latencyMs: 5 });
+    const r = classifyStage(stage(), { reachable: false, verdict: 'unreachable', detail: 'connect ECONNREFUSED', latencyMs: 5 });
     assert.equal(r.state, 'down');
     assert.equal(r.detail, 'connect ECONNREFUSED');
+  });
+
+  // ── B.2: a 404 on a path the slot never calls is not information about the slot ──
+
+  it('THE REPORTED BUG: an endpoint with no model-list route is ok, not down', () => {
+    // Their speech-to-text service serves exactly one route, `POST /v1/audio/transcriptions`. The probe
+    // asked for an enumeration surface, got a 404, and the card went red — while Verify, which sends
+    // generated silence down the real path, was green. The endpoint answered; it just cannot answer THAT.
+    const r = classifyStage(stage({ key: 'stt', label: 'Speech-to-text', model: 'faster-whisper-large-v3' }), {
+      reachable: true, verdict: 'not-enumerable', status: 404, latencyMs: 9,
+      detail: 'endpoint answered HTTP 404 at http://whisper:8000/v1/models — it serves no model list',
+    });
+    assert.equal(r.state, 'ok');
+    assert.match(r.detail, /no model list/, 'green with no explanation is its own kind of dishonest');
+  });
+
+  it('a rejected credential is down even though the endpoint answered', () => {
+    // The one 4xx that is a real fault: inference presents the same key to the same host.
+    const r = classifyStage(stage(), {
+      reachable: true, verdict: 'auth-rejected', status: 401, latencyMs: 7,
+      detail: 'HTTP 401 at http://ollama:11434/v1/models — the endpoint answered but rejected the credential',
+    });
+    assert.equal(r.state, 'down');
+    assert.match(r.detail, /credential/);
+  });
+
+  it('a 5xx is down — that is about the endpoint, not about the path', () => {
+    const r = classifyStage(stage(), {
+      reachable: false, verdict: 'erroring', status: 503, latencyMs: 11,
+      detail: 'HTTP 503 at http://ollama:11434/v1/models — the endpoint is answering but erroring',
+    });
+    assert.equal(r.state, 'down');
+  });
+
+  it('a provider-type mismatch reaches the dot instead of being dropped', () => {
+    // The probe already establishes that inference will speak the protocol the endpoint did NOT answer,
+    // and it says so in `detail`. That detail was discarded here, so the operator got a plain green dot
+    // over a pipeline that cannot work — the same evidence-ranking failure in the opposite direction.
+    const r = classifyStage(stage(), up(['moondream:latest'], {
+      detail: "endpoint answers Ollama's API at http://ollama:11434/api/tags, but this target is configured "
+        + 'as external (OpenAI-compatible) — inference will use the other protocol and fail. Switch the provider type.',
+    }));
+    assert.equal(r.state, 'degraded', 'reachable AND established to fail is exactly what degraded is for');
+    assert.match(r.detail, /Switch the provider type/);
   });
 
   it('no model configured is `unconfigured` — an empty slot is not a fault', () => {

@@ -390,7 +390,18 @@ Switching tabs with unsaved changes prompts rather than discarding them.
 
 **Infra-managed lock (F11).** On managed infrastructure you can set every media/model value in `config.json` (or the environment) and forbid changes through the admin UI/API — the same posture as `YTHRIL_MONGO_INFRA_MANAGED` for the database. Set `mediaEmbedding.infraManaged: true` in `config.json`, **or** `YTHRIL_MEDIA_INFRA_MANAGED=true` in the environment. When active, `PATCH /api/admin/media-config` returns **409** with `code: "INFRA_MANAGED"` and **Settings → Media Processing** renders read-only (a "managed by infrastructure" banner is shown; *Test connection* still works). Individual fields can instead be pinned one at a time by setting their env var (e.g. `VISION_MODEL`, `DOC_ASSIST_URL`) — those appear in `lockedByInfra` and are locked individually. Use `infraManaged` when the whole block is owned by infrastructure.
 
-**Test connection (F11).** `POST /api/admin/media-config/test-connection` (admin + MFA) probes a configured endpoint — `{ "target": "vision" | "stt" | "assist" | "embedding" | "nli" }` — by listing its models. It performs **no inference and sends no document content**, so it is safe to run before acknowledging egress. External endpoints go through the SSRF-guarded fetch; local (trusted) endpoints use a direct fetch. The response reports `{ reachable, modelEnumerated?, models, latencyMs, detail? }`. Settings → Media Processing exposes a **Test connection** button per provider card.
+**Test connection (F11).** `POST /api/admin/media-config/test-connection` (admin + MFA) probes a configured endpoint — `{ "target": "vision" | "stt" | "assist" | "embedding" | "nli" }` — by listing its models. It performs **no inference and sends no document content**, so it is safe to run before acknowledging egress. External endpoints go through the SSRF-guarded fetch; local (trusted) endpoints use a direct fetch. The response reports `{ reachable, verdict, modelEnumerated?, models, status?, latencyMs, detail? }`. Settings → Media Processing exposes a **Test connection** button per provider card.
+
+`verdict` is what the probe **established**, and it is the field to branch on — `reachable` cannot separate
+an endpoint that answered a 404 on the list path from one that did not answer at all:
+
+| `verdict` | meaning | fault? |
+|---|---|---|
+| `listed` | the endpoint served a model list | no |
+| `not-enumerable` | it answered with a 4xx on the list path: present, speaking HTTP, no listing surface | **no** — see below |
+| `auth-rejected` | 401/403 — the credential was rejected, and inference presents the same one | yes |
+| `erroring` | 5xx — the server is there and erroring, which is about the endpoint, not the path | yes |
+| `unreachable` | nothing answered: connection refused, DNS, TLS, timeout | yes |
 
 The list URL is derived from the **same rule the inference call uses** — `/models` for an OpenAI-compatible
 base (which already carries `/v1`; `…:8080` and `…:8080/v1` both work), `/api/tags` for a local Ollama. A
@@ -404,6 +415,17 @@ will fail even though the endpoint is up.
 > they serve names they keep out of user-facing pickers. Absence from a list is not evidence a model is
 > unavailable, so it is reported as informational and never as degraded. To find out whether a model
 > actually answers, make a real request — which is what Verify does.
+>
+> **`verdict: "not-enumerable"` is not a fault either**, for the same reason one step further out. A model
+> list is a *surface*, and plenty of inference servers do not have one: a Whisper transcription service
+> serves only `POST /v1/audio/transcriptions`, so a list probe against it can only ever 404. That 404 is
+> about a path the slot never calls — it is no evidence about the slot. It is reported as reachable with
+> the status and the URL in `detail`, and the Models card shows *"Reachable · no model list"*.
+>
+> A genuine fault still reads as one: a refused connection, a DNS or TLS failure, a 5xx, or a rejected
+> credential. And if the base URL is simply wrong, `detail` names the exact URL that was tried, which is
+> the thing to check when extraction produces nothing while the dot is green — or run Verify, which sends
+> a real request down the real path and is the only thing that can settle it.
 
 **Verify.** `POST /api/admin/media-config/verify` (admin + MFA) — `{ "target": "vision" | "stt" |
 "embedding" | "assist" }` — sends **one real request** to the configured model and reports what came back.
@@ -434,7 +456,7 @@ so reaching a structured response is the result.
 **Pipeline status.** `GET /api/admin/pipeline-status` (admin) returns the health of the whole pipeline in one read-only payload — it mutates nothing and sends no document content. It reports three things:
 
 - `sidecars[]` — reachability of the document converter, page renderer and office renderer, each with the env var that owns its URL (`CONVERSION_SIDECAR_URL`, `RENDER_SIDECAR_URL`, `RENDER_OFFICE_SIDECAR_URL`).
-- `models[]` — per stage (`embedding`, `vision`, `stt`, `doc-vlm`, `doc-repair`, `doc-verify`, `assist`): the configured model, the endpoint **host** (never the full URL), and a `state` of `ok` / `degraded` / `down` / `blocked` / `off` / `unconfigured`. `degraded` means the endpoint answered but does not list the configured model, and `unconfigured` means nothing is set — an optional stage left empty is not reported as a fault. API keys authenticate the probes and never appear in the response.
+- `models[]` — per stage (`embedding`, `vision`, `stt`, `doc-vlm`, `doc-repair`, `doc-verify`, `assist`): the configured model, the endpoint **host** (never the full URL), and a `state` of `ok` / `degraded` / `down` / `blocked` / `off` / `unconfigured`. `degraded` means the endpoint answered **and something the probe saw says the configured call will fail anyway** — today, an endpoint answering on the other protocol, which means the provider type is set wrong; `detail` carries the reason. `down` covers both "nothing answered" and an answer that is itself a fault (a 5xx, or a rejected credential). An endpoint with no model-list route is `ok` with the reason in `detail` — that 404 is about a path the stage never calls. `unconfigured` means nothing is set: an optional stage left empty is not reported as a fault. API keys authenticate the probes and never appear in the response.
 - `index.spaces[]` — per space, the **live** `$vectorSearch` index state read from MongoDB (`live`) alongside what `config.json` claims (`stored`), plus a `drifted` flag when `stored` says `ready` and the database disagrees. Proxy spaces own no collections and are omitted. A deployment whose MongoDB has no Atlas Search support reports `unknown` rather than `missing`.
 
 Results are cached for 20 seconds and single-flighted, so several admins on **Settings → Media Processing** produce one set of probes rather than one per viewer per step. Stages sharing an endpoint (typically `doc-vlm` / `doc-repair` / `doc-verify` on one Ollama) are probed once.
@@ -802,7 +824,7 @@ The worker-tuning fields — `workerConcurrency`, `workerPollIntervalMs`, `worke
 | `vision.baseUrl` | `VISION_BASE_URL` | `http://ollama:11434` | Vision service endpoint, **whatever the provider** (short name resolves in both Docker Compose and the K8s `ythril` namespace). Legacy alias: `OLLAMA_URL`. |
 | `vision.model` | `VISION_MODEL` | `moondream` | Vision model name |
 | `vision.apiKey` | `VISION_API_KEY` | — | API key for external vision provider (stored in `secrets.json`, never in `config.json`) |
-| `stt.baseUrl` | `STT_BASE_URL` | `http://whisper:8000` | STT service endpoint, **whatever the backend**. Legacy alias: `WHISPER_URL`. |
+| `stt.baseUrl` | `STT_BASE_URL` | `http://whisper:8000` | STT service endpoint, **whatever the backend**. `…:8000` and `…:8000/v1` both work — the transcription URL is normalised the same way the vision and assist endpoints are, so one base URL serves all three. Legacy alias: `WHISPER_URL`. |
 | `stt.model` | `STT_MODEL` | `base` | STT model name — passed through to the backend, so it is not restricted to Whisper size names. Legacy alias: `WHISPER_MODEL`. |
 | `stt.apiKey` | `STT_API_KEY` | — | API key for external STT provider (stored in `secrets.json`) |
 

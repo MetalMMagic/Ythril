@@ -191,7 +191,8 @@ export class MediaProcessingStateService {
     this.http.post<TestResult>('/api/admin/media-config/test-connection', { target: t }).subscribe({
       next: res => this.testState.update(s => ({ ...s, [t]: { res } })),
       error: err => this.testState.update(s => ({ ...s, [t]: { res: {
-        ok: false, reachable: false, detail: err?.error?.error ?? err?.message ?? 'Test failed', latencyMs: 0,
+        ok: false, reachable: false, verdict: 'unreachable' as const,
+        detail: err?.error?.error ?? err?.message ?? 'Test failed', latencyMs: 0,
       } } })),
     });
   }
@@ -230,12 +231,27 @@ export class MediaProcessingStateService {
    *
    * This returned `warn` for `modelEnumerated === false`, which made a working endpoint permanently
    * yellow: aliasing routers (llama-swap roles), gateways and Azure deployments deliberately do not list
-   * the names they serve, so absence from the list carries no information at all. Only unreachable is a
-   * fault; everything else is informational, and Verify is what actually answers "does the model work".
+   * the names they serve, so absence from the list carries no information at all.
+   *
+   * A fault is what the probe actually established — nothing answered, the credential was rejected, or the
+   * endpoint answered on a protocol inference will not use. An endpoint that simply has no model-list route
+   * is none of those; it is the normal shape of a single-route inference server, and calling it unreachable
+   * put a red pill on a speech-to-text service that was transcribing correctly. Verify is what answers
+   * "does the model work".
    */
-  testPillVariant(r: TestResult): StatusVariant { return !r.reachable ? 'error' : 'ok'; }
+  testPillVariant(r: TestResult): StatusVariant {
+    if (!r.reachable || r.verdict === 'auth-rejected') return 'error';
+    // Reachable and NOT ok is the one case the server can prove will fail anyway: the endpoint answered on
+    // the other wire, so inference will speak the protocol it did not answer. A green pill here was a
+    // success badge over a pipeline that cannot work, with the explanation sitting unread in `detail`.
+    return r.ok === false ? 'warn' : 'ok';
+  }
   testPillLabelKey(r: TestResult): string {
+    if (r.verdict === 'auth-rejected') return 'mediaProcessing.test.authRejected';
     if (!r.reachable) return 'mediaProcessing.test.unreachable';
+    // The endpoint answered and has no model list. Said plainly, because "reachable" beside a 404 in the
+    // hint reads like a contradiction — and this is the normal state of a single-route inference server.
+    if (r.verdict === 'not-enumerable') return 'mediaProcessing.test.noModelList';
     if (r.modelEnumerated === false) return 'mediaProcessing.test.modelNotEnumerated';
     if (r.modelEnumerated === true) return 'mediaProcessing.test.modelFound';
     return 'mediaProcessing.test.reachable';

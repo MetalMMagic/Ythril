@@ -22,6 +22,7 @@ import { log } from '../util/log.js';
 import { buildSpaceVectorIndexes } from '../spaces/vector-index.js';
 import { isSsrfSafeUrl, SSRF_SAFE_MESSAGE } from '../util/ssrf.js';
 import { peerSafeFetch } from '../sync/peer-fetch.js';
+import { proposedMetaFields } from '../sync/meta-round-merge.js';
 import type { SpaceMeta, KnowledgeType, TypeSchema } from '../config/types.js';
 import { DOC_EXTRACTION_MODES_IN, IMAGE_LEVELS, AUDIO_LEVELS, VIDEO_LEVELS, TEXT_LEVELS, normalizeDocExtractionMode } from '../config/types.js';
 import { writeFile as writeSpaceFile } from '../files/files.js';
@@ -558,6 +559,12 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
           votes: [{ instanceId: cfg.instanceId, vote: 'yes', castAt: now }],
           spaceId: id,
           pendingMeta: mergedMeta as SpaceMeta,
+          // Provenance, so conclusion can apply just this patch rather than this whole snapshot. Rounds
+          // stay open for `votingDeadlineHours`, so a second proposal landing before the first concludes
+          // is ordinary, and without these two fields the later one reverts the earlier one's edit with
+          // no error anywhere. See sync/meta-round-merge.ts.
+          metaChangedFields: proposedMetaFields(parsed.data.meta ?? {}),
+          baseMetaVersion: space.meta?.version ?? 0,
         });
         rounds.push({ networkId: net.id, networkLabel: net.label, roundId });
       }

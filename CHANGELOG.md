@@ -99,6 +99,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Two concurrent space-meta votes no longer overwrite each other.** A `meta_change` round stored the
+  whole merged meta and applied it wholesale on conclusion, so the later of two overlapping rounds
+  reverted the earlier one's edit.
+  - The sequence: meta at v7; Alice proposes a new `purpose`, Bob proposes `strictLinkage`; both rounds
+    carry a full snapshot of v7 plus their own patch. Alice's passes (v8). Bob's passes and replaces the
+    meta with his snapshot — which still holds **v7's purpose**. Nothing reports it: the round passed,
+    the vote is recorded as carried, and the resulting meta is internally consistent, just missing an
+    edit the network voted to make. Rounds stay open for `votingDeadlineHours`, so this is not a race —
+    it is what happens whenever two operators configure a space in the same week.
+  - A round now records `metaChangedFields` and `baseMetaVersion`, and conclusion applies only those
+    fields, re-merged into whatever the meta says at that moment. `typeSchemas` merges per
+    knowledge-type, matching what the PATCH path already does.
+  - **Same-field collisions resolve to the round's value** — the network voted for it, and refusing to
+    apply a carried motion would relocate the silent loss rather than remove it. The overwrite is logged
+    with the field, the round's base version and the current one, so the superseded operator can find
+    out. Conflict detection recovers the round's base from the space's own `previousVersions` history,
+    which is what distinguishes "somebody else changed this field" from "this round is changing it" —
+    without it the warning would fire on every ordinary concurrent edit of *different* fields and be
+    learned into invisibility. When the base has rolled out of the capped history, the overwrite is
+    reported rather than assumed uncontested.
+  - **Rounds gossip**, so one proposed by a peer on an older build carries neither field and applies
+    wholesale, exactly as before — its proposer computed the snapshot as the complete intended result,
+    and field-merging an unknown changed-set would apply nothing at all. The absent version is the
+    compatibility switch, with the pre-upgrade behaviour as the fallback.
+
 - **A converted document had no description, while its extracted images all had captions.** Reported
   against 2.1.1: after a PDF converts, the original's file-meta carries `convertedFileId`, `chunkCount`
   and `embeddingStatus` — and no description, with `matchedText` being literally the filename. Every

@@ -351,6 +351,43 @@ Copyright (c) 2010 Elijah Insua
 License: MIT
 Copyright (c) Dom Christie
 
+### ajv
+
+License: MIT
+Copyright (c) 2015-2021 Evgeny Poberezkin
+
+### marked
+
+License: MIT
+Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/)
+Copyright (c) 2011-2018, Christopher Jeffrey (https://github.com/chjj/)
+
+### mermaid
+
+License: MIT
+Copyright (c) 2014 - 2022 Knut Sveidqvist
+
+### exceljs
+
+License: MIT
+Copyright (c) 2014-2019 Guyon Roche
+
+### uqr
+
+License: MIT
+Copyright (c) 2023 Anthony Fu (https://github.com/antfu)
+Copyright (c) Project Nayuki
+
+### dompurify
+
+DOMPurify is dual-licensed, `MPL-2.0 OR Apache-2.0`. **Ythril elects Apache License 2.0**, whose text is
+already reproduced under License Texts above — so no MPL-2.0 text is required here. Recording the election
+rather than leaving it implied: a dual grant is a choice the distributor makes, and a reader should not
+have to infer which arm applies.
+
+License: Apache License 2.0 (elected from `MPL-2.0 OR Apache-2.0`)
+Copyright (c) Dr.-Ing. Mario Heiderich, Cure53 (https://cure53.de/)
+
 ### Runtime Dependency: doc-render sidecar (sidecars/doc-render, Docker image)
 
 The optional `doc-render` container (F11) renders PDF pages to images. Built in-repo; it bundles the

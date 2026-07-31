@@ -70,7 +70,7 @@ Authorization: Bearer <admin-token>
 |-------|----------|-------------|
 | `id` | no | Lowercase `^[a-z0-9-]+$`, max 40 chars. Auto-generated if omitted. |
 | `label` | yes | Human-readable display name, max 200 chars. |
-| `description` | no | Max 4000 chars. Surfaced to MCP clients as space-level instructions. |
+| `description` | no | **Deprecated** — writes `meta.purpose`. Max 4000 chars. Removal in 3.0. |
 | `folders` | no | Pre-create these directories on disk at space creation time. |
 | `maxGiB` | no | Maximum storage quota for the space (positive number in GiB). |
 
@@ -238,7 +238,7 @@ Notes:
 | Field | Required | Description |
 |-------|----------|-------------|
 | `label` | no | New display name, max 200 chars. |
-| `description` | no | Space description, max 4000 chars. Included in `list_spaces` MCP tool responses and `GET /api/spaces`. |
+| `description` | no | **Deprecated alias of `meta.purpose`**, max 4000 chars — it writes that one field, and both names read back the same text. Because purpose is meta, a description change to a **networked** space follows the meta-vote path (`202 vote_pending`) rather than applying at once. Removal in 3.0. |
 | `meta` | no | Space schema definition (see [Schema Validation](#schema-validation) below). |
 
 **Response** `200`: the updated space object.
@@ -265,7 +265,8 @@ A round proposed by a peer running an older build carries neither field and is a
 as before — its proposer computed the snapshot as the complete intended result, so field-merging an
 unknown changed-set would apply nothing at all.
 
-> **MCP tool:** `update_space` — accepts `label` and `description`. Requires `admin: true`.
+> **MCP tool:** `update_space` — accepts `label` and `purpose` (and `description` as the deprecated
+> spelling of `purpose`). Requires `admin: true`.
 
 ---
 

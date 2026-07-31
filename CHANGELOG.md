@@ -76,6 +76,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Saving a networked space's settings did nothing, silently.** A meta change to a space that belongs to
+  a network opens a vote round and answers `202 { status: 'vote_pending' }` — with no `space`. The dialog
+  had it typed as `{ space: Space }` unconditionally, so it destructured `undefined` and threw inside its
+  own `next` handler, which RxJS does not route to `error`. No save, no error, editor still dirty — and
+  closing it then offered to discard a change that had in fact just been submitted for a vote.
+  - It now says what happened: *saved as a proposal, this space is governed by X, it applies once the
+    vote passes.* An info notice, not an error — the edit was accepted. The dialog stays open so the
+    notice is read, and the dirty baseline is reset, because a submitted change is not an unsaved one.
+  - Reported by the owner.
+
+- **`list_spaces` and `get_space_meta` disagreed about the same space.** `get_space_meta` returned
+  `meta.purpose`; `list_spaces` returned the legacy `description` — a field the settings UI stopped
+  offering an editor for when purpose arrived. So the text every MCP client read was the one no admin
+  could change. On the reporting deployment: three spaces `null`, three showing mojibake from an old
+  import, and the purposes their admins had written sitting invisible beside them.
+  - **One store now.** `meta.purpose` is it; `description` survives as a *derived* alias because it is
+    published API, and derived means the two can no longer differ. Legacy text is migrated into
+    `meta.purpose` at boot (only when purpose is empty — the field an operator edited wins), which also
+    brings that mojibake somewhere it can finally be fixed.
+  - **Deprecated, removal in 3.0.** `POST`/`PATCH /api/spaces` and `update_space` still accept
+    `description` and write the one field; `update_space` gains `purpose` as the current spelling.
+  - **Behaviour change worth knowing:** purpose is meta, and meta is governed, so a `description` write to
+    a **networked** space now follows the vote path (`202`) instead of applying immediately. It used to
+    slip past governance because it was handled as a non-meta update.
+  - Reported by the canary, who found it auditing their own MCP bridge.
+
 - **A partial upsert onto a complete record was refused as incomplete.** In a `strict` space, setting one
   property of a conformant entity failed with `schema_violation` naming required properties the record
   already had — because `upsertEntity` merges into the stored record (`{ ...stored, ...incoming }`) while

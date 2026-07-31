@@ -3,11 +3,11 @@ import { getConfig } from '../../config/loader.js';
 import { col } from '../../db/mongo.js';
 import { resolveMemberSpaces } from '../../spaces/proxy.js';
 import { WIPE_COLLECTION_TYPES, type WipeCollectionType, wipeSpace } from '../../spaces/lifecycle.js';
-import { updateSpace } from '../../spaces/spaces.js';
+import { updateSpace, spacePurpose } from '../../spaces/spaces.js';
 
 export const list_spacesTool: ToolHandler = {
   name: 'list_spaces',
-  description: 'List all accessible spaces with their IDs, labels, descriptions, and entry counts (memories, entities, edges, chrono). Use counts to decide which spaces are populated and worth querying.',
+  description: 'List all accessible spaces with their IDs, labels, purposes, and entry counts (memories, entities, edges, chrono). Use counts to decide which spaces are populated and worth querying.',
   inputSchema: (_s: ToolSchemas) => ({ type: 'object', properties: {}, required: [], additionalProperties: false }),
   async handle(ctx: ToolContext): Promise<ToolResult> {
     const { accessibleSpaces } = ctx;
@@ -35,10 +35,13 @@ export const list_spacesTool: ToolHandler = {
     for (const r of spaceCountResults) {
       if (r.status === 'fulfilled') countsBySpaceId[r.value.id] = r.value.counts;
     }
+    // `purpose` is the field an admin can edit and the one `get_space_meta` returns; `description` is
+    // its deprecated alias, kept because it is published API. They cannot disagree — one store.
     const result = accessibleSpaces.map(s => ({
       id: s.id,
       label: s.label ?? null,
-      description: s.description ?? null,
+      purpose: spacePurpose(s) ?? null,
+      description: spacePurpose(s) ?? null,
       counts: countsBySpaceId[s.id] ?? { memories: 0, entities: 0, edges: 0, chrono: 0 },
     }));
     return {
@@ -140,7 +143,7 @@ export const get_space_metaTool: ToolHandler = {
 
 export const update_spaceTool: ToolHandler = {
   name: 'update_space',
-  description: 'Update the label or description of the specified space. Requires an admin token.',
+  description: 'Update the label or purpose of the specified space. Requires an admin token. `purpose` is the space-level directive MCP clients receive at handshake; `description` is its deprecated alias and writes the same field.',
   mutating: true,
   admin: true,
   spaceRequired: true,
@@ -149,7 +152,8 @@ export const update_spaceTool: ToolHandler = {
           properties: {
             space: s.requiredSpace,
             label: { type: 'string', minLength: 1, maxLength: 200, description: 'New display label for the space (1–200 chars).' },
-            description: { type: 'string', maxLength: 2000, description: 'New description for the space (max 2000 chars). Surfaced to MCP clients as space-level instructions.' },
+            purpose: { type: 'string', maxLength: 2000, description: 'New purpose for the space (max 2000 chars) — the space-level directive injected into MCP instructions at handshake.' },
+            description: { type: 'string', maxLength: 2000, description: 'DEPRECATED alias of `purpose`; writes the same field. Removal in 3.0.' },
           },
           required: ['space'],
           additionalProperties: false,
@@ -163,12 +167,14 @@ export const update_spaceTool: ToolHandler = {
       };
     }
     const newLabel = typeof a['label'] === 'string' ? a['label'].trim() : undefined;
-    const newDesc = typeof a['description'] === 'string' ? a['description'] : undefined;
+    // One field with two spellings. `purpose` wins if both are sent, since it is the current name.
+    const newDesc = typeof a['purpose'] === 'string' ? a['purpose']
+      : typeof a['description'] === 'string' ? a['description'] : undefined;
     if (newLabel === undefined && newDesc === undefined) {
-      throw new Error('At least one of label or description must be provided');
+      throw new Error('At least one of label or purpose must be provided');
     }
     if (newLabel !== undefined && newLabel.length === 0) throw new Error('label must not be empty');
-    if (newDesc !== undefined && newDesc.length > 2000) throw new Error('description must not exceed 2000 characters');
+    if (newDesc !== undefined && newDesc.length > 2000) throw new Error('purpose must not exceed 2000 characters');
     if (newLabel !== undefined && newLabel.length > 200) throw new Error('label must not exceed 200 characters');
     const updates: { label?: string; description?: string } = {};
     if (newLabel !== undefined) updates.label = newLabel;

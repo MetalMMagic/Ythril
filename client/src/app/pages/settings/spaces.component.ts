@@ -90,6 +90,9 @@ import { HscrollTopDirective } from '../../shared/hscroll-top.directive';
               @if (state.settingsError()) {
                 <div class="alert alert-error" style="flex:1;margin:0;padding:6px 12px;font-size:13px;">{{ state.settingsError() }}</div>
               }
+              @if (state.settingsNotice()) {
+                <div class="alert alert-info" style="flex:1;margin:0;padding:6px 12px;font-size:13px;">{{ state.settingsNotice() }}</div>
+              }
               <button class="btn btn-primary" type="button" (click)="saveSettings()" [disabled]="state.settingsSaving()">
                 @if (state.settingsSaving()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }{{ 'spaces.popup.footer.saveChanges' | transloco }}
               </button>
@@ -233,10 +236,12 @@ export class SpacesComponent implements OnInit {
     })();
     const q = this.spaceSearch().trim().toLowerCase();
     if (!q) return sorted;
+    // Purpose, not the deprecated `description` alias: it is the field the settings dialog edits, so
+    // it is the text an operator remembers writing and would search for.
     return sorted.filter(s =>
       s.label.toLowerCase().includes(q) ||
       s.id.toLowerCase().includes(q) ||
-      (s.description ?? '').toLowerCase().includes(q),
+      (s.meta?.purpose ?? '').toLowerCase().includes(q),
     );
   });
 
@@ -265,6 +270,7 @@ export class SpacesComponent implements OnInit {
     if (!target) return;
     this.state.settingsSaving.set(true);
     this.state.settingsError.set('');
+    this.state.settingsNotice.set('');
     this.spacesApi.updateSpace(target.id, {
       label:  this.state.stForm.label.trim() || target.label,
       maxGiB: this.state.stForm.maxGiB,
@@ -276,9 +282,20 @@ export class SpacesComponent implements OnInit {
       textAnalysis: this.state.stForm.textAnalysis || null,
       meta:   this.state.buildMeta(),
     }).subscribe({
-      next: ({ space }) => {
+      next: (result) => {
         this.state.settingsSaving.set(false);
-        this.store.applySpace(space);
+        // A networked space does not apply a meta change on the spot: the server opens a vote round per
+        // network and answers 202 with no `space`. Destructuring it as one threw inside this callback —
+        // which RxJS does not route to `error` — so Save appeared to do nothing at all, and the editor
+        // then asked whether to discard the change it had just submitted. Say what happened instead.
+        if (result.status === 'vote_pending') {
+          this.state.settingsNotice.set(this.transloco.translate('spaces.settings.votePending', {
+            networks: result.rounds.map(r => r.networkLabel).join(', '),
+          }));
+          this.state.markPristine();   // it is submitted; it is not an unsaved edit any more
+          return;                      // stay open so the notice is read, unlike the applied path
+        }
+        this.store.applySpace(result.space);
         // Re-baseline BEFORE closing. The dirty snapshot was only ever taken when a space was opened, so
         // a successful save left it stale: the editor still compared against the pre-save values and
         // reported unsaved changes for edits that were already persisted. Closing here happened to hide

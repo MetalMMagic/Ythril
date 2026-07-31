@@ -59,6 +59,12 @@ export class SpaceSettingsState {
   settingsTab    = signal<'settings' | 'schema' | 'duplicates' | 'danger'>('settings');
   settingsSaving = signal(false);
   settingsError  = signal('');
+  /**
+   * A non-error outcome that still needs saying — today, that a networked space held the change for a
+   * vote instead of applying it. Separate from settingsError because it is not a failure: the edit was
+   * accepted, and colouring it red would send an operator looking for a problem that does not exist.
+   */
+  settingsNotice = signal('');
   schemaCollTab = signal<KnowledgeType>('entity');
 
   // ── settings tab ───────────────────────────────────────────────────────────
@@ -117,6 +123,7 @@ export class SpaceSettingsState {
     this.settingsTab.set('settings');
     this.schemaCollTab.set('entity');
     this.settingsError.set('');
+    this.settingsNotice.set('');
     this.settingsSaving.set(false);
     this.stForm = { label: s.label, purpose: s.meta?.purpose ?? '', usageNotes: s.meta?.usageNotes ?? '', maxGiB: s.maxGiB ?? null, recordTtlDays: s.recordTtlDays ?? null, documentExtraction: s.documentExtraction ?? '',
       imageAnalysis: s.imageAnalysis ?? '', audioAnalysis: s.audioAnalysis ?? '', videoAnalysis: s.videoAnalysis ?? '', textAnalysis: s.textAnalysis ?? '' };

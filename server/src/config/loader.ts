@@ -208,6 +208,41 @@ export function migrateMediaEmbeddingMasterSwitch(config: Config): boolean {
 }
 
 /**
+ * A space's `description` becomes its `meta.purpose`.
+ *
+ * The two fields say the same thing — `description` is commented "shown to MCP clients as space-level
+ * instructions" and `purpose` is "short directive injected into MCP instructions at handshake" — and they
+ * were served by different tools: `get_space_meta` returned purpose, `list_spaces` returned description.
+ * The UI stopped offering an editor for description when purpose arrived, so on a real deployment the
+ * field every MCP client reads was the one no admin could change: three spaces returning null, three
+ * returning mojibake from an old import, and the purposes their admins had written sitting invisible.
+ *
+ * Only fills an EMPTY purpose. A space that has both keeps its purpose — that is the field the operator
+ * edited most recently and deliberately, and clobbering it with legacy text would be the worse failure.
+ * Either way `description` is dropped, so the alias below has one place to read from.
+ *
+ * Durable and boot-time rather than lazy, which is allowed because `config.json` is LOCAL state — it does
+ * not replicate to peers, so there is no window where two instances disagree about whether the migration
+ * ran. (A synced collection would need the self-healing treatment instead.)
+ *
+ * @returns true if it changed the config (caller persists).
+ */
+export function migrateSpaceDescriptionToPurpose(config: Config): boolean {
+  let changed = false;
+  for (const space of config.spaces ?? []) {
+    const legacy = (space as { description?: string }).description;
+    if (legacy === undefined) continue;
+    const text = legacy.trim();
+    if (text && !space.meta?.purpose?.trim()) {
+      space.meta = { ...(space.meta ?? {}), purpose: text.slice(0, 4_000) };
+    }
+    delete (space as { description?: string }).description;
+    changed = true;
+  }
+  return changed;
+}
+
+/**
  * Face recognition lost its own on/off switch — the image ladder's `recognition` rung is the gate now,
  * and `faceRecognition.enabled` survives only as the infra (env) pin.
  *
@@ -262,6 +297,15 @@ export function loadConfig(): Config {
       log.info('Migrated mediaEmbedding.enabled → per-class levels (media-embedding master switch removed)');
     } catch (err) {
       log.warn(`Could not persist mediaEmbedding master-switch migration (will retry next boot): ${err}`);
+    }
+  }
+  // Legacy space `description` → `meta.purpose`, so the field MCP clients read is the field the UI edits.
+  if (migrateSpaceDescriptionToPurpose(_config)) {
+    try {
+      saveConfig(_config);
+      log.info('Migrated space description → meta.purpose (one field, and it is the editable one)');
+    } catch (err) {
+      log.warn(`Could not persist space description migration (will retry next boot): ${err}`);
     }
   }
   // Same shape, for the face-recognition switch: the image ladder is the gate now, so an instance that had

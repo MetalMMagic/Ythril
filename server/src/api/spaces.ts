@@ -7,7 +7,7 @@ import { capDocExtractionMode } from '../files/converters/extraction-level.js';
 import { slugify } from '../spaces/_shared.js';
 import { createSpace, removeSpace } from '../spaces/lifecycle.js';
 import { renameSpace } from '../spaces/rename.js';
-import { updateSpace, reorderSpaces } from '../spaces/spaces.js';
+import { updateSpace, reorderSpaces, spacePurpose } from '../spaces/spaces.js';
 import { checkMetaPrecondition, preconditionErrorBody } from '../spaces/meta-precondition.js';
 import { gatherCompletenessFacts, scoreCompleteness } from '../spaces/completeness.js';
 import { ensureTtlIndex } from '../brain/ttl.js';
@@ -288,9 +288,10 @@ spacesRouter.post('/reorder', globalRateLimit, requireAdminMfa, (req, res) => {
     res.status(400).json({ error: 'One or more space IDs not found' });
     return;
   }
-  res.json({ spaces: reordered.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor }) => ({
-    id, label, builtIn, folders, maxGiB, flex, description,
-    ...(proxyFor ? { proxyFor } : {}),
+  res.json({ spaces: reordered.map(space => ({
+    id: space.id, label: space.label, builtIn: space.builtIn, folders: space.folders,
+    maxGiB: space.maxGiB, flex: space.flex, description: spacePurpose(space),
+    ...(space.proxyFor ? { proxyFor: space.proxyFor } : {}),
   })) });
 });
 
@@ -343,8 +344,12 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     }
   }
 
-  const spaces = visibleSpaces.map(({ id, label, builtIn, folders, maxGiB, flex, description, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, textAnalysis, indexStatus }, idx) => ({
-    id, label, builtIn, folders, maxGiB, flex, description,
+  const spaces = visibleSpaces.map((space, idx) => {
+    const { id, label, builtIn, folders, maxGiB, flex, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, textAnalysis, indexStatus } = space;
+    return {
+    id, label, builtIn, folders, maxGiB, flex,
+    // Deprecated alias of `meta.purpose`, derived rather than stored — see `spacePurpose`.
+    description: spacePurpose(space),
     usageGiB: usageGiBByIdx[idx],
     ...(indexStatus ? { indexStatus } : {}),
     ...(proxyFor ? { proxyFor } : {}),
@@ -363,7 +368,8 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     ...(videoAnalysis ? { videoAnalysis } : {}),
     ...(textAnalysis ? { textAnalysis } : {}),
     ...(includeCounts && countsBySpaceId[id] ? { counts: countsBySpaceId[id] } : {}),
-  }));
+    };
+  });
   // Include storage usage summary when quota is configured
   // Resolved, not raw: `getStorageConfig()` applies the env pins, and `lockedByInfra` is what lets the
   // Settings page render a host-imposed limit read-only instead of as something the tenant may edit.
@@ -476,6 +482,17 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     return;
   }
 
+  // `description` is the deprecated spelling of `meta.purpose`. Rewrite it into meta HERE, before any
+  // branching, so it travels the meta path in full: the $ref check, the merge, the version bump, and —
+  // the one that matters — the network vote. Applying it further down as a "non-meta update" would let a
+  // directive change skip governance in exactly the spaces that voted to govern it.
+  // `meta.purpose` wins when both are sent; it is the current name.
+  if (parsed.data.description !== undefined) {
+    const legacy = parsed.data.description.trim();
+    parsed.data.meta = { ...(parsed.data.meta ?? {}), ...(parsed.data.meta?.purpose === undefined ? { purpose: legacy } : {}) };
+    delete parsed.data.description;
+  }
+
   // Snapshot for the audit log's change list, taken BEFORE anything is applied. Handing the whole record
   // over is safe: `audit-changes.ts` reads only the fields allowlisted for `space.update` and never
   // touches the rest, so this cannot publish something by carrying it. The middleware only records it on
@@ -569,10 +586,10 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
         rounds.push({ networkId: net.id, networkLabel: net.label, roundId });
       }
 
-      // Apply non-meta updates immediately (label, description, maxGiB)
-      const nonMetaUpdates: { label?: string; description?: string; maxGiB?: number | null } = {};
+      // Apply non-meta updates immediately (label, maxGiB). `description` is not among them any more:
+      // it was rewritten into `meta.purpose` above, so it is in the vote with the rest of the meta.
+      const nonMetaUpdates: { label?: string; maxGiB?: number | null } = {};
       if (parsed.data.label !== undefined) nonMetaUpdates.label = parsed.data.label;
-      if (parsed.data.description !== undefined) nonMetaUpdates.description = parsed.data.description;
       if (parsed.data.maxGiB !== undefined) nonMetaUpdates.maxGiB = parsed.data.maxGiB;
       if (Object.keys(nonMetaUpdates).length > 0) {
         updateSpace(id, nonMetaUpdates);

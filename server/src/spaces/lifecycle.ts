@@ -292,15 +292,21 @@ export async function createSpace(opts: {
   if (cfg.spaces.some(s => s.id === opts.id)) {
     throw new Error(`Space '${opts.id}' already exists`);
   }
+  const legacyPurpose = opts.description?.trim();
+  const mergedCreateMeta: SpaceMeta | undefined =
+    legacyPurpose && !opts.meta?.purpose?.trim()
+      ? { ...(opts.meta ?? {}), purpose: legacyPurpose.slice(0, 4_000) }
+      : opts.meta;
   const space: SpaceConfig = {
     id: opts.id,
     label: opts.label,
     builtIn: false,
     folders: opts.folders ?? [],
     maxGiB: opts.maxGiB,
-    description: opts.description,
     ...(opts.proxyFor ? { proxyFor: opts.proxyFor } : {}),
-    ...(opts.meta ? { meta: opts.meta } : {}),
+    // `description` on the create body is the deprecated spelling of `meta.purpose`; it seeds the
+    // one store rather than a second one, so a space cannot be born with the two disagreeing.
+    ...(mergedCreateMeta ? { meta: mergedCreateMeta } : {}),
   };
   // Initialize MongoDB collections/indexes before committing to config so the space
   // always has a backing DB (prevents the old "in config but no collections" race).

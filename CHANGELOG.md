@@ -6,6 +6,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A duplicate-detection bench harness, and a model-licence registry that gates it.** Groundwork for
+  making recall and duplicate scores interpretable; no runtime behaviour changes.
+  - `testing/bench/parse-bench-pairs.mjs` reads a labelled pair set and **refuses to read it from inside
+    this repository** — the real set is drawn from production records and this repo is public, so the
+    data lives outside the worktree and the guard is structural rather than a naming convention.
+  - It fails loudly rather than measuring a subset: an unresolvable pair reference, an unknown label, or
+    a pair count that does not match the caller's expectation are all errors. A parser that silently
+    found three pairs would benchmark three pairs and report a confident number for a different
+    question. Its own test caught one instance of exactly that — a label containing a hyphen failed to
+    match the row regex and was dropped in silence instead of rejected.
+  - `testing/bench/model-candidates.mjs` records, per candidate, the **weights licence *and* what is
+    known about training-data provenance**, with the URL the claim was read from and the date. A model
+    that has not cleared both cannot be benchmarked, and an unknown model is refused rather than assumed
+    fine.
+  - The gate sits on the bench deliberately: a model that gets benchmarked gets compared, and one that
+    compares well gets adopted — the licence question is cheapest at the point of measurement.
+  - It already blocks one: the leading multilingual NLI candidate ships **MIT weights** and is fine-tuned
+    on **XNLI, which is CC BY-NC 4.0**. Taking the model card at face value would have put a
+    non-commercial dependency at the centre of a paid product's duplicate detection.
+  - Scope is recorded explicitly: this covers what Ythril **bundles, defaults to, or recommends**. A
+    model an operator supplies themselves — the assist model, or any endpoint they point a slot at — is
+    their infrastructure and their licence decision, and the boundary is asserted so that adding a
+    default to one of those slots reads as a change of category rather than a config tweak.
+
 ### Fixed
 
 - **Preflight was silently skipping 22 test files, including every SSRF suite.** It decided which

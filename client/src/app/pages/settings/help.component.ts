@@ -69,20 +69,42 @@ export type HelpDocId = typeof HELP_DOCS[number]['id'];
 
     .doc { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px;
       padding: 20px 24px; min-width: 0; }
+
+    /*
+     * A reading measure on the PROSE only.
+     *
+     * The guides are long-form — the integration guide is ~7,800 lines — and the pane is as wide as the
+     * window. Without a limit a paragraph ran 200+ characters on a desktop, which is roughly twice the
+     * span an eye tracks back from reliably, so the reader loses their line on every wrap. This is the
+     * single biggest readability problem the page had.
+     *
+     * Applied to text elements individually rather than to the container, because tables and code blocks need
+     * the full width — capping the container would have made every wide table scroll that did not have to.
+     */
+    .doc ::ng-deep :is(p, li, blockquote) { max-width: 78ch; }
+
     /* Long tables and code blocks scroll inside the document rather than widening the page. */
-    .doc :is(pre, table) { max-width: 100%; overflow-x: auto; }
-    .doc table { display: block; border-collapse: collapse; }
-    .doc :is(th, td) { border: 1px solid var(--border-muted); padding: 5px 9px; font-size: 13px; text-align: left; }
-    .doc img { max-width: 100%; height: auto; }
-    .doc h1 { font-size: 22px; margin-top: 0; }
-    .doc h2 { font-size: 18px; margin-top: 28px; }
-    .doc h3 { font-size: 15px; margin-top: 22px; }
-    .doc :is(p, li) { font-size: 13.5px; line-height: 1.6; }
-    .doc code { font-family: var(--font-mono, monospace); font-size: 0.9em; }
-    .doc :not(pre) > code { background: var(--bg-elevated); padding: 1px 5px; border-radius: 4px; }
-    .doc pre { background: var(--bg-elevated); border: 1px solid var(--border-muted); border-radius: 8px; padding: 12px 14px; }
-    .doc blockquote { margin: 14px 0; padding: 2px 14px; border-left: 3px solid var(--accent); color: var(--text-secondary); }
-    .doc hr { border: 0; border-top: 1px solid var(--border-muted); margin: 26px 0; }
+    .doc ::ng-deep :is(pre, table) { max-width: 100%; overflow-x: auto; }
+    .doc ::ng-deep table { display: block; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    .doc ::ng-deep :is(th, td) { border: 1px solid var(--border-muted); padding: 6px 10px; font-size: 13px; text-align: left;
+      vertical-align: top; }
+    /* Headers and zebra rows. The guides' tables carry PROSE — 25 cells exceed 320 characters — so
+       without a row boundary the eye loses which description belongs to which key. */
+    .doc ::ng-deep th { background: var(--bg-elevated); font-weight: 600; color: var(--text-primary);
+      position: sticky; top: 0; }
+    .doc ::ng-deep tbody tr:nth-child(even) { background: color-mix(in srgb, var(--bg-elevated) 45%, transparent); }
+    .doc ::ng-deep img { max-width: 100%; height: auto; }
+    .doc ::ng-deep h1 { font-size: 22px; margin-top: 0; }
+    .doc ::ng-deep h2 { font-size: 18px; margin-top: 28px; }
+    .doc ::ng-deep h3 { font-size: 15px; margin-top: 22px; }
+    /* 14px over 13.5, and 1.65 over 1.6 — these are read for minutes at a time, not glanced at. */
+    .doc ::ng-deep :is(p, li) { font-size: 14px; line-height: 1.65; }
+    .doc ::ng-deep li + li { margin-top: 3px; }
+    .doc ::ng-deep code { font-family: var(--font-mono, monospace); font-size: 0.9em; }
+    .doc ::ng-deep :not(pre) > code { background: var(--bg-elevated); padding: 1px 5px; border-radius: 4px; }
+    .doc ::ng-deep pre { background: var(--bg-elevated); border: 1px solid var(--border-muted); border-radius: 8px; padding: 12px 14px; }
+    .doc ::ng-deep blockquote { margin: 14px 0; padding: 2px 14px; border-left: 3px solid var(--accent); color: var(--text-secondary); }
+    .doc ::ng-deep hr { border: 0; border-top: 1px solid var(--border-muted); margin: 26px 0; }
 
     .loading { display: flex; align-items: center; gap: 9px; color: var(--text-secondary); font-size: 13px; }
   `],

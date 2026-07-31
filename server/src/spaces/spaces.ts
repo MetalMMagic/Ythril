@@ -10,6 +10,51 @@ import type { SpaceConfig, SpaceMeta, DupeActionRule, DocExtractionMode, ImageLe
 import { buildSpaceVectorIndexes } from './vector-index.js';
 import { syncSchemaFiles, META_VERSION_CAP } from './_shared.js';
 
+/**
+ * A space's MCP-facing directive, under the one name that still has a store behind it.
+ *
+ * `description` and `meta.purpose` were two fields for the same thing — `description` was commented
+ * "shown to MCP clients as space-level instructions", `purpose` is "injected into MCP instructions at
+ * handshake" — and they were served by different tools, so `list_spaces` and `get_space_meta` disagreed
+ * about the same space. Worse, the UI only ever gained an editor for `purpose`, so the field MCP clients
+ * actually read was the one no admin could change.
+ *
+ * `purpose` won because it is the one an operator can edit. `description` survives as a DERIVED alias for
+ * clients that still read it (it is in the published API), and this function is the single place the
+ * derivation happens — the point being that the two names can no longer disagree, because there is only
+ * one value. Removal is slated for 3.0.
+ *
+ * Legacy stored `description` was migrated into `meta.purpose` at boot; see
+ * `migrateSpaceDescriptionToPurpose`.
+ */
+export function spacePurpose(space: { meta?: SpaceMeta }): string | undefined {
+  const purpose = space.meta?.purpose?.trim();
+  return purpose ? purpose : undefined;
+}
+
+/**
+ * The deprecated `description` alias, ready to spread into a response object — `{}` when the space has no
+ * purpose, so the key is absent rather than explicitly empty.
+ *
+ * Exists so the derivation has ONE spelling in the API layer. The list endpoints wrote it out inline while
+ * the single-space responses returned the stored record as-is, which was correct only while `description`
+ * WAS stored: the moment it became derived, create / PATCH / PUT-schema silently stopped carrying it, so a
+ * PATCH echoed back a space with no `description` even though the write had landed. Spread this, or call
+ * `spaceResponse`; never re-derive it at a call site.
+ */
+export function spaceDescriptionAlias(space: { meta?: SpaceMeta }): { description?: string } {
+  const purpose = spacePurpose(space);
+  return purpose === undefined ? {} : { description: purpose };
+}
+
+/**
+ * A space as the API publishes it: the whole stored record plus the derived `description` alias. For
+ * responses that project a subset of fields, spread `spaceDescriptionAlias` instead.
+ */
+export function spaceResponse<T extends { meta?: SpaceMeta }>(space: T): T & { description?: string } {
+  return { ...space, ...spaceDescriptionAlias(space) };
+}
+
 /** Update mutable fields (label, description, meta) of an existing space in config.
  *  When `meta` is provided the version counter is auto-incremented and the
  *  previous version is pushed to `previousVersions` (capped at META_VERSION_CAP).
@@ -22,7 +67,16 @@ export function updateSpace(
   const space = cfg.spaces.find(s => s.id === spaceId);
   if (!space) return null;
   if (typeof updates.label === 'string') space.label = updates.label;
-  if (typeof updates.description === 'string') space.description = updates.description;
+  // `description` is an alias now: it writes the one store, `meta.purpose`. Folded into `updates.meta`
+  // rather than assigned directly, so it takes the version bump and the previousVersions snapshot every
+  // other meta change gets — a directive edit that left `version` untouched would be invisible to the
+  // sync layer, which decides what to replicate by comparing versions.
+  if (typeof updates.description === 'string') {
+    updates = {
+      ...updates,
+      meta: { ...(updates.meta ?? space.meta ?? {}), purpose: updates.description.trim().slice(0, 4_000) },
+    };
+  }
   if (updates.maxGiB !== undefined) {
     // null or non-positive clears the cap (unlimited); positive number sets the cap
     space.maxGiB = updates.maxGiB !== null && updates.maxGiB > 0 ? updates.maxGiB : undefined;

@@ -8,7 +8,7 @@ Ythril exposes a single global MCP server via SSE. Each tool accepts a `space` p
 
 ### Server Instructions
 
-On connect, the server sends global instructions listing all available space IDs and noting that each tool requires a `space` parameter (except `recall`, `list_chrono`, and `find_similar`, where `space` is optional and enables cross-space results when omitted; and `list_peers`/`sync_now` which are global). Call `list_spaces` to get space IDs, descriptions, and entry counts (memories, entities, edges, chrono) — useful for discovering which spaces are populated before querying. Call `get_space_meta` with a specific space to get its full schema, purpose, and usage notes.
+On connect, the server sends global instructions listing all available space IDs and noting that each tool requires a `space` parameter (except `recall`, `list_chrono`, and `find_similar`, where `space` is optional and enables cross-space results when omitted; and `list_peers`/`sync_now` which are global). Call `list_spaces` to get space IDs, purposes, and entry counts (memories, entities, edges, chrono) — useful for discovering which spaces are populated before querying. Call `get_space_meta` with a specific space to get its full schema, purpose, and usage notes.
 
 > **Tool inputs are self-describing — and enforced.** Every tool's complete input contract — each parameter, its allowed values (`enum`), numeric bounds (`minimum`/`maximum`/`default`), string limits, the filter-operator allowlist, and `additionalProperties: false` — is published in its `inputSchema` via `tools/list`. The dispatcher **validates every call against that schema before running the tool**, rejecting a non-conforming call with an `isError` result — so unknown properties, out-of-range numbers, out-of-enum values, and malformed ids are hard errors, not silently ignored or clamped. Treat `tools/list` as the authoritative, machine-readable reference and read a tool's schema before constructing arguments; the `help` tool points here too.
 
@@ -100,7 +100,7 @@ Content-Type: application/json
 | Tool | Description |
 |---|---|
 | `help` | Self-documenting system guide — the knowledge model, how to choose between `query` / `recall` / filtered recall, schema authoring, and the tools available to the calling token. Read-only, no `space` needed; scoped to the token so it never lists tools the token can't call |
-| `list_spaces` | List accessible space IDs with descriptions and entry counts (memories, entities, edges, chrono) |
+| `list_spaces` | List accessible space IDs with purposes and entry counts (memories, entities, edges, chrono). `purpose` is the space-level directive; `description` is returned alongside as its deprecated alias, always the same text |
 | `remember` | Store a memory with optional tags and entity links |
 | `update_memory` | Update an existing memory's fact, tags, entity links, or delete specific fields via `deleteFields` |
 | `delete_memory` | Delete a memory by ID |
@@ -126,7 +126,7 @@ Content-Type: application/json
 | `delete_file` | Delete a file |
 | `create_dir` | Create a directory |
 | `move_file` | Move or rename a file/directory |
-| `update_space` | Update space label and/or description (admin only) |
+| `update_space` | Update space label and/or purpose (admin only). In a networked space a purpose change opens a meta vote rather than applying at once |
 | `wipe_space` | Wipe all or specific collection types from the space (admin only) |
 | `list_peers` | List all configured peer instances (admin only) |
 | `sync_now` | Trigger immediate sync (all networks or specific peer) (admin only) |

@@ -141,9 +141,16 @@ export class SpaceDuplicatesTabComponent {
     this.state.dupeError.set('');
     this.state.dupeSaved.set(false);
     this.spacesApi.updateSpace(target.id, { dupeRules: rules, dupeMergeSurvivor: this.state.dupeSurvivor, dupeRulesOnInsert: this.state.dupeOnInsert }).subscribe({
-      next: ({ space }) => {
+      next: (result) => {
         this.state.dupeSaving.set(false);
         this.state.dupeSaved.set(true);
+        // Duplicate rules are local and never governed, so this endpoint always answers with the space
+        // for THIS request — but the response type admits `vote_pending` because a meta change on the
+        // same endpoint can. Guard rather than assert: if a future field on this form ever becomes
+        // governed, the tab skips the reflect instead of throwing inside its own success handler, which
+        // is precisely the failure the settings tab shipped with.
+        const space = result.space;
+        if (!space) { this.state.markDupePristine(); return; }
         // Reflect saved state back onto the space object.
         this.state.settingsSpace.set(space);
         this.store.spaces.update(list => list.map(x => x.id === space.id ? space : x));

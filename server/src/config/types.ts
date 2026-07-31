@@ -202,7 +202,13 @@ export interface SpaceConfig {
   folders: string[];
   maxGiB?: number;
   flex?: number;
-  description?: string; // shown to MCP clients as space-level instructions
+  /**
+   * @deprecated Say `meta.purpose`. This is the legacy spelling of the same thing: it was the field
+   * MCP clients read while the UI only ever gained an editor for `purpose`, so the two disagreed and
+   * the readable one was uneditable. Migrated into `meta.purpose` at boot and no longer stored;
+   * `spacePurpose()` derives it for the published API surfaces. Removal in 3.0.
+   */
+  description?: string;
   proxyFor?: string[];  // virtual proxy space — aggregates reads, routes writes to member spaces
   meta?: SpaceMeta;     // structured schema and metadata — all fields optional
   /** Local duplicate-action policy (not governed/synced — operational, per-instance).

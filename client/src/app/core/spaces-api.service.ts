@@ -6,6 +6,19 @@ import type {
   DupeActionRule, SpaceStats, WipeCollectionType, WipeResult, CompletenessReport,
 } from './api.types';
 
+/**
+ * What `PATCH /api/spaces/:id` can answer.
+ *
+ * A meta change to a space that belongs to a network does NOT apply immediately — it opens a vote round
+ * per network and comes back `202 { status: 'vote_pending', rounds }`, with **no `space`**. This was
+ * typed as `{ space: Space }` unconditionally, so the settings dialog destructured `undefined` and threw
+ * inside its own `next` handler: the save button did nothing, no error appeared, and the editor stayed
+ * dirty — then prompted to discard changes that had in fact been submitted for a vote.
+ */
+export type UpdateSpaceResult =
+  | { space: Space; status?: undefined }
+  | { status: 'vote_pending'; rounds: { networkId: string; networkLabel: string; roundId: string }[]; message: string; space?: undefined };
+
 /** Spaces, their per-type schemas, stats, reindex, and destructive wipe. */
 @Injectable({ providedIn: 'root' })
 export class SpacesApi {
@@ -19,8 +32,8 @@ export class SpacesApi {
     return this.http.post<{ space: Space }>('/api/spaces', body);
   }
 
-  updateSpace(id: string, body: { label?: string; description?: string; maxGiB?: number | null; meta?: Partial<SpaceMeta>; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | null; documentExtraction?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto' | null; imageAnalysis?: 'off' | 'caption' | 'recognition' | 'auto' | null; audioAnalysis?: 'off' | 'on' | 'auto' | null; videoAnalysis?: 'off' | 'audio' | 'full' | 'auto' | null; textAnalysis?: 'off' | 'embed' | 'chunk' | 'auto' | null }): Observable<{ space: Space }> {
-    return this.http.patch<{ space: Space }>(`/api/spaces/${id}`, body);
+  updateSpace(id: string, body: { label?: string; description?: string; maxGiB?: number | null; meta?: Partial<SpaceMeta>; dupeRules?: DupeActionRule[]; dupeMergeSurvivor?: 'older' | 'newer'; dupeRulesOnInsert?: boolean; recordTtlDays?: number | null; documentExtraction?: 'off' | 'ocr' | 'vlm' | 'repair' | 'auto' | null; imageAnalysis?: 'off' | 'caption' | 'recognition' | 'auto' | null; audioAnalysis?: 'off' | 'on' | 'auto' | null; videoAnalysis?: 'off' | 'audio' | 'full' | 'auto' | null; textAnalysis?: 'off' | 'embed' | 'chunk' | 'auto' | null }): Observable<UpdateSpaceResult> {
+    return this.http.patch<UpdateSpaceResult>(`/api/spaces/${id}`, body);
   }
 
   reorderSpaces(ids: string[]): Observable<{ spaces: Space[] }> {

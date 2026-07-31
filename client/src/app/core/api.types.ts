@@ -15,6 +15,7 @@ export interface Space {
   folders?: string[];
   maxGiB?: number;
   usageGiB?: number;
+  /** @deprecated Derived alias of `meta.purpose` — the server no longer stores it. Removal in 3.0. */
   description?: string;
   proxyFor?: string[];
   meta?: SpaceMeta;

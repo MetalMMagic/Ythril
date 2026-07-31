@@ -68,9 +68,9 @@ function create(spaces: Space[] = []) {
 
 describe('SpacesComponent — sortedSpaces (sort/filter pipeline)', () => {
   const list = [
-    space({ id: 'beta',  label: 'Beta',  usageGiB: 5, description: 'the middle one' }),
-    space({ id: 'alpha', label: 'alpha', usageGiB: 9, description: 'first' }),
-    space({ id: 'gamma', label: 'Gamma', usageGiB: 1, description: 'last' }),
+    space({ id: 'beta',  label: 'Beta',  usageGiB: 5, meta: { purpose: 'the middle one' } }),
+    space({ id: 'alpha', label: 'alpha', usageGiB: 9, meta: { purpose: 'first' } }),
+    space({ id: 'gamma', label: 'Gamma', usageGiB: 1, meta: { purpose: 'last' } }),
   ];
 
   it('custom (default) preserves the configured order — no sorting applied', () => {
@@ -96,13 +96,13 @@ describe('SpacesComponent — sortedSpaces (sort/filter pipeline)', () => {
     expect(c.sortedSpaces()[0].id).toBe('nousage');
   });
 
-  it('search matches label, id, or description — case-insensitively', () => {
+  it('search matches label, id, or purpose — case-insensitively', () => {
     const c = create(list).componentInstance;
     c.spaceSearch.set('GAMMA');            // label, wrong case
     expect(c.sortedSpaces().map(s => s.id)).toEqual(['gamma']);
     c.spaceSearch.set('alph');             // id substring
     expect(c.sortedSpaces().map(s => s.id)).toEqual(['alpha']);
-    c.spaceSearch.set('middle');           // description substring
+    c.spaceSearch.set('middle');           // purpose substring — the field the dialog edits
     expect(c.sortedSpaces().map(s => s.id)).toEqual(['beta']);
     c.spaceSearch.set('   ');              // whitespace-only is not a filter
     expect(c.sortedSpaces()).toHaveLength(3);
@@ -116,7 +116,7 @@ describe('SpacesComponent — sortedSpaces (sort/filter pipeline)', () => {
     expect(ids).toEqual(['alpha', 'beta', 'gamma']);
   });
 
-  it('a space with no description does not throw when searching', () => {
+  it('a space with no purpose does not throw when searching', () => {
     const c = create([space({ id: 'x', label: 'X' })]).componentInstance;
     c.spaceSearch.set('zzz');
     expect(c.sortedSpaces()).toEqual([]);

@@ -76,6 +76,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Every space showed red vector indexes on a five-instance fleet, while recall worked.** Reported
+  against 2.2.1 from a self-hosted MongoDB replica set.
+  - The readiness poll exits on `status === 'READY' || queryable === true`. On that backend the index
+    document **is found by name and carries neither field** — their log reads `status=undefined
+    queryable=undefined`, which is only reachable after the name match. So the loop could never exit:
+    600 s per index, then every space marked failed. Meanwhile MCP `recall` returned genuine scores
+    (0.909), `/ready` passed, and our own `ensureVectorIndex` read the same index fine.
+  - **Absence of a status field is not evidence of an unready index.** The same mistake the
+    model-enumeration check used to make one layer up, where "not listed" was read as "not present" —
+    and the reporter named it as such.
+  - Where both fields are absent, readiness is now established by **asking the question**: a
+    `$vectorSearch` against the index with a zero vector and `limit: 1`, result discarded. That is what
+    recall depends on, and it is Verify's philosophy one layer down — send one real request rather
+    than infer from metadata. Reached only when neither field is present, so a backend that reports
+    them pays nothing; their platform instance has 65 indexes.
+  - **The boot summary no longer contradicts itself.** `Vector index readiness confirmed for all
+    spaces.` printed unconditionally — on their deployment, immediately after two lines saying every
+    space had failed. It now reports what happened and names the spaces that did not come ready. A log
+    that contradicts itself two lines apart teaches an operator to stop reading it.
+
 - **A theme could restyle the whole product and the logo stayed green.** The brand mark hard-coded
   `#9eec55` in five places, so the theme mechanism — which already lets an operator inject CSS tokens —
   could not touch it. It now follows `--brand-mark`, falling back to `--accent`, so a theme that only

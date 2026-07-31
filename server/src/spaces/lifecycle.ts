@@ -229,19 +229,38 @@ export async function initAllSpaces(): Promise<void> {
  */
 async function confirmSpaceIndexesInBackground(spaceIds: readonly string[]): Promise<void> {
   const queue = [...spaceIds];
+  const failed: string[] = [];
   const worker = async (): Promise<void> => {
     for (;;) {
       const spaceId = queue.shift();
       if (!spaceId) return;
       try {
-        await finalizeSpaceIndexReady(spaceId, { timeoutMs: STARTUP_INDEX_READY_TIMEOUT_MS });
+        if (!await finalizeSpaceIndexReady(spaceId, { timeoutMs: STARTUP_INDEX_READY_TIMEOUT_MS })) {
+          failed.push(spaceId);
+        }
       } catch (err) {
+        failed.push(spaceId);
         log.warn(`Space '${spaceId}': index readiness check failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(FINALIZE_CONCURRENCY, queue.length) }, worker));
-  log.info('Vector index readiness confirmed for all spaces.');
+
+  // Say what happened, rather than announcing success unconditionally.
+  //
+  // This line used to read `Vector index readiness confirmed for all spaces.` no matter the outcome —
+  // and on a deployment where every space failed it printed IMMEDIATELY AFTER the lines saying so. A
+  // reporter quoted all three together. Two log lines a paragraph apart that contradict each other do
+  // not just fail to inform; they teach an operator that this log is not worth reading.
+  if (failed.length === 0) {
+    log.info(`Vector index readiness confirmed for all ${spaceIds.length} space(s).`);
+  } else {
+    log.warn(
+      `Vector indexes did not reach ready for ${failed.length} of ${spaceIds.length} space(s): ` +
+      `${failed.join(', ')}. Recall may still work — check the per-index lines above for what was ` +
+      'actually observed, and Settings → Space → Danger Zone can rebuild them.',
+    );
+  }
 }
 
 /** Ensure the built-in 'general' space exists in config and MongoDB */

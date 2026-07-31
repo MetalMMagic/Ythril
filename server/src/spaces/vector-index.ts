@@ -261,6 +261,42 @@ export async function ensureVectorSearchIndex(
   }
 }
 
+/**
+ * Does this index actually serve a `$vectorSearch`?
+ *
+ * The question the `status` field was only ever a proxy for. A backend that does not report lifecycle
+ * fields still answers this one, and it answers it about the thing recall depends on rather than about
+ * the index's metadata.
+ *
+ * Deliberately cheap and content-free: a zero vector, `limit: 1`, no filter, and the result is thrown
+ * away — only whether it threw matters. A zero vector matches nothing meaningfully, which is the point:
+ * this is a liveness question, not a search.
+ *
+ * Any throw counts as not-yet-serving. An index still building errors, and so does a genuinely broken
+ * one — this poll cannot tell those apart and does not need to. The caller keeps polling and eventually
+ * gives up, which is the correct behaviour for both.
+ */
+async function indexServes(
+  coll: ReturnType<ReturnType<typeof getDb>['collection']>,
+  indexName: string,
+): Promise<boolean> {
+  try {
+    const dims = getEmbeddingConfig().dimensions ?? 768;
+    await coll.aggregate([{
+      $vectorSearch: {
+        index: indexName,
+        path: 'embedding',
+        queryVector: new Array(dims).fill(0),
+        numCandidates: 1,
+        limit: 1,
+      },
+    }, { $limit: 1 }, { $project: { _id: 1 } }]).toArray();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Poll a single vector-search index for READY status, up to ~60 seconds.
  *  Returns true once READY, false if it never became READY in the window. */
 export async function pollVectorIndexReady(
@@ -299,6 +335,35 @@ export async function pollVectorIndexReady(
         if (current.status === 'READY' || current.queryable === true) {
           log.debug(`Vector search index ${indexName} is READY (${lastSeen})`);
           return true;
+        }
+
+        /**
+         * Neither lifecycle field is present — so ASK the index instead of reading about it.
+         *
+         * A self-hosted replica set returns the index document without `status` or `queryable`: found by
+         * name, no lifecycle fields at all. Confirmed against MongoDB 8.2.6 Community with a mongot
+         * sidecar (`buildInfo.modules: []`) — the standard self-managed search topology. Its document is
+         * identity plus `latestDefinition` (fields, dimensions, similarity, versions) and nothing else:
+         * there is no other key that means "usable", so there is nothing cheaper to read than the probe.
+         * The loop above can then never exit, so after 600 s every
+         * space on a five-instance fleet was marked failed while recall was returning genuine scores and
+         * `/ready` was passing. Absence of a status field is not evidence of an unready index — the same
+         * mistake the model-enumeration check used to make one layer up, where "not listed" was read as
+         * "not present".
+         *
+         * `indexServes` runs the query recall would run. It answers the question the status field was
+         * only ever a proxy for, and it is the same instinct as Verify: send one real request rather
+         * than infer from metadata.
+         *
+         * Only reached when both fields are absent, so a backend that does report them pays nothing —
+         * which matters at 65 indexes on one boot.
+         */
+        if (current.status === undefined && current.queryable === undefined) {
+          if (await indexServes(coll, indexName)) {
+            log.debug(`Vector search index ${indexName} serves queries (no lifecycle fields on this backend)`);
+            return true;
+          }
+          lastSeen += ' — no lifecycle fields on this backend; probe query did not serve yet';
         }
       }
     } catch (err) {
@@ -366,7 +431,7 @@ export async function waitForSpaceIndexesReady(
 export async function finalizeSpaceIndexReady(
   spaceId: string,
   opts: { timeoutMs?: number } = {},
-): Promise<void> {
+): Promise<boolean> {
   let ok = false;
   try {
     ok = await waitForSpaceIndexesReady(spaceId, opts);
@@ -383,6 +448,10 @@ export async function finalizeSpaceIndexReady(
     if (!space) { found = false; return; } // space was deleted while its indexes built
     space.indexStatus = ok ? 'ready' : 'failed';
   });
-  if (!found) return;
+  if (!found) return ok;
   log.info(`Space '${spaceId}': vector indexes ${ok ? 'ready' : 'did not reach READY (marked failed)'}`);
+  // Returned so the caller's summary can state what actually happened. It used to return void and
+  // print `readiness confirmed for all spaces` unconditionally — directly after this line had said
+  // the opposite about two of them.
+  return ok;
 }

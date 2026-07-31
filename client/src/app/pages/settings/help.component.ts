@@ -36,6 +36,7 @@ export const HELP_DOCS = [
   { id: 'workstation-mode-guide', file: 'workstation-mode-guide.md' },
   { id: 'network-types', file: 'network-types.md' },
   { id: 'sync-protocol', file: 'sync-protocol.md' },
+  { id: 'ui-primitives', file: 'ui-primitives.md' },
   { id: 'dependencies', file: 'dependencies.md' },
   { id: 'contribution-guide', file: 'contribution-guide.md' },
 ] as const;

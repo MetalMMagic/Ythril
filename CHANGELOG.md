@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The egress matrix is complete, and a test keeps it that way.** The guide's table of which model
+  endpoints send content listed **seven** slots while the code had ten — the reranker, contradiction
+  judge, external face model and two document stages were missing, and so was `DOC_VLM_URL` from the list
+  of guarded endpoints one paragraph above it. That omission was not cosmetic: the document VLM was
+  reaching an off-instance host with no guard at all while the guide stated the opposite invariant.
+  `testing/standalone/egress-matrix.test.js` now asserts the table's slot-key column equals the server's
+  `EGRESS_SLOTS`, that every row is filled in, that the two acknowledgement-gated slots say so, and that
+  every env var named is one the code actually reads — which on its first run found three phantoms
+  (`EMBEDDING_BASE_URL`, `RERANK_BASE_URL`, `NLI_BASE_URL`; the real names drop the `BASE_`) that a
+  reader would have set and watched do nothing.
+
+- **`docs/ui-primitives.md`** — the shared client components (`settings-card`, `status-pill`,
+  `summary-strip`, `relative-time`, `usage-bar`, the confirm dialog, `ph-icon`) with their APIs and the
+  page-PR checklist, linked from the README and the contribution guide. Each replaced two or three
+  divergent implementations of the same idea, and they were discoverable only by reading a page that
+  happened to use one — which is exactly how a fourth badge dialect gets written.
+
 - **Uploading over an existing file now asks first.** Reported against 2.1.1: re-uploading to the same
   path silently replaced the file and hard-removed everything derived from it, with no warning.
   - The behaviour is right — stale chunks for a document that no longer exists would be worse — but it
@@ -98,6 +115,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     never mentioned. A check that enumerates a subset reports "nothing else is exposed" by omission.
 
 ### Fixed
+
+- **A destructive button rendered as the affirmative.** `.icon-btn.danger` existed; `.btn.danger` did
+  not, so `class="btn btn-sm danger"` applied **nothing**. Four buttons were written that way, and the
+  worst was MFA's *"Yes, disable MFA"* — it also carried `btn-primary`, so the control that permanently
+  deletes the TOTP secret was the green affirmative sitting under a red warning. The other three (schema
+  library ×2, webhooks) rendered neutral. Fixed globally rather than at four call sites, on the precedent
+  #533 set when the identical gap turned up on `.icon-btn`: a class that silently does nothing gets
+  written again. Only a screenshot could see this — no test can.
 
 - **Updates are validated against the schema. All of them.** Creates were validated; updates were
   validated **only when the patch used `deleteFields`**.
@@ -290,6 +315,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     its speech is missing.
 
 ### Changed
+
+- **The MFA page's ten inline styles are classes.** A move, not a redesign — every computed value is
+  unchanged, verified per state against a rendered page rather than by reading the diff. It had been
+  deferred on the grounds that "moving declarations around a page nobody can see rendered buys nothing
+  and risks something"; looking at it is what removed the risk, and what turned up the destructive-button
+  defect above.
 
 - **"Model not listed" is no longer reported as degraded.** `modelPresent` is renamed
   `modelEnumerated` — named for what it measured rather than what it was read as. Aliasing routers

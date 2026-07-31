@@ -391,3 +391,57 @@ export const recallDegradedTotal = new Counter({
 for (const reason of ['rerank_unavailable', 'rerank_skipped_budget']) {
   recallDegradedTotal.labels({ reason }).inc(0);
 }
+
+// ── Security posture (observability audit, lens 9) ────────────────────────────
+
+/**
+ * The instance's own PASS/WARN/FAIL posture, countable.
+ *
+ * `computeSecurityPosture()` already produces this: it is printed once at boot and served on
+ * `GET /api/about/security` (admin-only). Both are pull-only and human-shaped, which means a fleet learns
+ * that an instance came up misconfigured by someone reading its boot log. On a five-instance fleet nobody
+ * reads five boot logs, and the checks that matter most are exactly the ones that produce no runtime
+ * symptom — `requireEncryptedTransport` off, or on WITHOUT `trustProxy`, which rejects every request.
+ *
+ * So the same finding set is a gauge, and an operator can alert on it:
+ *
+ *     ythril_security_posture_checks{level="fail"} > 0
+ *
+ * Computed at scrape time from the same function, never a second copy of the rules — a posture metric that
+ * could disagree with the endpoint would be worse than no metric.
+ *
+ * Pre-declared for all three levels so a healthy instance reports `fail 0` rather than nothing: absent and
+ * zero look identical in a graph and mean opposite things, which is the trap `recallDegradedTotal` above
+ * documents one metric up.
+ */
+export const securityPostureChecks = new Gauge({
+  name: 'ythril_security_posture_checks',
+  help: 'Security-posture checks by level (pass/warn/fail) — alert on level="fail"',
+  labelNames: ['level'] as const,
+  registers: [register],
+  collect() {
+    try {
+      const counts: Record<string, number> = { pass: 0, warn: 0, fail: 0 };
+      for (const c of postureProvider?.() ?? []) {
+        if (c.level in counts) counts[c.level] = (counts[c.level] ?? 0) + 1;
+      }
+      for (const [level, n] of Object.entries(counts)) this.set({ level }, n);
+    } catch {
+      /* A metrics scrape must never be the thing that fails. */
+    }
+  },
+});
+
+/**
+ * How the posture reaches the gauge without this module importing config.
+ *
+ * `registry.ts` is imported by nearly every file, so pulling `security-posture` (and therefore the config
+ * loader) in here would invert the dependency direction and risk a cycle. `index.ts` registers the provider
+ * once at boot instead. Unregistered — in a test, or before boot finishes — the gauge reports zeros, which
+ * is the honest answer for "no posture has been computed".
+ */
+let postureProvider: (() => Array<{ level: string }>) | null = null;
+export function setPostureProvider(fn: () => Array<{ level: string }>): void {
+  postureProvider = fn;
+}
+for (const level of ['pass', 'warn', 'fail']) securityPostureChecks.set({ level }, 0);

@@ -10,7 +10,7 @@
  * harness can see a stale OnPush view, so a passing assertion here means a real refresh occurred.
  */
 import { TestBed } from '@angular/core/testing';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { of, Observable, Subject } from 'rxjs';
 import { ActivatedRoute } from '@angular/router';
 import { type FileEntry, type UploadProgress } from '../../core/api.types';
@@ -498,5 +498,76 @@ describe('FileManagerComponent — live refresh on the shell tick', () => {
     // ran on its own first tick and re-listed on top of the initial load.
     const { listFiles } = create(PROCESSING);
     expect(listFiles.mock.calls.length, 'folder + tree root, and nothing more').toBe(2);
+  });
+
+  /**
+   * B.5 — the stage bar has to ADVANCE, not just react to completion.
+   *
+   * The tick above fires on `file.*` SSE events, which are brain writes. Per-page progress is not one:
+   * `touchJobProgress` writes a heartbeat and publishes nothing, so the bar was drawn once from the
+   * listing that was current when the folder was opened and sat at "page 12 of 40" for the whole
+   * conversion. The reporter read that as a wedged pipeline.
+   *
+   * A poll is the honest mechanism for a value with no event behind it — so what these pin is that it is
+   * bounded: only while something on screen is in flight, never stacked, never after the view is gone.
+   */
+  describe('the processing poll', () => {
+    const IDLE: FileEntry[] = [
+      { name: 'done.pdf', size: 10, isFile: true, isDirectory: false, modified: '2026-01-01', embeddingStatus: 'complete' } as FileEntry,
+    ];
+
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('re-lists while a file is processing, without waiting for an event', () => {
+      const { listFiles } = create(PROCESSING);
+      const before = listFiles.mock.calls.length;
+      vi.advanceTimersByTime(4_000);
+      expect(listFiles.mock.calls.length, 'the poll must re-list').toBeGreaterThan(before);
+    });
+
+    it('keeps going — a stage bar that advances once is still stuck', () => {
+      const { listFiles } = create(PROCESSING);
+      const before = listFiles.mock.calls.length;
+      vi.advanceTimersByTime(12_000);
+      expect(listFiles.mock.calls.length - before).toBeGreaterThanOrEqual(3);
+    });
+
+    it('does NOT poll an idle folder', () => {
+      // The cost of getting this wrong is a permanent background request loop on every open folder in
+      // every tab, which is worse than the stale bar it was meant to fix.
+      const { listFiles } = create(IDLE);
+      const before = listFiles.mock.calls.length;
+      vi.advanceTimersByTime(20_000);
+      expect(listFiles.mock.calls.length).toBe(before);
+    });
+
+    it('stops once the file finishes', () => {
+      const { fixture, listFiles } = create(PROCESSING);
+      // The next listing reports it complete — as the real one does when the job lands.
+      listFiles.mockReturnValue(of({ entries: IDLE }));
+      vi.advanceTimersByTime(4_000);
+      fixture.detectChanges();
+      const after = listFiles.mock.calls.length;
+      vi.advanceTimersByTime(20_000);
+      expect(listFiles.mock.calls.length, 'the poll must retire itself').toBe(after);
+    });
+
+    it('never stacks two timers, however many listings land', () => {
+      const { fixture, listFiles } = create(PROCESSING);
+      // Three more loads, each of which calls the sync — a start-per-load would triple the rate.
+      for (let i = 0; i < 3; i++) { fixture.componentInstance.reloadDir(); fixture.detectChanges(); }
+      const before = listFiles.mock.calls.length;
+      vi.advanceTimersByTime(4_000);
+      expect(listFiles.mock.calls.length - before).toBe(1);
+    });
+
+    it('is cleared on destroy, so it cannot outlive the view', () => {
+      const { fixture, listFiles } = create(PROCESSING);
+      fixture.destroy();
+      const after = listFiles.mock.calls.length;
+      vi.advanceTimersByTime(20_000);
+      expect(listFiles.mock.calls.length).toBe(after);
+    });
   });
 });

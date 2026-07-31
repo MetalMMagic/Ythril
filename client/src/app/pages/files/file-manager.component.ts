@@ -1036,6 +1036,7 @@ export class FileManagerComponent implements OnInit, OnDestroy {
       next: ({ entries }) => {
         this.entries.set(entries);
         this.loading.set(false);
+        this.syncProgressPolling();
       },
       // A failed listing must not fall through to the "empty folder" state (U3).
       error: (e) => { this.loadError.set(httpErrorReason(e)); this.loading.set(false); },
@@ -1044,6 +1045,55 @@ export class FileManagerComponent implements OnInit, OnDestroy {
 
   /** Re-load the current directory — bound to the error state's Retry button. */
   reloadDir(): void { this.loadDir(this.currentPath()); }
+
+  // ── The processing stage bar has to ADVANCE (B.5) ──────────────────────────
+  //
+  // The live-refresh tick above covers status CHANGES: the shell's SSE stream fires on `file.*`, which is
+  // a brain write, and a file finishing is one. Per-page progress is not. `touchJobProgress` writes a
+  // heartbeat on the media job record as each page lands and publishes nothing — deliberately, since
+  // fanning one event per page per file out to every open tab is not a trade worth making.
+  //
+  // So the stage bar was drawn once, from the listing that was current when the folder was opened, and sat
+  // there: "page 12 of 40" for the whole conversion. Nothing errored, which is why it read as a wedged
+  // pipeline rather than a stale view — the reporter took it for the former.
+  //
+  // A poll is the honest mechanism for a value with no event behind it, and this one is bounded on both
+  // sides: it exists only while a row on screen is actually in flight, and it skips a tick when the tab is
+  // hidden. An idle folder polls nothing.
+
+  /** 4 s: progress moves a page at a time, so faster only costs requests. `progressAt` shows staleness. */
+  private static readonly PROGRESS_POLL_MS = 4_000;
+  private progressPoll: ReturnType<typeof setInterval> | null = null;
+
+  /** True while any row on screen is still being processed — the only condition that justifies polling. */
+  anyInFlight(): boolean {
+    return this.entries().some(e =>
+      !!e.progress || e.embeddingStatus === 'pending' || e.embeddingStatus === 'processing');
+  }
+
+  /** Start or stop the poll to match what is on screen. Called after every listing load. */
+  private syncProgressPolling(): void {
+    if (this.anyInFlight()) {
+      if (this.progressPoll !== null) return;                    // already running — never stack timers
+      this.progressPoll = setInterval(() => {
+        // A background tab does not need a stage bar. Skipping the tick rather than stopping the timer
+        // means it resumes the moment the tab is looked at again, with no visibility listener to leak.
+        if (typeof document !== 'undefined' && document.hidden) return;
+        this.reloadDir();
+        // The open file's own record goes stale in exactly the same way: the description a document gets
+        // is written when its job finishes, so a detail pane opened during processing showed none until
+        // the file was closed and reopened.
+        const open = this.previewFile();
+        if (open) this.loadSelectedMeta(open);
+      }, FileManagerComponent.PROGRESS_POLL_MS);
+    } else {
+      this.stopProgressPolling();
+    }
+  }
+
+  private stopProgressPolling(): void {
+    if (this.progressPoll !== null) { clearInterval(this.progressPoll); this.progressPoll = null; }
+  }
 
   @HostListener('dragover', ['$event'])
   onDragOver(event: DragEvent): void {
@@ -1606,5 +1656,8 @@ export class FileManagerComponent implements OnInit, OnDestroy {
     // Abort any in-flight/queued uploads so their requests don't outlive the view.
     for (const sub of this.uploadSubs.values()) sub.unsubscribe();
     this.uploadSubs.clear();
+    // A poll left running would keep requesting a directory listing for a view nobody is looking at —
+    // and, because it reloads through the component's own signals, on a destroyed component.
+    this.stopProgressPolling();
   }
 }

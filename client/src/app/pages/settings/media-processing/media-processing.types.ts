@@ -15,6 +15,24 @@ export interface TestResult {
   modelEnumerated?: boolean; detail?: string; latencyMs: number;
 }
 
+/** Targets that can be verified with a real request. Fewer than `TestTarget`: each needs a payload. */
+export type VerifyTarget = 'vision' | 'stt' | 'embedding' | 'assist';
+
+/**
+ * The result of one real request against a configured model.
+ *
+ * `still-loading` is a first-class outcome, not a failure. A cold model load on a swapping backend was
+ * measured at ~35s in the field; reporting that as broken is the false negative Verify exists to remove.
+ */
+export interface VerifyResult {
+  target: string;
+  outcome: 'ok' | 'failed' | 'still-loading' | 'unconfigured';
+  latencyMs: number;
+  /** What the model actually said, truncated — evidence it really answered. */
+  sample?: string;
+  detail?: string;
+}
+
 export type TestTarget = 'vision' | 'stt' | 'assist' | 'embedding' | 'rerank' | 'nli';
 
 /** Text-embedding config (top-level `config.embedding`, surfaced on this page). Changing

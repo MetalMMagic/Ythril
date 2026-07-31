@@ -18,7 +18,7 @@ import { ConfirmDialogService } from '../../../core/confirm-dialog.service';
 import { StatusVariant } from '../../../shared/status-pill.component';
 import {
   MediaCfg, MediaClass, DocProcCfg, DocAssistCfg, DocMode, EmbeddingCfg,
-  TestResult, TestTarget, FaceRecognitionCfg, MODE_STAGES, FaceExternalCfg, RerankCfg, NliCfg,
+  TestResult, TestTarget, VerifyResult, VerifyTarget, FaceRecognitionCfg, MODE_STAGES, FaceExternalCfg, RerankCfg, NliCfg,
 } from './media-processing.types';
 
 /**
@@ -195,6 +195,36 @@ export class MediaProcessingStateService {
       } } })),
     });
   }
+  // ── Verify: one REAL request against the configured model ──
+  //
+  // `testConnection` lists models — cheap, content-free, and unable to answer "does my model work". A
+  // vision endpoint was listed, reachable, and failing on every image; and an aliasing router does not
+  // enumerate the names it serves at all. Only a real call settles it.
+  //
+  // Deliberately a separate action with its own button: it costs latency and, on a metered endpoint,
+  // money. A cold model load has been measured at ~35s in the field, so there is no client-side timeout
+  // here — the server owns the budget and reports `still-loading` rather than calling a swapping backend
+  // broken.
+  verifyState = signal<Partial<Record<VerifyTarget, { loading?: boolean; res?: VerifyResult }>>>({});
+  verifyOf(t: VerifyTarget): { loading?: boolean; res?: VerifyResult } | undefined { return this.verifyState()[t]; }
+  verifyModel(t: VerifyTarget): void {
+    this.verifyState.update(s => ({ ...s, [t]: { loading: true } }));
+    this.http.post<VerifyResult>('/api/admin/media-config/verify', { target: t }).subscribe({
+      next: res => this.verifyState.update(s => ({ ...s, [t]: { res } })),
+      error: err => this.verifyState.update(s => ({ ...s, [t]: { res: {
+        target: t, outcome: 'failed' as const,
+        detail: err?.error?.error ?? err?.message ?? 'Verification failed', latencyMs: 0,
+      } } })),
+    });
+  }
+  /** Pill colour per outcome. `still-loading` is INFORMATIONAL — a cold start is not a fault. */
+  verifyPillVariant(r: VerifyResult): StatusVariant {
+    return r.outcome === 'ok' ? 'ok' : r.outcome === 'failed' ? 'error' : 'warn';
+  }
+  verifyPillLabelKey(r: VerifyResult): string {
+    return `mediaProcessing.verify.${r.outcome === 'still-loading' ? 'stillLoading' : r.outcome}`;
+  }
+
   /**
    * Not enumerating a model is NOT a warning.
    *

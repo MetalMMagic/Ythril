@@ -293,6 +293,14 @@ The file manager lets you upload, download, organise, and preview files within e
 
 **Uploading:** Click **↑ Upload** in the toolbar, or drag and drop files directly onto the file list. Large files are uploaded in chunks automatically.
 
+**Uploading over a file that already exists asks first.** *New in 2.2.* A file with the same name in the
+same folder is **replaced**, and everything derived from the old one is removed and rebuilt: conversion
+chunks, extracted images, and any description generated from them. The dialog names all of that, because
+what you need to weigh is that the derived records disappear — not that some bytes change.
+
+You are asked **once for a whole batch**, not once per file: a drop of twenty files where three collide is
+one question. **Cancel is the default**, and Replace is styled as destructive. There is no undo.
+
 **Actions per row:**
 
 | Action | How |
@@ -448,6 +456,15 @@ Click the gear icon on any space row to open its settings panel. Changes save an
 **Schema tab:** Define what data this space accepts. A **Schema validation** bar at the very top holds the space-wide **Validation mode** and **Strict linkage** controls — these govern *every* type in the space, not the collection you happen to be viewing. Below it, the entity / edge / memory / chrono collections each list their types on the left; click one to edit its rules in a stable panel on the right (you don't lose your place editing a type or property, and several property editors can be open at once).
 
 - **Validation mode** — `off` means anything goes; `warn` lets writes through but flags violations; `strict` blocks invalid writes entirely.
+  > **Editing is checked too, as of 2.2.** Previously only *creating* a record was validated; an edit
+  > could save a value the same space would have rejected on create. Now the record **as it will be** —
+  > yours plus the existing fields — is checked before it saves.
+  >
+  > This can refuse an edit for a field you did not touch, when the record was already invalid: written
+  > before you tightened the schema, or imported, or synced from another brain. The message says which is
+  > which — *"the change violates…"* versus *"this record was already non-compliant before your
+  > change…"* — so you are not sent looking at the wrong field. To get unstuck, fix the named field in
+  > the same save; validation is of the result, so the record repairs itself.
 - **Strict linkage** — when on, references between items must be valid IDs and deletion of referenced items is blocked.
 - **Type schemas** — define per-type rules under each knowledge type (entity, memory, edge, chrono). For each named type you can set:
   - **Naming pattern** — a regex the name must match.
@@ -634,6 +651,34 @@ rather than just saying it failed. Two cases account for almost all of them:
 
 Every refusal is also written to the server log with the same detail, so an administrator can find it
 without you having to reproduce the click.
+
+### Verify — does the model actually answer?
+
+*New in 2.2.*
+
+**Test connection** asks "is something there". It cannot answer *does my model work* — an endpoint can be
+reachable, list your model, and still fail on every real request. **Verify** sends one real request and
+tells you what came back. There is a button on the **Vision**, **Speech-to-text**, **Embedding** and
+**Assist** cards.
+
+**It never sends your data.** The payload is always generated: a 1×1 transparent image, a few
+milliseconds of synthesised silence, or the word `ping`. It goes through the same code path the worker
+uses, so a transport problem shows up here instead of on someone's first upload.
+
+Four outcomes:
+
+| Result | Meaning |
+|---|---|
+| **OK** | The model answered. A short sample of what it returned is shown. |
+| **Still loading** | It did not answer within 3 minutes. Not a failure — a backend that swaps models onto a shared GPU can legitimately take 30 seconds or more on the first call. Try again. |
+| **Failed** | It answered, but wrongly — or the call errored. The detail names what happened. |
+| **Not configured** | No model is set for that card. |
+
+Silence transcribing to no text is a **pass** for speech-to-text: the payload is silent, so reaching a
+proper response *is* the result.
+
+Verify costs a real request, so on a metered endpoint it costs money. It is recorded in the audit log for
+that reason; Test connection, which only lists models, is not.
 
 ### Privacy note
 

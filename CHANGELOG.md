@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **Three 2.2 features never reached the user guide.** The integration guide had them all; the guide a
+  non-integrator actually reads had none of them.
+  - **Verify** — a button on four provider cards, with no user-facing explanation of what it sends
+    (generated payloads, never your data), what `still-loading` means, or why silence transcribing to
+    nothing is a pass.
+  - **The re-upload confirmation** — a new dialog, undocumented, including that it asks once per batch
+    and that Cancel is the default.
+  - **Update validation** — an edit can now be refused for a field the user did not touch, when the
+    record was already non-compliant. Without the guide saying so, that reads as a bug.
+  - The doc-coverage gates check env vars, config keys, routes, MCP tools and shipped guides. **None of
+    them can see that a user-facing UI feature never got written up** — the same blind spot in a
+    different dimension.
+
+
 ## [2.2.1] — 2026-07-31
 
 ### Fixed

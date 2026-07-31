@@ -76,6 +76,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The processing stage bar never advanced without a reload.** A document being converted showed "page 12
+  of 40" for the whole conversion: the bar is built from the directory listing, and nothing re-fetched it.
+  Nothing errored, which is why it read as a wedged pipeline rather than a stale view. Reported by the
+  canary.
+  - The live-refresh tick added in 2.2 covers status *changes* — it fires on `file.*` SSE events, and a file
+    finishing is a brain write. **Per-page progress is not**: the worker writes a heartbeat as each page
+    lands and publishes nothing, deliberately, since one event per page per file fanned out to every open
+    tab is not a trade worth making.
+  - So the list now polls, and only where a poll is the honest mechanism: it runs **only while a row on
+    screen is actually in flight**, skips a tick while the tab is hidden, is never stacked, and is cleared
+    when the view goes away. An idle folder polls nothing.
+  - The open file's own record is refreshed on the same tick — a detail pane opened *during* processing
+    showed no description until the file was closed and reopened, for the same reason.
+
 - **A converted document's "description" was a truncation, not the generated prose the release note
   promised.** It was the head of the converted text — on a real invoice, a payment reference cut
   mid-identifier — while the images extracted from the same document carried full generated captions. The

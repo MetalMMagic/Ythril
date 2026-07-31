@@ -28,13 +28,15 @@ import { readFileSync } from 'node:fs';
 
 let migrateSpaceDescriptionToPurpose;
 let spacePurpose;
+let spaceDescriptionAlias;
+let spaceResponse;
 
 const space = (over = {}) => ({ id: 's', label: 'S', builtIn: false, folders: [], ...over });
 
 describe('space purpose is one field', () => {
   before(async () => {
     ({ migrateSpaceDescriptionToPurpose } = await import('../../server/dist/config/loader.js'));
-    ({ spacePurpose } = await import('../../server/dist/spaces/spaces.js'));
+    ({ spacePurpose, spaceDescriptionAlias, spaceResponse } = await import('../../server/dist/spaces/spaces.js'));
   });
 
   describe('the boot migration', () => {
@@ -90,6 +92,23 @@ describe('space purpose is one field', () => {
       assert.equal(spacePurpose({ meta: { purpose: '  ' } }), undefined,
         'whitespace is not a directive; returning it would show an empty box as if it were content');
     });
+
+    it('a shaped response carries the alias beside the record', () => {
+      // The regression this pins: `res.json({ space: updated })` was right while `description` was
+      // STORED, and dropped the field the moment it became derived — so PATCH echoed back a space with
+      // no description even though the write had landed.
+      const shaped = spaceResponse(space({ meta: { purpose: 'the directive', version: 3 } }));
+      assert.equal(shaped.description, 'the directive');
+      assert.equal(shaped.meta.version, 3, 'the rest of the record must survive the shaping');
+    });
+
+    it('omits the key entirely when there is no purpose', () => {
+      // Not `null`: the list endpoints have always omitted it, and a client that treats present-but-null
+      // as "an admin cleared it" would read the two shapes differently.
+      assert.equal('description' in spaceResponse(space()), false);
+      assert.deepEqual(spaceDescriptionAlias(space()), {});
+      assert.deepEqual(spaceDescriptionAlias(space({ meta: { purpose: 'x' } })), { description: 'x' });
+    });
   });
 
   describe('no surface reads a stored description', () => {
@@ -105,9 +124,27 @@ describe('space purpose is one field', () => {
         'that is the stored legacy field, which no longer exists after the migration');
     });
 
-    it('the REST list derives it too', () => {
-      assert.ok(has('server/src/api/spaces.ts', /description: spacePurpose\(space\)/),
-        'GET /api/spaces must derive the alias, not read a second store');
+    // The first cut of this gate hand-picked the list endpoint and passed while three other responses
+    // dropped the field. Enumerate the sites out of the source instead: whatever answers with a space has
+    // to be in this list, including one added tomorrow.
+    it('every response that carries a space routes through the shared shaper', () => {
+      const src = strip(readFileSync('server/src/api/spaces.ts', 'utf8'));
+      const sites = [...src.matchAll(/\.json\(\s*\{\s*space:\s*([A-Za-z_$][\w$]*\(?)/g)].map(m => m[1]);
+      assert.ok(sites.length >= 3,
+        `expected at least the create / PATCH / PUT-schema responses, enumerated ${sites.length}`);
+      const raw = sites.filter(expr => expr !== 'spaceResponse(');
+      assert.deepEqual(raw, [],
+        `these answer with the stored record, so the derived alias is missing from them: ${raw.join(', ')}`);
+    });
+
+    it('the alias is derived in exactly one place', () => {
+      // Two spellings is how it drifted the first time. `spaceDescriptionAlias` spreads, so a response
+      // that projects a subset of fields uses the same derivation as one that returns the whole record.
+      const src = strip(readFileSync('server/src/api/spaces.ts', 'utf8'));
+      const assigned = [...src.matchAll(/description:\s*([^,\n]{1,24})/g)].map(m => m[1].trim());
+      const inline = assigned.filter(v => !v.startsWith('z.'));
+      assert.deepEqual(inline, [],
+        `derive the alias via spaceDescriptionAlias/spaceResponse, not inline: ${inline.join(', ')}`);
     });
 
     it('a description write is folded into meta before the vote decision', () => {

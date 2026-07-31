@@ -32,6 +32,29 @@ export function spacePurpose(space: { meta?: SpaceMeta }): string | undefined {
   return purpose ? purpose : undefined;
 }
 
+/**
+ * The deprecated `description` alias, ready to spread into a response object — `{}` when the space has no
+ * purpose, so the key is absent rather than explicitly empty.
+ *
+ * Exists so the derivation has ONE spelling in the API layer. The list endpoints wrote it out inline while
+ * the single-space responses returned the stored record as-is, which was correct only while `description`
+ * WAS stored: the moment it became derived, create / PATCH / PUT-schema silently stopped carrying it, so a
+ * PATCH echoed back a space with no `description` even though the write had landed. Spread this, or call
+ * `spaceResponse`; never re-derive it at a call site.
+ */
+export function spaceDescriptionAlias(space: { meta?: SpaceMeta }): { description?: string } {
+  const purpose = spacePurpose(space);
+  return purpose === undefined ? {} : { description: purpose };
+}
+
+/**
+ * A space as the API publishes it: the whole stored record plus the derived `description` alias. For
+ * responses that project a subset of fields, spread `spaceDescriptionAlias` instead.
+ */
+export function spaceResponse<T extends { meta?: SpaceMeta }>(space: T): T & { description?: string } {
+  return { ...space, ...spaceDescriptionAlias(space) };
+}
+
 /** Update mutable fields (label, description, meta) of an existing space in config.
  *  When `meta` is provided the version counter is auto-incremented and the
  *  previous version is pushed to `previousVersions` (capped at META_VERSION_CAP).

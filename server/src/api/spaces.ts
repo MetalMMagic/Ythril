@@ -7,7 +7,7 @@ import { capDocExtractionMode } from '../files/converters/extraction-level.js';
 import { slugify } from '../spaces/_shared.js';
 import { createSpace, removeSpace } from '../spaces/lifecycle.js';
 import { renameSpace } from '../spaces/rename.js';
-import { updateSpace, reorderSpaces, spacePurpose } from '../spaces/spaces.js';
+import { updateSpace, reorderSpaces, spaceDescriptionAlias, spaceResponse } from '../spaces/spaces.js';
 import { checkMetaPrecondition, preconditionErrorBody } from '../spaces/meta-precondition.js';
 import { gatherCompletenessFacts, scoreCompleteness } from '../spaces/completeness.js';
 import { ensureTtlIndex } from '../brain/ttl.js';
@@ -290,7 +290,7 @@ spacesRouter.post('/reorder', globalRateLimit, requireAdminMfa, (req, res) => {
   }
   res.json({ spaces: reordered.map(space => ({
     id: space.id, label: space.label, builtIn: space.builtIn, folders: space.folders,
-    maxGiB: space.maxGiB, flex: space.flex, description: spacePurpose(space),
+    maxGiB: space.maxGiB, flex: space.flex, ...spaceDescriptionAlias(space),
     ...(space.proxyFor ? { proxyFor: space.proxyFor } : {}),
   })) });
 });
@@ -348,8 +348,8 @@ spacesRouter.get('/', globalRateLimit, requireAuth, async (req, res) => {
     const { id, label, builtIn, folders, maxGiB, flex, proxyFor, meta, dupeRules, dupeMergeSurvivor, dupeRulesOnInsert, recordTtlDays, documentExtraction, imageAnalysis, audioAnalysis, videoAnalysis, textAnalysis, indexStatus } = space;
     return {
     id, label, builtIn, folders, maxGiB, flex,
-    // Deprecated alias of `meta.purpose`, derived rather than stored — see `spacePurpose`.
-    description: spacePurpose(space),
+    // Deprecated alias of `meta.purpose`, derived rather than stored — see `spaceDescriptionAlias`.
+    ...spaceDescriptionAlias(space),
     usageGiB: usageGiBByIdx[idx],
     ...(indexStatus ? { indexStatus } : {}),
     ...(proxyFor ? { proxyFor } : {}),
@@ -445,7 +445,7 @@ spacesRouter.post('/', globalRateLimit, requireAdminMfa, async (req, res) => {
 
   try {
     const space = await createSpace({ id, label, description, folders, maxGiB, proxyFor, meta: seededMeta });
-    res.status(201).json({ space });
+    res.status(201).json({ space: spaceResponse(space) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('already exists')) {
@@ -634,7 +634,7 @@ spacesRouter.patch('/:id', globalRateLimit, requireAdminMfaScoped('id'), async (
     res.status(404).json({ error: `Space '${id}' not found` });
     return;
   }
-  res.json({ space: updated });
+  res.json({ space: spaceResponse(updated) });
 });
 
 // PUT /api/spaces/:id/schema — full replacement of the space's typeSchemas.
@@ -712,7 +712,7 @@ spacesRouter.put('/:id/schema', globalRateLimit, requireAdminMfaScoped('id'), as
     before: { typeSchemas: previousTypeSchemas ?? {} },
     after: { typeSchemas: newMeta.typeSchemas ?? {} },
   };
-  res.json({ space: updated });
+  res.json({ space: spaceResponse(updated) });
 });
 
 // GET /api/spaces/:id/meta — read the meta block with derived stats

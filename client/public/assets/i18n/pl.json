@@ -84,6 +84,7 @@
   "help.doc.workstation-mode-guide": "Tryb stacji roboczej",
   "help.doc.network-types": "Typy sieci",
   "help.doc.sync-protocol": "Protokół synchronizacji",
+  "help.doc.ui-primitives": "Prymitywy UI",
   "help.doc.dependencies": "Zależności i licencje",
   "help.doc.contribution-guide": "Współtworzenie",
   "about.card.help": "Dokumentacja",

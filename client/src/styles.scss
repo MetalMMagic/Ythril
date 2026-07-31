@@ -249,6 +249,27 @@ button:disabled, .btn:disabled {
   background: var(--error-dim);
 }
 
+/*
+ * `.btn.danger` — the same treatment, for the spelling four buttons already use.
+ *
+ * `.icon-btn.danger` exists; `.btn.danger` did not, so `class="btn btn-sm danger"` applied NOTHING. Four
+ * buttons were written that way: the MFA disable ("the secret will be permanently deleted"), which
+ * carried `btn-primary` and therefore rendered as the green AFFIRMATIVE for an irreversible action; and
+ * three ghost/secondary delete buttons in the schema library and webhooks, which rendered neutral.
+ *
+ * Fixed here rather than by rewriting four call sites, for the reason #533 gave when the identical gap
+ * turned up on `.icon-btn`: a class that silently does nothing will be written again, and per-page fixes
+ * leave the next one broken. Same declarations as `.btn-danger`, so the two spellings cannot diverge.
+ */
+.btn.danger {
+  background: transparent;
+  color: var(--error);
+  border-color: var(--error);
+}
+.btn.danger:not(:disabled):hover {
+  background: var(--error-dim);
+}
+
 .btn-ghost {
   background: transparent;
   color: var(--text-secondary);

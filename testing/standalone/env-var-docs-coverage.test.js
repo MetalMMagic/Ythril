@@ -106,6 +106,11 @@ function collectDocumented() {
     const src = readFileSync(join(ROOT, 'docs', f), 'utf8');
     for (const m of src.matchAll(/\b([A-Z][A-Z0-9_]{2,})\b/g)) {
       if (!OURS.test(m[1])) continue;
+      // A trailing underscore is never a real variable — it is the stub left behind when prose names a
+      // FAMILY of them, `YTHRIL_ALLOW_PRIVATE_<SLOT>` or `YTHRIL_ALLOW_PRIVATE_*`, and the word-boundary
+      // match keeps only the prefix. Counting those as documented settings makes the reverse check report
+      // a phantom for every family the docs describe, which is a finding about the scanner, not the docs.
+      if (m[1].endsWith('_')) continue;
       if (!docs.has(m[1])) docs.set(m[1], new Set());
       docs.get(m[1]).add(f);
     }

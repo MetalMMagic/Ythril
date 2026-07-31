@@ -121,7 +121,7 @@ That's it. Your assistant instantly sees the space's purpose, its schema, and ev
 |---|---|
 | 👤 User / operator | [Workstation Mode](docs/workstation-mode-guide.md) · [User Guide](docs/userguide.md) · [Use-case examples](docs/usecase-examples.md) |
 | 🔌 Integrator (API / MCP) | [Integration Guide](docs/integration-guide.md) · [Network Types](docs/network-types.md) · [Sync Protocol](docs/sync-protocol.md) |
-| 🛠️ Developer | [Contribution Guide](docs/contribution-guide.md) · [Docker Build](docs/docker-build-protocol.md) |
+| 🛠️ Developer | [Contribution Guide](docs/contribution-guide.md) · [UI Primitives](docs/ui-primitives.md) · [Docker Build](docs/docker-build-protocol.md) |
 
 </div>
 

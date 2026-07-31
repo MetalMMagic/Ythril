@@ -16,10 +16,11 @@ Audience: developers and maintainers working on Ythril source code.
 6. [Container Images](#container-images)
 7. [Releasing a New Version](#releasing-a-new-version)
 8. [Engineering Principles](#engineering-principles)
-9. [Code Style](#code-style)
-10. [Commit Conventions](#commit-conventions)
-11. [Pull Request Checklist](#pull-request-checklist)
-12. [License](#license)
+9. [UI Primitives](#ui-primitives)
+10. [Code Style](#code-style)
+11. [Commit Conventions](#commit-conventions)
+12. [Pull Request Checklist](#pull-request-checklist)
+13. [License](#license)
 
 ---
 
@@ -421,6 +422,19 @@ Choose a migration strategy by **whether the data syncs across networks**, becau
 - **Synced data → self-healing (lazy), never a one-time boot migration.** The per-space MongoDB record collections that replicate across networks — memories, entities, edges, chrono, `{space}_files`, and their fields — can be silently reverted by a **mixed-version peer**: an older-version instance that rewrites a record with a higher `seq` replaces the *whole* document and undoes any boot migration. So don't migrate these on boot — **repair or derive the field on access**, so it re-heals after any cross-version clobber. Examples: token prefixes backfilled on first use (`index.ts`); a file's raw size (`sizeFileBytes`) re-`stat`'d from disk when a record lacks it.
 - **Local, non-synced state → an idempotent boot migration is fine.** State the single instance owns and no peer overwrites — `config.json` (loader migrations), at-rest state-file encryption, index creation (`ensureIndex`/TTL) — converges once on boot and stays. Keep it idempotent (a no-op once applied) so re-running is free.
 - **A stored-field rename on a synced collection is the fragile case.** It changes the wire format, so mixed-version peers see a blank for the name they don't know until everyone upgrades. Do it only at a major release, document it as breaking, and prefer pairing it with a self-healing field for anything that must stay correct.
+
+---
+
+## UI Primitives
+
+Client work has a shared component set — `settings-card`, `status-pill`, `summary-strip`,
+`relative-time`, `usage-bar`, the confirm dialog and `ph-icon`. Each of them replaced two or three
+divergent implementations of the same idea, so **reach for one before writing new markup**: a bespoke
+badge on one page becomes the next thing someone has to reconcile.
+
+They were discoverable only by reading a page that happened to use one, which is exactly how a fourth
+badge dialect gets written. The API of each, with the page-PR checklist that goes with them, is in
+**[UI Primitives](ui-primitives.md)**.
 
 ---
 

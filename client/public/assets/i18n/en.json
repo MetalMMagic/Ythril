@@ -84,6 +84,7 @@
   "help.doc.workstation-mode-guide": "Workstation mode",
   "help.doc.network-types": "Network types",
   "help.doc.sync-protocol": "Sync protocol",
+  "help.doc.ui-primitives": "UI primitives",
   "help.doc.dependencies": "Dependencies & licences",
   "help.doc.contribution-guide": "Contributing",
   "about.card.help": "Documentation",

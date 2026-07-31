@@ -387,28 +387,51 @@ Two private addresses in the same cluster can behave differently, and that is no
 
 - **Render/conversion sidecars** (`CONVERSION_SIDECAR_URL`, doc-render) are reached with a plain `fetch`.
   They are declared infrastructure, expected to be private, and are not subject to the egress guard.
-- **Model provider endpoints** (vision, STT, embedding, rerank, NLI, document VLM, document assist) go
-  through the SSRF-guarded fetch, because those URLs are admin-settable and become egress targets.
+- **Model provider endpoints** — every slot in the egress matrix below — go through the SSRF-guarded
+  fetch, because those URLs are admin-settable and become egress targets.
 
-#### Which model endpoints send content, and what guards them
+#### Egress matrix — which model endpoints send content, and what guards them
 
-An endpoint is only as private as the host it points at. This table is what actually happens, per slot —
+An endpoint is only as private as the host it points at. This table is what actually happens, per slot.
 `Guard` is the SSRF-guarded fetch (DNS resolution, IP pinning, redirect re-validation, crown-jewel ranges
-blocked; `allowPrivateModelEndpoints` lifts only the private-address refusal).
+blocked; the private-address permission lifts only the private-address refusal).
 
-| Slot | Env | Sends | Guard | Acknowledgement |
-|---|---|---|---|---|
-| Embedding | `EMBEDDING_BASE_URL` | record + query text | yes, when external | — |
-| Vision (captions) | `OLLAMA_URL` | uploaded images | yes, when the provider is `external` | — |
-| Speech-to-text | `STT_BASE_URL` | uploaded audio | yes, when the provider is `external` | — |
-| Reranker | `RERANK_BASE_URL` | the query **and** the passages it matched | yes, unless the URL is local | — |
-| Contradiction judge | `NLI_BASE_URL` | pairs of stored records | yes, unless the URL is local | — |
-| **Document VLM** | `DOC_VLM_URL`, `DOC_VLM_MODEL` | **rendered page images** | yes, unless it is the bundled model | — |
-| Assist model | `DOC_ASSIST_URL` | draft transcription + OCR text | yes, always | **required** |
+**It is complete, and a test keeps it that way.** `Slot key` is the identifier the code uses, and
+`testing/standalone/egress-matrix.test.js` asserts this table's key column equals the server's own
+`EGRESS_SLOTS` — the same list the per-slot permission and the security posture enumerate. The reason for
+a gate rather than diligence: this table had **seven** rows while the code had ten, and the omission was
+not cosmetic. `DOC_VLM_URL` was missing from the list of guarded endpoints above while the document VLM
+was reaching an off-instance host with no guard at all — the doc stated the invariant the code had
+broken, and nothing compared the two.
 
-Two things worth reading twice. The **document VLM inherits the vision endpoint** when `DOC_VLM_URL` is
-unset — so pointing vision at an external provider also points the VLM there, and page images follow.
-And the assist model is the only slot that demands an explicit egress acknowledgement before it will run.
+| Slot | Slot key | Env | Sends | Guard | Acknowledgement |
+|---|---|---|---|---|---|
+| Embedding | `embedding` | `EMBEDDING_URL` | record + query text | yes, when the provider is `external` | — |
+| Vision (captions) | `vision` | `OLLAMA_URL` | uploaded images | yes, when the provider is `external` | — |
+| Speech-to-text | `stt` | `STT_BASE_URL` | uploaded audio | yes, when the provider is `external` | — |
+| Reranker | `rerank` | `RERANK_URL` | the query **and** the passages it matched | yes, unless the URL is local | — |
+| Contradiction judge | `nli` | `NLI_URL` | pairs of stored records | yes, unless the URL is local | — |
+| **Document VLM** | `docVlm` | `DOC_VLM_URL`, `DOC_VLM_MODEL` | **rendered page images** | yes, unless it is the bundled model | — |
+| Document repair | `docRepair` | `DOC_REPAIR_URL`, `DOC_REPAIR_MODEL` | draft transcription + OCR text | yes, unless it is the bundled model | — |
+| Document verify | `docVerify` | `DOC_VERIFY_URL`, `DOC_VERIFY_MODEL` | draft transcription + OCR text | yes, unless it is the bundled model | — |
+| Assist model | `assist` | `DOC_ASSIST_URL` | draft transcription + OCR text | yes, always | **required** |
+| External face model | `faceExternal` | `FACE_RECOGNITION_EXTERNAL_MODEL` | **face crops (biometric data)** | yes, always | **required** |
+
+Four things worth reading twice:
+
+- The **document VLM, repair and verify slots inherit the vision endpoint** when their own base URL is
+  unset — so pointing vision at an external provider points all three there, and page images follow.
+- **Two slots demand an explicit egress acknowledgement** before they will run: the assist model, because
+  it is the path that sends document content off the instance; and the external face model, because its
+  payload is biometric. Consent is keyed off the endpoint being *usable*, not off a tick, so it cannot be
+  side-stepped by configuring an endpoint and acknowledging nothing.
+- "Unless the URL is local" means the bundled/sidecar shape — loopback, or a bare hostname with no dot
+  (a compose or cluster service name). Anything else is egress. An unparseable URL is treated as **not**
+  local, so a malformed endpoint gets the guard rather than a bare fetch.
+- Each slot's private-address permission is **its own** (`allowPrivateModelEndpointsBySlot`, or
+  `YTHRIL_ALLOW_PRIVATE_<SLOT>`), resolved per-slot → instance-wide → closed. The full precedence rules
+  are with the assist-model settings under
+  [Document Processing Configuration](#document-processing-configuration).
 
 So a green sidecar next to a refused model endpoint tells you cluster DNS and reachability are fine, and
 the difference is policy. That is the point at which `allowPrivateModelEndpoints` is the answer.

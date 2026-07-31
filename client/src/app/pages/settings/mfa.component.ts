@@ -32,6 +32,19 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
     .code-input:focus { outline: none; border-color: var(--accent); }
     .status-row { display: flex; align-items: center; gap: 12px; }
     img { border-radius: 8px; background: #fff; padding: 8px; }
+
+    /* Lifted from ten inline style="" attributes. The values are unchanged — this is a move, not a
+       redesign: the page is marked "do NOT restructure", and the point was to stop the next reader
+       diffing declarations out of the markup, not to alter what it looks like. */
+    .intro { font-size: 0.88rem; color: var(--text-muted); margin: 0 0 1rem; }
+    .field-label { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; }
+    .field-label.wide { margin-bottom: 6px; }
+    .code-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .button-row { display: flex; gap: 10px; }
+    .alert.spaced-above { margin-top: 12px; }
+    .alert.spaced-below { margin-bottom: 12px; }
+    /* The in-button spinner: smaller than the standalone one so it fits the line box. */
+    .spinner.inline { width: 12px; height: 12px; border-width: 2px; }
   `],
   template: `
     <app-settings-card icon="lock" [heading]="'mfa.title' | transloco" [purpose]="'mfa.subtitle' | transloco">
@@ -53,7 +66,7 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
 
       } @else if (state() === 'enrolling') {
 
-        <p style="font-size:0.88rem;color:var(--text-muted);margin:0 0 1rem;">
+        <p class="intro">
           {{ 'mfa.enroll.instructions' | transloco }}
         </p>
         <div class="qr-wrap">
@@ -61,19 +74,19 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
             <img [src]="qrUrl()" [attr.alt]="'mfa.enroll.qrAlt' | transloco" width="200" height="200" />
           }
           <div>
-            <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:4px;">{{ 'mfa.enroll.manualKey' | transloco }}</div>
+            <div class="field-label">{{ 'mfa.enroll.manualKey' | transloco }}</div>
             <div class="secret-box">{{ secret() }}</div>
           </div>
           <div>
-            <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:6px;">{{ 'mfa.enroll.enterCode' | transloco }}</div>
-            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <div class="field-label wide">{{ 'mfa.enroll.enterCode' | transloco }}</div>
+            <div class="code-row">
               <input class="code-input" type="text" inputmode="numeric"
                 autocomplete="one-time-code" maxlength="6" [placeholder]="'mfa.enroll.codePlaceholder' | transloco"
                      [attr.aria-label]="'mfa.enroll.codeAriaLabel' | transloco"
                      [(ngModel)]="confirmCode" (keyup.enter)="confirmEnroll()" />
               <button class="btn btn-primary btn-sm" (click)="confirmEnroll()"
                       [disabled]="confirming() || confirmCode.length < 6">
-                @if (confirming()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+                @if (confirming()) { <span class="spinner inline"></span> }
                 {{ 'mfa.enroll.confirmButton' | transloco }}
               </button>
               <button class="btn btn-secondary btn-sm" (click)="cancel()">{{ 'common.cancel' | transloco }}</button>
@@ -81,18 +94,21 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
           </div>
         </div>
         @if (enrollError()) {
-          <div class="alert alert-error" style="margin-top:12px;">{{ enrollError() }}</div>
+          <div class="alert alert-error spaced-above">{{ enrollError() }}</div>
         }
 
       } @else if (state() === 'disabling') {
 
-        <div class="alert alert-error" style="margin-bottom:12px;">
+        <div class="alert alert-error spaced-below">
           {{ 'mfa.disable.warning' | transloco }}
         </div>
-        <div style="display:flex;gap:10px;">
+        <div class="button-row">
           <button class="btn btn-secondary btn-sm" (click)="cancel()">{{ 'common.cancel' | transloco }}</button>
-          <button class="btn btn-primary btn-sm danger" (click)="confirmDisable()" [disabled]="disabling()">
-            @if (disabling()) { <span class="spinner" style="width:12px;height:12px;border-width:2px;"></span> }
+          <!-- btn-secondary, not btn-primary: the primary fill is the accent green and it was winning
+               over the danger class, so the button that permanently deletes the TOTP secret rendered as
+               the affirmative. Only visible in a screenshot; no test could see it. -->
+          <button class="btn btn-secondary btn-sm danger" (click)="confirmDisable()" [disabled]="disabling()">
+            @if (disabling()) { <span class="spinner inline"></span> }
             {{ 'mfa.disable.confirmButton' | transloco }}
           </button>
         </div>
@@ -100,7 +116,7 @@ type MfaState = 'idle' | 'enrolling' | 'disabling';
       }
 
       @if (successMsg()) {
-        <div class="alert alert-success" style="margin-top:12px;">{{ successMsg() }}</div>
+        <div class="alert alert-success spaced-above">{{ successMsg() }}</div>
       }
     </app-settings-card>
   `,

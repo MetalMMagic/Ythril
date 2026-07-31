@@ -196,6 +196,22 @@ npm run test:integration
 
 Covers: setup gating, auth, files, spaces, brain CRUD (memories, entities, edges, chrono), schema validation (strict/warn/off, bulk, dry-run), networks, voting, invite handshake, MCP tools (including bulk_write), notifications, about endpoint, sync history, space rename, space deletion, space export, space wipe, conflict resolution, proxy spaces.
 
+#### Rate-limit kill-switches
+
+A test run makes thousands of requests from one IP, so the limiters have to come off. Three env vars do
+that, and they are honoured **only when `NODE_ENV !== 'production'`**:
+
+| Variable | Disables |
+|---|---|
+| `SKIP_AUTH_RATE_LIMIT` | the login / TOTP limiter |
+| `SKIP_GLOBAL_RATE_LIMIT` | the general API limiter |
+| `SKIP_SYNC_RATE_LIMIT` | the peer-sync limiter |
+
+The production check is not belt-and-braces: these limiters are the **only** throttle in front of admin
+TOTP verification, so a leaked value — a copy-pasted compose file, a shared `.env` — must not be able to
+switch them off on a live instance. Setting any of them also logs a loud warning at startup, so a
+misconfigured non-production deployment says so rather than quietly running unthrottled.
+
 ### Sync tests (four Docker instances)
 
 ```bash

@@ -6,6 +6,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The env-var documentation gate covered a quarter of the settings.** It scoped itself to the
+  `YTHRIL_`/`MONGO_`/`MCP_`/`OIDC_` namespaces, so **no model-endpoint variable was ever in scope** —
+  not `EMBEDDING_URL`, not `DOC_VLM_URL`, not one of the ten egress slots. That is how three names that
+  do not exist (`EMBEDDING_BASE_URL`, `RERANK_BASE_URL`, `NLI_BASE_URL`) shipped in the integration
+  guide, where a reader would set them and watch nothing happen.
+  - Scope is now a **denylist**: everything the scan finds, minus an explicit ambient set (the
+    runtime's, the shell's, CI's). A variable in a namespace nobody anticipated is now in scope
+    rather than silently exempt. 30 variables covered became 70.
+  - The scan also missed every name held in a lookup table and read as `process.env[TABLE[key]]` — the
+    vision, STT, face and worker settings among them. Detection now covers those, gated on the file
+    actually indexing `process.env` with a non-literal so prose cannot claim credit for a read.
+  - **Found: three undocumented rate-limit kill-switches** (`SKIP_AUTH_RATE_LIMIT`,
+    `SKIP_GLOBAL_RATE_LIMIT`, `SKIP_SYNC_RATE_LIMIT`), and six storage pins whose names existed nowhere
+    in the source because `storageEnvName` derived them from parts — under a comment claiming they were
+    spelled out so they would be greppable. They are now literals, like the egress slots.
+  - Nine more settings documented: `CLIENT_DIST`, `MODEL_CACHE_DIR`, `EMBEDDING_DIMENSIONS`,
+    `DOC_VLM_WIRE`, `NLI_MODEL`, `NLI_API_KEY`, `RENDER_MAX_BYTES`, `RENDER_MAX_PAGES`,
+    `OFFICE_CONVERT_TIMEOUT`.
+  - `SCREAMING_CASE` in the docs that is deliberately not a setting — API error codes, OIDC example
+    placeholders, a third-party library's env in a sidecar image — is exempted **with a stated reason** 
+    each, and a test asserts nothing on that list is a name the code actually reads. An exemption cannot
+    be used to silence a real finding.
+
 ## [2.2.0] — 2026-07-31
 
 ### Added

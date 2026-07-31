@@ -34,6 +34,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Models screen listed nine of the pipeline's ten model endpoints — third occurrence.** A customer's
+  ticket enumerated their endpoints from that page and missed `vlmModel`, because it had no card at all
+  (env-only, `DOC_VLM_MODEL`) *and* the Pipelines tab deep-linked its step to the **vision** card, which
+  shows a different config value. The tenth endpoint was displayed as if it were one of the nine, so the
+  ticket was accurate about what the screen showed.
+  - #549 added the office renderer and the contradiction judge for exactly this reason. Two found by a
+    customer, then a third — each fix was another card, and nothing ever proved the list complete.
+  - So the fix is not a fourth card but a **completeness gate**: the canonical set lives in
+    `MODEL_STAGE_KEYS`, and a test fails when a stage has nowhere to appear. A grep could not have done
+    it — the document stages build their keys as `doc-${slot}`, so those literals exist nowhere in the
+    source.
+  - `doc-vlm`, `doc-repair` and `doc-verify` gain read-only cards with the env badge, the pattern the
+    storage pins already use: visible even when unsettable. They show the resolved model and endpoint,
+    including when the endpoint is inherited from the vision provider.
+  - The three Pipelines steps now deep-link to their own cards. Pointing "is the VLM configured?" at a
+    card showing a different value is worse than no link, because it answers the question wrongly.
+  - Verified on a booted instance with a screenshot, not only by assertion — a card can pass the
+    completeness grep, the icon registry and the AOT build and still render blank or show a raw i18n key.
+
 - **Preflight was silently skipping 22 test files, including every SSRF suite.** It decided which
   standalone tests needed a live server by matching file *contents* against
   `fetch(|127.0.0.1|localhost:|INSTANCES|BASE_URL`. That guarded one direction — a test that really hits

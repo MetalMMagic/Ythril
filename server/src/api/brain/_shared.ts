@@ -57,33 +57,12 @@ export function ttlDaysError(body: unknown): string | null {
 
 // ── Schema validation helpers ─────────────────────────────────────────────
 
-/** Look up the meta block for a space from config, with library refs resolved. Returns undefined if none. */
-export function getSpaceMeta(spaceId: string): SpaceMeta | undefined {
-  const cfg = getConfig();
-  const meta = cfg.spaces.find(s => s.id === spaceId)?.meta;
-  if (!meta) return undefined;
-  return resolveMetaRefs(meta);
-}
-
 /**
- * Apply schema validation to a write operation.
- * Returns { blocked: true, violations } when strict mode rejects the write.
- * Returns { blocked: false, warnings } when warn mode lets the write through.
- * Returns { blocked: false, warnings: [] } when validation is off or no meta.
+ * Both now live in `spaces/schema-validation.ts`, beside the validator they belong to, so that
+ * `brain/` can reach them without importing `api/`. Re-exported here because every route already
+ * imports them from `_shared` and there is no reason for those to change.
  */
-export function applyValidation(
-  meta: SpaceMeta | undefined,
-  violations: SchemaViolation[],
-): { blocked: boolean; warnings: SchemaViolation[] } {
-  if (!meta || !meta.validationMode || meta.validationMode === 'off' || violations.length === 0) {
-    return { blocked: false, warnings: [] };
-  }
-  if (meta.validationMode === 'strict') {
-    return { blocked: true, warnings: violations };
-  }
-  // warn mode
-  return { blocked: false, warnings: violations };
-}
+export { getSpaceMeta, applyValidation } from '../../spaces/schema-validation.js';
 
 /** Build a MongoDB filter from `tag` and `entity` query params */
 export function buildMemoryFilter(query: Record<string, unknown>): Record<string, unknown> {

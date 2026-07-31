@@ -2,8 +2,8 @@ import type { ToolHandler, ToolContext, ToolResult, ToolSchemas } from './types.
 import { UUID_V4_RE, TTL_DAYS_SCHEMA, ttlDaysFromArgs, uuidSchema, unitScoreSchema } from './shared.js';
 import { validateDeleteFields, applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 import { findEntitiesByName, getEntityById, updateEntityById, upsertEntity } from '../../brain/entities.js';
-// The API layer's write gate, imported rather than reimplemented — see the note in memory.ts.
-import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../api/brain/update-validation.js';
+// The shared write gate, imported rather than reimplemented — see the note in memory.ts.
+import { assertUpdateAllowed, classifyEntityUpsert, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
 import { type PropertyResolution, applyResolutions, computeMergePlan, executeMerge, validateResolution } from '../../brain/merge.js';
 import { getConfig } from '../../config/loader.js';
 import { isProxySpace, resolveWriteTarget, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
@@ -53,12 +53,15 @@ export const upsert_entityTool: ToolHandler = {
     const wt = resolveWriteTarget(callSpace, a['targetSpace'] as string | undefined);
     if (!wt.ok) throw new Error(wt.error);
 
-    // Schema validation (single pass)
+    // Schema validation of the record this upsert will PRODUCE, not of the payload. With an `id` that
+    // matches, `upsertEntity` merges into the stored record, so validating the payload alone refused
+    // partial patches whose merged result was perfectly conformant.
     const entMetaRaw = getConfig().spaces.find(s => s.id === wt.target)?.meta;
     const entMeta = entMetaRaw ? resolveMetaRefs(entMetaRaw) : undefined;
-    const entSchemaViolations = entMeta ? validateEntity(entMeta, { name: eName.trim(), type: eType.trim(), properties: props }) : [];
-    if (entSchemaViolations.length > 0 && entMeta?.validationMode === 'strict') {
-      return { content: [{ type: 'text' as const, text: `Error: schema_violation\n${JSON.stringify(entSchemaViolations)}` }], isError: true };
+    const entCheck = await classifyEntityUpsert(wt.target, { name: eName.trim(), type: eType.trim(), properties: props, tags }, rawId);
+    const entSchemaViolations = entCheck.all;
+    if (entCheck.blocked) {
+      return { content: [{ type: 'text' as const, text: `Error: schema_violation: ${entCheck.message}\n${JSON.stringify(entSchemaViolations)}` }], isError: true };
     }
 
     // Insert-time duplicate check defaults ON for the interactive upsert tool

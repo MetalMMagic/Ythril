@@ -13,7 +13,7 @@ import { deleteMemory, listMemories, remember, updateMemory } from '../../brain/
 import { applyDeleteFields as applyDeleteFieldsPaths } from '../../brain/delete-fields.js';
 // The API layer's write gate, imported rather than reimplemented: `update_chrono` once shipped without
 // the allowlist `create_chrono` enforced, and two copies of a validation rule is how that happens.
-import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../api/brain/update-validation.js';
+import { assertUpdateAllowed, classifyUpdateViolations, locateForUpdate } from '../../brain/write-validation.js';
 import { getConfig } from '../../config/loader.js';
 import { checkQuota } from '../../quota/quota.js';
 import { resolveWriteTarget, findFirstAcrossMembers, isStrictLinkage } from '../../spaces/proxy.js';

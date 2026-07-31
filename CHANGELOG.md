@@ -76,6 +76,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A partial upsert onto a complete record was refused as incomplete.** In a `strict` space, setting one
+  property of a conformant entity failed with `schema_violation` naming required properties the record
+  already had — because `upsertEntity` merges into the stored record (`{ ...stored, ...incoming }`) while
+  the callers validated the **incoming payload**. The thing validated was not the thing written.
+  - **Worse for edges**, where identity is `(from, to, label)` and no id appears in the call: every repeat
+    upsert merges, with nothing in the payload to suggest it.
+  - Six sites, both transports: `upsert_entity`, `upsert_edge`, `POST .../entities`, `POST .../edges`, and
+    both halves of the bulk importer — which fetched the prior record two lines *after* validating, for
+    its own inserted-vs-updated counter. The merge target was in hand; validation just did not use it.
+  - This is the update defect from 2.2 (#571) on the write path that sweep did not reach. The classifier
+    is reused unchanged, so an upsert onto an already-non-compliant record reports `preExisting` rather
+    than blaming the caller, and repairs in the same request.
+  - The merge rule now lives with the writer (`mergedEntityWrite`, `mergedEdgeProperties`,
+    `findEdgeByTriplet`) instead of being re-derived by each caller, and `update-validation.ts` moved to
+    `brain/write-validation.ts` — it governs both write paths now, and `brain/` cannot import `api/`.
+  - `upsert-validation.test.js` pins the reported case, the insert that must still fail, warn/off
+    reporting, and — enumerated from the writers rather than hand-listed — that no upsert path hands a raw
+    payload to a validator. A hand-listed set is exactly how the first sweep missed all six.
+
 - **Every space showed red vector indexes on a five-instance fleet, while recall worked.** Reported
   against 2.2.1 from a self-hosted MongoDB replica set.
   - The readiness poll exits on `status === 'READY' || queryable === true`. On that backend the index

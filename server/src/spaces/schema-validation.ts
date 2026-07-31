@@ -13,7 +13,7 @@
  */
 
 import type { SpaceMeta, PropertySchema, TypeSchema } from '../config/types.js';
-import { getSchemaLibrary } from '../config/loader.js';
+import { getSchemaLibrary, getConfig } from '../config/loader.js';
 import { hasReDoSRisk, MAX_PATTERN_LENGTH } from '../util/redos.js';
 
 // ── Violation type ─────────────────────────────────────────────────────────
@@ -358,4 +358,41 @@ function safeRegexTest(pattern: string, value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Look up the meta block for a space from config, with library refs resolved. Returns undefined if none.
+ *
+ * Lived in `api/brain/_shared.ts` until the upsert-validation fix, which needed it from `brain/bulk.ts`.
+ * `brain/` does not import `api/` — a layering worth keeping — and this function is not an HTTP concern:
+ * it reads config and resolves schema refs, both of which live here. `_shared.ts` re-exports it, so no
+ * route changed.
+ */
+export function getSpaceMeta(spaceId: string): SpaceMeta | undefined {
+  const cfg = getConfig();
+  const meta = cfg.spaces.find(s => s.id === spaceId)?.meta;
+  if (!meta) return undefined;
+  return resolveMetaRefs(meta);
+}
+
+/**
+ * Apply schema validation to a write operation.
+ * Returns { blocked: true, violations } when strict mode rejects the write.
+ * Returns { blocked: false, warnings } when warn mode lets the write through.
+ * Returns { blocked: false, warnings: [] } when validation is off or no meta.
+ *
+ * One definition, because the alternative is each write path deciding for itself what `strict` means.
+ */
+export function applyValidation(
+  meta: SpaceMeta | undefined,
+  violations: SchemaViolation[],
+): { blocked: boolean; warnings: SchemaViolation[] } {
+  if (!meta || !meta.validationMode || meta.validationMode === 'off' || violations.length === 0) {
+    return { blocked: false, warnings: [] };
+  }
+  if (meta.validationMode === 'strict') {
+    return { blocked: true, warnings: violations };
+  }
+  // warn mode
+  return { blocked: false, warnings: violations };
 }

@@ -16,8 +16,8 @@ import { parseSortParam, SORTABLE_FIELDS } from '../../brain/list-sort.js';
 import { textSearchOr, SEARCHABLE_FIELDS } from '../../brain/text-search.js';
 import { resolveMemberSpaces, resolveWriteTarget, isProxySpace, isStrictLinkage, findFirstAcrossMembers, collectAcrossMembers } from '../../spaces/proxy.js';
 import { validateEntity } from '../../spaces/schema-validation.js';
-import { UUID_V4_RE, webhookToken, getSpaceMeta, applyValidation, ttlDaysFromBody, ttlDaysError } from './_shared.js';
-import { classifyUpdateViolations } from './update-validation.js';
+import { UUID_V4_RE, webhookToken, getSpaceMeta, ttlDaysFromBody, ttlDaysError } from './_shared.js';
+import { classifyEntityUpsert, classifyUpdateViolations } from '../../brain/write-validation.js';
 import { tagContains, textContains, propertiesValueContains } from '../../brain/tag-filter.js';
 
 export const entitiesRouter = Router();
@@ -65,12 +65,11 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
   const safeDesc: string | undefined = typeof description === 'string' ? description : undefined;
   const safeId: string | undefined = typeof id === 'string' ? id : undefined;
 
-  // Schema validation
-  const meta = getSpaceMeta(wt.target);
-  const violations = validateEntity(meta ?? {}, { name: name.trim(), type: type.trim(), properties });
-  const validation = applyValidation(meta, violations);
-  if (validation.blocked) {
-    res.status(400).json({ error: 'schema_violation', violations: validation.warnings });
+  // Schema validation of the record this upsert will PRODUCE. `upsertEntity` merges into the stored
+  // record when `id` matches, so the payload on its own is not the thing being written.
+  const check = await classifyEntityUpsert(wt.target, { name: name.trim(), type: type.trim(), properties, tags }, safeId);
+  if (check.blocked) {
+    res.status(400).json({ error: 'schema_violation', message: check.message, violations: check.all, introduced: check.introduced, preExisting: check.preExisting });
     return;
   }
   const ttlErr = ttlDaysError(req.body);
@@ -80,7 +79,7 @@ entitiesRouter.post('/spaces/:spaceId/entities', globalRateLimit, requireSpaceAu
     const { entity, warning } = await upsertEntity(wt.target, name.trim(), type.trim(), tags, properties, safeDesc, safeId, undefined, webhookToken(req), ttlDaysFromBody(req.body));
     const result: Record<string, unknown> = { ...entity };
     if (warning) result['warning'] = warning;
-    if (validation.warnings.length > 0) result['warnings'] = validation.warnings;
+    if (check.warnings.length > 0) result['warnings'] = check.warnings;
     res.status(201).json(result);
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });

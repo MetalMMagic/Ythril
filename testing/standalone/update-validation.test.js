@@ -43,7 +43,7 @@ const v = (field, reason) => ({ field, value: 'whatever', reason });
 describe('update validation', () => {
   before(async () => {
     ({ classifyUpdateViolations, describeUpdateViolations, assertUpdateAllowed } =
-      await import('../../server/dist/api/brain/update-validation.js'));
+      await import('../../server/dist/brain/write-validation.js'));
   });
 
   describe('classification', () => {
@@ -204,9 +204,9 @@ describe('every update path runs the gate', () => {
       'validation must not be conditional on deleteFields — that was the original gap');
   });
 
-  it('the MCP tools import the API gate rather than reimplementing it', () => {
+  it('the MCP tools import the shared gate rather than reimplementing it', () => {
     for (const p of PATHS.filter(x => x.includes('/mcp/'))) {
-      assert.match(readFileSync(p, 'utf8'), /from '\.\.\/\.\.\/api\/brain\/update-validation\.js'/,
+      assert.match(readFileSync(p, 'utf8'), /from '\.\.\/\.\.\/brain\/write-validation\.js'/,
         'two copies of a validation rule is how the surfaces drift apart');
     }
   });

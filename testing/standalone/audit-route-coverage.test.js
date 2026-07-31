@@ -46,7 +46,10 @@ const EXEMPT = new Map([
   // Machine-to-machine sync: peers write constantly and are authenticated as peers, not
   // users. Auditing every sync push would swamp the log and tell you nothing about a human.
   ['/api/sync', 'peer-to-peer sync traffic — not a user action'],
-  ['/api/notify', 'peer notifications + the admin sync trigger — not a data mutation'],
+  // Narrowed in scope by a new rule rather than in text: `/api/notify/trigger` now records
+  // `sync.trigger`, because a sync cycle writes peer records locally. This entry covers the peer
+  // notifications only, which are machine-to-machine and not a user action.
+  ['/api/notify', 'peer notifications — machine-to-machine, not a user action'],
   // First-run setup happens before any token exists, so there is nobody to attribute it to.
   ['/api/setup', 'first-run setup — runs before any identity exists'],
   // Auth/session endpoints have their own dedicated audit events (auth.failed, token.*).

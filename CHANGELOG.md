@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MCP tool calls were not audited at all.** Every write an agent made — `remember`, `upsert_entity`,
+  `upsert_edge`, `create_chrono`, every `update_*` / `delete_*`, `bulk_write`, `wipe_space` — left the
+  audit log unchanged, while the REST equivalent of each one wrote an entry. For a product whose primary
+  write path is an agent, that was most of the trail missing, and the guide promised the opposite:
+  *"every authenticated API operation … a full access trail for compliance and security review"*.
+  - Not an oversight nobody had considered. The HTTP audit middleware **explicitly admits** `/mcp` and
+    then drops it one line later because no route rule matches. What kept it unnoticed was
+    `audit-route-coverage`, whose `/mcp` exemption read *"MCP has its own tool-level audit path"* —
+    describing a path that did not exist. Second false exemption reason found in one day.
+  - Tools now record **the operation their REST counterpart records** (`memory.create`, not
+    `mcp.remember`), so the same act through two transports reads the same in the log; the transport is
+    a separate field. A refused tool call is status **422** — MCP answers 200 at the transport layer
+    even when the tool errors, so a status read from the response would log every rejected write as a
+    success.
+  - The map is **exhaustive by test**: it must name every registered tool, with an operation or with
+    `null` and the reason. A new tool fails the build until classified — the opposite of how the gap
+    survived, where the absence of a rule was the default.
+  - `sync_now` moved from "not a mutation" to `sync.trigger`, on both surfaces. A sync cycle pulls peer
+    records and writes them locally, so "who started the run that brought these in" is a fair question;
+    `/api/notify/trigger` records it too, and the `/api/notify` exemption narrows to peer notifications.
+
+- **The route-guard gate had never seen the agent-facing API.** `route-guard-coverage` scanned
+  `server/src/api` only, so `mcpRouter` and `setupRouter` — which live elsewhere — were never checked.
+  Both carried an EXEMPT entry, which made the omission read as deliberate and covered.
+  - Proven by mutation: deleting `mcpRouter.use(requireMcpAuth)`, the guard on the entire MCP surface,
+    left the suite green. It now fails, naming both routes.
+  - Auth and read-only are separate exemption dimensions now. One shared map forced all-or-nothing,
+    which is how MCP came to be excused from an auth check it actually passes under a reason that was
+    only ever about write-blocking.
+
 - **Turning off two-factor authentication left no trace in the audit log.** `POST /api/mfa/setup`
   (which writes the new secret immediately — it is the enable, and the rotation) and `DELETE /api/mfa`
   were both unaudited.

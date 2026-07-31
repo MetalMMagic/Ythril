@@ -6210,6 +6210,23 @@ Base path: `/api/admin/audit-log` — **requires admin token** on all endpoints.
 
 Ythril maintains an append-only, immutable audit log of every authenticated API operation. The log captures who performed what action, when, on which space, and the resulting HTTP status — providing a full access trail for compliance and security review.
 
+**MCP tool calls are in it, under the same operation names as REST.** An agent calling `remember`
+produces a `memory.create` entry, exactly as `POST /api/brain/spaces/:id/memories` does — so a query for
+"who created this memory" does not have to know which transport was used. The transport is recorded
+separately: `method` is `MCP` and `path` is `sse:<tool>` or `http:<tool>`.
+
+A tool that refuses the call (a schema violation, a scope rejection) is recorded with status **422**. MCP
+answers 200 at the transport layer even when the tool errors, so a status taken from the HTTP response
+would log every rejected write as a success.
+
+Read tools (`query`, `recall`, `traverse`, `list_*`, `read_file`, …) follow the same rule as REST reads —
+recorded only when `audit.logReads` is on. Three tools record nothing at all and say why in
+`server/src/mcp/audit-map.ts`: `help` (returns this instance's own documentation), and `list_peers`
+(reads local config, with no REST counterpart that is audited either).
+
+⚠️ **Before 2.2.1, no MCP tool call was audited.** If you are reconstructing a history that crosses that
+boundary, the absence of agent writes from earlier entries is not evidence they did not happen.
+
 **Second-factor changes are in it.** `mfa.enable` records enrolment *and* a rotation of the secret;
 `mfa.disable` records the second factor being removed from every admin mutation. Checking a code
 (`POST /api/mfa/verify`) changes nothing and is deliberately not logged — it is also what a health check

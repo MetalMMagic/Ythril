@@ -49,7 +49,13 @@ function sessionTag(sessionId: string): string {
  *
  *  Tool schemas, authorization gates and handlers all come from the registry in
  *  ./tools — there is one source of truth per tool. */
-function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdmin?: boolean, tokenId?: string, tokenLabel?: string): Server {
+/**
+ * @param audit  Caller identity for the audit trail. Passed in rather than read from a request here
+ *   because the SSE transport builds the server once per CONNECTION and then serves many tool calls
+ *   over it — there is no `req` in scope at dispatch time, only the one that opened the stream.
+ */
+function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdmin?: boolean, tokenId?: string, tokenLabel?: string,
+  audit?: { ip: string; authMethod: 'pat' | 'oidc' | null; oidcSubject: string | null; transport: 'sse' | 'http' }): Server {
   const cfg = getConfig();
   const accessibleSpaces = cfg.spaces.filter(s => !tokenSpaces || tokenSpaces.includes(s.id));
   const accessibleSpaceIds = accessibleSpaces.map(s => s.id);
@@ -89,6 +95,35 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
       inputSchema: t.inputSchema(schemas),
     })),
   }));
+
+  /**
+   * Write one audit entry per tool call.
+   *
+   * Under the operation the tool's REST counterpart records, not `mcp.<tool>` — a compliance reader
+   * asks who created a memory, not who invoked a tool, and two names for one act makes every query
+   * have to know both. `path` carries the tool name so the transport is still recoverable.
+   *
+   * Reads follow the REST convention: recorded only when `logReads` is on. Fire-and-forget, like
+   * every other audit write — a failing log must never fail the operation it is describing.
+   */
+  function recordToolCall(toolName: string, spaceId: string, status: number, durationMs: number): void {
+    const operation = mcpAuditOperation(toolName);
+    if (!operation) return;                       // deliberately not an audited operation — see audit-map.ts
+    if (isMcpReadOperation(operation) && !getConfig().audit?.logReads) return;
+    logAuditEntry({
+      tokenId: tokenId ?? null,
+      tokenLabel: tokenLabel ?? null,
+      authMethod: audit?.authMethod ?? null,
+      oidcSubject: audit?.oidcSubject ?? null,
+      ip: audit?.ip ?? '',
+      method: 'MCP',
+      path: `${audit?.transport ?? 'http'}:${toolName}`,
+      spaceId: spaceId || null,
+      operation,
+      status,
+      durationMs,
+    });
+  }
 
   // ── tools/call ────────────────────────────────────────────────────────────
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
@@ -160,7 +195,8 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
           return { content: [{ type: 'text' as const, text: `Error: ${argErr}` }], isError: true };
         }
       }
-      return await tool.handle({
+      const startedAt = Date.now();
+      const result = await tool.handle({
         args: a,
         callSpace,
         name,
@@ -172,6 +208,11 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
         readOnly,
         actor: { tokenId, tokenLabel },
       });
+      // A tool that returns `isError` failed on its own terms — the transport still answered 200, so
+      // the audit status has to come from the RESULT or the log would record every rejected write as
+      // a success. 422 rather than 400: the call was well-formed and the handler refused it.
+      recordToolCall(name, callSpace, result?.isError ? 422 : 200, Date.now() - startedAt);
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.warn(`MCP global tool '${name}' error in space '${callSpace || 'global'}': ${message}`);
@@ -188,6 +229,9 @@ function createGlobalMcpServer(tokenSpaces?: string[], readOnly?: boolean, isAdm
 // ── Express router ───────────────────────────────────────────────────────────
 
 import { requireMcpAuth } from '../auth/middleware.js';
+import { logAuditEntry } from '../audit/audit.js';
+import { auditAuthMethod, auditOidcSubject } from '../audit/middleware.js';
+import { mcpAuditOperation, isMcpReadOperation } from './audit-map.js';
 import { mcpConnectionsActive, mcpToolCallsTotal } from '../metrics/registry.js';
 
 export const mcpRouter = Router();
@@ -216,7 +260,8 @@ mcpRouter.get('/', globalRateLimit, async (req, res) => {
     log.debug(`MCP global session ${sessionTag(transport.sessionId)} closed`);
   });
 
-  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin, req.authToken?.id, req.authToken?.name);
+  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin, req.authToken?.id, req.authToken?.name,
+    { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'sse' });
   log.debug(`MCP global session ${sessionTag(transport.sessionId)} opened`);
   await server.connect(transport);
 });
@@ -247,7 +292,8 @@ mcpRouter.post('/messages', globalRateLimit, async (req, res) => {
 // This transport requires no persistent connection and works through standard HTTP proxies.
 mcpRouter.post('/', globalRateLimit, async (req, res) => {
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin, req.authToken?.id, req.authToken?.name);
+  const server = createGlobalMcpServer(req.authToken?.spaces, req.authToken?.readOnly, req.authToken?.admin, req.authToken?.id, req.authToken?.name,
+    { ip: req.ip ?? '', authMethod: auditAuthMethod(req.authToken), oidcSubject: auditOidcSubject(req.authToken), transport: 'http' });
   // Register cleanup before handling the request so it fires regardless of outcome.
   res.on('close', () => {
     transport.close();
